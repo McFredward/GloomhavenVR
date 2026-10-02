@@ -1,0 +1,480 @@
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using GloomhavenVR.Core;
+using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.SceneManagement;
+
+public static class EnvironmentProgram
+{
+    private static int count;
+    private static void Check(bool condition, string message)
+    { count++; if (!condition) throw new InvalidOperationException(message); }
+    private static object Driver => typeof(ScenarioEnvironmentBudget).GetField("_driver", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+    private static void Tick(string method = "Update", params object[] args)
+    { Driver.GetType().GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(Driver, args); }
+    private static int Members(string field)
+    {
+        object value = Driver.GetType().GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(Driver)!;
+        return (int)value.GetType().GetProperty("Count")!.GetValue(value)!;
+    }
+    private static void Configure(bool batch, bool simple, int effects)
+    { PerfConfig.StaticScenarioBatchesOn = batch; PerfConfig.SimpleEnvironmentShadingOn = simple; PerfConfig.EnvironmentEffectsDensityPercent = effects; }
+
+    private sealed class Room : IDisposable
+    {
+        internal readonly GameObject Root, Host, Generated;
+        internal readonly ProceduralMapTile Tile;
+        internal readonly Material Original;
+        internal readonly Camera Camera;
+        internal int LastRenderedChunks;
+        internal Action? ObserveRender;
+        private readonly List<UnityEngine.Object> assets = new List<UnityEngine.Object>();
+        private readonly List<GameObject> foreign = new List<GameObject>();
+        internal Room()
+        {
+            VRSession.IsRunning = true;
+            VRLog.Faults.Clear();
+            Configure(false, false, 100);
+            Root = new GameObject("RuntimeFixture.Scenario"); Root.AddComponent<ProceduralScenario>();
+            var tile = Child("RuntimeFixture.Tile", Root.transform); Tile = tile.AddComponent<ProceduralMapTile>();
+            Generated = Child("Generated Content", tile.transform);
+            Host = new GameObject("GloomhavenVR.RuntimeFixture.Driver");
+            ScenarioEnvironmentBudget.Install(Host);
+            Original = Material();
+            var camera = Child("RuntimeFixture.Camera", Root.transform);
+            Camera = camera.AddComponent<Camera>();
+            Camera.orthographic = true; Camera.orthographicSize = 3f;
+            Camera.transform.position = new Vector3(1.5f, 8f, 0f);
+            Camera.transform.rotation = Quaternion.Euler(90,0,0);
+            Camera.clearFlags = CameraClearFlags.SolidColor; Camera.backgroundColor = Color.black;
+            Camera.enabled = false;
+        }
+        internal static GameObject Child(string name, Transform parent)
+        { var child = new GameObject(name); child.transform.SetParent(parent, false); return child; }
+        internal Material Material()
+        {
+            Shader shader = Shader.Find("Amp_Basic_N_MRAO");
+            Check(shader != null && shader.isSupported, "native surrogate shader imports on the actual graphics device");
+            var material = new Material(shader) { name = "RuntimeFixture.NativeMaterial" };
+            material.SetColor("_Tint", new Color(.8f, .4f, .2f, 0f));
+            assets.Add(material); return material;
+        }
+        internal Mesh Mesh(bool readable = true)
+        {
+            var mesh = new Mesh { name = "RuntimeFixture.Mesh" };
+            mesh.vertices = new[] { new Vector3(-.6f,0,-.6f), new Vector3(.6f,0,-.6f), new Vector3(.6f,0,.6f), new Vector3(-.6f,0,.6f) };
+            mesh.normals = new[] { Vector3.up, Vector3.up, Vector3.up, Vector3.up };
+            mesh.uv = new[] { Vector2.zero, Vector2.right, Vector2.one, Vector2.up };
+            mesh.triangles = new[] { 0,2,1,0,3,2 }; mesh.RecalculateBounds();
+            if (!readable) mesh.UploadMeshData(true);
+            assets.Add(mesh); return mesh;
+        }
+        internal MeshRenderer Surface(string name, Transform? parent = null, float x = 1f, Material? material = null, bool readable = true)
+        {
+            var obj = Child(name, parent ?? Generated.transform); obj.transform.localPosition = new Vector3(x, 0, 0);
+            obj.AddComponent<MeshFilter>().sharedMesh = Mesh(readable);
+            var renderer = obj.AddComponent<MeshRenderer>(); renderer.sharedMaterial = material ?? Original;
+            renderer.shadowCastingMode = ShadowCastingMode.Off; renderer.receiveShadows = false;
+            renderer.lightProbeUsage = LightProbeUsage.Off; renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+            obj.AddComponent<BoxCollider>(); return renderer;
+        }
+        internal MeshRenderer Floor(float x = 1f) => Surface("CV_Floor_Base_Fixture", x: x);
+        internal ParticleSystem Particle(string name, Transform? parent = null, bool loop = true)
+        {
+            var obj = Child(name, parent ?? Generated.transform);
+            var system = obj.AddComponent<ParticleSystem>(); system.Stop(false, ParticleSystemStopBehavior.StopEmittingAndClear);
+            var main = system.main; main.loop = loop; main.duration = 5f; main.startLifetime = 2f;
+            system.Play(false); return system;
+        }
+        internal MeshRenderer[] Chunks()
+        {
+            var result = new List<MeshRenderer>();
+            var batches = (System.Collections.IEnumerable)Driver.GetType().GetField("_batches",BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(Driver)!;
+            foreach (object batch in batches)
+            {
+                var renderer = (MeshRenderer)batch.GetType().GetField("Renderer",BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(batch)!;
+                if (renderer != null) result.Add(renderer);
+            }
+            return result.ToArray();
+        }
+        internal Color32[] Render()
+        {
+            RenderTexture? previous = RenderTexture.active;
+            var target = new RenderTexture(48, 48, 24); target.Create();
+            var image = new Texture2D(48, 48, TextureFormat.RGBA32, false);
+            Camera.CameraCallback observe = camera =>
+            {
+                if (camera != Camera) return;
+                LastRenderedChunks = 0;
+                foreach (var chunk in Chunks()) if (chunk.enabled) LastRenderedChunks++;
+                ObserveRender?.Invoke();
+            };
+            Camera.onPreCull += observe;
+            try
+            {
+                Camera.targetTexture = target; Camera.Render(); RenderTexture.active = target;
+                image.ReadPixels(new Rect(0,0,48,48),0,0); image.Apply(); return image.GetPixels32();
+            }
+            finally
+            {
+                Camera.targetTexture = null; RenderTexture.active = previous;
+                Camera.onPreCull -= observe;
+                target.Release(); UnityEngine.Object.DestroyImmediate(target); UnityEngine.Object.DestroyImmediate(image);
+            }
+        }
+        internal GameObject ForeignSceneTile()
+        {
+            Scene scene = SceneManager.CreateScene("RuntimeFixture.Foreign." + typeof(EnvironmentProgram).Assembly.GetName().Name);
+            var tile = new GameObject("RuntimeFixture.ForeignTile"); tile.AddComponent<ProceduralMapTile>();
+            SceneManager.MoveGameObjectToScene(tile, scene); foreign.Add(tile);
+            return Child("Generated Content", tile.transform);
+        }
+        public void Dispose()
+        {
+            ScenarioEnvironmentBudget.Shutdown();
+            UnityEngine.Object.DestroyImmediate(Host); UnityEngine.Object.DestroyImmediate(Root);
+            foreach (var obj in foreign) if (obj != null) UnityEngine.Object.DestroyImmediate(obj);
+            foreach (var asset in assets) if (asset != null) UnityEngine.Object.DestroyImmediate(asset);
+            Configure(false, false, 100); SceneController.Instance.IsLoading = SceneController.Instance.ScenarioIsLoading = false;
+        }
+    }
+
+    private static void ScopeAndMaterials()
+    {
+        using var room = new Room();
+        var floor = room.Floor(); var ordinary = room.Surface("Dungeon_Wall_Trim", x: 2f);
+        var excluded = new List<MeshRenderer>();
+        var actor = Room.Child("Actor", room.Generated.transform); actor.AddComponent<ActorBehaviour>();
+        excluded.Add(room.Surface("CV_Floor_Base_Actor", actor.transform));
+        var prop = Room.Child("Prop", room.Generated.transform); prop.AddComponent<ProceduralProp>();
+        excluded.Add(room.Surface("CV_Floor_Base_Prop", prop.transform));
+        var ui = Room.Child("UI", room.Generated.transform); ui.AddComponent<Canvas>();
+        var uiRenderer = room.Surface("CV_Floor_Base_UI", ui.transform); excluded.Add(uiRenderer);
+        var animated = Room.Child("Animated", room.Generated.transform); animated.AddComponent<Animator>();
+        excluded.Add(room.Surface("CV_Floor_Base_Animated", animated.transform));
+        var held = Room.Child("Held", room.Generated.transform); held.AddComponent<Rigidbody>();
+        excluded.Add(room.Surface("CV_Floor_Base_Held", held.transform));
+        var interactable = Room.Child("Interactable", room.Generated.transform); interactable.AddComponent<CInteractable>();
+        excluded.Add(room.Surface("CV_Floor_Base_Interactable", interactable.transform));
+        var doorway = Room.Child("Doorway", room.Generated.transform); doorway.AddComponent<ProceduralDoorway>();
+        excluded.Add(room.Surface("CV_Floor_Base_Doorway", doorway.transform));
+        var editorDoor = Room.Child("EditorDoor", room.Generated.transform); editorDoor.AddComponent<UnityGameEditorDoorProp>();
+        excluded.Add(room.Surface("CV_Floor_Base_EditorDoor", editorDoor.transform));
+        var skinned = Room.Child("Skinned", room.Generated.transform); skinned.AddComponent<SkinnedMeshRenderer>();
+        excluded.Add(room.Surface("CV_Floor_Base_Skinned", skinned.transform));
+        var preview = Room.Child("Preview", room.Generated.transform);
+        excluded.Add(room.Surface("CV_Floor_Base_Preview", preview.transform));
+        var owned = Room.Child("GloomhavenVR.NativeClone", room.Generated.transform);
+        excluded.Add(room.Surface("CV_Floor_Base_ModClone", owned.transform));
+        excluded.Add(room.Surface("CV_Floor_Base_NoGenerated", room.Tile.transform));
+        excluded.Add(room.Surface("CV_Floor_Base_NoScenario", room.ForeignSceneTile().transform));
+        var floorNamedParent = Room.Child("CV_Floor_Base_Ancestor",room.Generated.transform);
+        excluded.Add(room.Surface("MountedDecoration",floorNamedParent.transform));
+        var raised = room.Surface("CV_Floor_Base_Raised"); raised.transform.localPosition += Vector3.up;
+        excluded.Add(raised);
+        var pillar = room.Surface("CV_Floor_Base_PillarFoot");
+        var pillarMesh = pillar.GetComponent<MeshFilter>().sharedMesh;
+        pillarMesh.vertices = new[] { new Vector3(-.6f,-2f,-.6f),new Vector3(.6f,-2f,-.6f),new Vector3(.6f,0f,.6f),new Vector3(-.6f,0f,.6f) };
+        pillarMesh.RecalculateBounds(); excluded.Add(pillar);
+
+        var animatedMaterial = room.Material(); animatedMaterial.SetFloat("_AddVertexAnim",1);
+        excluded.Add(room.Surface("Native_Grass", material: animatedMaterial));
+        var waterMaterial = room.Material(); waterMaterial.shader = Shader.Find("Unlit/Color");
+        excluded.Add(room.Surface("Native_Water", material: waterMaterial));
+        var emissiveMaterial = room.Material(); emissiveMaterial.SetFloat("_UseEmissiveMap",1);
+        excluded.Add(room.Surface("Native_Emissive", material: emissiveMaterial));
+        var fadedMaterial = room.Material(); fadedMaterial.SetFloat("_WallFade_On",1);
+        var nativeWall = room.Surface("Dungeon_Visible_Wall", material: fadedMaterial); excluded.Add(nativeWall);
+        var keywordMaterial = room.Material(); keywordMaterial.EnableKeyword("_WALLFADE_ON_ON");
+        Check(keywordMaterial.IsKeywordEnabled("_WALLFADE_ON_ON"), "surrogate native wall keyword gate is functional before admission");
+        excluded.Add(room.Surface("Dungeon_Keyword_Wall", material: keywordMaterial));
+        var queuedMaterial = room.Material(); queuedMaterial.renderQueue = 3000;
+        excluded.Add(room.Surface("Transparent_Trim", material: queuedMaterial));
+
+        var originals = new List<Material>(); foreach (var item in excluded) originals.Add(item.sharedMaterial);
+        var texture = new Texture2D(2,2); texture.SetPixels(new[] { Color.red,Color.red,Color.red,Color.red }); texture.Apply();
+        room.Original.SetTexture("_MainTex",texture); room.Original.SetFloat("_UVTiling",1.3f); room.Original.SetFloat("_UV_Offset",.17f);
+        Configure(true,true,100); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(VRLog.Faults.Count == 0, "scope and material preparation completes without swallowed faults");
+        Check(floor.sharedMaterial.shader.name == "GloomhavenVR/ScenarioSimpleEnvironment", "proven native floor receives the real imported simple shader");
+        Check(ordinary.sharedMaterial == room.Original, "non-floor opaque trim preserves native material despite compatible shader family");
+        Check(uiRenderer.sharedMaterial == room.Original, "foreign UI material stays untouched");
+        for (int i=0;i<excluded.Count;i++)
+            Check(excluded[i].sharedMaterial == originals[i] && !excluded[i].forceRenderingOff,
+                "foreign actor/UI/held/water/foliage/dissolve/native scope exclusions retain original rendering: " + excluded[i].name);
+        Check(room.Chunks().Length == 0 && !ordinary.forceRenderingOff, "only proven floor surfaces enter render substitutes");
+        var variant = floor.sharedMaterial;
+        Check(variant.GetTexture("_MainTex") == texture && Mathf.Abs(variant.GetFloat("_UVTiling")-1.3f)<.001f
+            && Mathf.Abs(variant.GetFloat("_UV_Offset")-.17f)<.001f && variant.GetColor("_Tint") == room.Original.GetColor("_Tint"),
+            "simple variant preserves original texture, tint and authored UV properties");
+        var nativeClone = UnityEngine.Object.Instantiate(floor.gameObject,room.Generated.transform,false);
+        Check(nativeClone.GetComponent<MeshRenderer>().sharedMaterials.Length == 1
+            && nativeClone.GetComponent<MeshRenderer>().sharedMaterial == variant
+            && !nativeClone.GetComponent<MeshRenderer>().forceRenderingOff
+            && !nativeClone.GetComponent<MeshRenderer>().isPartOfStaticBatch,
+            "native procedural clone retains a real material slot, original mesh and unmasked renderer between cameras");
+        var surfaces = (System.Collections.IDictionary)Driver.GetType().GetField("_surfaces",BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(Driver)!;
+        object ownedSurface = surfaces[floor.GetInstanceID()]!;
+        ownedSurface.GetType().GetMethod("RestoreMaterial",BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(ownedSurface,null);
+        Check(floor.sharedMaterial == room.Original, "owned native material restore takes effect immediately before any clone sweep");
+        room.Original.SetFloat("_Diffuse_Boost",1.8f); ScenarioEnvironmentBudget.MaterialReady(floor);
+        Check(Mathf.Abs(floor.sharedMaterial.GetFloat("_Diffuse_Boost")-1.8f)<.001f,
+            "native in-place material completion refreshes the applied variant");
+        var foreignReplacement = room.Material(); ordinary.sharedMaterial = foreignReplacement;
+        Configure(false,false,100); Tick();
+        Check(floor.sharedMaterial == room.Original, "turning simplification off restores exact original material references");
+        Check(nativeClone.GetComponent<MeshRenderer>().sharedMaterial == room.Original,
+            "unannounced native clone restores its original material before the simple variant is destroyed");
+        Check(ordinary.sharedMaterial == foreignReplacement, "restore cannot overwrite a foreign material replacement");
+        Check(room.Original.shader.name == "Amp_Basic_N_MRAO" && room.Original.GetTexture("_MainTex") == texture,
+            "original material and texture are never rewritten in place");
+        UnityEngine.Object.DestroyImmediate(texture);
+    }
+
+    private static void AmbientScopes()
+    {
+        using var room = new Room();
+        var families = new List<ParticleSystem>();
+        foreach (string name in new[] { "p_Moths_Cave(Clone)", "Candle_Fire_FX_Small(Instance)", "p_fire_torch", "p_fire_torch_blue", "p_fireflies", "p_Fireflies" }) families.Add(room.Particle(name));
+        var combat = room.Particle("P_attack_Fire");
+        var unlisted = room.Particle("Looping_Cloud");
+        var oneshot = room.Particle("p_fire_torch", loop:false);
+        var actor = Room.Child("Actor",room.Generated.transform); actor.AddComponent<ActorBehaviour>();
+        var actorAmbient = room.Particle("p_fire_torch",actor.transform);
+        var family = Room.Child("Candle_Fire_FX_Holder",room.Generated.transform);
+        var condition = room.Particle("P_condition_burning",family.transform);
+        var foreignMasked = room.Particle("p_Moths_ForeignMasked"); foreignMasked.GetComponent<ParticleSystemRenderer>().forceRenderingOff = true;
+        var foreignPaused = room.Particle("p_Moths_ForeignPaused"); foreignPaused.Pause(false);
+        Configure(false,false,0); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        foreach (var effect in families)
+            Check(!effect.GetComponent<ParticleSystemRenderer>().forceRenderingOff && effect.isPaused, "zero ambient budget pauses exact native families without leaking render masks between cameras");
+        bool allAmbientMasked = false;
+        room.ObserveRender = () =>
+        {
+            allAmbientMasked = true;
+            foreach (var effect in families) allAmbientMasked &= effect.GetComponent<ParticleSystemRenderer>().forceRenderingOff;
+        };
+        room.Render(); room.ObserveRender = null;
+        Check(allAmbientMasked, "real camera callback masks all admitted ambient families during rendering");
+        foreach (var effect in families) Check(!effect.GetComponent<ParticleSystemRenderer>().forceRenderingOff,
+            "real post-render callback restores ambient masks before native cloning");
+        Check(!combat.GetComponent<ParticleSystemRenderer>().forceRenderingOff && combat.isPlaying, "combat effects never become ambience merely because they loop");
+        Check(!unlisted.GetComponent<ParticleSystemRenderer>().forceRenderingOff && unlisted.isPlaying, "unlisted native loop remains untouched");
+        Check(!oneshot.GetComponent<ParticleSystemRenderer>().forceRenderingOff && oneshot.isPlaying, "one-shot native effect remains untouched");
+        Check(!actorAmbient.GetComponent<ParticleSystemRenderer>().forceRenderingOff && actorAmbient.isPlaying, "actor-owned ambient-looking effect remains untouched");
+        Check(!condition.GetComponent<ParticleSystemRenderer>().forceRenderingOff && condition.isPlaying, "condition child cannot inherit an ambient family above it");
+        Configure(false,false,100); Tick();
+        foreach (var effect in families)
+            Check(!effect.GetComponent<ParticleSystemRenderer>().forceRenderingOff && effect.isPlaying, "ambient budget restore resumes only its owned mask and pause");
+        Check(foreignMasked.GetComponent<ParticleSystemRenderer>().forceRenderingOff, "ambient restore retains a preexisting foreign rendering mask");
+        Check(foreignPaused.isPaused, "ambient restore retains a preexisting foreign pause");
+        Check(VRLog.Faults.Count == 0, "native ambient preparation completes without faults");
+    }
+
+    private static void ShaderRendering()
+    {
+        using var room = new Room();
+        var floor = room.Floor();
+        Configure(false,true,100); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        int visible = 0;
+        foreach (Color32 pixel in room.Render()) if (pixel.r > pixel.g && pixel.g >= pixel.b && pixel.r > 5) visible++;
+        Check(visible > 20, "real production simple shader emits finite tinted floor pixels on the graphics device");
+        Check(floor.sharedMaterial.FindPass("SHADOWCASTER") >= 0 || floor.sharedMaterial.FindPass("ShadowCaster") >= 0,
+            "production simplified surface retains a real imported shadow caster pass");
+        var transparent = new Texture2D(2,2); transparent.SetPixels(new[] { Color.clear,Color.clear,Color.clear,Color.clear }); transparent.Apply();
+        room.Original.SetTexture("_MainTex",transparent); room.Original.SetFloat("_Difuse_Alpha_On",1); room.Original.SetFloat("_Cutoff",.5f);
+        ScenarioEnvironmentBudget.MaterialReady(floor);
+        bool black = true; foreach (Color32 pixel in room.Render()) black &= pixel.r < 2 && pixel.g < 2 && pixel.b < 2;
+        Check(black, "production simplified shader respects the original alpha-cutout texture on actual pixels");
+        UnityEngine.Object.DestroyImmediate(transparent);
+    }
+
+    private static void BatchesAndFallback()
+    {
+        using var room = new Room();
+        var first = room.Floor(1f); var second = room.Floor(2f);
+        var collider = first.GetComponent<BoxCollider>();
+        Color32[] originalPixels = room.Render();
+        Configure(true,false,100); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(room.Chunks().Length == 1 && !first.forceRenderingOff && !second.forceRenderingOff, "compatible static floor geometry creates one render substitute without cloning-visible masks");
+        var chunk = room.Chunks()[0];
+        Check(chunk.GetComponent<MeshFilter>().sharedMesh.vertexCount == 8 && first.GetComponent<MeshFilter>().sharedMesh.vertexCount == 4,
+            "combined geometry contains both originals without rewriting native meshes");
+        bool drawLease = false;
+        room.ObserveRender = () => drawLease = first.forceRenderingOff && second.forceRenderingOff && chunk.enabled;
+        Color32[] combinedPixels = room.Render(); room.ObserveRender = null; int drawn = 0; bool same = true;
+        for (int i=0;i<originalPixels.Length;i++) { if (originalPixels[i].r > 10) drawn++; same &= originalPixels[i].Equals(combinedPixels[i]); }
+        Check(drawn > 20 && same, "actual graphics rendering preserves the native opaque floor pixels after combining");
+        Check(drawLease && !first.forceRenderingOff && !second.forceRenderingOff && !chunk.enabled,
+            "real camera callback pair owns masks only during rendering");
+        Check(collider.enabled && first.gameObject.activeInHierarchy, "native collider and hierarchy survive render substitution");
+
+        var clone = UnityEngine.Object.Instantiate(first.gameObject,room.Generated.transform,false);
+        var cloneRenderer = clone.GetComponent<MeshRenderer>();
+        Check(!cloneRenderer.forceRenderingOff && cloneRenderer.sharedMaterials.Length == 1
+            && cloneRenderer.sharedMaterial == room.Original && !cloneRenderer.isPartOfStaticBatch
+            && clone.GetComponent<MeshFilter>().sharedMesh == first.GetComponent<MeshFilter>().sharedMesh,
+            "actual native Object.Instantiate between cameras retains nonempty original slots, mesh and render flags");
+        clone.SetActive(false);
+
+        var nested = Room.Child("RuntimeFixture.NestedCamera",room.Root.transform).AddComponent<Camera>();
+        nested.CopyFrom(room.Camera); nested.enabled = false;
+        var nestedTarget = new RenderTexture(16,16,24); nestedTarget.Create(); nested.targetTexture = nestedTarget;
+        bool nestedRan = false, innerMask = false, outerRetained = false;
+        Camera.CameraCallback nestedProbe = camera =>
+        {
+            if (camera == nested) { innerMask = first.forceRenderingOff && chunk.enabled; return; }
+            if (camera != room.Camera || nestedRan) return;
+            nestedRan = true; nested.Render(); outerRetained = first.forceRenderingOff && chunk.enabled;
+        };
+        Camera.onPreCull += nestedProbe;
+        try { room.Render(); }
+        finally { Camera.onPreCull -= nestedProbe; nested.targetTexture = null; nestedTarget.Release(); UnityEngine.Object.DestroyImmediate(nestedTarget); UnityEngine.Object.DestroyImmediate(nested.gameObject); }
+        Check(nestedRan && innerMask && outerRetained && !first.forceRenderingOff && !chunk.enabled,
+            "actual nested camera renders keep the outer lease and restore after the outer post callback");
+        Tick("OnPreCull",room.Camera);
+        Check(first.forceRenderingOff, "interrupted pre-cull establishes the production draw lease");
+        object recovery = typeof(ScenarioEnvironmentBudget).GetField("_recovery",BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        var order = (DefaultExecutionOrder)Attribute.GetCustomAttribute(recovery.GetType(),typeof(DefaultExecutionOrder))!;
+        recovery.GetType().GetMethod("Update",BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(recovery,null);
+        Check(order.order < 0 && !first.forceRenderingOff && !chunk.enabled,
+            "early production recovery restores a missing post callback before native content creation");
+        Tick("OnPreCull",room.Camera); ((Behaviour)Driver).enabled = false;
+        Check(!first.forceRenderingOff && !chunk.enabled, "actual MonoBehaviour disable releases an interrupted camera mask");
+        ((Behaviour)Driver).enabled = true;
+
+        first.enabled = false; room.Render();
+        Check(room.LastRenderedChunks == 0 && !second.forceRenderingOff, "real camera pre-cull rejects changed native visibility in the same render");
+        first.enabled = true; room.Render();
+        Check(room.LastRenderedChunks == 1, "compatible original visibility can resume the existing chunk");
+        first.transform.localPosition += Vector3.up; room.Render();
+        Check(room.LastRenderedChunks == 0 && !first.forceRenderingOff, "real camera pre-cull rejects changed source transforms");
+        first.transform.localPosition -= Vector3.up; room.Render();
+        var oldMesh = first.GetComponent<MeshFilter>().sharedMesh;
+        first.GetComponent<MeshFilter>().sharedMesh = room.Mesh(); room.Render();
+        Check(room.LastRenderedChunks == 0 && !first.forceRenderingOff, "real camera pre-cull rejects changed source meshes");
+        first.GetComponent<MeshFilter>().sharedMesh = oldMesh; room.Render();
+        var foreignMaterial = room.Material(); first.sharedMaterial = foreignMaterial; room.Render();
+        Check(room.LastRenderedChunks == 0 && !second.forceRenderingOff, "real camera pre-cull rejects changed source materials");
+        first.sharedMaterial = room.Original; room.Render();
+        first.sharedMaterials = new[] { room.Original, foreignMaterial }; room.Render();
+        Check(room.LastRenderedChunks == 0 && !second.forceRenderingOff, "real camera pre-cull rejects newly multi-material originals");
+        first.sharedMaterials = new[] { room.Original }; room.Render();
+        var block = new MaterialPropertyBlock(); block.SetColor("_Tint",Color.green); first.SetPropertyBlock(block); room.Render();
+        Check(room.LastRenderedChunks == 0 && !first.forceRenderingOff, "real camera pre-cull rejects native per-renderer effect properties");
+        first.SetPropertyBlock(null); room.Render();
+        second.receiveShadows = true; room.Render();
+        Check(room.LastRenderedChunks == 0 && !first.forceRenderingOff, "real camera pre-cull rejects a source render-flag change");
+        first.receiveShadows = true; room.Render();
+        Check(room.LastRenderedChunks == 0 && !first.forceRenderingOff, "common source render-flag changes cannot retain old combined rendering flags");
+        Configure(false,false,100); Tick();
+        Check(!first.forceRenderingOff && !second.forceRenderingOff && room.Chunks().Length == 0, "turning batching off restores original renderer visibility");
+        Check(VRLog.Faults.Count == 0, "batch preparation and real render validation finish without faults");
+    }
+
+    private static void IncrementalAndUnsafeMeshes()
+    {
+        using var room = new Room();
+        var unreadable = room.Surface("CV_Floor_Base_Unreadable", readable:false);
+        var secondUnreadable = room.Surface("CV_Floor_Base_Unreadable2", readable:false);
+        var nonFloor = room.Surface("Dungeon_Wall_Static", x:2f);
+        var mirrored = room.Floor(); mirrored.transform.localScale = new Vector3(-1,1,1);
+        var hidden = room.Floor(); hidden.forceRenderingOff = true;
+        var lodParent = Room.Child("LOD",room.Generated.transform); lodParent.AddComponent<LODGroup>();
+        var lod = room.Surface("CV_Floor_Base_LOD",lodParent.transform);
+        var lightmapped = room.Floor(); lightmapped.lightmapIndex = 0;
+        var specialFlags = room.Floor(); specialFlags.receiveShadows = true;
+        // More than 128 nodes exercise bounded walk; seven spatial groups exercise
+        // the normal two-chunk publish cap and the complete loading-time drain.
+        for (int i=0;i<350;i++) Room.Child("InertNode"+i,room.Generated.transform);
+        var floors = new List<MeshRenderer>();
+        for (int i=0;i<14;i++) floors.Add(room.Floor(1f + (i/2)*5f));
+        ScenarioEnvironmentBudget.Placed(room.Tile.gameObject);
+        Check(Members("_pending") == 0, "all settings off avoids procedural queue work entirely");
+        Configure(true,false,100); Tick();
+        Check(Members("_pending") > 0 && room.Chunks().Length == 0, "normal-frame native traversal is bounded before mesh publication");
+        for (int i=0;i<20 && Members("_pending")>0;i++) Tick();
+        Check(Members("_pending") == 0 && room.Chunks().Length <= 2 && Members("_parts") > 0,
+            "normal update publishes at most two small chunks while retaining pending parts");
+        int before = room.Chunks().Length; Tick();
+        Check(room.Chunks().Length - before <= 2, "subsequent normal update retains existing chunks and adds at most two");
+        ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(VRLog.Faults.Count == 0, "unreadable meshes never raise or hide a preparation failure");
+        Check(Members("_pending") == 0 && Members("_parts") == 0 && room.Chunks().Length >= 7,
+            "native loading-complete prefix prepares all outstanding floor chunks before loading ends");
+        bool unsafeMasked = false;
+        room.ObserveRender = () => unsafeMasked = unreadable.forceRenderingOff || secondUnreadable.forceRenderingOff || nonFloor.forceRenderingOff
+            || mirrored.forceRenderingOff || lod.forceRenderingOff || lightmapped.forceRenderingOff || specialFlags.forceRenderingOff;
+        room.Render(); room.ObserveRender = null;
+        Check(!unsafeMasked && hidden.forceRenderingOff,
+            "unreadable, non-floor, mirrored, foreign-hidden, LOD, baked and distinct-flag originals safely skip substitution");
+        foreach (var item in room.Chunks()) Check(item.GetComponent<MeshFilter>().sharedMesh.vertexCount <= 96,
+            "generated chunk keeps the configured 24-member bound");
+
+        var retained = room.Chunks()[0];
+        var actor = Room.Child("Actor",room.Generated.transform); actor.AddComponent<ActorBehaviour>();
+        var foreign = room.Surface("CV_Floor_Base_Actor",actor.transform);
+        ScenarioEnvironmentBudget.MaterialReady(foreign);
+        Check(room.Chunks().Length >= 7 && retained != null, "foreign native material completion cannot invalidate unrelated floor chunks");
+        int chunkCount = room.Chunks().Length;
+        ScenarioEnvironmentBudget.MaterialReady(floors[floors.Count-1]);
+        Check(room.Chunks().Length == chunkCount-1, "native floor material completion invalidates only its affected chunk");
+        ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(room.Chunks().Length == chunkCount, "native material completion can prepare its replacement without destroying unrelated chunks");
+        int deadId = floors[floors.Count-1].GetInstanceID();
+        UnityEngine.Object.DestroyImmediate(floors[floors.Count-1].gameObject);
+        ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        var sourceMap = (System.Collections.IDictionary)Driver.GetType().GetField("_batchBySource",BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(Driver)!;
+        Check(!sourceMap.Contains(deadId), "destroyed native floor source cannot remain in the chunk ownership ledger");
+        VRSession.IsRunning = false; Tick();
+        Check(room.Chunks().Length == 0 && !unreadable.forceRenderingOff && hidden.forceRenderingOff,
+            "VR stop restores only owned floor substitutions and retains foreign masks");
+        Check(VRLog.Faults.Count == 0, "unreadable meshes never raise or hide a preparation failure");
+    }
+
+    private static void ChunkPopulation()
+    {
+        using var room = new Room();
+        var originals = new List<MeshRenderer>();
+        for (int i=0;i<55;i++) originals.Add(room.Floor());
+        Configure(true,false,100); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(room.Chunks().Length == 3, "55 same-cell native floors split into bounded 24-member portions");
+        int vertices = 0;
+        foreach (var chunk in room.Chunks())
+        {
+            int size = chunk.GetComponent<MeshFilter>().sharedMesh.vertexCount;
+            Check(size <= 96, "populated combined chunk cannot exceed the 24-native-member bound");
+            vertices += size;
+        }
+        Check(vertices == 220, "bounded portions retain every native floor vertex exactly once");
+        foreach (var original in originals)
+            Check(!original.forceRenderingOff && original.sharedMaterial == room.Original
+                && original.GetComponent<MeshFilter>().sharedMesh.vertexCount == 4,
+                "populated chunk creation keeps native clone sources intact between cameras");
+        Check(VRLog.Faults.Count == 0, "populated native floor preparation completes without faults");
+    }
+
+    private static void NativeCompletionSurvivesPreparationFault()
+    {
+        using var room = new Room();
+        var floor = room.Floor();
+        Configure(false,true,100); BundleShaders.ThrowResolve = true;
+        bool continued = false;
+        try { ScenarioEnvironmentBudget.MaterialReady(floor); continued = true; }
+        finally { BundleShaders.ThrowResolve = false; }
+        Check(continued && floor.sharedMaterial == room.Original && !floor.forceRenderingOff && VRLog.Faults.Count == 1,
+            "optional material preparation failure cannot gate a successful native continuation");
+        ScenarioEnvironmentBudget.MaterialReady(floor); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(VRLog.Faults.Count == 1 && floor.sharedMaterial == room.Original,
+            "failed optional preparation remains disabled and reports its failure once");
+    }
+
+    public static int Run()
+    {
+        count = 0;
+        ScopeAndMaterials(); AmbientScopes(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault();
+        return count;
+    }
+}
