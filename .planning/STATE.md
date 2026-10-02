@@ -1,6 +1,24 @@
 # State — where the project stands
 
-**Updated 2026-10-02: dev 1.1.0 / ModBuild 603, configurable Frame scenery/figure candidate.**
+**Updated 2026-10-02: dev 1.1.0 / ModBuild 604, Frame603 hardware corrections.**
+
+The supplied Frame603 / 5c60f6604 logs confirm the saved zero figure/vegetation
+and disabled cloth values. Geometry masking works for 3,277 admitted meshes,
+but the figure diagnostics in Player.log explicitly report zero actors/LOD caps
+and zero stopped cloth solvers. Native models live under the Game board outside
+additive ProcGen; strict geometry-scene equality excluded every actual actor.
+Build 604 uses native board/actor identity across scenes and honors detail/cloth
+choices while locally/remotely held. Cloth OFF also bypasses rescale cooking and
+free-hand probe work at their sources. Native complete tree/trunk and wall plant
+coverage is expanded with reversible ownership of only tree-exclusive picking
+colliders. Town NPC rigs and cards/UI retain their presentation. Loaded windows
+remain 64.76–102.12 ms at 3408 per eye with changing views/settings, not a matched
+A/B or evidence of improvement. No new headset result is claimed.
+See [STEAM-FRAME-SCENERY-604.md](STEAM-FRAME-SCENERY-604.md).
+Final integrated validation is pending the completed focused worker checks.
+
+The preceding Build603 integration:
+
 NPC Build 602 was published to origin/dev before this phase. Requested obsolete-run
 cleanup freed 399.61 GB net; hardware logs, original/reference assets, all existing
 branch refs and final NPC proof were retained. See the gitignored audit at

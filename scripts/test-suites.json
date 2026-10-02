@@ -1289,6 +1289,17 @@
         "local"
       ],
       "weight": 12
+    },
+    {
+      "id": "figure-cloth-off-runtime",
+      "command": [
+        "python3",
+        "scripts/check-figure-cloth-off-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 12
     }
   ]
 }
