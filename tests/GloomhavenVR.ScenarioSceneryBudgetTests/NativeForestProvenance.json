@@ -1,0 +1,894 @@
+{
+  "source": "GH_Data/StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_forest.asset.bundle",
+  "sha256": "29b4994ac122f76fe4bbab53c9f9829e93b038637c9baf485da4cf0d06b56b17",
+  "read_only_extraction": true,
+  "prefabs": {
+    "PCG_FR_Pillar_Tree_Trunk_01_PR": {
+      "name": "PCG_FR_Pillar_Tree_Trunk_01_PR",
+      "path_id": -8477305549652522051,
+      "components": [
+        "Transform",
+        "BoxCollider",
+        "MonoBehaviour:DetailsDisabler",
+        "MonoBehaviour:DetailLevelDisableProvider",
+        "MonoBehaviour:MaterialLoader",
+        "MonoBehaviour:ImportantObjectsShadowsDisabler"
+      ],
+      "mesh": null,
+      "children": [
+        {
+          "name": "FR_Pillar_Tree_Trunk_01",
+          "path_id": 8499675597974703037,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Pillar_Tree_Trunk_01",
+            "vertices": 749,
+            "bounds": "AABB(m_Center=Vector3f(3.5762786865234375e-07, 2.478095769882202, 0.0), m_Extent=Vector3f(1.4320766925811768, 2.7912089824676514, 1.6937105655670166))"
+          },
+          "children": [
+            {
+              "name": "CR_RU_Vines (2)",
+              "path_id": -2599045415544058947,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer"
+              ],
+              "mesh": {
+                "name": "CR_RU_Vines",
+                "vertices": 109,
+                "bounds": "AABB(m_Center=Vector3f(0.017406970262527466, -0.3986438512802124, 0.16430476307868958), m_Extent=Vector3f(0.3310863673686981, 0.4021033048629761, 0.1653672754764557))"
+              },
+              "children": []
+            },
+            {
+              "name": "CR_RU_Vines (3)",
+              "path_id": 4796197286151949245,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer"
+              ],
+              "mesh": {
+                "name": "CR_RU_Vines",
+                "vertices": 109,
+                "bounds": "AABB(m_Center=Vector3f(0.017406970262527466, -0.3986438512802124, 0.16430476307868958), m_Extent=Vector3f(0.3310863673686981, 0.4021033048629761, 0.1653672754764557))"
+              },
+              "children": []
+            },
+            {
+              "name": "CR_RU_Vines (3)",
+              "path_id": 5324242382530317245,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer"
+              ],
+              "mesh": {
+                "name": "CR_RU_Vines",
+                "vertices": 109,
+                "bounds": "AABB(m_Center=Vector3f(0.017406970262527466, -0.3986438512802124, 0.16430476307868958), m_Extent=Vector3f(0.3310863673686981, 0.4021033048629761, 0.1653672754764557))"
+              },
+              "children": []
+            },
+            {
+              "name": "CR_RU_Vines (4)",
+              "path_id": -338623167153796163,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer"
+              ],
+              "mesh": {
+                "name": "CR_RU_Vines",
+                "vertices": 109,
+                "bounds": "AABB(m_Center=Vector3f(0.017406970262527466, -0.3986438512802124, 0.16430476307868958), m_Extent=Vector3f(0.3310863673686981, 0.4021033048629761, 0.1653672754764557))"
+              },
+              "children": []
+            },
+            {
+              "name": "FR_Floor_Detail_Grass_05_PR (1)",
+              "path_id": 2838435880514325437,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer",
+                "MonoBehaviour:MaterialLoader"
+              ],
+              "mesh": {
+                "name": "CR_FR_ Floor_Detail_Grass_05",
+                "vertices": 295,
+                "bounds": "AABB(m_Center=Vector3f(0.023811720311641693, 0.16856324672698975, -0.053832560777664185), m_Extent=Vector3f(0.22445839643478394, 0.17152872681617737, 0.2273336946964264))"
+              },
+              "children": []
+            },
+            {
+              "name": "FR_Floor_LargeBush_02 (1)",
+              "path_id": -8308244725165290563,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer"
+              ],
+              "mesh": {
+                "name": "CR_FR_Floor_LargeBush_02",
+                "vertices": 108,
+                "bounds": "AABB(m_Center=Vector3f(0.013746485114097595, 0.6113219261169434, -0.006407514214515686), m_Extent=Vector3f(0.39253103733062744, 0.6114487648010254, 0.3925328254699707))"
+              },
+              "children": []
+            },
+            {
+              "name": "FR_Floor_LargeBush_01 (1)",
+              "path_id": -5876044166478853187,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer"
+              ],
+              "mesh": {
+                "name": "CR_FR_Floor_LargeBush_01",
+                "vertices": 54,
+                "bounds": "AABB(m_Center=Vector3f(0.0, 0.45933130383491516, 0.0), m_Extent=Vector3f(0.3439773917198181, 0.45949652791023254, 0.3439772427082062))"
+              },
+              "children": []
+            },
+            {
+              "name": "FR_Floor_PlantsBushes_02 (1)",
+              "path_id": -7424703752720053315,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer"
+              ],
+              "mesh": {
+                "name": "CR_FR_Floor_PlantsBushes_02",
+                "vertices": 544,
+                "bounds": "AABB(m_Center=Vector3f(0.06596505641937256, 0.371777206659317, -0.02477625012397766), m_Extent=Vector3f(0.5043420791625977, 0.3888684809207916, 0.4683217406272888))"
+              },
+              "children": []
+            },
+            {
+              "name": "FR_Floor_LargeBush_06 (1)",
+              "path_id": -3253609895131575363,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer"
+              ],
+              "mesh": {
+                "name": "CR_FR_Floor_LargeBush_06",
+                "vertices": 54,
+                "bounds": "AABB(m_Center=Vector3f(0.0, 0.6140255928039551, 0.0), m_Extent=Vector3f(0.6779344081878662, 0.6142663955688477, 0.6779341697692871))"
+              },
+              "children": []
+            },
+            {
+              "name": "FR_Floor_Detail_Grass_08_PR (1)",
+              "path_id": 7391099635659344829,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer",
+                "MonoBehaviour:MaterialLoader"
+              ],
+              "mesh": {
+                "name": "CR_FR_ Floor_Detail_Grass_08",
+                "vertices": 186,
+                "bounds": "AABB(m_Center=Vector3f(-0.0023692362010478973, 0.12341110408306122, -0.013836268335580826), m_Extent=Vector3f(0.10895536839962006, 0.12783817946910858, 0.08790306746959686))"
+              },
+              "children": []
+            },
+            {
+              "name": "FR_Floor_Detail_Grass_06_PR (1)",
+              "path_id": 418635513597823933,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer"
+              ],
+              "mesh": {
+                "name": "CR_FR_ Floor_Detail_Grass_06",
+                "vertices": 288,
+                "bounds": "AABB(m_Center=Vector3f(0.0, 0.18335731327533722, 0.010912902653217316), m_Extent=Vector3f(0.13808614015579224, 0.18641187250614166, 0.17479145526885986))"
+              },
+              "children": []
+            },
+            {
+              "name": "FR_Floor_Detail_Grass_08_PR (2)",
+              "path_id": 8122836256650267581,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer",
+                "MonoBehaviour:MaterialLoader"
+              ],
+              "mesh": {
+                "name": "CR_FR_ Floor_Detail_Grass_08",
+                "vertices": 186,
+                "bounds": "AABB(m_Center=Vector3f(-0.0023692362010478973, 0.12341110408306122, -0.013836268335580826), m_Extent=Vector3f(0.10895536839962006, 0.12783817946910858, 0.08790306746959686))"
+              },
+              "children": []
+            },
+            {
+              "name": "FR_Floor_Detail_Grass_05_PR (2)",
+              "path_id": -4016614037733340227,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer",
+                "MonoBehaviour:MaterialLoader"
+              ],
+              "mesh": {
+                "name": "CR_FR_ Floor_Detail_Grass_05",
+                "vertices": 295,
+                "bounds": "AABB(m_Center=Vector3f(0.023811720311641693, 0.16856324672698975, -0.053832560777664185), m_Extent=Vector3f(0.22445839643478394, 0.17152872681617737, 0.2273336946964264))"
+              },
+              "children": []
+            },
+            {
+              "name": "FR_Floor_Detail_Grass_06_PR (2)",
+              "path_id": -894885748773909571,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer"
+              ],
+              "mesh": {
+                "name": "CR_FR_ Floor_Detail_Grass_06",
+                "vertices": 288,
+                "bounds": "AABB(m_Center=Vector3f(0.0, 0.18335731327533722, 0.010912902653217316), m_Extent=Vector3f(0.13808614015579224, 0.18641187250614166, 0.17479145526885986))"
+              },
+              "children": []
+            },
+            {
+              "name": "FR_Floor_Detail_Grass_08_PR (3)",
+              "path_id": -2585293390709552195,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer",
+                "MonoBehaviour:MaterialLoader"
+              ],
+              "mesh": {
+                "name": "CR_FR_ Floor_Detail_Grass_08",
+                "vertices": 186,
+                "bounds": "AABB(m_Center=Vector3f(-0.0023692362010478973, 0.12341110408306122, -0.013836268335580826), m_Extent=Vector3f(0.10895536839962006, 0.12783817946910858, 0.08790306746959686))"
+              },
+              "children": []
+            },
+            {
+              "name": "CR_RU_Vines (5)",
+              "path_id": -4271198061102134339,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer"
+              ],
+              "mesh": {
+                "name": "CR_RU_Vines",
+                "vertices": 109,
+                "bounds": "AABB(m_Center=Vector3f(0.017406970262527466, -0.3986438512802124, 0.16430476307868958), m_Extent=Vector3f(0.3310863673686981, 0.4021033048629761, 0.1653672754764557))"
+              },
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    "PCG_FR_Floor_Grass_Hex_EdgeTemp_PR": {
+      "name": "PCG_FR_Floor_Grass_Hex_EdgeTemp_PR",
+      "path_id": -7303515351778257175,
+      "components": [
+        "Transform",
+        "BoxCollider",
+        "MonoBehaviour:MaterialLoader",
+        "MonoBehaviour:DetailsDisabler",
+        "MonoBehaviour:PropObjectsShadowsDisabler",
+        "MonoBehaviour:DetailLevelDisableProvider"
+      ],
+      "mesh": null,
+      "children": [
+        {
+          "name": "FR_Floor_Grass_Seg_L",
+          "path_id": 5044626881906611945,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "FR_Floor_Grass_Seg_L",
+            "vertices": 49,
+            "bounds": "AABB(m_Center=Vector3f(-0.4330125153064728, -0.12700021266937256, 0.7499998211860657), m_Extent=Vector3f(0.4330126941204071, 0.12700021266937256, 0.2499999850988388))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_Scatter_Grass_Small_01",
+          "path_id": -7191180744209459479,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "FR_Floor_Detail_Small_01_Grass",
+            "vertices": 108,
+            "bounds": "AABB(m_Center=Vector3f(-0.014527425169944763, 0.059480417519807816, -0.005178466439247131), m_Extent=Vector3f(0.2885259985923767, 0.07390036433935165, 0.22680138051509857))"
+          },
+          "children": []
+        }
+      ]
+    },
+    "FR_Default_Bay_10": {
+      "name": "FR_Default_Bay_10",
+      "path_id": -696798388964213214,
+      "components": [
+        "Transform",
+        "BoxCollider",
+        "MonoBehaviour:MaterialLoader",
+        "MonoBehaviour:DetailsDisabler",
+        "MonoBehaviour:ImportantObjectsShadowsDisabler",
+        "MonoBehaviour:DetailLevelDisableProvider"
+      ],
+      "mesh": null,
+      "children": [
+        {
+          "name": "FR_Tree_02 (3)",
+          "path_id": -7222022782240735710,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Tree_02",
+            "vertices": 1086,
+            "bounds": "AABB(m_Center=Vector3f(-0.21807408332824707, 3.262302875518799, -0.14175546169281006), m_Extent=Vector3f(2.228578567504883, 3.554381847381592, 2.199777126312256))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Tree_05 (2)",
+          "path_id": 5148003566328167970,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Tree_05",
+            "vertices": 1471,
+            "bounds": "AABB(m_Center=Vector3f(-0.5328459739685059, 6.8494086265563965, -0.14893150329589844), m_Extent=Vector3f(3.3807196617126465, 7.131164073944092, 2.8524580001831055))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Stones_01 (1)",
+          "path_id": -5034754067660784094,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Stones_01",
+            "vertices": 336,
+            "bounds": "AABB(m_Center=Vector3f(3.8743019104003906e-07, 0.3143590986728668, -1.043081283569336e-06), m_Extent=Vector3f(0.6075671911239624, 0.3413242995738983, 0.6237117052078247))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_LargeBush_07 (3)",
+          "path_id": 2669514576816258594,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_LargeBush_07",
+            "vertices": 416,
+            "bounds": "AABB(m_Center=Vector3f(2.8312206268310547e-07, 0.22345995903015137, 0.0), m_Extent=Vector3f(0.4161573648452759, 0.2268100380897522, 0.3481799066066742))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_PlantsBushes_04 (2)",
+          "path_id": 4276360849333698082,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_PlantsBushes_04",
+            "vertices": 2664,
+            "bounds": "AABB(m_Center=Vector3f(0.11768399178981781, 0.9115204215049744, -0.019567742943763733), m_Extent=Vector3f(0.6146134734153748, 0.9117611050605774, 0.453066885471344))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_LargeBush_04 (1)",
+          "path_id": -7721397971102187998,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_LargeBush_04",
+            "vertices": 63,
+            "bounds": "AABB(m_Center=Vector3f(0.019585013389587402, 0.5736775398254395, 6.735324859619141e-06), m_Extent=Vector3f(0.5938827395439148, 0.5744773149490356, 0.5740194916725159))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_LargeBush_01 (1)",
+          "path_id": -6421871513411174878,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_LargeBush_01",
+            "vertices": 54,
+            "bounds": "AABB(m_Center=Vector3f(0.0, 0.45933130383491516, 0.0), m_Extent=Vector3f(0.3439773917198181, 0.45949652791023254, 0.3439772427082062))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_LargeBush_04 (2)",
+          "path_id": -3342590305464402398,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_LargeBush_04",
+            "vertices": 63,
+            "bounds": "AABB(m_Center=Vector3f(0.019585013389587402, 0.5736775398254395, 6.735324859619141e-06), m_Extent=Vector3f(0.5938827395439148, 0.5744773149490356, 0.5740194916725159))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_LargeBush_04 (3)",
+          "path_id": 7649890776679661090,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_LargeBush_04",
+            "vertices": 63,
+            "bounds": "AABB(m_Center=Vector3f(0.019585013389587402, 0.5736775398254395, 6.735324859619141e-06), m_Extent=Vector3f(0.5938827395439148, 0.5744773149490356, 0.5740194916725159))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_LargeBush_07 (4)",
+          "path_id": 8381733330333613602,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_LargeBush_07",
+            "vertices": 416,
+            "bounds": "AABB(m_Center=Vector3f(2.8312206268310547e-07, 0.22345995903015137, 0.0), m_Extent=Vector3f(0.4161573648452759, 0.2268100380897522, 0.3481799066066742))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_LargeBush_07 (5)",
+          "path_id": -2867538997853209054,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_LargeBush_07",
+            "vertices": 416,
+            "bounds": "AABB(m_Center=Vector3f(2.8312206268310547e-07, 0.22345995903015137, 0.0), m_Extent=Vector3f(0.4161573648452759, 0.2268100380897522, 0.3481799066066742))"
+          },
+          "children": []
+        }
+      ]
+    },
+    "PCG_FR_UnderWall_01_PR": {
+      "name": "PCG_FR_UnderWall_01_PR",
+      "path_id": 3428943117219712006,
+      "components": [
+        "Transform",
+        "BoxCollider",
+        "MonoBehaviour:DetailsDisabler",
+        "MonoBehaviour:DetailLevelDisableProvider",
+        "MonoBehaviour:MaterialLoader",
+        "MonoBehaviour:ImportantObjectsShadowsDisabler"
+      ],
+      "mesh": null,
+      "children": [
+        {
+          "name": "FR_CW_UnderWall_01",
+          "path_id": -5123034928625103866,
+          "components": [
+            "Transform"
+          ],
+          "mesh": null,
+          "children": [
+            {
+              "name": "FR_CW_UnderWall_01_Grass",
+              "path_id": -5167310762816844794,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer"
+              ],
+              "mesh": {
+                "name": "FR_CW_UnderWall_01_Grass",
+                "vertices": 5072,
+                "bounds": "AABB(m_Center=Vector3f(0.1898847222328186, -1.4264791011810303, 1.1834144592285156), m_Extent=Vector3f(1.266733169555664, 1.6838083267211914, 0.4114053249359131))"
+              },
+              "children": []
+            },
+            {
+              "name": "FR_CW_UnderWall_01_Rock",
+              "path_id": -2440166601524196346,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer",
+                "MonoBehaviour:ActivateWallFadeInGame"
+              ],
+              "mesh": {
+                "name": "FR_CW_UnderWall_01_Rock",
+                "vertices": 1304,
+                "bounds": "AABB(m_Center=Vector3f(0.34126347303390503, -4.763735771179199, 0.5100855231285095), m_Extent=Vector3f(1.9263756275177002, 2.153080701828003, 1.3333566188812256))"
+              },
+              "children": []
+            },
+            {
+              "name": "FR_CW_UnderWall_01_Roots",
+              "path_id": 4072807214999981062,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer"
+              ],
+              "mesh": {
+                "name": "FR_CW_UnderWall_01_Roots",
+                "vertices": 2485,
+                "bounds": "AABB(m_Center=Vector3f(0.7044055461883545, -2.772310733795166, 1.2828772068023682), m_Extent=Vector3f(1.4263708591461182, 2.731236457824707, 0.5812746286392212))"
+              },
+              "children": []
+            },
+            {
+              "name": "FR_CW_UnderWall_01_Wall",
+              "path_id": 6673321560891575302,
+              "components": [
+                "Transform",
+                "MeshFilter",
+                "MeshRenderer"
+              ],
+              "mesh": {
+                "name": "FR_CW_UnderWall_01_Wall",
+                "vertices": 601,
+                "bounds": "AABB(m_Center=Vector3f(0.5181798934936523, -1.5728284120559692, 0.0), m_Extent=Vector3f(1.4620349407196045, 1.7432438135147095, 0.7270766496658325))"
+              },
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "FR_Floor_LargeBush_03",
+          "path_id": -4531959109904577530,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_LargeBush_03",
+            "vertices": 54,
+            "bounds": "AABB(m_Center=Vector3f(-2.2351741790771484e-06, 0.530379056930542, 8.642673492431641e-07), m_Extent=Vector3f(0.5470839738845825, 0.5304449796676636, 0.5470840930938721))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_LargeBush_07",
+          "path_id": -4038808036821447674,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_LargeBush_07",
+            "vertices": 416,
+            "bounds": "AABB(m_Center=Vector3f(2.8312206268310547e-07, 0.22345995903015137, 0.0), m_Extent=Vector3f(0.4161573648452759, 0.2268100380897522, 0.3481799066066742))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_LargeBush_05",
+          "path_id": -7858271216255775738,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_LargeBush_05",
+            "vertices": 54,
+            "bounds": "AABB(m_Center=Vector3f(-5.960464477539063e-08, 0.4998006224632263, 2.086162567138672e-07), m_Extent=Vector3f(0.7223219871520996, 0.5107700228691101, 0.7223218679428101))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_LargeBush_07 (1)",
+          "path_id": 4467630103594585094,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_LargeBush_07",
+            "vertices": 416,
+            "bounds": "AABB(m_Center=Vector3f(2.8312206268310547e-07, 0.22345995903015137, 0.0), m_Extent=Vector3f(0.4161573648452759, 0.2268100380897522, 0.3481799066066742))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_PlantsBushes_02",
+          "path_id": 8898575329596722182,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_PlantsBushes_02",
+            "vertices": 544,
+            "bounds": "AABB(m_Center=Vector3f(0.06596505641937256, 0.371777206659317, -0.02477625012397766), m_Extent=Vector3f(0.5043420791625977, 0.3888684809207916, 0.4683217406272888))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_PlantsBushes_02 (1)",
+          "path_id": -8814553663263749114,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_PlantsBushes_02",
+            "vertices": 544,
+            "bounds": "AABB(m_Center=Vector3f(0.06596505641937256, 0.371777206659317, -0.02477625012397766), m_Extent=Vector3f(0.5043420791625977, 0.3888684809207916, 0.4683217406272888))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_LargeBush_07 (2)",
+          "path_id": 478958676139494406,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_LargeBush_07",
+            "vertices": 416,
+            "bounds": "AABB(m_Center=Vector3f(2.8312206268310547e-07, 0.22345995903015137, 0.0), m_Extent=Vector3f(0.4161573648452759, 0.2268100380897522, 0.3481799066066742))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_LargeBush_07 (3)",
+          "path_id": -7708742913088762874,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_LargeBush_07",
+            "vertices": 416,
+            "bounds": "AABB(m_Center=Vector3f(2.8312206268310547e-07, 0.22345995903015137, 0.0), m_Extent=Vector3f(0.4161573648452759, 0.2268100380897522, 0.3481799066066742))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_LargeBush_06",
+          "path_id": 1965652611750874118,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_LargeBush_06",
+            "vertices": 54,
+            "bounds": "AABB(m_Center=Vector3f(0.0, 0.6140255928039551, 0.0), m_Extent=Vector3f(0.6779344081878662, 0.6142663955688477, 0.6779341697692871))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_LargeBush_05 (1)",
+          "path_id": 8298992130138885126,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_LargeBush_05",
+            "vertices": 54,
+            "bounds": "AABB(m_Center=Vector3f(-5.960464477539063e-08, 0.4998006224632263, 2.086162567138672e-07), m_Extent=Vector3f(0.7223219871520996, 0.5107700228691101, 0.7223218679428101))"
+          },
+          "children": []
+        },
+        {
+          "name": "CV_Roots_02",
+          "path_id": -5937902099955463162,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CV_Roots_02",
+            "vertices": 699,
+            "bounds": "AABB(m_Center=Vector3f(0.2689839005470276, -0.8422010540962219, -0.09151610732078552), m_Extent=Vector3f(0.36619752645492554, 0.9404289126396179, 0.7872717380523682))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_LargeBush_07 (4)",
+          "path_id": -6832437053563155450,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_LargeBush_07",
+            "vertices": 416,
+            "bounds": "AABB(m_Center=Vector3f(2.8312206268310547e-07, 0.22345995903015137, 0.0), m_Extent=Vector3f(0.4161573648452759, 0.2268100380897522, 0.3481799066066742))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Floor_LargeBush_06 (1)",
+          "path_id": 4417062009492327430,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "CR_FR_Floor_LargeBush_06",
+            "vertices": 54,
+            "bounds": "AABB(m_Center=Vector3f(0.0, 0.6140255928039551, 0.0), m_Extent=Vector3f(0.6779344081878662, 0.6142663955688477, 0.6779341697692871))"
+          },
+          "children": []
+        }
+      ]
+    },
+    "PCG_FR_Wall_Grassy_Verge_Thin_02_PR": {
+      "name": "PCG_FR_Wall_Grassy_Verge_Thin_02_PR",
+      "path_id": -7196746829346554215,
+      "components": [
+        "Transform",
+        "BoxCollider",
+        "MonoBehaviour:DetailsDisabler",
+        "MonoBehaviour:DetailLevelDisableProvider",
+        "MonoBehaviour:MaterialLoader",
+        "MonoBehaviour:ImportantObjectsShadowsDisabler"
+      ],
+      "mesh": null,
+      "children": [
+        {
+          "name": "FR_Wall_Grassy_Verge_Thin_02",
+          "path_id": -8622830194490917223,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "FR_Wall_Grassy_Verge_Thin_02",
+            "vertices": 289,
+            "bounds": "AABB(m_Center=Vector3f(1.7881393432617188e-07, 0.9909123182296753, 0.04616601765155792), m_Extent=Vector3f(0.99568110704422, 0.991658091545105, 0.4394063353538513))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Wall_Grassy_Verge_Thin_Bushes_02",
+          "path_id": -5650625839294234983,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "FR_Wall_Grassy_Verge_Thin_Bushes_02",
+            "vertices": 740,
+            "bounds": "AABB(m_Center=Vector3f(0.3419138491153717, 1.2556878328323364, -0.05118453502655029), m_Extent=Vector3f(0.7488162517547607, 1.3907097578048706, 0.9156126379966736))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Wall_Grassy_Verge_Thin_Ivy_Grass_02",
+          "path_id": -4169841909179335015,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "FR_Wall_Grassy_Verge_Thin_Ivy_Grass_02",
+            "vertices": 1785,
+            "bounds": "AABB(m_Center=Vector3f(-0.3047536611557007, 1.0348308086395264, 0.19844487309455872), m_Extent=Vector3f(0.6728339791297913, 1.080801248550415, 0.8390064239501953))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Wall_Grassy_Verge_Thin_Log_02",
+          "path_id": -3710782735609807207,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "FR_Wall_Grassy_Verge_Thin_Log_02",
+            "vertices": 807,
+            "bounds": "AABB(m_Center=Vector3f(-0.10357514023780823, 1.504189133644104, 0.03278328478336334), m_Extent=Vector3f(0.817804217338562, 0.8069669008255005, 0.4150617718696594))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Wall_Grassy_Verge_Thin_Plants_02",
+          "path_id": 8195064618628628121,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "FR_Wall_Grassy_Verge_Thin_Plants_02",
+            "vertices": 1877,
+            "bounds": "AABB(m_Center=Vector3f(0.423827588558197, 0.6893359422683716, 0.5631670355796814), m_Extent=Vector3f(0.6770796179771423, 0.7233541011810303, 0.41552287340164185))"
+          },
+          "children": []
+        },
+        {
+          "name": "FR_Wall_Grassy_Verge_Thin_Stone_02",
+          "path_id": 1006336428402949785,
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "mesh": {
+            "name": "FR_Wall_Grassy_Verge_Thin_Stone_02",
+            "vertices": 498,
+            "bounds": "AABB(m_Center=Vector3f(-0.020139724016189575, 0.9189489483833313, 0.1882433295249939), m_Extent=Vector3f(1.013269066810608, 1.0566226243972778, 0.6303618550300598))"
+          },
+          "children": []
+        }
+      ]
+    }
+  }
+}

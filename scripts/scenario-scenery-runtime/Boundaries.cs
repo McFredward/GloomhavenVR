@@ -6,6 +6,17 @@ using UnityEngine.SceneManagement;
 // Native lifecycle/config transport boundaries are inert. The tests use real Unity transforms,
 // component lookup, Mesh.bounds, materials, colliders and forceRenderingOff. The complete actual
 // production classifier and Driver run unchanged, apart from the deterministic unscaled clock.
+public class MaterialLoader : MonoBehaviour
+{
+    public static int Instances;
+    private void Awake() { Instances++; }
+}
+public class DetailsDisabler : MonoBehaviour { }
+public class DetailLevelDisableProvider : MonoBehaviour { }
+public class ImportantObjectsShadowsDisabler : MonoBehaviour { }
+public class PropObjectsShadowsDisabler : MonoBehaviour { }
+public class UnknownNativeCallback : MonoBehaviour { }
+namespace ForeignCallbacks { public class MaterialLoader : MonoBehaviour { } }
 public class MaterialLoaderData { public Renderer Renderer = null!; }
 public class ProceduralBase : MonoBehaviour { public virtual void NotifyContentPlacementComplete() { } }
 public class ProceduralMapTile : ProceduralBase { public static void ShowContent(GameObject o) { } }
@@ -14,6 +25,12 @@ public class ProceduralProp : ProceduralBase { }
 public class ProceduralScenario : MonoBehaviour { }
 public class ProceduralDoorway : MonoBehaviour { }
 public class UnityGameEditorDoorProp : MonoBehaviour { }
+public interface IFixtureObjectPlacement { void CreateObject(int child_count); }
+public class ApparanceEntity : MonoBehaviour, IFixtureObjectPlacement
+{
+    public GameObject CreateInstance() => null!;
+    void IFixtureObjectPlacement.CreateObject(int child_count) { }
+}
 public class ActorBehaviour : MonoBehaviour { }
 public class CInteractable : MonoBehaviour { }
 public class CInteractableTile : CInteractable { }
@@ -23,6 +40,7 @@ public class SceneController
 {
     public static SceneController Instance = new();
     public bool IsLoading, ScenarioIsLoading;
+    public void DisableLoadingScreen() { }
 }
 public class Choreographer
 {
@@ -32,7 +50,7 @@ public class Choreographer
 namespace HarmonyLib
 {
     [AttributeUsage(AttributeTargets.Class)] public sealed class HarmonyPatch : Attribute
-    { public HarmonyPatch(Type type, string name) { } }
+    { public HarmonyPatch() { } public HarmonyPatch(Type type, string name) { } }
     internal sealed class TestHarmony { internal void PatchAll(Type type) { } }
 }
 namespace GloomhavenVR.Board.FigureGrab

@@ -17,6 +17,7 @@ def main():
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/scenario-scenery-runtime')
     parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity')))
     parser.add_argument('--no-negative-controls', action='store_true')
+    parser.add_argument('--variant', action='append', help='Run production and only the named negative variant(s); partial coverage')
     args = parser.parse_args()
     if not args.unity.is_file(): parser.error('Real Unity 2021.3.5 is required; this proof cannot silently skip')
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -25,11 +26,27 @@ def main():
     base = args.source_root / 'src/GloomhavenVR/Core'
     scenery = (base / 'Perf/ScenarioSceneryBudget.cs').read_text()
     guard = (base / 'FigureRendererGuard.cs').read_text()
-    sources = {'Scenery.cs': scenery.replace('Time.unscaledTime', 'SceneryClock.Now'), 'FigureGuard.cs': guard}
+    sources = {'Placement.cs': (base / 'Perf/ScenarioDecorativePlacement.cs').read_text(), 'Scenery.cs': scenery.replace('Time.unscaledTime', 'SceneryClock.Now'), 'FigureGuard.cs': guard}
     (run / 'source-hashes.json').write_text(json.dumps({'root': str(args.source_root.resolve()), 'sha256': {key: hashlib.sha256(text.encode()).hexdigest() for key, text in sources.items()}}, indent=2)+'\n')
     variants = [('production', '', '', '', '')]
     if not args.no_negative_controls:
         variants += [
+            ('captured-bay-rejected', 'Scenery.cs', 'if (CanOwnBayCollider(collider))\n                continue;', 'if (CanOwnBayCollider(collider) && false)\n                continue;', 'captured native bay admits every'),
+            ('captured-bay-invisible-box', 'Scenery.cs', '{ collider.enabled = false; BayColliderOwners[collider] = true; }', '{ collider.enabled = true; BayColliderOwners[collider] = true; }', 'zero budgets remove all eleven captured bay'),
+            ('captured-floor-segment-lost', 'Scenery.cs', '|| name.StartsWith("FR_Floor_Grass_Seg_", StringComparison.Ordinal)', '|| false', 'captured native edge keeps solid floor'),
+            ('omit-creation-deferral', 'Placement.cs', 'if (categories == 0 || !Zero(categories)) return false;', 'if (categories == 0 || !Zero(categories) || true) return false;', 'creation prefix defers actual renderer collider'),
+            ('instantiate-zero-prefab', 'Placement.cs', 'var placement = new GameObject(template.name);', 'var placement = UnityEngine.Object.Instantiate(template);', 'creation prefix defers actual renderer collider'),
+            ('lose-restore-pose', 'Placement.cs', 'visual.transform.localScale = Vector3.one;', 'visual.transform.localScale = recipe.Template.transform.localScale;', 'restoration reproduces original pose without'),
+            ('omit-loading-completion', 'Scenery.cs', 'WalkNodes(loading: true, complete: true);', 'WalkNodes(loading: true, complete: false);', 'actual loading-close preparation drains'),
+            ('skip-inactive-reveal', 'Scenery.cs', 'if (root != null) _driver?.PrepareSubtree(root);', 'if (root != null && root.activeInHierarchy) _driver?.PrepareSubtree(root);', 'room reveal prepares inactive'),
+            ('deferred-only-restore-skipped', 'Scenery.cs', 'ScenarioDecorativePlacement.Refresh(complete: false);\n            if (!BudgetActive && _records.Count == 0)', 'if (!BudgetActive && _records.Count == 0) return;\n            ScenarioDecorativePlacement.Refresh(complete: false);\n            if (!BudgetActive && _records.Count == 0)', 'all 100 restores deferred-only'),
+            ('native-parent-prop-deferred', 'Scenery.cs', '|| (native != null && native.PropObject != null)\n                || FigureRendererGuard.CarriesFigureComponent(t)', '|| false\n                || FigureRendererGuard.CarriesFigureComponent(t)', 'native parent PropObject identity protects'),
+            ('unrepresented-parent-deferred', 'Scenery.cs', 'if (!facts.Represented)\n                for (int i = 0; i < facts.Colliders.Length; i++)', 'if (!facts.Represented && false)\n                for (int i = 0; i < facts.Colliders.Length; i++)', 'creation retains decoration representing an unrepresented'),
+            ('generated-creation-provenance-lost', 'Scenery.cs', 'return generated;', 'return generated || true;', 'creation requires actual Generated Content provenance'),
+            ('native-group-parent-deferred', 'Placement.cs', '_leafPlacement = childCount == 0;', '_leafPlacement = childCount <= 1;', 'native child-count group keeps original prefab'),
+            ('unscoped-placement-deferred', 'Placement.cs', '!_insideObjectPlacement || !_leafPlacement || !VRSession.IsRunning', '!VRSession.IsRunning', 'unscoped creation cannot infer native leaf'),
+            ('recipe-density-hash-changed', 'Scenery.cs', 'if (ScenarioDecorativePlacement.IsRestoredRoot(node)) continue;', 'if (ScenarioDecorativePlacement.IsRestoredRoot(node) && false) continue;', 'restored original leaf retains ordinary native density hash'),
+            ('unknown-log-wall-admitted', 'Scenery.cs', '|| name.StartsWith("FR_Wall_Grassy_Verge_Thin_Log_", StringComparison.Ordinal)', '|| name.IndexOf("_Log", StringComparison.OrdinalIgnoreCase) >= 0', 'unproven solid log wall retains original wood geometry'),
             ('old-hex-generator-only', 'Scenery.cs', 'if (!reachedTile || !generated)', 'if (!reachedTile || !generated || unit == null || !unit.name.StartsWith("PCG_FR_Floor_Grass_Hex_", StringComparison.Ordinal))', 'hardware grass outside old Hex generator'),
             ('leaf-collider-hidden', 'Scenery.cs', 'if (blockingCollider)', 'if (blockingCollider && false)', 'disabled retained floor base cannot'),
             ('prop-grass-admitted', 'Scenery.cs', '|| t.GetComponent<ProceduralProp>() != null', '|| false', 'native prop beneath a tree stays protected'),
@@ -37,14 +54,14 @@ def main():
             ('foreign-force-restored', 'Scenery.cs', 'if (!record.Owned && !renderer.forceRenderingOff)', 'if (!record.Owned)', 'restoration clears owned masks'),
             ('active-procgen-only', 'Scenery.cs', '_inScenarioScene = VRSession.IsRunning;', '_inScenarioScene = VRSession.IsRunning && SceneManager.GetActiveScene().name == "ProcGen";', 'decoration budget is independent from grass'),
             ('root-sibling-missed', 'Scenery.cs', 'if (roots[i].GetComponent<ProceduralScenario>() != null)', 'if (roots[i].GetComponent<ProceduralScenario>() != null && false)', 'scene-root native scenario fallback'),
-            ('late-material-missed', 'Scenery.cs', '_driver?.QueueRenderer(mesh);', '{ /* negative: omit native material readiness */ }', 'late native material completion reclassifies'),
+            ('late-material-missed', 'Scenery.cs', '_driver?.PrepareSubtree(mesh.gameObject);\n            _driver?.QueueRenderer(mesh);', '{ /* negative: omit native material readiness */ }', 'late native material completion reclassifies'),
             ('structural-foliage-child-retained', 'Scenery.cs', 'if (foliage && !IsHardStructuralName(renderer.name))', 'if (foliage && !IsHardStructuralName(renderer.name) && false)', 'solid wall LOD represents'),
             ('anonymous-solid-lod-missed', 'Scenery.cs', 'if (RepresentsSolidComposite(member.transform, node))', 'if (IsStructuralName(member.name) || IsGrassBase(member.name))', 'solid wall LOD represents'),
             ('grass-still-capped', 'Scenery.cs', 'Kind.Grass => _density,', 'Kind.Grass => Math.Min(_density, _decorationDensity),', 'decoration budget is independent from grass'),
             ('tree-pillar-retained', 'Scenery.cs', 'if (IsNativeTreeAsset(name))\n            return false;', 'if (IsNativeTreeAsset(name))\n            return name.IndexOf("_Pillar_", StringComparison.OrdinalIgnoreCase) >= 0;', 'hard structural mesh identity'),
-            ('tree-collider-left-on', 'Scenery.cs', 'collider.enabled = false;', 'collider.enabled = true;', 'zero vegetation removes complete native tree pillars'),
+            ('tree-collider-left-on', 'Scenery.cs', 'collider.enabled = false;\n                owner.Owned = true;', 'collider.enabled = true;\n                owner.Owned = true;', 'zero vegetation removes complete native tree pillars'),
             ('mixed-tree-collider-owned', 'Scenery.cs', 'safe &= treeMember;', 'safe &= treeMember || true;', 'zero vegetation retains shared mixed-unit floor collision'),
-            ('native-wall-plant-retained', 'Scenery.cs', 'bool foliageDressing = IsNativeWallPlantLeaf(name)', 'bool foliageDressing = false', 'hardware wall plant leaf'),
+            ('native-wall-plant-retained', 'Scenery.cs', 'bool foliageDressing = IsNativeWallPlantLeaf(name)', 'bool foliageDressing = false', 'captured detachable wall roots'),
             ('foreign-tree-collider-enabled', 'Scenery.cs', 'if (owner.Owned && collider != null && !collider.enabled)', 'if (collider != null && !collider.enabled)', 'vegetation 100 retains foreign disabled tree collision'),
             ('native-tree-inheritance-missed', 'Scenery.cs', 'if (treeCarrier != null)', 'if (treeCarrier != null && (unit == null || IsNativeTreeAsset(unit.name)))', 'hardware-equivalent 17-renderer native tree admits'),
             ('anonymous-tree-floor-admitted', 'Scenery.cs', 'if (IsNativeSceneryAsset(mesh.name)\n            && (IsHardStructuralName(mesh.name) || (!foliage && IsGrassBase(mesh.name))))', 'if (IsNativeSceneryAsset(mesh.name)\n            && (IsHardStructuralName(mesh.name) || (!foliage && IsGrassBase(mesh.name))) && false)', 'anonymous original floor mesh under tree keeps its solid identity'),
@@ -53,6 +70,11 @@ def main():
             ('subtree-cache-retained', 'Scenery.cs', 'finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }', 'finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }', ''),
         ]
         variants = [v for v in variants if v[0] != 'subtree-cache-retained']
+    if args.variant:
+        known = {v[0] for v in variants if v[0] != 'production'}
+        missing = set(args.variant) - known
+        if missing: parser.error('Unknown negative variant(s): ' + ', '.join(sorted(missing)))
+        variants = [v for v in variants if v[0] == 'production' or v[0] in args.variant]
     manifest = {'result': str(run/'results.txt'), 'cases': []}
     dotnet = shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
     for name, filename, before, after, expected in variants:
@@ -77,6 +99,7 @@ def main():
     result=subprocess.run([str(args.unity),'-batchmode','-nographics','-projectPath',str(project),'-executeMethod','InteractionRunner.Start','-interactionManifest',str(manifest_path),'-logFile',str(run/'unity.log')],stdout=subprocess.DEVNULL,stderr=subprocess.STDOUT,timeout=240)
     report=Path(manifest['result'])
     if report.is_file(): print(report.read_text(),end='')
+    (run/'unity-exit-code.txt').write_text(str(result.returncode) + '\n')
     if result.returncode or not report.is_file(): raise SystemExit('FAIL: Unity run; see '+str(run/'unity.log'))
     print('PASS: '+str(len(variants))+' complete production/negative variants; evidence: '+str(run))
 

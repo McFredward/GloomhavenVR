@@ -26,6 +26,12 @@ public static class InteractionProgram
         var leaf = Node(parent, name); leaf.AddComponent<MeshFilter>().sharedMesh = _mesh;
         var renderer = leaf.AddComponent<MeshRenderer>(); renderer.sharedMaterial = foliage ? _foliage : _solid; return renderer;
     }
+    private static MeshRenderer NativeLeaf(Transform parent, string name, string original, bool foliage = true)
+    {
+        var renderer = Leaf(parent, name, foliage);
+        var mesh = UnityEngine.Object.Instantiate(_mesh); mesh.name = original; ExtraMeshes.Add(mesh);
+        renderer.GetComponent<MeshFilter>().sharedMesh = mesh; return renderer;
+    }
     private static string Classify(MeshRenderer renderer, ProceduralMapTile tile)
     {
         object?[] args = { renderer, tile, null, null };
@@ -97,6 +103,44 @@ public static class InteractionProgram
             var wall = Node(tile.transform, "Wall 6"); wall.AddComponent<ProceduralWall>(); wall.AddComponent<BoxCollider>();
             var wallGenerated = Node(wall.transform, "Generated Content");
             var mixed = Node(wallGenerated.transform, "FR_Default_Bay_10");
+            // Captured source metadata is pinned in NativeForestProvenance.json: PCG_Forest
+            // SHA256 29b4994ac122f76fe4bbab53c9f9829e93b038637c9baf485da4cf0d06b56b17.
+            var hardwareBay = Node(mixed.transform, "FR_Default_Bay_10");
+            hardwareBay.transform.localPosition = new Vector3(40,0,0);
+            var bayCollider = hardwareBay.AddComponent<BoxCollider>();
+            var bayMembers = new List<MeshRenderer>();
+            string[] bayNames = {"FR_Tree_02 (3)","FR_Tree_05 (2)","FR_Stones_01 (1)","FR_Floor_LargeBush_07 (3)","FR_Floor_PlantsBushes_04 (2)","FR_Floor_LargeBush_04 (1)","FR_Floor_LargeBush_01 (1)","FR_Floor_LargeBush_04 (2)","FR_Floor_LargeBush_04 (3)","FR_Floor_LargeBush_07 (4)","FR_Floor_LargeBush_07 (5)"};
+            foreach (string name in bayNames)
+            {
+                var member = NativeLeaf(hardwareBay.transform,name,"CR_"+name.Substring(0,name.IndexOf(" (",StringComparison.Ordinal)),false);
+                bayMembers.Add(member);
+                Check(Classify(member,tile)=="Eligible","captured native bay admits every conifer bush and scatter under shared box");
+            }
+            Check(ScenarioSceneryBudget.DecorativeCategories(hardwareBay)==6,"captured native bay proof separates vegetation from dressing");
+            bayCollider.isTrigger=true;
+            Check(Classify(bayMembers[0],tile)=="Effect","captured bay trigger collision is never decorative");bayCollider.isTrigger=false;
+            var bayNative = hardwareBay.AddComponent<UnityGameEditorObject>();bayNative.PropObject=new object();
+            Check(Classify(bayMembers[0],tile)=="Ancestry"&&ScenarioSceneryBudget.DecorativeCategories(hardwareBay)==0,"captured bay with native prop identity cannot bypass gameplay creation");
+            UnityEngine.Object.DestroyImmediate(bayNative);
+            var edge = Node(mixed.transform,"PCG_FR_Floor_Grass_Hex_EdgeTemp_PR");
+            var edgeCollider=edge.AddComponent<BoxCollider>();
+            var edgeBase=NativeLeaf(edge.transform,"FR_Floor_Grass_Seg_L","FR_Floor_Grass_Seg_L",false);
+            var edgeGrass=NativeLeaf(edge.transform,"FR_Floor_Scatter_Grass_Small_01","FR_Floor_Detail_Small_01_Grass");
+            Check(Classify(edgeBase,tile)=="Structural"&&Classify(edgeGrass,tile)=="Eligible","captured native edge keeps solid floor while real grass mesh is optional");
+            Check(ScenarioSceneryBudget.DecorativeCategories(edge)==0,"mixed captured edge cannot be deferred as a decorative prefab");
+            var underRoots=NativeLeaf(mixed.transform,"FR_CW_UnderWall_01_Roots","FR_CW_UnderWall_01_Roots",false);
+            var logWall=Node(mixed.transform,"PCG_FR_Wall_Grassy_Verge_Thin_02_PR");
+            var logWallCollision=logWall.AddComponent<BoxCollider>();
+            var logWallCore=NativeLeaf(logWall.transform,"FR_Wall_Grassy_Verge_Thin_02","FR_Wall_Grassy_Verge_Thin_02",false);
+            var logWallStone=NativeLeaf(logWall.transform,"FR_Wall_Grassy_Verge_Thin_Stone_02","FR_Wall_Grassy_Verge_Thin_Stone_02",false);
+            var wallLog=NativeLeaf(logWall.transform,"FR_Wall_Grassy_Verge_Thin_Log_02","FR_Wall_Grassy_Verge_Thin_Log_02",false);
+            var solidLogWall=NativeLeaf(logWall.transform,"FR_Wall_Solid_Log_01","FR_Wall_Solid_Log_01",false);
+            Check(Classify(solidLogWall,tile)=="Structural","unproven solid log wall retains original wood geometry beside captured detachable log");
+            Check(Classify(logWallCore,tile)=="Structural"&&Classify(logWallStone,tile)=="Structural","captured log wall retains both original solid core and stone member");
+            wallLog.gameObject.AddComponent<BoxCollider>();
+            Check(Classify(wallLog,tile)!="Eligible","a wall log owning structural collision cannot become an invisible wall");
+            UnityEngine.Object.DestroyImmediate(wallLog.GetComponent<BoxCollider>());
+            Check(Classify(underRoots,tile)=="Eligible"&&Classify(wallLog,tile)=="Eligible","captured detachable wall roots and log are vegetation despite solid wood material");
             var tree = Node(mixed.transform, "FR_Tree_05 (2)");
             var treeLeaf = Leaf(tree.transform, "LOD0", false);
             Check(Classify(treeLeaf, tile) == "Eligible", "LOD bark inherits actual decorative tree identity");
@@ -269,6 +313,12 @@ public static class InteractionProgram
             Check(!grass.forceRenderingOff&&!treeLeaf.forceRenderingOff&&caveLod.forceRenderingOff,"decoration budget is independent from grass and vegetation");
             PerfConfig.ScenarioSceneryDensityPercentValue=0; PerfConfig.ScenarioVegetationDensityPercentValue=0; Tick(driver,50);
             Check(grass.forceRenderingOff && treeLeaf.forceRenderingOff && bush.forceRenderingOff && caveLod.forceRenderingOff, "decoration zero hides real generated grass tree and cave LOD meshes");
+            Check(bayMembers.All(r=>r.forceRenderingOff)&&!bayCollider.enabled,"zero budgets remove all eleven captured bay meshes and shared decorative box");
+            Physics.SyncTransforms();
+            Check(!Physics.Raycast(new Ray(new Vector3(40,0,-3),Vector3.forward),out var bayHit,5),"captured zero bay leaves no invisible laser blocker");
+            Check(edgeGrass.forceRenderingOff&&!edgeBase.forceRenderingOff&&edgeCollider.enabled,"zero grass removes captured edge leaf while gameplay floor and collision stay");
+            Check(underRoots.forceRenderingOff&&wallLog.forceRenderingOff&&!logWallCore.forceRenderingOff&&!logWallStone.forceRenderingOff&&logWallCollision.enabled,"zero vegetation removes captured roots and detached log while both structural wall members and collision stay");
+
             Check(foliageLod.forceRenderingOff&&pillarCanopy.forceRenderingOff&&!solidLod.forceRenderingOff&&pillarCore.forceRenderingOff,"full production driver removes complete tree pillars while preserving masonry LODs");
             Check(treeBark.forceRenderingOff&&treeCanopy.forceRenderingOff&&!treeCollision.enabled,"zero vegetation removes complete native tree pillars and their decorative collision");
             Check(generatedTreeBark.forceRenderingOff&&!generatorCollider.enabled,"zero vegetation masks complete tree generator geometry and its dedicated collider");
@@ -300,6 +350,8 @@ public static class InteractionProgram
 
             PerfConfig.ScenarioVegetationDensityPercentValue=100; Tick(driver,50);
             Check(!treeLeaf.forceRenderingOff&&caveLod.forceRenderingOff,"vegetation slider restores trees independently of loose decoration");
+            Check(!bayMembers[0].forceRenderingOff&&!bayMembers[1].forceRenderingOff&&bayMembers[2].forceRenderingOff&&bayCollider.enabled,"restoring captured conifers preserves independent dressing zero and represented collision");
+
             Check(!treeBark.forceRenderingOff&&!treeCanopy.forceRenderingOff&&treeCollision.enabled&&leafTreeCollision.enabled,"vegetation 100 restores all owned tree bark foliage and decorative collision");
             Check(!foreignTreeLeaf.forceRenderingOff&&!foreignTreeCollision.enabled,"vegetation 100 retains foreign disabled tree collision");
             Check(hardwareMembers.All(r=>!r.forceRenderingOff)&&hardwareCollision.enabled,"vegetation 100 restores every named original tree member and its owned collider");
@@ -316,6 +368,119 @@ public static class InteractionProgram
             Check(grass.forceRenderingOff && !treeLeaf.forceRenderingOff, "existing grass key works as an independent grass-only budget");
             Check(!propGrass.forceRenderingOff && !floorBase.forceRenderingOff, "grass slider preserves gameplay props and floor bases");
             PerfConfig.ScenarioVegetationDensityPercentValue=0; PerfConfig.ScenarioDecorationDensityPercentValue=0; Tick(driver,50);
+            // Invoke the actual production creation prefix: a zero-decorative template must
+            // produce a stable native handle/group transform without a real prefab instance.
+            var template=Node(host.transform,"FR_Tree_05");
+            template.transform.localScale=new Vector3(.5f,.25f,.75f);
+            NativeLeaf(template.transform,"FR_Tree_05","CR_FR_Tree_05",false);
+            template.AddComponent<BoxCollider>();template.AddComponent<MaterialLoader>();
+            var prefix=typeof(ApparanceEntity_DecorativePlacementPatch).GetMethod("Prefix",BindingFlags.NonPublic|BindingFlags.Static)!;
+            var pos=new Vector3(4,5,6);var rot=Quaternion.Euler(0,37,0);var scaled=new Vector3(2,3,4);
+            object?[] createArgs={template,pos,scaled,rot,full.transform,null};
+            Check((bool)prefix.Invoke(null,createArgs)!,"unscoped creation cannot infer native leaf versus later instanced group children");
+            var scopePrefix=typeof(ApparanceEntity_ObjectPlacementContextPatch).GetMethod("Prefix",BindingFlags.NonPublic|BindingFlags.Static)!;
+            var scopeFinalizer=typeof(ApparanceEntity_ObjectPlacementContextPatch).GetMethod("Finalizer",BindingFlags.NonPublic|BindingFlags.Static)!;
+            var scopeTarget=typeof(ApparanceEntity_ObjectPlacementContextPatch).GetMethod("TargetMethod",BindingFlags.NonPublic|BindingFlags.Static)!;
+            Check(((MethodBase)scopeTarget.Invoke(null,null)!).Name.EndsWith(".CreateObject",StringComparison.Ordinal),"creation scope resolves the actual explicit native CreateObject method");
+            object?[] groupScope={1,null};scopePrefix.Invoke(null,groupScope);
+            object?[] nestedLeaf={0,null};scopePrefix.Invoke(null,nestedLeaf);
+            Check((bool)typeof(ScenarioDecorativePlacement).GetField("_leafPlacement",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null)!,"nested native leaf receives its own creation scope");
+            scopeFinalizer.Invoke(null,new object?[]{null,nestedLeaf[1]});
+            bool nativeGroupCreates=(bool)prefix.Invoke(null,createArgs)!;
+            Check(nativeGroupCreates,"native child-count group keeps original prefab before instanced children bypass creation prefix and after nested leaf return");
+            // The native child fastpath AddInstance never invokes the prefab prefix. Simulate
+            // that source-proven branch with no second prefix call: the original group's box
+            // must already exist, even if its only subsequent child is a transform group.
+            var untouchedGroup=UnityEngine.Object.Instantiate(template,pos,rot,full.transform);
+            untouchedGroup.transform.localScale=scaled;
+            int nativeMeshInstanceCount=1;
+            var transformGroup=Node(untouchedGroup.transform,"Native CreateGroup child");
+            Check(nativeMeshInstanceCount==1&&transformGroup.transform.parent==untouchedGroup.transform&&untouchedGroup.GetComponent<BoxCollider>().enabled,"instanced-child and CreateGroup fastpaths retain original parent collision without later interception");
+            var nativeFailure=new InvalidOperationException("native placement failure");
+            Check(ReferenceEquals(scopeFinalizer.Invoke(null,new object?[]{nativeFailure,groupScope[1]}),nativeFailure),"native creation finalizer preserves the original exception while closing its scope");
+            createArgs=new object?[]{template,pos,scaled,rot,full.transform,null};
+            Check((bool)prefix.Invoke(null,createArgs)!,"native group exception restores the unscoped conservative creation guard");
+            UnityEngine.Object.DestroyImmediate(untouchedGroup);
+            object?[] leafScope={0,null};scopePrefix.Invoke(null,leafScope);
+            int beforeLoads=MaterialLoader.Instances;
+            bool nativeCreates=(bool)prefix.Invoke(null,createArgs)!;
+            var receipt=(GameObject)createArgs[5]!;
+            Check(!nativeCreates&&receipt.GetComponentsInChildren<MeshRenderer>(true).Length==0&&receipt.GetComponentsInChildren<Collider>(true).Length==0,"creation prefix defers actual renderer collider and material instances at zero");
+            Check(MaterialLoader.Instances==beforeLoads&&receipt.GetComponents<MonoBehaviour>().Length==0,"zero creation never instantiates original native material callbacks");
+            Check(receipt.transform.position==pos&&Quaternion.Angle(receipt.transform.rotation,rot)<.001f&&receipt.transform.localScale==scaled,"deferred native placement retains original world pose and scale");
+            receipt.name="Native generated handle name";
+            var emittedGroup=Node(receipt.transform,"Native emitted child group");
+            Check(ScenarioDecorativePlacement.DeferredObjects==1&&ScenarioDecorativePlacement.DeferredRenderers==1,"deferred creation records actual avoided prefab and renderer counts");
+            var bayTemplate=UnityEngine.Object.Instantiate(hardwareBay,host.transform,false);
+            bayTemplate.name="FR_Default_Bay_10";bayTemplate.GetComponent<BoxCollider>().enabled=true;
+            foreach(var member in bayTemplate.GetComponentsInChildren<MeshRenderer>(true)) member.forceRenderingOff=false;
+            createArgs=new object?[]{bayTemplate,pos,scaled,rot,full.transform,null};
+            Check(!(bool)prefix.Invoke(null,createArgs)!,"captured eleven-member native conifer bay defers whole decorative prefab creation at zero");
+            var bayReceipt=(GameObject)createArgs[5]!;
+            Check(bayReceipt.GetComponentsInChildren<MeshRenderer>(true).Length==0&&bayReceipt.GetComponentsInChildren<Collider>(true).Length==0&&ScenarioDecorativePlacement.DeferredObjects==2&&ScenarioDecorativePlacement.DeferredRenderers==12,"captured native bay records eleven actually avoided renderer instances and no shared invisible box");
+            PerfConfig.ScenarioVegetationDensityPercentValue=100;Tick(driver,5);
+            var restoredVisual=receipt.GetComponentsInChildren<MeshRenderer>(true).Single();
+            Check(receipt.name=="Native generated handle name"&&emittedGroup.transform.parent==receipt.transform&&restoredVisual.transform.parent!.parent==receipt.transform,"restoration retains native handle name and subsequently emitted group identity");
+            Check(restoredVisual.GetComponent<MeshFilter>().sharedMesh==template.GetComponentInChildren<MeshFilter>().sharedMesh&&restoredVisual.sharedMaterial==_solid&&!restoredVisual.forceRenderingOff,"restoration instantiates exact original mesh material and full tree hierarchy");
+            Check(restoredVisual.transform.parent!.localScale==Vector3.one&&receipt.transform.localScale==scaled,"restoration reproduces original pose without applying template scale twice");
+            Check(MaterialLoader.Instances==beforeLoads+1,"restoration runs original material component lifecycle on demand");
+            Check(bayReceipt.GetComponentsInChildren<MeshRenderer>(true).Length==11&&bayReceipt.GetComponentInChildren<BoxCollider>().enabled,"captured native bay restores all eleven original visual members and shared collision when vegetation returns");
+            PerfConfig.ScenarioVegetationDensityPercentValue=0;Tick(driver,10);
+            Check(restoredVisual.forceRenderingOff,"restored recipe remains reversible when zero vegetation is selected again");
+            Check(bayReceipt.GetComponentsInChildren<MeshRenderer>(true).All(r=>r.forceRenderingOff)&&!bayReceipt.GetComponentInChildren<BoxCollider>().enabled,"restored captured bay removes every optional member and owns its invisible collider again at zero");
+            var hash=typeof(ScenarioSceneryBudget).GetMethod("StableHash",BindingFlags.NonPublic|BindingFlags.Static)!;
+            var hashLeaf=restoredVisual.transform;
+            var hashNative=Node(full.transform,receipt.name);
+            hashNative.transform.SetSiblingIndex(receipt.transform.GetSiblingIndex());
+            var hashNativeLeaf=Node(hashNative.transform,hashLeaf.name);
+            uint nativeHash=(uint)hash.Invoke(null,new object[]{hashNativeLeaf.transform,tile})!;
+            UnityEngine.Object.DestroyImmediate(hashNative);
+            uint restoredHash=(uint)hash.Invoke(null,new object[]{hashLeaf,tile})!;
+            Check(nativeHash==restoredHash,"restored original leaf retains ordinary native density hash without recipe wrapper");
+            template.SetActive(false);
+            createArgs=new object?[]{template,pos,scaled,rot,full.transform,null};
+            Check((bool)prefix.Invoke(null,createArgs)!,"authored inactive template keeps native activation semantics");template.SetActive(true);
+            var nativeParent=Node(full.transform,"Native cached prop parent");
+            nativeParent.AddComponent<UnityGameEditorObject>().PropObject=new object();
+            createArgs=new object?[]{template,pos,scaled,rot,nativeParent.transform,null};
+            Check((bool)prefix.Invoke(null,createArgs)!,"native parent PropObject identity protects gameplay creation without ProceduralProp");
+            var collidingParent=Node(full.transform,"Native colliding generated group");collidingParent.AddComponent<BoxCollider>();
+            createArgs=new object?[]{template,pos,scaled,rot,collidingParent.transform,null};
+            Check((bool)prefix.Invoke(null,createArgs)!,"creation retains decoration representing an unrepresented native ancestor collider");
+            createArgs=new object?[]{template,pos,scaled,rot,tile.transform,null};
+            Check((bool)prefix.Invoke(null,createArgs)!,"creation requires actual Generated Content provenance before deferring a template");
+            var unknown=template.AddComponent<UnknownNativeCallback>();
+            createArgs=new object?[]{template,pos,scaled,rot,full.transform,null};
+            Check((bool)prefix.Invoke(null,createArgs)!&&createArgs[5]==null,"unknown prefab callbacks keep original native creation");UnityEngine.Object.DestroyImmediate(unknown);
+            var foreignCallback=template.AddComponent<ForeignCallbacks.MaterialLoader>();
+            createArgs=new object?[]{template,pos,scaled,rot,full.transform,null};
+            Check((bool)prefix.Invoke(null,createArgs)!,"foreign component named MaterialLoader cannot impersonate the native visual callback");
+            UnityEngine.Object.DestroyImmediate(foreignCallback);
+            createArgs=new object?[]{template,pos,scaled,rot,host.transform,null};
+            Check((bool)prefix.Invoke(null,createArgs)!,"map UI NPC and other non-scenario destinations retain native creation");
+            createArgs=new object?[]{edge,pos,scaled,rot,full.transform,null};
+            Check((bool)prefix.Invoke(null,createArgs)!,"creation prefix never denies mixed gameplay floor output");
+            PerfConfig.ScenarioVegetationDensityPercentValue=100;
+            createArgs=new object?[]{template,pos,scaled,rot,full.transform,null};
+            Check((bool)prefix.Invoke(null,createArgs)!,"vegetation 100 always uses native original prefab creation");
+            PerfConfig.ScenarioVegetationDensityPercentValue=0;
+            scopeFinalizer.Invoke(null,new object?[]{null,leafScope[1]});
+            // A delayed population larger than the ordinary per-frame traversal budget must
+            // finish before the real loading UI closes, without a later +2-second catch-up.
+            var loadingLeaves=new List<MeshRenderer>();
+            for(int i=0;i<1400;i++)loadingLeaves.Add(Leaf(full.transform,"FR_Floor_Detail_Grass_01 (load "+i+")"));
+            ScenarioSceneryBudget.BeforeLoadingComplete();
+            Check(loadingLeaves.All(r=>r.forceRenderingOff),"actual loading-close preparation drains every pending visual before UI hide");
+            Check(!((bool)driver.GetType().GetField("_settlePending",Private)!.GetValue(driver)!),"actual loading-close preparation cancels visible post-load settled retry");
+            foreach(var loadLeaf in loadingLeaves)UnityEngine.Object.DestroyImmediate(loadLeaf.gameObject);
+            var showLate=Leaf(full.transform,"FR_Floor_Detail_Grass_01 (reveal)");showLate.gameObject.SetActive(false);
+            ScenarioSceneryBudget.BeforeContentShown(showLate.gameObject);
+            Check(showLate.forceRenderingOff&&!showLate.gameObject.activeSelf,"room reveal prepares inactive decorative leaf before native activation");
+            showLate.gameObject.SetActive(true);
+            Check(showLate.forceRenderingOff,"room reveal has no visible first frame of optional grass");
+            // Retain the independent unpatched fallback-edge proof after explicitly restarting
+            // native loading, so a broken Harmony registration cannot silently omit discovery.
+            SceneController.Instance.IsLoading=true;Tick(driver);
             var late=Leaf(full.transform,"FR_Floor_PlantsBushes_02");
             Check(!late.forceRenderingOff, "late fixture begins unmasked before native placement");
             SceneController.Instance.IsLoading=false; Tick(driver,10);
@@ -351,8 +516,8 @@ public static class InteractionProgram
             ScenarioSceneryBudget.ContentPlaced(tile); Tick(driver,100);
             Check(!materialLate.forceRenderingOff,"native floor-grass placeholder is initially preserved before material completion");
             materialLate.sharedMaterial=_foliage;
-            ScenarioSceneryBudget.MaterialsReady(materialLate); Tick(driver,20);
-            Check(materialLate.forceRenderingOff,"late native material completion reclassifies exact leaf without placement or global polling");
+            ScenarioSceneryBudget.MaterialsReady(materialLate);
+            Check(materialLate.forceRenderingOff,"late native material completion reclassifies before any rendered frame or global polling");
             int unique=Value(driver,"_meshRenderers");
             for(int i=0;i<100;i++)ScenarioSceneryBudget.ContentPlaced(tile);
             Check(Count(driver,"_pending")==1,"repeated native tile notifications deduplicate pending discovery");
@@ -368,6 +533,15 @@ public static class InteractionProgram
             Check(!grass.forceRenderingOff,"local held decoration restores immediately before bounded ancestry watch"); HeldProps.Held=null;
             treeLeaf.transform.SetParent(host.transform,false); Tick(driver,30);
             Check(!treeLeaf.forceRenderingOff,"reparented decoration no longer retains scenery mask");
+            createArgs=new object?[]{template,pos,scaled,rot,full.transform,null};
+            leafScope=new object?[]{0,null};scopePrefix.Invoke(null,leafScope);
+            Check(!(bool)prefix.Invoke(null,createArgs)!,"deferred-only recovery fixture actually skips original creation");
+            scopeFinalizer.Invoke(null,new object?[]{null,leafScope[1]});
+            var deferredOnly=(GameObject)createArgs[5]!;
+            driver.GetType().GetMethod("RestoreAll",BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(driver,null);
+            PerfConfig.ScenarioSceneryDensityPercentValue=100;PerfConfig.ScenarioVegetationDensityPercentValue=100;PerfConfig.ScenarioDecorationDensityPercentValue=100;
+            Tick(driver,3);
+            Check(deferredOnly.GetComponentsInChildren<MeshRenderer>(true).Length==1,"all 100 restores deferred-only scenes even with no renderer records");
             VRSession.IsRunning=false; Tick(driver);
             Check(bulk.All(r=>!r.forceRenderingOff)&&foreign.forceRenderingOff,"VR shutdown restores every owned live renderer only");
             Check(treeCollision.enabled&&leafTreeCollision.enabled&&mixedTreeCollision.enabled&&!foreignTreeCollision.enabled,"VR shutdown restores all owned tree colliders and preserves native floor and foreign masks");

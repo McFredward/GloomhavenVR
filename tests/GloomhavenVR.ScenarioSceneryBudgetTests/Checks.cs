@@ -37,6 +37,47 @@ internal static partial class ScenarioSceneryBudget
         Check(Inspect(Leaf(pure.transform,"FR_Floor_Scatter_Grass_Small_01"),tile)==Verdict.Effect,"pure colliding decoration remains represented");
         var wall=Node(tile.transform,"Wall 6");wall.AddComponent<ProceduralWall>();wall.AddComponent<Collider>();
         var mixed=Node(Node(wall.transform,"Generated Content").transform,"FR_Default_Bay_10");
+        // Read-only PCG_Forest.asset.bundle provenance is pinned in NativeForestProvenance.json.
+        // This is the hardware's real 11-member bay and shared box, not a single-tree proxy.
+        var hardwareBay=Node(mixed.transform,"FR_Default_Bay_10");
+        var bayCollision=hardwareBay.AddComponent<Collider>();
+        var bayMembers=new System.Collections.Generic.List<MeshRenderer>();
+        string[] bayNames={"FR_Tree_02 (3)","FR_Tree_05 (2)","FR_Stones_01 (1)","FR_Floor_LargeBush_07 (3)","FR_Floor_PlantsBushes_04 (2)","FR_Floor_LargeBush_04 (1)","FR_Floor_LargeBush_01 (1)","FR_Floor_LargeBush_04 (2)","FR_Floor_LargeBush_04 (3)","FR_Floor_LargeBush_07 (4)","FR_Floor_LargeBush_07 (5)"};
+        foreach(string name in bayNames)
+        {
+            var member=Leaf(hardwareBay.transform,name,false);
+            string original="CR_"+name.Substring(0,name.IndexOf(" (",StringComparison.Ordinal));
+            member.GetComponent<MeshFilter>()!.sharedMesh!.name=original;
+            bayMembers.Add(member);
+            Check(Inspect(member,tile)==Verdict.Eligible,"captured native bay admits every tree bush scatter despite shared box");
+        }
+        Check(DecorativeCategories(hardwareBay)==6,"native bay whole-prefab proof requires vegetation and dressing controls");
+        var bayRecords=new System.Collections.Generic.List<Record>();
+        foreach(var member in bayMembers)bayRecords.Add(new Record{Renderer=member,BayColliders=BayCollidersFor(member)});
+        SetHidden(bayRecords[0],true);
+        Check(bayCollision.enabled,"partially visible native bay keeps represented shared collision");
+        foreach(var bayRecord in bayRecords)SetHidden(bayRecord,true);
+        Check(!bayCollision.enabled,"zero captured bay removes shared decorative collision after last visual member");
+        SetHidden(bayRecords[1],false);
+        Check(bayCollision.enabled,"restoring one bay tree restores original collision immediately");
+        foreach(var bayRecord in bayRecords)SetHidden(bayRecord,false);
+        bayCollision.enabled=false;foreach(var bayRecord in bayRecords)SetHidden(bayRecord,true);
+        foreach(var bayRecord in bayRecords)SetHidden(bayRecord,false);
+        Check(!bayCollision.enabled,"native bay restoration preserves foreign collider disable");bayCollision.enabled=true;
+        bayCollision.isTrigger=true;
+        Check(Inspect(bayMembers[0],tile)==Verdict.Effect,"native bay trigger cannot be treated as decorative box");bayCollision.isTrigger=false;
+        hardwareBay.AddComponent<ActorBehaviour>();
+        Check(Inspect(bayMembers[0],tile)==Verdict.Ancestry&&DecorativeCategories(hardwareBay)==0,"native gameplay identity vetoes whole bay deferred creation");
+        var edge=Node(mixed.transform,"PCG_FR_Floor_Grass_Hex_EdgeTemp_PR");edge.AddComponent<Collider>();
+        var edgeBase=Leaf(edge.transform,"FR_Floor_Grass_Seg_L",false);
+        edgeBase.GetComponent<MeshFilter>()!.sharedMesh!.name="FR_Floor_Grass_Seg_L";
+        var edgeGrass=Leaf(edge.transform,"FR_Floor_Scatter_Grass_Small_01");
+        edgeGrass.GetComponent<MeshFilter>()!.sharedMesh!.name="FR_Floor_Detail_Small_01_Grass";
+        Check(Inspect(edgeBase,tile)==Verdict.Structural&&Inspect(edgeGrass,tile)==Verdict.Eligible,"captured edge keeps original solid floor segment and removes real grass mesh");
+        Check(DecorativeCategories(edge)==0,"mixed native edge floor cannot be deferred as decoration");
+        var rootsWood=Leaf(mixed.transform,"FR_CW_UnderWall_01_Roots",false);
+        rootsWood.GetComponent<MeshFilter>()!.sharedMesh!.name="FR_CW_UnderWall_01_Roots";
+        Check(Inspect(rootsWood,tile)==Verdict.Eligible,"captured underwall roots are detachable vegetation beside retained rock wall");
         var tree=Node(mixed.transform,"FR_Tree_05 (2)");var bark=Leaf(tree.transform,"LOD0",false);
         Check(Inspect(bark,tile)==Verdict.Eligible,"LOD bark inherits decorative tree identity");
         Check(Inspect(Leaf(mixed.transform,"FR_Floor_LargeBush_07 (4)"),tile)==Verdict.Eligible,"hardware large bush names are admitted");

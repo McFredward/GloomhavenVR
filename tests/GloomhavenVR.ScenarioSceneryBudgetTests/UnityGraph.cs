@@ -67,6 +67,7 @@ namespace UnityEngine
     internal class Rigidbody:Component { }
     internal class Collider:Component { internal bool enabled=true; internal bool isTrigger; internal Rigidbody? attachedRigidbody; }
     internal class MeshCollider:Collider { internal Mesh? sharedMesh; }
+    internal class LODGroup:Component { }
     internal class Light:Component { }
     internal class Animator:Component { }
     internal class ParticleSystem:Component { }
@@ -82,6 +83,11 @@ namespace UnityEngine.SceneManagement
         internal UnityEngine.GameObject[] GetRootGameObjects()=>Roots.ToArray();
     }
 }
+internal class MaterialLoader:UnityEngine.MonoBehaviour { }
+internal class DetailsDisabler:UnityEngine.MonoBehaviour { }
+internal class DetailLevelDisableProvider:UnityEngine.MonoBehaviour { }
+internal class ImportantObjectsShadowsDisabler:UnityEngine.MonoBehaviour { }
+internal class PropObjectsShadowsDisabler:UnityEngine.MonoBehaviour { }
 internal class ProceduralBase:UnityEngine.MonoBehaviour { }
 internal class ProceduralMapTile:ProceduralBase { }
 internal class ProceduralScenario:UnityEngine.MonoBehaviour { }

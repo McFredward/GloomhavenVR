@@ -33,14 +33,14 @@ def production(source):
         'private enum Verdict','private enum Kind','private sealed class Record',
         'private readonly struct ColliderFacts', 'private sealed class TreeColliderOwner',
         'private static void SetHidden(', 'private static void ClaimTreeColliders(', 'private static void ReleaseTreeColliders(', 'private static Verdict Classify(',
-        'private static bool HasUnrepresentedCollider(', 'private static bool CanOwnTreeCollider(', 'private static Transform? NativeTreeCarrier(', 'private static ColliderFacts ReadColliderFacts(',
+        'private static bool CanOwnBayCollider(', 'private static Collider[] BayCollidersFor(', 'private static void RefreshBayCollider(', 'internal static int DecorativeCategories(', 'private static bool HasUnrepresentedCollider(', 'private static bool CanOwnTreeCollider(', 'private static Transform? NativeTreeCarrier(', 'private static ColliderFacts ReadColliderFacts(',
         'private static bool UsesFoliage(', 'private static bool UsesOnlyFoliage(',
         'private static bool RepresentsSolidComposite(', 'private static Kind NamedKind(',
         'private static bool IsHardStructuralName(', 'private static bool IsScenarioTile(',
     )]
     methods += [expression(source,key) for key in (
         'private static bool ShouldHide(', 'private static bool IsStructuralName(', 'private static bool IsGrassBase(',
-        'private static bool IsNativeSceneryAsset(', 'private static bool IsNativeTreeAsset(', 'private static bool IsNativeWallPlantLeaf(', 'private static bool ColliderIsPresent(', 'private static string TreeAssetName(',
+        'private static bool IsNativeWallWoodLeaf(', 'private static bool IsNativeSceneryAsset(', 'private static bool IsNativeTreeAsset(', 'private static bool IsNativeWallPlantLeaf(', 'private static bool ColliderIsPresent(', 'private static string TreeAssetName(',
     )]
     header='''using System; using System.Collections.Generic; using UnityEngine; using UnityEngine.SceneManagement;
 namespace GloomhavenVR.Core;
@@ -51,6 +51,8 @@ private static bool _colliderFactsActive=false;
 private static readonly Dictionary<Transform,ColliderFacts> ColliderReadFacts=new();
 private static readonly Dictionary<Collider,bool> TreeColliderReadFacts=new();
 private static readonly Dictionary<Collider,TreeColliderOwner> TreeColliderOwners=new();
+private static readonly Dictionary<Collider,bool> BayColliderOwners=new();
+private static readonly Dictionary<Collider,bool> BayColliderReadFacts=new();
 '''
     return header+'\n'.join(methods)+'\n}\n'
 
@@ -61,6 +63,9 @@ def main():
     fixture=ROOT/'tests/GloomhavenVR.ScenarioSceneryBudgetTests'
     variants=[('production',source,'')]
     for name,old,new,expected in (
+        ('captured-bay-rejected','if (CanOwnBayCollider(collider))\n                continue;','if (CanOwnBayCollider(collider) && false)\n                continue;','captured native bay admits every'),
+        ('captured-bay-invisible-box','{ collider.enabled = false; BayColliderOwners[collider] = true; }','{ collider.enabled = true; BayColliderOwners[collider] = true; }','zero captured bay removes shared'),
+        ('captured-floor-segment-lost','|| name.StartsWith("FR_Floor_Grass_Seg_", StringComparison.Ordinal)','|| false','captured edge keeps original solid floor segment'),
         ('old-generator-only','if (!reachedTile || !generated)','if (!reachedTile || !generated || unit == null || !unit.name.StartsWith("PCG_FR_Floor_Grass_Hex_", StringComparison.Ordinal))','hardware roots grass'),
         ('leaf-collider-invisible','if (blockingCollider)','if (blockingCollider && false)','disabled retained base'),
         ('native-prop-admitted','|| t.GetComponent<ProceduralProp>() != null','|| false','gameplay obstacle grass'),
@@ -70,9 +75,9 @@ def main():
         ('structural-foliage-child-retained','if (foliage && !IsHardStructuralName(renderer.name))','if (foliage && !IsHardStructuralName(renderer.name) && false)','solid wall LOD represents'),
         ('anonymous-solid-lod-missed','if (RepresentsSolidComposite(member.transform, node))','if (IsStructuralName(member.name) || IsGrassBase(member.name))','solid wall LOD represents'),
         ('tree-pillar-retained','if (IsNativeTreeAsset(name))\n            return false;','if (IsNativeTreeAsset(name))\n            return name.IndexOf("_Pillar_", StringComparison.OrdinalIgnoreCase) >= 0;','solid tree pillar trunk is vegetation'),
-        ('tree-collider-left-on','collider.enabled = false;','collider.enabled = true;','zero tree masks own and suppress'),
+        ('tree-collider-left-on','collider.enabled = false;\n                owner.Owned = true;','collider.enabled = true;\n                owner.Owned = true;','zero tree masks own and suppress'),
         ('mixed-tree-collider-owned','safe &= treeMember;','safe &= treeMember || true;','tree composite with a solid floor cannot'),
-        ('native-wall-plant-retained','bool foliageDressing = IsNativeWallPlantLeaf(name)','bool foliageDressing = false','hardware named wall plant leaf'),
+        ('native-wall-plant-retained','bool foliageDressing = IsNativeWallPlantLeaf(name)','bool foliageDressing = false','captured underwall roots'),
         ('native-tree-inheritance-missed', 'if (treeCarrier != null)', 'if (treeCarrier != null && (unit == null || IsNativeTreeAsset(unit.name)))', 'hardware named native tree assembly admits'),
         ('anonymous-tree-floor-admitted', 'if (IsNativeSceneryAsset(mesh.name)\n            && (IsHardStructuralName(mesh.name) || (!foliage && IsGrassBase(mesh.name))))', 'if (IsNativeSceneryAsset(mesh.name)\n            && (IsHardStructuralName(mesh.name) || (!foliage && IsGrassBase(mesh.name))) && false)', 'anonymous original floor mesh under tree keeps its solid identity'),
         ('completed-tree-wall-boundary-lost', 'return carrier; // outside an already complete tree, the wall/floor is its boundary', 'return null; // negative: surrounding wall incorrectly discards completed tree', 'completed native tree under mixed masonry wrapper remains optional'),
