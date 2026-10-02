@@ -64,7 +64,8 @@ def inventory(root: Path, paths: list[str] | None = None) -> list[dict]:
             raise BuildError("A selected input is missing: " + relative)
         # Source DLL links created by worktree-setup are deliberate read-only dependencies.
         # Other symlinks are not followed into arbitrary private directories.
-        if path.is_symlink() and not relative.startswith(("libs/RuntimeDeps/", "libs/Natives/")):
+        contained_link = path.is_symlink() and root.resolve() in path.resolve().parents
+        if path.is_symlink() and not contained_link and not relative.startswith(("libs/RuntimeDeps/", "libs/Natives/")):
             raise BuildError("A conversion input is an unsupported symlink: " + relative)
         result.append(record_file(path, rel.as_posix()))
     return result

@@ -113,6 +113,22 @@ class IdentityTests(Temporary):
 
 
 class SnapshotTests(Temporary):
+    @unittest.skipIf(os.name == "nt", "Requires symlink creation rights")
+    def test_internal_unity_shared_source_link_is_materialized(self):
+        source = self.root / "source"
+        source.mkdir()
+        (source / "Shared.cs").write_text("public class Shared {}")
+        (source / "Link.cs").symlink_to("Shared.cs")
+        records = storage.inventory(source)
+        target = self.root / "snapshot"
+        storage.snapshot(source, records, target)
+        self.assertFalse((target / "Link.cs").is_symlink())
+        self.assertEqual((target / "Link.cs").read_text(), (target / "Shared.cs").read_text())
+        (self.root / "private").write_text("fixture secret")
+        (source / "Escape.cs").symlink_to("../private")
+        with self.assertRaises(storage.BuildError):
+            storage.inventory(source)
+
     def test_snapshot_is_copied_not_linked_and_rejects_tampering(self):
         source = self.root / "source"
         source.mkdir()
