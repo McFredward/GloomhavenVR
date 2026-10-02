@@ -53,6 +53,24 @@ example, the catalog's WindDemon_main derivative reduces 11,120 to 5,326 triangl
 and 7,652 to 4,755 vertices. This is a catalog example, not a per-renderer live
 identity measurement in the supplied run.
 
+The added package cost is substantial: the 49 banks occupy **294,017,137 bytes**
+installed and **250,866,985 compressed bytes** in the current release ZIP,
+approximately 56% of that 446,748,051-byte archive. These banks cover 409 sources
+across the game and three quality tiers, rather than this one scenario alone.
+The initial zero-detail scenario opens four banks totaling **19,658,570 on-disk
+bytes**, caching 88 unique derivatives for 36 assigned mesh slots. The explicit
+slider experiments subsequently open 13 banks totaling 69,059,124 bytes and cache
+265 derivatives. Banks load their whole mesh group and remain resident for process
+lifetime; the bank byte totals are **not** runtime RAM/GPU-memory measurements.
+See `mesh-package-cost.json` in the retained analysis evidence.
+
+Geometry savings are proved, but the download increase is not yet justified by
+an isolated hardware frame-time benefit. Mesh simplification does not reduce
+renderer count or eliminate native animation/game logic. A CPU/submission-bound
+view may benefit little from fewer triangles. A stable slider A/B measures the
+combined slider behavior (authored LOD caps plus derivatives); it cannot isolate
+the derivative-only benefit unless those original caps are held identical.
+
 Build 605's visible-body counter read cached original mesh sizes; Build 606 reads
 the actual current shared mesh. Therefore the historical 39/125,614 and new
 39/87,647 visible-body totals are **not** a clean instrumentation-equivalent A/B.
