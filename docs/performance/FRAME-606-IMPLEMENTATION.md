@@ -93,3 +93,23 @@ figures, room reveal, vegetation restoration, PC mirror On/Off, VR original wind
 remote observer. Read prepared environment counts and actor vertex counts alongside frame,
 logic and render times. GPU busy time is still unavailable in the supplied 605 recording;
 XR wait/interval measurements must not be labeled GPU busy time.
+
+## Final integrated validation
+
+Runtime commit `9f267b98`: 14/14 source gates, 101/101 local suites with eight jobs
+(631.5 s), 286,760 wire/golden assertions, every bundle/index header and strict Release
+with zero warnings/errors. Runner manifest coverage and log hashes were independently
+verified. Actual Unity environment/desktop/native-figure proofs pass 185/32/82 assertions
+and 19/11/6 runtime defect controls respectively, plus the material-repair binding control.
+
+The compiled comparison against preserved reviewed605 has 21 intended existing behavior
+and config types, eight types with only the inlined build increment, six new helpers and
+an intentional managed serialization reference. No type or embedded resource was removed.
+The historical guard's summary exits 1 for these reviewed changes; all subordinate gates
+passed. The final archive is 446,748,051 bytes; its safe unique paths, DLLs, index, 49 parts
+and main banks were verified byte-for-byte against the tested inputs. Windows installer
+bank validation also ran under actual PowerShell with deliberately invalid index/parts.
+
+Complete logs, exact source/compiled/archive hashes and compact worker evidence remain in
+`.planning/debug/frame606-final-validation/` and `.planning/debug/frame606-worker-evidence/`.
+These checks do not establish a headset picture or a measured FPS improvement.

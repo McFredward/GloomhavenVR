@@ -27,7 +27,21 @@ refresh preserve animation and 100% restoration. Body/FX diagnostics read actual
 meshes. New quality keys start enabled/reduced on Frame, original on PC; existing values stay.
 Install the complete package including the new index/parts, not just a DLL. See
 [Frame606 implementation and limits](../docs/performance/FRAME-606-IMPLEMENTATION.md).
-Final integrated gate is in progress; hardware appearance/FPS remain to measure.
+Final integrated validation passed on runtime commit `9f267b98`: **14/14 source gates,
+101/101 local suites, 286,760 wire/golden assertions**, all three main banks and 49
+indexed figure-part headers, strict Release with zero warnings/errors and five bilingual
+document pairs. Complete local coverage took 631.5 s with eight jobs; independent report
+and log-hash verification passed. Compared with the preserved reviewed605 snapshot,
+21 intended existing behavior/config types, eight inlined-build-only types and six new
+rendering/patch helpers changed; no artifact or embedded resource was removed. The managed
+serialization reference is intentional. Guard summary exit 1 records these reviewed compiled
+changes, not failed subordinate gates. Actual Unity proofs pass 185 environment assertions /
+19 runtime defect controls plus material-repair binding control, 32 desktop assertions / 11
+controls and 82 original-native figure mesh assertions / six controls. The real ZIP verifies
+byte-identical index, all 49 parts, main banks and current DLLs, including Frame launcher
+permissions/text. Retained source, compiled and archive hashes are in
+`.planning/debug/frame606-final-validation/`; compact worker proofs are retained separately.
+Hardware appearance, OpenXR spectator pixels and FPS remain to measure.
 
 Historical hardware basis: the Frame605 run confirms deferred decorative creation (287 native
 instances / 1,234 renderers) and ambient figure-effect suppression. Loaded, tracked windows
