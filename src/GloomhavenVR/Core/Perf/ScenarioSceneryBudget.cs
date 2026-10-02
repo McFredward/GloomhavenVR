@@ -119,15 +119,15 @@ internal static class ScenarioSceneryBudget
 
     /// <summary>Addressables finishes after native placement and can replace placeholder shaders.
     /// Prepare the assigned visual before a camera can render its newly enabled material; the
-    /// fallback queued leaf also covers native structural siblings which just became represented.
-    /// A newly ready structural base also queues its tile so previously unrepresented collider
-    /// composites can be reconsidered once their retained floor becomes visible.
+    /// A newly visible structural base also prepares its nearest shared-collider composite
+    /// synchronously: its grass may already have completed while the box was unrepresented.
+    /// The queued leaf/tile remains a fallback, never the first masking of those ready siblings.
     /// </summary>
     internal static void MaterialsReady(Renderer renderer)
     {
         if (renderer is MeshRenderer mesh && mesh.enabled)
         {
-            _driver?.PrepareSubtree(mesh.gameObject);
+            _driver?.PrepareMaterialReady(mesh);
             _driver?.QueueRenderer(mesh);
         }
     }
@@ -1088,6 +1088,31 @@ internal static class ScenarioSceneryBudget
                 }
             }
             finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); TreeColliderReadFacts.Clear(); BayColliderReadFacts.Clear(); }
+        }
+
+        internal void PrepareMaterialReady(MeshRenderer renderer)
+        {
+            PrepareSubtree(renderer.gameObject);
+            if (!_inScenarioScene || !BudgetActive || !renderer.enabled || renderer.forceRenderingOff
+                || !renderer.gameObject.activeInHierarchy || UsesOnlyFoliage(renderer)) return;
+            // Native MaterialLoaderData completes independently for each renderer. A grass
+            // sibling may have been rejected while this solid floor was still disabled. Only
+            // the nearest original shared box below Generated Content needs immediate recheck;
+            // native tile/wall colliders are always represented and never require this walk.
+            for (Transform? composite = renderer.transform.parent;
+                 composite != null && composite.name != "Generated Content"; composite = composite.parent)
+            {
+                if (composite.GetComponent<ProceduralMapTile>() != null
+                    || composite.GetComponent<ProceduralWall>() != null) continue;
+                Collider[] colliders = composite.GetComponents<Collider>();
+                bool present = false;
+                for (int i = 0; i < colliders.Length; i++)
+                    present |= colliders[i] != null && ColliderIsPresent(colliders[i]);
+                if (!present) continue;
+                if (RepresentsSolidComposite(renderer.transform, composite))
+                    PrepareSubtree(composite.gameObject);
+                return;
+            }
         }
 
         private void UpdateSettings()

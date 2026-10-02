@@ -529,6 +529,25 @@ public static class InteractionProgram
             materialLate.sharedMaterial=_foliage;
             ScenarioSceneryBudget.MaterialsReady(materialLate);
             Check(materialLate.forceRenderingOff,"late native material completion reclassifies before any rendered frame or global polling");
+            // Captured EdgeTemp: grass finishes first while its independently loaded solid
+            // floor remains disabled. Loading completion cannot yet represent the shared box.
+            // A whole-tile retry would cross 9,000 unrelated nodes after the spinner closes.
+            var pendingForest=Node(full.transform,"Pending material forest");
+            for(int i=0;i<9000;i++)Node(pendingForest.transform,"Unrelated native node "+i);
+            var delayedComposite=Node(full.transform,"PCG_FR_Floor_Grass_Hex_EdgeTemp_PR");
+            var delayedCollision=delayedComposite.AddComponent<BoxCollider>();
+            var delayedFloor=NativeLeaf(delayedComposite.transform,"FR_Floor_Grass_Seg_L","FR_Floor_Grass_Seg_L",false);
+            delayedFloor.enabled=false;
+            var delayedGrass=NativeLeaf(delayedComposite.transform,"FR_Floor_Scatter_Grass_Small_01","FR_Floor_Detail_Small_01_Grass");
+            ScenarioSceneryBudget.MaterialsReady(delayedGrass);
+            Check(!delayedGrass.forceRenderingOff,"already-ready grass retains shared collision while native solid floor is still disabled");
+            ScenarioSceneryBudget.BeforeLoadingComplete();
+            Check(!delayedGrass.forceRenderingOff,"loading completion preserves unrepresented box until original solid floor material finishes");
+            delayedFloor.enabled=true;
+            ScenarioSceneryBudget.MaterialsReady(delayedFloor);
+            Check(delayedGrass.forceRenderingOff,"late solid floor masks already-ready shared grass synchronously before any subsequent Update or queued tile walk");
+            Check(delayedFloor.enabled&&!delayedFloor.forceRenderingOff&&delayedCollision.enabled,"late floor sibling preparation retains original solid geometry and shared native collision");
+            UnityEngine.Object.DestroyImmediate(pendingForest);
             int unique=Value(driver,"_meshRenderers");
             for(int i=0;i<100;i++)ScenarioSceneryBudget.ContentPlaced(tile);
             Check(Count(driver,"_pending")==1,"repeated native tile notifications deduplicate pending discovery");
