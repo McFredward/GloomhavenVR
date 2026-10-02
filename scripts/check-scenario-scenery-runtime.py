@@ -27,7 +27,12 @@ def main():
     scenery = (base / 'Perf/ScenarioSceneryBudget.cs').read_text()
     guard = (base / 'FigureRendererGuard.cs').read_text()
     sources = {'Placement.cs': (base / 'Perf/ScenarioDecorativePlacement.cs').read_text(), 'Scenery.cs': scenery.replace('Time.unscaledTime', 'SceneryClock.Now'), 'FigureGuard.cs': guard}
-    (run / 'source-hashes.json').write_text(json.dumps({'root': str(args.source_root.resolve()), 'sha256': {key: hashlib.sha256(text.encode()).hexdigest() for key, text in sources.items()}}, indent=2)+'\n')
+    # Observe entry only; the complete production proof body still runs unchanged. This
+    # distinguishes native fallthrough before proof from an expensive proof returning zero.
+    proof_entry = 'internal static int DecorativeCategories(GameObject root)\n    {'
+    if sources['Scenery.cs'].count(proof_entry) != 1: raise SystemExit('Template proof observer binding drift')
+    sources['Scenery.cs'] = sources['Scenery.cs'].replace(proof_entry, proof_entry + '\n        SceneryTemplateProofProbe.Entries++;', 1)
+    (run / 'source-hashes.json').write_text(json.dumps({'root': str(args.source_root.resolve()), 'sha256': {key: hashlib.sha256(text.encode()).hexdigest() for key, text in sources.items()}, 'test_observers': ['deterministic unscaled clock', 'DecorativeCategories entry counter only']}, indent=2)+'\n')
     variants = [('production', '', '', '', '')]
     if not args.no_negative_controls:
         variants += [
@@ -35,6 +40,7 @@ def main():
             ('captured-bay-invisible-box', 'Scenery.cs', '{ collider.enabled = false; BayColliderOwners[collider] = true; }', '{ collider.enabled = true; BayColliderOwners[collider] = true; }', 'zero budgets remove all eleven captured bay'),
             ('captured-floor-segment-lost', 'Scenery.cs', '|| name.StartsWith("FR_Floor_Grass_Seg_", StringComparison.Ordinal)', '|| false', 'captured native edge keeps solid floor'),
             ('omit-creation-deferral', 'Placement.cs', 'if (categories == 0 || !Zero(categories)) return false;', 'if (categories == 0 || !Zero(categories) || true) return false;', 'creation prefix defers actual renderer collider'),
+            ('all-positive-prefab-walk', 'Placement.cs', 'if (PerfConfig.ScenarioSceneryDensityPercentValue > 0\n            && PerfConfig.ScenarioVegetationDensityPercentValue > 0', 'if (PerfConfig.ScenarioSceneryDensityPercentValue <= 0\n            && PerfConfig.ScenarioVegetationDensityPercentValue > 0', 'all positive budgets retain native creation without template proof'),
             ('instantiate-zero-prefab', 'Placement.cs', 'var placement = new GameObject(template.name);', 'var placement = UnityEngine.Object.Instantiate(template);', 'creation prefix defers actual renderer collider'),
             ('lose-restore-pose', 'Placement.cs', 'visual.transform.localScale = Vector3.one;', 'visual.transform.localScale = recipe.Template.transform.localScale;', 'restoration reproduces original pose without'),
             ('omit-loading-completion', 'Scenery.cs', 'WalkNodes(loading: true, complete: true);', 'WalkNodes(loading: true, complete: false);', 'actual loading-close preparation drains'),

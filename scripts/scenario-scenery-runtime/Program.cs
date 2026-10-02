@@ -463,6 +463,17 @@ public static class InteractionProgram
             PerfConfig.ScenarioVegetationDensityPercentValue=100;
             createArgs=new object?[]{template,pos,scaled,rot,full.transform,null};
             Check((bool)prefix.Invoke(null,createArgs)!,"vegetation 100 always uses native original prefab creation");
+            foreach(int density in new[]{1,50,100})
+            {
+                PerfConfig.ScenarioSceneryDensityPercentValue=density;
+                PerfConfig.ScenarioVegetationDensityPercentValue=density;
+                PerfConfig.ScenarioDecorationDensityPercentValue=density;
+                createArgs=new object?[]{template,pos,scaled,rot,full.transform,null};
+                int proofEntries=SceneryTemplateProofProbe.Entries;
+                Check((bool)prefix.Invoke(null,createArgs)!&&createArgs[5]==null&&SceneryTemplateProofProbe.Entries==proofEntries,"all positive budgets retain native creation without template proof at "+density+" percent");
+            }
+            PerfConfig.ScenarioSceneryDensityPercentValue=0;
+            PerfConfig.ScenarioDecorationDensityPercentValue=0;
             PerfConfig.ScenarioVegetationDensityPercentValue=0;
             scopeFinalizer.Invoke(null,new object?[]{null,leafScope[1]});
             // A delayed population larger than the ordinary per-frame traversal budget must

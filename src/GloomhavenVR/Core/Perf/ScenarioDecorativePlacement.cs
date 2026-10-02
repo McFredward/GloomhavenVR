@@ -77,6 +77,11 @@ internal static class ScenarioDecorativePlacement
                                   Quaternion rotation, Transform parent, out GameObject? result)
     {
         result = null;
+        // Deferral requires zero for every category represented by the prefab. If all
+        // budgets are positive, retain native creation without walking template components.
+        if (PerfConfig.ScenarioSceneryDensityPercentValue > 0
+            && PerfConfig.ScenarioVegetationDensityPercentValue > 0
+            && PerfConfig.ScenarioDecorationDensityPercentValue > 0) return false;
         if (!_insideObjectPlacement || !_leafPlacement || !VRSession.IsRunning
             || template == null || !template.activeSelf || parent == null
             || !ScenarioSceneryBudget.IsScenarioPlacement(parent)) return false;

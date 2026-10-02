@@ -5,7 +5,8 @@ using UnityEngine.SceneManagement;
 
 // Native lifecycle/config transport boundaries are inert. The tests use real Unity transforms,
 // component lookup, Mesh.bounds, materials, colliders and forceRenderingOff. The complete actual
-// production classifier and Driver run unchanged, apart from the deterministic unscaled clock.
+// production classifier and Driver run unchanged, apart from the deterministic unscaled clock
+// and an entry-only template-proof counter inserted by the runner (no decision is replaced).
 public class MaterialLoader : MonoBehaviour
 {
     public static int Instances;
@@ -66,6 +67,7 @@ namespace GloomhavenVR.Board.FigureGrab
 namespace GloomhavenVR.Core
 {
     internal static class SceneryClock { internal static float Now; }
+    internal static class SceneryTemplateProofProbe { internal static int Entries; }
     internal static class VRSession { internal static bool IsRunning = true; internal static HarmonyLib.TestHarmony Harmony = new(); }
     internal static class VRLog
     {
