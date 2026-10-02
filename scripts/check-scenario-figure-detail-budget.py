@@ -101,4 +101,17 @@ require("'miss-steady-ownership'" in runner and "'cancel-native-reset'" in runne
 require("sources['Effects.cs']" in runner and "'-nographics'" not in runner
         and "'keep-particle-solver-running'" in runner and "'skip-particle-mask'" in runner,
         'Complete ambient helper must run with real graphics and simulation/render negative controls')
+bank = (ROOT/'src/GloomhavenVR/Core/Perf/ScenarioFigureMeshBank.cs').read_text()
+for token in ('ScenarioFigureMeshBank.Prepare(players);', 'mesh.Apply(wanted);',
+              'mesh.Restore();', 'actual != null ? actual.vertexCount : 0',
+              'renderer.GetComponent<Cloth>() == null', 'Verified derivatives='):
+    require(token in source, 'Offline original-body derivative boundary: '+token)
+for token in ('if (current != (_applied ?? Original))', 'Resolve(Original, detail) ?? Original',
+              'detail >= 100', 'AssetBundle.LoadFromFile(path)',
+              'SourceKeys.Count >= 2048', 'Missing.Count < 32'):
+    require(token in bank, 'Owned reversible shared mesh boundary: '+token)
+require('ScenarioFigureMeshTopology' not in source+bank,
+        'Expensive mesh simplification is offline only')
+require('.Unload(' not in bank and '.Destroy(' not in bank,
+        'Shared immutable derivatives must outlive local/remote visual twins')
 print(f'PASS: scenario figure-detail boundaries ({checks} assertions; real Unity runtime proof is separate)')

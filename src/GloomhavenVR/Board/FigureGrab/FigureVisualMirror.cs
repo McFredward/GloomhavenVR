@@ -275,6 +275,20 @@ internal sealed class FigureVisualMirror : MonoBehaviour
                 pair.Copy.transform.SetPositionAndRotation(pair.Source.transform.position, pair.Source.transform.rotation);
                 FigureOverlay.MatchCloneWorldScale(pair.Copy.transform, pair.Copy.transform.parent, pair.Source.transform);
             }
+            // A saved optional figure budget can change while a local/remote home ghost or
+            // highlight already exists. Follow the actual source slot instead of retaining a
+            // stale simplified mesh after restoration; shared bank meshes stay alive for every
+            // visual twin. Materials/bones/native controllers are unchanged.
+            if (pair.Source is SkinnedMeshRenderer meshSource && pair.Copy is SkinnedMeshRenderer meshCopy)
+            {
+                if (meshCopy.sharedMesh != meshSource.sharedMesh) meshCopy.sharedMesh = meshSource.sharedMesh;
+                if (meshCopy.quality != meshSource.quality) meshCopy.quality = meshSource.quality;
+            }
+            else if (pair.Source is MeshRenderer && pair.Copy is MeshRenderer
+                     && pair.Source.TryGetComponent(out MeshFilter sourceFilter)
+                     && pair.Copy.TryGetComponent(out MeshFilter copyFilter)
+                     && copyFilter.sharedMesh != sourceFilter.sharedMesh)
+                copyFilter.sharedMesh = sourceFilter.sharedMesh;
             if (pair.Shapes > 0 && pair.Source is SkinnedMeshRenderer from && pair.Copy is SkinnedMeshRenderer to)
                 for (int i = 0; i < pair.Shapes; i++) to.SetBlendShapeWeight(i, from.GetBlendShapeWeight(i));
         }

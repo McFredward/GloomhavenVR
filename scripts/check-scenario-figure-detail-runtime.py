@@ -17,6 +17,7 @@ def main():
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/scenario-figure-detail-runtime')
     parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity')))
     parser.add_argument('--no-negative-controls', action='store_true')
+    parser.add_argument('--case', action='append', help='Run only a named production/negative case; repeat for focused follow-up')
     args = parser.parse_args()
     if not args.unity.is_file(): parser.error('Real Unity 2021.3.5 is required; this proof cannot silently skip')
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -26,10 +27,12 @@ def main():
     figures = (base / 'Perf/ScenarioFigureDetailBudget.cs').read_text()
     sources = {'Figures.cs': figures.replace('Time.unscaledTime', 'FigureClock.Now')}
     sources['Effects.cs'] = (base / 'Perf/ScenarioFigureEffects.cs').read_text()
+    sources['MeshBank.cs'] = (base / 'Perf/ScenarioFigureMeshBank.cs').read_text()
     (run / 'source-hashes.json').write_text(json.dumps({'root': str(args.source_root.resolve()), 'sha256': {key: hashlib.sha256(text.encode()).hexdigest() for key, text in sources.items()}}, indent=2)+'\n')
     variants = [('production', '', '', '', '')]
     if not args.no_negative_controls:
         variants += [
+            ('swap-native-cloth-topology', 'Figures.cs', '&& renderer.GetComponent<Cloth>() == null)', ')', 'large native Cloth topology is never admitted'),
             ('override-local-detail', 'Figures.cs', 'int wanted = restore ? 100 :', 'int wanted = restore || HeldFigures.Owns(Actor) ? 100 :', 'player detail controls only player'),
             ('revive-held-cloth', 'Figures.cs', 'bool cloth = restore || PerfConfig.FigureClothSimulationEnabled;', 'bool cloth = restore || NetHeldFigures.Owns(Actor) || PerfConfig.FigureClothSimulationEnabled;', 'remote hold keeps configured'),
             ('admit-empty-lod', 'Figures.cs', 'if (coarse > 0 && coarse < full) admitted.Add(i);', 'if (coarse < full) admitted.Add(i);', 'empty far-cull LOD'),
@@ -46,12 +49,17 @@ def main():
             ('revive-originally-stopped-fx', 'Effects.cs', 'if (!reduce && !Paused) return;', 'if (!reduce && !Paused) { System.Play(false); return; }', 'originally stopped and paused effects remain'),
             ('keep-alpha-shell', 'Effects.cs', 'foreach (Mask item in _shells) item.Apply(index++ >= keep);', 'foreach (Mask item in _shells) item.Apply(false);', 'late native alpha material completion admits'),
             ('admit-pooled-ability-under-idle', 'Effects.cs', 'if (name.StartsWith("P_", StringComparison.Ordinal)', 'if (false', 'pooled ability under Idle remains'),
-            ('admit-unverified-alpha-body', 'Effects.cs', 'else return false;', 'else return true;', 'core body without authored LOD stays rendered'),
+            ('admit-unverified-alpha-body', 'Effects.cs', 'else return false;', 'else return true;', 'only original native body is admitted'),
             ('lose-fx-restoration', 'Effects.cs', 'internal void Restore() => Apply(100);', 'internal void Restore() => Apply(0);', '100 percent restores only owned native ambient'),
             ('ignore-late-native-material', 'Figures.cs', 'if (renderer != null && renderer.enabled) ScenarioFigureDetailBudget.MaterialReady(renderer);', 'if (renderer != null && renderer.enabled && PerfConfig.FigureEffectsDensityPercent < 0) ScenarioFigureDetailBudget.MaterialReady(renderer);', 'late native alpha material completion admits'),
             ('reject-native-instance-material', 'Effects.cs', 'else if (name.EndsWith("(Instance)", StringComparison.Ordinal))', 'else if (name.EndsWith("(NotNativeInstance)", StringComparison.Ordinal))', 'late native alpha material completion admits'),
             ('adopt-incomplete-native-material', 'Figures.cs', 'if (renderer != null && renderer.enabled) ScenarioFigureDetailBudget.MaterialReady(renderer);', 'if (renderer != null) ScenarioFigureDetailBudget.MaterialReady(renderer);', 'unfinished native material load cannot adopt'),
         ]
+    if args.case:
+        selected = set(args.case)
+        unknown = selected - {case[0] for case in variants}
+        if unknown: parser.error('Unknown case: '+', '.join(sorted(unknown)))
+        variants = [case for case in variants if case[0] in selected]
     manifest = {'result': str(run/'results.txt'), 'cases': []}
     dotnet = shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
     for name, filename, before, after, expected in variants:

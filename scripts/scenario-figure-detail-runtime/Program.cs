@@ -45,6 +45,16 @@ public static class InteractionProgram
         internal Collider Collider=null!;
         internal Animator Animator=null!;
     }
+    private static bool AdmittedMesh(Renderer renderer)
+    {
+        var records=(System.Collections.IEnumerable)driver.GetType().GetField("_actors",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(driver)!;
+        foreach(object record in records)
+        {
+            var slots=(System.Collections.IEnumerable)record.GetType().GetField("MeshDetails",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.GetValue(record)!;
+            foreach(ScenarioFigureMeshBank.Record slot in slots)if(slot.Renderer==renderer)return true;
+        }
+        return false;
+    }
     private static Figure Build(Scene scene,CActor.EType type,bool empty=false,bool withCloth=true)
     {
         var figure=new Figure { Root=Node(null,"Native model "+id++) };
@@ -304,10 +314,28 @@ public static class InteractionProgram
         Tick();Check(Original(hero)&&Original(enemy),"100 percent preserves original native LOD table");
         var recorded=(System.Collections.ICollection)driver.GetType().GetField("_actors",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(driver)!;
         Check(recorded.Count==0,"original settings bypass all actor discovery and per-frame native reflection");
+        Mesh originalClothMesh=Mesh(1204);originalClothMesh.name="Original 1204-vertex solver topology";
+        hero.Cloth.GetComponent<SkinnedMeshRenderer>().sharedMesh=originalClothMesh;
+        var exactBody=Node(hero.Root.transform,"Original body with no authored LOD").AddComponent<SkinnedMeshRenderer>();
+        exactBody.sharedMesh=Mesh(1204);exactBody.sharedMesh.name="Native original body";
+        var exactWeapon=Node(hero.Root.transform,"Native weapon").AddComponent<SkinnedMeshRenderer>();
+        exactWeapon.sharedMesh=Mesh(1204);exactWeapon.sharedMesh.name="WP_Original weapon";
+        var mirrorBody=Node(hero.Root.transform,"VR_existing-home-twin").AddComponent<SkinnedMeshRenderer>();
+        mirrorBody.sharedMesh=exactBody.sharedMesh;
         HeldFigures.Held=hero.Actor;hero.Root.transform.SetParent(null);
         PerfConfig.PlayerFigureDetailPercent=0;PerfConfig.EnemyFigureDetailPercent=100;
         PerfConfig.FigureClothSimulationEnabled=false;Tick();
         Check(Capped(hero,2)&&Original(enemy),"player detail controls only player native LODs");
+        Check(AdmittedMesh(exactBody)&&!AdmittedMesh(exactWeapon)&&!AdmittedMesh(mirrorBody),
+            "only original native body is admitted beside excluded weapon and pre-existing mirror");
+        Check(!AdmittedMesh(hero.Cloth.GetComponent<SkinnedMeshRenderer>())&&hero.Cloth.GetComponent<SkinnedMeshRenderer>().sharedMesh==originalClothMesh,
+            "large native Cloth topology is never admitted even while solver is OFF");
+        int coefficients=hero.Cloth.coefficients.Length;
+        PerfConfig.FigureClothSimulationEnabled=true;Tick();
+        Check(hero.Cloth.enabled&&!AdmittedMesh(hero.Cloth.GetComponent<SkinnedMeshRenderer>())
+            &&hero.Cloth.GetComponent<SkinnedMeshRenderer>().sharedMesh==originalClothMesh&&hero.Cloth.coefficients.Length==coefficients,
+            "Cloth ON restores its solver without changing original mesh or coefficients");
+        PerfConfig.FigureClothSimulationEnabled=false;Tick();
         Check(hero.Root.transform.parent==null&&!hero.Cloth.enabled,
             "quality activation discovers an exact original held actor already detached from board");
         HeldFigures.Held=null;hero.Root.transform.SetParent(board.transform);

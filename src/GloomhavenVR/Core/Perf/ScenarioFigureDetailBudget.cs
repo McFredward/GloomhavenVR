@@ -19,9 +19,12 @@ namespace GloomhavenVR.Core;
 /// This is a mesh-detail cap, not permission to hide random limbs, weapons or whole actors.
 /// The supplied distant Frame figures already resolve to LOD2: no measured gain is claimed.
 ///
-/// Identified authored ambient FX have a separate density control. Body-only models with no
-/// authored coarse mesh remain intact; the Debug summary counts their real visible meshes,
-/// rather than inventing a simplification or attributing a capped near mesh to a far-view gain.
+/// Build606 adds offline topology-constrained ORIGINAL-vertex derivatives, including native
+/// bodies with no authored LOD and beyond the authored far level. Shared immutable derivatives
+/// preserve UV/skin/material topology; renderer slots restore exact originals at 100%. The
+/// bank is prepared at loading/config discovery, never generated during a first grab.
+/// Identified authored ambient FX have a separate density control. Debug evidence samples the
+/// actual current shared mesh rather than a stale capture of the original vertex count.
 /// Held figures (both local and remote) obey the saved mesh detail, effects and cloth OFF choices,
 /// as explicitly requested on 2026-10-02. Neither
 /// map/NPC actors, standalone effects nor UI are admitted. Discovery runs on scene/loading
@@ -225,6 +228,7 @@ internal static class ScenarioFigureDetailBudget
         internal readonly List<ClothRecord> Clothes = new();
         internal ScenarioFigureEffects.Record Effects = null!;
         internal readonly List<KeyValuePair<Renderer, int>> Meshes = new();
+        internal readonly List<ScenarioFigureMeshBank.Record> MeshDetails = new();
         internal int Detail = 100;
         internal bool ClothNative = true;
         internal void Apply(bool restore = false)
@@ -234,6 +238,7 @@ internal static class ScenarioFigureDetailBudget
             bool cloth = restore || PerfConfig.FigureClothSimulationEnabled;
             if (Detail != wanted)
                 foreach (LodRecord lod in Lods) lod.Apply(wanted);
+            foreach (ScenarioFigureMeshBank.Record mesh in MeshDetails) mesh.Apply(wanted);
             Detail = wanted; ClothNative = cloth;
             Effects.Apply(restore ? 100 : PerfConfig.FigureEffectsDensityPercent);
             if (Clothes.Count > 0)
@@ -388,12 +393,20 @@ internal static class ScenarioFigureDetailBudget
             }
             if (!running) { _pending.Clear(); _queued.Clear(); return; }
             int players = PerfConfig.PlayerFigureDetailPercent, enemies = PerfConfig.EnemyFigureDetailPercent;
+            ScenarioFigureMeshBank.Prepare(players); ScenarioFigureMeshBank.Prepare(enemies);
             int effects = PerfConfig.FigureEffectsDensityPercent;
             bool cloth = PerfConfig.FigureClothSimulationEnabled;
             if (_players != players || _enemies != enemies || _effects != effects || _cloth != cloth)
             {
                 _players = players; _enemies = enemies; _effects = effects; _cloth = cloth;
                 Seed(scene); _reportPending = true; _reportAt = Time.unscaledTime + 1f;
+                foreach (ActorRecord record in _actors)
+                {
+                    if (record.Actor == null || record.Root == null) continue;
+                    foreach (ScenarioFigureMeshBank.Record mesh in record.MeshDetails)
+                        if (mesh.Renderer != null && mesh.Original != null)
+                            ScenarioFigureMeshBank.Prepare(mesh.Original, ActorDetail(record.Actor));
+                }
             }
             if (_wasLoading && !loading) Seed(scene);
             _wasLoading = loading;
@@ -411,6 +424,7 @@ internal static class ScenarioFigureDetailBudget
                 if (_actors[i].Actor != null && _actors[i].Root != null) continue;
                 foreach (LodRecord lod in _actors[i].Lods) { lod.Restore(); _lods.Remove(lod); }
                 _actors[i].Effects.Restore();
+                foreach (ScenarioFigureMeshBank.Record mesh in _actors[i].MeshDetails) mesh.Restore();
                 _seen.Remove(_actors[i].Id);
                 _roots.Remove(_actors[i].RootId);
                 foreach (ClothRecord item in _actors[i].Clothes) item.Apply(true, false);
@@ -435,6 +449,7 @@ internal static class ScenarioFigureDetailBudget
                 {
                     int lods = 0, changed = 0, clothes = 0, coarseActors = 0, nativeVertices = 0, chosenVertices = 0;
                     int fx = 0, maskedFx = 0, pausedFx = 0, visibleMeshes = 0, visibleVertices = 0;
+                    int derivedMeshes = 0, sourceBodyVertices = 0, currentBodyVertices = 0;
                     foreach (ActorRecord record in _actors)
                     {
                         lods += record.Lods.Count;
@@ -451,6 +466,13 @@ internal static class ScenarioFigureDetailBudget
                         foreach (ClothRecord item in record.Clothes) if (item.Owned) clothes++;
                         fx += record.Effects.Count; maskedFx += record.Effects.MaskedRenderers;
                         pausedFx += record.Effects.PausedParticles;
+                        foreach (ScenarioFigureMeshBank.Record mesh in record.MeshDetails)
+                        {
+                            Mesh? current = mesh.Current;
+                            if (current == null) continue;
+                            sourceBodyVertices += mesh.Original.vertexCount; currentBodyVertices += current.vertexCount;
+                            if (mesh.UsesDerivative) derivedMeshes++;
+                        }
                         foreach (KeyValuePair<Renderer, int> mesh in record.Meshes)
                         {
                             Renderer renderer = mesh.Key;
@@ -459,7 +481,11 @@ internal static class ScenarioFigureDetailBudget
                             // meshes, including actors without LODs, only when truly unmasked.
                             if (renderer != null && renderer.enabled && renderer.gameObject.activeInHierarchy
                                 && !renderer.forceRenderingOff && renderer.isVisible)
-                            { visibleMeshes++; visibleVertices += mesh.Value; }
+                            {
+                                Mesh? actual = renderer is SkinnedMeshRenderer skin ? skin.sharedMesh
+                                    : renderer.GetComponent<MeshFilter>()?.sharedMesh;
+                                visibleMeshes++; visibleVertices += actual != null ? actual.vertexCount : 0;
+                            }
                         }
                     }
                     VRLog.Debug(Scope, $"Scenario figure detail: players={_players}% enemies={_enemies}% "
@@ -470,6 +496,7 @@ internal static class ScenarioFigureDetailBudget
                         + $"Ambient FX density={_effects}%; {maskedFx} owned renderer(s) masked, {pausedFx} particle solver(s) paused "
                         + $"of {fx} identified optional part(s); last-frame visible unmasked body meshes/vertices "
                         + $"{visibleMeshes}/{visibleVertices} (any camera, including bodies without authored LOD). "
+                        + $"Verified derivatives={derivedMeshes}; original/current admitted body vertices {sourceBodyVertices}/{currentBodyVertices}. "
                         + "Native board models may live in Game while scenery lives in ProcGen; "
                         + "authored LODs may already be coarse at this view.");
                 }
@@ -491,7 +518,21 @@ internal static class ScenarioFigureDetailBudget
                 if (other != null && other != actor) continue;
                 Mesh? mesh = renderer is SkinnedMeshRenderer skinned ? skinned.sharedMesh
                     : renderer is MeshRenderer ? renderer.GetComponent<MeshFilter>()?.sharedMesh : null;
-                if (mesh != null) record.Meshes.Add(new KeyValuePair<Renderer, int>(renderer, mesh.vertexCount));
+                if (mesh != null)
+                {
+                    record.Meshes.Add(new KeyValuePair<Renderer, int>(renderer, mesh.vertexCount));
+                    // Cloth topology feeds native coefficients; weapons and tiny ornaments
+                    // retain original silhouette. Never simplify our visual mirrors themselves.
+                    bool owned = false;
+                    for (Transform? node = renderer.transform; node != null && node != root.transform; node = node.parent)
+                        if (node.name.StartsWith("VR_", StringComparison.Ordinal)) { owned = true; break; }
+                    if (!owned && mesh.vertexCount >= 1000 && !mesh.name.StartsWith("WP_", StringComparison.Ordinal)
+                        && renderer.GetComponent<Cloth>() == null)
+                    {
+                        ScenarioFigureMeshBank.Prepare(mesh, ActorDetail(actor));
+                        record.MeshDetails.Add(new ScenarioFigureMeshBank.Record { Renderer = renderer, Original = mesh });
+                    }
+                }
             }
             foreach (LODGroup group in root.GetComponentsInChildren<LODGroup>(true))
             {
@@ -562,6 +603,8 @@ internal static class ScenarioFigureDetailBudget
                 foreach (LodRecord lod in record.Lods)
                     try { lod.Restore(); } catch { /* destroyed native pieces cannot gate teardown */ }
                 try { record.Effects.Restore(); } catch { /* other actors still restore if a cosmetic disappeared */ }
+                foreach (ScenarioFigureMeshBank.Record mesh in record.MeshDetails)
+                    try { mesh.Restore(); } catch { /* foreign/destroyed slots cannot gate native teardown */ }
                 foreach (ClothRecord item in record.Clothes)
                     try
                     {
