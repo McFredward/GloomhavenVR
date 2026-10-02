@@ -22,6 +22,13 @@ geometry lives in the additive ProcGen scene. Build 603's root.scene == ProcGen
 filter rejected the models on the native board in the separate Game scene.
 The old fixture put both in one scene and could not detect this hardware defect.
 
+The wall census also records 17-renderer `PCG_FR_Pillar_Tree_Trunk_01_PR`
+assemblies with `CR_RU_Vines` children. Treating only names containing `Tree` as
+one density unit leaves these real plant attachments independent, and makes an
+otherwise decorative tree collider look mixed. The review therefore includes
+named vines/grass children in the complete original tree unit, while keeping
+actual floor/masonry and gameplay identities outside it.
+
 Five post-build scenario windows at 3408 pixels per eye average 64.76–102.12 ms
 per frame, with medians 54.81–83.13 ms. Logic averages 36.49–61.73 ms and the measured
 render-loop span 13.83–21.61 ms. Views, options and reprojection rates vary, so
@@ -42,7 +49,8 @@ log. The owner-authored order stream remains in place.
   remains attached through original skinning. Turning ON restores owned native
   cloth state. Native temporary reset/teleport behavior is respected.
 - Vegetation includes complete decorative native trees, including trunks and
-  tree-pillar meshes, rather than treating their tree names as masonry. Dedicated
+  tree-pillar meshes and attached plant layers, rather than treating their tree
+  names as masonry or sampling attached plants separately. Dedicated
   original wall plant layers qualify independently of their solid parent.
 - Suppress only owned picking colliders represented entirely by a hidden
   non-gameplay tree. Shared native wall/floor and gameplay obstacle colliders
@@ -59,7 +67,8 @@ scenario figure controls; no substitute town LOD is introduced.
 
 Focused fixtures now reproduce a separate native Game board and ProcGen geometry,
 completed native actor binding, locally/remotely held settings and cloth ownership,
-plus original decorative tree collider and wall plant composites. Mutations must
+plus original decorative tree collider, named plant assemblies and wall plant
+composites. Mutations must
 fail these causal cases; a passing config-value test is insufficient.
 
 Final integrated validation is recorded here once complete. The next headset run
