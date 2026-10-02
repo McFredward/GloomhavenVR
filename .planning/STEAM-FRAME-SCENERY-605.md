@@ -99,6 +99,31 @@ unchanged.
 
 ## Validation
 
-Final source/runtime, shader and rendered pose evidence will be recorded after
-integration. Automated success alone does not establish headset appearance or a
-playable Frame frame rate.
+The final integrated runtime tree `909c227c` passed **14/14 source gates, 97/97
+local suites, 286,755 wire/golden assertions and all three bundle-format checks**.
+The complete local run took 614.955 s with eight jobs. Source/local suite IDs,
+manifest and every report log hash were independently verified. Strict Release
+builds with zero warnings/errors; five bilingual document pairs remain consistent.
+The historical compiled guard returns 1 for its explained behavior changes, not
+for a failed source/runtime check. Relative to the preserved reviewed Build604
+snapshot, twelve existing types contain the intended behavior/config changes,
+eight differ only in the inlined 604→605 build constant, and eight reviewed helper/
+patch types are added. No type or embedded resource is removed or unexpectedly changed.
+
+Actual Unity production proofs include scenery **179 assertions/37 negative
+controls**, native ambient figure effects **93/21**, and figure overlays **164/12**.
+The overlay proof uses the original Spitting Drake rig, Sleeping_Idle/Flying_Idle
+curves and rendered local/remote pose and alpha pixels. Portable scenery passes
+96 assertions/18 controls; next-load generation passes 19/6; physical figure cloth
+passes 72/12 with no secondary OFF deformation through 50 moving frames. Assertions
+do not substitute for a headset picture or a measured Frame frame rate.
+
+Exact source hashes, source/local reports, full guard/Release output, reviewed
+compiled snapshot and protected runtime evidence paths are retained under
+`.planning/debug/frame605-final-validation/`; packed shader comparison and build
+evidence are retained under `.planning/debug/frame605-bundle-proof/`. An earlier
+complete run was cancelled after discovering the late floor-material ordering gap;
+it is superseded by this final gate. Its unchanged NPC mirror fixture reported one
+capture-cast failure, then passed both its isolated complete rerun and this final
+eight-job gate without source/test relaxation. The earlier partial/cancelled run
+is not counted as successful validation. Hardware logs remain separately immutable.

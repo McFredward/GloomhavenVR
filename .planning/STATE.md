@@ -17,8 +17,20 @@ callbacks, and figure glow/depth retain native cutout alpha instead of exposing
 rectangular VFX surfaces. Saved settings are retained; fresh Frame FX density is
 zero and PC defaults to original. The main bundle changes, so install the complete
 new package. See [STEAM-FRAME-SCENERY-605.md](STEAM-FRAME-SCENERY-605.md).
-Final integrated validation and headset/FPS acceptance are recorded separately;
-post-load hardware windows of 65.61–88.37 ms do not predict Build605 performance.
+Final integrated validation passed on `909c227c`: **14/14 source gates, 97/97 local
+suites, 286,755 wire/golden assertions, all three bundle-format checks**, strict
+Release with zero warnings/errors and five bilingual document pairs. Complete
+local coverage took 614.955 s with eight jobs; manifest IDs and report/log hashes
+were independently verified. Relative to reviewed604, twelve intended existing
+behavior/config types, eight build-constant-only types and eight new rendering/
+patch helper types were reviewed; no type or embedded resource was removed or
+unexpectedly changed. Actual Unity scenery/effects/overlay proofs pass 179/37,
+93/21 and 164/12 assertions/negative controls; overlay pixels use original Drake
+sleep/fly curves locally and remotely. The final gate supersedes the cancelled
+pre-followup run and covers independently completing floor/grass materials.
+Evidence is retained at `.planning/debug/frame605-final-validation/`; headset/FPS
+acceptance remains separate. Supplied post-load windows of 65.61–88.37 ms do not
+predict Build605 performance.
 
 The preceding Build604 integration:
 
