@@ -69,6 +69,16 @@ its MaterialLoader.Start work; the already-resolved source prefab/resource bundl
 still loads. Remaining classification finishes before native loading-screen closure;
 material completion and room reveal also apply the mask before camera presentation.
 
+The native material loader completes each renderer independently; WaitForProcGen
+waits for placement notifications rather than these material handles. Review reproduced
+grass-before-floor completion after loading-screen closure: with 9,000 unrelated
+queued nodes, the ready grass waited 95 ordinary driver updates after its solid floor
+became visible. That is a causal fixture result, not a measured headset duration.
+Material completion now immediately rechecks the nearest affected shared-collider
+composite under Generated Content when a solid member becomes visible. No queued
+tile traversal or native material-wait barrier is needed for this sibling case;
+unrelated map/NPC/UI material callbacks exit through an explicit scenario-tile gate.
+
 The new figure-effects control pauses only identified original ambient solvers and
 masks their optional renderers, including native Wind/Flame supplemental alpha shells.
 Base and elite model provenance is checked. Originally paused/stopped systems, body
