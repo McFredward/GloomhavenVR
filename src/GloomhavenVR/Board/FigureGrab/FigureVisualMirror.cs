@@ -48,7 +48,8 @@ internal sealed class FigureVisualMirror : MonoBehaviour
     }
 
     private readonly List<(Transform Source, Transform Copy)> _transforms = new();
-    private readonly List<(Renderer Source, Renderer Copy, int Shapes, bool Visibility)> _renderers = new();
+    private readonly List<(Renderer Source, Renderer Copy, int Shapes, bool Visibility, bool Masks, bool Ready)> _renderers = new();
+    private readonly List<Material> _readyMaterials = new(4);
     private bool _home;
     internal AnimatorPose[] InitialAnimatorPoses { get; private set; } = System.Array.Empty<AnimatorPose>();
 
@@ -153,6 +154,23 @@ internal sealed class FigureVisualMirror : MonoBehaviour
             parent.gameObject.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
             copy = parent.gameObject.AddComponent<MeshRenderer>();
         }
+        else if (source is SpriteRenderer sprite)
+        {
+            // Native selection art/props can be sprites. Preserve their authored atlas,
+            // geometry and presentation without instantiating any of their native controllers.
+            var target = parent.gameObject.AddComponent<SpriteRenderer>();
+            target.sprite = sprite.sprite;
+            target.color = sprite.color;
+            target.flipX = sprite.flipX;
+            target.flipY = sprite.flipY;
+            target.drawMode = sprite.drawMode;
+            target.size = sprite.size;
+            target.tileMode = sprite.tileMode;
+            target.adaptiveModeThreshold = sprite.adaptiveModeThreshold;
+            target.maskInteraction = sprite.maskInteraction;
+            target.spriteSortPoint = sprite.spriteSortPoint;
+            copy = target;
+        }
         else return null; // Particle/trail/line systems are not a surface ghost.
         copy.sharedMaterials = source.sharedMaterials;
         copy.enabled = source.enabled;
@@ -170,7 +188,7 @@ internal sealed class FigureVisualMirror : MonoBehaviour
     {
         int shapes = source is SkinnedMeshRenderer skin && skin.sharedMesh != null
             ? skin.sharedMesh.blendShapeCount : 0;
-        _renderers.Add((source, copy, shapes, true));
+        _renderers.Add((source, copy, shapes, true, false, Ready(source)));
     }
 
     internal void Retain(List<Renderer> retained, Transform? ring)
@@ -179,8 +197,8 @@ internal sealed class FigureVisualMirror : MonoBehaviour
         {
             var pair = _renderers[i];
             if (!retained.Contains(pair.Copy)) { _renderers.RemoveAt(i); continue; }
-            if (ring != null && (pair.Copy.transform == ring || pair.Copy.transform.IsChildOf(ring)))
-                _renderers[i] = (pair.Source, pair.Copy, pair.Shapes, false);
+            bool preserve = ring != null && (pair.Copy.transform == ring || pair.Copy.transform.IsChildOf(ring));
+            _renderers[i] = (pair.Source, pair.Copy, pair.Shapes, !preserve, !preserve, pair.Ready);
         }
         // A preserved home ring must not follow suppression of the live in-hand ring.
         _transforms.RemoveAll(pair => pair.Copy == null || ModOwned(pair.Copy, transform)
@@ -197,7 +215,13 @@ internal sealed class FigureVisualMirror : MonoBehaviour
     internal void BindDepth(Renderer ghost, Renderer depth)
     {
         for (int i = 0; i < _renderers.Count; i++)
-            if (_renderers[i].Copy == ghost) { Bind(_renderers[i].Source, depth); return; }
+            if (_renderers[i].Copy == ghost)
+            {
+                var pair = _renderers[i];
+                Bind(pair.Source, depth);
+                _renderers[_renderers.Count - 1] = (pair.Source, depth, pair.Shapes, true, true, pair.Ready);
+                return;
+            }
     }
 
     /// <summary>Live highlight parts already share native bones; static props, blend shapes and
@@ -206,6 +230,8 @@ internal sealed class FigureVisualMirror : MonoBehaviour
     {
         var mirror = copy.gameObject.AddComponent<FigureVisualMirror>();
         mirror.Bind(source, copy);
+        var pair = mirror._renderers[0];
+        mirror._renderers[0] = (pair.Source, pair.Copy, pair.Shapes, true, true, pair.Ready);
         mirror.Sync();
     }
 
@@ -222,13 +248,26 @@ internal sealed class FigureVisualMirror : MonoBehaviour
             if (pair.Copy.gameObject.activeSelf != pair.Source.gameObject.activeSelf)
                 pair.Copy.gameObject.SetActive(pair.Source.gameObject.activeSelf);
         }
-        foreach (var pair in _renderers)
+        for (int binding = 0; binding < _renderers.Count; binding++)
         {
+            var pair = _renderers[binding];
             if (pair.Copy == null) continue;
             if (pair.Source == null) { pair.Copy.enabled = false; continue; }
             if (pair.Visibility)
             {
-                pair.Copy.enabled = pair.Source.enabled;
+                bool ready = Ready(pair.Source);
+                // MaterialLoaderData disables native renderers while loading. On the first
+                // ready edge read actual materials/masks once; no sharedMaterials/hierarchy
+                // queries allocate on ordinary steady-state frames.
+                if (pair.Masks && ready && !pair.Ready)
+                {
+                    _readyMaterials.Clear();
+                    pair.Source.GetSharedMaterials(_readyMaterials);
+                    FigureOverlayMasks.Apply(pair.Source, pair.Copy, _readyMaterials);
+                }
+                _renderers[binding] = (pair.Source, pair.Copy, pair.Shapes, pair.Visibility, pair.Masks, ready);
+                pair.Copy.enabled = pair.Source.enabled && (!pair.Source.gameObject.scene.IsValid()
+                    || pair.Source.gameObject.activeInHierarchy);
                 pair.Copy.forceRenderingOff = pair.Source.forceRenderingOff;
             }
             if (!_home)
@@ -242,6 +281,9 @@ internal sealed class FigureVisualMirror : MonoBehaviour
         // The ghost owner is the sole root-pose author. In particular, an updated board/home
         // transform must not be overwritten by a second grab-time pose cached in this mirror.
     }
+
+    private static bool Ready(Renderer renderer) => renderer.enabled && !renderer.forceRenderingOff
+        && (!renderer.gameObject.scene.IsValid() || renderer.gameObject.activeInHierarchy);
 }
 
 /// <summary>Keep each native cutout silhouette and UV mapping when replacing its lighting with
@@ -253,14 +295,14 @@ internal static class FigureOverlayMasks
     private static readonly int MaskST = Shader.PropertyToID("_AlphaMaskTex_ST");
     private static readonly int Cutoff = Shader.PropertyToID("_AlphaMaskCutoff");
 
-    internal static void Apply(Renderer source, Renderer target, Material[] materials)
+    internal static void Apply(Renderer source, Renderer target, IReadOnlyList<Material> materials)
     {
         int count = target.sharedMaterials.Length;
         for (int i = 0; i < count; i++)
         {
             // Unity reuses the last source material when there are fewer materials than
             // submeshes. Keep its cutout on every such submesh, rather than tinting the rest solid.
-            Material? material = materials.Length > 0 ? materials[Mathf.Min(i, materials.Length - 1)] : null;
+            Material? material = materials.Count > 0 ? materials[Mathf.Min(i, materials.Count - 1)] : null;
             var block = new MaterialPropertyBlock();
             if (material != null && IsCutout(material))
             {

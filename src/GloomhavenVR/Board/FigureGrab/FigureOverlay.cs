@@ -171,7 +171,7 @@ internal static class FigureOverlay
         var surfaceCandidates = new List<Renderer>(8);
         foreach (Renderer r in ghost.GetComponentsInChildren<Renderer>(true))
         {
-            if (r == null || !r.gameObject.activeInHierarchy)
+            if (r == null)
                 continue;
             if (r is ParticleSystemRenderer or TrailRenderer or LineRenderer || HasVfxShader(r))
                 continue;
@@ -190,19 +190,10 @@ internal static class FigureOverlay
         {
             if (r == null)
                 continue;
-            // A RENDERER ON AN INACTIVE OBJECT IS NOT GHOST CONTENT (ModBuild 366). It draws
-            // nothing, so tinting it is a no-op the player can never see — but it is counted, it
-            // is given a depth-prepass twin, and it lands in the census. That is not hypothetical:
-            // StripModOwned SetActive(false)s the mod's OWN highlight overlay and Object.Destroy is
-            // deferred to end of frame, so the 2026-09-03 log's 'OneHexObstacle' ghost reported
-            // "26 clone renderer(s), 26 with Renderer.enabled=true, 13 on active objects" — 13 real
-            // renderers and 13 dead 'VROverlay' clones of our own glow. A census that doubles the
-            // count cannot answer "how many renderers does this prop kind contribute".
-            if (!r.gameObject.activeInHierarchy)
-            {
-                inactiveSkipped++;
-                continue;
-            }
+            // Prepare even inactive native surfaces. Native idle/condition clips can activate
+            // them during a hold; leaving their original material here would reveal untinted art
+            // when the evaluated-pose mirror copies activeSelf later in this very frame.
+            if (!r.gameObject.activeInHierarchy) inactiveSkipped++;
             if (r is ParticleSystemRenderer or TrailRenderer or LineRenderer || HasVfxShader(r))
             {
                 // RECORD WHAT WAS KILLED AND WHY. HasVfxShader is a NAME match on the shader
@@ -289,9 +280,8 @@ internal static class FigureOverlay
                       ? $" (+{surfaces.Dropped - surfaceKilled.Count} more)" : string.Empty))
             + (inactiveSkipped == 0
                 ? string.Empty
-                : $" {inactiveSkipped} renderer(s) on INACTIVE objects were skipped outright (they "
-                  + "draw nothing; before ModBuild 366 they were counted, tinted and depth-stamped, "
-                  + "which is why an obstacle ghost reported 26 renderers for 13 real ones).");
+                : $" {inactiveSkipped} inactive native renderer(s) prepared with ghost tint/masks; "
+                  + "their visibility continues to follow the source.");
 
         if (tint.Count == 0)
         {

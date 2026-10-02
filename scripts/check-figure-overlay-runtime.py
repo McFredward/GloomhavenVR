@@ -48,6 +48,8 @@ def main():
             ('highlight-force-off', 'FigureHighlight.cs', 'if (requireEnabled && (!r.enabled || r.forceRenderingOff))', 'if (requireEnabled && !r.enabled)', 'highlight admission respects source forceRenderingOff'),
             ('scroll-native-mask', 'Overlay.shader', 'o.maskUV = TRANSFORM_TEX(v.uv, _AlphaMaskTex);', 'o.maskUV = o.uv;', 'pulse scroll cannot displace native alpha UVs'),
             ('alpha-depth-no-clip', 'Overlay.shader', 'clip(mask - max(_AlphaMaskCutoff, 0.0001));', '// clip removed: depth rectangle', 'zero-alpha texels never stamp rectangular ghost depth'),
+            ('skip-material-ready', 'FigureVisualMirror.cs', 'if (pair.Masks && ready && !pair.Ready)', 'if (false && pair.Masks && ready && !pair.Ready)', 'first material-ready edge refreshes ghost and depth cutout masks'),
+            ('skip-inactive-tint', 'FigureOverlay.cs', 'if (!r.gameObject.activeInHierarchy) inactiveSkipped++;', 'if (!r.gameObject.activeInHierarchy) { inactiveSkipped++; continue; }', 'inactive native surface is tinted before it can activate'),
             ('revive-excluded-subtree', 'FigureVisualMirror.cs', 'pair.Copy == null || ModOwned(pair.Copy, transform)', 'pair.Copy == null', 'excluded mod subtree stays inactive in same-frame sync'),
         ]
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')

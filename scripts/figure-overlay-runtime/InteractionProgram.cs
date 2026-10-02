@@ -187,6 +187,42 @@ public static class InteractionProgram
             Check(FigureGhosts.GhostFor(actor)==null&&!ghost.activeSelf,"action release disables ghost immediately before deferred destroy");
             yield return null;
         }
+        var dormantRoot=new GameObject("native actor with dormant surface");
+        var dormant=Surface("dormant native surface",quad,ringMaterial);dormant.transform.SetParent(dormantRoot.transform,false);dormant.gameObject.SetActive(false);
+        var visible=Surface("visible native surface",quad,plain);visible.transform.SetParent(dormantRoot.transform,false);
+        GameObject dormantGhost=FigureOverlay.BuildFrozenGhost(dormantRoot,Vector3.zero,Quaternion.identity,Vector3.one,FigureOverlay.MakeOverlayMaterial(Color.blue,false)!,out _)!;
+        Renderer dormantCopy=dormantGhost.transform.Find("dormant native surface").GetComponent<Renderer>();
+        Check(dormantCopy.sharedMaterial!=ringMaterial,"inactive native surface is tinted before it can activate");
+        dormant.gameObject.SetActive(true);dormantGhost.GetComponent<FigureVisualMirror>().Sync();
+        Check(dormantCopy.enabled&&dormantCopy.gameObject.activeInHierarchy,"inactive-to-active native surface retains evaluated visibility");
+        Object.DestroyImmediate(dormantGhost);Object.DestroyImmediate(dormantRoot);
+        camera.orthographicSize=1.1f;camera.transform.position=new Vector3(0,0,-5);
+        Renderer loading=Surface("native material loader pending",quad,plain);loading.transform.position=Vector3.right*30;loading.enabled=false;
+        GameObject loadingGhost=FigureOverlay.BuildFrozenGhost(loading.gameObject,Vector3.zero,Quaternion.identity,Vector3.one,FigureOverlay.MakeOverlayMaterial(Color.blue,false)!,out _)!;
+        Check(loadingGhost.GetComponent<Renderer>()!=null&&!loadingGhost.GetComponent<Renderer>().enabled,"pending native material surface remains hidden");
+        loading.sharedMaterial=original;loading.enabled=true;loadingGhost.GetComponent<FigureVisualMirror>().Sync();
+        foreach(Renderer r in loadingGhost.GetComponentsInChildren<Renderer>())
+        {
+            var block=new MaterialPropertyBlock();r.GetPropertyBlock(block,0);
+            Check(block.GetFloat("_UseAlphaMask")==1&&block.GetTexture("_AlphaMaskTex")==mask,"first material-ready edge refreshes ghost and depth cutout masks");
+        }
+        int loadedPixels=Lit(Picture("native-material-ready-cutout"));Check(loadedPixels>alpha*.9&&loadedPixels<alpha*1.1,"native material readiness cannot reveal rectangular ghost pixels");
+        Object.DestroyImmediate(loadingGhost);Object.DestroyImmediate(loading.gameObject);
+        Renderer highlightSource=Surface("native highlight material readiness",quad,plain);
+        var highlightContainer=new GameObject("production highlight container");
+        Renderer highlightCopy=Surface("live highlight readiness",quad,glow);highlightCopy.transform.SetParent(highlightContainer.transform,false);FigureOverlayMasks.Apply(highlightSource,highlightCopy,new[]{plain});FigureVisualMirror.BindHighlight(highlightSource,highlightCopy);
+        highlightSource.enabled=false;highlightCopy.GetComponent<FigureVisualMirror>().Sync();Check(!highlightCopy.enabled,"native loading disables its existing highlight immediately");
+        highlightSource.sharedMaterial=original;highlightSource.enabled=true;highlightCopy.GetComponent<FigureVisualMirror>().Sync();
+        var highlightMask=new MaterialPropertyBlock();highlightCopy.GetPropertyBlock(highlightMask,0);
+        Check(highlightCopy.enabled&&highlightMask.GetFloat("_UseAlphaMask")==1&&highlightMask.GetTexture("_AlphaMaskTex")==mask,"material-ready edge refreshes the live highlight mask");
+        Object.DestroyImmediate(highlightSource.gameObject);Object.DestroyImmediate(highlightContainer);
+        var spriteSource=new GameObject("native sprite ring");var sprite=spriteSource.AddComponent<SpriteRenderer>();
+        sprite.sprite=Sprite.Create(mask,new Rect(0,0,32,32),new Vector2(.5f,.5f));sprite.color=Color.cyan;sprite.flipX=true;sprite.sharedMaterial=ringMaterial;
+        GameObject spriteGhost=FigureOverlay.BuildFrozenGhost(spriteSource,Vector3.zero,Quaternion.identity,Vector3.one,FigureOverlay.MakeOverlayMaterial(Color.blue,false)!,out _,spriteSource.transform)!;
+        var spriteCopy=spriteGhost.GetComponent<SpriteRenderer>();
+        Check(spriteCopy!=null&&spriteCopy.sprite==sprite.sprite&&spriteCopy.color==sprite.color&&spriteCopy.flipX,"native sprite selection art preserves original presentation");
+        Check(spriteCopy!.sharedMaterial==ringMaterial,"native sprite ring preserves exact original material");
+        Object.DestroyImmediate(spriteGhost);Object.DestroyImmediate(spriteSource);
         source.transform.position=Vector3.zero;
         Renderer body=source.GetComponentsInChildren<SkinnedMeshRenderer>().First(r=>r.sharedMesh.vertexCount>1000);body.forceRenderingOff=true;
         var highlight=new FigureHighlight();highlight.Apply(source,source,null,"native force off",out _);
