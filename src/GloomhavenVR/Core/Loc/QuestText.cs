@@ -30,6 +30,9 @@ public static class QuestText
             case "model": return german ? "Originalmodell · Shaderdarstellung noch zu prüfen" : "Original model · shader appearance requires verification";
             case "storage": return german ? "Speicherprüfung" : "Storage test";
             case "performance": return german ? "Bildrate" : "Frame rate";
+            case "steamId": return german ? "Steam-ID" : "Steam ID";
+            case "mrActive": return german ? "Mixed Reality aktiv" : "Mixed reality active";
+            case "vrActive": return german ? "VR aktiv" : "VR active";
             default: throw new ArgumentOutOfRangeException(nameof(key), key, "Unknown Quest text key");
         }
     }

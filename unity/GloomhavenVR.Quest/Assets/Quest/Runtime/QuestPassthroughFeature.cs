@@ -72,7 +72,11 @@ namespace GloomhavenVR.Quest
         }
         public static bool SetEnabled(bool enabled)
         {
-            if (!Available) return false;
+            if (!Available)
+            {
+                Debug.LogWarning("[GloomhavenVR Quest] passthrough unavailable; requested=" + enabled);
+                return false;
+            }
             bool active = ghvr_quest_enable(enabled ? 1 : 0) == 1;
             Debug.Log("[GloomhavenVR Quest] passthrough requested=" + enabled + " active=" + active + " result=" + ghvr_quest_error());
             return active;

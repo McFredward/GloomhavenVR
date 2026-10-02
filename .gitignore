@@ -1,6 +1,6 @@
 # Game files & decompiled sources — never committed
 ressources/
-decompiled/
+decompiled
 *.dll
 
 # ...EXCEPT the stripped reference assemblies. These are metadata-only stubs

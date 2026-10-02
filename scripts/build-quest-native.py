@@ -58,8 +58,9 @@ def main():
     subprocess.run([str(compiler), "-std=c++17", "-O2", "-fPIC", "-shared", "-fvisibility=hidden",
                     "-static-libstdc++", "-Wl,--no-undefined", "-Wl,-soname,libghvr_quest_passthrough.so",
                     "-I", str(include), str(source), "-o", str(temporary)], check=True)
-    if temporary.read_bytes()[:5] != b"\x7fELF\x02":
-        raise RuntimeError("Native output is not a 64-bit ELF library")
+    header = temporary.read_bytes()[:20]
+    if header[:6] != b"\x7fELF\x02\x01" or header[18:20] != b"\xb7\x00":
+        raise RuntimeError("Native output is not a little-endian ARM64 ELF library")
     os.replace(temporary, output)
     receipt = {"schema": 1, "abi": "arm64-v8a", "headerTag": TAG,
                "sourceSha256": hashlib.sha256(source.read_bytes()).hexdigest(),

@@ -1357,6 +1357,30 @@
         "ci"
       ],
       "weight": 1
+    },
+    {
+      "id": "quest-builder",
+      "command": ["python3", "-m", "unittest", "discover", "-s", "tests/quest-builder", "-p", "test_*.py"],
+      "groups": ["local", "ci"],
+      "weight": 1
+    },
+    {
+      "id": "quest-recovery",
+      "command": ["python3", "-m", "unittest", "discover", "-s", "tests/quest-recovery", "-p", "test_*.py"],
+      "groups": ["local", "ci"],
+      "weight": 1
+    },
+    {
+      "id": "quest-native",
+      "command": ["python3", "scripts/quest-native-tests.py"],
+      "groups": ["local", "ci"],
+      "weight": 2
+    },
+    {
+      "id": "quest-weaver",
+      "command": ["bash", "scripts/quest-weaver-tests.sh"],
+      "groups": ["local", "ci"],
+      "weight": 2
     }
   ]
 }

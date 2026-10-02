@@ -17,7 +17,9 @@ namespace GloomhavenVR.Quest.Editor
 {
     public static class QuestBuild
     {
-        [Serializable] sealed class InputManifest { public string inputKey; }
+        [Serializable] sealed class ModInput { public int modBuild; }
+        [Serializable] sealed class InputManifest { public string inputKey; public ModInput mod; }
+        [Serializable] sealed class BuildStamp { public int schema = 1; public int modBuild; public string inputKey; }
         [Serializable] sealed class Receipt
         {
             public int schema = 1;
@@ -40,6 +42,12 @@ namespace GloomhavenVR.Quest.Editor
             ConfigureNativePlugin();
             ConfigureXr();
             PrepareDiagnosticMaterials();
+            ValidateOwnedModel();
+            var manifest = JsonUtility.FromJson<InputManifest>(File.ReadAllText(Required("GHVR_QUEST_MANIFEST_PATH")));
+            File.WriteAllText("Assets/Quest/Resources/quest-build.json", JsonUtility.ToJson(new BuildStamp
+            {
+                modBuild = manifest.mod.modBuild, inputKey = manifest.inputKey
+            }));
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             new GameObject("Quest hardware diagnostic").AddComponent<QuestHardwareProbe>();
             Directory.CreateDirectory("Assets/Quest/Scenes");
@@ -58,7 +66,6 @@ namespace GloomhavenVR.Quest.Editor
             string hash;
             using (var sha = System.Security.Cryptography.SHA256.Create())
                 hash = BitConverter.ToString(sha.ComputeHash(profile)).Replace("-", "").ToLowerInvariant();
-            var manifest = JsonUtility.FromJson<InputManifest>(File.ReadAllText(Required("GHVR_QUEST_MANIFEST_PATH")));
             File.WriteAllText(apk + ".build.json", JsonUtility.ToJson(new Receipt
             {
                 target = target, inputKey = manifest.inputKey, package = package,
@@ -175,6 +182,22 @@ namespace GloomhavenVR.Quest.Editor
                 material.enableInstancing = true;
                 EditorUtility.SetDirty(material);
             }
+        }
+        static void ValidateOwnedModel()
+        {
+            var prefab = Resources.Load<GameObject>("quest-original-model");
+            if (prefab == null) return; // Optional only for the explicitly diagnostic target.
+            foreach (var transform in prefab.GetComponentsInChildren<Transform>(true))
+                if (GameObjectUtility.GetMonoBehavioursWithMissingScriptCount(transform.gameObject) != 0)
+                    throw new InvalidOperationException("Diagnostic model has unresolved gameplay scripts");
+            var renderers = prefab.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            if (renderers.Length == 0 || renderers.Any(renderer => renderer.sharedMesh == null || renderer.bones.Length == 0))
+                throw new InvalidOperationException("Original model mesh/skinning closure is invalid");
+            var animator = prefab.GetComponentInChildren<Animator>(true);
+            if (animator == null || animator.runtimeAnimatorController == null || animator.runtimeAnimatorController.animationClips.Length == 0)
+                throw new InvalidOperationException("Original model animator/clips are missing");
+            Debug.Log("[GloomhavenVR Quest] original native model import verified skinnedRenderers=" + renderers.Length +
+                " clips=" + animator.runtimeAnimatorController.animationClips.Length + " shaderParity=false");
         }
     }
 }

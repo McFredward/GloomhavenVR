@@ -44,9 +44,18 @@ desktop editor/package version is retained; tool installation does not change
 the mod's desktop runtime or shared reference assemblies.
 
 The native passthrough bridge compiles to Android ARM64. Its host fixture executes
-98 assertions including disabled/suspended/foreign/empty frames, missing extension
+106 assertions including disabled/suspended/foreign/empty frames, missing extension
 functions, partial creation cleanup and session recreation. These tests establish
 composition and lifecycle logic, not the appearance of either eye on Quest.
+
+A real signed diagnostic APK was compiled successfully using ARM64 IL2CPP,
+Unity2021.3.5f1, GLES3, SDK29 minimum and SDK30 target. Both player and native library
+were inspected with actual Android tools. Its signing certificate is recorded
+in private build receipts; signing continuity is verified on subsequent builds.
+The first manifest inspection caught an unconditional eye-tracking requirement
+in the pinned Unity OpenXR1.13.0 MetaQuest build hook despite disabled EyeGaze.
+The target now removes those unused feature/permission declarations after that
+hook; the final APK must be checked again before handoff.
 
 Original core recovery has produced 13 build scenes and original managed plugins.
 All build-scene script identities resolve. The complete export remains unready:

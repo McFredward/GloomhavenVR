@@ -19,6 +19,7 @@ void ghvr_quest_destroy_instance();
 namespace {
 int checks = 0, submissions = 0, destroyed_passes = 0, destroyed_layers = 0;
 bool fail_layer = false, omit_function = false, expect_underlay = false;
+const char* omitted_name = "xrCreatePassthroughFB";
 const XrFrameEndInfo* source_info = nullptr;
 const XrCompositionLayerProjection* source_projection = nullptr;
 void check(bool result) { ++checks; assert(result); }
@@ -61,7 +62,7 @@ XrResult XRAPI_CALL end(XrSession, const XrFrameEndInfo* info) {
     return XR_FRAME_DISCARDED;
 }
 XrResult XRAPI_CALL get(XrInstance, const char* name, PFN_xrVoidFunction* output) {
-    if (omit_function && std::strcmp(name, "xrCreatePassthroughFB") == 0) return XR_ERROR_FUNCTION_UNSUPPORTED;
+    if (omit_function && std::strcmp(name, omitted_name) == 0) return XR_ERROR_FUNCTION_UNSUPPORTED;
 #define PROVIDE(n, f) if (std::strcmp(name, n) == 0) { *output = reinterpret_cast<PFN_xrVoidFunction>(f); return XR_SUCCESS; }
     PROVIDE("xrCreatePassthroughFB", make_pass)
     PROVIDE("xrDestroyPassthroughFB", delete_pass)
@@ -129,5 +130,14 @@ int main() {
     omit_function = true;
     check(ghvr_quest_instance(5) == 0);
     check(ghvr_quest_error() == XR_ERROR_FUNCTION_UNSUPPORTED);
+    check(ghvr_quest_session(5) == 0);
+    omit_function = false;
+    check(ghvr_quest_instance(6) == 1);
+    check(ghvr_quest_session(6) == 1);
+    omitted_name = "xrPassthroughLayerPauseFB";
+    omit_function = true;
+    check(ghvr_quest_instance(7) == 0); // A late failure must clear previously valid bindings.
+    check(ghvr_quest_session(7) == 0);
+    check(ghvr_quest_status() == 0);
     std::cout << "Quest passthrough: " << checks << " assertions; disabled/suspended/foreign/empty/missing-function/partial-create controls.\n";
 }

@@ -26,6 +26,7 @@ namespace GloomhavenVR.Quest
             public string steamId, marker;
             public int writes;
         }
+        [Serializable] sealed class BuildStamp { public int schema, modBuild; public string inputKey; }
         sealed class Controller
         {
             public XRNode node;
@@ -37,8 +38,9 @@ namespace GloomhavenVR.Quest
         Camera view;
         Transform stage;
         Controller left, right;
+        Controller[] controllers;
         Profile profile;
-        Text instructions, tooltip, status, performance, modelStatus;
+        Text instructions, tooltip, status, performance, modelStatus, profileStatus;
         GameObject model;
         bool german, mrRequested, storagePassed;
         bool lastActive;
@@ -49,8 +51,10 @@ namespace GloomhavenVR.Quest
         float fps;
         Font font;
         string logPath;
+        string mrError;
         InputAction headPosition, headRotation;
         bool floorConfigured;
+        float nextOriginCheck;
 
         void Awake()
         {
@@ -63,6 +67,10 @@ namespace GloomhavenVR.Quest
                 " version=" + Application.version + " platform=" + Application.platform +
                 " device=" + SystemInfo.deviceModel + " graphics=" + SystemInfo.graphicsDeviceName +
                 " storage=" + Application.persistentDataPath);
+            var stampAsset = Resources.Load<TextAsset>("quest-build");
+            if (stampAsset == null) throw new InvalidOperationException("Quest build provenance is missing");
+            var stamp = JsonUtility.FromJson<BuildStamp>(stampAsset.text);
+            Debug.Log("[GloomhavenVR Quest] ModBuild=" + stamp.modBuild + " input=" + stamp.inputKey);
             var asset = Resources.Load<TextAsset>("quest-profile");
             if (asset != null) profile = JsonUtility.FromJson<Profile>(asset.text);
             if (!ValidProfile(profile)) throw new InvalidOperationException(QuestText.Get("profileMissing", german));
@@ -71,6 +79,7 @@ namespace GloomhavenVR.Quest
             font = Resources.GetBuiltinResource<Font>("Arial.ttf");
             BuildRig();
             BuildStage();
+            Application.onBeforeRender += BeforeRender;
             ReadStorage();
             RefreshText();
         }
@@ -98,6 +107,7 @@ namespace GloomhavenVR.Quest
             headRotation = Action("Head rotation", "<XRHMD>/centerEyeRotation");
             left = MakeController(XRNode.LeftHand, rig.transform, new Color(.2f, .7f, 1));
             right = MakeController(XRNode.RightHand, rig.transform, new Color(1, .7f, .2f));
+            controllers = new[] { left, right };
             var light = new GameObject("Diagnostic light").AddComponent<Light>();
             light.type = LightType.Directional;
             light.intensity = 1;
@@ -192,8 +202,7 @@ namespace GloomhavenVR.Quest
             background.rectTransform.sizeDelta = rect.sizeDelta;
             TextLine(canvas.transform, "title", 385, 38, Color.white);
             TextLine(canvas.transform, "diagnostic", 333, 26, new Color(1, .75f, .3f));
-            var profileText = TextLine(canvas.transform, null, 280, 30, Color.white);
-            profileText.text = profile.displayName + "\nSteam ID: " + profile.steamId;
+            profileStatus = TextLine(canvas.transform, null, 280, 30, Color.white);
             var logoTexture = Resources.Load<Texture2D>("quest-steam-logo");
             if (logoTexture != null)
             {
@@ -263,8 +272,9 @@ namespace GloomhavenVR.Quest
         }
         void TrackHead()
         {
-            if (!floorConfigured)
+            if (!floorConfigured && Time.unscaledTime >= nextOriginCheck)
             {
+                nextOriginCheck = Time.unscaledTime + .5f;
                 var inputs = new System.Collections.Generic.List<XRInputSubsystem>();
                 SubsystemManager.GetInstances(inputs);
                 foreach (var input in inputs)
@@ -278,6 +288,22 @@ namespace GloomhavenVR.Quest
             if (head.TryGetFeatureValue(CommonUsages.deviceRotation, out rotation)) view.transform.localRotation = rotation;
             if (headPosition.activeControl != null) view.transform.localPosition = headPosition.ReadValue<Vector3>();
             if (headRotation.activeControl != null) view.transform.localRotation = headRotation.ReadValue<Quaternion>();
+        }
+        void BeforeRender()
+        {
+            // The same pose author also consumes the latest before-render input sample.
+            TrackHead();
+            foreach (var controller in controllers)
+            {
+                if (!controller.tracked) continue;
+                if (controller.position.activeControl != null) controller.pose.localPosition = controller.position.ReadValue<Vector3>();
+                if (controller.rotation.activeControl != null) controller.pose.localRotation = controller.rotation.ReadValue<Quaternion>();
+                var origin = controller.pose.position;
+                var direction = controller.pose.forward;
+                RaycastHit hit;
+                controller.ray.SetPosition(0, origin);
+                controller.ray.SetPosition(1, Physics.Raycast(origin, direction, out hit, 5) ? hit.point : origin + direction * 3);
+            }
         }
         bool TrackController(Controller controller)
         {
@@ -320,11 +346,13 @@ namespace GloomhavenVR.Quest
         void ToggleMr()
         {
             mrRequested = !mrRequested;
+            mrError = null;
             if (!QuestPassthroughFeature.SetEnabled(mrRequested) && mrRequested)
             {
                 mrRequested = false;
-                status.text = QuestText.Get("mrFailed", german);
+                mrError = "mrFailed";
             }
+            RefreshText();
         }
         void PlaceTable()
         {
@@ -370,11 +398,13 @@ namespace GloomhavenVR.Quest
         }
         void RefreshText()
         {
+            profileStatus.text = profile.displayName + "\n" + QuestText.Get("steamId", german) + ": " + profile.steamId;
             foreach (var label in stage.GetComponentsInChildren<QuestLabel>())
                 label.GetComponent<Text>().text = QuestText.Get(label.key, german);
             instructions.text = QuestText.Get("mr", german) + " · " + QuestText.Get("recenter", german) +
                 "\n" + QuestText.Get("save", german) + " · " + QuestText.Get("language", german);
-            status.text = QuestText.Get(saveStatus, german);
+            status.text = QuestText.Get(mrError ?? (QuestPassthroughFeature.Active ? "mrActive" : "vrActive"), german) +
+                "\n" + QuestText.Get(saveStatus, german);
             modelStatus.text = QuestText.Get(model != null ? "model" : "modelMissing", german);
             performance.text = QuestText.Get("performance", german) + ": " + fps.ToString("F1", CultureInfo.InvariantCulture) + " fps";
         }
@@ -383,9 +413,11 @@ namespace GloomhavenVR.Quest
         void OnDestroy()
         {
             Application.logMessageReceived -= CaptureLog;
+            Application.onBeforeRender -= BeforeRender;
             headPosition?.Dispose();
             headRotation?.Dispose();
-            foreach (var controller in new[] { left, right })
+            if (controllers == null) return;
+            foreach (var controller in controllers)
             {
                 if (controller == null) continue;
                 controller.position.Dispose(); controller.rotation.Dispose(); controller.tracking.Dispose();
