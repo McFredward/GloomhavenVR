@@ -504,6 +504,7 @@ internal static partial class VROptionsTab
                         new("Optimize", "ScenarioVegetationDensityPercent", ""),
                         new("Optimize", "ScenarioPlayerFigureDetailPercent", ""),
                         new("Optimize", "ScenarioEnemyFigureDetailPercent", ""),
+                        new("Optimize", "ScenarioFigureEffectsDensityPercent", ""),
                         new("Optimize", "ScenarioFigureClothSimulation", ""),
                         new("Optimize", "ReduceScenarioGenerationDetail", ""),
                         // [RenderQuality] PixelLightCount STOOD HERE under ruling 19 ("the

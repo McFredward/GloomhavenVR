@@ -70,6 +70,7 @@ internal static partial class Defaults
     internal const int ScenarioVegetationDensityPercent = 100; // => [Optimize] ScenarioVegetationDensityPercent
     internal const int ScenarioPlayerFigureDetailPercent = 100; // => [Optimize] ScenarioPlayerFigureDetailPercent
     internal const int ScenarioEnemyFigureDetailPercent = 100; // => [Optimize] ScenarioEnemyFigureDetailPercent
+    internal const int ScenarioFigureEffectsDensityPercent = 100; // => [Optimize] ScenarioFigureEffectsDensityPercent
     internal const bool ScenarioFigureClothSimulation = true; // => [Optimize] ScenarioFigureClothSimulation
     internal const bool ReduceScenarioGenerationDetail = false; // => [Optimize] ReduceScenarioGenerationDetail
     internal const bool SharedWallReadCache = true;         // => [Optimize] SharedWallReadCache

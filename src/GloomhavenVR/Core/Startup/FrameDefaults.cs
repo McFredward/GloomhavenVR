@@ -37,6 +37,7 @@ internal static class FrameDefaults
     internal const int ScenarioVegetationDensityPercent = 0;
     internal const int ScenarioPlayerFigureDetailPercent = 0;
     internal const int ScenarioEnemyFigureDetailPercent = 0;
+    internal const int ScenarioFigureEffectsDensityPercent = 0;
     internal const bool ScenarioFigureClothSimulation = false;
     internal const bool ReduceScenarioGenerationDetail = true;
 

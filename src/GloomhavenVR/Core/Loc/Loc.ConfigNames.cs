@@ -704,6 +704,7 @@ internal static partial class Loc
             ["Optimize/ScenarioVegetationDensityPercent"] = Pair("Scenario trees and bushes (%)", "Szenario-Bäume und Büsche (%)"),
             ["Optimize/ScenarioPlayerFigureDetailPercent"] = Pair("Player figure detail (%)", "Detail der Spielfiguren (%)"),
             ["Optimize/ScenarioEnemyFigureDetailPercent"] = Pair("Enemy figure detail (%)", "Detail der Gegnerfiguren (%)"),
+            ["Optimize/ScenarioFigureEffectsDensityPercent"] = Pair("Figure ambient effects (%)", "Umgebungseffekte der Figuren (%)"),
             ["Optimize/ScenarioFigureClothSimulation"] = Pair("Simulate figure clothing", "Figurenkleidung simulieren"),
             ["Optimize/ReduceScenarioGenerationDetail"] = Pair("Reduced scenario generation", "Sparsame Szenario-Erzeugung"),
             ["Optimize/SharedWallReadCache"] = Pair("Cache wall preparation reads", "Wandvorbereitung cachen"),

@@ -903,6 +903,7 @@ internal static class ConfigCatalog
                                      || key == "ScenarioVegetationDensityPercent"
                                      || key == "ScenarioPlayerFigureDetailPercent"
                                      || key == "ScenarioEnemyFigureDetailPercent"
+                                     || key == "ScenarioFigureEffectsDensityPercent"
                                      || key == "ScenarioFigureClothSimulation"
                                      || key == "ReduceScenarioGenerationDetail"))
             return ConfigTopic.Visual;

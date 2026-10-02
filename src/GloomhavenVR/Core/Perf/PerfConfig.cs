@@ -157,6 +157,7 @@ internal static class PerfConfig
     internal static ConfigEntry<int> ScenarioVegetationDensityPercent = null!;
     internal static ConfigEntry<int> ScenarioPlayerFigureDetailPercent = null!;
     internal static ConfigEntry<int> ScenarioEnemyFigureDetailPercent = null!;
+    internal static ConfigEntry<int> ScenarioFigureEffectsDensityPercent = null!;
     internal static ConfigEntry<bool> ScenarioFigureClothSimulation = null!;
     internal static ConfigEntry<bool> ReduceScenarioGenerationDetail = null!;
 
@@ -265,6 +266,10 @@ internal static class PerfConfig
     internal static int EnemyFigureDetailPercent =>
         ScenarioEnemyFigureDetailPercent == null ? Defaults.ScenarioEnemyFigureDetailPercent
             : Mathf.Clamp(ScenarioEnemyFigureDetailPercent.Value, 0, 100);
+
+    internal static int FigureEffectsDensityPercent =>
+        ScenarioFigureEffectsDensityPercent == null ? Defaults.ScenarioFigureEffectsDensityPercent
+            : Mathf.Clamp(ScenarioFigureEffectsDensityPercent.Value, 0, 100);
 
     internal static bool FigureClothSimulationEnabled =>
         ScenarioFigureClothSimulation == null ? Defaults.ScenarioFigureClothSimulation
@@ -422,6 +427,15 @@ internal static class PerfConfig
                 + "nonempty native level. Distance culling, animation and gameplay are retained. "
                 + "The selected detail also applies to figures held locally or by another player. Works live; "
                 + "fresh Frame defaults to 0%, PC to 100%; saved choices stay.",
+                new AcceptableValueRange<int>(0, 100)));
+        ScenarioFigureEffectsDensityPercent = _file.Bind("Optimize", "ScenarioFigureEffectsDensityPercent",
+            FrameDefaults.Active ? FrameDefaults.ScenarioFigureEffectsDensityPercent : Defaults.ScenarioFigureEffectsDensityPercent,
+            new ConfigDescription(
+                "Decorative idle effects on scenario figures, such as elemental demon particles. "
+                + "0% removes eligible ambient effects, 100% restores their original presentation. "
+                + "Body meshes, attacks, healing and gameplay indicators remain unchanged. Works live, "
+                + "including held figures; fresh standalone Frame defaults to 0%, PC to 100%. "
+                + "Saved choices are retained.",
                 new AcceptableValueRange<int>(0, 100)));
         ScenarioFigureClothSimulation = _file.Bind("Optimize", "ScenarioFigureClothSimulation",
             FrameDefaults.Active ? FrameDefaults.ScenarioFigureClothSimulation : Defaults.ScenarioFigureClothSimulation,

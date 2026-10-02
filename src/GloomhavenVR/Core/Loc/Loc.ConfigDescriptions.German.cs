@@ -256,6 +256,12 @@ internal static partial class Loc
                 + "0% nutzt die niedrigste nicht leere Spielvariante. Entfernungsausblendung, Animation "
                 + "und Spielregeln bleiben erhalten. Die gewählte Detailstufe gilt auch für lokal und remote "
                 + "hochgehobene Figuren. Wirkt sofort; neue Frame-Profile 0%, PC 100%; gespeicherte Werte bleiben.",
+            ["Optimize/ScenarioFigureEffectsDensityPercent"] =
+                "Dekorative Dauereffekte der Szenariofiguren, z. B. Partikel der Elementardämonen. "
+                + "0% entfernt geeignete Umgebungseffekte, 100% stellt die Originaldarstellung wieder her. "
+                + "Körpermodelle, Angriffe, Heilung und Spielindikatoren bleiben erhalten. "
+                + "Wirkt sofort, auch bei gehaltenen Figuren. Neue Standalone-Frame-Konfigurationen "
+                + "starten mit 0%, PC mit 100%; gespeicherte Einstellungen bleiben erhalten.",
             ["Optimize/ScenarioFigureClothSimulation"] =
                 "Simuliert Kleidung an Szenariofiguren. Aus erhält die animierte Figur, stoppt aber "
                 + "zusätzliche Stoffphysik auch an lokal und remote hochgehobenen Figuren. Handkollision und "
