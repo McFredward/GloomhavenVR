@@ -41,7 +41,15 @@ controls and 82 original-native figure mesh assertions / six controls. The real 
 byte-identical index, all 49 parts, main banks and current DLLs, including Frame launcher
 permissions/text. Retained source, compiled and archive hashes are in
 `.planning/debug/frame606-final-validation/`; compact worker proofs are retained separately.
-Hardware appearance, OpenXR spectator pixels and FPS remain to measure.
+Hardware appearance and OpenXR spectator pixels remain separate from automated proof.
+The supplied Build606 / `8d7b8d7c2` hardware run now confirms 36 applied native-body
+derivatives: admitted original/current vertices 278,708/181,529 at both sliders zero
+(-34.87%, including inactive LOD slots), exact restoration at 100/100, and cheaper
+discarded desktop-camera work. The maintainer reports much smoother, nearly playable
+scenario performance. Full loaded means remain 53.28 ms versus the previous 52.67 ms
+with different views/settings; figure-only FPS benefit is not isolated. Floor chunks
+remain zero for 17 unreadable originals in this scenario. See
+[Frame606 hardware analysis](../docs/performance/FRAME-606-ANALYSIS.md).
 
 Historical hardware basis: the Frame605 run confirms deferred decorative creation (287 native
 instances / 1,234 renderers) and ambient figure-effect suppression. Loaded, tracked windows
