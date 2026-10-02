@@ -68,7 +68,7 @@ def main():
             ('loading-drain-missing','DrainBatches(int.MaxValue);','/* injected: loading ended before mesh prep */','compatible static floor geometry creates one render substitute',1),
             ('ancestor-floor-union','bool identity = FloorIdentity(mesh.name) || FloorIdentity(renderer.name);','bool identity = FloorIdentity(mesh.name) || FloorIdentity(renderer.name) || (renderer.transform.parent != null && FloorIdentity(renderer.transform.parent.name));','native scope exclusions retain original rendering: MountedDecoration',1),
             ('elevated-pillar-name-bypass','return WallFloorTile.Judge(new WallFloorTile.Plate(min.y, max.y, max.x - min.x, max.z - min.z), 0f)\n            == WallFloorTile.Verdict.FloorTile;','return true;','native scope exclusions retain original rendering: CV_Floor_Base_Raised',1),
-            ('native-continuation-fault-guard-removed','try { _driver?.MaterialReady(renderer); }\n        catch (Exception error) { ReportFault(error); }','_driver?.MaterialReady(renderer);','generated shader resolver fault',1),
+            ('native-continuation-fault-guard-removed','try { _driver?.MaterialReady(renderer); }\n        catch (Exception error) { StopAfterFailure(error); }','_driver?.MaterialReady(renderer);','generated shader resolver fault',1),
         ]
         for name, before, after, expected, occurrences in changes:
             assert source.count(before) == occurrences, 'negative control binding drift: '+name

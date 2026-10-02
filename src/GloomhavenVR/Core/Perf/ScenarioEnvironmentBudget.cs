@@ -26,7 +26,7 @@ internal static class ScenarioEnvironmentBudget
     private const int MaxBatchMembers = 24;
     private static Driver? _driver;
     private static LeaseRecovery? _recovery;
-    private static bool _faultLogged;
+    private static bool _failed;
 
     internal static void Install(GameObject host)
     {
@@ -40,7 +40,7 @@ internal static class ScenarioEnvironmentBudget
             VRSession.Harmony?.PatchAll(typeof(MaterialLoaderData_Ready_EnvironmentBudgetPatch));
             VRSession.Harmony?.PatchAll(typeof(SceneController_Loaded_EnvironmentBudgetPatch));
         }
-        catch (Exception error) { ReportFault(error); }
+        catch (Exception error) { StopAfterFailure(error); }
     }
 
     internal static void Shutdown()
@@ -51,21 +51,22 @@ internal static class ScenarioEnvironmentBudget
         _driver = null;
         if (_recovery != null) UnityEngine.Object.Destroy(_recovery);
         _recovery = null;
-        _faultLogged = false;
+        _failed = false;
     }
 
-    internal static void Placed(GameObject root) { if (!_faultLogged) _driver?.QueueRoot(root); }
+    internal static void Placed(GameObject root) { if (!_failed) _driver?.QueueRoot(root); }
     internal static void MaterialReady(Renderer renderer)
     {
-        if (_faultLogged) return;
+        if (_failed) return;
         try { _driver?.MaterialReady(renderer); }
-        catch (Exception error) { ReportFault(error); }
+        catch (Exception error) { StopAfterFailure(error); }
     }
-    internal static void BeforeLoadingComplete() { if (!_faultLogged) _driver?.FinishLoading(); }
-    internal static void ReportFault(Exception error)
+    internal static void BeforeLoadingComplete() { if (!_failed) _driver?.FinishLoading(); }
+    // This is the fail-open lifecycle mechanism, not a removable diagnostic.
+    internal static void StopAfterFailure(Exception error)
     {
-        if (_faultLogged) return;
-        _faultLogged = true;
+        if (_failed) return;
+        _failed = true;
         VRLog.Note(Scope, "Scenario environment budget: preparation failed; native rendering and "
             + "continuation retained (" + error.GetType().Name + ": " + error.Message + ").");
         // Never let an optimization failure escape into native quest/load continuation.
@@ -418,7 +419,7 @@ internal static class ScenarioEnvironmentBudget
                 if (_buildPending && _pending.Count == 0) PrepareBatches();
                 DrainBatches(loading ? int.MaxValue : 2);
             }
-            catch (Exception error) { ReportFault(error); }
+            catch (Exception error) { StopAfterFailure(error); }
         }
 
         private void Settings()
@@ -452,7 +453,7 @@ internal static class ScenarioEnvironmentBudget
                 DrainBatches(int.MaxValue);
                 Report();
             }
-            catch (Exception error) { ReportFault(error); }
+            catch (Exception error) { StopAfterFailure(error); }
         }
 
         private void Walk(int budget)
@@ -702,7 +703,7 @@ internal static class ScenarioEnvironmentBudget
             {
                 foreach (Ambient ambient in _ambient.Values) ambient.Apply(Hide(ambient.Hash));
             }
-            catch (Exception error) { ReportFault(error); }
+            catch (Exception error) { StopAfterFailure(error); }
         }
         private void OnPreCull(Camera camera)
         {
@@ -715,7 +716,7 @@ internal static class ScenarioEnvironmentBudget
                 _renderDepth++; ValidateBatches();
                 foreach (Ambient ambient in _ambient.Values) ambient.Mask(Hide(ambient.Hash));
             }
-            catch (Exception error) { ReportFault(error); }
+            catch (Exception error) { StopAfterFailure(error); }
         }
         private void OnPostRender(Camera camera)
         {
@@ -777,23 +778,23 @@ internal static class ScenarioEnvironmentBudget
 internal static class ProceduralBase_Placed_EnvironmentBudgetPatch
 {
     private static void Postfix(ProceduralBase __instance)
-    { try { ScenarioEnvironmentBudget.Placed(__instance.gameObject); } catch (Exception e) { ScenarioEnvironmentBudget.ReportFault(e); } }
+    { try { ScenarioEnvironmentBudget.Placed(__instance.gameObject); } catch (Exception e) { ScenarioEnvironmentBudget.StopAfterFailure(e); } }
 }
 [HarmonyPatch(typeof(ProceduralMapTile), nameof(ProceduralMapTile.ShowContent))]
 internal static class ProceduralMapTile_Show_EnvironmentBudgetPatch
 {
     private static void Postfix(GameObject o)
-    { try { ScenarioEnvironmentBudget.Placed(o); } catch (Exception e) { ScenarioEnvironmentBudget.ReportFault(e); } }
+    { try { ScenarioEnvironmentBudget.Placed(o); } catch (Exception e) { ScenarioEnvironmentBudget.StopAfterFailure(e); } }
 }
 [HarmonyPatch(typeof(MaterialLoaderData), "CheckAllMaterialLoaded")]
 internal static class MaterialLoaderData_Ready_EnvironmentBudgetPatch
 {
     private static void Postfix(MaterialLoaderData __instance)
-    { try { if (__instance.Renderer != null) ScenarioEnvironmentBudget.MaterialReady(__instance.Renderer); } catch (Exception e) { ScenarioEnvironmentBudget.ReportFault(e); } }
+    { try { if (__instance.Renderer != null) ScenarioEnvironmentBudget.MaterialReady(__instance.Renderer); } catch (Exception e) { ScenarioEnvironmentBudget.StopAfterFailure(e); } }
 }
 [HarmonyPatch(typeof(SceneController), nameof(SceneController.DisableLoadingScreen))]
 internal static class SceneController_Loaded_EnvironmentBudgetPatch
 {
     private static void Prefix()
-    { try { ScenarioEnvironmentBudget.BeforeLoadingComplete(); } catch (Exception e) { ScenarioEnvironmentBudget.ReportFault(e); } }
+    { try { ScenarioEnvironmentBudget.BeforeLoadingComplete(); } catch (Exception e) { ScenarioEnvironmentBudget.StopAfterFailure(e); } }
 }
