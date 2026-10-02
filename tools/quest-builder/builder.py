@@ -361,13 +361,27 @@ def weave(args, inputs: dict, output: Path, source: Path, game: Path, project: P
         # cannot emit complete semantics, regardless of a zero external exit status.
         if result.get("success") is False or result.get("blockers") or result.get("unsupported"):
             raise BuildError("The static integration report contains unsupported behavior; inspect " + str(report))
-        return [report, *sorted(staged.glob("*.dll"))], {"report": result}
+        link = staged / "link.xml"
+        if not link.is_file():
+            raise BuildError("The weaver did not produce its required AOT preservation link.xml.")
+        return [report, link, *sorted(staged.glob("*.dll"))], {"report": result}
 
     Stages(output).run("weave", key, run_weaver)
     destination = project / "Assets/Plugins/QuestGame"
     destination.mkdir(parents=True, exist_ok=True)
     for dll in staged.glob("*.dll"):
-        shutil.copyfile(dll, destination / dll.name)
+        if (game / "Managed" / dll.name).is_file():
+            # AssetRipper retains the original MonoScript-to-plugin GUID mapping.
+            # A second copy would introduce duplicate types and break that identity.
+            matches = [p for p in (project / "Assets").rglob(dll.name) if p.is_file()]
+            if len(matches) != 1 or not Path(str(matches[0]) + ".meta").is_file():
+                raise BuildError("A rewritten original assembly needs one recovered DLL and its retained .meta: " + dll.name)
+            shutil.copyfile(dll, matches[0])
+        else:
+            shutil.copyfile(dll, destination / dll.name)
+    link = project / "Assets/Quest/Generated/link.xml"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(staged / "link.xml", link)
 
 
 def signing(output: Path, tools: dict) -> tuple[Path, dict]:
