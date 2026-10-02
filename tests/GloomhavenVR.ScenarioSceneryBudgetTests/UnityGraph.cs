@@ -64,7 +64,8 @@ namespace UnityEngine
     }
     internal class MeshRenderer:Renderer { internal Material[] sharedMaterials=Array.Empty<Material>(); }
     internal class SkinnedMeshRenderer:Renderer { }
-    internal class Collider:Component { internal bool enabled=true; }
+    internal class Rigidbody:Component { }
+    internal class Collider:Component { internal bool enabled=true; internal bool isTrigger; internal Rigidbody? attachedRigidbody; }
     internal class MeshCollider:Collider { internal Mesh? sharedMesh; }
     internal class Light:Component { }
     internal class Animator:Component { }
@@ -81,10 +82,11 @@ namespace UnityEngine.SceneManagement
         internal UnityEngine.GameObject[] GetRootGameObjects()=>Roots.ToArray();
     }
 }
-internal class ProceduralMapTile:UnityEngine.MonoBehaviour { }
+internal class ProceduralBase:UnityEngine.MonoBehaviour { }
+internal class ProceduralMapTile:ProceduralBase { }
 internal class ProceduralScenario:UnityEngine.MonoBehaviour { }
-internal class ProceduralProp:UnityEngine.MonoBehaviour { }
-internal class ProceduralWall:UnityEngine.MonoBehaviour { }
+internal class ProceduralProp:ProceduralBase { }
+internal class ProceduralWall:ProceduralBase { }
 internal class ProceduralDoorway:UnityEngine.MonoBehaviour { }
 internal class UnityGameEditorDoorProp:UnityEngine.MonoBehaviour { }
 internal class UnityGameEditorObject:UnityEngine.MonoBehaviour { internal object? PropObject; }

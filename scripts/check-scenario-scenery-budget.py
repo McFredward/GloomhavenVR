@@ -31,16 +31,16 @@ def expression(source,signature):
 def production(source):
     methods=[block(source,key) for key in (
         'private enum Verdict','private enum Kind','private sealed class Record',
-        'private readonly struct ColliderFacts',
-        'private static void SetHidden(', 'private static Verdict Classify(',
-        'private static bool HasUnrepresentedCollider(', 'private static ColliderFacts ReadColliderFacts(',
+        'private readonly struct ColliderFacts', 'private sealed class TreeColliderOwner',
+        'private static void SetHidden(', 'private static void ClaimTreeColliders(', 'private static void ReleaseTreeColliders(', 'private static Verdict Classify(',
+        'private static bool HasUnrepresentedCollider(', 'private static bool CanOwnTreeCollider(', 'private static ColliderFacts ReadColliderFacts(',
         'private static bool UsesFoliage(', 'private static bool UsesOnlyFoliage(',
         'private static bool RepresentsSolidComposite(', 'private static Kind NamedKind(',
         'private static bool IsHardStructuralName(', 'private static bool IsScenarioTile(',
     )]
     methods += [expression(source,key) for key in (
         'private static bool ShouldHide(', 'private static bool IsStructuralName(', 'private static bool IsGrassBase(',
-        'private static bool IsNativeSceneryAsset(',
+        'private static bool IsNativeSceneryAsset(', 'private static bool IsNativeTreeAsset(', 'private static bool IsNativeWallPlantLeaf(', 'private static bool ColliderIsPresent(',
     )]
     header='''using System; using System.Collections.Generic; using UnityEngine; using UnityEngine.SceneManagement;
 namespace GloomhavenVR.Core;
@@ -49,6 +49,8 @@ internal static partial class ScenarioSceneryBudget
 private const string GrassShader="Amp_Basic_Foliage";
 private static bool _colliderFactsActive=false;
 private static readonly Dictionary<Transform,ColliderFacts> ColliderReadFacts=new();
+private static readonly Dictionary<Collider,bool> TreeColliderReadFacts=new();
+private static readonly Dictionary<Collider,TreeColliderOwner> TreeColliderOwners=new();
 '''
     return header+'\n'.join(methods)+'\n}\n'
 
@@ -67,6 +69,11 @@ def main():
         ('root-sibling-missed','if (roots[i].GetComponent<ProceduralScenario>() != null)','if (roots[i].GetComponent<ProceduralScenario>() != null && false)','native scene-root scenario fallback'),
         ('structural-foliage-child-retained','if (foliage && !IsHardStructuralName(renderer.name))','if (foliage && !IsHardStructuralName(renderer.name) && false)','solid wall LOD represents'),
         ('anonymous-solid-lod-missed','if (RepresentsSolidComposite(member.transform, node))','if (IsStructuralName(member.name) || IsGrassBase(member.name))','solid wall LOD represents'),
+        ('tree-pillar-retained','if (IsNativeTreeAsset(name))\n            return false;','if (IsNativeTreeAsset(name))\n            return name.IndexOf("_Pillar_", StringComparison.OrdinalIgnoreCase) >= 0;','solid tree pillar trunk is vegetation'),
+        ('tree-collider-left-on','collider.enabled = false;','collider.enabled = true;','zero tree masks own and suppress'),
+        ('mixed-tree-collider-owned','safe &= treeMember;','safe &= treeMember || true;','tree composite with a solid floor cannot'),
+        ('native-wall-plant-retained','bool foliageDressing = IsNativeWallPlantLeaf(name)','bool foliageDressing = false','hardware named wall plant leaf'),
+
     ):
         if source.count(old)!=1:raise SystemExit('Classifier mutation binding drift: '+name)
         variants.append((name,source.replace(old,new,1),expected))
@@ -87,6 +94,6 @@ def main():
             elif run.returncode==0 or 'error CS' in output or expected not in output:
                 raise SystemExit('Negative control failed to reach intended runtime defect: '+name+'\n'+output)
             else:print('Scenario classifier negative control: '+name+' failed as expected')
-    print('Scenario scenery: full production Classify graph and 8 runtime negative controls passed; actual Unity lifecycle tested separately')
+    print('Scenario scenery: full production Classify graph and 12 runtime negative controls passed; actual Unity lifecycle tested separately')
 
 if __name__=='__main__':main()

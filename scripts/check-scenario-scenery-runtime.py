@@ -41,6 +41,12 @@ def main():
             ('structural-foliage-child-retained', 'Scenery.cs', 'if (foliage && !IsHardStructuralName(renderer.name))', 'if (foliage && !IsHardStructuralName(renderer.name) && false)', 'solid wall LOD represents'),
             ('anonymous-solid-lod-missed', 'Scenery.cs', 'if (RepresentsSolidComposite(member.transform, node))', 'if (IsStructuralName(member.name) || IsGrassBase(member.name))', 'solid wall LOD represents'),
             ('grass-still-capped', 'Scenery.cs', 'Kind.Grass => _density,', 'Kind.Grass => Math.Min(_density, _decorationDensity),', 'decoration budget is independent from grass'),
+            ('tree-pillar-retained', 'Scenery.cs', 'if (IsNativeTreeAsset(name))\n            return false;', 'if (IsNativeTreeAsset(name))\n            return name.IndexOf("_Pillar_", StringComparison.OrdinalIgnoreCase) >= 0;', 'hard structural mesh identity'),
+            ('tree-collider-left-on', 'Scenery.cs', 'collider.enabled = false;', 'collider.enabled = true;', 'zero vegetation removes complete native tree pillars'),
+            ('mixed-tree-collider-owned', 'Scenery.cs', 'safe &= treeMember;', 'safe &= treeMember || true;', 'zero vegetation retains shared mixed-unit floor collision'),
+            ('native-wall-plant-retained', 'Scenery.cs', 'bool foliageDressing = IsNativeWallPlantLeaf(name)', 'bool foliageDressing = false', 'hardware wall plant leaf'),
+            ('foreign-tree-collider-enabled', 'Scenery.cs', 'if (owner.Owned && collider != null && !collider.enabled)', 'if (collider != null && !collider.enabled)', 'vegetation 100 retains foreign disabled tree collision'),
+
             ('subtree-cache-retained', 'Scenery.cs', 'finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }', 'finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }', ''),
         ]
         variants = [v for v in variants if v[0] != 'subtree-cache-retained']

@@ -13,15 +13,17 @@ namespace GloomhavenVR.Core;
 /// Apparance had populated it: its 0% setting masked only 27 of 6,560 active renderers. This
 /// revision classifies actual generated decorative mesh branches, including wall-side vegetation
 /// and LOD descendants, and repeats discovery on the native loading-complete edge. Structural
-/// floor plates, walls, pillars, doors, actors and native gameplay props retain their renderers.
-/// Incidental decoration colliders are not gameplay identity and remain untouched.
+/// floor plates, masonry, doors, actors and native gameplay props retain their renderers. Native
+/// tree pillars are vegetation, not masonry: 0% removes their bark and foliage together.
 ///
 /// Only owned false-to-true Renderer.forceRenderingOff writes are restored. Native enabled state,
-/// colliders, components, materials, property blocks, room reveal and multiplayer state are never
-/// written. Grass, vegetation and loose-decoration budgets are independent: Build 601's
+/// components, materials, property blocks, room reveal and multiplayer state are never written.
+/// Only purely decorative tree colliders are disabled/restored with an owned tree mask. Shared
+/// procedural wall/tile colliders and all gameplay/trigger/body colliders remain untouched.
+/// Grass, vegetation and loose-decoration budgets are independent: Build 601's
 /// decoration-zero cap otherwise made every grass slider movement ineffective. All three at
 /// 100 restore the original rendering on PC and Steam Frame. Dedicated foliage leaves beneath
-/// a structural asset remain optional; its solid or mixed-material core is never optional.
+/// a masonry asset remain optional; its solid or mixed-material core is never optional.
 /// Source and Unity hierarchy tests establish admission/restoration, not headset FPS improvement.
 /// </summary>
 internal static class ScenarioSceneryBudget
@@ -38,6 +40,14 @@ internal static class ScenarioSceneryBudget
     private static Driver? _driver;
     private static bool _colliderFactsActive;
     private static readonly Dictionary<Transform, ColliderFacts> ColliderReadFacts = new();
+    private static readonly Dictionary<Collider, bool> TreeColliderReadFacts = new();
+    private static readonly Dictionary<Collider, TreeColliderOwner> TreeColliderOwners = new();
+
+    private sealed class TreeColliderOwner
+    {
+        internal int Claims;
+        internal bool Owned;
+    }
 
     private readonly struct ColliderFacts
     {
@@ -134,6 +144,8 @@ internal static class ScenarioSceneryBudget
         internal bool Owned;
         internal bool Invalidated;
         internal Kind Kind;
+        internal Collider[] TreeColliders = Array.Empty<Collider>();
+        internal bool ColliderClaims;
     }
 
     /// <summary>Own only false→true writes. Restoring an already-forced renderer would take an
@@ -143,6 +155,7 @@ internal static class ScenarioSceneryBudget
         MeshRenderer renderer = record.Renderer;
         if (renderer == null)
         {
+            ReleaseTreeColliders(record);
             record.Owned = false;
             return;
         }
@@ -152,6 +165,7 @@ internal static class ScenarioSceneryBudget
             {
                 renderer.forceRenderingOff = true;
                 record.Owned = true;
+                ClaimTreeColliders(record);
             }
         }
         else if (record.Owned)
@@ -159,7 +173,63 @@ internal static class ScenarioSceneryBudget
             if (renderer.forceRenderingOff)
                 renderer.forceRenderingOff = false;
             record.Owned = false;
+            ReleaseTreeColliders(record);
         }
+    }
+
+    private static void ClaimTreeColliders(Record record)
+    {
+        if (record.ColliderClaims || record.TreeColliders.Length == 0)
+            return;
+        record.ColliderClaims = true;
+        for (int i = 0; i < record.TreeColliders.Length; i++)
+        {
+            Collider collider = record.TreeColliders[i];
+            if (collider == null)
+                continue;
+            if (!TreeColliderOwners.TryGetValue(collider, out TreeColliderOwner? owner))
+            {
+                owner = new TreeColliderOwner();
+                TreeColliderOwners.Add(collider, owner);
+            }
+            owner.Claims++;
+            if (owner.Claims == 1 && collider.enabled)
+            {
+                collider.enabled = false;
+                owner.Owned = true;
+            }
+        }
+    }
+
+    private static void ReleaseTreeColliders(Record record)
+    {
+        if (!record.ColliderClaims)
+            return;
+        record.ColliderClaims = false;
+        for (int i = 0; i < record.TreeColliders.Length; i++)
+        {
+            Collider collider = record.TreeColliders[i];
+            if (ReferenceEquals(collider, null)
+                || !TreeColliderOwners.TryGetValue(collider, out TreeColliderOwner? owner))
+                continue;
+            if (--owner.Claims > 0)
+                continue;
+            // Disabled before our first mask is foreign state. Only a false write we actually
+            // made authorises its restoration, and the last hidden LOD member releases it.
+            if (owner.Owned && collider != null && !collider.enabled)
+                collider.enabled = true;
+            TreeColliderOwners.Remove(collider!);
+        }
+    }
+
+    private static bool SameColliders(Collider[] left, Collider[] right)
+    {
+        if (left.Length != right.Length)
+            return false;
+        for (int i = 0; i < left.Length; i++)
+            if (!ReferenceEquals(left[i], right[i]))
+                return false;
+        return true;
     }
 
     private static uint StableHash(Transform unit, ProceduralMapTile tile)
@@ -182,7 +252,8 @@ internal static class ScenarioSceneryBudget
 
     /// <summary>Classify the real transform chain, not a shader-only proxy. Generated Content
     /// proves scenario geometry; native prop/door/actor identity vetoes every descendant even if
-    /// it happens to be named grass. A leaf collider vetoes hiding; represented parent colliders stay.
+    /// it happens to be named grass. Unrepresented collision vetoes hiding unless it exclusively
+    /// belongs to an original decorative tree and can be reversibly masked with that tree.
     /// LOD0/1/2 leaves inherit the nearest named mesh asset, not a whole mixed PCG wall generator.
     /// Mesh-local geometry avoids world-scale-dependent admission when the user zooms the board.
     /// </summary>
@@ -226,6 +297,9 @@ internal static class ScenarioSceneryBudget
                 // Asset names above this boundary are containers, not this leaf's identity.
                 continue;
             }
+            if (!generated && unit != null && IsNativeTreeAsset(unit.name)
+                && IsNativeTreeAsset(t.name))
+                unit = t; // all original bark/canopy LOD members share the authored tree carrier
             if (!generated && unit == null && !t.name.StartsWith("PCG_", StringComparison.Ordinal))
             {
                 Kind named = NamedKind(t.name);
@@ -246,12 +320,11 @@ internal static class ScenarioSceneryBudget
             return Verdict.Generator;
         if (!ancestrySafe)
             return Verdict.Ancestry;
-        if (blockingCollider)
-            return Verdict.Effect;
         if (renderer.GetComponent<Animator>() != null
             || renderer.GetComponent<ParticleSystem>() != null)
             return Verdict.Effect;
-        Mesh? mesh = renderer.GetComponent<MeshFilter>()?.sharedMesh;
+        MeshFilter filter = renderer.GetComponent<MeshFilter>();
+        Mesh? mesh = filter != null ? filter.sharedMesh : null;
         if (mesh == null)
             return Verdict.Geometry;
         Vector3 size = mesh.bounds.size;
@@ -298,10 +371,12 @@ internal static class ScenarioSceneryBudget
         if (unit == null || kind == Kind.None)
             return structural ? Verdict.Structural : Verdict.Name;
         string assetName = meshFamily ? mesh.name : unit.name;
-        // Vegetation textures attached to masonry are admitted only on foliage shader leaves.
-        // FR_Pillar_Tree_Trunk_01 and the rock support beneath a wall are structural even though
-        // they contain the word Tree or Floor. Ordinary FR_Tree_05 has separate foliage AND bark
-        // renderers, all of which belong to the decorative tree and must disappear together.
+        // Build 603 explicitly exempted FR_Pillar_Tree_Trunk_01. The actual Build 603 census
+        // still names those trunks throughout the wall profiles, and the maintainer defines
+        // vegetation 0% as no trees. Original tree/trunk asset identity now overrides the word
+        // Pillar only, never floor/wall/masonry identity or actual native gameplay ancestry.
+        // Every bark/canopy LOD in a decorative tree shares one native tree density carrier.
+        // Masonry foliage still requires a dedicated foliage-only renderer.
         if (structural || (!dedicatedStructuralFoliage && IsHardStructuralName(assetName))
             || (IsStructuralName(assetName) && !foliage))
             return Verdict.Structural;
@@ -310,15 +385,24 @@ internal static class ScenarioSceneryBudget
         // never world AABB size, so setting scene scale to 1:1 cannot change this decision.
         if (kind == Kind.Grass && !foliage && IsGrassBase(assetName))
             return Verdict.Structural;
+        if (blockingCollider)
+        {
+            Transform? tree = kind == Kind.Vegetation && IsNativeTreeAsset(assetName) ? unit : null;
+            for (Transform? t = renderer.transform; t != null && t.name != "Generated Content";
+                 t = t.parent)
+                if (HasUnrepresentedCollider(t, renderer, tree))
+                    return Verdict.Effect;
+        }
         return Verdict.Eligible;
     }
 
     /// <summary>A hidden leaf must not leave an invisible laser blocker behind. Decorative
-    /// meshes with their own enabled collider remain visible. Ancestor colliders are permitted
-    /// only on native walls/tiles or on a generated composite with an explicitly retained solid
-    /// floor/structural member. Gameplay colliders are never disabled to obtain scenery savings.
+    /// meshes with their own enabled collider remain visible unless native tree identity permits
+    /// an owned decorative collider mask. Ancestor colliders on native walls/tiles or a generated
+    /// composite with a retained solid floor/masonry member stay. Gameplay collision never changes.
     /// </summary>
-    private static bool HasUnrepresentedCollider(Transform node, MeshRenderer renderer)
+    private static bool HasUnrepresentedCollider(Transform node, MeshRenderer renderer,
+                                                  Transform? treeUnit = null)
     {
         if (!_colliderFactsActive || !ColliderReadFacts.TryGetValue(node, out ColliderFacts facts))
         {
@@ -329,11 +413,14 @@ internal static class ScenarioSceneryBudget
         for (int i = 0; i < facts.Colliders.Length; i++)
         {
             Collider collider = facts.Colliders[i];
-            if (collider == null || !collider.enabled)
+            if (collider == null || !ColliderIsPresent(collider))
+                continue;
+            if (treeUnit != null && CanOwnTreeCollider(collider, treeUnit))
                 continue;
             if (node == renderer.transform)
                 return true;
-            Mesh? leafMesh = renderer.GetComponent<MeshFilter>()?.sharedMesh;
+            MeshFilter leafFilter = renderer.GetComponent<MeshFilter>();
+            Mesh? leafMesh = leafFilter != null ? leafFilter.sharedMesh : null;
             if (collider is MeshCollider meshCollider && meshCollider.sharedMesh == leafMesh)
                 return true;
             if (!facts.Represented)
@@ -342,12 +429,107 @@ internal static class ScenarioSceneryBudget
         return false;
     }
 
+    // An owned disabled tree collider still participates in reclassification; otherwise native
+    // component/hierarchy changes could evade the collider veto merely because we hid it earlier.
+    private static bool ColliderIsPresent(Collider collider) =>
+        collider.enabled || (TreeColliderOwners.TryGetValue(collider, out TreeColliderOwner? owner)
+                             && owner.Owned);
+
+    /// <summary>Only collision wholly belonging to the removed tree is a presentation mask.
+    /// A native wall/tile, trigger, rigid body, gameplay prop or mixed solid subtree is never
+    /// suppressed. Original tree identity is required; a conveniently named player wrapper is
+    /// insufficient. Facts last one discovery slice, never across regeneration/config changes.
+    /// </summary>
+    private static bool CanOwnTreeCollider(Collider collider, Transform treeUnit)
+    {
+        if (_colliderFactsActive && TreeColliderReadFacts.TryGetValue(collider, out bool known))
+            return known;
+        if (collider == null)
+            return false;
+        bool safe = !collider.isTrigger && collider.attachedRigidbody == null;
+        Transform owner = collider.transform;
+        // Unity can report no attachedRigidbody while its collider is disabled. Inspect the
+        // actual transform ancestry too, so a new native body never inherits an old tree mask.
+        for (Transform? a = owner; a != null && safe; a = a.parent)
+            if (a.GetComponent<Rigidbody>() != null)
+                safe = false;
+        bool reachesTree = owner.IsChildOf(treeUnit);
+        if (!reachesTree && treeUnit.IsChildOf(owner))
+            reachesTree = IsNativeTreeAsset(owner.name)
+                          || (owner.name.StartsWith("PCG_", StringComparison.Ordinal)
+                              && IsNativeTreeAsset(owner.name.Substring(4)));
+        safe &= reachesTree;
+        if (safe)
+        {
+            Transform stop = owner.IsChildOf(treeUnit) ? treeUnit : owner;
+            // A collider attached to a branch can still enclose other native content. Refuse
+            // identity/effect descendants and any non-tree render member before disabling it.
+            Transform[] nodes = owner.GetComponentsInChildren<Transform>(includeInactive: true);
+            bool meshFound = false;
+            for (int i = 0; i < nodes.Length && safe; i++)
+            {
+                Transform t = nodes[i];
+                UnityGameEditorObject native = t.GetComponent<UnityGameEditorObject>();
+                if (t.GetComponent<CInteractable>() != null
+                    || t.GetComponent<ProceduralBase>() != null
+                    || (native != null && native.PropObject != null)
+                    || FigureRendererGuard.CarriesFigureComponent(t)
+                    || t.GetComponent<Canvas>() != null || t.GetComponent<Light>() != null
+                    || t.GetComponent<Animator>() != null || t.GetComponent<ParticleSystem>() != null
+                    || t.GetComponent<SkinnedMeshRenderer>() != null)
+                { safe = false; break; }
+                MeshRenderer member = t.GetComponent<MeshRenderer>();
+                if (member == null)
+                    continue;
+                meshFound = true;
+                bool treeMember = false;
+                for (Transform? a = t; a != null; a = a.parent)
+                {
+                    MeshFilter sourceFilter = a.GetComponent<MeshFilter>();
+                    Mesh? original = sourceFilter != null ? sourceFilter.sharedMesh : null;
+                    string name = original != null && IsNativeSceneryAsset(original.name)
+                        ? original.name : a.name;
+                    if (IsNativeTreeAsset(name)) { treeMember = true; break; }
+                    if (IsHardStructuralName(name) || IsGrassBase(name)
+                        || NamedKind(name) != Kind.None)
+                        break;
+                    if (a == stop)
+                        break;
+                }
+                safe &= treeMember;
+            }
+            safe &= meshFound;
+        }
+        if (_colliderFactsActive)
+            TreeColliderReadFacts[collider] = safe;
+        return safe;
+    }
+
+    private static Collider[] TreeCollidersFor(MeshRenderer renderer, Transform unit)
+    {
+        MeshFilter filter = renderer.GetComponent<MeshFilter>();
+        Mesh? original = filter != null ? filter.sharedMesh : null;
+        if (!IsNativeTreeAsset(unit.name)
+            && (original == null || !IsNativeTreeAsset(original.name)))
+            return Array.Empty<Collider>();
+        var colliders = new List<Collider>();
+        for (Transform? t = renderer.transform; t != null && t.name != "Generated Content";
+             t = t.parent)
+        {
+            Collider[] found = t.GetComponents<Collider>();
+            for (int i = 0; i < found.Length; i++)
+                if (CanOwnTreeCollider(found[i], unit))
+                    colliders.Add(found[i]);
+        }
+        return colliders.ToArray();
+    }
+
     private static ColliderFacts ReadColliderFacts(Transform node)
     {
         Collider[] colliders = node.GetComponents<Collider>();
         bool enabled = false;
         for (int i = 0; i < colliders.Length; i++)
-            if (colliders[i] != null && colliders[i].enabled)
+            if (colliders[i] != null && ColliderIsPresent(colliders[i]))
                 enabled = true;
         if (!enabled)
             return new ColliderFacts(colliders, true);
@@ -402,7 +584,8 @@ internal static class ScenarioSceneryBudget
                 return true;
             if (NamedKind(t.name) != Kind.None)
                 return false;
-            Mesh? mesh = t.GetComponent<MeshFilter>()?.sharedMesh;
+            MeshFilter filter = t.GetComponent<MeshFilter>();
+            Mesh? mesh = filter != null ? filter.sharedMesh : null;
             if (mesh != null && IsNativeSceneryAsset(mesh.name))
             {
                 if (IsHardStructuralName(mesh.name) || IsGrassBase(mesh.name))
@@ -426,6 +609,8 @@ internal static class ScenarioSceneryBudget
     {
         // These are original asset families observed in scenario census paths, not arbitrary
         // names of containers. Generic floor/wall/prop shader matching would erase game geometry.
+        if (IsNativeWallPlantLeaf(name))
+            return Kind.Vegetation;
         if (name.IndexOf("_Grass", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_Grassy", StringComparison.OrdinalIgnoreCase) >= 0)
             return Kind.Grass;
@@ -454,7 +639,7 @@ internal static class ScenarioSceneryBudget
     }
 
     private static bool IsStructuralName(string name) =>
-        name.IndexOf("_Wall_", StringComparison.OrdinalIgnoreCase) >= 0
+        !IsNativeTreeAsset(name) && (name.IndexOf("_Wall_", StringComparison.OrdinalIgnoreCase) >= 0
         || name.IndexOf("_UnderWall_", StringComparison.OrdinalIgnoreCase) >= 0
         || name.IndexOf("_Pillar_", StringComparison.OrdinalIgnoreCase) >= 0
         || name.IndexOf("_Door", StringComparison.OrdinalIgnoreCase) >= 0
@@ -463,10 +648,30 @@ internal static class ScenarioSceneryBudget
         || name.IndexOf("_Floor_Basic", StringComparison.OrdinalIgnoreCase) >= 0
         || name.IndexOf("_FloorTiles", StringComparison.OrdinalIgnoreCase) >= 0
         || name.IndexOf("_Stone_Floor_", StringComparison.OrdinalIgnoreCase) >= 0
-        || name == "Simple Tile";
+        || name == "Simple Tile");
+
+    // Hardware's FR_Wall_Grassy_Verge_Thin_Narrow_Plants_01 is a named plant layer. Its
+    // Wall prefix must not veto an all-foliage leaf. Classify's structural/material check
+    // still refuses a solid or mixed-material wall mesh, including similarly named cores.
+    private static bool IsNativeWallPlantLeaf(string name) =>
+        IsNativeSceneryAsset(name)
+        && name.IndexOf("_Wall", StringComparison.OrdinalIgnoreCase) >= 0
+        && (name.IndexOf("_Plants", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Leaves", StringComparison.OrdinalIgnoreCase) >= 0);
+
+    private static bool IsNativeTreeAsset(string name) =>
+        IsNativeSceneryAsset(name)
+        && name.IndexOf("_Tree", StringComparison.OrdinalIgnoreCase) >= 0
+        && name.IndexOf("_Floor", StringComparison.OrdinalIgnoreCase) < 0
+        && name.IndexOf("_Wall", StringComparison.OrdinalIgnoreCase) < 0
+        && name.IndexOf("_UnderWall", StringComparison.OrdinalIgnoreCase) < 0
+        && name.IndexOf("_Door", StringComparison.OrdinalIgnoreCase) < 0
+        && name.IndexOf("_Arch", StringComparison.OrdinalIgnoreCase) < 0;
 
     private static bool IsHardStructuralName(string name)
     {
+        if (IsNativeTreeAsset(name))
+            return false;
         if (name.IndexOf("_Pillar_", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_Door", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_Arch", StringComparison.OrdinalIgnoreCase) >= 0
@@ -477,7 +682,8 @@ internal static class ScenarioSceneryBudget
             return true;
         bool wall = name.IndexOf("_Wall_", StringComparison.OrdinalIgnoreCase) >= 0
                     || name.IndexOf("_UnderWall_", StringComparison.OrdinalIgnoreCase) >= 0;
-        bool foliageDressing = name.IndexOf("Bush", StringComparison.OrdinalIgnoreCase) >= 0
+        bool foliageDressing = IsNativeWallPlantLeaf(name)
+                    || name.IndexOf("Bush", StringComparison.OrdinalIgnoreCase) >= 0
                     || name.IndexOf("_Ivy", StringComparison.OrdinalIgnoreCase) >= 0
                     || name.IndexOf("_Grass_", StringComparison.OrdinalIgnoreCase) >= 0
                     || name.EndsWith("_Grass", StringComparison.OrdinalIgnoreCase)
@@ -727,9 +933,10 @@ internal static class ScenarioSceneryBudget
             // shared parent subtree is walked again for every grass leaf, and no facts survive
             // native regeneration or a collider toggle between frames.
             ColliderReadFacts.Clear();
+            TreeColliderReadFacts.Clear();
             _colliderFactsActive = true;
             try { WalkNodesCore(loading); }
-            finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }
+            finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); TreeColliderReadFacts.Clear(); }
         }
 
         private void WalkNodesCore(bool loading)
@@ -809,6 +1016,7 @@ internal static class ScenarioSceneryBudget
                     RevalidateKnown(known, renderer, tile);
                     return;
                 }
+                ReleaseTreeColliders(known);
                 _records.Remove(known);
                 _byId.Remove(id);
                 if (_retuneIndex >= 0)
@@ -841,6 +1049,7 @@ internal static class ScenarioSceneryBudget
                 Id = id,
                 Hash = StableHash(unit, tile),
                 Kind = kind,
+                TreeColliders = TreeCollidersFor(renderer, unit),
             };
             _records.Add(record);
             _byId.Add(id, record);
@@ -860,6 +1069,17 @@ internal static class ScenarioSceneryBudget
             Verdict verdict = Classify(renderer, tile, out Transform? unit, out Kind kind);
             if (verdict == Verdict.Eligible && unit != null)
             {
+                // Native placement can reuse a leaf with a changed collider layout. Do not
+                // flip unchanged collider masks on repeat discovery; acquire/release only a
+                // changed ownership plan, with the original renderer mask still reversible.
+                Collider[] currentColliders = TreeCollidersFor(renderer, unit);
+                if (!SameColliders(record.TreeColliders, currentColliders))
+                {
+                    ReleaseTreeColliders(record);
+                    record.TreeColliders = currentColliders;
+                    if (record.Owned)
+                        ClaimTreeColliders(record);
+                }
                 record.Invalidated = false;
                 record.Kind = kind;
                 if (!StillOnOriginalChain(record))
@@ -954,6 +1174,7 @@ internal static class ScenarioSceneryBudget
                     _pruneIndex++;
                     continue;
                 }
+                ReleaseTreeColliders(record);
                 if (_byId.TryGetValue(record.Id, out Record? mapped)
                     && ReferenceEquals(mapped, record))
                     _byId.Remove(record.Id);
