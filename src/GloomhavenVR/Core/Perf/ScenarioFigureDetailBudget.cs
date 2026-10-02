@@ -391,6 +391,9 @@ internal static class ScenarioFigureDetailBudget
                         if (record.Lods.Count > 0) coarseActors++;
                         foreach (LodRecord lod in record.Lods)
                         {
+                            // A native controller can replace our table. The driver relinquishes
+                            // that group, so its stale selection must not imply an applied saving.
+                            if (lod.Foreign) continue;
                             if (lod.Selected > 0) changed++;
                             nativeVertices += lod.LevelVertices[0];
                             chosenVertices += lod.LevelVertices[lod.Selected];
