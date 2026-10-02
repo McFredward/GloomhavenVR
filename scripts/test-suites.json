@@ -1306,6 +1306,51 @@
       "command": ["python3", "scripts/check-figure-overlay-runtime.py"],
       "groups": ["local"],
       "weight": 90
+    },
+    {
+      "id": "desktop-render-runtime",
+      "command": [
+        "python3",
+        "scripts/check-desktop-render-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "environment-budget-runtime",
+      "command": [
+        "python3",
+        "scripts/check-environment-budget-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "figure-mesh-runtime",
+      "command": [
+        "python3",
+        "scripts/check-figure-mesh-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "figure-mesh-bank-packaging",
+      "command": [
+        "python3",
+        "tests/test_figure_mesh_bank.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 1
     }
   ]
 }

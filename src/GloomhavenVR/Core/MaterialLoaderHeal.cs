@@ -1109,6 +1109,9 @@ internal static class MaterialLoaderHeal
 
             r.sharedMaterials = final;
             r.enabled = true;
+            // This successful repair bypasses native CheckAllMaterialLoaded. Publish the
+            // same bounded render-preparation edge without letting it gate continuation.
+            ScenarioEnvironmentBudget.MaterialReady(r);
             return true;
         }
 

@@ -904,6 +904,9 @@ internal static class ConfigCatalog
                                      || key == "ScenarioPlayerFigureDetailPercent"
                                      || key == "ScenarioEnemyFigureDetailPercent"
                                      || key == "ScenarioFigureEffectsDensityPercent"
+                                     || key == "ScenarioEnvironmentEffectsDensityPercent"
+                                     || key == "ScenarioStaticBatching"
+                                     || key == "ScenarioSimpleEnvironmentShading"
                                      || key == "ScenarioFigureClothSimulation"
                                      || key == "ReduceScenarioGenerationDetail"))
             return ConfigTopic.Visual;

@@ -160,6 +160,9 @@ internal static class PerfConfig
     internal static ConfigEntry<int> ScenarioFigureEffectsDensityPercent = null!;
     internal static ConfigEntry<bool> ScenarioFigureClothSimulation = null!;
     internal static ConfigEntry<bool> ReduceScenarioGenerationDetail = null!;
+    internal static ConfigEntry<bool> ScenarioStaticBatching = null!;
+    internal static ConfigEntry<bool> ScenarioSimpleEnvironmentShading = null!;
+    internal static ConfigEntry<int> ScenarioEnvironmentEffectsDensityPercent = null!;
 
     internal static ConfigEntry<bool> SharedWallReadCache = null!;
     internal static ConfigEntry<bool> LightStabiliserWorkCache = null!;
@@ -274,6 +277,14 @@ internal static class PerfConfig
     internal static bool FigureClothSimulationEnabled =>
         ScenarioFigureClothSimulation == null ? Defaults.ScenarioFigureClothSimulation
             : ScenarioFigureClothSimulation.Value;
+
+    internal static bool StaticScenarioBatchesOn => ScenarioStaticBatching != null
+        ? ScenarioStaticBatching.Value : Defaults.ScenarioStaticBatching;
+    internal static bool SimpleEnvironmentShadingOn => ScenarioSimpleEnvironmentShading != null
+        ? ScenarioSimpleEnvironmentShading.Value : Defaults.ScenarioSimpleEnvironmentShading;
+    internal static int EnvironmentEffectsDensityPercent => ScenarioEnvironmentEffectsDensityPercent != null
+        ? Mathf.Clamp(ScenarioEnvironmentEffectsDensityPercent.Value, 0, 100)
+        : Defaults.ScenarioEnvironmentEffectsDensityPercent;
 
     internal static bool ReducedScenarioGenerationOn =>
         ReduceScenarioGenerationDetail == null ? Defaults.ReduceScenarioGenerationDetail
@@ -414,8 +425,8 @@ internal static class PerfConfig
             FrameDefaults.Active ? FrameDefaults.ScenarioPlayerFigureDetailPercent : Defaults.ScenarioPlayerFigureDetailPercent,
             new ConfigDescription(
                 "Mesh detail of scenario player characters. 100% keeps automatic original detail; "
-                + "lower values limit it to coarser original game meshes where available. 0% uses the "
-                + "lowest nonempty native level. Distance culling, animation, silhouette and gameplay "
+                + "lower values use coarser original meshes and prepared simplified body meshes. 0% uses the "
+                + "strongest available simplification. Distance culling, animation, silhouette and gameplay "
                 + "are retained. The selected detail also applies to figures held locally or by another player. "
                 + "Works live; fresh Frame defaults to 0%, PC to 100%; saved choices stay.",
                 new AcceptableValueRange<int>(0, 100)));
@@ -423,8 +434,8 @@ internal static class PerfConfig
             FrameDefaults.Active ? FrameDefaults.ScenarioEnemyFigureDetailPercent : Defaults.ScenarioEnemyFigureDetailPercent,
             new ConfigDescription(
                 "Mesh detail of scenario monsters. 100% keeps automatic original detail; lower "
-                + "values limit it to coarser original game meshes where available. 0% uses the lowest "
-                + "nonempty native level. Distance culling, animation and gameplay are retained. "
+                + "values use coarser original meshes and prepared simplified body meshes. 0% uses the "
+                + "strongest available simplification. Distance culling, animation and gameplay are retained. "
                 + "The selected detail also applies to figures held locally or by another player. Works live; "
                 + "fresh Frame defaults to 0%, PC to 100%; saved choices stay.",
                 new AcceptableValueRange<int>(0, 100)));
@@ -437,6 +448,28 @@ internal static class PerfConfig
                 + "including held figures; fresh standalone Frame defaults to 0%, PC to 100%. "
                 + "Saved choices are retained.",
                 new AcceptableValueRange<int>(0, 100)));
+        ScenarioStaticBatching = _file.Bind("Optimize", "ScenarioStaticBatching",
+            FrameDefaults.Active ? FrameDefaults.ScenarioStaticBatching : Defaults.ScenarioStaticBatching,
+            "Combines compatible static floor surfaces into small render chunks. Original collision, "
+            + "picking, room visibility and native callbacks stay intact. Animated, held and per-renderer "
+            + "effect surfaces remain original. On reduces render submissions; Off restores original "
+            + "renderers. Works on PC and Frame. Fresh Frame defaults On, PC Off; saved choices are retained.");
+
+        ScenarioSimpleEnvironmentShading = _file.Bind("Optimize", "ScenarioSimpleEnvironmentShading",
+            FrameDefaults.Active ? FrameDefaults.ScenarioSimpleEnvironmentShading : Defaults.ScenarioSimpleEnvironmentShading,
+            "Simpler shading for compatible static floor surfaces: retains original color textures, "
+            + "tint and geometry but omits normal, metallic, fine surface detail and received realtime shadows. Wall dissolution, "
+            + "water, foliage, figures, items and UI retain their original shaders. Works live on PC and "
+            + "Frame. Fresh Frame defaults On, PC Off; saved choices are retained.");
+
+        ScenarioEnvironmentEffectsDensityPercent = _file.Bind("Optimize", "ScenarioEnvironmentEffectsDensityPercent",
+            FrameDefaults.Active ? FrameDefaults.ScenarioEnvironmentEffectsDensityPercent : Defaults.ScenarioEnvironmentEffectsDensityPercent,
+            new ConfigDescription("Decorative scenario environment effects retained, such as original "
+            + "moths, candle flames and torch particles. 0% pauses eligible ambience; 100% restores it. "
+            + "Lights, native combat effects, condition cues and gameplay continuation stay intact. "
+            + "Works live on PC and Frame. Fresh Frame defaults 0%, PC 100%; saved choices are retained.",
+                new AcceptableValueRange<int>(0, 100)));
+
         ScenarioFigureClothSimulation = _file.Bind("Optimize", "ScenarioFigureClothSimulation",
             FrameDefaults.Active ? FrameDefaults.ScenarioFigureClothSimulation : Defaults.ScenarioFigureClothSimulation,
             "Simulate cloth on scenario figures. OFF retains the animated figure but stops secondary "

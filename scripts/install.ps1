@@ -94,6 +94,44 @@ if (-not (Test-Path -LiteralPath $townBundle -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $townVoicesBundle -PathType Leaf)) {
     Write-Error "Missing town-service voice bundle: $townVoicesBundle"
 }
+# Prepared native figure derivatives ship as independently indexed parts. Verify this
+# complete set before deployment, including without Python on a Windows developer PC.
+$figureFolder = Join-Path $root "prebuilt"
+$figureIndex = Join-Path $figureFolder "ghvr-figure-meshes-index.json"
+if (-not (Test-Path -LiteralPath $figureIndex -PathType Leaf)) {
+    Write-Error "Missing figure mesh index: $figureIndex"
+}
+if ((Get-Item -LiteralPath $figureIndex).Length -gt 1MB) { Write-Error "Figure mesh index exceeds runtime bound." }
+$figureEntries = @((Get-Content -LiteralPath $figureIndex -Raw -Encoding UTF8 | ConvertFrom-Json).entries)
+if ($figureEntries.Count -eq 0 -or $figureEntries.Count -gt 4096) { Write-Error "Invalid figure mesh index count." }
+$figureNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+$figurePartNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+foreach ($entry in $figureEntries) {
+    if ($entry.mesh -notmatch '^figure-[0-9a-f]{16}-(20|45|75)$') { Write-Error "Invalid figure mesh identity." }
+    $figureTier = $Matches[1]
+    if ($entry.bank -notmatch '^ghvr-figure-meshes-(20|45|75)-[0-9]{2}\.bundle$' -or $Matches[1] -ne $figureTier) {
+        Write-Error "Invalid figure mesh part filename or tier."
+    }
+    if (-not $figureNames.Add($entry.mesh)) { Write-Error "Duplicate figure mesh identity." }
+    [void]$figurePartNames.Add($entry.bank)
+}
+$figureBanks = @(Get-ChildItem -LiteralPath $figureFolder -Filter "ghvr-figure-meshes-*.bundle" -File)
+if ($figureBanks.Count -ne $figurePartNames.Count) { Write-Error "Missing or orphan figure mesh parts." }
+foreach ($part in $figureBanks) {
+    if (-not $figurePartNames.Contains($part.Name)) { Write-Error "Orphan figure mesh part: $($part.Name)" }
+    $stream = [IO.File]::OpenRead($part.FullName)
+    try {
+        $header = New-Object byte[] 64
+        $read = $stream.Read($header, 0, $header.Length)
+        if ($read -lt 29 -or [Text.Encoding]::ASCII.GetString($header, 0, 8) -ne "UnityFS`0" -or
+            $header[8] -ne 0 -or $header[9] -ne 0 -or $header[10] -ne 0 -or $header[11] -ne 7 -or
+            [Text.Encoding]::ASCII.GetString($header, 12, 17) -ne "5.x.x`02021.3.5f1`0") {
+            Write-Error "Incompatible figure mesh part: $($part.Name)"
+        }
+    } finally { $stream.Dispose() }
+}
+Write-Host "Figure mesh sources: $($figureEntries.Count) derivatives in $($figureBanks.Count) indexed parts."
+
 Write-Host "Asset bundle source: $bundle"
 if (-not (Test-Path -LiteralPath $bundle -PathType Leaf)) { $bundle = $null }
 
@@ -376,6 +414,8 @@ if (-not $bundle) {
 }
 Copy-Item -LiteralPath $townBundle -Destination (Join-Path $pluginDir "ghvr-town.bundle") -Force
 Copy-Item -LiteralPath $townVoicesBundle -Destination (Join-Path $pluginDir "ghvr-town-voices.bundle") -Force
+Copy-Item -LiteralPath $figureIndex -Destination $pluginDir -Force
+foreach ($part in $figureBanks) { Copy-Item -LiteralPath $part.FullName -Destination $pluginDir -Force }
 if ($bundle) {
     Copy-Item $bundle -Destination (Join-Path $pluginDir "gloomhavenvr.bundle") -Force
     # A STALE README FROM AN EARLIER INSTALL MUST GO (2026-09-03). The zip is built from this
@@ -619,6 +659,7 @@ if (-not $NoPackage) {
         "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll",
         "BepInEx/plugins/GloomhavenVR/ghvr-town.bundle",
         "BepInEx/plugins/GloomhavenVR/ghvr-town-voices.bundle",
+        "BepInEx/plugins/GloomhavenVR/ghvr-figure-meshes-index.json",
         "BepInEx/plugins/GloomhavenVR/LICENSE.txt",
         "BepInEx/plugins/GloomhavenVR/Licenses/SOURCES.txt",
         "BepInEx/plugins/GloomhavenVR/RuntimeDeps/Unity.XR.OpenXR.dll",
@@ -635,6 +676,7 @@ if (-not $NoPackage) {
         "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/library_hero.png",
         "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/logo.png",
         "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/icon.png")
+    foreach ($part in $figureBanks) { $required += "BepInEx/plugins/GloomhavenVR/$($part.Name)" }
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     # Every .txt in the archive must open cleanly on Windows: valid UTF-8, BOM, CRLF, and none
     # of the two characters a double encoding always produces (U+00C3 from an umlaut's lead

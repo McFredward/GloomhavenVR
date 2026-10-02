@@ -19,7 +19,7 @@ internal static class FrameDefaults
     internal const bool ForceFullTextureResolution = true;
     internal const bool ForceTextureStreamingOff = false;
     internal const int PixelLightCount = 0;
-    internal const bool DesktopMirrorLeftEye = true;
+    internal const bool DesktopMirrorLeftEye = false;
 
     // The game's native Fantastic profile uses a 900 MB streaming budget. This minimum is
     // inert under the fresh native Fastest profile, which has streaming disabled; unlike the
@@ -40,6 +40,9 @@ internal static class FrameDefaults
     internal const int ScenarioFigureEffectsDensityPercent = 0;
     internal const bool ScenarioFigureClothSimulation = false;
     internal const bool ReduceScenarioGenerationDetail = true;
+    internal const bool ScenarioStaticBatching = true;
+    internal const bool ScenarioSimpleEnvironmentShading = true;
+    internal const int ScenarioEnvironmentEffectsDensityPercent = 0;
 
     // A 4 s wall-rescan cadence was active in the tested Frame configuration. It reduces
     // rescan frequency, not the duration of an individual rescan.

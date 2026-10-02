@@ -1,18 +1,40 @@
 # State — where the project stands
 
-**Updated 2026-10-02: dev 1.1.0 / ModBuild 605, Frame604 scenery and figure corrections.**
+**Updated 2026-10-02: dev 1.1.0 / ModBuild 606, Frame605 follow-up implementation.**
 
-The new Build605 headset run confirms deferred decorative creation (287 native
-instances / 1,234 renderers) and ambient figure-effect suppression. Loaded,
-tracked windows average 52.67 ms, still far from smooth standalone play. The
-enemy setting changes native caps, but the cached visible body aggregate remains
-unchanged and nine of 17 actors have no authored coarse body mesh. Saved
-DesktopMirrorLeftEye=false retains extra native desktop drawing; the existing
-true setting is the next isolated comparison. Remaining engineering priorities
-are wall preparation/commit hitches, unnecessary hidden-decoration/UI work,
-compatible static scene batching, optional simple environment shading and real
-coarse figure derivatives. See [Frame605 hardware analysis](../docs/performance/FRAME-605-ANALYSIS.md).
-This is analysis only; runtime and the validated Build605 source tree are unchanged.
+The maintainer approved the Frame605 optimization follow-up and clarified spectator
+semantics: unused native flat draws are always suppressed in VR; DesktopMirrorLeftEye
+now selects the left eye versus black. Frame defaults start black, saved choices remain.
+Native headset menus/captures keep reversible camera ownership. Same-query UI memoization
+and a 64-slot signature ring reduce duplicate work without delaying native presentation.
+
+Selection-only native hex visuals no longer trigger a wall-table rebuild. Masked scenery
+retains structural facts but skips unused render preparation; held local/remote props rescue
+only their actual roots. Pure wall geometry and labels are prepared once with same-frame-only
+hierarchy reuse and a final room-change gate. Genuine geometry changes still need the atomic
+commit. New reversible settings add small compatible floor draw chunks, simpler floor shading
+and positively identified environment-ambience budgets. Native source mesh/material slots,
+cloning, visibility and callbacks remain; render masks end with each camera and recover before
+native Update if interrupted. A successful MaterialLoaderHeal direct finish also publishes the
+preparation edge. Immediate native floor identity plus the original plate-geometry verdict
+prevents shader ownership from overlapping wall-dissolve saved arrays.
+
+Figure sliders now use offline native-body derivatives as well as authored LODs. All 1,191
+verified derivatives from 409 sources ship in 49 game-format parts; demand preparation and
+immutable process-lifetime caches keep first grabs free of generation/I/O. Exact UV, skin,
+bindpose and solver exclusions, strong native signatures and live local/remote ghost mesh
+refresh preserve animation and 100% restoration. Body/FX diagnostics read actual current
+meshes. New quality keys start enabled/reduced on Frame, original on PC; existing values stay.
+Install the complete package including the new index/parts, not just a DLL. See
+[Frame606 implementation and limits](../docs/performance/FRAME-606-IMPLEMENTATION.md).
+Final integrated gate is in progress; hardware appearance/FPS remain to measure.
+
+Historical hardware basis: the Frame605 run confirms deferred decorative creation (287 native
+instances / 1,234 renderers) and ambient figure-effect suppression. Loaded, tracked windows
+average 52.67 ms, still far from smooth standalone play. Native caps changed, but the original
+cached body aggregate did not; nine of 17 actors lacked authored coarse meshes. At that build,
+DesktopMirrorLeftEye=false still retained discarded native drawing. That historical switch
+behavior is corrected above. See [Frame605 analysis](../docs/performance/FRAME-605-ANALYSIS.md).
 
 The supplied Frame604 / 253e89378 evidence confirms 17 admitted actors, 8/8 native
 LOD caps and 15 disabled cloth solvers. Only eight bodies have authored coarse

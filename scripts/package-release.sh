@@ -84,6 +84,11 @@ if [[ ${#RUNTIMEDEPS[@]} -eq 0 ]]; then
     exit 1
 fi
 
+# Split figure banks are a committed asset set, independent of the companion town build.
+python3 "$ROOT/scripts/check-figure-mesh-bank.py" "$ROOT/prebuilt"
+FIGURE_BANKS=("$ROOT"/prebuilt/ghvr-figure-meshes-*.bundle)
+FIGURE_INDEX="$ROOT/prebuilt/ghvr-figure-meshes-index.json"
+
 # ---- build --------------------------------------------------------------------------------
 if ! command -v dotnet >/dev/null 2>&1 && [[ -x "$HOME/.dotnet/dotnet" ]]; then
     export DOTNET_ROOT="$HOME/.dotnet"
@@ -162,6 +167,8 @@ fi
 
 cp "$TOWN_BUNDLE" "$PLUGDIR/ghvr-town.bundle"
 cp "$TOWN_VOICES_BUNDLE" "$PLUGDIR/ghvr-town-voices.bundle"
+cp "$FIGURE_INDEX" "$PLUGDIR/"
+cp "${FIGURE_BANKS[@]}" "$PLUGDIR/"
 
 # ---- INSTALL.txt / INSTALL-DEUTSCH.txt -------------------------------------------------------
 # ONE source of truth per language for the text a drag-and-drop user reads:
@@ -235,6 +242,7 @@ for path in \
     "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll" \
     "BepInEx/plugins/GloomhavenVR/ghvr-town.bundle" \
     "BepInEx/plugins/GloomhavenVR/ghvr-town-voices.bundle" \
+    "BepInEx/plugins/GloomhavenVR/ghvr-figure-meshes-index.json" \
     "BepInEx/plugins/GloomhavenVR/LICENSE.txt" \
     "BepInEx/plugins/GloomhavenVR/Licenses/SOURCES.txt" \
     "BepInEx/plugins/GloomhavenVR/RuntimeDeps/Unity.XR.OpenXR.dll" \
@@ -259,6 +267,10 @@ done
 
 # Every text file in the archive must open cleanly on Windows: valid UTF-8, BOM, CRLF, and no
 # double-encoded umlauts. Fails the run — a zip that renders "raumgroÃŸes" is not a release.
+for figure_part in "${FIGURE_BANKS[@]}"; do
+    path="BepInEx/plugins/GloomhavenVR/${figure_part##*/}"
+    [[ "$LISTING" == *"$path"* ]] || { echo "error: missing figure mesh part '$path'" >&2; exit 1; }
+done
 python3 "$ROOT/scripts/check-package-text.py" "$ZIP"
 python3 "$ROOT/scripts/check-frame-launchers.py" "$ZIP"
 

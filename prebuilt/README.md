@@ -12,6 +12,15 @@ Keeping town art separate avoids the GitHub file-size ceiling and leaves the rev
 existing board/hand/environment bank unchanged. Its name deliberately does not contain
 `gloomhavenvr`: historical main-bank discovery uses that substring.
 
+`ghvr-figure-meshes-index.json` and `ghvr-figure-meshes-<tier>-<part>.bundle`
+contain offline simplified original actor meshes. Each body keeps original material slots,
+UV/skin attributes and bindposes; native cloth meshes are excluded. Three tiers are
+selected by the existing figure sliders. Runtime opens only parts needed by current actors
+below 100%; originals and borrowed ghost meshes retain exact ownership. See
+`tools/figure-mesh/README.md` for reproducible generation and native-source fingerprints.
+Both packagers require the complete indexed set. `scripts/check-figure-mesh-bank.py`
+checks unique identities, exact part membership and game-compatible archive headers.
+
 > **Build it with `/home/claw/unity-2021.3.5`, NOT `/home/claw/unity-2021.3`.**
 > The second one is 2021.3.45f1 and its bundles do not load in the game at all.
 > `scripts/check-bundle-format.sh` (run by `refactor-guard.sh check`) enforces this.

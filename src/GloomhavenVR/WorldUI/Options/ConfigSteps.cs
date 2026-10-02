@@ -189,6 +189,7 @@ internal static class ConfigSteps
         ["Optimize/ScenarioPlayerFigureDetailPercent"] = 5d,
         ["Optimize/ScenarioEnemyFigureDetailPercent"] = 5d,
         ["Optimize/ScenarioFigureEffectsDensityPercent"] = 5d,
+        ["Optimize/ScenarioEnvironmentEffectsDensityPercent"] = 5d,
 
         // ---- Brett & Karten ---------------------------------------------------------------
         ["Cards/TrayScale"] = 0.05d,             // 5 % of the board size

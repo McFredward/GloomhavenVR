@@ -553,7 +553,33 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 605;
+    public const ushort ModBuild = 606;
+
+    // ModBuild 606 — Frame605 renderer/logic reduction and spectator semantics.
+    // Discarded native desktop scene/UI/skybox draws are suppressed in VR regardless
+    // of DesktopMirrorLeftEye: On requests the left-eye mirror, Off requests None and
+    // clears the desktop black. Headset captures keep paired reversible ownership.
+    // UI fit queries reuse live ancestors/bounds only inside one measure pass; the
+    // signature memo now holds the observed panel population without eight-slot churn.
+    // Native HexSelect_Control/HexSelectControlParticles owners identify selection-only
+    // visuals, so creating/removing a selector no longer triggers a full wall census.
+    // Masked scenery keeps structural facts but skips unused wall render work; held
+    // props rescue only their own local/remote roots. Pure wall geometry/labels are
+    // prepared early, with same-frame-only child reuse and commit-time room revalidation.
+    // Actual hierarchy changes still require the atomic wall publication transaction.
+    // New reversible environment settings offer small compatible floor draw chunks,
+    // simpler static color shading and positively identified ambient particle budgets.
+    // Native sources keep mesh/material slots and callbacks; draw masks last only for
+    // camera renders, with interrupted-render recovery before native Update. Unannounced
+    // clones restore genuine original materials when disabling the shading compromise.
+    // Offline native actor derivatives make figure sliders affect bodies without authored
+    // LODs. Exact skin/UV/bindpose ownership, solver exclusions, demand part preparation
+    // and live local/remote ghost mesh refresh preserve animation and original restoration.
+    // All 49 indexed native-format parts ship with both packagers; no runtime decimator.
+    // Fresh Frame entries enable the environment compromises and begin with a black
+    // spectator. Existing saved values and PC quality defaults remain. No FPS gain is
+    // inferred from the source: frame/logic/render and EnvironmentBudget.PreCull scopes,
+    // prepared chunks/mesh vertex counts and the next hardware run determine the result.
 
     // ModBuild 605 — Frame604 proves that the figure mesh caps and cloth OFF execute,
     // but only eight of seventeen native bodies have coarse authored meshes. A separate

@@ -246,14 +246,14 @@ internal static partial class Loc
                 + "gespeicherte Werte bleiben erhalten.",
             ["Optimize/ScenarioPlayerFigureDetailPercent"] =
                 "Mesh-Details der Spielfiguren im Szenario. 100% erhält die ursprüngliche automatische "
-                + "Detailwahl; kleinere Werte begrenzen sie auf gröbere Original-Meshes, soweit vorhanden. "
-                + "0% nutzt die niedrigste nicht leere Spielvariante. Entfernungsausblendung, Animation "
+                + "Detailwahl; kleinere Werte nutzen vorhandene gröbere Original-Meshes und vorbereitete "
+                + "vereinfachte Körper-Meshes. 0% nutzt die stärkste verfügbare Vereinfachung. Entfernungsausblendung, Animation "
                 + "und Spielregeln bleiben erhalten. Die gewählte Detailstufe gilt auch für lokal und remote "
                 + "hochgehobene Figuren. Wirkt sofort; neue Frame-Profile 0%, PC 100%; gespeicherte Werte bleiben.",
             ["Optimize/ScenarioEnemyFigureDetailPercent"] =
                 "Mesh-Details der Gegnerfiguren im Szenario. 100% erhält die ursprüngliche automatische "
-                + "Detailwahl; kleinere Werte begrenzen sie auf gröbere Original-Meshes, soweit vorhanden. "
-                + "0% nutzt die niedrigste nicht leere Spielvariante. Entfernungsausblendung, Animation "
+                + "Detailwahl; kleinere Werte nutzen vorhandene gröbere Original-Meshes und vorbereitete "
+                + "vereinfachte Körper-Meshes. 0% nutzt die stärkste verfügbare Vereinfachung. Entfernungsausblendung, Animation "
                 + "und Spielregeln bleiben erhalten. Die gewählte Detailstufe gilt auch für lokal und remote "
                 + "hochgehobene Figuren. Wirkt sofort; neue Frame-Profile 0%, PC 100%; gespeicherte Werte bleiben.",
             ["Optimize/ScenarioFigureEffectsDensityPercent"] =
@@ -262,6 +262,22 @@ internal static partial class Loc
                 + "Körpermodelle, Angriffe, Heilung und Spielindikatoren bleiben erhalten. "
                 + "Wirkt sofort, auch bei gehaltenen Figuren. Neue Standalone-Frame-Konfigurationen "
                 + "starten mit 0%, PC mit 100%; gespeicherte Einstellungen bleiben erhalten.",
+            ["Optimize/ScenarioStaticBatching"] =
+                "Fasst geeignete statische Bodenflächen in kleinen Zeichen-Gruppen zusammen. "
+                + "Originalkollisionen, Zeigen, Raumsichtbarkeit und Spielabläufe bleiben erhalten. "
+                + "Animierte, gehaltene und durch Einzeleffekte veränderte Flächen bleiben original. "
+                + "Aus stellt die ursprünglichen Renderer wieder her. Neue Frame-Profile Ein, PC Aus; "
+                + "gespeicherte Werte bleiben erhalten.",
+            ["Optimize/ScenarioSimpleEnvironmentShading"] =
+                "Vereinfachte Beleuchtung geeigneter statischer Bodenflächen. Originalfarbtextur, "
+                + "Färbung und Geometrie bleiben; Normalen-, Metall-, feine Oberflächendetails und empfangene Echtzeitschatten entfallen. "
+                + "Wandauflösung, Wasser, Pflanzen, Figuren, Gegenstände und UI behalten ihre Shader. "
+                + "Wirkt sofort; neue Frame-Profile Ein, PC Aus; gespeicherte Werte bleiben erhalten.",
+            ["Optimize/ScenarioEnvironmentEffectsDensityPercent"] =
+                "Anteil dekorativer Szenario-Umgebungseffekte, etwa Motten, Kerzen- und Fackelpartikel. "
+                + "0% pausiert geeignete Dauereffekte, 100% stellt sie wieder her. Lichtquellen, Angriffe, "
+                + "Zustandsanzeigen und Spielabläufe bleiben erhalten. Wirkt sofort auf PC und Frame. "
+                + "Neue Frame-Profile 0%, PC 100%; gespeicherte Werte bleiben erhalten.",
             ["Optimize/ScenarioFigureClothSimulation"] =
                 "Simuliert Kleidung an Szenariofiguren. Aus erhält die animierte Figur, stoppt aber "
                 + "zusätzliche Stoffphysik auch an lokal und remote hochgehobenen Figuren. Handkollision und "
@@ -2683,13 +2699,10 @@ internal static partial class Loc
                 + "ist. Zum Verschieben das Fenster greifen: diese Bewegung ist synchronisiert und "
                 + "ist der Weg, auf dem eine Gruppe die Höhe ändert. Bereich 0.3-1.5.",
             ["WorldUI/DesktopMirrorLeftEye"] =
-                "Der flache Monitor spiegelt NUR das LINKE Auge des HMD: setzt XRSettings.gameViewRenderMode "
-                + "fest auf LeftEye und überspringt den Composite-Blit des 2D-Menüs auf dem Desktop, sodass der "
-                + "Desktop in jedem Zustand ein sauberes Einzelaugen-Spiegelbild zeigt. Aus = altes Verhalten "
-                + "(2D-Menü-Composite in Menüs, sonst unkontrollierter XR-Standardspiegel). Ein unterdrückt "
-                + "zusätzlich verworfene Desktop-Kamerabilder, wenn der schwebende 2D-Schirm unsichtbar ist. "
-                + "Diese Einstellung gilt auf PC und Steam Frame. Standalone Frame beginnt mit Ein; "
-                + "gespeicherte Einstellungen bleiben erhalten.",
+                "Ein zeigt das linke VR-Auge auf dem flachen Bildschirm; Aus hält diesen Bildschirm "
+                + "schwarz. Ungenutzte native Flat-Kamera- und UI-Ausgaben werden in VR unabhängig von "
+                + "diesem Schalter unterdrückt. Die Inhalte der VR-Fenster bleiben erhalten. "
+                + "Neue Steam-Frame-Standalone-Profile beginnen mit Aus, PC mit Ein; gespeicherte Werte bleiben.",
             // [WorldUI] WristHud{Pitch..OffsetZ} had translations here until 2026-08-09. They are
             // retired ("LEGACY — no effect", WorldUIConfig.Bind) and a retired entry never reaches
             // the UI, so a translation for one is a promise the menu cannot keep. The live pose

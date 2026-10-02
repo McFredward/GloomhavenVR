@@ -66,6 +66,7 @@ internal sealed class CoreModule : IVRModule
         ScenarioSceneryBudget.Install(_hostGo);
         ScenarioGenerationDetail.Install();
         ScenarioFigureDetailBudget.Install(_hostGo);
+        ScenarioEnvironmentBudget.Install(_hostGo);
         // The grep list is exhaustive on purpose. Every hardware round of this project starts with
         // somebody being told which string to search a 9 MB Player.log for, and a line nobody knows
         // the name of is a line nobody reads — [Perf] SCENE spent five ModBuilds switched off while
@@ -122,6 +123,7 @@ internal sealed class CoreModule : IVRModule
         PerfMonitor.Shutdown(); // drop the sampling host + every step record before the GO dies
         AutoLod.Shutdown();     // re-enable every AutomaticLOD it disabled, restore lodBias
         ScenarioSceneryBudget.Shutdown(); // restore only decorative submissions this budget owns
+        ScenarioEnvironmentBudget.Shutdown(); // restore only optional static render substitutions
         ScenarioGenerationDetail.Shutdown(); // release transient generation profiles, never game assets
         ScenarioFigureDetailBudget.Shutdown(); // restore original actor LODs and owned cloth simulation
 
