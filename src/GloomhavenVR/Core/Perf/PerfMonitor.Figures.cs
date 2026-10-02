@@ -9,6 +9,7 @@ internal static partial class PerfMonitor
     private static PerfFigureMeasurement.Settings _figureWindowSettings;
     private static int _figureWindowRevision;
     private static bool _figureWindowSteady;
+    private static bool _figureBoundarySummary;
     private static float _figureChangeLoggedAt = float.NegativeInfinity;
 
     /// <summary>
@@ -29,7 +30,9 @@ internal static partial class PerfMonitor
         // Time.unscaledDeltaTime belongs to the frame being dropped, not to the closed
         // old interval. The frame/step samples already in the window stop before it.
         float elapsed = Mathf.Max(0.001f, now - Time.unscaledDeltaTime - _windowStart);
-        if (_frameCount >= MinMarkFrames) LogSummary(elapsed);
+        _figureBoundarySummary = true;
+        try { if (_frameCount >= MinMarkFrames) LogSummary(elapsed); }
+        finally { _figureBoundarySummary = false; }
         _figureWindowSettings = FigureMeasurement.Current;
         _figureWindowRevision = FigureMeasurement.Revision;
         _figureWindowSteady = FigureMeasurement.IsSteady;

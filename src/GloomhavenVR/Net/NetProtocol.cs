@@ -558,7 +558,8 @@ internal static class NetProtocol
     // ModBuild 607 — attributable figure-detail hardware measurements and optional window dust.
     // Figure slider/effect/cloth changes close the completed previous interval with its
     // latched OLD settings at the early Update seam. A mixed transition frame and its
-    // pending step/camera work are discarded; preparation and steady work use separate
+    // pending step/camera/counter work are discarded; incomplete native captures are
+    // omitted at that boundary. Preparation and steady work use separate
     // state/revision labels on FRAME. Stable collection starts only after a two-second
     // quiet guard after the native figure driver's completed application pass and
     // closed VR Options, including an unchanged-slider baseline. Bounded Debug

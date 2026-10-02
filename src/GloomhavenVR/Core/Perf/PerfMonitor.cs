@@ -313,36 +313,6 @@ internal static partial class PerfMonitor
     //  Work counters ("how much work", not "how long it took")
     // ==========================================================================================
 
-    /// <summary>
-    /// One named counter's window accumulator. A CLASS for the same reason <see cref="Step"/> is:
-    /// the hot path mutates it in place after a single dictionary lookup, with no copy-back.
-    /// </summary>
-    private sealed class Tally
-    {
-        public Tally(string name) => Name = name;
-        public readonly string Name;
-        public long WindowTotal;
-        public long WindowWorstFrame;
-
-        /// <summary>Print this counter even in a window where it totalled ZERO — see
-        /// <see cref="PerfMonitor.Register"/>. Off by default so the line does not fill with rows
-        /// for subsystems that are simply not standing this session.</summary>
-        public bool PrintZero;
-
-        private long _frame;
-
-        public void Add(long amount)
-        {
-            WindowTotal += amount;
-            _frame += amount;
-            if (_frame > WindowWorstFrame)
-                WindowWorstFrame = _frame;
-        }
-
-        public void RollFrame() => _frame = 0L;
-        public void ResetWindow() { WindowTotal = 0L; WindowWorstFrame = 0L; _frame = 0L; }
-    }
-
     private static readonly Dictionary<string, Tally> Counters = new(16);
     private static readonly List<Tally> CounterOrder = new(16);
 
@@ -849,11 +819,13 @@ internal static partial class PerfMonitor
             return;
         StringBuilder sb = Sb;
         sb.Length = 0;
-        PerfFrameSplit.AppendSplit(sb, windowSeconds, frameMeanMs);
+        bool includeNativeCapture = !_figureBoundarySummary || PerfFrameSplit.NativeProbeComplete;
+        PerfFrameSplit.AppendSplit(sb, windowSeconds, frameMeanMs, includeNativeCapture);
         if (PerfConfig.SceneCensus.Value)
             PerfFrameSplit.AppendSceneCensus(sb);
         VRLog.Info(Scope0, sb.ToString());
-        PerfNativeLoopProbe.LogSummary(PerfFrameSplit.NativeProbeCapturedFrames);
+        if (includeNativeCapture)
+            PerfNativeLoopProbe.LogSummary(PerfFrameSplit.NativeProbeCapturedFrames);
     }
 
     /// <summary>

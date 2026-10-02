@@ -44,7 +44,9 @@ namespace GloomhavenVR.Core
         private static bool _firstSampleDone;
         private sealed class Step { internal double FrameSeconds; internal int FrameCalls; }
         private static readonly List<Step> StepOrder = new();
-        internal static readonly List<(string State, float Seconds, int Frames)> Closed = new();
+        private static readonly Tally TestTally = new("boundary-work");
+        internal static void Register(string name) => TestTally.PrintZero = true;
+        internal static readonly List<(string State, float Seconds, int Frames, long Work, long WorstWork, bool CompleteProbesOnly)> Closed = new();
         internal static bool PendingCleared => _frameModSeconds == 0 && _depth == 0
             && _firstSampleDone && StepOrder.TrueForAll(s => s.FrameSeconds == 0 && s.FrameCalls == 0);
 
@@ -56,6 +58,8 @@ namespace GloomhavenVR.Core
             _frameCount = count; _windowStart = since;
             _frameModSeconds = 999; _depth = 3;
             StepOrder.Clear(); StepOrder.Add(new Step { FrameSeconds = 999, FrameCalls = 7 });
+            TestTally.Add(4); TestTally.RollFrame(); TestTally.Add(7); TestTally.RollFrame();
+            TestTally.Add(999); // The mixed callback must not enter the old TALLY summary.
         }
         internal static void ClearForTest()
         {
@@ -67,8 +71,14 @@ namespace GloomhavenVR.Core
             PerfConfig.FigureEffectsDensityPercent = 0; PerfConfig.FigureClothSimulationEnabled = false;
             ScenarioFigureDetailBudget.MeasurementReady = true;
             WorldUI.VROptionsTab.IsOpen = false;
+            TestTally.ResetWindow();
+            TestTally.PrintZero = false;
         }
-        private static void LogSummary(float seconds) => Closed.Add((Tag(), seconds, _frameCount));
-        private static void ResetWindow(float now) { _frameCount = 0; _windowStart = now; }
+        private static void LogSummary(float seconds) => Closed.Add((Tag(), seconds, _frameCount,
+            TestTally.WindowTotal, TestTally.WindowWorstFrame, _figureBoundarySummary));
+        private static void ResetWindow(float now)
+        { _frameCount = 0; _windowStart = now; TestTally.ResetWindow(); }
+        internal static bool CounterPendingDiscarded()
+        { TestTally.RollFrame(); return TestTally.WindowTotal == 0 && TestTally.WindowWorstFrame == 0; }
     }
 }

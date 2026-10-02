@@ -163,6 +163,9 @@ internal static partial class PerfFrameSplit
     private static bool _probeSampling, _probeFrameOpen;
     private static int _probeFrames;
     internal static int NativeProbeCapturedFrames => _probeFrames;
+    // A current callback contributes directly to native captures. An incomplete capture
+    // cannot accompany a figure-boundary summary that discards that callback's frame.
+    internal static bool NativeProbeComplete => !_probeSampling;
     private static double _probeManagementMs;
 
     // These Unity marker names are documented for 2021.3. A release player may expose none of
@@ -747,7 +750,8 @@ internal static partial class PerfFrameSplit
     /// PerfMonitor's own mean frame interval for the same window, so the two lines are directly
     /// comparable.
     /// </summary>
-    internal static void AppendSplit(System.Text.StringBuilder sb, float windowSeconds, float frameMeanMs)
+    internal static void AppendSplit(System.Text.StringBuilder sb, float windowSeconds, float frameMeanMs,
+        bool includeNativeCapture = true)
     {
         float logicMean = (float)(_logicSum / _count);
         float renderMean = (float)(_renderSum / _count);
@@ -790,7 +794,10 @@ internal static partial class PerfFrameSplit
 
         sb.Append(" | VERDICT: ").Append(Verdict(logicMean, renderMean, blockedMean, frameMeanMs));
         if (VRLog.WantsDebug)
-            AppendDebugLogic(sb);
+        {
+            if (includeNativeCapture) AppendDebugLogic(sb);
+            else sb.Append(" | Debug capture omitted: incomplete at figure boundary");
+        }
     }
 
     /// <summary>

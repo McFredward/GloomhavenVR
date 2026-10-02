@@ -59,6 +59,11 @@ internal static class Program
         Check(Math.Abs(PerfMonitor.Closed[0].Seconds - 7.85f) < 0.001f,
             "Old duration must exclude the discarded transition frame");
         Check(PerfMonitor.PendingCleared, "Mixed frame's nested steps and mod total must be discarded");
+        Check(PerfMonitor.Closed[0].Work == 11 && PerfMonitor.Closed[0].WorstWork == 7,
+            "Mixed frame's direct tally additions must not enter old total or worst");
+        Check(PerfMonitor.CounterPendingDiscarded(), "Reset must discard mixed pending counter work");
+        Check(PerfMonitor.Closed[0].CompleteProbesOnly,
+            "Boundary summary must exclude unfinished native captures");
         Check(PerfFrameSplit.Dropped == 3, "Mixed camera samples must not leak across the boundary");
         Check(PerfMonitor.Tag().Contains("players=100 enemies=0")
             && PerfMonitor.Tag().Contains("state=preparing revision=2"), "New window labels its new state");

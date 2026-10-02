@@ -11,10 +11,14 @@ package cost, and the limits of that evidence.
 The early PerfMonitor Update observes four scalar choices: player detail, enemy
 detail, figure effect density and figure cloth simulation. At a change it closes
 the completed old samples with the **old latched settings**, discards the single
-mixed transition frame (including pending step/camera work), and starts a
+mixed transition frame (including pending step/camera/counter work), and starts a
 `preparing` window. The existing minimum of 120 samples still applies to an
 early summary; a shorter interval is omitted rather than presented as sufficient
 evidence. A normal timed summary can still have fewer samples at very low FPS.
+Counters now join the summary only at a completed frame roll, as timings already
+do. Boundary summaries omit unfinished native callback/profiler captures because
+their immediate accumulation can include the discarded callback frame; completed
+earlier captures remain available.
 
 `steady` starts only after the figure driver's completed native LateUpdate pass,
 no pending figure discovery/loading, closed VR Options, and two quiet seconds
