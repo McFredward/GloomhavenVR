@@ -11,7 +11,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
-| [QUEST3-PORT-PLAN.md](QUEST3-PORT-PLAN.md) | Deferred Quest 3 campaign port: local APK conversion, Quest profiles, native passthrough and original multiplayer; no implementation before Steam Frame acceptance |
+| [QUEST3-PORT-PLAN.md](QUEST3-PORT-PLAN.md) | Deferred Quest 3 campaign port: local APK conversion, imported PC profiles without Horizon services, native passthrough and original multiplayer; no implementation before Steam Frame acceptance |
+| [QUEST3-CRITICAL-SOLUTIONS.md](QUEST3-CRITICAL-SOLUTIONS.md) | Concrete future solutions and bounded feasibility tests for asset reconstruction, Apparance baking, ARM64 mod integration, original multiplayer, native platform APIs, imported profiles, save/cloud transfer and Quest performance |
 | [STEAM-FRAME-SCENERY-605.md](STEAM-FRAME-SCENERY-605.md) | Frame604 native creation/vegetation coverage, independent ambient figure effects and correct held-figure silhouettes |
 | [TOWN-MP-602.md](TOWN-MP-602.md) | Paired PCVR evidence, original-widget/clock/lifecycle review, independent held stock and final validation |
 | [STEAM-FRAME-SCENERY-604.md](STEAM-FRAME-SCENERY-604.md) | Frame603 zero-actor admission defect, static held cloth and decorative tree/collider coverage |

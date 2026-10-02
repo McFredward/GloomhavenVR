@@ -3,9 +3,9 @@
 This plan describes a future Android ARM64 port of Gloomhaven Digital and
 GloomhavenVR. Players build their own APK on a PC from their legally acquired
 game installation. The first scope is the base game campaign, with official
-scenario DLCs as an optional extension. Quest supplies the local profile and
-native passthrough; the original gameplay and existing VR experience remain
-the reference.
+scenario DLCs as an optional extension. The local builder embeds the original
+PC account's profile; Quest supplies native passthrough. The original gameplay
+and existing VR experience remain the reference.
 
 **Status: planning only, 2026-10-02.** The maintainer explicitly deferred
 implementation until the game is running satisfactorily standalone on Steam
@@ -13,6 +13,17 @@ Frame. This document authorizes no implementation, SDK installation, Android
 project generation, game export, service registration, account configuration or
 APK publication now. Resume implementation only on the maintainer's subsequent
 instruction after that milestone. All milestones below are future work.
+
+**Profile decision revised on 2026-10-02:** the maintainer excludes registered
+Meta apps and Horizon services permanently. Import the Steam/Epic/GOG profile
+on the PC instead. Personalization and basic source-install checks provide a
+small sharing hurdle; the open-source builder is not intended to enforce DRM.
+Do not add device binding, an ownership server or a registered profile helper.
+This supersedes the initial Quest-account API proposal.
+
+Concrete solution paths, bounded feasibility experiments and fallback decisions
+are recorded in [Quest 3 critical solution paths](QUEST3-CRITICAL-SOLUTIONS.md).
+Those experiments are future work, subject to the same Frame prerequisite.
 
 The inspected baseline is `dev` at `a182d057aedf`, with runtime ModBuild 605.
 Other agents are working on `dev`; this is a dated source assessment rather
@@ -34,9 +45,12 @@ scope and platform clarifications on 2026-10-02.
 | DLCs | Plan optional support for Jaws of the Lion and Solo Scenarios when the player owns the necessary content. Establish base game feasibility first. |
 | Guildmaster | Exclude Guildmaster. Its Quest menu entries remain visible, grey and non-activatable, with an explanatory hover tooltip. |
 | Workshop | Exclude Steam Workshop. Its Quest entries remain visible, grey and non-activatable, with an explanatory hover tooltip. |
-| Profile | Obtain the Quest account's name and profile picture through Meta's platform API instead of Steamworks on the headset. |
+| Profile | Embed the original PC account's name, stable provider-qualified identity and available profile picture during the local build. Read the legitimate PC platform services or verified local profile data; do not require Steamworks on Quest. |
+| Horizon services | Never register a Meta app or depend on Horizon account, entitlement or social services. Use native OpenXR passthrough independently of these services. |
+| Sharing hurdle | Personalize the locally built APK and check the source installation and available ownership/DLC information. Deliberately avoid DRM, device binding and a new ownership server; the open-source builder can be modified. |
 | Mixed reality | Use native Quest passthrough rather than a green chroma-key background. Preserve the existing MR content, controls and layout. |
 | Multiplayer | Preserve shared play with compatible PC, Steam Frame and supported original crossplay clients, with or without GloomhavenVR. |
+| Saves | Preserve original campaign save compatibility and evaluate PC import/export plus optional cloud synchronization. Direct platform-cloud access is a feasibility question, not an established capability or a requirement to keep a PC running during play. |
 | Other behavior | Preserve the existing game and VR feature set except for the explicitly requested platform substitutions and scope exclusions. Do not silently remove features or approve new visual compromises. |
 | Integration | Commit and push only to `dev`. Preserve other agents' work and never force-push or use stash. |
 
@@ -96,8 +110,10 @@ depend on Steamworks. Replacing profile presentation alone will not replace
 all these dependencies. The original connection token carries a name and
 platform identifiers, but no profile image or image URL. Its Steam avatar
 service uses a default image for non-Steam players. Do not assume that an
-unmodified PC or console can display a Quest image merely because the Quest
-can retrieve it locally.
+unmodified PC or console can display an embedded image merely because Quest
+has a local copy. Genuine imported Steam IDs may permit the original Steam
+avatar lookup if their original provider fields remain compatible; prove that
+mapping rather than inventing a Steam identity.
 
 ### Hardware evidence
 
@@ -127,7 +143,9 @@ flowchart TD
     Assets --> Build[Local Android ARM64 build]
     Runtime --> Build
     Build --> Quest[Quest 3 application]
-    Quest --> Meta[Meta profile and native passthrough]
+    Converter --> Profile[Imported PC account profile]
+    Profile --> Build
+    Quest --> Passthrough[Native OpenXR passthrough]
     Quest --> Network[Original Photon multiplayer]
 ```
 
@@ -137,8 +155,8 @@ produce a real Android Unity player and usable Android content.
 
 | Boundary | Desktop and Steam Frame | Quest target |
 | --- | --- | --- |
-| Platform identity | Existing platform service | Meta account provider with stable identity mapping |
-| Ownership and DLC availability | Existing platform checks | Validated acquired-content import and an explicitly designed entitlement path |
+| Platform identity | Existing platform service | Embedded PC profile, with account identity separate from Quest device capabilities |
+| Ownership and DLC availability | Existing platform checks | Basic PC source-install checks and imported owned/available DLC manifest |
 | XR startup | Existing desktop bootstrap | Build-configured Android OpenXR startup and one XR session |
 | MR background | Existing chroma-key backend | Native passthrough composition with transparent application background |
 | Procedural presentation | Existing Apparance runtime | Exported presentation assets and compatible lifecycle adapter |
@@ -155,21 +173,21 @@ or reinterpreted globally just because the Quest backend differs.
 
 Resolve these questions before spending time exporting every scenario.
 
-1. **Meta profile access with local builds.** Establish an app registration,
-   API access and signing/distribution arrangement compatible with player-built,
-   sideloaded APKs. Test a normal intended user's account, not only a developer
-   or organization member. Meta account access does not prove ownership of
-   Gloomhaven or its DLCs.
-2. **Unity and SDK compatibility.** Pin an Android editor, OpenXR, Meta Platform
-   SDK and passthrough integration that can run the game's assemblies and
-   assets. The current Meta Core SDK download is 207.0, whereas this project is
-   Unity 2021.3.5f1. Verify supported versions rather than installing the newest
-   packages into the existing project. Evaluate a compatible pinned SDK or a
-   focused native OpenXR feature before deciding on an engine migration.
+1. **Local profile import.** Prove the Steam path first, using the owned PC
+   installation's account context. Record the actual provider ID, name and
+   available avatar without importing credentials. Epic/GOG need their own
+   inspected source build/provider path; generic game assets do not reliably
+   contain an account name. A profile snapshot is not ownership authentication.
+2. **Unity and XR compatibility.** Pin an Android ARM64/IL2CPP editor, OpenXR
+   and passthrough integration that can run the game's assemblies and assets.
+   Start with the original editor family and a focused OpenXR feature. No Meta
+   Platform SDK is required. Do not migrate the engine merely to install the
+   newest Meta package. Unity's Android ARM64 path requires IL2CPP; desktop
+   Mono/BepInEx compatibility is not the target backend. [ARM64 backend][unity-arm64]
 3. **Original backend acceptance.** Prove that the Android client can reach
    the game's existing Photon sessions using legitimate client configuration.
-   Meta's account API supplies the local identity; it does not replace the
-   publisher's Photon application or any required backend authentication.
+   The embedded profile does not replace the publisher's Photon application
+   or any required backend authentication.
 4. **Android content reconstruction.** Prove a usable original scene and its
    required assets, including materials and scripts, on the real headset.
    Decompilable C# is not an exported Unity project.
@@ -178,14 +196,13 @@ Resolve these questions before spending time exporting every scenario.
    variants can be represented by reusable baked components while keeping
    original seeds and semantics.
 
-The release and app-access requirements must be recorded from the selected
-SDK documentation and verified behavior. Meta documents app-scoped user IDs,
-profile image URLs and platform data access requirements; those documents do
-not establish that arbitrary locally signed APKs are eligible. [Logged-in user API][meta-user]
-[Platform data access requirements][meta-duc] [Current Core SDK][meta-core]
+The selected XR/native SDK requirements still need device evidence. Meta's
+off-platform distribution policy does not provide general Horizon service
+access for sideloaded apps; the revised design removes that dependency instead
+of seeking app registration. [Distribution options][meta-distribution]
 
 If an early decision fails, record the blocking fact and alternatives. Do not
-substitute a fake Steam identity, silently drop the Quest profile requirement,
+substitute a fake Steam identity, silently drop the imported profile requirement,
 change the distribution model, require a permanent PC companion or claim the
 port is complete. Any resulting scope change belongs to a later maintainer
 decision, after concrete findings are available.
@@ -201,9 +218,11 @@ The future converter should implement distinct, resumable stages:
    input combinations with an actionable explanation instead of producing a
    nominally compatible APK. Preserve the original installation, saves,
    settings and Steam Cloud data.
-3. Validate the ownership/entitlement design for the source installation and
-   optional DLCs. Presence of copied files alone is not proof of purchase.
-   Meta app entitlement and PC game entitlement remain separate concerns.
+3. Check the source installation and available legitimate PC ownership/DLC
+   information, and capture the associated profile. Presence of copied files
+   or a name alone is not proof of purchase. Keep these checks proportionate to
+   the requested small sharing hurdle; do not design a DRM or Horizon entitlement
+   system. Never transfer PC session tickets or launcher credentials to Quest.
 4. Run the necessary original Windows generation in an isolated local
    workspace. Choose between driving the owned player and a reconstructed
    export host only after proving the real native dependency and asset path.
@@ -221,8 +240,8 @@ The future converter should implement distinct, resumable stages:
 8. Produce Android ARM64 assets and the Unity player using locked tools and
    matching SDK/NDK/JDK versions. Preserve a build manifest identifying input
    game version, converter version, mod compatibility, editor and package lock.
-9. Sign locally and provide install/update instructions. A per-player keystore
-   is a proposed default, subject to the Meta platform eligibility findings.
+9. Embed the profile and source/DLC manifest, sign locally and provide
+   install/update instructions. Use a persistent per-player signing keystore.
    Never distribute a maintainer signing secret. Keep package identity and
    update signing stable so updates do not erase the player's saves.
 
@@ -279,59 +298,68 @@ detail variants are possible optimization work, but each must preserve
 gameplay, picking and the maintainer's visual requirements. Do not treat the
 existing Frame compromise settings as permission for additional Quest changes.
 
-## Quest account integration
+## Imported PC account profile
 
-Use the selected Meta Platform SDK to initialize the registered Quest app and
-retrieve the logged-in user's platform alias, app-scoped ID and profile image
-URL. The documented logged-in-user call returns those fields; do not assume
-that every SDK also supplies an unrestricted display-name or friend lookup.
-Use the platform-provided account name rather than a legal name or a Steam name.
-Resolve the exact Unity or native call names against the pinned SDK. [User API][meta-user]
+The converter captures a profile snapshot from the player's original PC account
+and stores it in the generated APK as build data. Its fields are source provider,
+full stable account identifier, display name, available avatar bytes and import
+provenance/version. This is functionally a hardcoded profile without spreading
+user-specific literals through the source. Generic installation files are
+insufficient to identify the currently signed-in owner reliably.
 
-The proposed provider must cover:
+For Steam, the inspected `PlatformUserData.UserName`, `PlatformPlayerID` and
+avatar code already use the PC Steam client. Capture those legitimate values
+in the original account context. Epic and GOG require corresponding provider
+inspection; do not claim the inspected Steam-only build implements them.
 
-- Profile readiness and an asynchronous, bounded fetch of the name and image.
-- Stable provider-qualified IDs for saves, multiplayer players and voice
-  association. Keep the original session player ID distinct from the account
-  ID. Do not recreate the existing Steam 32-bit/64-bit identity mismatch.
-- A local cached sprite for the main UI, owner tags, player lists and any
-  account surfaces that currently use `PlatformUserData` or `NetPlayerActors`.
-- Delayed API results, expired image URLs, missing pictures, account changes,
-  offline starts and SDK initialization failures. Existing placeholders may
-  cover transient failures; they do not establish successful Quest integration.
-- Ownership/DLC availability, save storage and network availability using
-  explicit target services. A Meta profile is not a Steam ownership credential.
+The Quest target provider reads the snapshot before original menus initialize.
+It supplies the same name and image to local UI, owner tags and compatible
+multiplayer presentation. Keep session player IDs, original account fields and
+voice associations distinct; preserve the full original Steam ID instead of
+silently truncating it to the 32-bit account number. Changing the profile's
+name or image requires refreshing the local build; its account ID stays stable.
 
-No Steamworks library or Steam client is required on the headset. The PC
-conversion step may use the acquired installation's legitimate PC platform
-services. EOS, if the actual original crossplay flow requires it, is a separate
-dependency to investigate; it must not replace the requested Quest identity.
+No Steamworks, Galaxy or Meta Platform account library is required on Quest for
+the local profile. EOS, if the actual original crossplay flow requires it, is a
+separate dependency and must not change the imported identity. Android/OpenXR
+remains responsible for the device and XR capabilities.
+
+The personalized APK is a modest sharing hurdle: a shared copy retains the
+builder's imported identity. It does not prove who is running it and cannot
+prevent rebuilding with modified checks. This is the maintainer's intended
+tradeoff. Do not add device locks, receipts issued by a new server, or Horizon
+registration to strengthen it.
 
 ### Profile presentation to other players
 
 Keep the original name and identifier fields compatible with unmodified peers.
-Validate a truthful Quest provider identifier with their crossplay checks,
-platform icons and save-owner handling. Do not assume that an unknown platform
-label is accepted by every shipped client.
+First evaluate retaining the genuine imported account's existing provider and
+identifier fields, especially Steam, while routing device capabilities through
+the Quest target adapter. A source-account label must not claim that a native
+Steam runtime is present or that a live account ticket has been validated.
+If that contract does not work, validate a truthful standalone provider with
+crossplay checks, platform icons and save-owner handling. Never fabricate IDs
+or weaken original authentication checks to make it connect.
 
 Quest clients must retain other players' actual names and profile pictures
-where the relevant provider permits fetching them. Quest's own account API
-does not supply a Steam or Epic profile from an arbitrary foreign account ID.
-Audit these inbound paths separately from the local Quest profile.
+where the relevant provider permits fetching them. The embedded local profile
+does not supply an arbitrary foreign player's avatar. Audit these inbound paths
+separately; modded peers can transfer their own bounded presentation image.
 
 For compatible modded peers, plan a bounded additive profile presentation
-record or transfer over the existing mod channel, if permitted by the selected
-Meta data access conditions. Define image size, cache lifetime, fragmentation,
+record or transfer over the existing mod channel. Define image size, cache
+lifetime, fragmentation,
 sender validation and update frequency before implementation. Prefer a
 controlled profile image representation over distributing authenticated image
 URLs or account tokens. Allocate no TLV ID in this plan.
 
 Unmodified Steam peers currently choose a default avatar for non-Steam players;
-their original tokens contain no image payload. Consequently, displaying the
-Quest picture on every unmodified client is an unresolved compatibility limit.
-This plan records no user-approved exception to that presentation requirement.
-Establish achievable behavior and bring any necessary relaxation back to the
-maintainer before claiming full parity or changing the scope.
+their original tokens contain no image payload. They can fetch a genuine Steam
+account's avatar when the original provider fields are accepted. This is a
+concrete route to test for an imported Steam profile, not a guarantee for Epic,
+GOG or every console. Any unavoidable avatar difference still needs an explicit
+later decision before claiming full parity. See the solution paths document
+for inbound/outbound profile experiments.
 
 ## Native Quest mixed reality
 
@@ -462,16 +490,46 @@ appropriate microphone lifecycle/permission, provider-qualified speaker mapping
 and existing spatial voice behavior. A playable game channel does not prove
 voice parity, and voice is not silently removed from the requested experience.
 
+## Save portability and optional cloud access
+
+Keep original save types, game versions and owning-account fields, with local
+Quest saves under Android's persistent data directory. The inspected game uses
+ordinary local file operations. This is consistent with Steam Auto-Cloud, but
+the original application's actual cloud-file mapping has not been verified.
+Campaign files, shared root/global metadata, checkpoints and backup roles need
+one complete transfer contract; copying one apparent save file is insufficient.
+
+The first proposed path is an explicit PC-to-Quest and return campaign transfer,
+using consistent snapshots, backups, version/account/DLC checks and conflict
+detection against the last synchronized state. Optional PC cloud sync can then
+use the original client and its verified game launch/exit cycle. The PC is needed
+at transfer time only. Preserve unrelated PC and cloud files, including
+Guildmaster saves even though Quest cannot play that mode.
+
+Valve also provides an HTTP cloud API for non-Steam game versions. Its official
+authorization needs a Valve-issued OAuth client with access to the original
+App ID and the player's consent. Imported names/IDs do not grant cloud access.
+An authenticated Steam-network client is a separate possible research route,
+with runtime compatibility and cloud protocol work still unresolved. Neither
+direct path is demonstrated here. [Cloud HTTP API][steam-cloud-http]
+[App ID-scoped OAuth][steam-oauth]
+
+See the [save solution paths](QUEST3-CRITICAL-SOLUTIONS.md#save-import-and-optional-steam-cloud-synchronization)
+for the bounded experiments, conflict handling and fallback. Cloud service
+failure must not block offline play. No Horizon service or new ownership server
+is part of these designs; optional synchronization does not delay the initial
+standalone feasibility proof.
+
 ## Native and managed dependency audit
 
-Before selecting the final editor or scripting backend, produce an inventory
+Before finalizing the editor and native integration, produce an inventory
 of every managed assembly and native plugin, its call sites, required features
 and Android replacement or removal rationale.
 
 | Dependency | Proposed treatment or investigation |
 | --- | --- |
 | Apparance engine | Bake complete presentation and implement its observable lifecycle; Android engine remains a fallback investigation if baking cannot preserve the required behavior. |
-| Steamworks and Galaxy desktop libraries | Replace headset platform calls with Quest target services; retain source-install ownership handling on the PC. |
+| Steamworks and Galaxy desktop libraries | Preserve needed game-facing calls through the Quest adapter. A native ARM64 library still needs the correct Android ABI and service/client support; a full Steam client port is not assumed. Optional authenticated Steam services need separate proof. |
 | EOS Windows SDK | Determine whether used for original crossplay beyond optional invitations; obtain a compatible Android path only if required. |
 | Photon Bolt, Realtime and UdpKit | Preserve compatible versions and registrations; prove Android sockets, reflection metadata and managed/AOT behavior. |
 | Photon Voice, Opus, WebRTC and AudioIn | Audit microphone, codecs, native libraries and spatial voice on ARM64. |
@@ -482,14 +540,22 @@ and Android replacement or removal rationale.
 | Video, capture and remaining plugins | Check startup/load requirements, original video presentation and Android media playback; do not remove an unclassified dependency. |
 
 Audit `Reflection.Emit`, dynamic assembly loading, generic reflection, threading,
-callback delegates, stripping and original binary serialization. Decide Mono
-versus IL2CPP against the selected Android toolchain and platform support;
-IL2CPP is the leading candidate, not an already validated conversion.
+callback delegates, stripping and original binary serialization against the
+selected IL2CPP toolchain. IL2CPP is the standard ARM64 route, not an already
+validated conversion; desktop Mono support does not remove these AOT checks.
 
 Keep network-generated IDs, script references and assembly/type identities
 stable when reconstructing assets and integrating code. Addressables catalogue
 reconstruction, shader translation and AOT preservation are distinct work
 items; a successful C# compilation does not validate any of them.
+
+Review the [native platform API candidates](QUEST3-CRITICAL-SOLUTIONS.md#reusing-native-steam-epic-or-gog-apis)
+before selecting an SDK. Steam Frame's SteamOS client/Lepton environment does
+not automatically exist on Quest. EOS has Android support, but its installed
+version, original authentication and missing desktop overlay still need
+specific solutions. Public Galaxy documentation did not establish an Android
+ARM64 route. Reusing the game's actual subset remains preferable to treating
+all storefront APIs as one mandatory port.
 
 ## Milestones and completion criteria
 
@@ -500,21 +566,21 @@ explicit source, automated or headset evidence classification.
 | Phase | Work and deliverable | Completion criterion |
 | --- | --- | --- |
 | 0 Steam Frame prerequisite | Continue the existing Frame project; capture matched hardware results and an accepted playable baseline. | The maintainer confirms the Frame milestone and subsequently requests Quest implementation. |
-| 1 Platform and build feasibility | Dependency inventory, selected editor/backend/SDK lock, Meta app/distribution/signing findings, passthrough capability probe and original backend requirements. | A real Quest development probe demonstrates the required profile and passthrough APIs; public local-build eligibility is documented separately from developer-account success. |
+| 1 Platform and build feasibility | Dependency inventory, selected editor/IL2CPP/OpenXR lock, PC profile import, local signing, passthrough capability probe and original backend requirements. | A local ARM64 probe displays the imported profile offline and native passthrough, without Meta app registration or Horizon services. |
 | 2 Minimal Android game | Reconstruct startup, one original scene, storage and required managed assemblies in a genuine ARM64 player. | Cold start, scene load, original UI, clean exit and persisted local save on Quest, without unsupported desktop libraries. |
 | 3 Representative scenario and early network proof | Bake one complete campaign scenario and replace generation/readiness; preserve original game identifiers. Exercise one basic connection to an unmodified PC host. | All rooms, doors, changes and reload work; the session joins, assigns characters and executes several rounds without divergence. Do not export the full campaign before these findings. |
-| 4 VR and mixed reality parity | Integrate existing rig, hands/controllers, cards, windows, input, native passthrough and profile surfaces. | Device screenshots/video and interaction checks demonstrate the existing behavior, correct Quest identity and VR/MR transitions. |
+| 4 VR and mixed reality parity | Integrate existing rig, hands/controllers, cards, windows, input, native passthrough and profile surfaces. | Device screenshots/video and interaction checks demonstrate the existing behavior, correct imported identity and VR/MR transitions. |
 | 5 Complete base campaign | Campaign/map/town/tutorial export coverage, progression, save/reload and Quest-only availability controls. | All base scenario definitions are covered by the manifest; representative special mechanics and ingress restrictions pass. Coverage listings alone do not prove every scenario's rendered outcome. |
 | 6 Multiplayer and voice | Execute the mixed-platform matrix, profile handling, full VR presentation, hosting, reconnect and voice checks. | Required device sessions pass; source-proven relay is confirmed in a multi-client session and profile limitations are resolved or explicitly decided by the maintainer. |
 | 7 Optional DLCs | Import and verify acquired Jaws of the Lion and Solo content, characters, items and mechanics. | DLC-enabled saves and sessions work only with the appropriate acquired content; no-DLC operation remains correct. |
 | 8 Quest performance | Measure CPU/GPU frame times, memory, load spikes, passthrough cost and thermal stability; optimize within the required behavior. | The maintainer accepts sustained real Quest play at an agreed refresh rate and quality, including large scenarios, town and multiplayer. |
-| 9 Player build and update workflow | Reproducible converter, cache/invalidation, local signing, version diagnostics, install/update instructions and packaging audit. | An ordinary eligible user produces and installs their own APK from an acquired installation, updates without losing saves, retrieves their Quest profile and plays without a runtime PC. |
+| 9 Player build and update workflow | Reproducible converter, cache/invalidation, personalized profile, local signing, version diagnostics, install/update instructions and packaging audit. | An ordinary user produces and installs their own APK from an acquired installation, updates without losing saves, retains their imported profile and plays without a runtime PC. |
 
 After the minimal Android game exists, perform the cheapest available original
 backend test early; phase 3 is the latest intended point for a real game
 interoperability proof. Phases 4 and 5 may expose additional bake requirements.
 Phase 6 is the full matrix, not permission to defer all networking until then.
-Platform eligibility and generation lifecycle can stop the selected design
+ARM64 runtime compatibility and generation lifecycle can stop the selected design
 before later phases are worthwhile.
 
 ## Verification and performance
@@ -540,8 +606,9 @@ Headset acceptance must include:
   town interactions and the approved UI-only MR backings.
 - Repeated VR/MR toggles, sleep/resume, tracking loss, scene changes and
   restoration after a passthrough error, with no green background on Quest.
-- Logged-in profile, slow/unavailable profile service, image changes, relaunch
-  and stable save/session ownership; actual results on modded and unmodified peers.
+- Imported profile, missing optional avatar, offline start, image/name refresh,
+  relaunch and stable save/session ownership; actual results on modded and
+  unmodified peers, without Horizon service calls.
 - Guildmaster/Workshop disabled styling and tooltips with mouse-equivalent
   pointer, VR hover and relevant controller focus; all bypass routes rejected.
 - Large scenarios, campaign map, town, all supported party sizes, voice and
@@ -570,21 +637,24 @@ in its `remote/` location. A green gate is not a headset image or FPS result.
 
 | Decision or risk | Required resolution |
 | --- | --- |
-| Meta API eligibility for ordinary local builders | Demonstrate the intended app ID, account access, data permissions and signing arrangement without distributing original game content. Developer-only access is insufficient. |
+| Original PC profile import | Prove each supported store's account context and stable fields; do not infer ownership or the active account from generic game assets. |
 | Profile images on unmodified clients | Establish what the unchanged protocol/providers can display; obtain a later explicit decision for any unavoidable presentation difference. |
-| Foreign platform profile images on Quest | Find a permitted working provider path; Meta account APIs alone cannot fetch every foreign profile. |
-| Original Photon service acceptance | Verify original configuration and any authentication requirements on Android; avoid assuming a new Meta identity grants access. |
+| Foreign platform profile images on Quest | Test mod-side image transfer and permitted provider lookup; the embedded local snapshot cannot supply unknown players' pictures. |
+| Original Photon service acceptance | Verify original configuration and any authentication requirements on Android; an imported profile does not itself grant backend access. |
 | Unity and SDK versions | Prove the selected matrix with real content; an engine upgrade is a separate technical decision, not implicit approval to rewrite visuals. |
 | Complete procedural presentation replacement | Demonstrate extraction, seed/variant coverage and lifecycle; a room screenshot is insufficient. |
 | Shared assets despite mode exclusion | Keep every campaign/tutorial dependency; strip only proven Guildmaster/Workshop-only content. |
 | Serialization and AOT | Preserve actual types, layouts, callbacks and tokens across the Android player and original peers. |
-| Local ownership and DLC checks | Define acquisition verification independently from Meta profile or Meta app entitlement. |
+| Campaign transfer and shared save metadata | Prove complete compatible campaign snapshots and PC round trips while preserving unrelated campaigns, Guildmaster records and recovery data. |
+| Optional direct Steam Cloud | Establish original-App-ID OAuth permission or a working authenticated client protocol, then conflict-safe synchronization; no such access is demonstrated. |
+| Native platform API reuse | Check OS/ABI, client dependencies and service authorization, then implement only the game's required calls. ARM64 support alone does not establish Quest compatibility. |
+| Local ownership and DLC checks | Use proportionate source-install/provider checks and a local manifest. Accept that an open-source builder can be modified; no DRM infrastructure is requested. |
 | Voice and other native features | Establish Android equivalents and behavior; no automatic feature deletion. |
 | Update compatibility | Pin supported input game versions, coordinated mod releases, cache invalidation, stable signing and save migration. |
 | Quest performance | Establish it on Quest hardware after the Frame prerequisite; do not project a Frame frame time onto Quest. |
 
 The maintainer's requested substitutions are recorded decisions. SDK selection,
-service eligibility, bake completeness, signing, profile interoperability and
+backend acceptance, bake completeness, signing, profile interoperability and
 performance are unresolved engineering questions. Preserve that distinction
 when resuming this plan; documentation is not a claim that an APK already runs.
 
@@ -601,6 +671,7 @@ on historical line numbers.
 | Procedural lifecycle and styles | [ProceduralBase](../decompiled/GH.Runtime/ProceduralBase.cs), [ProceduralMapTile](../decompiled/GH.Runtime/ProceduralMapTile.cs), [ProceduralStyle](../decompiled/GH.Runtime/ProceduralStyle.cs), [ApparanceDetailFocus](../src/GloomhavenVR/Core/Environment/ApparanceDetailFocus.cs) |
 | Steam platform binding and avatars | [PlatformLayer](../decompiled/GH.Runtime/PlatformLayer.cs), [PlatformUserData](../decompiled/GH.Runtime/PlatformUserData.cs), [PlatformDLC](../decompiled/GH.Runtime/PlatformDLC.cs), [NetworkPlayer](../decompiled/GH.Runtime/FFSNet/NetworkPlayer.cs), [NetPlayerActors](../src/GloomhavenVR/Net/NetPlayerActors.cs) |
 | Original network and DLC admission | [NetworkManager](../decompiled/GH.Runtime/FFSNet/NetworkManager.cs), [GHNetworkCallbacks](../decompiled/GH.Runtime/GHNetworkCallbacks.cs), [GHClientCallbacks](../decompiled/GH.Runtime/GHClientCallbacks.cs), [UserToken](../decompiled/GH.Runtime/FFSNet/UserToken.cs), [PlayerToken](../decompiled/GH.Runtime/FFSNet/PlayerToken.cs) |
+| Save paths, metadata and asynchronous writing | [PathsManager](../decompiled/Utilities/PathsManager.cs), [PlatformFileSystem](../decompiled/GH.Runtime/PlatformFileSystem.cs), [RootSaveData](../decompiled/GH.Runtime/RootSaveData.cs), [SaveData](../decompiled/GH.Runtime/SaveData.cs), [SaveQueue](../decompiled/GH.Runtime/SaveQueue.cs) |
 | Mod transport and compatibility | [FfsNetTransport](../src/GloomhavenVR/Net/FfsNetTransport.cs), [VersionGuard](../src/GloomhavenVR/Net/VersionGuard.cs), [NetSession](../src/GloomhavenVR/Net/NetSession.cs), [network invariants](refactor/INVARIANTS-Net-Rig.md) |
 | XR and mixed reality | [OpenXRBootstrap](../src/GloomhavenVR/Core/Startup/OpenXRBootstrap.cs), [MixedReality](../src/GloomhavenVR/Core/MixedReality/MixedReality.cs), [asset package manifest](../unity/GloomhavenVR.Assets/Packages/manifest.json) |
 | Menus and tutorials | [UIMainOptionsMenu](../decompiled/GH.Runtime/GLOOM.MainMenu/UIMainOptionsMenu.cs), [MainOptionMultiplayer](../decompiled/GH.Runtime/GLOOM.MainMenu/MainOptionMultiplayer.cs), [TutorialService](../decompiled/GH.Runtime/TutorialService.cs) |
@@ -609,11 +680,12 @@ on historical line numbers.
 External references were consulted on 2026-10-02. Recheck the chosen SDK's exact
 versions, platform requirements and service behavior at implementation time.
 
-[meta-user]: https://developers.meta.com/vr/reference/platform/v205/function_o_v_r_requests_user_8h_ovr_user_get_logged_in_user/
-[meta-duc]: https://developers.meta.com/vr/resources/publish-data-use/
-[meta-core]: https://developers.meta.com/vr/downloads/package/meta-xr-core-sdk/
+[meta-distribution]: https://developers.meta.com/vr/policy/distribution-options/
+[unity-arm64]: https://docs.unity3d.com/Packages/com.unity.xr.arcore@5.1/manual/project-configuration-arcore.html#target-architecture
 [meta-passthrough-native]: https://developers.meta.com/vr/documentation/native/android/mobile-passthrough/
 [meta-passthrough-unity]: https://developers.meta.com/vr/documentation/unity/unity-passthrough-gs/
 [photon-sdk]: https://doc.photonengine.com/bolt/current/getting-started/sdk-release-history
 [photon-settings]: https://doc.photonengine.com/bolt/current/in-depth/bolt-settings
 [game-crossplay]: https://asmodee.helpshift.com/hc/en/75-gloomhaven/faq/1102-is-there-a-crossplay-feature/
+[steam-cloud-http]: https://partner.steamgames.com/doc/webapi/ICloudService
+[steam-oauth]: https://partner.steamgames.com/doc/webapi_overview/OAuth
