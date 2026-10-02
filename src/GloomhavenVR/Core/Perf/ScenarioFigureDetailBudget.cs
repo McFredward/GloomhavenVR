@@ -19,7 +19,8 @@ namespace GloomhavenVR.Core;
 /// This is a mesh-detail cap, not permission to hide random limbs, weapons or whole actors.
 /// The supplied distant Frame figures already resolve to LOD2: no measured gain is claimed.
 ///
-/// Held figures (both local and remote) retain their original table and native cloth. Neither
+/// Held figures (both local and remote) obey the saved mesh detail and cloth OFF choices,
+/// as explicitly requested on 2026-10-02. Neither
 /// map/NPC actors, standalone effects nor UI are admitted. Discovery runs on scene/loading
 /// edges and native SetActor, with bounded queues rather than repeated scene-wide walks.
 /// </summary>
@@ -66,9 +67,6 @@ internal static class ScenarioFigureDetailBudget
         if (VRSession.IsRunning && BudgetActive) _driver?.QueueRoot(root);
     }
 
-    private static bool IsHeld(ActorBehaviour actor) =>
-        HeldFigures.Owns(actor) || NetHeldFigures.Owns(actor);
-
     private static int ActorDetail(ActorBehaviour actor)
     {
         CActor native = actor.Actor;
@@ -114,6 +112,7 @@ internal static class ScenarioFigureDetailBudget
         internal LOD[] Original = null!;
         internal LOD[]? Applied;
         internal int[] Levels = null!;
+        internal int[] LevelVertices = null!;
         internal int Selected;
         internal bool Foreign;
         private readonly List<Renderer> _masked = new();
@@ -205,20 +204,23 @@ internal static class ScenarioFigureDetailBudget
         internal GameObject Root = null!;
         internal readonly List<LodRecord> Lods = new();
         internal readonly List<ClothRecord> Clothes = new();
-        internal bool Held;
         internal int Detail = 100;
         internal bool ClothNative = true;
         internal void Apply(bool restore = false)
         {
             if (Actor == null || Root == null) return;
-            bool held = IsHeld(Actor);
-            int wanted = restore || held ? 100 : Mathf.Clamp(ActorDetail(Actor), 0, 100);
-            bool cloth = restore || held || PerfConfig.FigureClothSimulationEnabled;
-            if (Detail != wanted || Held != held)
+            int wanted = restore ? 100 : Mathf.Clamp(ActorDetail(Actor), 0, 100);
+            bool cloth = restore || PerfConfig.FigureClothSimulationEnabled;
+            if (Detail != wanted)
                 foreach (LodRecord lod in Lods) lod.Apply(wanted);
-            Detail = wanted; Held = held; ClothNative = cloth;
+            Detail = wanted; ClothNative = cloth;
             if (Clothes.Count > 0)
             {
+                // A rescale cook may already have disabled a formerly simulating cloth when
+                // OFF is chosen. Transfer that original-enable ownership before its native
+                // reset check, otherwise ON later leaves the cloth permanently disabled.
+                foreach (ClothRecord item in Clothes)
+                    item.Owned |= FigureCloth.TakeDisabledSimulationOwnership(item.Cloth);
                 bool needsRestore = false;
                 if (cloth)
                     foreach (ClothRecord item in Clothes) if (item.Owned) { needsRestore = true; break; }
@@ -228,6 +230,11 @@ internal static class ScenarioFigureDetailBudget
         }
     }
 
+    // Native ActorBehaviour.LateUpdate can re-enable every cloth after a teleport/reset.
+    // Enforce the optional OFF choice after native animation and held-figure updates; merely
+    // changing enabled at discovery lets the original two-frame reset restore simulation.
+    // Stay before the +30000 profiling seam so this optional work remains measured as logic.
+    [DefaultExecutionOrder(29900)]
     private sealed class Driver : MonoBehaviour
     {
         private readonly List<ActorRecord> _actors = new();
@@ -244,6 +251,25 @@ internal static class ScenarioFigureDetailBudget
         private float _reportAt;
         private bool _reportPending;
         private bool _faulted;
+        private int _rejectedScope, _nativeCandidates;
+        private bool _scopeAnomalyReported;
+
+        private bool IsScenarioActorRoot(GameObject root, Scene scene)
+        {
+            if (root.scene == scene) return true;
+            ClientScenarioManager manager = ClientScenarioManager.s_ClientScenarioManager;
+            GameObject board = manager != null ? manager.m_Board : null!;
+            // Hardware603 reported zero actors although both dials and cloth OFF were active.
+            // ProcGen is additive scenery, while Choreographer creates every model beneath
+            // ClientScenarioManager.m_Board in the main Game scene. A scene-name equality
+            // silently excludes those original native actors. Admit that exact board subtree,
+            // with ActorBehaviour/CActor identity still checked below; never all Game models.
+            if (board != null && root.transform.IsChildOf(board.transform)) return true;
+            // A quality change may occur after every original actor is already in a hand.
+            // Those registries are exact original actor identities, not a scene-name guess.
+            ActorBehaviour actor = ActorBehaviour.GetActorBehaviour(root);
+            return actor != null && (HeldFigures.Owns(actor) || NetHeldFigures.Owns(actor));
+        }
 
         internal void QueueRoot(GameObject root)
         {
@@ -269,12 +295,20 @@ internal static class ScenarioFigureDetailBudget
         {
             // Only loading/scene/config edges allocate this snapshot. Newly spawned actors
             // use SetActor; no FindObjectsOfType is performed during steady play.
+            _nativeCandidates = 0;
+            ClientScenarioManager manager = ClientScenarioManager.s_ClientScenarioManager;
+            GameObject board = manager != null ? manager.m_Board : null!;
             foreach (ActorBehaviour actor in UnityEngine.Object.FindObjectsOfType<ActorBehaviour>(true))
             {
+                CActor native = actor.Actor;
+                if (native == null || (native.Type is not (CActor.EType.Player or CActor.EType.HeroSummon)
+                    && !native.IsMonsterType)) continue;
+                if (board != null && actor.gameObject.scene == board.scene) _nativeCandidates++;
                 if (_seen.Contains(actor.GetInstanceID())) continue;
                 GameObject root = NativeRoot?.GetValue(actor) as GameObject ?? actor.gameObject;
-                if (root.scene == scene) QueueRoot(root);
+                if (IsScenarioActorRoot(root, scene)) QueueRoot(root);
             }
+            _reportPending = true; _reportAt = Time.unscaledTime + 1f;
         }
 
         private void Update()
@@ -322,7 +356,7 @@ internal static class ScenarioFigureDetailBudget
                 GameObject root = _pending.Dequeue();
                 if (root == null) continue;
                 _queued.Remove(root.GetInstanceID());
-                if (root.scene != scene) continue;
+                if (!IsScenarioActorRoot(root, scene)) { _rejectedScope++; continue; }
                 Adopt(root);
             }
             for (int i = _actors.Count - 1; i >= 0; i--)
@@ -341,18 +375,35 @@ internal static class ScenarioFigureDetailBudget
             if (_reportPending && !loading && _pending.Count == 0 && Time.unscaledTime >= _reportAt)
             {
                 _reportPending = false;
+                if (_actors.Count == 0 && _nativeCandidates > 0 && !_scopeAnomalyReported)
+                {
+                    _scopeAnomalyReported = true;
+                    VRLog.Note(Scope, "Scenario figure detail: native board has bound figure identities "
+                        + "but the optional driver adopted none after loading; original figures remain "
+                        + "playable, configured detail/cloth reductions were not applied.");
+                }
                 if (VRLog.WantsDebug)
                 {
-                    int lods = 0, changed = 0, clothes = 0;
+                    int lods = 0, changed = 0, clothes = 0, coarseActors = 0, nativeVertices = 0, chosenVertices = 0;
                     foreach (ActorRecord record in _actors)
                     {
                         lods += record.Lods.Count;
-                        foreach (LodRecord lod in record.Lods) if (lod.Selected > 0) changed++;
+                        if (record.Lods.Count > 0) coarseActors++;
+                        foreach (LodRecord lod in record.Lods)
+                        {
+                            if (lod.Selected > 0) changed++;
+                            nativeVertices += lod.LevelVertices[0];
+                            chosenVertices += lod.LevelVertices[lod.Selected];
+                        }
                         foreach (ClothRecord item in record.Clothes) if (item.Owned) clothes++;
                     }
                     VRLog.Debug(Scope, $"Scenario figure detail: players={_players}% enemies={_enemies}% "
                         + $"nativeCloth={_cloth}; {_actors.Count} actor(s), {changed}/{lods} native LOD cap(s), "
-                        + $"{clothes} cloth solver(s) disabled. Authored LODs may already be coarse at this view.");
+                        + $"{clothes} cloth solver(s) disabled; {coarseActors}/{_actors.Count} actor(s) with authored coarse bodies; "
+                        + "original/selected near-mesh vertices "
+                        + $"{nativeVertices}/{chosenVertices}, rejected scope {_rejectedScope}. "
+                        + "Native board models may live in Game while scenery lives in ProcGen; "
+                        + "authored LODs may already be coarse at this view.");
                 }
             }
         }
@@ -373,20 +424,24 @@ internal static class ScenarioFigureDetailBudget
                 LOD[] levels = group.GetLODs();
                 if (levels.Length < 2) continue;
                 bool unsafeLevel = false;
-                foreach (LOD level in levels)
-                    if (level.renderers != null && level.renderers.Length > 0
-                        && VertexCount(level, root.transform) < 0) { unsafeLevel = true; break; }
+                var vertices = new int[levels.Length];
+                for (int i = 0; i < levels.Length; i++)
+                {
+                    vertices[i] = VertexCount(levels[i], root.transform);
+                    if (levels[i].renderers != null && levels[i].renderers.Length > 0
+                        && vertices[i] < 0) { unsafeLevel = true; break; }
+                }
                 if (unsafeLevel) continue;
-                int full = VertexCount(levels[0], root.transform);
+                int full = vertices[0];
                 var admitted = new List<int> { 0 };
                 if (full <= 0) continue;
                 for (int i = 1; i < levels.Length; i++)
                 {
-                    int coarse = VertexCount(levels[i], root.transform);
+                    int coarse = vertices[i];
                     if (coarse > 0 && coarse < full) admitted.Add(i);
                 }
                 if (admitted.Count > 1) record.Lods.Add(new LodRecord
-                    { Group = group, Original = levels, Levels = admitted.ToArray() });
+                    { Group = group, Original = levels, Levels = admitted.ToArray(), LevelVertices = vertices });
             }
             foreach (Cloth item in root.GetComponentsInChildren<Cloth>(true))
             {
@@ -438,7 +493,8 @@ internal static class ScenarioFigureDetailBudget
             }
             _actors.Clear(); _seen.Clear(); _pending.Clear(); _queued.Clear();
             _lods.Clear(); _ownershipCursor = 0;
-            _reportPending = false; _wasLoading = false;
+            _reportPending = false; _wasLoading = false; _rejectedScope = 0;
+            _nativeCandidates = 0; _scopeAnomalyReported = false;
         }
         private void OnDestroy() => RestoreAll();
     }

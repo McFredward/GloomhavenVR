@@ -29,13 +29,15 @@ def main():
     variants = [('production', '', '', '', '')]
     if not args.no_negative_controls:
         variants += [
-            ('miss-local-hold', 'Figures.cs', 'HeldFigures.Owns(actor) || NetHeldFigures.Owns(actor)', 'false || NetHeldFigures.Owns(actor)', 'local hold restores original'),
-            ('miss-remote-hold', 'Figures.cs', 'HeldFigures.Owns(actor) || NetHeldFigures.Owns(actor)', 'HeldFigures.Owns(actor) || false', 'remote hold restores original'),
+            ('override-local-detail', 'Figures.cs', 'int wanted = restore ? 100 :', 'int wanted = restore || HeldFigures.Owns(Actor) ? 100 :', 'player detail controls only player'),
+            ('revive-held-cloth', 'Figures.cs', 'bool cloth = restore || PerfConfig.FigureClothSimulationEnabled;', 'bool cloth = restore || NetHeldFigures.Owns(Actor) || PerfConfig.FigureClothSimulationEnabled;', 'remote hold keeps configured'),
             ('admit-empty-lod', 'Figures.cs', 'if (coarse > 0 && coarse < full) admitted.Add(i);', 'if (coarse < full) admitted.Add(i);', 'empty far-cull LOD'),
             ('overwrite-foreign-table', 'Figures.cs', 'if (!SameTable(current, Applied ?? Original))', 'if (!SameTable(current, Applied ?? Original) && PerfConfig.PlayerFigureDetailPercent < 0)', 'foreign LOD controller table'),
             ('miss-steady-ownership', 'Figures.cs', 'if (Group == null || !SameTable(Group.GetLODs(), Applied))', 'if (Group == null)', 'bounded steady ownership check'),
             ('cancel-native-reset', 'Figures.cs', 'if (!forcingPosition && !Cloth.enabled) Cloth.enabled = true;', 'if (!Cloth.enabled) Cloth.enabled = true;', 'native cloth teleport reset'),
-            ('admit-map-actors', 'Figures.cs', 'if (root.scene != scene) continue;', 'if (root.scene != scene && PerfConfig.PlayerFigureDetailPercent < 0) continue;', 'map models and immersive NPCs'),
+            ('admit-map-actors', 'Figures.cs', 'if (!IsScenarioActorRoot(root, scene))', 'if (!IsScenarioActorRoot(root, scene) && PerfConfig.PlayerFigureDetailPercent < 0)', 'map models and immersive NPCs'),
+            ('reject-native-game-board', 'Figures.cs', 'if (board != null && root.transform.IsChildOf(board.transform)) return true;', 'if (board != null && root.transform.IsChildOf(board.transform)) return false;', 'original enabled native cloth solvers'),
+            ('forget-disabled-cook-claim', 'Figures.cs', 'item.Owned |= FigureCloth.TakeDisabledSimulationOwnership(item.Cloth);', 'item.Owned |= false;', 'rescale cook original-enable claim'),
             ('skip-shutdown-restoration', 'Figures.cs', 'foreach (ActorRecord record in _actors)\n            {\n                try { record.Apply(true); }', 'foreach (ActorRecord record in _actors)\n            {\n                try { if (_faulted) record.Apply(true); }', 'VR off restores exact original'),
         ]
     manifest = {'result': str(run/'results.txt'), 'cases': []}

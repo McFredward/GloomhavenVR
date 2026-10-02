@@ -15,10 +15,15 @@ def require(value, message):
         raise AssertionError(message)
 
 for token in (
-    'HeldFigures.Owns(actor) || NetHeldFigures.Owns(actor)',
+    'bool cloth = restore || PerfConfig.FigureClothSimulationEnabled;',
+    'int wanted = restore ? 100 : Mathf.Clamp(ActorDetail(Actor), 0, 100);',
+    'FigureCloth.TakeDisabledSimulationOwnership(item.Cloth)',
+    '[DefaultExecutionOrder(29900)]',
+    'ClientScenarioManager.s_ClientScenarioManager',
+    'root.transform.IsChildOf(board.transform)',
     'CActor.EType.Player or CActor.EType.HeroSummon',
     'native.IsMonsterType',
-    'root.scene != scene',
+    'if (!IsScenarioActorRoot(root, scene))',
     'root.GetComponent<ProceduralScenario>()',
     '_scenarioScopes.TryGetValue(scene.handle, out bool known)',
     'if (!VRSession.IsRunning || !BudgetActive)',
@@ -57,6 +62,7 @@ require("'Figures.cs': figures.replace('Time.unscaledTime', 'FigureClock.Now')" 
         'Runtime gate must execute the complete production driver with clock-only substitution')
 require('Compilation failure is not a passing negative control' in runner,
         'Negative controls must compile and fail the intended behavioral assertion')
-require("'miss-steady-ownership'" in runner and "'cancel-native-reset'" in runner,
+require("'miss-steady-ownership'" in runner and "'cancel-native-reset'" in runner
+        and "'reject-native-game-board'" in runner and "'forget-disabled-cook-claim'" in runner,
         'Ownership and native cloth lifecycle require negative controls')
 print(f'PASS: scenario figure-detail boundaries ({checks} assertions; real Unity runtime proof is separate)')

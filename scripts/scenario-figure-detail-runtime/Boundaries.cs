@@ -27,6 +27,11 @@ public class ActorBehaviour : MonoBehaviour
     public static ActorBehaviour GetActorBehaviour(GameObject root) => root.GetComponentInChildren<ActorBehaviour>(true);
 }
 public class ProceduralScenario : MonoBehaviour { }
+public class ClientScenarioManager : MonoBehaviour
+{
+    public static ClientScenarioManager s_ClientScenarioManager = null!;
+    public GameObject m_Board = null!;
+}
 public class Choreographer
 {
     public static Choreographer s_Choreographer = new();
@@ -45,6 +50,11 @@ namespace HarmonyLib
 }
 namespace GloomhavenVR.Board.FigureGrab
 {
+    internal static class FigureCloth
+    {
+        internal static readonly HashSet<Cloth> DisabledClaims=new();
+        internal static bool TakeDisabledSimulationOwnership(Cloth cloth) => DisabledClaims.Remove(cloth);
+    }
     internal static class HeldFigures
     {
         internal static ActorBehaviour? Held;
