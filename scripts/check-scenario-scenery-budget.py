@@ -33,14 +33,14 @@ def production(source):
         'private enum Verdict','private enum Kind','private sealed class Record',
         'private readonly struct ColliderFacts', 'private sealed class TreeColliderOwner',
         'private static void SetHidden(', 'private static void ClaimTreeColliders(', 'private static void ReleaseTreeColliders(', 'private static Verdict Classify(',
-        'private static bool HasUnrepresentedCollider(', 'private static bool CanOwnTreeCollider(', 'private static ColliderFacts ReadColliderFacts(',
+        'private static bool HasUnrepresentedCollider(', 'private static bool CanOwnTreeCollider(', 'private static Transform? NativeTreeCarrier(', 'private static ColliderFacts ReadColliderFacts(',
         'private static bool UsesFoliage(', 'private static bool UsesOnlyFoliage(',
         'private static bool RepresentsSolidComposite(', 'private static Kind NamedKind(',
         'private static bool IsHardStructuralName(', 'private static bool IsScenarioTile(',
     )]
     methods += [expression(source,key) for key in (
         'private static bool ShouldHide(', 'private static bool IsStructuralName(', 'private static bool IsGrassBase(',
-        'private static bool IsNativeSceneryAsset(', 'private static bool IsNativeTreeAsset(', 'private static bool IsNativeWallPlantLeaf(', 'private static bool ColliderIsPresent(',
+        'private static bool IsNativeSceneryAsset(', 'private static bool IsNativeTreeAsset(', 'private static bool IsNativeWallPlantLeaf(', 'private static bool ColliderIsPresent(', 'private static string TreeAssetName(',
     )]
     header='''using System; using System.Collections.Generic; using UnityEngine; using UnityEngine.SceneManagement;
 namespace GloomhavenVR.Core;
@@ -73,6 +73,9 @@ def main():
         ('tree-collider-left-on','collider.enabled = false;','collider.enabled = true;','zero tree masks own and suppress'),
         ('mixed-tree-collider-owned','safe &= treeMember;','safe &= treeMember || true;','tree composite with a solid floor cannot'),
         ('native-wall-plant-retained','bool foliageDressing = IsNativeWallPlantLeaf(name)','bool foliageDressing = false','hardware named wall plant leaf'),
+        ('native-tree-inheritance-missed', 'if (treeCarrier != null)', 'if (treeCarrier != null && (unit == null || IsNativeTreeAsset(unit.name)))', 'hardware named native tree assembly admits'),
+        ('anonymous-tree-floor-admitted', 'if (IsNativeSceneryAsset(mesh.name)\n            && (IsHardStructuralName(mesh.name) || (!foliage && IsGrassBase(mesh.name))))', 'if (IsNativeSceneryAsset(mesh.name)\n            && (IsHardStructuralName(mesh.name) || (!foliage && IsGrassBase(mesh.name))) && false)', 'anonymous original floor mesh under tree keeps its solid identity'),
+        ('completed-tree-wall-boundary-lost', 'return carrier; // outside an already complete tree, the wall/floor is its boundary', 'return null; // negative: surrounding wall incorrectly discards completed tree', 'completed native tree under mixed masonry wrapper remains optional'),
 
     ):
         if source.count(old)!=1:raise SystemExit('Classifier mutation binding drift: '+name)
@@ -94,6 +97,6 @@ def main():
             elif run.returncode==0 or 'error CS' in output or expected not in output:
                 raise SystemExit('Negative control failed to reach intended runtime defect: '+name+'\n'+output)
             else:print('Scenario classifier negative control: '+name+' failed as expected')
-    print('Scenario scenery: full production Classify graph and 12 runtime negative controls passed; actual Unity lifecycle tested separately')
+    print('Scenario scenery: full production Classify graph and '+str(len(variants)-1)+' runtime negative controls passed; actual Unity lifecycle tested separately')
 
 if __name__=='__main__':main()

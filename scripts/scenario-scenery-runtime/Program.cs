@@ -170,6 +170,45 @@ public static class InteractionProgram
             Check(Classify(generatedTreeBark,tile)=="Eligible","native tree generator wrapper owns only its decorative collision");
             generatorCollider.isTrigger=true;
             Check(Classify(generatedTreeBark,tile)=="Effect","original tree generator trigger remains native collision");generatorCollider.isTrigger=false;
+            var hardwareGenerator=Node(mixed.transform,"PCG_FR_Pillar_Tree_Trunk_01_PR");
+            hardwareGenerator.transform.localPosition=new Vector3(30,0,0);
+            var hardwareTree=Node(hardwareGenerator.transform,"FR_Pillar_Tree_Trunk_01");
+            var hardwareMembers=new List<MeshRenderer>();
+            hardwareMembers.Add(Leaf(hardwareTree.transform,"FR_Pillar_Tree_Trunk_01",false));
+            hardwareMembers.Add(Leaf(hardwareTree.transform,"LOD1"));
+            for(int i=0;i<13;i++)hardwareMembers.Add(Leaf(hardwareTree.transform,"CR_RU_Vines ("+i+")"));
+            hardwareMembers.Add(Leaf(hardwareTree.transform,"FR_Floor_Detail_Grass_01"));
+            hardwareMembers.Add(Leaf(hardwareTree.transform,"FR_Floor_Detail_Grass_05_PR"));
+            foreach(var member in hardwareMembers)
+            {
+                var original=UnityEngine.Object.Instantiate(_mesh);ExtraMeshes.Add(original);
+                original.name=member.name=="LOD1"?"FR_Tree_02":member.name.Split(' ')[0];
+                member.GetComponent<MeshFilter>().sharedMesh=original;
+            }
+            var hardwareCollision=hardwareGenerator.AddComponent<BoxCollider>();
+            Check(hardwareMembers.Count==17&&hardwareMembers.All(r=>Classify(r,tile)=="Eligible"),"hardware-equivalent 17-renderer native tree admits original vines and grass with its tree collider");
+            Check(hardwareMembers.All(r=>Unit(r,tile)==hardwareGenerator.transform&&Kind(r,tile)=="Vegetation"),"hardware-equivalent named tree assembly uses one original vegetation carrier for every member");
+            var enclosingWall=Node(mixed.transform,"PCG_FR_Wall_Grassy_Verge_Thin_01_PR");
+            var enclosingWallCollision=enclosingWall.AddComponent<BoxCollider>();
+            var enclosingStone=Leaf(enclosingWall.transform,"FR_Wall_Grassy_Verge_Thin_01",false);
+            var enclosedGenerator=Node(enclosingWall.transform,"PCG_FR_Pillar_Tree_Trunk_01_PR");
+            var enclosedTree=Node(enclosedGenerator.transform,"FR_Pillar_Tree_Trunk_01");
+            var enclosedBark=Leaf(enclosedTree.transform,"FR_Pillar_Tree_Trunk_01",false);
+            var enclosedVines=Leaf(enclosedTree.transform,"CR_RU_Vines (2)");
+            var enclosedCollision=enclosedGenerator.AddComponent<BoxCollider>();
+            Check(Classify(enclosedBark,tile)=="Eligible"&&Classify(enclosedVines,tile)=="Eligible","completed native tree under mixed masonry wrapper remains optional");
+            Check(Unit(enclosedBark,tile)==enclosedGenerator.transform&&Unit(enclosedVines,tile)==enclosedGenerator.transform,"completed tree carrier stops at surrounding masonry wrapper");
+            Check(Classify(enclosingStone,tile)=="Structural","surrounding mixed masonry core remains structural");
+            var anonymousTreeFloor=Leaf(mixedTree.transform,"Mesh",false);
+            var treeFloorMesh=UnityEngine.Object.Instantiate(_mesh);ExtraMeshes.Add(treeFloorMesh);treeFloorMesh.name="FR_Floor_Grass_Half_01";
+            anonymousTreeFloor.GetComponent<MeshFilter>().sharedMesh=treeFloorMesh;
+            Check(Classify(anonymousTreeFloor,tile)=="Structural","anonymous original floor mesh under tree keeps its solid identity");
+            var lightTree=Node(mixed.transform,"FR_Tree_08");
+            var lightVine=Leaf(lightTree.transform,"CR_RU_Vines (3)");lightVine.gameObject.AddComponent<Light>();
+            Check(Classify(lightVine,tile)=="Ancestry","native tree light branch cannot inherit optional vegetation ownership");
+            var nativeTreeProp=Node(lightTree.transform,"Native prop");nativeTreeProp.AddComponent<ProceduralProp>();
+            var nativeTreePropLeaf=Leaf(nativeTreeProp.transform,"FR_Floor_Detail_Grass_01");
+            Check(Classify(nativeTreePropLeaf,tile)=="Ancestry","native prop beneath a tree stays protected despite foliage identity");
             var unknownComposite=Node(mixed.transform,"Player_Wall_Fake");
             Check(Classify(Leaf(unknownComposite.transform,"LOD1"),tile)=="Structural","unknown structural asset cannot be admitted by foliage shader alone");
             var anonymousGrass=Leaf(mixed.transform,"Mesh");
@@ -233,6 +272,9 @@ public static class InteractionProgram
             Check(foliageLod.forceRenderingOff&&pillarCanopy.forceRenderingOff&&!solidLod.forceRenderingOff&&pillarCore.forceRenderingOff,"full production driver removes complete tree pillars while preserving masonry LODs");
             Check(treeBark.forceRenderingOff&&treeCanopy.forceRenderingOff&&!treeCollision.enabled,"zero vegetation removes complete native tree pillars and their decorative collision");
             Check(generatedTreeBark.forceRenderingOff&&!generatorCollider.enabled,"zero vegetation masks complete tree generator geometry and its dedicated collider");
+            Check(hardwareMembers.All(r=>r.forceRenderingOff)&&!hardwareCollision.enabled,"zero vegetation masks the whole hardware-equivalent 17-renderer tree without named-child leftovers");
+            Check(enclosedBark.forceRenderingOff&&enclosedVines.forceRenderingOff&&!enclosedCollision.enabled&&!enclosingStone.forceRenderingOff&&enclosingWallCollision.enabled,"zero vegetation removes only inner native tree collision while surrounding wall geometry and collision stay");
+
             var newlyNativeBody=actualTree.AddComponent<Rigidbody>();newlyNativeBody.isKinematic=true;
             ScenarioSceneryBudget.ContentPlaced(tile);Tick(driver,100);
             Check(!treeBark.forceRenderingOff&&!treeCanopy.forceRenderingOff&&treeCollision.enabled,"native rigid body added after hiding restores the complete tree and native collision");
@@ -243,6 +285,7 @@ public static class InteractionProgram
             Physics.SyncTransforms();
             Check(!Physics.Raycast(treeRay,out hit,5),"zero vegetation leaves no invisible tree blocker in the actual physics ray");
             Check(mixedTreeBark.forceRenderingOff&&!mixedTreeFloor.forceRenderingOff&&mixedTreeCollision.enabled,"zero vegetation retains shared mixed-unit floor collision");
+            Check(!anonymousTreeFloor.forceRenderingOff&&mixedTreeCollision.enabled&&!lightVine.forceRenderingOff&&!nativeTreePropLeaf.forceRenderingOff,"whole-tree masking retains anonymous solid floor native light and gameplay prop branches");
             Check(leafTree.forceRenderingOff&&!leafTreeCollision.enabled,"zero vegetation disables only owned standalone tree leaf collision");
             Check(foreignTreeLeaf.forceRenderingOff&&!foreignTreeCollision.enabled,"zero vegetation does not acquire a foreign collider disable");
             Check(namedPlant.forceRenderingOff&&!solidLod.forceRenderingOff,"hardware named wall plant layer disappears while its native masonry stays");
@@ -253,12 +296,18 @@ public static class InteractionProgram
             Check(roots.GetComponent<BoxCollider>().enabled && wall.GetComponent<BoxCollider>().enabled, "budget never changes floor or shared native wall collision");
             PerfConfig.ScenarioSceneryDensityPercentValue=100; Tick(driver,50);
             Check(!grass.forceRenderingOff&&treeLeaf.forceRenderingOff&&caveLod.forceRenderingOff,"grass slider changes visible grass even at decoration zero");
+            Check(hardwareMembers.All(r=>r.forceRenderingOff)&&!hardwareCollision.enabled,"grass 100 vegetation zero cannot restore attached native tree foliage or grass");
+
             PerfConfig.ScenarioVegetationDensityPercentValue=100; Tick(driver,50);
             Check(!treeLeaf.forceRenderingOff&&caveLod.forceRenderingOff,"vegetation slider restores trees independently of loose decoration");
             Check(!treeBark.forceRenderingOff&&!treeCanopy.forceRenderingOff&&treeCollision.enabled&&leafTreeCollision.enabled,"vegetation 100 restores all owned tree bark foliage and decorative collision");
             Check(!foreignTreeLeaf.forceRenderingOff&&!foreignTreeCollision.enabled,"vegetation 100 retains foreign disabled tree collision");
+            Check(hardwareMembers.All(r=>!r.forceRenderingOff)&&hardwareCollision.enabled,"vegetation 100 restores every named original tree member and its owned collider");
+
             PerfConfig.ScenarioVegetationDensityPercentValue=50;Tick(driver,50);
             Check(treeBark.forceRenderingOff==treeCanopy.forceRenderingOff&&treeCollision.enabled!=treeBark.forceRenderingOff,"partial density cannot select different native bark canopy LODs");
+            Check(hardwareMembers.All(r=>r.forceRenderingOff==hardwareMembers[0].forceRenderingOff)&&hardwareCollision.enabled!=hardwareMembers[0].forceRenderingOff,"partial density keeps all 17 named native tree members and shared tree collision together");
+
             PerfConfig.ScenarioVegetationDensityPercentValue=100;Tick(driver,50);
 
             PerfConfig.ScenarioDecorationDensityPercentValue=100; Tick(driver,50);

@@ -32,7 +32,7 @@ def main():
         variants += [
             ('old-hex-generator-only', 'Scenery.cs', 'if (!reachedTile || !generated)', 'if (!reachedTile || !generated || unit == null || !unit.name.StartsWith("PCG_FR_Floor_Grass_Hex_", StringComparison.Ordinal))', 'hardware grass outside old Hex generator'),
             ('leaf-collider-hidden', 'Scenery.cs', 'if (blockingCollider)', 'if (blockingCollider && false)', 'disabled retained floor base cannot'),
-            ('prop-grass-admitted', 'Scenery.cs', '|| t.GetComponent<ProceduralProp>() != null', '|| false', 'gameplay prop grass can never'),
+            ('prop-grass-admitted', 'Scenery.cs', '|| t.GetComponent<ProceduralProp>() != null', '|| false', 'native prop beneath a tree stays protected'),
             ('miss-late-apparance', 'Scenery.cs', 'if (_wasLoading && !loading && BudgetActive)', 'if (_wasLoading && !loading && BudgetActive && false)', 'loading-complete edge discovers late'),
             ('foreign-force-restored', 'Scenery.cs', 'if (!record.Owned && !renderer.forceRenderingOff)', 'if (!record.Owned)', 'restoration clears owned masks'),
             ('active-procgen-only', 'Scenery.cs', '_inScenarioScene = VRSession.IsRunning;', '_inScenarioScene = VRSession.IsRunning && SceneManager.GetActiveScene().name == "ProcGen";', 'decoration budget is independent from grass'),
@@ -46,6 +46,9 @@ def main():
             ('mixed-tree-collider-owned', 'Scenery.cs', 'safe &= treeMember;', 'safe &= treeMember || true;', 'zero vegetation retains shared mixed-unit floor collision'),
             ('native-wall-plant-retained', 'Scenery.cs', 'bool foliageDressing = IsNativeWallPlantLeaf(name)', 'bool foliageDressing = false', 'hardware wall plant leaf'),
             ('foreign-tree-collider-enabled', 'Scenery.cs', 'if (owner.Owned && collider != null && !collider.enabled)', 'if (collider != null && !collider.enabled)', 'vegetation 100 retains foreign disabled tree collision'),
+            ('native-tree-inheritance-missed', 'Scenery.cs', 'if (treeCarrier != null)', 'if (treeCarrier != null && (unit == null || IsNativeTreeAsset(unit.name)))', 'hardware-equivalent 17-renderer native tree admits'),
+            ('anonymous-tree-floor-admitted', 'Scenery.cs', 'if (IsNativeSceneryAsset(mesh.name)\n            && (IsHardStructuralName(mesh.name) || (!foliage && IsGrassBase(mesh.name))))', 'if (IsNativeSceneryAsset(mesh.name)\n            && (IsHardStructuralName(mesh.name) || (!foliage && IsGrassBase(mesh.name))) && false)', 'anonymous original floor mesh under tree keeps its solid identity'),
+            ('completed-tree-wall-boundary-lost', 'Scenery.cs', 'return carrier; // outside an already complete tree, the wall/floor is its boundary', 'return null; // negative: surrounding wall incorrectly discards completed tree', 'completed native tree under mixed masonry wrapper remains optional'),
 
             ('subtree-cache-retained', 'Scenery.cs', 'finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }', 'finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }', ''),
         ]

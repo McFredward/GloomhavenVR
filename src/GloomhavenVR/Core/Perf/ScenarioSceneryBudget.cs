@@ -287,6 +287,9 @@ internal static class ScenarioSceneryBudget
                 || t.GetComponent<UnityGameEditorDoorProp>() != null
                 || FigureRendererGuard.CarriesFigureComponent(t)
                 || t.GetComponent<Canvas>() != null
+                || t.GetComponent<Light>() != null
+                || t.GetComponent<Animator>() != null
+                || t.GetComponent<ParticleSystem>() != null
                 || t.name == "Preview")
                 ancestrySafe = false;
             if (!generated && HasUnrepresentedCollider(t, renderer))
@@ -297,9 +300,6 @@ internal static class ScenarioSceneryBudget
                 // Asset names above this boundary are containers, not this leaf's identity.
                 continue;
             }
-            if (!generated && unit != null && IsNativeTreeAsset(unit.name)
-                && IsNativeTreeAsset(t.name))
-                unit = t; // all original bark/canopy LOD members share the authored tree carrier
             if (!generated && unit == null && !t.name.StartsWith("PCG_", StringComparison.Ordinal))
             {
                 Kind named = NamedKind(t.name);
@@ -336,6 +336,20 @@ internal static class ScenarioSceneryBudget
             return Verdict.Geometry;
 
         bool foliage = UsesOnlyFoliage(renderer);
+        // Build 604 review found real CR_RU_Vines children on hardware's 17-renderer tree
+        // assemblies. Their leaf names do not contain Tree, so a Tree-only promotion split
+        // their density/collision ownership from the trunk. Bind eligible native plant members
+        // to the original tree carrier; hard floors/masonry and loose dressing never inherit it.
+        Transform? treeCarrier = NativeTreeCarrier(renderer);
+        if (treeCarrier != null)
+        {
+            unit = treeCarrier;
+            kind = Kind.Vegetation;
+            structural = false;
+        }
+        if (IsNativeSceneryAsset(mesh.name)
+            && (IsHardStructuralName(mesh.name) || (!foliage && IsGrassBase(mesh.name))))
+            return Verdict.Structural;
         bool dedicatedStructuralFoliage = false;
         // Apparance can label a renderer Mesh/LOD0 while retaining the original mesh asset
         // family. That asset is stronger provenance than the generated wrapper's generic name;
@@ -370,7 +384,7 @@ internal static class ScenarioSceneryBudget
         }
         if (unit == null || kind == Kind.None)
             return structural ? Verdict.Structural : Verdict.Name;
-        string assetName = meshFamily ? mesh.name : unit.name;
+        string assetName = meshFamily ? mesh.name : TreeAssetName(unit.name);
         // Build 603 explicitly exempted FR_Pillar_Tree_Trunk_01. The actual Build 603 census
         // still names those trunks throughout the wall profiles, and the maintainer defines
         // vegetation 0% as no trees. Original tree/trunk asset identity now overrides the word
@@ -435,6 +449,37 @@ internal static class ScenarioSceneryBudget
         collider.enabled || (TreeColliderOwners.TryGetValue(collider, out TreeColliderOwner? owner)
                              && owner.Owned);
 
+    /// <summary>Locate an actual original tree assembly, not its surrounding wall or room.
+    /// Native foliage/vines/bushes and grass children follow this vegetation unit even when their
+    /// own names omit Tree. A hard solid member or independently named loose decoration is a
+    /// scope barrier. Checking original meshes too protects an anonymously named playable floor.
+    /// </summary>
+    private static Transform? NativeTreeCarrier(MeshRenderer renderer)
+    {
+        Transform? carrier = null;
+        bool foliage = UsesOnlyFoliage(renderer);
+        for (Transform? t = renderer.transform; t != null && t.name != "Generated Content";
+             t = t.parent)
+        {
+            MeshFilter filter = t.GetComponent<MeshFilter>();
+            Mesh? mesh = filter != null ? filter.sharedMesh : null;
+            string name = TreeAssetName(t.name);
+            string original = mesh != null && IsNativeSceneryAsset(mesh.name) ? mesh.name : "";
+            if (IsHardStructuralName(name) || IsHardStructuralName(original)
+                || (!foliage && (IsStructuralName(name) || IsStructuralName(original)
+                                || IsGrassBase(name) || IsGrassBase(original)))
+                || NamedKind(name) == Kind.Dressing || NamedKind(original) == Kind.Dressing)
+                return carrier; // outside an already complete tree, the wall/floor is its boundary
+            if (IsNativeTreeAsset(name) || IsNativeTreeAsset(original))
+                carrier = t;
+        }
+        return carrier;
+    }
+
+    private static string TreeAssetName(string name) =>
+        name.StartsWith("PCG_", StringComparison.Ordinal)
+        && IsNativeTreeAsset(name.Substring(4)) ? name.Substring(4) : name;
+
     /// <summary>Only collision wholly belonging to the removed tree is a presentation mask.
     /// A native wall/tile, trigger, rigid body, gameplay prop or mixed solid subtree is never
     /// suppressed. Original tree identity is required; a conveniently named player wrapper is
@@ -461,7 +506,6 @@ internal static class ScenarioSceneryBudget
         safe &= reachesTree;
         if (safe)
         {
-            Transform stop = owner.IsChildOf(treeUnit) ? treeUnit : owner;
             // A collider attached to a branch can still enclose other native content. Refuse
             // identity/effect descendants and any non-tree render member before disabling it.
             Transform[] nodes = owner.GetComponentsInChildren<Transform>(includeInactive: true);
@@ -482,20 +526,8 @@ internal static class ScenarioSceneryBudget
                 if (member == null)
                     continue;
                 meshFound = true;
-                bool treeMember = false;
-                for (Transform? a = t; a != null; a = a.parent)
-                {
-                    MeshFilter sourceFilter = a.GetComponent<MeshFilter>();
-                    Mesh? original = sourceFilter != null ? sourceFilter.sharedMesh : null;
-                    string name = original != null && IsNativeSceneryAsset(original.name)
-                        ? original.name : a.name;
-                    if (IsNativeTreeAsset(name)) { treeMember = true; break; }
-                    if (IsHardStructuralName(name) || IsGrassBase(name)
-                        || NamedKind(name) != Kind.None)
-                        break;
-                    if (a == stop)
-                        break;
-                }
+                Transform? memberCarrier = NativeTreeCarrier(member);
+                bool treeMember = memberCarrier != null && memberCarrier == treeUnit;
                 safe &= treeMember;
             }
             safe &= meshFound;
@@ -509,7 +541,7 @@ internal static class ScenarioSceneryBudget
     {
         MeshFilter filter = renderer.GetComponent<MeshFilter>();
         Mesh? original = filter != null ? filter.sharedMesh : null;
-        if (!IsNativeTreeAsset(unit.name)
+        if (!IsNativeTreeAsset(TreeAssetName(unit.name))
             && (original == null || !IsNativeTreeAsset(original.name)))
             return Array.Empty<Collider>();
         var colliders = new List<Collider>();
