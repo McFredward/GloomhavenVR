@@ -30,6 +30,10 @@ namespace GloomhavenVR.WorldUI
     internal static class WorldUIConfig { internal static readonly BoolSetting ImmersiveTownSoundEffects=new(); }
     internal static class TownServiceAssets
     {
+        // Real production shader assets are imported by this fixture's Unity
+        // project. Do not replace the transparent guide with Standard metadata.
+        internal static UnityEngine.Shader? Shader(string name) => name == "townnpc"
+            ? UnityEngine.Shader.Find("GloomhavenVR/TownNpc") : null;
         internal static AudioClip? Coin;
         internal static AudioClip? Spell;
         internal static AudioClip? Audio(string name) => name == "coin-soft" ? Coin

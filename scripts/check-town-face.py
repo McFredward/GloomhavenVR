@@ -27,7 +27,10 @@ def sources(root):
     bound = {name: (base / name).read_text() for name in names}
     bound["RemoteTownFaces.cs"] = (root / "src/GloomhavenVR/Net/Remote/RemoteTownFaces.cs").read_text()
     bound["TownFaceTypes.cs"] = (root / "src/GloomhavenVR/Net/TownFaceState.cs").read_text().split("/// <summary>Additive80:")[0]
-    bound["TownActivityTypes.cs"] = (root / "src/GloomhavenVR/Net/TownActivityState.cs").read_text().split("internal struct TownActivityState")[0]
+    # Facial motion consumes the analytic pose only. Foley/probe transport types
+    # are exercised by their own suites; importing them here leaves unrelated
+    # fields unassigned under this fixture's strict compiler checks.
+    bound["TownActivityTypes.cs"] = (root / "src/GloomhavenVR/Net/TownActivityState.cs").read_text().split("internal struct TownActivitySoundState", 1)[0]
     return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
 
 

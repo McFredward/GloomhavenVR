@@ -95,6 +95,7 @@ namespace GloomhavenVR.WorldUI
         internal float BlessingAge => float.PositiveInfinity;
         internal void Tick(bool available) { }
         internal void Bless(float elapsed) { }
+        internal void SampleBlessing(uint epoch,uint generation,float age,bool interactive) { }
         public void Dispose() { }
     }
     internal static class TownServiceAssets
@@ -110,7 +111,8 @@ namespace GloomhavenVR.WorldUI
         internal float Scale;
         internal bool Disposed;
         internal TownServiceLighting(Transform root,byte service){Last=this;Creates++;}
-        internal void Refresh(Transform root){Refreshes++;Scale=root.lossyScale.x;}
+        internal void Refresh(Transform root,bool authorEnvironment=true){Refreshes++;Scale=root.lossyScale.x;}
+        internal void BindEnvironment(Transform root,Transform frame,in GloomhavenVR.Net.TownActivityState state){}
         internal void SetVisibility(float value){}
         public void Dispose()=>Disposed=true;
     }
@@ -178,7 +180,15 @@ namespace UnityEngine
 }
 
 namespace GloomhavenVR.Net
-{ internal struct TownFacePose { } internal struct TownActivityPose { } internal struct TownClothRunnerState { } }
+{
+    // This suite binds production station placement/lifecycle. Shared lighting and
+    // foley payload behavior is covered by the dedicated production runtime suites.
+    internal struct TownFacePose { }
+    internal struct TownActivityPose { }
+    internal struct TownClothRunnerState { }
+    internal struct TownActivityState { }
+    internal struct TownActivitySoundState { }
+}
 namespace GloomhavenVR.WorldUI
 {
     internal sealed class TownServiceFace
@@ -190,7 +200,7 @@ namespace GloomhavenVR.WorldUI
         internal bool PrepareActivityAttention(bool previous)=>false;
         internal void BeforeBodySample() { }
         internal void Seed(in GloomhavenVR.Net.TownFacePose pose,int author,float elapsed){}
-        internal GloomhavenVR.Net.TownFacePose Tick(bool author,bool received,int authorId,in GloomhavenVR.Net.TownFacePose remote,float elapsed,float clock,float blessingAge){Ticks++;if(Throw)throw new InvalidOperationException("fixture facial failure");return remote;}
+        internal GloomhavenVR.Net.TownFacePose Tick(bool author,bool received,int authorId,in GloomhavenVR.Net.TownFacePose remote,float elapsed,float clock,float blessingAge,uint performanceEpoch){Ticks++;if(Throw)throw new InvalidOperationException("fixture facial failure");return remote;}
     }
 }
 
@@ -208,9 +218,12 @@ namespace GloomhavenVR.WorldUI
     internal sealed class TownServiceActivityAudio
     {
         internal TownServiceActivityAudio(UnityEngine.Transform root,byte service){}
-        internal void Tick(int author,uint epoch,float clock,float elapsed,bool visible,in TownActivityVisual shown){}
+        internal GloomhavenVR.Net.TownActivitySoundState Published=>default;
+        internal void SampleBlessing(uint epoch,uint generation,float age,bool interactive){}
+        internal void Tick(int author,uint epoch,float clock,float elapsed,bool visible,in TownActivityVisual shown,bool authorPerformance,float performanceClock,GloomhavenVR.Net.TownActivitySoundState remote){}
         internal void Dispose(){}
     }
+    internal static class TownServicePopulation { internal static uint PerformanceEpoch=>1; }
     internal static class TownServiceVoice
     {
         internal static void Tick(byte service,float clock,bool visible,in TownActivityVisual shown,bool lookingAtVisitor){}

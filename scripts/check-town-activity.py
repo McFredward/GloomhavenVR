@@ -27,6 +27,9 @@ def sources(root):
     bound = {name: (base / name).read_text() for name in names}
     bound["RemoteTownActivities.cs"] = (root / "src/GloomhavenVR/Net/Remote/RemoteTownActivities.cs").read_text()
     bound["TownActivityTypes.cs"] = (root / "src/GloomhavenVR/Net/TownActivityState.cs").read_text().split("/// <summary>Additive81:")[0]
+    shaders = root / "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Shaders"
+    for name in ("TownNpc.shader", "TownPracticalLighting.cginc", "TownSharedEnvironment.cginc"):
+        bound[name] = (shaders / name).read_text()
     bound["RemoteTownFaces.cs"] = (root / "src/GloomhavenVR/Net/Remote/RemoteTownFaces.cs").read_text()
     bound["RemoteTownPerformance.cs"] = (root / "src/GloomhavenVR/Net/Remote/RemoteTownPerformance.cs").read_text()
     bound["FaceTypes.cs"] = (root / "src/GloomhavenVR/Net/TownFaceState.cs").read_text().split("/// <summary>Additive80:")[0]
@@ -173,7 +176,15 @@ def main():
         production.mkdir(parents=True)
         for path, text in bound.items():
             if path == filename:
-                text = text.replace(before, after) if name == "stale-sequence" else replace_once(text, before, after)
+                if name == "audio-ignores-master":
+                    # Foley and blessing both consult the live master setting. Mutate
+                    # both actual paths, retaining a strict count so binding drift
+                    # cannot turn a negative control into an unchanged program.
+                    if text.count(before) != 2:
+                        raise RuntimeError(f"Production binding drift: expected two master-volume reads, got {text.count(before)}")
+                    text = text.replace(before, after)
+                else:
+                    text = text.replace(before, after) if name == "stale-sequence" else replace_once(text, before, after)
             (production / path).write_text(text.replace("Time.unscaledTime", "FaceClock.Now").replace("Time.unscaledDeltaTime", "FaceClock.Delta"))
         project = build / "Interaction.csproj"
         shutil.copyfile(fixture / "Activity.csproj", project)
@@ -226,6 +237,10 @@ def main():
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     project = run / "unity"
     (project / "Assets/Editor").mkdir(parents=True)
+    (project / "Assets/Shaders").mkdir()
+    for name, source in bound.items():
+        if name.endswith((".shader", ".cginc")):
+            (project / "Assets/Shaders" / name).write_text(source)
     (project / "Packages").mkdir()
     (project / "ProjectSettings").mkdir()
     shutil.copyfile(fixture / "Editor/InteractionRunner.cs", project / "Assets/Editor/InteractionRunner.cs")

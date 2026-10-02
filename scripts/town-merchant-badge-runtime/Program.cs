@@ -83,6 +83,7 @@ public static partial class MirrorProgram
         Check(copiedBand != null && copiedBand.gameObject.activeInHierarchy
             && copiedBand.Find("Caption").GetComponent<TMP_Text>().text == "Original sold out",
             "observer clones the original owner caption instead of inventing its stock state");
+        if (copiedBand == null) throw new InvalidOperationException("Original stock band is missing after its presence check.");
         Check(((RectTransform)copiedBand).sizeDelta == ((RectTransform)band.transform).sizeDelta
             && copiedBand.GetComponent<Image>().color == band.GetComponent<Image>().color,
             "original stock band preserves dimensions and ink through capture and wire");

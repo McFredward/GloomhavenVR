@@ -42,7 +42,7 @@ namespace GloomhavenVR.Core;
 internal static class BundleShaders
 {
     /// <summary>
-    /// Every shader this mod ships in <c>gloomhavenvr.bundle</c> that runtime C# ever asks for, and
+    /// Every shader this mod ships in its asset banks that runtime C# ever names, and
     /// the asset path <c>AssetBundle.LoadAsset</c> needs (BuildBundles packs everything under
     /// <c>Assets/Bundle/</c>, so the path is the project-relative path of the .shader file).
     ///
@@ -77,6 +77,12 @@ internal static class BundleShaders
         { "GloomhavenVR/HeadUnlit",      "Assets/Bundle/Head/HeadUnlit.shader" },
         { "GloomhavenVR/WaterVR",        "Assets/Bundle/Environments/WaterVR.shader" },
         { "GloomhavenVR/TownFlame",      "Assets/Bundle/TownServices/Shaders/TownFlame.shader" },
+        // The owned-lighting selector also names these original town-bank shaders.
+        // Resolve searches every loaded bank, including ghvr-town.bundle; registering
+        // their real paths retains cold-load resolution without a bare Shader.Find.
+        { "GloomhavenVR/TownNpc",        "Assets/Bundle/TownServices/Shaders/TownNpc.shader" },
+        { "GloomhavenVR/TownEye",        "Assets/Bundle/TownServices/Shaders/TownEye.shader" },
+        { "GloomhavenVR/TownCornea",     "Assets/Bundle/TownServices/Shaders/TownCornea.shader" },
     };
 
     /// <summary>Shaders that have resolved. Only SUCCESSES are cached — a miss must be retried,
