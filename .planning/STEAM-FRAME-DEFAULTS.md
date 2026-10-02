@@ -27,7 +27,13 @@ platforms, with off switches for comparison and restoration of the old work path
 
 | Key | Fresh Frame | Fresh PC | Control and behavior |
 |---|---:|---:|---|
-| `[Optimize] ScenarioSceneryDensityPercent` | 25 | 100 | VR Options → Graphics → Scenario grass (%); 100 restores original decorative grass rendering |
+| `[Optimize] ScenarioSceneryDensityPercent` | 0 | 100 | VR Options → Graphics → independent Scenario grass (%); saved earlier 25% remains intact |
+| `[Optimize] ScenarioVegetationDensityPercent` | 0 | 100 | Independent decorative trees/bushes/vines/leaves; live |
+| `[Optimize] ScenarioDecorationDensityPercent` | 0 | 100 | Loose generated decoration; live |
+| `[Optimize] ScenarioPlayerFigureDetailPercent` | 0 | 100 | Original native player/summon mesh detail cap; held figures retain original |
+| `[Optimize] ScenarioEnemyFigureDetailPercent` | 0 | 100 | Original native monster mesh detail cap; held figures retain original |
+| `[Optimize] ScenarioFigureClothSimulation` | false | true | Secondary scenario figure cloth; held figures retain native simulation |
+| `[Optimize] ReduceScenarioGenerationDetail` | true | false | Native quality 0 for scenario tile/wall parameters at next load; underground retained |
 | `[Optimize] SharedWallReadCache` | true | true | Advanced options/config; false restores repeated material and ancestor queries |
 | `[Optimize] LightStabiliserWorkCache` | true | true | Advanced options/config; false restores original light lookup/write cadence |
 | `[WorldUI] DesktopMirrorLeftEye` | true | true | Existing live desktop-mirror toggle; a saved false is respected on Frame too |
@@ -44,7 +50,11 @@ key remains an additional cap (grass uses the lower of the two values). Setting
 both keys to 100 restores the original decorative detail. Existing keys are
 never rewritten; a previously configured Frame installation adopts the zero
 fallback only for this newly introduced key. Both controls appear in Graphics.
-See [STEAM-FRAME-SCENERY-601.md](STEAM-FRAME-SCENERY-601.md).
+See [STEAM-FRAME-SCENERY-601.md](STEAM-FRAME-SCENERY-601.md). **Build 603 supersedes
+that coupling:** grass, vegetation and loose decoration now have independent budgets,
+so a grass change can be compared while other decoration stays 0. The table above is the
+current fresh-profile state; see [STEAM-FRAME-SCENERY-603.md](STEAM-FRAME-SCENERY-603.md)
+for expanded classification, native figure/generation options and hardware limits.
 
 The game already creates a fresh `GlobalData` with `QualityLevel = "Fastest"`
 (`GH.Runtime.dll`, `GlobalData()`), its lowest native graphics preset. A saved

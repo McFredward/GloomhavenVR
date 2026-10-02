@@ -1203,6 +1203,18 @@
       "weight": 15
     },
     {
+      "id": "scenario-figure-detail-budget",
+      "command": ["python3", "scripts/check-scenario-figure-detail-budget.py"],
+      "groups": ["local", "ci"],
+      "weight": 1
+    },
+    {
+      "id": "scenario-figure-detail-runtime",
+      "command": ["python3", "scripts/check-scenario-figure-detail-runtime.py"],
+      "groups": ["local"],
+      "weight": 14
+    },
+    {
       "id": "scenario-generation-runtime",
       "command": [
         "python3",
