@@ -25,6 +25,7 @@ def main():
     base = args.source_root / 'src/GloomhavenVR/Core'
     figures = (base / 'Perf/ScenarioFigureDetailBudget.cs').read_text()
     sources = {'Figures.cs': figures.replace('Time.unscaledTime', 'FigureClock.Now')}
+    sources['Effects.cs'] = (base / 'Perf/ScenarioFigureEffects.cs').read_text()
     (run / 'source-hashes.json').write_text(json.dumps({'root': str(args.source_root.resolve()), 'sha256': {key: hashlib.sha256(text.encode()).hexdigest() for key, text in sources.items()}}, indent=2)+'\n')
     variants = [('production', '', '', '', '')]
     if not args.no_negative_controls:
@@ -39,6 +40,17 @@ def main():
             ('reject-native-game-board', 'Figures.cs', 'if (board != null && root.transform.IsChildOf(board.transform)) return true;', 'if (board != null && root.transform.IsChildOf(board.transform)) return false;', 'original enabled native cloth solvers'),
             ('forget-disabled-cook-claim', 'Figures.cs', 'item.Owned |= FigureCloth.TakeDisabledSimulationOwnership(item.Cloth);', 'item.Owned |= false;', 'rescale cook original-enable claim'),
             ('skip-shutdown-restoration', 'Figures.cs', 'foreach (ActorRecord record in _actors)\n            {\n                try { record.Apply(true); }', 'foreach (ActorRecord record in _actors)\n            {\n                try { if (_faulted) record.Apply(true); }', 'VR off restores exact original'),
+            ('ignore-fx-only-setting', 'Figures.cs', '|| PerfConfig.FigureEffectsDensityPercent < 100', '|| PerfConfig.FigureEffectsDensityPercent < 0', 'FX-only activation pauses identified'),
+            ('skip-particle-mask', 'Effects.cs', 'Mask?.Apply(reduce);', 'Mask?.Apply(false);', 'ambient particles produce no rendered pixels'),
+            ('keep-particle-solver-running', 'Effects.cs', 'System.Pause(false); Paused = true;', 'Paused = false;', 'FX-only activation pauses identified'),
+            ('revive-originally-stopped-fx', 'Effects.cs', 'if (!reduce && !Paused) return;', 'if (!reduce && !Paused) { System.Play(false); return; }', 'originally stopped and paused effects remain'),
+            ('keep-alpha-shell', 'Effects.cs', 'foreach (Mask item in _shells) item.Apply(index++ >= keep);', 'foreach (Mask item in _shells) item.Apply(false);', 'late native alpha material completion admits'),
+            ('admit-pooled-ability-under-idle', 'Effects.cs', 'if (name.StartsWith("P_", StringComparison.Ordinal)', 'if (false', 'pooled ability under Idle remains'),
+            ('admit-unverified-alpha-body', 'Effects.cs', 'else return false;', 'else return true;', 'core body without authored LOD stays rendered'),
+            ('lose-fx-restoration', 'Effects.cs', 'internal void Restore() => Apply(100);', 'internal void Restore() => Apply(0);', '100 percent restores only owned native ambient'),
+            ('ignore-late-native-material', 'Figures.cs', 'if (renderer != null && renderer.enabled) ScenarioFigureDetailBudget.MaterialReady(renderer);', 'if (renderer != null && renderer.enabled && PerfConfig.FigureEffectsDensityPercent < 0) ScenarioFigureDetailBudget.MaterialReady(renderer);', 'late native alpha material completion admits'),
+            ('reject-native-instance-material', 'Effects.cs', 'else if (name.EndsWith("(Instance)", StringComparison.Ordinal))', 'else if (name.EndsWith("(NotNativeInstance)", StringComparison.Ordinal))', 'late native alpha material completion admits'),
+            ('adopt-incomplete-native-material', 'Figures.cs', 'if (renderer != null && renderer.enabled) ScenarioFigureDetailBudget.MaterialReady(renderer);', 'if (renderer != null) ScenarioFigureDetailBudget.MaterialReady(renderer);', 'unfinished native material load cannot adopt'),
         ]
     manifest = {'result': str(run/'results.txt'), 'cases': []}
     dotnet = shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
@@ -60,9 +72,16 @@ def main():
     manifest_path=run/'manifest.json'; manifest_path.write_text(json.dumps(manifest,indent=2))
     project=run/'unity'; (project/'Assets/Editor').mkdir(parents=True); (project/'Packages').mkdir(); (project/'ProjectSettings').mkdir()
     shutil.copyfile(ROOT/'scripts/scenario-scenery-runtime/Editor/InteractionRunner.cs',project/'Assets/Editor/InteractionRunner.cs')
-    (project/'Packages/manifest.json').write_text('{"dependencies":{"com.unity.modules.physics":"1.0.0","com.unity.modules.cloth":"1.0.0","com.unity.modules.animation":"1.0.0"}}\n')
+    (project/'Packages/manifest.json').write_text('{"dependencies":{"com.unity.modules.physics":"1.0.0","com.unity.modules.cloth":"1.0.0","com.unity.modules.animation":"1.0.0","com.unity.modules.particlesystem":"1.0.0"}}\n')
     (project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
-    result=subprocess.run([str(args.unity),'-batchmode','-nographics','-projectPath',str(project),'-executeMethod','InteractionRunner.Start','-interactionManifest',str(manifest_path),'-logFile',str(run/'unity.log')],stdout=subprocess.DEVNULL,stderr=subprocess.STDOUT,timeout=240)
+    # Actual native particle/alpha render proof needs a graphics device. Use a private
+    # virtual display and Mesa's software OpenGL; never quietly fall back to -nographics.
+    command=[str(args.unity),'-batchmode','-force-glcore','-projectPath',str(project),'-executeMethod','InteractionRunner.Start','-interactionManifest',str(manifest_path),'-logFile',str(run/'unity.log')]
+    if not os.environ.get('DISPLAY'):
+        xvfb=shutil.which('xvfb-run')
+        if not xvfb: parser.error('xvfb-run is required for the real render proof on a headless machine')
+        command=[xvfb,'-a','-s','-screen 0 640x480x24']+command
+    result=subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.STDOUT,timeout=300)
     report=Path(manifest['result'])
     if report.is_file(): print(report.read_text(),end='')
     if result.returncode or not report.is_file(): raise SystemExit('FAIL: Unity run; see '+str(run/'unity.log'))

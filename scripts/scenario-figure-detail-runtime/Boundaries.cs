@@ -27,6 +27,12 @@ public class ActorBehaviour : MonoBehaviour
     public static ActorBehaviour GetActorBehaviour(GameObject root) => root.GetComponentInChildren<ActorBehaviour>(true);
 }
 public class ProceduralScenario : MonoBehaviour { }
+public class MaterialLoaderData
+{
+    public Renderer Renderer=null!;
+    public void Complete(Material[] materials) { Renderer.sharedMaterials=materials; CheckAllMaterialLoaded(); }
+    private void CheckAllMaterialLoaded() { Renderer.enabled=true; }
+}
 public class ClientScenarioManager : MonoBehaviour
 {
     public static ClientScenarioManager s_ClientScenarioManager = null!;
@@ -76,7 +82,7 @@ namespace GloomhavenVR.Core
     }
     internal static class PerfConfig
     {
-        internal static int PlayerFigureDetailPercent=100,EnemyFigureDetailPercent=100;
+        internal static int PlayerFigureDetailPercent=100,EnemyFigureDetailPercent=100,FigureEffectsDensityPercent=100;
         internal static bool ThrowOnRead;
         private static bool ClothEnabled=true;
         internal static bool FigureClothSimulationEnabled

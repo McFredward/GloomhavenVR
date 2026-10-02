@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Reflection;
 using GloomhavenVR.Board.FigureGrab;
 using GloomhavenVR.Core;
@@ -94,6 +95,192 @@ public static class InteractionProgram
         LOD[] current=figure.Group.GetLODs();
         for(int i=0;i<level;i++)if(current[i].renderers.Length==0||current[i].renderers[0]!=figure.Meshes[level])return false;
         return true;
+    }
+    private static Material Solid(Color color,string name)
+    {
+        var shader=Shader.Find("Unlit/Color");
+        if(shader==null)throw new Exception("Real Unity Unlit/Color shader required for render proof");
+        return new Material(shader) { color=color,name=name };
+    }
+    private static SkinnedMeshRenderer FlatBody(Transform parent,string name,Vector3 position,Material material)
+    {
+        var node=Node(parent,name);node.layer=25;node.transform.localPosition=position;
+        var mesh=new Mesh { name=name };
+        mesh.vertices=new[]{new Vector3(-.4f,-.4f,0),new Vector3(.4f,-.4f,0),new Vector3(.4f,.4f,0),new Vector3(-.4f,.4f,0)};
+        mesh.triangles=new[]{0,2,1,0,3,2};mesh.boneWeights=new[]{new BoneWeight { boneIndex0=0,weight0=1 },new BoneWeight { boneIndex0=0,weight0=1 },new BoneWeight { boneIndex0=0,weight0=1 },new BoneWeight { boneIndex0=0,weight0=1 }};
+        mesh.bindposes=new[]{Matrix4x4.identity};mesh.RecalculateBounds();
+        var renderer=node.AddComponent<SkinnedMeshRenderer>();renderer.sharedMesh=mesh;
+        renderer.bones=new[]{node.transform};renderer.rootBone=node.transform;renderer.sharedMaterial=material;
+        renderer.localBounds=new Bounds(Vector3.zero,Vector3.one*2);return renderer;
+    }
+    private static ParticleSystem StaticParticle(Transform parent,string name,Vector3 position,Color color,bool playing=true)
+    {
+        var node=Node(parent,name);node.layer=25;var system=node.AddComponent<ParticleSystem>();
+        system.Stop(false,ParticleSystemStopBehavior.StopEmittingAndClear);
+        var main=system.main;main.loop=true;main.playOnAwake=false;main.startLifetime=1000;
+        main.startSpeed=0;main.startSize=.65f;main.simulationSpace=ParticleSystemSimulationSpace.World;
+        var emission=system.emission;emission.enabled=false;
+        system.GetComponent<ParticleSystemRenderer>().sharedMaterial=Solid(color,"Fixture particle "+name);
+        if(playing)
+        {
+            system.Play(false);
+            system.Emit(new ParticleSystem.EmitParams { position=position,startLifetime=1000,startSize=.65f,startColor=color },1);
+        }
+        return system;
+    }
+    private static Color[] Render(Camera camera,string suffix)
+    {
+        var target=new RenderTexture(128,128,16,RenderTextureFormat.ARGB32);
+        camera.targetTexture=target;camera.Render();RenderTexture.active=target;
+        var pixels=new Texture2D(128,128,TextureFormat.RGBA32,false);pixels.ReadPixels(new Rect(0,0,128,128),0,0);pixels.Apply();
+        var args=Environment.GetCommandLineArgs();int index=Array.IndexOf(args,"-interactionManifest");
+        if(index>=0)File.WriteAllBytes(Path.Combine(Path.GetDirectoryName(args[index+1])!,typeof(InteractionProgram).Assembly.GetName().Name+"-"+suffix+".png"),pixels.EncodeToPNG());
+        Color[] result=pixels.GetPixels();RenderTexture.active=null;camera.targetTexture=null;
+        UnityEngine.Object.DestroyImmediate(pixels);UnityEngine.Object.DestroyImmediate(target);return result;
+    }
+    private static int Colored(Color[] pixels,Color color)
+    {
+        int count=0;foreach(Color pixel in pixels)
+            if(Mathf.Abs(pixel.r-color.r)<.1f&&Mathf.Abs(pixel.g-color.g)<.1f&&Mathf.Abs(pixel.b-color.b)<.1f)count++;
+        return count;
+    }
+    private static void MaterialReady(MaterialLoaderData data)
+    {
+        typeof(MaterialLoaderData_CheckAllMaterialLoaded_FigureEffectsPatch).GetMethod("Postfix",BindingFlags.Static|BindingFlags.NonPublic)!
+            .Invoke(null,new object[]{data});
+    }
+    private static void EffectsProof(Scene scenario,Scene map)
+    {
+        PerfConfig.PlayerFigureDetailPercent=100;PerfConfig.EnemyFigureDetailPercent=100;
+        PerfConfig.FigureClothSimulationEnabled=true;PerfConfig.FigureEffectsDensityPercent=100;
+        var host=Node(null,"Ambient effects render host");ScenarioFigureDetailBudget.Install(host);
+        driver=host.GetComponent(Budget.GetNestedType("Driver",BindingFlags.NonPublic));Tick();
+        var figure=Build(scenario,CActor.EType.Enemy,false,false);
+        figure.Root.name="9d8f7c61-native-actor-guid";UnityEngine.Object.DestroyImmediate(figure.Group);
+        foreach(Renderer renderer in figure.Meshes)renderer.enabled=false;
+        var model=Node(figure.Root.transform,"MO_WindDemon_PR(Clone)");
+        var body=FlatBody(model.transform,"MO_WindDemon_main",Vector3.zero,Solid(Color.green,"MO_WindDemon_MAT"));
+        var alpha=FlatBody(model.transform,"MO_WindDemon_Alpha",new Vector3(0,2,0),Solid(Color.magenta,"MO_WindDemon_Alpha_MAT"));
+        // Match Choreographer.CreateCharacterActor: material instancing happens after the
+        // addressable child is created beneath an outer wrapper named by the actor GUID.
+        alpha.sharedMaterial=new Material(alpha.material);Material originalAlpha=alpha.sharedMaterial;
+        Check(originalAlpha.name.EndsWith("(Instance)",StringComparison.Ordinal),
+            "real native renderer material access creates Unity instance provenance suffix");
+        Mesh originalBody=body.sharedMesh;
+        var idle=Node(model.transform,"P_WindDemon_Idle");
+        var ambient=StaticParticle(idle.transform,"Fog",new Vector3(-2,0,0),Color.red);
+        var extra=StaticParticle(idle.transform,"Particle System (4)",new Vector3(-2,-2,0),Color.red);
+        var initiallyPaused=StaticParticle(idle.transform,"Bits (3)",new Vector3(9,0,0),Color.red);initiallyPaused.Pause(false);
+        var initiallyStopped=StaticParticle(idle.transform,"Cloud (3)",new Vector3(9,0,0),Color.red,false);
+        var foreignMask=StaticParticle(idle.transform,"Bits (4)",new Vector3(9,0,0),Color.red);
+        foreignMask.GetComponent<ParticleSystemRenderer>().forceRenderingOff=true;
+        var trailNode=Node(idle.transform,"Ambient trail");trailNode.layer=25;var trail=trailNode.AddComponent<TrailRenderer>();trail.emitting=true;
+        var condition=StaticParticle(idle.transform,"P_Invisibility_Idle",new Vector3(2,0,0),Color.blue);
+        var pooledAbility=StaticParticle(idle.transform,"P_GainStrengthen",new Vector3(9,0,0),Color.blue);
+        var attack=StaticParticle(figure.Root.transform,"P_WindDemon_Ranged_BuildUp",new Vector3(2,-2,0),Color.blue);
+        var callback=StaticParticle(idle.transform,"Callback cosmetic",new Vector3(9,0,0),Color.blue);
+        var callbackMain=callback.main;callbackMain.stopAction=ParticleSystemStopAction.Callback;
+        var collision=StaticParticle(idle.transform,"Collision cosmetic",new Vector3(9,0,0),Color.blue);
+        var collisionModule=collision.collision;collisionModule.enabled=true;
+        var ui=Node(idle.transform,"Card UI");ui.AddComponent<Canvas>();
+        var card=StaticParticle(ui.transform,"Card plume",new Vector3(9,0,0),Color.blue);
+        var foreignBody=FlatBody(figure.Root.transform,"Unverified Alpha body",new Vector3(9,0,0),Solid(Color.green,"Unknown"));
+        var mapFigure=Build(map,CActor.EType.Enemy,false,false);mapFigure.Root.name="MO_WindDemon_PR";
+        var mapIdle=Node(mapFigure.Root.transform,"P_WindDemon_Idle");var mapParticle=StaticParticle(mapIdle.transform,"Fog",new Vector3(9,0,0),Color.blue);
+        var camera=Node(null,"Actual particle render camera").AddComponent<Camera>();camera.transform.position=new Vector3(0,0,-10);
+        camera.orthographic=true;camera.orthographicSize=4;camera.cullingMask=1<<25;
+        camera.clearFlags=CameraClearFlags.SolidColor;camera.backgroundColor=Color.black;
+        Color[] before=Render(camera,"fx100-before");
+        Check(Colored(before,Color.red)>100&&Colored(before,Color.magenta)>100&&Colored(before,Color.green)>100&&Colored(before,Color.blue)>100,
+            "real graphics device draws original ambient particles shell body and combat signals");
+        // MaterialLoader.Start can defer the original alpha assignment until after SetActor.
+        // A missing material at discovery must not permanently exclude its authored shell.
+        alpha.sharedMaterial=null;alpha.enabled=false;var alphaData=new MaterialLoaderData { Renderer=alpha };
+        PerfConfig.FigureEffectsDensityPercent=0;for(int i=0;i<24;i++)Tick();
+        Check(ambient.isPaused&&extra.isPaused&&!trail.emitting,"FX-only activation pauses identified ambient solvers and trail emission");
+        Check(!alpha.forceRenderingOff&&!alpha.enabled,"pending alpha material retains native disabled state before genuine completion");
+        alphaData.Complete(new[]{originalAlpha});MaterialReady(alphaData);Tick();
+        Check(alpha.enabled&&alpha.forceRenderingOff,"late native alpha material completion admits original instanced shell without overwriting enabled state");
+        MaterialReady(alphaData);Tick();
+        Check(alpha.forceRenderingOff,"duplicate native material completion keeps one owned optional shell");
+        Check(!condition.isPaused&&condition.isPlaying,"pooled invisibility condition under Idle remains playing");
+        Check(!pooledAbility.isPaused&&pooledAbility.isPlaying,"pooled ability under Idle remains playing despite generic ambient ancestry");
+        Check(!attack.isPaused&&attack.isPlaying&&!attack.GetComponent<ParticleSystemRenderer>().forceRenderingOff,
+            "looping native attack buildup remains fully original");
+        Check(!callback.isPaused&&!collision.isPaused&&!card.isPaused,"native callbacks collision and card UI are excluded from ambient suppression");
+        Check(!mapParticle.isPaused&&!mapParticle.GetComponent<ParticleSystemRenderer>().forceRenderingOff,
+            "map and NPC effects stay outside exact native scenario actor scope");
+        Check(body.sharedMesh==originalBody&&!body.forceRenderingOff&&!foreignBody.forceRenderingOff,
+            "core body without authored LOD stays rendered with its original mesh");
+        Check(figure.Animator.enabled&&figure.Collider.enabled,"effects reduction preserves native animator and picking collider");
+        Color[] reduced=Render(camera,"fx0");
+        Check(Colored(reduced,Color.red)==0,"ambient particles produce no rendered pixels at zero density");
+        Check(Colored(reduced,Color.magenta)==0,"identified supplemental alpha shell produces no rendered pixels at zero density");
+        Check(Colored(reduced,Color.green)==Colored(before,Color.green)&&Colored(reduced,Color.blue)==Colored(before,Color.blue),
+            "actual opaque body and gameplay effect pixels survive zero density unchanged");
+        Check(VRLog.Messages.Exists(message=>message.Contains("last-frame visible unmasked body meshes/vertices")),
+            "visible mesh diagnostics explicitly describe any-camera last-frame evidence rather than projected LOD savings");
+        Check(VRLog.Messages.Exists(message=>message.Contains("Ambient FX density=0%; 6 owned renderer(s) masked, 3 particle solver(s) paused")),
+            "bounded Debug evidence counts actual optional renderer masks and paused solvers: "+string.Join(" | ",VRLog.Messages.FindAll(message=>message.Contains("Ambient FX density=0%"))));
+        var lateAmbient=StaticParticle(idle.transform,"Late native ambient fog",new Vector3(9,0,0),Color.red);
+        var lateRenderer=lateAmbient.GetComponent<ParticleSystemRenderer>();lateRenderer.enabled=false;
+        var lateData=new MaterialLoaderData { Renderer=lateRenderer };MaterialReady(lateData);
+        Check(!lateAmbient.isPaused&&!lateRenderer.forceRenderingOff,"unfinished native material load cannot adopt late original effects");
+        lateData.Complete(new[]{lateRenderer.sharedMaterial});MaterialReady(lateData);Tick();
+        Check(lateAmbient.isPaused&&lateRenderer.enabled&&lateRenderer.forceRenderingOff,"completed late original Idle particles are adopted from exact native actor ancestry");
+        var lateAttack=StaticParticle(idle.transform,"P_WindDemon_Ranged_BuildUp_Late",new Vector3(9,0,0),Color.blue);
+        MaterialReady(new MaterialLoaderData { Renderer=lateAttack.GetComponent<ParticleSystemRenderer>() });Tick();
+        Check(lateAttack.isPlaying&&!lateAttack.isPaused&&!lateAttack.GetComponent<ParticleSystemRenderer>().forceRenderingOff,
+            "late pooled attack effect remains original through the shared material completion seam");
+        foreach(string kind in new[]{"Wind","Sun","Flame"})
+        {
+            var elite=Build(scenario,CActor.EType.Enemy,false,false);elite.Root.name="Elite actor GUID "+kind;
+            UnityEngine.Object.DestroyImmediate(elite.Group);foreach(Renderer mesh in elite.Meshes)mesh.enabled=false;
+            var eliteModel=Node(elite.Root.transform,"MO_"+kind+"Demon_Elite_PR(Clone)");
+            Transform carrier=kind=="Sun"?eliteModel.transform:Node(eliteModel.transform,"MO_"+kind+"Demon_Elite").transform;
+            string bodyName=kind=="Wind"?"MO_WindDemon_Elite_main":kind=="Sun"?"MO_SunDemon_Elite_Mesh":"MO_FlameDemon_Mesh";
+            var eliteBody=FlatBody(carrier,bodyName,new Vector3(9,0,0),Solid(Color.green,"MO_"+kind+"Demon_Elite_MAT"));
+            SkinnedMeshRenderer? eliteAlpha=null;
+            if(kind!="Sun")eliteAlpha=FlatBody(carrier,kind=="Wind"?"MO_WindDemon_Elite_Alpha":"MO_FlameDemon_Alpha",new Vector3(9,0,0),Solid(Color.magenta,"MO_"+kind+"Demon_Elite_Alpha_MAT"));
+            var retained=FlatBody(carrier,kind=="Sun"?"MO_SunDemon_Elite_Halo":"MO_FlameDemon_Elite_Horns",new Vector3(9,0,0),Solid(Color.green,"MO_"+kind+"Demon_Elite_MAT"));
+            var eliteIdle=Node(eliteModel.transform,kind=="Flame"?"P_FlameDemon":"P_"+kind+"Demon_Idle");
+            var eliteParticle=StaticParticle(eliteIdle.transform,"Fog",new Vector3(9,0,0),Color.red);
+            for(int i=0;i<3;i++)Tick();
+            Check(eliteParticle.isPaused&&eliteParticle.GetComponent<ParticleSystemRenderer>().forceRenderingOff,
+                "verified "+kind+" elite model retains exact authored ambient effect policy");
+            Check((eliteAlpha==null||eliteAlpha.forceRenderingOff)&&!eliteBody.forceRenderingOff&&!retained.forceRenderingOff,
+                "verified "+kind+" elite alpha is optional while original body horns and halo remain rendered");
+        }
+        HeldFigures.Held=figure.Actor;figure.Root.transform.SetParent(null);Tick();
+        Check(ambient.isPaused&&alpha.forceRenderingOff,"local hold retains zero ambient density without reintroducing cosmetics");
+        HeldFigures.Held=null;NetHeldFigures.Held=figure.Actor;Tick();
+        Check(ambient.isPaused&&alpha.forceRenderingOff,"remote hold retains zero ambient density without reintroducing cosmetics");
+        NetHeldFigures.Held=null;figure.Root.transform.SetParent(board.transform);
+        PerfConfig.FigureEffectsDensityPercent=50;Tick();
+        Check(ambient.isPlaying&&extra.isPlaying&&alpha.forceRenderingOff&&!trail.emitting,
+            "intermediate density retains a stable subset of authored ambient systems");
+        PerfConfig.FigureEffectsDensityPercent=100;Tick();
+        Check(ambient.isPlaying&&extra.isPlaying&&trail.emitting&&!alpha.forceRenderingOff,
+            "100 percent restores only owned native ambient simulation trail and shell");
+        Check(!initiallyStopped.isPlaying&&initiallyPaused.isPaused,"originally stopped and paused effects remain in their original states at 100 percent");
+        Check(lateAmbient.isPlaying&&!lateRenderer.forceRenderingOff&&alpha.sharedMaterial==originalAlpha,
+            "100 percent restores late adopted effects and exact native instance materials");
+        Check(foreignMask.GetComponent<ParticleSystemRenderer>().forceRenderingOff,"originally foreign renderer mask survives ambient restoration");
+        Color[] restored=Render(camera,"fx100-restored");
+        Check(Colored(restored,Color.red)==Colored(before,Color.red)&&Colored(restored,Color.magenta)==Colored(before,Color.magenta),
+            "100 percent restores actual ambient and alpha rendered pixels");
+        PerfConfig.FigureEffectsDensityPercent=0;for(int i=0;i<24;i++)Tick();
+        VRSession.IsRunning=false;Tick();
+        Check(!ambient.GetComponent<ParticleSystemRenderer>().forceRenderingOff&&!alpha.forceRenderingOff&&ambient.isPlaying,
+            "VR off restores owned ambient particle renderers and simulation");
+        VRSession.IsRunning=true;for(int i=0;i<24;i++)Tick();
+        Check(ambient.isPaused&&alpha.forceRenderingOff,"VR re-entry re-adopts original static ambient parts");
+        Choreographer.s_Choreographer.m_ProcGenScene=default;SceneManager.SetActiveScene(map);Tick();
+        Check(!ambient.isPaused&&!alpha.forceRenderingOff,"scene exit restores owned ambient parts");
+        Choreographer.s_Choreographer.m_ProcGenScene=scenario;for(int i=0;i<24;i++)Tick();
+        Check(ambient.isPaused,"scene re-entry captures original ambient presentation anew");
+        ScenarioFigureDetailBudget.Shutdown();Check(ambient.isPlaying&&!alpha.forceRenderingOff,"shutdown restores owned ambient presentation");
+        PerfConfig.FigureEffectsDensityPercent=100;UnityEngine.Object.DestroyImmediate(camera.gameObject);
     }
     public static int Run()
     {
@@ -230,6 +417,7 @@ public static class InteractionProgram
         int missing=0;foreach(string message in VRLog.Messages)if(message.Contains("adopted none after loading"))missing++;
         Check(missing==1,"confirmed native board scope failure has one bounded normal-level report");
         ScenarioFigureDetailBudget.Shutdown();ClientScenarioManager.s_ClientScenarioManager.m_Board=board;
+        EffectsProof(scenario,map);
         return checks;
     }
 }

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Guard the scenario-figure compromise boundaries; Unity runtime proof is a separate gate."""
 from pathlib import Path
+import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 path = ROOT / 'src/GloomhavenVR/Core/Perf/ScenarioFigureDetailBudget.cs'
 source = path.read_text()
+effects = (ROOT / 'src/GloomhavenVR/Core/Perf/ScenarioFigureEffects.cs').read_text()
 checks = 0
 
 def require(value, message):
@@ -49,12 +51,43 @@ for token in (
     'enabled = false;',
     '_lods[_ownershipCursor++].CheckOwnership();',
     'if (VRLog.WantsDebug)',
+    'PerfConfig.FigureEffectsDensityPercent < 100',
+    'record.Effects = ScenarioFigureEffects.Record.Capture(root, actor);',
+    'Effects.Apply(restore ? 100 : PerfConfig.FigureEffectsDensityPercent);',
+    'try { record.Effects.Restore(); } catch',
+    'renderer.isVisible',
+    '!renderer.forceRenderingOff && renderer.isVisible',
+    'last-frame visible unmasked body meshes/vertices',
+    '_roots.TryGetValue(current.gameObject.GetInstanceID(), out ActorRecord record)',
+    'depth++ < 64',
+    'record.Effects.MaterialReady(renderer, record.Root, record.Actor)',
+    'MaterialLoaderData_CheckAllMaterialLoaded_FigureEffectsPatch',
+    'if (renderer != null && renderer.enabled) ScenarioFigureDetailBudget.MaterialReady(renderer);',
 ):
     require(token in source, 'Missing runtime boundary: '+token)
 for forbidden in ('renderer.enabled =', 'Animator.enabled =', 'Collider.enabled =',
-                  'SetActive(', '.sharedMesh =', '.sharedMaterials =', 'ForceLOD(',
+                  'SetActive(', 'ForceLOD(',
                   'ScenarioRuleLibrary.', 'Type.Enemy ='):
-    require(forbidden not in source, 'Unexpected native presentation/gameplay write: '+forbidden)
+    require(forbidden not in source and forbidden not in effects, 'Unexpected native presentation/gameplay write: '+forbidden)
+for property in ('sharedMesh', 'sharedMaterials'):
+    require(not re.search(r'\.' + property + r'\s*=(?!=)', source + effects),
+            'Native asset assignment is forbidden: '+property)
+for token in ('P_WindDemon_Idle', 'P_SunDemon_Idle', 'P_NightDemon_Idle', 'P_FlameDemon',
+              'MO_WindDemon_Alpha_MAT', 'MO_FlameDemon_Alpha_MAT',
+              'nativeBody.sharedMesh.vertexCount > 0',
+              'system.main.stopAction != ParticleSystemStopAction.None',
+              'system.collision.enabled || system.trigger.enabled',
+              'System.Pause(false); Paused = true;', 'if (System.isPaused) System.Play(false);',
+              'Mask?.Apply(reduce);', 'if (!Renderer.forceRenderingOff)',
+              'if (Renderer.emitting) { Renderer.emitting = false; OwnedEmission = true; }'):
+    require(token in effects, 'Missing identified ambient/state ownership boundary: '+token)
+require('name.EndsWith("(Instance)", StringComparison.Ordinal)' in effects,
+        'Native renderer material instancing must retain authored alpha provenance')
+require('if (density == 100 && _density == 100) return;' in effects,
+        'Restored FX must bypass per-frame particle and renderer reads while LOD/cloth remains active')
+for forbidden in ('System.Stop(', 'System.Clear(', '.Simulate(', '.SetActive(',
+                  '.collision.enabled =', '.trigger.enabled =', '.loop =', '.StopAction ='):
+    require(forbidden not in effects, 'Ambient reduction must preserve native clocks/gameplay/callbacks: '+forbidden)
 require('ScenarioFigureDetailBudget' not in (ROOT/'src/GloomhavenVR/Core/FigureRendererGuard.cs').read_text(),
         'Independent figure compromise must never relax the wall/visibility actor exemption')
 runner = (ROOT/'scripts/check-scenario-figure-detail-runtime.py').read_text()
@@ -65,4 +98,7 @@ require('Compilation failure is not a passing negative control' in runner,
 require("'miss-steady-ownership'" in runner and "'cancel-native-reset'" in runner
         and "'reject-native-game-board'" in runner and "'forget-disabled-cook-claim'" in runner,
         'Ownership and native cloth lifecycle require negative controls')
+require("sources['Effects.cs']" in runner and "'-nographics'" not in runner
+        and "'keep-particle-solver-running'" in runner and "'skip-particle-mask'" in runner,
+        'Complete ambient helper must run with real graphics and simulation/render negative controls')
 print(f'PASS: scenario figure-detail boundaries ({checks} assertions; real Unity runtime proof is separate)')
