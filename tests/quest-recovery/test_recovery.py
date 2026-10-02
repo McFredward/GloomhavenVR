@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Conversion contract tests, including stale/invalid input negative controls."""
 from pathlib import Path
+import base64
+import struct
 import sys
 import tempfile
 import unittest
@@ -11,6 +13,7 @@ sys.path.insert(0, str(ROOT / "tools/quest-recovery"))
 import recover
 import md4
 import probe_slice
+import catalog
 
 
 class RecoveryContracts(unittest.TestCase):
@@ -179,6 +182,46 @@ class RecoveryContracts(unittest.TestCase):
         proof = recover.audit_export_log(log)
         self.assertEqual(proof["monoBehaviourLayoutFailureCount"], 1)
         self.assertEqual(proof["status"], "blocked-serialized-behaviour-recovery")
+
+    def catalog_fixture(self):
+        keys = ["owned-asset-key", "owned-bundle-key"]
+        data = bytearray(struct.pack("<i", len(keys)))
+        buckets = bytearray(struct.pack("<i", len(keys)))
+        for index, key in enumerate(keys):
+            offset = len(data)
+            raw = key.encode("ascii")
+            data.extend(b"\0" + struct.pack("<i", len(raw)) + raw)
+            buckets.extend(struct.pack("<3i", offset, 1, index))
+        entries = struct.pack("<i", 2) + struct.pack("<7i", 0, 0, 1, 42, -1, 0, 0) + struct.pack("<7i", 1, 1, -1, 0, -1, 1, 1)
+        return {"m_KeyDataString": base64.b64encode(data).decode(),
+                "m_BucketDataString": base64.b64encode(buckets).decode(),
+                "m_EntryDataString": base64.b64encode(entries).decode(),
+                "m_InternalIds": ["Assets/Owned/Original.prefab", "{UnityEngine.AddressableAssets.Addressables.RuntimePath}\\StandaloneWindows64\\owned.bundle"],
+                "m_ProviderIds": ["BundledAssetProvider", "AssetBundleProvider"],
+                "m_resourceTypes": ["GameObject", "IAssetBundleResource"]}
+
+    def test_actual_catalog_record_width_keys_and_dependency_closure(self):
+        decoded = catalog.decode_catalog(self.catalog_fixture())
+        self.assertEqual(decoded["keys"], ["owned-asset-key", "owned-bundle-key"])
+        self.assertEqual(decoded["locations"][0]["dependencyEntries"], [1])
+        self.assertEqual(catalog.bundle_closure(decoded, [0]), ["StreamingAssets/aa/StandaloneWindows64/owned.bundle"])
+
+    def test_truncated_catalog_or_unknown_key_cannot_silently_map_assets(self):
+        invalid = self.catalog_fixture()
+        entries = base64.b64decode(invalid["m_EntryDataString"])
+        invalid["m_EntryDataString"] = base64.b64encode(entries[:-1]).decode()
+        with self.assertRaisesRegex(recover.RecoveryError, "record width"):
+            catalog.decode_catalog(invalid)
+        with self.assertRaisesRegex(recover.RecoveryError, "Unsupported"):
+            catalog.object_key(b"\x07arbitrary runtime object", 0)
+
+    def test_catalog_dependency_cycles_are_bounded_and_remote_ids_rejected(self):
+        decoded = catalog.decode_catalog(self.catalog_fixture())
+        decoded["locations"][1]["dependencyEntries"] = [0]
+        self.assertEqual(len(catalog.bundle_closure(decoded, [0])), 1)
+        decoded["locations"][1]["internalId"] = "https://remote.invalid/game.bundle"
+        with self.assertRaisesRegex(recover.RecoveryError, "non-local"):
+            catalog.bundle_closure(decoded, [0])
 
 
 if __name__ == "__main__":

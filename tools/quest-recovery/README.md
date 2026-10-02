@@ -103,6 +103,25 @@ still contain events that require the omitted gameplay controllers. The slice
 contains no C# files or DLLs. Its report explicitly states `playableGame=false`
 and `originalShaderFidelity=false`.
 
+The original compact Addressables catalog can be decoded without loading any
+managed game code:
+
+```bash
+python3 tools/quest-recovery/catalog.py \
+  --catalog /path/to/owned/GH_Data/StreamingAssets/aa/catalog.json \
+  --project /path/to/local/recovered-project \
+  --output /path/to/local/addressable-associations.json
+```
+
+This reads the actual key/bucket/location tables using the layout verified in
+Unity's official Addressables 1.19.19 package source. It preserves source key,
+resource type, provider and transitive bundle dependencies. A source asset path
+must match an actual recovered asset and its GUID exactly; ambiguous filename
+matches are not used. The output establishes associations for a later catalog
+rebuild, and explicitly states `androidCatalogBuilt=false`. The original
+`AssetReference.m_AssetGUID` strings must stay usable as aliases in rebuilt
+Android locations even though the recovery exporter produces different GUIDs.
+
 Focused contract validation:
 
 ```bash
