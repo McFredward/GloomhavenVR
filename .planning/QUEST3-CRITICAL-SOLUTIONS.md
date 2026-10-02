@@ -7,15 +7,22 @@ has been implemented or passed. Implementation remains deferred until Steam
 Frame acceptance and the maintainer's subsequent instruction.
 
 **Planning revision: 2026-10-02.** The latest maintainer decision is a locally
-built, sideloaded APK with the original PC account profile embedded. There will
-never be a registered Meta app for this project. No Horizon services, registered
-profile helper, device binding or new ownership server are part of the design.
+built, sideloaded APK with Steam logo, name and ID embedded, without cloud or
+other store services. Required EOS multiplayer operations are explicitly
+allowed by the maintainer's 2026-10-02 clarification; this does not restore
+cloud, profile or storefront features. The earlier personal-avatar/live-service
+options are superseded. There will never be a registered Meta app for this
+project. No Horizon services, registered profile helper, device binding or
+new ownership server are part of the design.
 Personalization and simple installation/provider checks are intentionally a
 small sharing hurdle; modifying the open-source builder can bypass them.
 
 Source inspection started from ModBuild 605 and was refreshed while other
-agents advanced `dev` through `370b9ef5`. This is a dated assessment, not an
-Android compatibility result. All repository game references remain read-only.
+agents advanced `dev` through `370b9ef5`. The additional maintenance/blocker
+audit uses ModBuild 606 at `f400f30c` and is recorded in
+[Quest preflight and builder maintenance](QUEST3-PREFLIGHT-AND-BUILDER.md).
+This is a dated assessment, not an Android compatibility result.
+All repository game references remain read-only.
 Tool and component names below describe candidates and contracts, not new
 implemented classes or a finalized dependency lock.
 
@@ -24,7 +31,8 @@ implemented classes or a finalized dependency lock.
 Build a genuine Unity Android ARM64 player from locally reconstructed assets,
 preserved original managed logic and mod behavior integrated during the build.
 Use the original PC runtime as the first procedural export host. Embed the PC
-profile and route device capabilities through a separate Quest target adapter.
+Steam logo/name/ID and route device capabilities through a separate Quest target
+adapter.
 Keep the original Photon gameplay protocol. Use native OpenXR passthrough in
 the existing rig.
 
@@ -34,9 +42,9 @@ Resolve the expensive dependencies with small experiments before scaling up:
 | --- | --- | --- |
 | 1 | Import one Steam account profile and build a minimal ARM64/OpenXR probe. | The profile works offline, passthrough works on Quest, and the selected editor/toolchain is recorded. |
 | 2 | Recover one original scene, its UI and one animated character. | Original scripts and serialized asset references load correctly; key shaders work in both eyes. |
-| 3 | Export one complete scenario from the owned PC runtime. | A baked room, door, prop and reveal lifecycle work without the Windows Apparance library. |
-| 4 | Connect the minimal real Android game to an unmodified PC host. | Original admission, character assignment, several rounds and save/rejoin succeed. |
-| 5 | Prove representative mod patches integrated before IL2CPP compilation. | Prefix/postfix/transpiler behavior, startup and network receive semantics agree with desktop. |
+| 3 | Prove generated mod hooks and helper bindings before IL2CPP compilation. | Current prefix/postfix/finalizer/direct-registration and field-helper behavior, startup and network receive semantics agree with desktop; ordinary N -> N+1 mod changes need no builder edits. |
+| 4 | Connect the minimal real Android client to an unmodified PC host. | Actual authentication, session lookup, original admission/save exchange and lobby reconnect work; complete rounds and scenario reconnect are proved after the baked scene is usable. |
+| 5 | Export one complete scenario from the owned PC runtime. | A baked room, door, prop and reveal lifecycle work without the Windows Apparance library. |
 | 6 | Measure the combined scenario, existing VR features, MR and voice. | Memory and frame time support continued investment; discrepancies have a concrete cause. |
 | 7 | Expand campaign coverage, special mechanics and the multiplayer matrix. | Export coverage is complete and missing combinations have an explicit disposition. |
 
@@ -45,74 +53,60 @@ as soon as the original game bootstrap is usable; it need not wait for every
 VR subsystem or all campaign exports. The master plan's phases still govern
 release acceptance.
 
-## Importing the PC profile and adding the sharing hurdle
+## Importing the Steam identity and adding the sharing hurdle
 
 ### Preferred path
 
-Capture the actual account context during conversion on the PC, then write an
-immutable profile asset into the generated APK. A generated JSON/resource or
-ScriptableObject is sufficient; a C# string literal is unnecessary. The asset
-is personalized build input and never belongs in the public repository.
+Capture the actual Steam account context during conversion on the PC, then
+write an immutable identity resource into the generated APK. Embed the source
+account's display name, full Steam ID, consistent original account fields,
+source provenance/schema/build and the Steam logo resource. A generated
+JSON/resource is sufficient; user-specific C# string literals are unnecessary.
+Use the Steam logo rather than fetching or embedding a personal avatar, as
+requested in the latest maintainer decision. Never substitute the mod's own
+Steam Frame library artwork for the actual Steam platform logo.
 
-The payload should contain the source provider, complete account ID, display
-name, optional decoded avatar, provenance, schema version and source build.
-Store no passwords, launcher cookies, access tokens, authentication tickets or
-publisher credentials. An account ID and name are presentation/association
-data, not an authentication credential.
+`PlatformUserData.UserName` and `PlatformPlayerID` already read the original
+PC client. Capture values in the player's deliberate active account context;
+generic game asset files do not reliably contain the owner's name. Keep the
+full Steam ID distinct from the original 32-bit account number. No PC password,
+launcher cookie, user token/ticket or publisher server-side secret goes into
+the embedded identity or APK. The original client's ordinary service
+configuration is a separate local converter input, not proof of authentication.
+An ID/name is association data, not an authentication credential.
+[Steam persona API][steam-profile]
 
-Use these acquisition paths in order:
+Use the original Steam build as the initial converter input. Additional
+Epic/GOG profile-import recipes are removed from the active scope; original
+peer interoperability remains separate. A supported, verified local account
+record may be an alternative to PC client capture, but do not guess the active
+account from arbitrary cached records or save owners.
 
-| Source | First path to investigate | Limit |
-| --- | --- | --- |
-| Steam | Read the owned player's `PlatformUserData` in its normal Steam account context: `UserName`, full `PlatformPlayerID`, account fields and completed avatar callback. | `SteamClient.Name`/Steam ID come from the PC client, not generic asset files. Preserve the distinction between a full Steam ID and its 32-bit account number. |
-| Epic | Inspect the player's actual Epic build/provider and its successful existing user-info path. Capture its display name and correct account ID. | The inspected Steam build's Steam getters are not an Epic implementation. An EOS product-user ID and Epic account ID are different identifiers. |
-| GOG | Inspect the actual GOG build/Galaxy provider; obtain its signed-in account's persona name and Galaxy ID where available. | A DRM-free installation without Galaxy login may contain no reliable account identity or authenticated ownership evidence. |
+Perform proportionate local installation and available original PC ownership/
+DLC checks. Generic hashes identify an input build rather than proving purchase.
+Unavailable account information should fail this capture stage clearly, rather
+than silently selecting the OS login or inventing a verified identity.
+[Steam source application checks][steam-apps]
 
-Steam documents the current persona name and avatar access through its client;
-GOG documents its persona-name getter. These are candidate PC-side routes, not
-headset SDK dependencies. [Steam profile API][steam-profile]
-[GOG profile API][gog-profile]
-
-The first supported converter input should be one inspected Steam game build.
-Add Epic/GOG converter inputs after their profile and content paths are proved.
-This does not restrict the requirement to play with compatible Epic/GOG peers.
-Store compatibility and multiplayer peer compatibility are separate work.
-
-If a supported provider cannot supply a usable name or ID, stop that import
-stage with a useful explanation. A known local profile record can be an
-alternative if its provider/version and account association are established.
-Do not silently select the most recently cached account, the operating-system
-login, an arbitrary save owner or a manually typed name as verified identity.
-Any manual-name fallback for a DRM-free source remains a later explicit product
-decision. A missing optional avatar can retain the original placeholder.
-
-Perform simple local installation and available provider ownership/DLC checks
-before export. On Steam, prefer the owned original player's legitimate account
-context and its existing checks; Steam documents client subscription and
-installed-DLC checks. Record unavailable or ambiguous evidence rather than
-inventing a receipt. Generic hashes identify a supported build; they do not
-prove purchase. [Steam application/DLC checks][steam-apps]
-
-After conversion, ordinary offline play requires no PC or platform account
-service. A refreshed local build updates a changed display name or avatar while
-retaining the stable account identity, saves, package name and signing key.
-PC storefront overlays cannot operate unchanged on Quest; route required
-account/invite entry points through the target adapter and classify any
-unavailable feature explicitly rather than leaving a nonfunctional button.
+Quest reads the embedded logo/name/IDs offline. No account refresh, avatar
+lookup, friends, achievements, storefront invites, cloud sync, SteamKit or
+native Steam/Galaxy account SDK is added on the headset. Updating the name
+requires a new local APK build; retain the account association, save ownership,
+package name and signing key. Original multiplayer session codes and local
+saves remain independent of store services.
 
 ### Initial experiment and acceptance
 
-Capture one actual PC profile without touching the original install or cloud
-saves, show it in a minimal Quest menu and relaunch offline. Refresh the name
-or image without changing save ownership. Exercise a second PC account to
-prove account selection is deliberate. Confirm that the generated APK contains
-the profile and no authentication material.
+After implementation is authorized, capture one PC identity, show its Steam
+logo/name in the Quest menu and relaunch offline. Test deliberate selection of
+a second PC account and a name change while retaining a stable ID. Confirm no
+PC account secrets are embedded. Offline startup, save/load and profile display
+must work without provider requests; any necessary EOS authentication belongs
+to the original multiplayer path. Original PC files remain untouched.
 
-Acceptance means the local profile works without a Steam client on Quest or a
-Horizon request. It does not mean purchase authentication or sharing prevention
-has been achieved. A copied APK would show the imported account; that is the
-intended inconvenience. Duplicate imported identities in the same session must
-follow the original admission behavior, not a new identity-based DRM rule.
+A copied APK keeps its builder's identity; this is the intended small sharing
+hurdle. It does not prove purchase or prevent modified builders. Duplicate
+imported identities follow original session admission, not a new DRM rule.
 
 ## Recovering assets and an Android project
 
@@ -205,13 +199,15 @@ components where possible, or provide a narrow compatibility layer retaining
 the existing keys, defaults, events and normal/Debug logging policy. Replace
 the desktop loader lifecycle, not all gameplay/presentation modules.
 
-Translate the existing patch inventory into a build-time patch manifest for
-the player's staged assemblies. Mono.Cecil is a candidate for inspecting and
+Generate a build-time patch manifest from the effective mod patch surface,
+including direct registrations, for the player's staged assemblies.
+Mono.Cecil is a candidate for inspecting and
 rewriting CIL before Unity converts it to native code. Its documented editing
 capability does not automatically reproduce Harmony semantics. [Cecil][cecil]
 
-For each patch, record the original target/signature/hash, patch priority and
-ordering, target platform, required injected fields and expected behavior:
+Generate a record for each patch with its original target/signature/hash,
+priority and ordering, target platform, required injected fields and expected
+behavior:
 
 - Prefixes must preserve argument changes, `__result`, `__state`, and the
   exact condition that skips the original method.
@@ -219,9 +215,10 @@ ordering, target platform, required injected fields and expected behavior:
   state association. Preserve multiple-patch ordering explicitly.
 - Transpilers must match the expected original instructions and fail on an
   unsupported input rather than applying a guessed edit.
-- Dynamic `Patch`/`Unpatch`, reverse patches and optional-feature guards need
-  individual static equivalents. Build-time integration cannot rely on those
-  desktop runtime operations still being available.
+- Dynamic `Patch`/`Unpatch` and optional-feature guards need generated target
+  hooks plus equivalent AOT activation/order semantics. New ordinary hooks must
+  not require a handwritten Quest counterpart. Future reverse/transpiler kinds
+  need supported generic integration or a precise compatibility failure.
 
 Use a bootstrap/bridge arrangement whose assembly reference graph and
 initialization order are valid in the selected IL2CPP build. Validate that
@@ -245,20 +242,26 @@ documents reflection stripping, generic AOT edges and the lack of
 
 ### Initial experiment and acceptance
 
-Integrate three real examples: a prefix that suppresses a native path, a
-postfix with state and a transpiler. Include the mod's action receive prefix
+Integrate real current examples: a prefix suppressing a native path, a postfix
+with state, a finalizer, direct registration and a reference-return field helper.
+A current source search found no implemented transpiler; test that contract
+when a real supported input introduces one. Include the mod's action receive prefix
 early. Compare their observable behavior against the same desktop mod and
 exercise toggles, cancellation and exceptions where relevant.
 
 Then start the real game, deserialize a save and exchange original tokens in
 an IL2CPP development build. Acceptance requires preserved patch behavior,
 working reflected data and no unsupported desktop/native initialization.
-Only then translate the complete patch inventory.
+Only then prove complete generated coverage, including direct registrations
+and code-generation helpers outside patch setup, as required by the
+[builder maintenance contract](QUEST3-PREFLIGHT-AND-BUILDER.md#builder-architecture-for-ordinary-mod-development).
 
-If a patch cannot be represented faithfully, redesign that specific seam as
-an explicit port callback and validate it against the original behavior. Do
-not install another runtime detour package and assume parity, or recompile the
-entire decompiled game to solve one integration point.
+If a new architectural patch pattern cannot be represented faithfully, report
+the unsupported contract and investigate a shared integration seam. Validate
+any proposed callback against the original behavior. A growing collection of
+handwritten Quest equivalents for normal patches fails the maintenance gate.
+Do not install another runtime detour package and assume parity, or recompile
+the entire decompiled game to solve one integration point.
 
 ## Replacing Apparance with exported presentation
 
@@ -381,12 +384,49 @@ The installed source separates these concerns:
 
 Determine whether EOS/Hydra is required by startup, gameplay admission,
 console interoperability, voice or only a particular invite/social route.
-Do not force an authorization flag to true. For required EOS operations, find
-a permitted Android implementation and a supported original authentication
-flow; an imported Steam ID supplies neither a ticket nor an EOS identity.
+Do not force an authorization flag to true. The maintainer explicitly permits
+EOS when required for the original multiplayer. Establish the actual original
+authentication requirement and prove an accepted Android route, with only
+necessary authentication/session operations enabled. An imported Steam ID
+supplies neither a ticket nor an EOS identity. A requirement for an unavailable
+credential or an excluded store service remains a possible crossplay blocker.
 For genuinely unused startup endpoints, provide a target-specific completed
 capability result at the provider boundary, with all consumers checked.
 Existing features that are actually required cannot be silently discarded.
+
+### Necessary EOS authentication, if the audit requires it
+
+Android is an official EOS SDK target. The upstream Unity plugin documents
+Account Portal -> Persistent Auth and Auth -> Connect flows, including Android.
+That establishes a candidate implementation route, not acceptance by
+Gloomhaven's configured product. [EOS SDK targets][eos-sdk]
+[EOS Unity authentication][eos-auth]
+
+The source already falls back from persistent authentication to Account Portal,
+then calls `StartConnectLoginWithEpicAccount`. This is the first route to
+investigate if EOS is genuinely required; a PC launcher's exchange code and
+Steam session ticket cannot be baked into a usable permanent Quest login.
+
+1. Pin compatible Android native libraries/C# bindings and preserve the
+   original client's product, sandbox, deployment and callback/type contracts
+   from the player's input. Do not create a separate EOS/Photon product as a
+   substitute for access to the original sessions. Do not publish the source
+   client's configuration or add publisher server-side secrets.
+2. Prove an actual Account Portal login on the headset, return to the same
+   Unity/OpenXR session and complete the required Connect login. Keep refresh
+   state local through the supported SDK. Test cancel, expiry, suspend/resume
+   and offline operation. Imported Steam display/save identity and authenticated
+   EOS identity are separate fields; neither should impersonate the other.
+3. The desktop path requests `BasicProfile | FriendsList | Presence` and creates
+   a friends manager. Determine the minimal auth scopes actually required for
+   multiplayer. A necessary authentication consent is distinct from fetching
+   a profile for display. Do not enable friends, presence, profile queries,
+   overlay invitations or cloud features merely because the SDK includes them.
+4. Prove original session admission and reconnect. If the original client
+   policy/platform configuration rejects the supported Android flow, or needs
+   an excluded live Steam credential, record the exact failure as a crossplay
+   blocker. A fresh guest/device identity or forced success flag is no evidence
+   that the original backend admits the player.
 
 ### Initial experiment and acceptance
 
@@ -411,134 +451,50 @@ Do not bypass it or claim that a separate Quest server still meets the original
 cross-platform requirement. Keep later Epic/GOG/console tests separate from
 the first Steam success.
 
-## Reusing native Steam, Epic or GOG APIs
+## Store services removed from the active target
 
-### What ARM64 does and does not solve
+The maintainer now excludes cloud and other Steam/Epic/GOG account/store
+services on Quest. Do not implement a complete native Steam API/client port,
+SteamKit login, cloud OAuth, live profile lookup or Galaxy substitution.
+Earlier research is retained in Git at `c8a460e8`; it is no longer a roadmap.
 
-A matching CPU instruction set is only one requirement. Check the binary's
-operating system, ABI, runtime dependencies, exported interface versions and
-service authentication. A macOS ARM64 library is not an Android plugin, and a
-Linux ARM64 library may depend on Linux services/libc absent from an Android
-application. An Android binary still needs its expected platform services.
+Instead provide the original game-facing local identity, file access, acquired
+DLC availability and readiness through a narrow target adapter. Inventory every
+native/store caller, including shutdown, scene transitions and restored PC
+preferences. The original `PlatformLayer.Init` quits when Steam is absent;
+removing the native library alone would not produce a usable player.
 
-Valve's API overview describes `steam_api` as an interface to the running Steam
-client: the client implements the services and carries their backend connection.
-It explicitly requires the client for initialization. The documented macOS
-library includes ARM64; that is not proof of a Quest-compatible implementation.
-[Steamworks initialization and architecture][steam-sdk]
+Classify EOS/Hydra separately from Photon. The maintainer's explicit exception
+allows EOS only if required for original multiplayer, including its necessary
+authentication/session operations. Prove session-code play and actual original
+authorization requirements; use the exception only where necessary. An
+unavailable Android authentication route remains a possible blocker; setting
+a provider flag does not create access. Other store services stay excluded.
+See the [preflight gates](QUEST3-PREFLIGHT-AND-BUILDER.md#feasibility-gates).
 
-Steam Frame runs SteamOS and supports APKs through Lepton. Valve even documents
-Android Auto-Cloud configuration for APKs published through Steam. These are
-valuable Frame capabilities, but do not establish that a sideloaded Quest APK
-has the Steam client, Lepton's integration or the game's configured Android
-cloud path. [Steam Frame execution models][steam-frame]
-[APK distribution and Android cloud paths][steam-apk]
+## Embedded identity and peer presentation
 
-No complete Android Steamworks/client package for this Quest use was established
-by this review. Do not treat that as proof that future Valve support is
-impossible. Before selecting a binary, inspect the actual authorized SDK package
-and document what provides its client/service dependency.
+Use the real imported Steam ID/provider fields where their inspected contracts
+allow it, separating source account identity from Quest device capabilities.
+No fabricated ID, authentication ticket or successful live Steam-login assertion
+is part of this design. Preserve session IDs, save ownership and voice mapping.
 
-### Candidate paths and first experiments
+The Quest local profile uses the static Steam logo by explicit maintainer
+instruction. The unchanged PC token has no image bytes. An unmodified Steam
+peer may display that genuine account's personal avatar through its own Steam
+client; the Quest app must not contact Valve to reproduce that lookup locally.
+Test platform icons and field semantics independently from account readiness.
 
-| Candidate | Useful result | First proof and limit |
-| --- | --- | --- |
-| Official Steam ARM64 library | Reuse original managed bindings if the exact Android ABI and services are supported. | Check the actual SDK, then initialization, callbacks and one real service on a clean Quest without a PC. A library loading successfully is insufficient. |
-| Port the full Steam client/environment | In principle retain much more of the existing platform behavior. | Requires client components, authentication, IPC, OS/runtime integration and permitted distribution, rather than recompiling one public API wrapper. No supported complete Quest route was established; keep this outside the first native-game approach. |
-| Implement the platform functions Gloomhaven actually calls | Retain game-facing contracts with local profile/files, compatible gameplay networking and separately authenticated services. | Inventory callers and callback ordering; prove readiness, invite/join, profile display and save ownership. This remains the preferred game port architecture. |
-| Add an authenticated Steam-network client for selected services | Potentially support current account information and direct Steam Cloud without a desktop client on Quest. | Prove legitimate account login and a read-only original-game cloud listing first; then Android/AOT compatibility and conflict handling. This is an optional additional feature, not a prerequisite for offline campaign play. |
-| Use native EOS Android | Reuse required original EOS services without replacing their backend. | Check the installed version/API and Android bindings, then the original product/deployment's accepted authentication and multiplayer flow. Do not infer service access from a successful `EOS_Initialize`. |
-| Use Galaxy on Android | Potentially retain original GOG account services if an appropriate supported package exists. | Obtain evidence of the correct SDK/platform support and authentication. The consulted public API lists Windows/macOS libraries, not an established Android ARM64 route. |
+Retain peer names/IDs and already available presentation through the original
+or existing mod channel. No new avatar lookup service or mandatory avatar TLV
+is justified by the simplified identity requirement. Missing unknown flat-peer
+pictures cannot be reconstructed from an ID alone. Document the actual fallback
+and any remaining peer-image requirement; the local-logo decision is not a
+blanket exception to gameplay/card/UI multiplayer visual parity.
 
-SteamKit is a concrete open-source candidate for selected Steam-network
-operations. It provides its own network client, rather than a drop-in native
-`steam_api`. Its source includes cloud request handlers; that does not prove a
-complete save-sync workflow. The inspected project targets .NET 8 and .NET 10,
-so direct integration into this Unity 2021.3 player is unresolved. A future
-PC-side read-only experiment can establish protocol behavior before considering
-a narrow port or separate compatible Android component. Login, Steam Guard,
-session renewal, application ownership, simultaneous sessions and backend
-changes remain real work. [SteamKit project][steamkit]
-[SteamKit runtime targets][steamkit-targets]
-[SteamKit cloud handler][steamkit-cloud]
-
-Epic officially lists Android SDK support, but its social overlay is unavailable
-on Android. Generic EOS Sessions with an application UI are distinct from the
-full branded crossplay overlay. SDK support also does not grant access to
-Gloomhaven's product or supply a valid launcher exchange code on Quest.
-Preserve the original backend/configuration and prove its accepted login;
-a new unrelated EOS product would not restore original-game interoperability.
-[EOS supported platforms][eos-platforms]
-[EOS crossplay and overlay limits][eos-crossplay]
-
-Galaxy supports different operational states and authentication providers;
-do not claim that every SDK feature always needs the desktop client. Its
-automatic cloud synchronization depends on the client/authenticated state.
-The absence of a proven Android package and service path makes a wholesale
-Galaxy substitution unsuitable as the initial assumption.
-[Galaxy libraries and game credentials][gog-sdk]
-[Galaxy service availability][gog-states]
-
-The deliverable is a call-site matrix: original operation, actual caller,
-required behavior, local/online implementation, prerequisites and measured
-result. Retain exact relevant callbacks and real failure handling. A facade
-can preserve the subset the game uses without claiming all Steamworks, EOS or
-Galaxy functionality. Imported identity and optional live authentication remain
-separate; no account secret goes into the personalized APK.
-
-## Profile identity and avatars across platforms
-
-### Preferred path
-
-Separate three concepts: original source-account identity, local presentation
-snapshot and Quest device/platform capabilities. Do not select Steam native
-functions merely because a serialized account-provider field says Steam.
-
-For the first Steam-derived build, test retaining the genuine imported Steam
-ID and existing source-provider fields. The inspected unmodified Steam avatar
-loader checks `PlatformName == "Steam"` and parses the original account's full
-ID before requesting its image from Steam. That provides a concrete path for
-an unchanged Steam peer to display the correct original account avatar.
-
-The candidate uses a real imported account, never a fabricated Steam ID.
-Confirm the field contract for permissions, duplicate identities, platform
-icons, save ownership, recent-player records and console account handling.
-It is an offline imported identity, not cryptographic proof of who is running
-the APK. If original admission requires live authentication, use its legitimate
-flow or report the blocker. If the provider fields cannot be retained
-truthfully/compatibly, test the original standalone-provider route with
-crossplay enabled and record its actual presentation limits.
-
-For compatible modded peers, transfer each owner's actual bounded avatar bytes
-through an additive presentation record. Proposed starting bounds are 128 by
-128 pixels, 32 KiB compressed input and one update per changed content hash;
-these are initial experiment budgets, not approved reductions to original
-image quality. Increase them if the native presentation requires it. Reuse the
-existing bounded transport envelope after proving it cannot starve card/window
-streams. Validate sender
-association, dimensions and decoded size before making a Unity texture, cache
-by provider/account/hash and release it when no longer referenced.
-
-An unmodified remote peer cannot send a new mod avatar record. On Quest,
-investigate official provider lookup separately for such peers. Steam's
-`GetPlayerSummaries` Web API documents a key requirement; do not embed a shared
-maintainer key or promise an anonymous lookup. A permitted user-supplied
-resolver or PC-imported known-player cache is an alternative to evaluate,
-not a mandatory new service. [Steam profile Web API][steam-web]
-Epic/GOG/console picture access requires provider-specific evidence.
-
-### Initial experiment and acceptance
-
-Test four directions independently: local imported picture, Quest picture on
-unmodified Steam, Quest picture on a modded PC and remote picture on Quest.
-Include a genuine Steam profile rename/image refresh, no avatar, unknown
-provider and duplicate account instance. Measure bounded texture memory and
-wire use alongside existing animation traffic.
-
-If remote images cannot be obtained for unchanged peers, preserve usable
-gameplay and document the precise presentation gap. Ordinary native placeholders
-do not establish full parity for a profile that has an available picture.
-No image gap is approved merely by removing Horizon services.
+Acceptance includes offline local display, genuine IDs in unmodified/matching
+modded sessions, duplicate-identity behavior, relaunch and stable save/voice
+association, with no store service request from Quest.
 
 ## Native passthrough without Horizon services
 
@@ -646,129 +602,40 @@ changed-state reload, a correctly rejected Guildmaster invite and the requested
 grey entries/tooltips in both languages. The optional DLC phase also requires
 valid no-DLC startup and original multiplayer admission behavior.
 
-## Save import and optional Steam Cloud synchronization
+## Local campaign saves and manual transfer
 
-### What the inspected game proves
+Cloud synchronization is out of scope by the latest maintainer decision.
+There is no direct Steam HTTP/SteamKit client, PC cloud bridge or other-provider
+cloud implementation. Original PC/cloud files and settings stay untouched.
 
 `PathsManager.PersistionDataPath` returns `Application.persistentDataPath`.
-`PlatformFileSystem` performs local file operations, and `RootSaveData` uses
-the release-dependent save root (`GloomSaves` for a release), `Campaign`,
-`Guildmaster`, `GloomSaven.dat`, `GlobalData.dat`, checkpoints and backups.
-`SaveData` includes queued/asynchronous writes and original binary
-deserialization paths. Account fields participate in save ownership decisions.
+`PlatformFileSystem` uses local files. `RootSaveData` selects the release save
+root (`GloomSaves` for a release), campaign folders, root/global metadata,
+checkpoints and backups. The Android root changes; original type identities,
+serialization, owning-account fields and relative structure should remain
+compatible. A renamed format is not a substitute for PC compatibility.
 
-No `ISteamRemoteStorage` calls were found in the inspected game source. Local
-file access is consistent with Steam Auto-Cloud, but does not prove which files
-the released Steam application actually synchronizes. Verify the original
-App ID's cloud configuration, actual file mapping and a real client sync before
-choosing a transport. Do not derive a cloud manifest from folder names alone.
+Offer a future explicit local campaign import/export operation, initially over
+USB/ADB, without a PC required during ordinary play:
 
-The Android data directory changes, while the original relative save structure,
-types, game version and account semantics should remain compatible. APK updates
-with the same package/signing identity must preserve it. Uninstalling or clearing
-app data needs an external backup; a personalized APK is not a save backup.
+1. Select the account/campaign and verify source version, original serialization
+   and DLC requirements. Include corresponding root/global data using the
+   original indexing contract instead of replacing all global preferences.
+2. Close the games and finish queued/asynchronous writes. A future live exporter
+   must hold a genuine idle snapshot across the save queue and saving thread.
+3. Back up, stage, hash-check and deserialize the complete consistent snapshot
+   before activating it; retain a recovery copy if the next load fails.
+4. Compare a return transfer against the last transferred snapshot. Preserve both
+   versions on divergent progress and let the player choose; do not merge binary
+   campaign state or use timestamps alone.
+5. Preserve unrelated campaigns, Guildmaster files and shared metadata. Mode
+   exclusion does not authorize converting or deleting unsupported saves.
 
-### Recommended first path: campaign import/export and optional PC sync
-
-Keep local saves usable without any service login. Extend the future converter
-with a separate, explicit campaign transfer operation; ordinary game play does
-not depend on an always-running PC. USB/ADB is the initial transport candidate;
-a later local-network transfer can reuse the same snapshot contract.
-
-1. Select the source account, supported game/mod version and campaign. Confirm
-   required DLCs and that the campaign can be opened by the target. Resolve
-   the corresponding global/root metadata with original serialization logic;
-   do not blindly copy or replace all global preferences and save lists.
-2. Close both games and establish that saving is finished. If a future in-game
-   exporter is used, wait for both save queue and saving thread to become idle
-   and prevent another write during snapshotting. Record a manifest with relative
-   paths, hashes, versions, owning provider/account and DLC requirements.
-3. Create a dated local backup, transfer into staging, verify hashes and original
-   deserialization, then activate the complete consistent snapshot. Keep the
-   previous version recoverable if activation or the next load fails.
-4. On a return transfer, compare both sides to the last synchronized snapshot.
-   If only one side changed, propose that complete campaign version. If both
-   changed, preserve both and let the player choose. Never merge arbitrary
-   binary campaign state or select a winner solely by wall-clock timestamp.
-5. For optional Steam synchronization, restore the accepted campaign to its
-   verified PC save location and let the original Steam client perform its
-   configured sync. Prove upload and later download through a real game/client
-   cycle. Copying a file while Steam is idle is not proof of cloud upload.
-
-Steam documents Auto-Cloud synchronization around game launch/exit, its cloud
-configuration and diagnostics. Check account/game cloud settings and actual
-client completion; do not modify `remotecache.vdf` or fabricate Steam's sync
-metadata. [Steam Cloud behavior and configuration][steam-cloud]
-
-The transfer manifest must describe the closure needed by one campaign. Preserve
-unrelated PC campaigns, Guildmaster saves, excluded Workshop content and cloud
-files. If shared global metadata mixes campaign and excluded modes, determine
-the original serialization/index update needed for a selected campaign before
-supporting upload. Mode exclusion does not authorize cloud deletion, conversion
-or loss of Guildmaster records. Preserve recovery checkpoints/backups according
-to their actual role; avoid importing stale temporary writes as newer saves.
-
-An initial acceptance fixture is a copied base campaign: load on Quest, make
-progress, reload locally, export to PC, continue with the original game, then
-import again. Repeat with the optional DLC combination. Test divergent PC/Quest
-progress, interrupted transfer, mismatched account, different supported game
-versions and update-in-place. Cloud acceptance additionally needs independent
-upload/download evidence, with backed-up test saves and the correct account.
-
-### Direct official Steam Cloud access: possible API, gated authorization
-
-Valve explicitly provides `ICloudService` for non-Steam versions to download
-and update the original game's cloud files over HTTP. Access uses user OAuth,
-not an embedded name or Steam ID. The documented flow enumerates file metadata
-and download URLs; writes use an upload batch, HTTP upload/commit and batch
-completion, including completion on failure. This is a genuine direct-cloud
-candidate without a Steam client on Quest. [Steam Cloud HTTP API][steam-cloud-http]
-
-Its prerequisite is an OAuth client assigned by Valve with `read_cloud` and/or
-`write_cloud` scoped to the original game's App ID. A normal user API key, Steam
-OpenID identity, another application's client ID or a copied PC profile does
-not supply that permission. No such approved original-game OAuth client is
-established for this project. Access would need Valve's authorization and may
-require cooperation from the game's publisher; that latter dependency is an
-inference, not a claimed universal rule. No registration/contact is undertaken
-now. [Steam OAuth and App ID permissions][steam-oauth]
-
-If access becomes available, begin read-only, verify account association and
-map actual remote filenames/platform flags into the campaign transfer manifest.
-Only then add upload using the same backup/conflict rules and complete original
-metadata. Keep tokens in private runtime storage after an optional user login,
-never in the generated APK, logs or source. Preserve offline play on denied,
-expired or unavailable authorization. Publisher-key-only operations, if any
-are introduced, cannot run with a publisher secret embedded in a public client;
-the documented cloud endpoints do not all require such a key.
-
-### Alternative direct access: selected Steam client protocol
-
-A legitimately authenticated Steam-network client such as the SteamKit
-candidate above is another research path. It does not use the same partner
-OAuth-client prerequisite. It still needs the player's genuine account session
-and service authorization; copying identity fields cannot replace either.
-Cloud support, Android runtime suitability and backend behavior must be proved,
-not inferred from the library name or an old cloud sample.
-
-Start with a separate PC-side tool, the player's deliberate login and read-only
-listing/download of backed-up test campaign files. Compare the downloaded hashes
-and metadata with the ordinary client's result. If that succeeds, investigate
-a bounded Android implementation of those operations and secure session
-lifecycle, then conflict-safe writes and PC round trips. Do not port the whole
-Steam client or all Steamworks interfaces merely to synchronize campaign files.
-This path adds authentication/dependency maintenance and may remain optional
-or external to the Unity player if direct integration proves unsuitable.
-
-Epic/GOG cloud access requires its own provider assessment. Do not assume a
-generic EOS storage API addresses the store's existing cloud-save files.
-Their PC installations can initially use the same local transfer workflow with
-the verified store client's normal sync. A Quest save does not automatically
-belong to Steam Cloud merely because a multiplayer peer owns the Steam game.
-
-These are optional synchronization designs, not claims of working cloud access
-or new release blockers. They neither require Horizon services nor introduce
-an ownership server, DRM or a PC dependency during ordinary offline play.
+Acceptance is a backed-up PC campaign -> Quest continuation/reload -> PC
+continuation round trip, followed by interruption, account/DLC mismatch and
+APK update tests. Stable package/signing identity preserves app data on updates;
+uninstall/clear-data requires an external save backup. No cloud service test
+or account token is needed.
 
 ## Quest performance and the local build workflow
 
@@ -865,9 +732,9 @@ Unity ARCore page below is cited only for Unity's ARM64 backend restriction;
 this plan does not install ARCore or use it for Quest passthrough.
 
 [steam-profile]: https://partner.steamgames.com/doc/api/ISteamFriends
-[gog-profile]: https://docs.gog.com/galaxyapi/classgalaxy_1_1api_1_1IFriends.html
 [steam-apps]: https://partner.steamgames.com/doc/api/ISteamApps
-[steam-web]: https://partner.steamgames.com/doc/webapi/ISteamUser#GetPlayerSummaries
+[eos-sdk]: https://onlineservices.epicgames.com/sdk?lang=en-US
+[eos-auth]: https://github.com/EOS-Contrib/eos_plugin_for_unity/blob/stable/com.playeveryware.eos/Documentation~/player_authentication.md
 [assetripper]: https://github.com/AssetRipper/AssetRipper
 [unity-arm64]: https://docs.unity3d.com/Packages/com.unity.xr.arcore@5.1/manual/project-configuration-arcore.html#target-architecture
 [unity-aot]: https://docs.unity3d.com/2021.3/Documentation/Manual/ScriptingRestrictions.html
@@ -877,16 +744,3 @@ this plan does not install ARCore or use it for Quest passthrough.
 [openxr-feature]: https://docs.unity3d.com/Packages/com.unity.xr.openxr@1.13/api/UnityEngine.XR.OpenXR.Features.OpenXRFeature.html
 [passthrough]: https://developers.meta.com/vr/documentation/native/android/mobile-passthrough/
 [voice]: https://doc.photonengine.com/voice/v2/getting-started/voice-intro
-[steam-sdk]: https://partner.steamgames.com/doc/sdk/api
-[steam-frame]: https://partner.steamgames.com/doc/steamhardware/steamframe
-[steam-apk]: https://partner.steamgames.com/doc/steamhardware/steamframe/apk_upload
-[steamkit]: https://github.com/SteamRE/SteamKit
-[steamkit-targets]: https://github.com/SteamRE/SteamKit/blob/master/SteamKit2/SteamKit2/SteamKit2.csproj
-[steamkit-cloud]: https://github.com/SteamRE/SteamKit/blob/master/SteamKit2/SteamKit2/Steam/Handlers/SteamCloud/SteamCloud.cs
-[eos-platforms]: https://dev.epicgames.com/docs/epic-online-services/platform-support
-[eos-crossplay]: https://dev.epicgames.com/docs/epic-online-services/accounts-and-social/crossplay/crossplay-technical-overview
-[gog-sdk]: https://docs.gog.com/galaxyapi/
-[gog-states]: https://docs.gog.com/sdk-galaxy-feats-and-states/
-[steam-cloud]: https://partner.steamgames.com/doc/features/cloud
-[steam-cloud-http]: https://partner.steamgames.com/doc/webapi/ICloudService
-[steam-oauth]: https://partner.steamgames.com/doc/webapi_overview/OAuth
