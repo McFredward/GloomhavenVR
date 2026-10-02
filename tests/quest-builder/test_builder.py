@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -331,6 +332,146 @@ class ApkTests(Temporary):
             builder.install(args, self.output)
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][-1], "devices")
+
+
+class DevelopmentAndDeploymentTests(Temporary):
+    def setUp(self):
+        super().setUp()
+        self.repo = self.root / "repo"
+        self.repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        files = {
+            ".gitignore": "*.env\nbin/\nobj/\n*.dll\n",
+            "src/GloomhavenVR/Net/NetProtocol.cs": "public const ushort ModBuild = 607;\n",
+            "src/GloomhavenVR/Core/Loc/QuestText.cs": "public static class QuestText {}\n",
+            "unity/GloomhavenVR.Quest/Assets/Quest/Runtime/Probe.cs": "public class Probe {}\n",
+            "unity/GloomhavenVR.Quest/Packages/manifest.json": "{\"dependencies\":{}}\n",
+            "unity/GloomhavenVR.Quest/ProjectSettings/ProjectVersion.txt": "m_EditorVersion: 2021.3.5f1\n",
+        }
+        for name, raw in files.items():
+            destination = self.repo / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(raw)
+        subprocess.run(["git", "-C", str(self.repo), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=Fixture", "-c",
+                        "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], check=True)
+        self.data = self.root / "game/GH_Data"
+        (self.data / "Managed").mkdir(parents=True)
+        for name in ("GH.Runtime.dll", "GH.Shared.dll"):
+            (self.data / "Managed" / name).write_bytes(b"fixture managed binary")
+        for name in ("globalgamemanagers", "resources.assets"):
+            (self.data / name).write_bytes(b"2021.3.5f1 original bytes")
+        (self.data / "StreamingAssets/Rulebase").mkdir(parents=True)
+        self.logo = self.root / "logo.png"
+        self.logo.write_bytes(png())
+        self.output = storage.ensure_output(self.root / "output", self.repo, self.data)
+        self.args = builder.parser().parse_args([
+            "prepare", "--repo-root", str(self.repo), "--game-root", str(self.data),
+            "--output-root", str(self.output), "--target", "probe", "--dummy-profile", "--steam-logo", str(self.logo)])
+
+    def test_n_to_n_plus_one_captures_new_code_art_config_without_recipe_edit(self):
+        first = builder.inspect_inputs(self.args, self.repo, self.output, self.data)
+        source, game = builder.snapshot_inputs(first, self.output, self.repo, self.data)
+        project = builder.prepare(self.args, first, self.output, source, game)
+        self.assertEqual((project / "Assets/Quest/Runtime/QuestText.cs").read_text(), "public static class QuestText {}\n")
+        self.assertEqual(builder.prepare(self.args, first, self.output, source, game), project)
+        # Ordinary untracked additions use normal source/resource directories.
+        # The builder itself and its recipe remain unchanged throughout the rehearsal.
+        for name, text in {
+            "src/GloomhavenVR/Patches/NewPatch.cs": "public class NewPatch {}\n",
+            "src/GloomhavenVR/Defaults/NewOptions.cs": "public class NewOptions {}\n",
+            "src/GloomhavenVR/Assets/new-art.png": "fixture image payload",
+            "unity/GloomhavenVR.Assets/Assets/Shader/NewShader.shader": "Shader \"fixture/new\" {}\n",
+        }.items():
+            path = self.repo / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        (self.repo / "src/GloomhavenVR/Net/NetProtocol.cs").write_text("public const ushort ModBuild = 608;\n")
+        (self.repo / "src/GloomhavenVR/private.env").write_text("SECRET=fixture-only")
+        second = builder.inspect_inputs(self.args, self.repo, self.output, self.data)
+        self.assertEqual(first["game"]["key"], second["game"]["key"])
+        self.assertNotEqual(first["mod"]["key"], second["mod"]["key"])
+        self.assertEqual(second["mod"]["modBuild"], 608)
+        self.assertTrue(second["mod"]["dirty"])
+        names = {item["path"] for item in second["mod"]["files"]}
+        self.assertIn("src/GloomhavenVR/Patches/NewPatch.cs", names)
+        self.assertIn("src/GloomhavenVR/Defaults/NewOptions.cs", names)
+        self.assertIn("src/GloomhavenVR/Assets/new-art.png", names)
+        self.assertIn("unity/GloomhavenVR.Assets/Assets/Shader/NewShader.shader", names)
+        self.assertNotIn("src/GloomhavenVR/private.env", names)
+        new_source, new_game = builder.snapshot_inputs(second, self.output, self.repo, self.data)
+        self.assertEqual(new_game, game)
+        self.assertNotEqual(new_source, source)
+        self.assertFalse((new_source / "src/GloomhavenVR/private.env").exists())
+        new_project = builder.prepare(self.args, second, self.output, new_source, new_game)
+        self.assertNotEqual(project, new_project)
+        (new_project / "Assets/Quest/Runtime/Probe.cs").write_text("changed after selection")
+        builder.prepare(self.args, second, self.output, new_source, new_game)
+        self.assertEqual((new_project / "Assets/Quest/Runtime/Probe.cs").read_text(), "public class Probe {}\n")
+
+    def test_probe_slice_hash_invalidation_and_no_managed_executable_ingress(self):
+        assets = self.root / "probe-assets"
+        (assets / "Resources").mkdir(parents=True)
+        (assets / "Resources/quest-original-model.prefab").write_text("native model fixture")
+        (assets / "Resources/quest-original-model.prefab.meta").write_text("guid: " + "a" * 32)
+        self.args.probe_assets = assets
+        first = builder.inspect_inputs(self.args, self.repo, self.output, self.data)
+        source, game = builder.snapshot_inputs(first, self.output, self.repo, self.data, assets)
+        project = builder.prepare(self.args, first, self.output, source, game)
+        self.assertEqual((project / "Assets/Quest/Recovered/Resources/quest-original-model.prefab").read_text(),
+                         "native model fixture")
+        (assets / "Resources/quest-original-model.prefab").write_text("revised native model fixture")
+        second = builder.inspect_inputs(self.args, self.repo, self.output, self.data)
+        self.assertNotEqual(first["probeAssets"]["key"], second["probeAssets"]["key"])
+        self.assertEqual(first["game"]["key"], second["game"]["key"])
+        (assets / "Unexpected.cs").write_text("public class Unexpected {}")
+        with self.assertRaises(storage.BuildError):
+            builder.inspect_inputs(self.args, self.repo, self.output, self.data)
+
+    def test_rewritten_original_dll_keeps_exact_meta_and_no_duplicate_type_location(self):
+        staged = self.root / "woven"
+        staged.mkdir()
+        (staged / "GH.Runtime.dll").write_bytes(b"woven original")
+        (staged / "GloomhavenVR.dll").write_bytes(b"new mod")
+        (staged / "QuestWeaver.Runtime.dll").write_bytes(b"generated runtime")
+        (staged / "link.xml").write_text("<linker/>")
+        project = self.root / "project"
+        plugins = project / "Assets/Plugins"
+        plugins.mkdir(parents=True)
+        original = plugins / "GH.Runtime.dll"
+        original.write_bytes(b"recovered original")
+        meta = Path(str(original) + ".meta")
+        meta.write_text("guid: " + "b" * 32)
+        builder.deploy_woven_assemblies(staged, self.data, project)
+        self.assertEqual(original.read_bytes(), b"woven original")
+        self.assertEqual(meta.read_text(), "guid: " + "b" * 32)
+        self.assertEqual(len(list((project / "Assets").rglob("GH.Runtime.dll"))), 1)
+        self.assertEqual((plugins / "QuestGame/GloomhavenVR.dll").read_bytes(), b"new mod")
+        self.assertEqual((project / "Assets/Quest/Generated/link.xml").read_text(), "<linker/>")
+        meta.unlink()
+        with self.assertRaises(storage.BuildError):
+            builder.deploy_woven_assemblies(staged, self.data, project)
+
+    def test_real_recovery_process_zero_is_not_full_game_readiness(self):
+        launcher = self.repo / "scripts/recover-quest.py"
+        launcher.parent.mkdir()
+        launcher.write_text(
+            'import argparse,json\nfrom pathlib import Path\np=argparse.ArgumentParser()\n'
+            'p.add_argument("--game-data");p.add_argument("--output-project");p.add_argument("--tool-root")\n'
+            'a=p.parse_args();root=Path(a.output_project);(root/"Assets").mkdir(parents=True)\n'
+            '(root/"quest-recovery-report.json").write_text(json.dumps({"schema":1,"audit":{'
+            '"readiness":{"fullGameReady":False},"shaders":{"placeholderCount":177},'
+            '"addressables":{"deferredBundleCount":12}}}))\n')
+        result = builder.main(["prepare", "--repo-root", str(self.repo), "--game-root", str(self.data),
+                               "--output-root", str(self.output), "--target", "game", "--dummy-profile",
+                               "--steam-logo", str(self.logo)])
+        self.assertEqual(result, 1)
+        failure = json.loads((self.output / "last-failure.json").read_text())
+        self.assertEqual(failure["stage"], "prepare")
+        self.assertIn("placeholder shaders=177", failure["message"])
+        self.assertIn("deferred bundles=12", failure["message"])
+        self.assertFalse((self.output / "projects").exists())
+        self.assertEqual(list((self.output / "receipts").glob("build/*.json")), [])
 
 
 if __name__ == "__main__":

@@ -33,11 +33,22 @@ python3 scripts/build-quest.py build --game-root /path/to/owned/Gloomhaven \
 
 The default `--target game` invokes recovery and complete static integration. A
 failed recovery, unsupported hook or failed tool invocation blocks that APK.
+An exporter exit code of zero is insufficient: its full-game readiness must be
+explicitly true, script bindings resolved, and the static integration report
+complete and free of issues. Rewritten original DLLs replace their recovered
+counterparts in place, retaining the exact `.meta` script mapping; the generated
+`link.xml` is deployed for AOT preservation.
 The explicitly selected `--target probe` is an OpenXR/passthrough/identity hardware
 diagnostic, not evidence that the original game or complete mod works. For the
 maintainer's explicitly authorized local development tests only, `--dummy-profile`
 uses ID **0** and the visible name **Quest Local Test (DUMMY)**; ordinary player
 builds never silently select it. The static Steam PNG is still required.
+`--probe-assets /path/to/native-slice` optionally includes recovered native assets
+under `Assets/Quest/Recovered`, preserving their GUID metadata and Resources
+lookup names. The full slice is hashed and frozen as another input; C#, managed
+DLLs, native executables and assembly definitions are rejected. The first local
+slice uses the original animated BanditGuard and retains its explicit graphics
+limitations in its report. It is not a campaign reconstruction.
 
 `prepare` produces the generated project without invoking the Android editor.
 `build` also performs preparation. Each command captures current tracked mod
@@ -71,6 +82,9 @@ Focused checks:
 python3 -m unittest discover -s tests/quest-builder -v
 ```
 
-These tests verify mapping, ambiguity, process failures, immutable snapshots,
-receipt invalidation, path isolation, APK contracts and installation safety with
-negative controls. They do not certify Quest hardware rendering or multiplayer.
+These tests verify mapping, active-account capture, ambiguity, process failures,
+immutable snapshots, ordinary N -> N+1 code/resource/config/shader discovery,
+receipt invalidation, native-slice ingress, retained DLL script identity, path
+isolation, APK contracts and installation safety with negative controls. A real
+fixture exporter returning zero with 177 placeholder shaders is still rejected
+as a full game. They do not certify Quest hardware rendering or multiplayer.

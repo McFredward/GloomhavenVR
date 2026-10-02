@@ -359,14 +359,21 @@ def weave(args, inputs: dict, output: Path, source: Path, game: Path, project: P
         result = json.loads(report.read_text(encoding="utf-8"))
         # CLI failures are mandatory. Also fail closed if the reported audit says it
         # cannot emit complete semantics, regardless of a zero external exit status.
-        if result.get("success") is False or result.get("blockers") or result.get("unsupported"):
+        if result.get("version") != 1 or result.get("complete") is not True or result.get("issues"):
             raise BuildError("The static integration report contains unsupported behavior; inspect " + str(report))
+        if result.get("modSha256") != digest(dll):
+            raise BuildError("The static integration report does not match the freshly built selected mod.")
         link = staged / "link.xml"
         if not link.is_file():
             raise BuildError("The weaver did not produce its required AOT preservation link.xml.")
         return [report, link, *sorted(staged.glob("*.dll"))], {"report": result}
 
     Stages(output).run("weave", key, run_weaver)
+    deploy_woven_assemblies(staged, game, project)
+
+
+def deploy_woven_assemblies(staged: Path, game: Path, project: Path) -> None:
+    """Retain recovered plugin identity; add only genuinely new assemblies."""
     destination = project / "Assets/Plugins/QuestGame"
     destination.mkdir(parents=True, exist_ok=True)
     for dll in staged.glob("*.dll"):
@@ -598,18 +605,26 @@ def main(argv: list[str] | None = None) -> int:
         data = game_data(args.game_root) if args.game_root else None
         output = ensure_output(args.output_root or repo / ".planning/quest3-local", repo, data)
         with output_lock(output):
-            if args.command == "report":
-                report(output)
-            elif args.command == "install":
-                install(args, output)
-            else:
-                inputs = inspect_inputs(args, repo, output, data)
-                if args.command != "inspect":
-                    source, game = snapshot_inputs(inputs, output, repo, data, args.probe_assets)
-                    project = prepare(args, inputs, output, source, game)
-                    print("prepare: " + str(project), flush=True)
-                    if args.command == "build":
-                        build(args, inputs, output, source, game, project)
+            failure = output / "last-failure.json"
+            if args.command != "report":
+                failure.unlink(missing_ok=True)
+            try:
+                if args.command == "report":
+                    report(output)
+                elif args.command == "install":
+                    install(args, output)
+                else:
+                    inputs = inspect_inputs(args, repo, output, data)
+                    if args.command != "inspect":
+                        source, game = snapshot_inputs(inputs, output, repo, data, args.probe_assets)
+                        project = prepare(args, inputs, output, source, game)
+                        print("prepare: " + str(project), flush=True)
+                        if args.command == "build":
+                            build(args, inputs, output, source, game, project)
+            except BaseException as exc:
+                if not failure.exists():
+                    write_json(failure, {"schema": 1, "stage": args.command, "error": type(exc).__name__, "message": str(exc)})
+                raise
         return 0
     except (BuildError, ProfileError, ValueError, OSError) as exc:
         print("Quest builder: " + str(exc), file=sys.stderr)
