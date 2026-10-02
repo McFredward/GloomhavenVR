@@ -9,15 +9,22 @@ python3 - "$repo_root" <<'PY'
 from pathlib import Path
 import sys, re
 r=Path(sys.argv[1]); wall=(r/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs').read_text()
+ownership=(r/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.SelectionFacts.cs').read_text()
 mr=(r/'src/GloomhavenVR/Core/MixedReality/MixedReality.cs').read_text()
 layers=(r/'src/GloomhavenVR/Core/VRLayers.cs').read_text()
-# The assignment also admits exact native selection-only visuals now. Assert the
-# retained ownership arms inside its expression, independent of the trailing term.
+# Cold census and live adoption share the exact presentation-owner predicate.
+# Bind its original layer/name arms through that helper, rather than requiring
+# their old inline location. Executable wall facts test its actual verdicts.
 mod_assignment=re.search(r'f\.Mod\s*=([^;]+);', wall)
 assert mod_assignment is not None
-assert 'ModVisualOwnership.IsName(n)' in mod_assignment.group(1)
-assert 'r.gameObject.layer == VRLayers.ModLayer' in mod_assignment.group(1)
-assert '|| ModVisualOwnership.IsName(r.name);' in wall
+assert 'IsModPresentation(r, n)' in mod_assignment.group(1)
+assert 'IsNativeHexSelectionVisual(r)' in mod_assignment.group(1)
+predicate=re.search(r'private static bool IsModPresentation\([^;]+?=>([^;]+);', ownership)
+assert predicate is not None
+assert 'renderer.gameObject.layer == VRLayers.ModLayer' in predicate.group(1)
+assert '|| ModVisualOwnership.IsName(name)' in predicate.group(1)
+assert '|| IsFigureVisualMirrorRenderer(renderer)' in predicate.group(1)
+assert 'private static bool IsModObject(Renderer r) => IsModPresentation(r, r.name);' in wall
 assert 'internal const string ModOwnedNamePrefix = "VR";' in layers
 assert 'internal const string ModOwnedQualifiedPrefix = "GloomhavenVR.";' in layers
 region=mr[mr.index('private static void RegionMembershipPass('):mr.index('private enum RegionVerdict')]
@@ -47,7 +54,7 @@ for name in ('plate', 'fill', 'rim'):
     assert restore.index(name+'.enabled = false;') < restore.index('Destroy('+name+'.gameObject)')
 assert 'MrRimCurtain.ReleaseMeshes();' in restore
 assert 'WorldUI.' not in restore
-print('MR scenario ownership: 26 source bindings passed.')
+print('MR scenario ownership: shared presentation ownership and MR source bindings passed.')
 PY
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
