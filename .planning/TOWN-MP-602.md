@@ -64,6 +64,34 @@ The Windows town bundle was rebuilt with Unity 2021.3.5 and copied to
 `prebuilt/ghvr-town.bundle`. Install it with the DLL: DLL-only installation keeps
 the old actor shaders.
 
-## Validation
+## Final integrated validation — 2026-10-02
 
-Final integrated gate results are recorded here after completion.
+The corrected final integration tree passes:
+
+- **14/14 source gates and 92/92 local suites**; the local group took 588.7 s
+  with eight jobs. Evidence: `.planning/debug/test-runs/20261002-074058-f79cbcea/`
+  and `.planning/debug/test-runs/20261002-074119-a6c1d0eb/`. Complete coverage and
+  every recorded log checksum were independently checked.
+- **286,751 wire/golden assertions**. Three owned NPC shader names now have
+  their real town-bank paths registered; packet prefixes and additive records pass.
+- Normal strict **Release build: zero warnings and errors**.
+- All **three bundle-format checks**, five bilingual document pairs and the source
+  surface comparison. No config key, Harmony patch or log marker was removed.
+- Compiled comparison against `98fba1a8d`: **46 changed, seven added, zero removed**
+  types. Additional handshake/log types change only through the build constant;
+  unchanged presentation queues retain their previous optional constructor values.
+
+The final runtime proofs include activity with **181,444 assertions/41 negative
+controls**, face with **2,090/20**, station geometry/lifecycle with **1,886/16**,
+original shelf band with **147/3**, and the complete original public-catalog
+fixtures. The portable phase/network proof separately passes **180,194 assertions**.
+No warning was suppressed and no compilation failure counted as a passing control.
+
+An earlier complete invocation ran all 92 suites but failed five obsolete fixture
+bindings. Those fixtures were corrected to the actual station/audio/environment
+signatures, consumed face types, original owned shader, public lane selection and
+shelf-band nullability. Access restrictions after interruption temporarily blocked
+final Unity execution; restored access allowed all affected runtime checks and the
+complete final gate to pass. The earlier failed evidence remains distinct from the
+successful final run. No headset picture/audio acceptance is inferred from these
+checks. The town bundle must be installed together with the DLL.
