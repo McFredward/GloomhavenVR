@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 import re
 import struct
+import sys
+import zlib
 
 
 class ProfileError(ValueError):
@@ -21,6 +23,34 @@ def dummy_identity() -> dict:
     return {"schema": 1, "provider": "steam", "steamId": "0", "accountId": 0,
             "displayName": "Quest Local Test (DUMMY)", "isDummy": True,
             "source": "maintainer-authorized-dummy"}
+
+
+def windows_steam_context() -> tuple[Path | None, str | None]:
+    """Read the existing client's local active-account marker, never a credential."""
+    if sys.platform != "win32":
+        return None, None
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
+            root = Path(winreg.QueryValueEx(key, "SteamPath")[0])
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam\ActiveProcess") as key:
+            account = winreg.QueryValueEx(key, "ActiveUser")[0]
+        if type(account) is int and 0 < account <= 0xFFFFFFFF:
+            return root, str(STEAM_INDIVIDUAL_BASE + account)
+        return root, None
+    except OSError:
+        return None, None
+
+
+def discover_steam_root() -> Path | None:
+    root, _ = windows_steam_context()
+    if root and (root / "config/loginusers.vdf").is_file():
+        return root
+    for candidate in (Path.home() / ".steam/root", Path.home() / ".local/share/Steam",
+                      Path.home() / ".var/app/com.valvesoftware.Steam/.local/share/Steam"):
+        if (candidate / "config/loginusers.vdf").is_file():
+            return candidate.resolve()
+    return None
 
 
 def validate_identity(value: dict) -> dict:
@@ -100,6 +130,12 @@ def capture_steam_profile(steam_root: Path, selected_id: str | None) -> dict:
     users = parse_vdf(path.read_text(encoding="utf-8-sig")).get("users")
     if not isinstance(users, dict) or not users:
         raise ProfileError("The local Steam account cache is empty.")
+    registry_root, active_id = windows_steam_context()
+    has_active_marker = bool(registry_root and registry_root.resolve() == steam_root.resolve() and active_id)
+    if has_active_marker:
+        if selected_id is not None and selected_id != active_id:
+            raise ProfileError("The selected account differs from the installed Steam client's active account; switch Steam first.")
+        selected_id = active_id
     # A remembered account is not evidence of which account should personalize the APK.
     # MostRecent also changes under account switching; never choose it implicitly.
     if selected_id is None:
@@ -110,7 +146,7 @@ def capture_steam_profile(steam_root: Path, selected_id: str | None) -> dict:
     if not isinstance(entry, dict):
         raise ProfileError("The selected Steam account is not present in loginusers.vdf.")
     result = validate_identity({"steamId": selected_id, "displayName": entry.get("PersonaName")})
-    result["source"] = "loginusers.vdf"
+    result["source"] = "windows-active-steam-and-loginusers.vdf" if has_active_marker else "loginusers.vdf"
     return result
 
 
@@ -123,6 +159,30 @@ def read_logo(path: Path) -> tuple[bytes, str]:
     width, height = struct.unpack(">II", raw[16:24])
     if not 1 <= width <= 4096 or not 1 <= height <= 4096:
         raise ProfileError("The Steam logo image dimensions are invalid or too large.")
+    offset = 8
+    seen_data = False
+    seen_end = False
+    while offset < len(raw):
+        if offset + 12 > len(raw):
+            raise ProfileError("The Steam logo PNG contains a truncated chunk.")
+        length = struct.unpack(">I", raw[offset:offset + 4])[0]
+        end = offset + length + 12
+        if end > len(raw):
+            raise ProfileError("The Steam logo PNG contains a truncated payload.")
+        kind = raw[offset + 4:offset + 8]
+        expected_crc = struct.unpack(">I", raw[end - 4:end])[0]
+        if zlib.crc32(raw[offset + 4:end - 4]) & 0xFFFFFFFF != expected_crc:
+            raise ProfileError("The Steam logo PNG chunk checksum failed.")
+        if offset == 8 and (kind != b"IHDR" or length != 13):
+            raise ProfileError("The Steam logo PNG header is invalid.")
+        seen_data |= kind == b"IDAT"
+        if kind == b"IEND":
+            seen_end = True
+            if length != 0 or end != len(raw):
+                raise ProfileError("The Steam logo PNG has an invalid end marker.")
+        offset = end
+    if not seen_data or not seen_end:
+        raise ProfileError("The Steam logo PNG is missing image data or an end marker.")
     return raw, hashlib.sha256(raw).hexdigest()
 
 

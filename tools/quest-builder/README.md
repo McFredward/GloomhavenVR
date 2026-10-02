@@ -13,9 +13,13 @@ python3 scripts/build-quest.py inspect --game-root /path/to/owned/Gloomhaven \
   --output-root /path/to/private/quest-output
 ```
 
-The first player build captures the selected local Steam account. Provide a static
-Steam PNG with `--steam-logo`. Multiple remembered accounts require `--steam-id`;
-the builder does not mistake a cached account for authenticated ownership.
+The first player build captures the installed Steam client's local account. On
+Windows it uses Steam's local active-user marker and corresponding cached name;
+an explicit different account is rejected until Steam is switched. Where that
+marker is unavailable, multiple remembered accounts require `--steam-id` rather
+than guessing from `MostRecent`. The installed Steam directory can be discovered
+automatically or supplied through `--steam-root`. Provide a static Steam PNG with
+`--steam-logo`; cached identity is not authenticated ownership.
 An explicit identity-only JSON can also supply `steamId` as a full decimal string,
 `displayName` and optional matching uint32 `accountId`. It rejects token/password
 fields. No Quest-side store API or cloud service is used.
@@ -37,8 +41,9 @@ builds never silently select it. The static Steam PNG is still required.
 
 `prepare` produces the generated project without invoking the Android editor.
 `build` also performs preparation. Each command captures current tracked mod
-sources/resources/tools and declared local XR dependencies, with content hashes.
-Commit or stage new source files before selection. No per-ModBuild patch list is
+sources/resources/tools, new ordinary source/assets and declared local XR
+dependencies, with content hashes. Ignored output and credentials are excluded.
+Dirty developer inputs retain content provenance. No per-ModBuild patch list is
 maintained. Original recovery caches depend on original input and recovery tools;
 ordinary mod edits rebuild their affected project/integration/player outputs.
 Failed stages have no success receipt. Completed stage outputs are hash-verified

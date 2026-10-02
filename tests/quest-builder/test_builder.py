@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
+import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools/quest-builder"))
@@ -20,8 +21,10 @@ import storage
 
 
 def png():
-    # Header fixture for identity-resource shape; Unity decodes the real logo later.
-    return b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + struct.pack(">II", 16, 16) + b"\x08\x06\0\0\0" + b"\0\0\0\0"
+    def chunk(kind, payload):
+        return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">II", 16, 16) + b"\x08\x06\0\0\0") +
+            chunk(b"IDAT", zlib.compress((b"\0" + b"\0" * (16 * 4)) * 16)) + chunk(b"IEND", b""))
 
 
 class Temporary(unittest.TestCase):
@@ -73,6 +76,28 @@ class IdentityTests(Temporary):
         for raw in ('"users" {', '"users" {} "users" {}', '"users" {"value" }', 'unquoted {}'):
             with self.subTest(raw=raw), self.assertRaises(identity.ProfileError):
                 identity.parse_vdf(raw)
+
+    def test_windows_active_account_selected_and_mismatch_blocked(self):
+        steam = self.root / "Steam"
+        (steam / "config").mkdir(parents=True)
+        one, two = (str(identity.STEAM_INDIVIDUAL_BASE + n) for n in (1, 2))
+        (steam / "config/loginusers.vdf").write_text('"users" {"' + one + '" {"PersonaName" "One"} "' +
+                                                   two + '" {"PersonaName" "Two"}}')
+        with patch.object(identity, "windows_steam_context", return_value=(steam, two)):
+            selected = identity.capture_steam_profile(steam, None)
+            self.assertEqual(selected["steamId"], two)
+            self.assertEqual(selected["accountId"], 2)
+            self.assertIn("active", selected["source"])
+            with self.assertRaises(identity.ProfileError):
+                identity.capture_steam_profile(steam, one)
+
+    def test_png_corruption_is_not_a_valid_profile_resource(self):
+        logo = self.root / "logo.png"
+        broken = bytearray(png())
+        broken[29] ^= 1
+        logo.write_bytes(broken)
+        with self.assertRaises(identity.ProfileError):
+            identity.read_logo(logo)
 
     def test_logo_and_profile_shape(self):
         logo = self.root / "logo.png"

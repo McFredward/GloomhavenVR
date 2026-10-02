@@ -19,7 +19,7 @@ import subprocess
 import sys
 import zipfile
 
-from profile import dummy_identity, load_profile, read_logo, ProfileError
+from profile import discover_steam_root, dummy_identity, load_profile, read_logo, ProfileError
 from storage import (BuildError, Stages, canonical, digest, ensure_output, inventory,
                      output_lock, snapshot, value_hash, write_json)
 
@@ -73,22 +73,24 @@ def game_data(root: Path) -> Path:
 
 def source_inventory(repo: Path) -> tuple[list[dict], str, bool]:
     selected = []
-    for raw in git_output(repo, "ls-files", "-z").split(b"\0"):
+    for raw in git_output(repo, "ls-files", "--cached", "--others", "--exclude-standard", "-z").split(b"\0"):
         if not raw:
             continue
         relative = raw.decode("utf-8")
+        if Path(relative).suffix.lower() in (".env", ".alf", ".ulf", ".keystore", ".jks", ".p12", ".pem", ".key"):
+            continue
         if relative.startswith(("src/", "unity/", "tools/", "scripts/", "prebuilt/", "libs/RefAsm/")) or (
                 "/" not in relative and relative.endswith((".props", ".targets", ".config", ".sln", ".json"))):
             if (repo / relative).is_file():
                 selected.append(relative)
-    # Only the gitignored, declared dependency DLLs: never .env, player settings or
-    # arbitrary untracked files. Dirty edits to tracked inputs are captured by hash.
+    # Include ordinary newly added source/assets automatically, while honoring the
+    # repository's ignored output/secrets. Only the declared XR DLLs override ignore.
     for relative in ("libs/RuntimeDeps", "libs/Natives"):
         directory = repo / relative
         selected.extend(p.relative_to(repo).as_posix() for p in directory.glob("*")
                         if p.is_file() and p.suffix.lower() in (".dll", ".json"))
     commit = git_output(repo, "rev-parse", "HEAD").decode().strip()
-    dirty = bool(git_output(repo, "status", "--porcelain", "--untracked-files=no"))
+    dirty = bool(git_output(repo, "status", "--porcelain", "--untracked-files=normal"))
     return inventory(repo, selected), commit, dirty
 
 
@@ -116,6 +118,8 @@ def selected_profile(args) -> tuple[dict | None, bytes | None]:
         result = dummy_identity()
         result["logoSha256"] = hashed
         return result, logo
+    if not args.profile_json and not args.steam_root and args.command != "inspect":
+        args.steam_root = discover_steam_root()
     if args.profile_json or args.steam_root:
         if not args.steam_logo:
             raise BuildError("Supply --steam-logo: a local static Steam PNG, not a personal-avatar URL.")
@@ -240,7 +244,18 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             paths = [p for p in recovered.rglob("*") if p.is_file() and "Library" not in p.parts]
             return paths, {"report": metadata, "project": recovered.relative_to(output).as_posix()}
 
-        stages.run("recovery", key, recover)
+        recovered_receipt = stages.run("recovery", key, recover)
+        audit = recovered_receipt["details"]["report"].get("audit", {})
+        readiness = audit.get("readiness", {})
+        if readiness.get("fullGameReady") is not True:
+            shaders = audit.get("shaders", {}).get("placeholderCount", "unknown")
+            bundles = audit.get("addressables", {}).get("deferredBundleCount", "unknown")
+            raise BuildError("Full game recovery is not ready: placeholder shaders=" + str(shaders) +
+                             ", deferred bundles=" + str(bundles) +
+                             "; inspect " + str(recovered / "quest-recovery-report.json") +
+                             ". The explicitly diagnostic probe target is separate.")
+        if audit.get("managedScriptBindings", {}).get("unexpectedUnresolvedCount", 0) != 0:
+            raise BuildError("Recovery has unresolved script bindings; inspect " + str(recovered / "quest-recovery-report.json"))
     key = value_hash({"input": inputs["inputKey"], "recipe": RECIPE})
     project = output / "projects" / key
 
@@ -332,6 +347,8 @@ def weave(args, inputs: dict, output: Path, source: Path, game: Path, project: P
 def signing(output: Path, tools: dict) -> tuple[Path, dict]:
     folder = output / "signing"
     folder.mkdir(parents=True, exist_ok=True)
+    if os.name != "nt":
+        folder.chmod(0o700)
     key = folder / "quest.keystore"
     secret_file = folder / "local-key.json"
     if key.exists() != secret_file.exists():
