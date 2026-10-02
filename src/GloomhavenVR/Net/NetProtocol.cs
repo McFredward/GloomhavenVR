@@ -553,7 +553,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 604;
+    public const ushort ModBuild = 605;
+
+    // ModBuild 605 — Frame604 proves that the figure mesh caps and cloth OFF execute,
+    // but only eight of seventeen native bodies have coarse authored meshes. A separate
+    // reversible ambient-effects budget removes identified original demon idle particles
+    // and supplemental alpha shells while retaining bodies/combat/condition cues. Native
+    // material-ready callbacks cover late assignments without a steady hierarchy census.
+    // Original forest-bay composites, separate grass blades and wall plant/wood attachments
+    // now qualify with whole-hierarchy and retained-solid-core proofs. At zero density,
+    // proven purely decorative templates use transform-only native placement receipts;
+    // their original visual instances are created only when needed. Source prefab bundles
+    // remain loaded. Finish masks before native loading-screen closure and material reveal.
+    // Home ghosts mirror evaluated native bones/blend shapes instead of restarting idle
+    // controllers or executing copied gameplay callbacks. Figure glow and ghost depth keep
+    // each native cutout mask and UVs, removing the photographed opaque demon rectangles.
+    // All rendering compromises are configurable on PC/Frame; saved settings are retained.
+    // Automated asset/pixel/pose tests are separate from pending headset/FPS acceptance.
 
     // ModBuild 604 — Frame603's real actor models live under the native gameplay board,
     // outside additive ProcGen: the optional detail driver reported zero actors/cloth

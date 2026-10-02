@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-02 for Build 604 after the Frame603 hardware report. This directory holds internal
+Updated 2026-10-02 for Build 605 after the Frame604 hardware report. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -11,6 +11,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [STEAM-FRAME-SCENERY-605.md](STEAM-FRAME-SCENERY-605.md) | Frame604 native creation/vegetation coverage, independent ambient figure effects and correct held-figure silhouettes |
 | [TOWN-MP-602.md](TOWN-MP-602.md) | Paired PCVR evidence, original-widget/clock/lifecycle review, independent held stock and final validation |
 | [STEAM-FRAME-SCENERY-604.md](STEAM-FRAME-SCENERY-604.md) | Frame603 zero-actor admission defect, static held cloth and decorative tree/collider coverage |
 | [STEAM-FRAME-SCENERY-603.md](STEAM-FRAME-SCENERY-603.md) | Frame601 evidence, independent scenery budgets, native figure/cloth/generation controls and storage maintenance |

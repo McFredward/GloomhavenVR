@@ -1,6 +1,26 @@
 # State — where the project stands
 
-**Updated 2026-10-02: dev 1.1.0 / ModBuild 604, Frame603 hardware corrections.**
+**Updated 2026-10-02: dev 1.1.0 / ModBuild 605, Frame604 scenery and figure corrections.**
+
+The supplied Frame604 / 253e89378 evidence confirms 17 admitted actors, 8/8 native
+LOD caps and 15 disabled cloth solvers. Only eight bodies have authored coarse
+meshes: lack of obvious visual change does not prove an inert slider. All 3,189
+admitted scenery meshes were masked, but original shared forest bays, separate
+grass blades and wall attachments still escaped classification. Build 605 expands
+positive native coverage, avoids construction of proved purely decorative leaf
+instances at zero density, and finishes remaining masking before loading-screen
+closure/material reveal. Source prefab bundles remain loaded; floor plates and
+actual wall cores remain. A separate configurable figure ambient-effects budget
+reduces identified demon idle effects without hiding bodies or combat cues. Home
+ghosts follow native evaluated condition poses/phase without copied gameplay
+callbacks, and figure glow/depth retain native cutout alpha instead of exposing
+rectangular VFX surfaces. Saved settings are retained; fresh Frame FX density is
+zero and PC defaults to original. The main bundle changes, so install the complete
+new package. See [STEAM-FRAME-SCENERY-605.md](STEAM-FRAME-SCENERY-605.md).
+Final integrated validation and headset/FPS acceptance are recorded separately;
+post-load hardware windows of 65.61–88.37 ms do not predict Build605 performance.
+
+The preceding Build604 integration:
 
 The supplied Frame603 / 5c60f6604 logs confirm the saved zero figure/vegetation
 and disabled cloth values. Geometry masking works for 3,277 admitted meshes,

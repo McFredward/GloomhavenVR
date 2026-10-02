@@ -1300,6 +1300,12 @@
         "local"
       ],
       "weight": 12
+    },
+    {
+      "id": "figure-overlay-runtime",
+      "command": ["python3", "scripts/check-figure-overlay-runtime.py"],
+      "groups": ["local"],
+      "weight": 90
     }
   ]
 }
