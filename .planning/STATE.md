@@ -15,8 +15,21 @@ The existing WindowMaterialise key is exposed under Graphics → Windows/panels.
 Fresh standalone Frame defaults OFF, PC remains ON, and saved choices are preserved.
 Live OFF restores active effects and pending native close continuation exactly once;
 cards, native window motion and NPC effects keep their separate behavior. This is
-a DLL-only update; the complete Build606 mesh banks remain required. Focused checks
-pass; the final integrated gate and Build607 hardware outcome are pending. See
+a DLL-only update; the complete Build606 mesh banks remain required. The final
+integrated gate passes on runtime commit `38eeb1e4`: **14/14 source suites,
+102/102 local suites, 286,760 wire/golden assertions**, strict Release with zero
+warnings/errors and five bilingual document pairs. The local run took 627.7 s
+with eight jobs; independent manifest/log-hash verification passed. The preserved
+reviewed606 compiled comparison has seven intended existing behavior/config types,
+eight inlined-build-only types and one new measurement helper, with no removal or
+reference change. Guard exit 1 reflects those reviewed compiled changes, not a
+failed subordinate gate. Proof and source hashes are retained under
+`.planning/debug/frame607-final-validation/`. Actual Unity figure readiness has
+98 assertions and 25 runtime defect controls; the measurement adapter has 48
+assertions and seven controls, and the MR/switch suite has 576 assertions and
+seven controls. An independent review additionally removed mixed-frame work-counter
+contributions and omitted unfinished native captures at the boundary. Build607
+hardware cadence and appearance remain unverified; no new FPS gain is claimed. See
 [Build607 measurements and test procedure](../docs/performance/FRAME-607-MEASUREMENTS.md).
 
 The maintainer approved the Frame605 optimization follow-up and clarified spectator

@@ -102,3 +102,11 @@ and teardown with saved/default choices and a switch during close.
 These checks establish source/runtime contracts. They do not establish headset
 appearance, a smooth frame cadence, or actual GPU cost. Hardware evidence for
 607 remains pending.
+
+The final integrated runtime tree `38eeb1e4` passed 14 source suites, 102 local
+suites and 286,760 wire/golden assertions, strict Release with zero warnings or
+errors, and five bilingual document pairs. Local coverage took 627.7 seconds
+with eight jobs. Independent manifest/log-hash verification and a compiled
+comparison against the preserved Build606 snapshot restrict behavior changes
+to the intended measurement, window switch, options/localization and defaults.
+Retained evidence is under `.planning/debug/frame607-final-validation/`.
