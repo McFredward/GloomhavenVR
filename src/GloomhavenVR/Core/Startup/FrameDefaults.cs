@@ -26,14 +26,19 @@ internal static class FrameDefaults
     // PC's 4096 MB floor, it does not reserve a desktop-sized budget if a user changes preset.
     internal const int TextureStreamingBudgetMB = 900;
 
-    // Maintainer-approved scenery compromise (2026-10-01): keep one quarter of the
-    // strictly decorative floor-cover meshes. Gameplay geometry and UI keep full detail.
-    internal const int ScenarioSceneryDensityPercent = 25;
+    // Build603 separates grass from other decoration; fresh Frame profiles request no
+    // eligible vegetation. BepInEx retains the earlier saved25% or any user's own value.
+    internal const int ScenarioSceneryDensityPercent = 0;
 
     // Build 600's narrow grass rule masked only 27 of 6,560 renderers in the measured scenario.
     // The maintainer now requests essential scenery on standalone Frame (2026-10-01).
     // This seeds only the new key; all platforms retain the same reversible live control.
     internal const int ScenarioDecorationDensityPercent = 0;
+    internal const int ScenarioVegetationDensityPercent = 0;
+    internal const int ScenarioPlayerFigureDetailPercent = 0;
+    internal const int ScenarioEnemyFigureDetailPercent = 0;
+    internal const bool ScenarioFigureClothSimulation = false;
+    internal const bool ReduceScenarioGenerationDetail = true;
 
     // A 4 s wall-rescan cadence was active in the tested Frame configuration. It reduces
     // rescan frequency, not the duration of an individual rescan.

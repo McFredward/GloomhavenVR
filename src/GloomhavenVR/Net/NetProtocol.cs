@@ -553,7 +553,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 602;
+    public const ushort ModBuild = 603;
+
+    // ModBuild 603 — Frame601 measured 3,457 decorative renderer masks but still
+    // visible wall/edge foliage; grass retunes were capped by decoration zero.
+    // Independent grass, vegetation and dressing controls now classify anonymous
+    // native LOD leaves and retained structural collider composites without hiding
+    // mixed solid geometry or gameplay props. Optional player/enemy native mesh
+    // detail and figure cloth simulation retain original held figures and restore
+    // owned state. Scoped transient Apparance profiles request native quality zero
+    // only during scenario tile/wall parameter writing, preserving per-quest values,
+    // underground, native detail providers and the proven reveal focus. This choice
+    // freezes per scene and changes at the next load; live decoration/figure knobs
+    // are reversible on every platform. PC keeps original defaults; fresh standalone
+    // Frame adopts the sparse profile, while persisted values remain authoritative.
+    // No card/UI/NPC presentation or wire payload changes. Unity production tests
+    // establish scope/restoration; headset appearance and FPS gain need a new run.
 
     // ModBuild 602 — PCVR multiplayer town review: one authored resident role,
     // transition, blessing, contact sound and voice clock; immutable original

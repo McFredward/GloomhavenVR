@@ -127,11 +127,15 @@ Deine Spielstände und deine Kampagne bleiben erhalten. Vor der Änderung von
 
 ## Grafikeinstellungen
 
-In **VR-Optionen → Grafik** steuert **Szenario-Dekoration (%)** dekorative Vegetation
-und Ausschmückung. Steam Frame standalone beginnt mit 0% für eine sparsame Darstellung,
-PC mit 100%. **Szenario-Gras (%)** begrenzt Gras zusätzlich. Beide Werte auf 100%
-stellen die ursprünglichen Details wieder her. Alle Einstellungen funktionieren auf
-PC und Frame; gespeicherte Werte bleiben erhalten.
+In **VR-Optionen → Grafik** haben Gras, Bäume/Büsche und andere Szenario-Dekoration
+eigene Prozentregler. Neue Frame-Profile beginnen mit 0%, PC mit 100%. Alle drei
+auf 100% stellen die ursprünglichen Details wieder her.
+
+**Detail der Spielfiguren (%)** und **Detail der Gegnerfiguren (%)** wählen bei kleineren
+Werten gröbere Original-Meshes. **Figurenkleidung simulieren** steuert zusätzliche
+Stoffphysik. **Sparsame Szenario-Erzeugung** wirkt ab dem nächsten Szenarioladen.
+Frame beginnt mit weniger Figurendetails, ausgeschalteter Stoffsimulation und sparsamer
+Erzeugung. Alle Regler funktionieren auch auf PC; gespeicherte Werte bleiben erhalten.
 
 ## Updates
 

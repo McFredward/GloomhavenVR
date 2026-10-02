@@ -67,6 +67,11 @@ internal static partial class Defaults
     internal const bool MapIconCache = true;                 // => [Optimize] MapIconCache
     internal const int ScenarioSceneryDensityPercent = 100; // => [Optimize] ScenarioSceneryDensityPercent
     internal const int ScenarioDecorationDensityPercent = 100; // => [Optimize] ScenarioDecorationDensityPercent
+    internal const int ScenarioVegetationDensityPercent = 100; // => [Optimize] ScenarioVegetationDensityPercent
+    internal const int ScenarioPlayerFigureDetailPercent = 100; // => [Optimize] ScenarioPlayerFigureDetailPercent
+    internal const int ScenarioEnemyFigureDetailPercent = 100; // => [Optimize] ScenarioEnemyFigureDetailPercent
+    internal const bool ScenarioFigureClothSimulation = true; // => [Optimize] ScenarioFigureClothSimulation
+    internal const bool ReduceScenarioGenerationDetail = false; // => [Optimize] ReduceScenarioGenerationDetail
     internal const bool SharedWallReadCache = true;         // => [Optimize] SharedWallReadCache
     internal const bool LightStabiliserWorkCache = true;     // => [Optimize] LightStabiliserWorkCache
     internal const bool FigureScanCache = true;              // => [Optimize] FigureScanCache

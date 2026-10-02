@@ -119,10 +119,15 @@ backs it up as `GH_Data/boot.config.gloomhavenvr-backup`.
 
 ## Graphics settings
 
-In **VR Options → Graphics**, **Scenario decoration (%)** controls decorative vegetation
-and scenery. Standalone Frame defaults to 0% for a sparse scene; PC defaults to 100%.
-**Scenario grass (%)** adds a separate grass limit. Set both to 100% for the original
-detail. All settings work on PC and Frame, and saved choices are retained.
+In **VR Options → Graphics**, grass, trees/bushes and other scenario decoration have
+separate percentage controls. Fresh standalone Frame profiles start at 0%; PC starts
+at 100%. Set all three to 100% for the original detail.
+
+**Player figure detail (%)** and **Enemy figure detail (%)** select coarser original
+meshes at lower values. **Simulate figure clothing** controls additional cloth physics.
+**Reduced scenario generation** takes effect when you next load a scenario. Frame starts
+with lower figure detail, clothing simulation off and reduced generation on. All controls
+also work on PC; saved choices are retained.
 
 ## Updating
 

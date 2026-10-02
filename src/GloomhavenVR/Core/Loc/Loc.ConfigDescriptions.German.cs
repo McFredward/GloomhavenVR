@@ -224,20 +224,47 @@ internal static partial class Loc
                 + "0.05 (20 Hz) nicht ändern, wo ein Porträt landet — er verzögert höchstens um dieses "
                 + "Intervall, wann ein NEU eingereihtes Porträt zum ersten Mal flachgelegt wird.",
             ["Optimize/ScenarioSceneryDensityPercent"] =
-                "Zusätzliche Begrenzung des dekorativen Grases im Szenario. Für Gras gilt der niedrigere "
-                + "Wert dieser Einstellung und von Szenario-Dekoration (%); andere Dekoration folgt "
-                + "der allgemeinen Dekorationseinstellung. 100% erlaubt alles Gras, 0% entfernt geeignetes "
+                "Anteil des dekorativen Grases im Szenario, unabhängig von Bäumen, Büschen und "
+                + "anderer Dekoration. 100% erhält alles geeignete Gras, 0% entfernt geeignetes "
                 + "Gras aus der Darstellung. Figuren, Spielhindernisse, Böden, tragende Wände, Türen, "
                 + "Karten und UI bleiben unverändert. Wirkt sofort; gespeicherte Einstellungen bleiben "
                 + "auf PC-VR und Frame erhalten.",
             ["Optimize/ScenarioDecorationDensityPercent"] =
-                "Anteil der dekorativen Szenariodetails: Gras, dekorative Bäume, Büsche und generierte "
+                "Anteil der dekorativen Szenariodetails: verstreute Steine, Kristalle und generierte "
                 + "Ausschmückung. 0% entfernt geeignete Dekoration für eine sparsame Darstellung; "
-                + "100% stellt die ursprünglichen Details wieder her, zusätzlich gilt die separate "
-                + "Grasbegrenzung. Figuren, Spielhindernisse, Böden, tragende Wände, Türen, Karten "
+                + "100% stellt die ursprünglichen Details wieder her. Gras sowie Bäume und Büsche "
+                + "haben eigene Regler. Figuren, Spielhindernisse, Böden, tragende Wände, Türen, Karten "
                 + "und UI bleiben unverändert. Spielkollisionen und aufgedeckte Bereiche werden nicht "
                 + "verändert. Wirkt sofort auf PC und Frame. Steam Frame standalone beginnt mit 0%, "
                 + "PC mit 100%; gespeicherte Einstellungen bleiben erhalten.",
+            ["Optimize/ScenarioVegetationDensityPercent"] =
+                "Anteil der dekorativen Bäume, Büsche, Ranken und Blätter im Szenario. 0% entfernt "
+                + "geeignete Vegetation, 100% stellt sie wieder her. Gras und andere Dekoration haben "
+                + "eigene Regler. Tragende Wände, Böden, Spielhindernisse, Türen, Figuren, Licht und UI "
+                + "bleiben erhalten. Wirkt sofort; neue Frame-Profile beginnen mit 0%, PC mit 100%; "
+                + "gespeicherte Werte bleiben erhalten.",
+            ["Optimize/ScenarioPlayerFigureDetailPercent"] =
+                "Mesh-Details der Spielfiguren im Szenario. 100% erhält die ursprüngliche automatische "
+                + "Detailwahl; kleinere Werte begrenzen sie auf gröbere Original-Meshes, soweit vorhanden. "
+                + "0% nutzt die niedrigste nicht leere Spielvariante. Entfernungsausblendung, Animation "
+                + "und Spielregeln bleiben erhalten. Hochgehobene Figuren erhalten lokal und remote ihre "
+                + "ursprüngliche Detailwahl. Wirkt sofort; neue Frame-Profile 0%, PC 100%; gespeicherte Werte bleiben.",
+            ["Optimize/ScenarioEnemyFigureDetailPercent"] =
+                "Mesh-Details der Gegnerfiguren im Szenario. 100% erhält die ursprüngliche automatische "
+                + "Detailwahl; kleinere Werte begrenzen sie auf gröbere Original-Meshes, soweit vorhanden. "
+                + "0% nutzt die niedrigste nicht leere Spielvariante. Entfernungsausblendung, Animation "
+                + "und Spielregeln bleiben erhalten. Hochgehobene Figuren erhalten lokal und remote ihre "
+                + "ursprüngliche Detailwahl. Wirkt sofort; neue Frame-Profile 0%, PC 100%; gespeicherte Werte bleiben.",
+            ["Optimize/ScenarioFigureClothSimulation"] =
+                "Simuliert Kleidung an Szenariofiguren. Aus erhält die animierte Figur, stoppt aber "
+                + "zusätzliche Stoffphysik. Bei hochgehobenen Figuren sowie bei Ein kehrt die ursprüngliche "
+                + "aktive Stoffsimulation zurück. NPCs, Tischdecken, Karten und Spielkollisionen bleiben "
+                + "unverändert. Wirkt sofort; neue Frame-Profile Aus, PC Ein; gespeicherte Werte bleiben.",
+            ["Optimize/ReduceScenarioGenerationDetail"] =
+                "Nutzt die sparsamere prozedurale Geometrie des Spiels ab dem nächsten Szenarioladen. "
+                + "Untergrundsichtbarkeit und andere questabhängige Originalwerte bleiben erhalten. "
+                + "Ein laufendes Szenario wird beim Umschalten nicht neu erzeugt. Aus nutzt beim nächsten "
+                + "Laden wieder die Originalqualität. Neue Frame-Profile Ein, PC Aus; gespeicherte Werte bleiben.",
             ["Optimize/SharedWallReadCache"] =
                 "Verwendet gemeinsame Material- und Figuren-Vorfahren-Abfragen innerhalb der "
                 + "synchronen Wandvorbereitung erneut. Ein spart doppelte Engine-Abfragen bei gleicher "

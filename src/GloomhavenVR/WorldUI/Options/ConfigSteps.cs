@@ -185,6 +185,9 @@ internal static class ConfigSteps
         ["RenderQuality/PixelLightCount"] = 1d,       // a light at a time (int; -1 = game's own)
         ["Optimize/ScenarioSceneryDensityPercent"] = 5d, // full detail to sparse cover in 20 presses
         ["Optimize/ScenarioDecorationDensityPercent"] = 5d,
+        ["Optimize/ScenarioVegetationDensityPercent"] = 5d,
+        ["Optimize/ScenarioPlayerFigureDetailPercent"] = 5d,
+        ["Optimize/ScenarioEnemyFigureDetailPercent"] = 5d,
 
         // ---- Brett & Karten ---------------------------------------------------------------
         ["Cards/TrayScale"] = 0.05d,             // 5 % of the board size

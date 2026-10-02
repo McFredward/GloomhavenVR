@@ -148,11 +148,17 @@ internal static class PerfConfig
     /// <summary>Override <see cref="QualitySettings.lodBias"/> in VR (0 = leave the quality level's own value).</summary>
     internal static ConfigEntry<float> LodBias = null!;
 
-    /// <summary>Additional grass density cap; the general decorative scenery budget also applies.</summary>
+    /// <summary>Percentage of generated decorative grass retained, independently of other detail.</summary>
     internal static ConfigEntry<int> ScenarioSceneryDensityPercent = null!;
 
     /// <summary>Percentage of generated scenario decoration retained; 100 preserves all.</summary>
     internal static ConfigEntry<int> ScenarioDecorationDensityPercent = null!;
+
+    internal static ConfigEntry<int> ScenarioVegetationDensityPercent = null!;
+    internal static ConfigEntry<int> ScenarioPlayerFigureDetailPercent = null!;
+    internal static ConfigEntry<int> ScenarioEnemyFigureDetailPercent = null!;
+    internal static ConfigEntry<bool> ScenarioFigureClothSimulation = null!;
+    internal static ConfigEntry<bool> ReduceScenarioGenerationDetail = null!;
 
     internal static ConfigEntry<bool> SharedWallReadCache = null!;
     internal static ConfigEntry<bool> LightStabiliserWorkCache = null!;
@@ -247,6 +253,26 @@ internal static class PerfConfig
         ScenarioDecorationDensityPercent == null
             ? Defaults.ScenarioDecorationDensityPercent
             : Mathf.Clamp(ScenarioDecorationDensityPercent.Value, 0, 100);
+
+    internal static int ScenarioVegetationDensityPercentValue =>
+        ScenarioVegetationDensityPercent == null ? Defaults.ScenarioVegetationDensityPercent
+            : Mathf.Clamp(ScenarioVegetationDensityPercent.Value, 0, 100);
+
+    internal static int PlayerFigureDetailPercent =>
+        ScenarioPlayerFigureDetailPercent == null ? Defaults.ScenarioPlayerFigureDetailPercent
+            : Mathf.Clamp(ScenarioPlayerFigureDetailPercent.Value, 0, 100);
+
+    internal static int EnemyFigureDetailPercent =>
+        ScenarioEnemyFigureDetailPercent == null ? Defaults.ScenarioEnemyFigureDetailPercent
+            : Mathf.Clamp(ScenarioEnemyFigureDetailPercent.Value, 0, 100);
+
+    internal static bool FigureClothSimulationEnabled =>
+        ScenarioFigureClothSimulation == null ? Defaults.ScenarioFigureClothSimulation
+            : ScenarioFigureClothSimulation.Value;
+
+    internal static bool ReducedScenarioGenerationOn =>
+        ReduceScenarioGenerationDetail == null ? Defaults.ReduceScenarioGenerationDetail
+            : ReduceScenarioGenerationDetail.Value;
 
     internal static bool SharedWallReadCacheOn =>
         SharedWallReadCache == null || SharedWallReadCache.Value;
@@ -354,22 +380,61 @@ internal static class PerfConfig
         ScenarioSceneryDensityPercent = _file.Bind("Optimize", "ScenarioSceneryDensityPercent",
             FrameDefaults.Active ? FrameDefaults.ScenarioSceneryDensityPercent : Defaults.ScenarioSceneryDensityPercent,
             new ConfigDescription(
-                "Additional cap on decorative scenario grass. The lower of this value and "
-                + "Scenario decoration (%) applies to grass; other decoration follows the general "
-                + "decoration setting. 100% permits all grass, 0% removes eligible grass rendering. "
+                "Decorative scenario grass retained, independently of trees/bushes and other "
+                + "decoration. 100% preserves eligible grass, 0% removes its rendering. "
                 + "Figures, gameplay obstacles, floors, structural walls, doors, cards and UI remain "
                 + "unchanged. Takes effect live; saved settings are retained on PC VR and Frame.",
                 new AcceptableValueRange<int>(0, 100)));
         ScenarioDecorationDensityPercent = _file.Bind("Optimize", "ScenarioDecorationDensityPercent",
             FrameDefaults.Active ? FrameDefaults.ScenarioDecorationDensityPercent : Defaults.ScenarioDecorationDensityPercent,
             new ConfigDescription(
-                "Decorative scenario detail retained: grass, decorative trees, bushes and generated "
+                "Decorative scenario detail retained: generated stone scatter, crystals and other "
                 + "dressing. 0% removes eligible decoration for a sparse scene; 100% restores original "
-                + "detail, subject to the separate grass cap. Figures, gameplay obstacles, floors, "
+                + "detail. Grass and trees/bushes have independent controls. Figures, gameplay obstacles, floors, "
                 + "structural walls, doors, cards and UI remain unchanged. Native colliders and reveal "
                 + "state are not changed. Works live on PC and Frame. Fresh standalone Frame defaults "
                 + "to 0%, PC to 100%; saved choices are retained.",
                 new AcceptableValueRange<int>(0, 100)));
+
+        ScenarioVegetationDensityPercent = _file.Bind("Optimize", "ScenarioVegetationDensityPercent",
+            FrameDefaults.Active ? FrameDefaults.ScenarioVegetationDensityPercent : Defaults.ScenarioVegetationDensityPercent,
+            new ConfigDescription(
+                "Decorative scenario trees, bushes, vines and leaves retained. 0% removes eligible "
+                + "vegetation, 100% restores it. Grass and other decoration have separate controls. "
+                + "Solid wall/floor cores, native obstacles, doors, actors, lights and UI are retained. "
+                + "Works live; fresh standalone Frame defaults to 0%, PC to 100%; saved choices stay.",
+                new AcceptableValueRange<int>(0, 100)));
+        ScenarioPlayerFigureDetailPercent = _file.Bind("Optimize", "ScenarioPlayerFigureDetailPercent",
+            FrameDefaults.Active ? FrameDefaults.ScenarioPlayerFigureDetailPercent : Defaults.ScenarioPlayerFigureDetailPercent,
+            new ConfigDescription(
+                "Mesh detail of scenario player characters. 100% keeps automatic original detail; "
+                + "lower values limit it to coarser original game meshes where available. 0% uses the "
+                + "lowest nonempty native level. Distance culling, animation, silhouette and gameplay "
+                + "are retained. Figures held locally or by another player restore original detail. "
+                + "Works live; fresh Frame defaults to 0%, PC to 100%; saved choices stay.",
+                new AcceptableValueRange<int>(0, 100)));
+        ScenarioEnemyFigureDetailPercent = _file.Bind("Optimize", "ScenarioEnemyFigureDetailPercent",
+            FrameDefaults.Active ? FrameDefaults.ScenarioEnemyFigureDetailPercent : Defaults.ScenarioEnemyFigureDetailPercent,
+            new ConfigDescription(
+                "Mesh detail of scenario monsters. 100% keeps automatic original detail; lower "
+                + "values limit it to coarser original game meshes where available. 0% uses the lowest "
+                + "nonempty native level. Distance culling, animation and gameplay are retained. "
+                + "Figures held locally or by another player restore original detail. Works live; "
+                + "fresh Frame defaults to 0%, PC to 100%; saved choices stay.",
+                new AcceptableValueRange<int>(0, 100)));
+        ScenarioFigureClothSimulation = _file.Bind("Optimize", "ScenarioFigureClothSimulation",
+            FrameDefaults.Active ? FrameDefaults.ScenarioFigureClothSimulation : Defaults.ScenarioFigureClothSimulation,
+            "Simulate cloth on scenario figures. OFF retains the animated figure but stops secondary "
+            + "cloth physics; original enabled cloth is restored on held figures and when ON. "
+            + "NPCs, tabletop cloth, cards and gameplay colliders are untouched. Works live; fresh "
+            + "Frame defaults to OFF, PC to ON; saved choices stay.");
+        ReduceScenarioGenerationDetail = _file.Bind("Optimize", "ReduceScenarioGenerationDetail",
+            FrameDefaults.Active ? FrameDefaults.ReduceScenarioGenerationDetail : Defaults.ReduceScenarioGenerationDetail,
+            "Use the game's reduced procedural geometry quality at the next scenario load. "
+            + "Underground visibility and per-quest native settings are retained; floors, walls, "
+            + "room reveals and gameplay are not deliberately removed. Live changes do not rebuild "
+            + "the current scenario. OFF restores original generation at the next load. Fresh Frame "
+            + "defaults to ON, PC to OFF; saved choices stay.");
 
         SharedWallReadCache = _file.Bind("Optimize", "SharedWallReadCache", Defaults.SharedWallReadCache,
             "Reuse shared-material and nearest-figure-ancestor reads within synchronous wall "

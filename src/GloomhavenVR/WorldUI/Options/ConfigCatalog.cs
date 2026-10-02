@@ -899,7 +899,12 @@ internal static class ConfigCatalog
     {
         // This is a visible quality trade, unlike the perf module's diagnostic switches.
         if (section == "Optimize" && (key == "ScenarioSceneryDensityPercent"
-                                     || key == "ScenarioDecorationDensityPercent"))
+                                     || key == "ScenarioDecorationDensityPercent"
+                                     || key == "ScenarioVegetationDensityPercent"
+                                     || key == "ScenarioPlayerFigureDetailPercent"
+                                     || key == "ScenarioEnemyFigureDetailPercent"
+                                     || key == "ScenarioFigureClothSimulation"
+                                     || key == "ReduceScenarioGenerationDetail"))
             return ConfigTopic.Visual;
 
         // Per-board geometry, whatever module it comes from: keys carry the board name as a

@@ -1203,6 +1203,15 @@
       "weight": 15
     },
     {
+      "id": "scenario-generation-runtime",
+      "command": [
+        "python3",
+        "scripts/check-scenario-generation-runtime.py"
+      ],
+      "groups": ["local"],
+      "weight": 12
+    },
+    {
       "id": "frame-perf-report",
       "command": [
         "python3",
