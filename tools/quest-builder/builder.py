@@ -176,15 +176,16 @@ def snapshot_inputs(inputs: dict, output: Path, repo: Path, data: Path,
     game = output / "inputs/game" / inputs["game"]["key"]
     print("snapshot: verifying/copying immutable game and selected source", flush=True)
     snapshot(repo, inputs["mod"]["files"], source)
-    snapshot(data, inputs["game"]["files"], game)
     # Reject edits across files during the snapshot window, not only a torn
-    # individual read. The frozen set must also be a state of the selected input.
-    if inventory(repo, [r["path"] for r in inputs["mod"]["files"]]) != inputs["mod"]["files"]:
+    # individual read or added source file. Once frozen, later mod development
+    # proceeds independently of the potentially lengthy original-game copy.
+    if source_inventory(repo)[0] != inputs["mod"]["files"]:
         raise BuildError("The mod changed during snapshotting; rerun against the completed edit.")
-    if inventory(data) != inputs["game"]["files"]:
-        raise BuildError("The original installation changed during snapshotting; finish its update and retry.")
     if mod_build(source) != inputs["mod"]["modBuild"]:
         raise BuildError("The input ModBuild disagrees with the captured source.")
+    snapshot(data, inputs["game"]["files"], game)
+    if inventory(data) != inputs["game"]["files"]:
+        raise BuildError("The original installation changed during snapshotting; finish its update and retry.")
     if inputs.get("probeAssets"):
         probe = inputs["probeAssets"]
         if not probe_assets:
