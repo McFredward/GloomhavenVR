@@ -656,6 +656,9 @@ internal static partial class VROptionsTab
                         // and both are already localized, so a hand-written caption here would
                         // only be a second place to keep the same words in step.
                         new("WorldUI", "PanelSupersample", ""),
+                        // Build607: the existing dust switch was only in the raw advanced
+                        // catalog. Show its localized bool beside the other window choices.
+                        new("WorldUI", "WindowMaterialise", ""),
                         // AND THE SIZE. [WorldUI] WindowLegibility is the other way to spend
                         // headset pixels on a window, and the two belong on one screen.
                         new("WorldUI", "WindowLegibility", ""),

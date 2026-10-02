@@ -751,6 +751,10 @@ internal static partial class Loc
             // "Fenster", not "Tafel": these act on the FLOATED GAME WINDOWS (menus, story boxes,
             // merchant/character screens), not on the mod's own panels the way PanelMipBake does.
             ["WorldUI/PanelSupersample"] = Pair("Windows: render sharp", "Fenster: scharf zeichnen"),
+            ["WorldUI/WindowMaterialise"] = Pair("Window materialization", "Fenster-Materialisierung"),
+            ["WorldUI/WindowMaterialiseAppearSeconds"] = Pair("Materialization duration (s)", "Materialisierungsdauer (s)"),
+            ["WorldUI/WindowMaterialiseVanishSeconds"] = Pair("Dissolve duration (s)", "Auflösungsdauer (s)"),
+            ["WorldUI/WindowMaterialiseIntensity"] = Pair("Window dust size", "Größe des Fensterstaubs"),
             ["WorldUI/PanelSupersampleFactor"] = Pair("Windows: sharpness", "Fenster: Schärfegrad"),
             ["WorldUI/NeutraliseGrabPassBlur"] = Pair("Windows: remove blur effect",
                                                     "Fenster: Weichzeichner entfernen"),

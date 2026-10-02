@@ -156,7 +156,7 @@ internal static partial class WindowMaterialise
             return;
         _bound = true;
 
-        _enabled = file.Bind("WorldUI", "WindowMaterialise", Defaults.WindowMaterialise,
+        _enabled = file.Bind("WorldUI", "WindowMaterialise", DefaultEnabled,
             "Floating windows MATERIALISE out of flying debris when they appear and break apart into "
             + "it when they close, instead of popping in and out from one frame to the next. The "
             + "debris is real geometry in the room: it passes in front of and behind the window, it "
@@ -166,6 +166,7 @@ internal static partial class WindowMaterialise
             + "in one frame, and not a single alpha is written by this feature. The animation NEVER "
             + "delays a window: it is fully interactive from its first frame, and a closing window "
             + "stops accepting input the instant it starts to fade.");
+        _enabled.SettingChanged += OnEnabledChanged;
 
         _appearSeconds = file.Bind("WorldUI", "WindowMaterialiseAppearSeconds",
             Defaults.WindowMaterialiseAppearSeconds,
@@ -207,6 +208,20 @@ internal static partial class WindowMaterialise
                           + $"Both durations are clamped to {HardCeilingSeconds:F1}s IN CODE.");
     }
 
+    // Build607: reuse the persisted key, including an explicit ON on Frame. Selecting a
+    // platform default must never write over an existing value or alter native animations.
+    private static bool DefaultEnabled => FrameDefaults.Active
+        ? FrameDefaults.WindowMaterialise : Defaults.WindowMaterialise;
+
+    private static void OnEnabledChanged(object? sender, EventArgs args)
+    {
+        if (_enabled?.Value == false)
+            // Complete the current dissolve synchronously: restore element/backing state,
+            // destroy dust and release every pending close before the toggle returns.
+            // Native continuation remains the runner's once-only callback, never a new click.
+            CancelAll("the effect was switched off mid-flight");
+    }
+
     /// <summary>Master switch. OFF is not a fast animation, it is no animation: every entry point
     /// returns without writing anything and <see cref="PlayOut"/> runs its callback inline.</summary>
     internal static bool Enabled
@@ -214,7 +229,7 @@ internal static partial class WindowMaterialise
         get
         {
             EnsureBound();
-            return _enabled?.Value ?? Defaults.WindowMaterialise;
+            return _enabled?.Value ?? DefaultEnabled;
         }
     }
 

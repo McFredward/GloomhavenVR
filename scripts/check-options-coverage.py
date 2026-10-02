@@ -752,7 +752,8 @@ KNOWN_ORPHANS = {
     ("WorldUI", "PokePressDepthMm"),
     ("WorldUI", "ScreenDepthStrength"),
     ("WorldUI", "ScreenParallaxScale"),
-    ("WorldUI", "WindowMaterialise"),
+    # Build607 curates and localizes the master toggle. Its technical durations and
+    # dust-size calibration deliberately stay one level deeper, folded under the master.
     ("WorldUI", "WindowMaterialiseAppearSeconds"),
     ("WorldUI", "WindowMaterialiseIntensity"),
     ("WorldUI", "WindowMaterialiseVanishSeconds"),

@@ -2571,6 +2571,22 @@ internal static partial class Loc
             // sentence that decides whether the player switches this on ("das Fenster wird nur mit
             // halber Auflösung gezeichnet") comes first, the price stands in the text and not in a
             // footnote, and the last sentence says what OFF is — because OFF is the default.
+            ["WorldUI/WindowMaterialise"] =
+                "Fenster erscheinen mit einer Materialisierungsanimation und lösen sich beim Schließen "
+                + "in Staub auf. Aus = Fenster erscheinen und verschwinden sofort, ohne diesen Effekt. "
+                + "Ausschalten beendet auch bereits laufende Effekte sofort. Fenster, ihre Bedienung "
+                + "und Greifbalken bleiben verfügbar. Karten- und NPC-Animationen bleiben unverändert. "
+                + "Auf Steam Frame Standalone ist der Effekt für neue Einstellungen ausgeschaltet.",
+            ["WorldUI/WindowMaterialiseAppearSeconds"] =
+                "Dauer der Fenster-Materialisierung in Sekunden. Bereich 0,05–2. "
+                + "Hat bei ausgeschalteter Fenster-Materialisierung keine Wirkung.",
+            ["WorldUI/WindowMaterialiseVanishSeconds"] =
+                "Dauer der Auflösung eines geschlossenen Fensters in Sekunden. Bereich 0,05–2. "
+                + "Hat bei ausgeschalteter Fenster-Materialisierung keine Wirkung.",
+            ["WorldUI/WindowMaterialiseIntensity"] =
+                "Größe des Staubs bei der Fenster-Materialisierung. 0 zeigt die Ein- und "
+                + "Ausblendung ohne Staub, 1 ist die normale Größe, 2 verdoppelt sie. "
+                + "Hat bei ausgeschalteter Fenster-Materialisierung keine Wirkung.",
             ["WorldUI/PanelSupersample"] =
                 "Zeichnet die schwebenden Fenster (Menüs, Story-, Questlog-, Händler- und "
                 + "Charakterfenster) scharf. Bisher landet so ein Fenster mit etwa der HALBEN Auflösung im "

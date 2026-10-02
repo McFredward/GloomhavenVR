@@ -20,6 +20,9 @@ internal static class FrameDefaults
     internal const bool ForceTextureStreamingOff = false;
     internal const int PixelLightCount = 0;
     internal const bool DesktopMirrorLeftEye = false;
+    // Build607: the maintainer reports a hitch at every dust reveal on standalone Frame.
+    // Only new profiles use this default; the existing [WorldUI] choice remains authoritative.
+    internal const bool WindowMaterialise = false;
 
     // The game's native Fantastic profile uses a 900 MB streaming budget. This minimum is
     // inert under the fresh native Fastest profile, which has streaming disabled; unlike the

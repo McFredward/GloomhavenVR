@@ -141,6 +141,11 @@ internal static partial class VROptionsTab
         // PanelSupersample.2.Capture.CreateMipRt and re-asserted in ResolveAndMip, both of which
         // only run for an engaged entry).
         ["WorldUI/PanelMipLodOffset"] = new("WorldUI", "PanelSupersample", On),
+        // These are only the dust/sweep effect's calibration. Native window motion,
+        // handles, card burns and gameplay continuation do not depend on this toggle.
+        ["WorldUI/WindowMaterialiseAppearSeconds"] = new("WorldUI", "WindowMaterialise", On),
+        ["WorldUI/WindowMaterialiseVanishSeconds"] = new("WorldUI", "WindowMaterialise", On),
+        ["WorldUI/WindowMaterialiseIntensity"] = new("WorldUI", "WindowMaterialise", On),
 
         // ---- Umgebung & Ton ▸ Kampagnenkarte: the map-room card hand exists only inside the 3D
         //      map room. Not an inference from its name: the hand is engaged from exactly one place
