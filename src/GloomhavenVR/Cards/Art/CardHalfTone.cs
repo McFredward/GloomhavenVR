@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Stopwatch = System.Diagnostics.Stopwatch;
 using GloomhavenVR.Core;
 using UnityEngine;
 using UnityEngine.UI;
@@ -251,7 +252,25 @@ internal static class CardHalfTone
     /// <summary>Unscaled time of the next census.</summary>
     private static float s_nextCensus;
 
-    /// <summary>Last verdict string printed — the line repeats only when the numbers change.</summary>
+    // Build607 Frame hardware: the 227-face census ran synchronously inside an art arrival or
+    // the first fan-open frame (for example frames14620/15255/18279). Its samples are diagnostics,
+    // not input to the correction above. Normal logging must not pay for them, and Debug must not
+    // repeatedly turn one card's maintenance into a whole-scene measurement hitch. Discovery is
+    // still one native resource query; keep it on a separate, measured frame, then sample at most
+    // eight faces / one millisecond per frame. A single native property read cannot be preempted.
+    private const int CensusFacesPerFrame = 8;
+    private const double CensusBudgetSeconds = 0.001;
+    private const float CensusHeartbeatSeconds = 30f;
+    private static FullAbilityCard[]? s_censusFaces;
+    private static int s_censusIndex;
+    private static int s_censusFrame = -1;
+    private static int s_censusStartedFrame;
+    private static float s_censusStartedTime;
+    private static float s_lastCensusLog = float.NegativeInfinity;
+    private static int s_censusSkipped;
+    private static Bucket s_censusGame, s_censusAdopted, s_censusClone, s_censusPool;
+
+    /// <summary>Last verdict printed; unchanged results only repeat on the bounded heartbeat.</summary>
     private static string? s_lastVerdict;
 
     /// <summary>Censuses run so far, so a repeat-suppressed line can still be dated.</summary>
@@ -426,6 +445,10 @@ internal static class CardHalfTone
     internal static void Reset()
     {
         s_nextCensus = 0f;
+        s_censusFaces = null;
+        s_censusIndex = 0;
+        s_censusFrame = -1;
+        s_lastCensusLog = float.NegativeInfinity;
         s_lastVerdict = null;
         // The diff pair belongs to the scene that is going away; the latch clears with it so the next
         // scene gets its own reading rather than inheriting a stale "already reported".
@@ -1056,15 +1079,49 @@ internal static class CardHalfTone
 
     private static void MaybeCensus()
     {
-        if (Time.unscaledTime < s_nextCensus)
+        if (!VRLog.WantsDebug)
+        {
+            s_censusFaces = null; // do not retain a partial Debug snapshot while its level is off
             return;
+        }
+        if (s_censusFrame == Time.frameCount)
+            return; // many faces offer themselves in the same frame
+        s_censusFrame = Time.frameCount;
+        if (s_censusFaces == null)
+        {
+            if (Time.unscaledTime < s_nextCensus)
+                return;
+            using (PerfMonitor.Scope("Cards.HalfToneCensus.Discovery"))
+                RunCensus();
+            return; // discovery and sampling never stack onto one card-arrival frame
+        }
+        if (s_censusIndex < s_censusFaces.Length)
+        {
+            using (PerfMonitor.Scope("Cards.HalfToneCensus.Sample"))
+            {
+                long started = Stopwatch.GetTimestamp();
+                int walked = 0;
+                while (s_censusIndex < s_censusFaces.Length && walked < CensusFacesPerFrame)
+                {
+                    SampleCensusFace(s_censusFaces[s_censusIndex++]);
+                    walked++;
+                    if ((Stopwatch.GetTimestamp() - started) / (double)Stopwatch.Frequency
+                        >= CensusBudgetSeconds)
+                        break;
+                }
+            }
+            return; // formatting/reflection belongs to a later frame too
+        }
+        using (PerfMonitor.Scope("Cards.HalfToneCensus.Report"))
+            ReportCensus();
+        s_censusFaces = null;
         s_nextCensus = Time.unscaledTime + CensusIntervalSeconds;
-        RunCensus();
     }
 
     /// <summary>
-    /// One whole-scene reading of every ability face, split into the three populations, printed as
-    /// one line. <c>Resources.FindObjectsOfTypeAll</c> rather than <c>FindObjectsOfType</c> on
+    /// Begin one bounded, multi-frame reading of every ability face. This is diagnostic evidence
+    /// collected over an interval, never an atomic comparison of simultaneous card states.
+    /// <c>Resources.FindObjectsOfTypeAll</c> rather than <c>FindObjectsOfType</c> on
     /// purpose: a window row's full-card preview is only ACTIVE while the pointer is on it, and the
     /// overlay's half state is written by <c>Init</c>/<c>SetMode</c> long before that — so the
     /// reference population would otherwise be invisible to the census in almost every frame it
@@ -1074,14 +1131,14 @@ internal static class CardHalfTone
     /// </summary>
     private static void RunCensus()
     {
-        FullAbilityCard[] all;
         try
         {
-            all = Resources.FindObjectsOfTypeAll<FullAbilityCard>();
+            s_censusFaces = Resources.FindObjectsOfTypeAll<FullAbilityCard>();
         }
         catch (System.Exception ex)
         {
             LogErrorOnce("census sweep", ex);
+            s_nextCensus = Time.unscaledTime + CensusIntervalSeconds;
             return;
         }
 
@@ -1089,55 +1146,64 @@ internal static class CardHalfTone
         s_diffReference = null;
         s_diffReferenceRank = int.MaxValue;
 
-        Bucket game = default, adopted = default, clone = default, pool = default;
-        game.Seed();
-        adopted.Seed();
-        clone.Seed();
-        pool.Seed();
-        int skipped = 0;
+        s_censusGame = default;
+        s_censusAdopted = default;
+        s_censusClone = default;
+        s_censusPool = default;
+        s_censusGame.Seed();
+        s_censusAdopted.Seed();
+        s_censusClone.Seed();
+        s_censusPool.Seed();
+        s_censusSkipped = 0;
+        s_censusIndex = 0;
+        s_censusStartedFrame = Time.frameCount;
+        s_censusStartedTime = Time.unscaledTime;
+    }
 
-        for (int i = 0; i < all.Length; i++)
+    private static void SampleCensusFace(FullAbilityCard face)
+    {
+        if (face == null || !face.gameObject.scene.IsValid())
         {
-            FullAbilityCard face = all[i];
-            if (face == null || !face.gameObject.scene.IsValid())
-            {
-                skipped++;
-                continue;
-            }
-            try
-            {
-                bool isAdopted = CardArtGuard.IsAdopted(face);
-                bool owned = !isAdopted
-                             && face.GetComponentInParent<AbilityCardUI>(includeInactive: true) == null;
-                // A widget PARKED IN THE POOL is game-owned but is nobody's overlay: it has been
-                // through no Init/SetMode since it was handed back, and OnReturnedToPool's
-                // ResetInteractable() clears the booleans without restoring the alpha. It is
-                // therefore the exact object a pooled-borrow clone is copied FROM, and mixing it
-                // into the overlay's reference population would blur the very comparison this
-                // census exists to make. Its own numbers are printed instead.
-                bool pooled = !isAdopted && !owned
-                              && face.GetComponentInParent<ObjectPool>(includeInactive: true) != null;
-                ref Bucket bucket = ref (isAdopted
-                    ? ref adopted
-                    : ref (owned ? ref clone : ref (pooled ? ref pool : ref game)));
-                int population = isAdopted ? 2 : (owned ? 3 : (pooled ? 1 : 0));
-                bucket.Faces++;
-                Sample(ref bucket, face.topActionButton, population);
-                Sample(ref bucket, face.bottomActionButton, population);
-            }
-            catch (System.Exception ex)
-            {
-                skipped++;
-                LogErrorOnce("census sample", ex);
-            }
+            s_censusSkipped++;
+            return;
         }
+        try
+        {
+            bool isAdopted = CardArtGuard.IsAdopted(face);
+            bool owned = !isAdopted
+                         && face.GetComponentInParent<AbilityCardUI>(includeInactive: true) == null;
+            // A widget PARKED IN THE POOL is game-owned but is nobody's overlay: it has been
+            // through no Init/SetMode since it was handed back, and OnReturnedToPool's
+            // ResetInteractable() clears the booleans without restoring the alpha. It is
+            // therefore the exact object a pooled-borrow clone is copied FROM, and mixing it
+            // into the overlay's reference population would blur the very comparison this
+            // census exists to make. Its own numbers are printed instead.
+            bool pooled = !isAdopted && !owned
+                          && face.GetComponentInParent<ObjectPool>(includeInactive: true) != null;
+            ref Bucket bucket = ref (isAdopted
+                ? ref s_censusAdopted
+                : ref (owned ? ref s_censusClone : ref (pooled ? ref s_censusPool : ref s_censusGame)));
+            int population = isAdopted ? 2 : (owned ? 3 : (pooled ? 1 : 0));
+            bucket.Faces++;
+            Sample(ref bucket, face.topActionButton, population);
+            Sample(ref bucket, face.bottomActionButton, population);
+        }
+        catch (System.Exception ex)
+        {
+            s_censusSkipped++;
+            LogErrorOnce("census sample", ex);
+        }
+    }
 
+    private static void ReportCensus()
+    {
+        Bucket game = s_censusGame, adopted = s_censusAdopted, clone = s_censusClone, pool = s_censusPool;
         s_censuses++;
         MaybeDumpPlateDiff();
         int compared = game.Faces + adopted.Faces + clone.Faces + pool.Faces;
         string verdict = Verdict(game, adopted, clone, pool);
-        string line = $"CARD HALF TONE CENSUS #{s_censuses}: compared {compared} ability face(s) " +
-                      $"({skipped} skipped as assets/unreadable); " +
+        string line = $"compared {compared} ability face(s) " +
+                      $"({s_censusSkipped} skipped as assets/unreadable); " +
                       $"{game.Describe("GAME-LIVE(the overlay's population)")}; " +
                       $"{pool.Describe("GAME-POOL(parked, = what a clone is copied from)")}; " +
                       $"{adopted.Describe("ADOPTED(scenario fan/tray)")}; " +
@@ -1153,10 +1219,13 @@ internal static class CardHalfTone
                           ? $"; the corrected halves read alpha {s_beforeMinAlpha:F2}..{s_beforeMaxAlpha:F2} " +
                             $"and {s_beforeNonInteractable}/{s_beforeHalves} non-interactable BEFORE the write"
                           : string.Empty) + ". " + verdict;
-        if (line == s_lastVerdict)
+        if (line == s_lastVerdict && Time.unscaledTime - s_lastCensusLog < CensusHeartbeatSeconds)
             return;
         s_lastVerdict = line;
-        VRLog.Info(Scope, line);
+        s_lastCensusLog = Time.unscaledTime;
+        VRLog.Info(Scope, $"CARD HALF TONE CENSUS #{s_censuses}: {line} " +
+            $"Sampled across {Time.frameCount - s_censusStartedFrame} frame(s) / " +
+            $"{Time.unscaledTime - s_censusStartedTime:F2}s, not simultaneous state.");
     }
 
     /// <summary>Name the divergence as a sentence, or say plainly that there is none — including
