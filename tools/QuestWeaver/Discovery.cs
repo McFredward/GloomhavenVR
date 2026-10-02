@@ -12,10 +12,13 @@ public sealed class AuditReport
     public int PatchClasses { get; set; }
     public int AttributedHookMethods { get; set; }
     public int WovenTargets { get; set; }
+    public int ProtectedTypesVerified { get; set; }
     public List<HookEvidence> Hooks { get; set; } = new();
     public List<CallEvidence> Registrations { get; set; } = new();
     public List<CallEvidence> FieldHelpers { get; set; } = new();
     public List<IntegrationIssue> Issues { get; set; } = new();
+    public List<string> HarmonyApi { get; set; } = new();
+    public List<IntegrationIssue> AotRisks { get; set; } = new();
     public Dictionary<string, string> InputAssemblies { get; set; } = new();
 }
 
@@ -67,6 +70,12 @@ internal sealed class Discovery : IDisposable
     {
         if (cached != null) return cached;
         var report = new AuditReport { ModSha256 = Hash(ModPath) };
+        if (Mod.MainModule.Resources.Any(r => r.Name == "QuestWeaver.Hooks.v1")) report.Issues.Add(new IntegrationIssue("ALREADY_WOVEN", Mod.Name.Name, "The mod input already contains generated Quest integration. Build from a fresh current mod output and original game assemblies."));
+        report.Issues.AddRange(HarmonyFacade.Validate(Mod.MainModule));
+        report.HarmonyApi = Mod.MainModule.GetMemberReferences().Where(m => m.DeclaringType.FullName.StartsWith("HarmonyLib.", StringComparison.Ordinal)).Select(m => m.FullName).Distinct().OrderBy(s => s, StringComparer.Ordinal).ToList();
+        foreach (TypeDefinition type in AllTypes(Mod.MainModule))
+            if (type.BaseType?.FullName == "BepInEx.BaseUnityPlugin") report.AotRisks.Add(new IntegrationIssue("BEPINEX_MONO_BOOTSTRAP", type.FullName,
+                "Original BaseUnityPlugin constructor requires initialized Chainloader, Paths, logger/config and assembly location; Quest needs a verified standalone lifecycle adapter."));
         cached = report;
         var direct = new HashSet<MethodDefinition>();
         foreach (TypeDefinition type in AllTypes(Mod.MainModule))
@@ -117,6 +126,10 @@ internal sealed class Discovery : IDisposable
                 foreach (Instruction instruction in method.Body.Instructions)
                 {
                     if (instruction.Operand is not MethodReference call) continue;
+                    if (call.DeclaringType.FullName == "System.Reflection.Assembly" && call.Name.StartsWith("Load", StringComparison.Ordinal))
+                        report.AotRisks.Add(new IntegrationIssue("DYNAMIC_ASSEMBLY_LOADING", method.FullName, call.FullName));
+                    if (call.DeclaringType.FullName == "System.Reflection.Assembly" && call.Name == "get_Location")
+                        report.AotRisks.Add(new IntegrationIssue("ASSEMBLY_LOCATION_PATH", method.FullName, "Use a verified Quest persistent/content root; an IL2CPP assembly does not provide a desktop DLL directory."));
                     string[] strings = method.Body.Instructions.Where(i => i.OpCode == OpCodes.Ldstr).Select(i => (string)i.Operand).Distinct().ToArray();
                     if (call.DeclaringType.FullName == "HarmonyLib.Harmony" && call.Name is "Patch" or "PatchAll" or "UnpatchSelf" or "Unpatch" or "UnpatchAll")
                     {
@@ -133,6 +146,8 @@ internal sealed class Discovery : IDisposable
                         report.Issues.Add(new IntegrationIssue("DYNAMIC_CODE", method.FullName, call.FullName));
                 }
             }
+            foreach (MethodDefinition native in type.Methods.Where(m => m.IsPInvokeImpl))
+                report.AotRisks.Add(new IntegrationIssue("ANDROID_NATIVE_ENTRYPOINT", native.FullName, native.PInvokeInfo.Module.Name + ":" + native.PInvokeInfo.EntryPoint));
         }
         foreach (MethodDefinition method in direct)
         {
@@ -216,10 +231,13 @@ internal sealed class Discovery : IDisposable
             if (literal.Contains(':', StringComparison.Ordinal))
             { string[] pair = literal.Split(':'); if (pair.Length == 2) { strings.Add(pair[0]); strings.Add(pair[1]); } }
         EnsureTypeSearch();
-        foreach (AssemblyDefinition assembly in typeSearch)
+        TypeDefinition[] available = typeSearch.SelectMany(a => AllTypes(a.MainModule)).ToArray();
+        foreach (string name in strings)
         {
-            foreach (TypeDefinition type in AllTypes(assembly.MainModule))
-                if (strings.Contains(type.FullName) || strings.Contains(type.Name)) types.Add(type);
+            TypeDefinition[] exact = available.Where(t => t.FullName == name).ToArray();
+            // Harmony prefers a full name (including a global type's simple full name) over
+            // simple-name fallback. Do not drag SonyNP.Main into a literal global Main hook.
+            foreach (TypeDefinition type in exact.Length > 0 ? exact : available.Where(t => t.Name == name)) types.Add(type);
         }
         return types.SelectMany(t => t.Methods).Where(m => strings.Contains(m.Name)
             || strings.Any(s => s.StartsWith(".", StringComparison.Ordinal) && m.Name.EndsWith(s, StringComparison.Ordinal))).Distinct().ToArray();

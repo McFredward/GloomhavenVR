@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>netstandard2.0</TargetFramework><Nullable>enable</Nullable><LangVersion>latest</LangVersion><AssemblyName>0Harmony</AssemblyName><AssemblyVersion>2.7.0.0</AssemblyVersion><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../Runtime/QuestWeaver.Runtime.csproj" /></ItemGroup>
+</Project>

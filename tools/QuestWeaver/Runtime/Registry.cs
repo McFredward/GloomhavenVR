@@ -128,6 +128,13 @@ namespace QuestWeaver.Runtime
             return System.Threading.Volatile.Read(ref Orders).TryGetValue(key, out int[]? slots) ? slots : Empty;
         }
         private static readonly int[] Empty = new int[0];
+        private static int finalizerFailures;
+        public static void ReportFinalizerFailure(Exception error, string patch)
+        {
+            if (System.Threading.Interlocked.Increment(ref finalizerFailures) > 16) return;
+            try { Console.Error.WriteLine("[QuestAOT] Guarded finalizer failure in " + patch + ": " + error); }
+            catch (Exception) { /* Diagnostic sinks must never replace the gameplay exception. */ }
+        }
         private static string Owner(object owner) => (string)(owner.GetType().GetProperty("Id")?.GetValue(owner, null)
             ?? throw new ArgumentException("Harmony owner ID is unavailable."));
 

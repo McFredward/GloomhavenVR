@@ -9,6 +9,8 @@
   <ItemGroup>
     <PackageReference Include="Mono.Cecil" Version="0.11.4" />
     <ProjectReference Include="Runtime/QuestWeaver.Runtime.csproj" />
+    <ProjectReference Include="HarmonyCompat/QuestHarmonyCompat.csproj" />
     <Compile Remove="Runtime/**/*.cs" />
+    <Compile Remove="HarmonyCompat/**/*.cs" />
   </ItemGroup>
 </Project>

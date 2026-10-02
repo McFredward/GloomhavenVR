@@ -16,6 +16,7 @@ internal sealed class Weaver
             || absolute == Path.GetDirectoryName(model.ModPath)) throw new ArgumentException("Output must not modify an input assembly directory.");
         if (Directory.Exists(absolute) && Directory.EnumerateFileSystemEntries(absolute).Any()) throw new ArgumentException("Output directory must be empty.");
         var allHooks = model.Hooks.ToArray();
+        var protectedSnapshots = model.Loaded.Distinct().ToDictionary(a => a, ProtectedTypes.Snapshot);
         var slots = allHooks.Select((h, i) => (h, i)).ToDictionary(x => x.h, x => x.i);
         foreach (TypeDefinition type in Discovery.AllTypes(model.Mod.MainModule))
         {
@@ -47,8 +48,10 @@ internal sealed class Weaver
                 assembly.Write(destination);
                 using AssemblyDefinition reread = AssemblyDefinition.ReadAssembly(destination);
                 if (reread.Name.Name != assembly.Name.Name) throw new InvalidDataException("Assembly identity changed during serialization.");
+                report.ProtectedTypesVerified += ProtectedTypes.Verify(protectedSnapshots[assembly], reread);
             }
             File.Copy(typeof(Registry).Assembly.Location, Path.Combine(scratch, "QuestWeaver.Runtime.dll"));
+            HarmonyFacade.Write(Path.Combine(scratch, "0Harmony.dll"), model.Mod.MainModule.AssemblyReferences.FirstOrDefault(a => a.Name == "0Harmony"));
             File.WriteAllText(Path.Combine(scratch, "link.xml"), links);
             if (diagnostic) File.WriteAllText(Path.Combine(scratch, "DIAGNOSTIC-INCOMPLETE.txt"), "This subset is not a complete Quest game/mod conversion. Inspect the audit report.\n");
             if (Directory.Exists(absolute)) Directory.Delete(absolute);
@@ -81,14 +84,20 @@ internal sealed class Weaver
     private static void ReplaceHelper(FieldHelper helper)
     {
         ModuleDefinition module = helper.Field.Module;
-        var getter = new MethodDefinition("__QuestFieldRef_" + helper.Field.Name, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
-            new ByReferenceType(module.ImportReference(helper.Factory.GenericArguments[1])));
-        getter.Parameters.Add(new ParameterDefinition("instance", ParameterAttributes.None, module.ImportReference(helper.Factory.GenericArguments[0])));
-        helper.Field.DeclaringType.Methods.Add(getter);
-        ILProcessor gi = getter.Body.GetILProcessor();
-        if (!helper.Field.IsStatic) gi.Emit(OpCodes.Ldarg_0);
-        gi.Emit(helper.Field.IsStatic ? OpCodes.Ldsflda : OpCodes.Ldflda, helper.Field);
-        gi.Emit(OpCodes.Ret);
+        string getterName = "__QuestFieldRef_" + helper.Field.Name;
+        MethodDefinition? getter = helper.Field.DeclaringType.Methods.FirstOrDefault(m => m.Name == getterName && m.Parameters.Count == 1
+            && m.Parameters[0].ParameterType.FullName == helper.Factory.GenericArguments[0].FullName);
+        if (getter == null)
+        {
+            getter = new MethodDefinition(getterName, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+                new ByReferenceType(module.ImportReference(helper.Factory.GenericArguments[1])));
+            getter.Parameters.Add(new ParameterDefinition("instance", ParameterAttributes.None, module.ImportReference(helper.Factory.GenericArguments[0])));
+            helper.Field.DeclaringType.Methods.Add(getter);
+            ILProcessor gi = getter.Body.GetILProcessor();
+            if (!helper.Field.IsStatic) gi.Emit(OpCodes.Ldarg_0);
+            gi.Emit(helper.Field.IsStatic ? OpCodes.Ldsflda : OpCodes.Ldflda, helper.Field);
+            gi.Emit(OpCodes.Ret);
+        }
         ModuleDefinition callerModule = helper.Caller.Module;
         var delegateType = new GenericInstanceType(callerModule.ImportReference(((GenericInstanceType)helper.Factory.ReturnType).ElementType));
         foreach (TypeReference a in helper.Factory.GenericArguments) delegateType.GenericArguments.Add(callerModule.ImportReference(a));
@@ -124,6 +133,7 @@ internal sealed class Weaver
         ILProcessor il = target.Body.GetILProcessor();
         VariableDefinition? result = target.ReturnType.MetadataType == MetadataType.Void ? null : Local(target.ReturnType);
         VariableDefinition run = Local(module.TypeSystem.Boolean);
+        VariableDefinition finalized = Local(module.TypeSystem.Boolean);
         TypeReference exceptionType = CoreType(module, "System", "Exception");
         VariableDefinition exception = Local(exceptionType);
         var states = new Dictionary<TypeDefinition, VariableDefinition>();
@@ -155,10 +165,17 @@ internal sealed class Weaver
         if (result != null) il.Emit(OpCodes.Stloc, result);
         il.Append(skipOriginal);
         EmitHooks("postfix");
-        il.Emit(OpCodes.Leave, afterCatch);
-        il.Append(catchStart); il.Emit(OpCodes.Leave, afterCatch); il.Append(afterCatch);
-        target.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch) { TryStart = tryStart, TryEnd = catchStart, HandlerStart = catchStart, HandlerEnd = afterCatch, CatchType = exceptionType });
         EmitHooks("finalizer");
+        il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Stloc, finalized);
+        Instruction clean = Instruction.Create(OpCodes.Nop);
+        il.Emit(OpCodes.Ldloc, exception); il.Emit(OpCodes.Brfalse, clean); il.Emit(OpCodes.Ldloc, exception); il.Emit(OpCodes.Throw); il.Append(clean);
+        il.Emit(OpCodes.Leave, afterCatch);
+        il.Append(catchStart);
+        Instruction completed = Instruction.Create(OpCodes.Nop);
+        il.Emit(OpCodes.Ldloc, finalized); il.Emit(OpCodes.Brtrue, completed);
+        EmitHooks("finalizer", true);
+        il.Append(completed); il.Emit(OpCodes.Leave, afterCatch); il.Append(afterCatch);
+        target.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch) { TryStart = tryStart, TryEnd = catchStart, HandlerStart = catchStart, HandlerEnd = afterCatch, CatchType = exceptionType });
         Instruction finish = Instruction.Create(OpCodes.Nop);
         il.Emit(OpCodes.Ldloc, exception); il.Emit(OpCodes.Brfalse, finish);
         il.Emit(OpCodes.Ldloc, exception);
@@ -173,7 +190,7 @@ internal sealed class Weaver
 
         VariableDefinition Local(TypeReference type) { var v = new VariableDefinition(type); target.Body.Variables.Add(v); return v; }
 
-        void EmitHooks(string kind)
+        void EmitHooks(string kind, bool suppressExceptions = false)
         {
             HookDefinition[] selected = hooks.Where(h => h.Kind == kind).ToArray();
             if (selected.Length == 0) return;
@@ -185,15 +202,26 @@ internal sealed class Weaver
             {
                 Instruction noMatch = Instruction.Create(OpCodes.Nop);
                 il.Emit(OpCodes.Ldloc, slot); il.Emit(OpCodes.Ldc_I4, slots[hook]); il.Emit(OpCodes.Bne_Un, noMatch);
-                // Harmony runs side-effect-free void prefixes after an earlier prefix skipped
-                // the original. A return value or ref/out input marks a prefix as affecting it.
-                bool affects = hook.Patch.ReturnType.MetadataType != MetadataType.Void || hook.Patch.Parameters.Any(p => p.ParameterType.IsByReference);
-                if (kind == "prefix" && affects) { il.Emit(OpCodes.Ldloc, run); il.Emit(OpCodes.Brfalse, next); }
+                // HarmonyX 2.7 deliberately runs EVERY prefix, even after the original was
+                // skipped. Returning true later cannot undo a prior false (the flags AND).
+                Instruction? callStart = suppressExceptions ? Instruction.Create(OpCodes.Nop) : null;
+                if (callStart != null) il.Append(callStart);
                 foreach (ParameterDefinition p in hook.Patch.Parameters) EmitArgument(p, hook);
                 il.Emit(OpCodes.Call, module.ImportReference(hook.Patch));
                 if (kind == "prefix" && hook.Patch.ReturnType.MetadataType == MetadataType.Boolean)
                 { il.Emit(OpCodes.Ldloc, run); il.Emit(OpCodes.And); il.Emit(OpCodes.Stloc, run); }
                 if (kind == "finalizer" && hook.Patch.ReturnType.MetadataType != MetadataType.Void) il.Emit(OpCodes.Stloc, exception);
+                if (suppressExceptions)
+                {
+                    VariableDefinition secondary = Local(exceptionType);
+                    Instruction handler = Instruction.Create(OpCodes.Stloc, secondary), end = Instruction.Create(OpCodes.Nop);
+                    il.Emit(OpCodes.Leave, end); il.Append(handler);
+                    il.Emit(OpCodes.Ldloc, secondary); il.Emit(OpCodes.Ldstr, hook.Patch.FullName);
+                    il.Emit(OpCodes.Call, ImportRegistry(module, nameof(Registry.ReportFinalizerFailure)));
+                    il.Emit(OpCodes.Leave, end); il.Append(end);
+                    target.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
+                    { TryStart = callStart, TryEnd = handler, HandlerStart = handler, HandlerEnd = end, CatchType = exceptionType });
+                }
                 il.Emit(OpCodes.Br, next); il.Append(noMatch);
             }
             il.Append(next); il.Emit(OpCodes.Ldloc, index); il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Add); il.Emit(OpCodes.Stloc, index);

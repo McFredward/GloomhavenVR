@@ -15,7 +15,9 @@ dotnet run --project tests/QuestWeaver.Tests/QuestWeaver.Tests.csproj
 ```
 
 The output contains the mod, assemblies whose methods/field helpers were integrated,
-`QuestWeaver.Runtime.dll`, and a conservative `link.xml`. Merge these into the
+`QuestWeaver.Runtime.dll`, a validated same-identity `0Harmony.dll` reflection/metadata
+facade, and a conservative `link.xml`. The original HarmonyX static initializer installs
+a runtime detour; copying its whole DLL would defeat the AOT conversion. Merge these into the
 recovered project's assembly staging. Original runtime dependencies remain necessary.
 `audit` returns 2 for unresolved integration gates; `weave` fails before producing
 output when such gates exist. Exit 1 indicates a tool/input error; 64 is usage.
@@ -26,6 +28,9 @@ preserve activation, original skip, argument/result references, per-class typed
 and registration order, and finalizer exception suppression/propagation. `PatchAll`,
 the actual direct `Patch` argument positions, and `UnpatchSelf` are redirected to an
 activation facade. The facade never emits code or reflectively invokes patch bodies.
+All HarmonyX prefixes run after a skip, with boolean returns combined by AND. Finalizers
+retain the guarded recovery pass after original/patch/finalizer exceptions; secondary
+finalizer failures are logged with a process-wide bound and cannot skip later cleanup.
 Reference-returning private-field factories become precompiled delegates accessing
 the original field. Method selectors are bounded metadata-derived candidate closures;
 their original runtime reflection selects exact active targets. A selector escaping
@@ -41,4 +46,9 @@ an `INCOMPLETE` marker. It is not a playable or complete conversion.
 The audit's `complete` means the assembly integration has no currently reported gate.
 It does not certify IL2CPP, serializer/generic closure, Android native dependencies,
 recovered assets, multiplayer authentication, runtime behavior or headset performance.
-Those gates belong to the builder and hardware evidence.
+Those gates belong to the builder and hardware evidence. `aotRisks` names remaining
+desktop bootstrap, dynamic assembly-loading, content-path and native-entrypoint concerns;
+an empty hook `issues` array does not resolve them. Output validation compares protected
+game type signatures and semantic IL before/after serialization. ScenarioRuleLibrary and
+Photon Bolt assemblies are not emitted. The executable fixture uses the real HarmonyX
+2.7 API and covers N -> N+1 changed behavior/new patches without builder edits.

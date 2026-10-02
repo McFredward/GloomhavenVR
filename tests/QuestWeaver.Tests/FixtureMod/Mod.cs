@@ -6,10 +6,14 @@ namespace FixtureMod;
 public static class Entry
 {
     private static readonly Harmony Owner = new("fixture.owner");
-    public static void Install() { Owner.PatchAll(typeof(CalculatePatch)); Owner.PatchAll(typeof(SimplePatch)); }
+    public static void Install() { Owner.PatchAll(typeof(CalculatePatch)); Owner.PatchAll(typeof(SimplePatch)); Owner.PatchAll(typeof(MutatingPatch)); Owner.PatchAll(typeof(CleanupPatch)); }
     public static void Remove() => Owner.UnpatchSelf();
     public static int Preparations, Selections;
+    public static int FinalizerFailures;
     public static void InstallDynamic() => Owner.PatchAll(typeof(DynamicPatch));
+#if QUEST_FIXTURE_NEXT
+    public static void InstallNext() => Owner.PatchAll(typeof(NextPatch));
+#endif
     public static void InstallDirect() => Owner.Patch(typeof(Target).GetMethod(nameof(Target.Direct))!,
         prefix: new HarmonyMethod(typeof(DirectHooks), nameof(DirectHooks.ArbitraryName)),
         postfix: new HarmonyMethod(typeof(DirectHooks), nameof(DirectHooks.AdjustResult)),
@@ -33,6 +37,7 @@ internal static class CalculatePatch
     private static Exception? Finalizer(Exception? __exception, ref int __result, State __state)
     {
         Target.Trace.Add("finalizer");
+        if (Entry.FinalizerFailures > 0) { Entry.FinalizerFailures--; throw new InvalidOperationException("finalizer-failure"); }
         if (__exception is InvalidOperationException) { __result = 80 + __state.Counter; return null; }
         return __exception;
     }
@@ -44,14 +49,40 @@ internal static class SimplePatch
     private static void Prefix() => Target.Trace.Add("simple-prefix");
 }
 
+[HarmonyPatch(typeof(Target), nameof(Target.Calculate))]
+internal static class MutatingPatch
+{
+    private static bool Prefix(ref int value)
+    { Target.Trace.Add("mutating-prefix"); if (value == -1) value = -2; return true; }
+}
+
+[HarmonyPatch(typeof(Target), nameof(Target.Calculate))]
+internal static class CleanupPatch
+{
+    private static void Finalizer(Exception? __exception) => Target.Trace.Add("cleanup:" + (__exception?.GetType().Name ?? "ok"));
+}
+
 [HarmonyPatch]
 internal static class DynamicPatch
 {
     private static bool Prepare() { Entry.Preparations++; return true; }
     private static System.Reflection.MethodInfo TargetMethod() { Entry.Selections++; return typeof(Target).GetMethod(nameof(Target.Dynamic))!; }
-    private static void Prefix(ref int value) => value += 3;
+    private static void Prefix(ref int value) => value +=
+#if QUEST_FIXTURE_NEXT
+        5;
+#else
+        3;
+#endif
     private static void Postfix(ref int __result) => __result += 4;
 }
+
+#if QUEST_FIXTURE_NEXT
+[HarmonyPatch(typeof(Target), nameof(Target.Dynamic))]
+internal static class NextPatch
+{
+    private static void Postfix(ref int __result) => __result += 10;
+}
+#endif
 
 internal static class DirectHooks
 {

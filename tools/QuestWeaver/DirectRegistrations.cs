@@ -55,6 +55,7 @@ internal static class DirectRegistrations
                         {
                             if (args[index] == null) continue;
                             if (args[index] is not HarmonyValue value) throw new InvalidOperationException("Cannot resolve " + kind + " HarmonyMethod at IL_" + instruction.Offset.ToString("x4"));
+                            if (value.Definitions.Length == 0) throw new InvalidOperationException("The " + kind + " HarmonyMethod names no existing patch method at IL_" + instruction.Offset.ToString("x4"));
                             foreach (MethodDefinition patch in value.Definitions) hooks.Add(new DirectHook(patch, kind, (args[0] as Methods)?.Definitions));
                         }
                     }
