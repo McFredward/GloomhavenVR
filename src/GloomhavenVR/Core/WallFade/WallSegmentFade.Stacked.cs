@@ -402,6 +402,11 @@ internal static partial class WallSegmentFade
                     lost = true;
                     continue;
                 }
+                // Purely decorative budget masks own visibility, not the native room/occluder
+                // facts. Keep membership and restoration; avoid union and material writes until
+                // this renderer is visible again. The ordinary per-frame loop resumes immediately.
+                if (ScenarioSceneryBudget.IsOwnedHidden(p.Renderer))
+                    continue;
                 if (want == 2)
                 {
                     // Fresh arrival during the held state: park the material/particle
@@ -642,7 +647,7 @@ internal static partial class WallSegmentFade
             int claimed = 0;
             foreach (MeshRenderer r in all)
             {
-                if (r == null || !r.enabled)
+                if (r == null || !r.enabled || ScenarioSceneryBudget.IsOwnedHidden(r))
                     continue;
                 Bounds b = r.bounds;
                 if (b.max.x < unionMinX || b.min.x > unionMaxX

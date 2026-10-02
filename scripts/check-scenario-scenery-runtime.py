@@ -74,11 +74,14 @@ def main():
             ('anonymous-tree-floor-admitted', 'Scenery.cs', 'if (IsNativeSceneryAsset(mesh.name)\n            && (IsHardStructuralName(mesh.name) || (!foliage && IsGrassBase(mesh.name))))', 'if (IsNativeSceneryAsset(mesh.name)\n            && (IsHardStructuralName(mesh.name) || (!foliage && IsGrassBase(mesh.name))) && false)', 'anonymous original floor mesh under tree keeps its solid identity'),
             ('completed-tree-wall-boundary-lost', 'Scenery.cs', 'return carrier; // outside an already complete tree, the wall/floor is its boundary', 'return null; // negative: surrounding wall incorrectly discards completed tree', 'completed native tree under mixed masonry wrapper remains optional'),
 
+            ('held-full-scenery-scan', 'Scenery.cs', '_heldMeshChecks++;', '_heldMeshChecks += _records.Count;', 'holding one mesh examines one renderer'),
+            ('remote-held-root-omitted', 'Scenery.cs', 'NetHeldProps.CopyVisualRoots(_heldRoots);', '/* negative: omit actual remote roots */', 'remote held decoration restores immediately'),
+
             ('subtree-cache-retained', 'Scenery.cs', 'finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }', 'finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }', ''),
         ]
         variants = [v for v in variants if v[0] != 'subtree-cache-retained']
     if args.variant:
-        known = {v[0] for v in variants if v[0] != 'production'}
+        known = {v[0] for v in variants}
         missing = set(args.variant) - known
         if missing: parser.error('Unknown negative variant(s): ' + ', '.join(sorted(missing)))
         variants = [v for v in variants if v[0] == 'production' or v[0] in args.variant]

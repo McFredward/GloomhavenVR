@@ -1467,6 +1467,11 @@ internal static partial class WallSegmentFade
                     lost = true;
                     continue;
                 }
+                // Purely decorative budget masks own visibility, not the native room/occluder
+                // facts. Keep membership and restoration; avoid union and material writes until
+                // this renderer is visible again. The ordinary per-frame loop resumes immediately.
+                if (SkipBudgetMaskedAttachment(p, seg.MountedState, ref highest))
+                    continue;
                 // THE ONE LINE THE UNION RULE CHANGES: the fade this PIECE reads. Never the
                 // segment's own — nothing here writes seg.Fade, seg.State or seg.PendingRaw.
                 float eff = UnionFade(p.Renderer, seg);
@@ -1669,7 +1674,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private static bool IsActuallyDrawing(Renderer r)
         {
-            if (r == null || !r.enabled || !r.gameObject.activeInHierarchy)
+            if (r == null || !r.enabled || r.forceRenderingOff || !r.gameObject.activeInHierarchy)
                 return false;
             if (r is ParticleSystemRenderer)
             {
@@ -3583,7 +3588,8 @@ internal static partial class WallSegmentFade
                 return false;
             foreach (MountedProp p in lane)
             {
-                if (p.Renderer != null && ForeignFade(p.Renderer) > owner.Fade)
+                if (p.Renderer != null && !ScenarioSceneryBudget.IsOwnedHidden(p.Renderer)
+                    && ForeignFade(p.Renderer) > owner.Fade)
                     return true;
             }
             return false;

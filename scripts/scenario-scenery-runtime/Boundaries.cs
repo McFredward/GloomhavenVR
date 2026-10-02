@@ -60,9 +60,19 @@ namespace GloomhavenVR.Board.FigureGrab
     {
         internal static Transform? Held;
         internal static int Count => Held == null ? 0 : 1;
+        internal static bool TryGetSlot(int slot, out object prop, out GameObject visual,
+            out int side, out float scale)
+        { prop = new object(); visual = Held == null ? null! : Held.gameObject; side = 0; scale = 1;
+          return slot == 0 && Held != null; }
         internal static bool OwnsRendererOf(Transform leaf) => Held != null && leaf.IsChildOf(Held);
     }
-    internal static class NetHeldProps { internal static bool Any; }
+    internal static class NetHeldProps
+    {
+        internal static bool Any;
+        internal static GameObject? Visual;
+        internal static void CopyVisualRoots(List<GameObject> list)
+        { if (Any && Visual != null) list.Add(Visual); }
+    }
 }
 namespace GloomhavenVR.Core
 {

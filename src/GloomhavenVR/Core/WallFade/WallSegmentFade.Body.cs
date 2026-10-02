@@ -193,6 +193,11 @@ internal static partial class WallSegmentFade
                     lost = true;
                     continue;
                 }
+                // Purely decorative budget masks own visibility, not the native room/occluder
+                // facts. Keep membership and restoration; avoid union and material writes until
+                // this renderer is visible again. The ordinary per-frame loop resumes immediately.
+                if (ScenarioSceneryBudget.IsOwnedHidden(p.Renderer))
+                    continue;
                 if (want == 2)
                 {
                     // MODBUILD 261 — THE CHANNEL IS DECIDED WHEN THE PIECE IS ADOPTED, NOT WHEN

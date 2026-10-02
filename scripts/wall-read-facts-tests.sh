@@ -10,7 +10,7 @@ project="$repo_root/tests/GloomhavenVR.WallReadFactsTests/GloomhavenVR.WallReadF
 dotnet run --project "$project" --configuration Release
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
-for mutation in material-no-cache material-retained figure-no-cache figure-retained gate-inverted phase-unbounded material-bypass-ignored figure-bypass-ignored; do
+for mutation in material-no-cache material-retained figure-no-cache figure-retained gate-inverted phase-unbounded material-bypass-ignored figure-bypass-ignored selection-owner-broadened drawing-force-ignored masked-restitution-lost prepared-cross-frame prepared-label-unshared prepare-room-gate-omitted; do
     python3 - "$repo_root" "$mutation_dir" "$mutation" <<'PY'
 import pathlib
 import sys
@@ -32,14 +32,31 @@ changes = {
                                '_wallCacheMaterialFactsActive = true;'),
     'figure-bypass-ignored': ('_figureRootMemoActive = PerfConfig.SharedWallReadCacheOn;',
                              '_figureRootMemoActive = true;'),
+    'selection-owner-broadened': ('ReferenceEquals(selector.HexProjector, renderer)', 'bool.Parse("true")'),
+    'drawing-force-ignored': (' || r.forceRenderingOff', ''),
+    'masked-restitution-lost': ('if (piece.Driven && previousState > highest)', 'if (bool.Parse("false"))'),
+    'prepared-cross-frame': ('_preparedWallChildFrame != Time.frameCount\n                ||', 'bool.Parse("false")\n                ||'),
+    'prepared-label-unshared': ('if (_standingLabels.TryGetValue(root, out StandingLabel cached)',
+                              'if (bool.Parse("false") && _standingLabels.TryGetValue(root, out StandingLabel cached)'),
+    'prepare-room-gate-omitted': ('if (gen.m_RoomRenderers.Count != _live.BuiltRoomCount)', 'if (bool.Parse("false"))'),
 }
 if mutation in ('figure-retained', 'gate-inverted', 'phase-unbounded', 'figure-bypass-ignored'):
     source = root / 'src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs'
+extra_sources = {
+    'selection-owner-broadened': 'WallSegmentFade.SelectionFacts.cs',
+    'drawing-force-ignored': 'WallSegmentFade.Mounted.cs',
+    'masked-restitution-lost': 'WallSegmentFade.BudgetMask.cs',
+    'prepared-cross-frame': 'WallSegmentFade.PreparedReads.cs',
+    'prepared-label-unshared': 'WallSegmentFade.PreparedReads.cs',
+    'prepare-room-gate-omitted': 'WallSegmentFade.Prepare.cs',
+}
+if mutation in extra_sources:
+    source = root / 'src/GloomhavenVR/Core/WallFade' / extra_sources[mutation]
 needle, replacement = changes[mutation]
 text = source.read_text()
 # The figure clear appears at both begin/end; remove the end only.
-if mutation == 'figure-retained':
-    start = text.index('private static void EndFigureMemo()')
+if mutation in ('figure-retained', 'prepare-room-gate-omitted'):
+    start = text.index('private static void EndFigureMemo()' if mutation == 'figure-retained' else 'private void VerifyPrepareStillValid(')
     prefix, suffix = text[:start], text[start:]
     assert suffix.count(needle) == 1, 'Figure lifetime mutation seam changed'
     text = prefix + suffix.replace(needle, replacement)
@@ -58,6 +75,12 @@ PY
         phase-unbounded) property=DriverSource; expected='Wall material memo must bracket the real synchronous WallCache phase with finally' ;;
         material-bypass-ignored) expected='Material cache setting must be sampled once per phase' ;;
         figure-bypass-ignored) property=DriverSource; expected='Disabled figure root cache must retain the existing figure ancestry window' ;;
+        selection-owner-broadened) property=SelectionFactsSource; expected='Being near a selector never exempts a real wall mesh' ;;
+        drawing-force-ignored) property=MountedSource; expected='Force-hidden scenery never contributes false drawing diagnostics' ;;
+        masked-restitution-lost) property=BudgetMaskSource; expected='A masked driven piece retains the outstanding wall restitution latch' ;;
+        prepared-cross-frame) property=PreparedReadsSource; expected='A cross-frame native regeneration discards prepared hierarchy facts' ;;
+        prepared-label-unshared) property=PreparedReadsSource; expected='Repeated unit child keeps one exact immutable diagnostic label' ;;
+        prepare-room-gate-omitted) property=PrepareSource; expected='A room reveal during preparation drops all old measured floor derivations before publication' ;;
     esac
     if [[ "$mutation" == phase-unbounded ]]; then
         if python3 "$repo_root/tests/GloomhavenVR.WallReadFactsTests/extract-driver.py" \

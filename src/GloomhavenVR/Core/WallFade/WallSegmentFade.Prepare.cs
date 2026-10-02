@@ -54,11 +54,15 @@ namespace GloomhavenVR.Core;
 /// and simply finds the expensive derivations already answered.
 ///
 /// <para>HOW A REVIEWER CHECKS IT. Read <see cref="FadeDriver.StepPrepare"/> top to bottom: its
-/// only statements are cursor arithmetic, a clock read, and calls to
+/// scene work is hierarchy reads, cursor/clock arithmetic, and pure derivation calls to
 /// <see cref="FadeDriver.WarmStandingUnit"/> and <see cref="FadeDriver.WarmPropUnitRoot"/>.
+/// Build 606 also retains child lists only within the current Unity frame, warms the unit
+/// wall-section geometry and diagnostic labels, and validates the room gate again at publication.
+/// Earlier-frame child lists always fall back to a live native walk; no mutable hierarchy is
+/// trusted across a frame boundary.
 /// Follow those two: the first is <see cref="FadeDriver.ResolveStandingUnit"/>, which is
-/// literally the first five statements of <see cref="FadeDriver.IsStandingProp"/> extracted so
-/// there is ONE copy (this project has paid for a second fan wearing the same name); the second
+/// the shared prologue of <see cref="FadeDriver.IsStandingProp"/> plus its memo-only geometry
+/// and descriptive text derivations, so the verdict still has ONE implementation; the second
 /// writes one dictionary. Neither reaches a <c>Segment</c>, a <c>Renderer</c> or a
 /// <c>MaterialPropertyBlock</c>. The commit's atomicity is unchanged, so the applier question
 /// does not arise at all — which is why it is answered by construction rather than by a
@@ -110,7 +114,7 @@ namespace GloomhavenVR.Core;
 /// number the whole exercise is judged by.</para>
 ///
 /// <para>MULTIPLAYER: presentation only. Nothing here reads or writes the wire, and no game
-/// state is written from any of it — the stage's entire output is six dictionaries.</para>
+/// state is written from any of it — the stage's output consists of private derivation memos.</para>
 /// </summary>
 internal static partial class WallSegmentFade
 {
@@ -331,7 +335,10 @@ internal static partial class WallSegmentFade
                         _prepRenderers.Clear();
                         ProceduralWall wall = _prepWalls[_prepWallCursor];
                         if (wall != null)
+                        {
                             wall.GetComponentsInChildren(includeInactive: false, _prepRenderers);
+                            NotePreparedWallChildren(wall, _prepRenderers);
+                        }
                         _prepRenderersTaken = true;
                         _prepRendererCursor = 0;
                     }
@@ -397,7 +404,17 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void VerifyPrepareStillValid(TilesOcclusionGenerator gen)
         {
-            if (!_prepWarmArmed || BoardStillWhereTheFloorPlanesSayItIs(gen))
+            if (!_prepWarmArmed)
+                return;
+            // A reveal can also land between preparation slices. Recheck the original floor
+            // registry gate on the publication frame before consuming ANY measured derivation.
+            if (gen.m_RoomRenderers.Count != _live.BuiltRoomCount)
+            {
+                _cyclePrepRefusedReveal++;
+                BeginStandingMemoScope();
+                return;
+            }
+            if (BoardStillWhereTheFloorPlanesSayItIs(gen))
                 return;
             _cyclePrepRefusedBoard++;
             BeginStandingMemoScope();   // drops _standingUnitMemo / _standingRootMemo / …
@@ -415,6 +432,7 @@ internal static partial class WallSegmentFade
             _prepRendererCursor = 0;
             _prepRenderersTaken = false;
             _prepWarmArmed = false;
+            ClearPreparedWallChildren();
         }
 
         /// <summary>Append the PREPARE clause to the budget line. Live numbers on every field —
@@ -433,7 +451,9 @@ internal static partial class WallSegmentFade
                     + "below against this: they must fall by about this much, or the warm is "
                     + "being recomputed instead of hit); ")
               .Append(_cyclePrepWarmedRenderers).Append(" wall-cache renderer(s) warmed, ")
-              .Append(_cyclePrepWarmedRoots).Append(" unit root(s) prewarmed; REFUSED ")
+              .Append(_cyclePrepWarmedRoots).Append(" unit root(s) prewarmed; ")
+              .Append(_cyclePreparedChildHits).Append('/').Append(_cyclePreparedChildReads)
+              .Append(" same-frame wall-child reads reused without another native hierarchy walk; REFUSED ")
               .Append(_cyclePrepRefusedReveal)
               .Append(" cycle(s) because the room registry moved (a reveal — the floor planes "
                     + "the standing rule measures against are rebuilt inside the commit) and ")

@@ -2041,6 +2041,11 @@ internal static partial class WallSegmentFade
                     lost = true;
                     continue;
                 }
+                // Purely decorative budget masks own visibility, not the native room/occluder
+                // facts. Keep membership and restoration; avoid union and material writes until
+                // this renderer is visible again. The ordinary per-frame loop resumes immediately.
+                if (SkipBudgetMaskedAttachment(p, seg.UnitDressingState, ref highest))
+                    continue;
                 // The fade this PIECE reads — its owner's, or that of any fade-eligible segment
                 // its own AABB reaches into, whichever is higher. Nothing here writes a segment.
                 float eff = UnionFade(r, seg);

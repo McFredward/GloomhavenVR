@@ -4414,7 +4414,7 @@ internal static partial class WallSegmentFade
             // steady state this is one enabled compare per sibling.
             foreach (MeshRenderer s in seg.Siblings)
             {
-                if (s == null)
+                if (s == null || ScenarioSceneryBudget.IsOwnedHidden(s))
                     continue;
                 if (!seg.SiblingProps.TryGetValue(s, out MountedProp? p))
                 {
@@ -4480,7 +4480,7 @@ internal static partial class WallSegmentFade
             // wall is held faded must be re-hidden this frame, not never.
             foreach (MeshRenderer f in seg.Foliage)
             {
-                if (f == null)
+                if (f == null || ScenarioSceneryBudget.IsOwnedHidden(f))
                     continue;
                 // ModBuild 254: classify per material rather than writing one shared _Cutoff MPB
                 // blind to all of them — ClassifyProp reads what this material can actually
@@ -4731,6 +4731,10 @@ internal static partial class WallSegmentFade
                     ShowIfWeHid(r);
                     continue;
                 }
+                // Budget-owned optional geometry remains in all room/coverage tables; its
+                // pixel delivery is already masked. Unfade restitution above remains unconditional.
+                if (ScenarioSceneryBudget.IsOwnedHidden(r))
+                    continue;
                 r.SetPropertyBlock(_mpb);
             }
             if (lostRenderer)
@@ -5655,8 +5659,11 @@ internal static partial class WallSegmentFade
             // census through the layer-only test). ModBuild 443 adds FigureGrab's own prefix,
             // which this test had never known about and which the mod's figure-glow clones are
             // the only users of in a scene — see VRLayers.ModOwnedNamePrefix and IsModObject.
+            // Exact native published selection decals/particles are also non-wall presentation.
+            // Actual wall-shader members retain their conservative scene signature below.
             f.Mod = r.gameObject.layer == VRLayers.ModLayer
-                || ModVisualOwnership.IsName(n);
+                || ModVisualOwnership.IsName(n)
+                || IsNativeHexSelectionVisual(r);
             // The authored water name family, consulted — as before — only when the shader
             // family already said no. See WallSegmentFade.Water.cs.
             f.WaterSurface = water || IsWaterNameFamily(n);
@@ -5734,6 +5741,8 @@ internal static partial class WallSegmentFade
             _cycleWorstPrepareMillis = 0f;
             _cyclePrepareTotalMillis = 0f;
             _cyclePrepWarmedRenderers = 0;
+            _cyclePreparedChildReads = 0;
+            _cyclePreparedChildHits = 0;
             _cyclePrepWarmedRoots = 0;
             _cyclePrepRefusedReveal = 0;
             _cyclePrepRefusedBoard = 0;
@@ -9807,10 +9816,10 @@ internal static partial class WallSegmentFade
             BeginRefresh(seg);
             if (seg.Anchor == null)
                 return;
-            // Keep the live hierarchy walk and its order, while reusing the destination list
-            // across cache walls. Nothing called below may borrow this scratch list.
-            _wallCacheRendererScratch.Clear();
-            seg.Anchor.GetComponentsInChildren(includeInactive: false, _wallCacheRendererScratch);
+            // Preserve native hierarchy order. A read from this same preparation frame may
+            // be reused; earlier-frame reads always use the live native walk. Nothing below
+            // may borrow this destination list.
+            ReadWallCacheChildren(seg.Anchor, _wallCacheRendererScratch);
             List<MeshRenderer> all = _wallCacheRendererScratch;
             foreach (MeshRenderer r in all)
             {

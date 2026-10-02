@@ -139,6 +139,12 @@ internal static class ScenarioSceneryBudget
 
     internal static void BeforeLoadingComplete() => _driver?.PrepareLoadingCompletion();
 
+    /// <summary>Only masks owned by this reversible, purely decorative budget qualify.
+    /// Structural facts and foreign masks are not evidence that a wall can be discarded.
+    /// </summary>
+    internal static bool IsOwnedHidden(Renderer renderer) => renderer != null
+        && _driver != null && _driver.IsOwnedHidden(renderer);
+
     internal static bool IsScenarioPlacement(Transform parent)
     {
         ProceduralMapTile? tile = TileAncestor(parent);
@@ -971,6 +977,16 @@ internal static class ScenarioSceneryBudget
         private readonly List<ProceduralMapTile> _tiles = new(64);
         private readonly List<Record> _records = new(1024);
         private readonly Dictionary<int, Record> _byId = new(1024);
+        private readonly List<GameObject> _heldRoots = new(8);
+        private readonly List<MeshRenderer> _heldMeshes = new(32);
+        // An operation count, not a timer: runtime regression checks prove unrelated hidden
+        // scenery is never traversed when a player merely holds one prop.
+        private int _heldMeshChecks;
+
+        internal bool IsOwnedHidden(Renderer renderer) =>
+            _byId.TryGetValue(renderer.GetInstanceID(), out Record? record)
+            && record.Owned && !record.Invalidated && ReferenceEquals(record.Renderer, renderer)
+            && renderer.forceRenderingOff;
         private readonly HashSet<int> _tileIds = new();
         private readonly int[] _rejected = new int[7];
         private readonly HashSet<int> _visitedRendererIds = new();
@@ -1409,19 +1425,36 @@ internal static class ScenarioSceneryBudget
 
         private void RecheckOwned()
         {
-            // A held prop is the one state transition that must never wait for a rolling watch.
-            // This full list scan is only active during an actual local or remote prop hold.
+            // Build 605 measured 4.6–8.0 ms scenery Update peaks. The held-prop path was a
+            // candidate: testing every hidden plant against every hand scales with the whole level.
+            // Enumerate the actual <= 2 local roots plus remote roots, then use the existing
+            // renderer identity index. Rescue remains in this very frame, including inactive
+            // LOD children and replaced/reparented remote visuals; figures have no scenery row.
+            _heldMeshChecks = 0;
             if (HeldProps.Count > 0 || NetHeldProps.Any)
             {
-                for (int i = 0; i < _records.Count; i++)
+                _heldRoots.Clear();
+                for (int slot = 0; slot < HeldProps.Count; slot++)
+                    if (HeldProps.TryGetSlot(slot, out _, out GameObject visual, out _, out _))
+                        _heldRoots.Add(visual);
+                NetHeldProps.CopyVisualRoots(_heldRoots);
+                foreach (GameObject visual in _heldRoots)
                 {
-                    Record record = _records[i];
-                    if (!record.Owned || record.Renderer == null
-                        || !FigureRendererGuard.HeldByPlayer(record.Renderer))
-                        continue;
-                    SetHidden(record, false);
-                    record.Invalidated = true;
+                    if (visual == null) continue;
+                    _heldMeshes.Clear();
+                    visual.GetComponentsInChildren(includeInactive: true, _heldMeshes);
+                    foreach (MeshRenderer renderer in _heldMeshes)
+                    {
+                        _heldMeshChecks++;
+                        if (renderer == null
+                            || !_byId.TryGetValue(renderer.GetInstanceID(), out Record? record)
+                            || !record.Owned) continue;
+                        SetHidden(record, false);
+                        record.Invalidated = true;
+                    }
                 }
+                _heldRoots.Clear();
+                _heldMeshes.Clear();
             }
 
             // Apparance may replace/reparent generated content outside a placement callback.
@@ -1519,6 +1552,8 @@ internal static class ScenarioSceneryBudget
                 if (bay.Value && bay.Key != null && !bay.Key.enabled) bay.Key.enabled = true;
             BayColliderOwners.Clear();
             _records.Clear();
+            _heldRoots.Clear();
+            _heldMeshes.Clear();
             _byId.Clear();
             _pending.Clear();
             _pendingIds.Clear();

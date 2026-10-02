@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
 using UnityEngine;
@@ -21,12 +22,35 @@ namespace UnityEngine
     {
         internal Transform? parent;
         internal readonly HashSet<Type> Components = new();
+        internal string name = "Native unit";
         internal int Queries;
         internal T? GetComponent<T>() where T : class, new()
         { Queries++; return Components.Contains(typeof(T)) ? new T() : null; }
     }
+    internal static class Time { internal static int frameCount; }
+    internal sealed class Component
+    {
+        internal readonly List<MeshRenderer> Children = new();
+        internal int HierarchyReads;
+        internal void GetComponentsInChildren(bool includeInactive, List<MeshRenderer> destination)
+        { if (includeInactive) throw new Exception("Wall collection must retain active children only"); HierarchyReads++; destination.AddRange(Children); }
+    }
     internal sealed class Animator { }
-    internal sealed class MeshRenderer
+    internal sealed class GameObject { internal bool activeInHierarchy = true; }
+    internal class Renderer
+    {
+        internal bool enabled = true, forceRenderingOff;
+        internal readonly GameObject gameObject = new();
+        internal HexSelect_Control? Selector;
+        internal HexSelectControlParticles? SelectorParticles;
+        internal ParticleSystem? System;
+        internal T? GetComponentInParent<T>(bool _) where T : class =>
+            typeof(T) == typeof(HexSelect_Control) ? Selector as T : SelectorParticles as T;
+        internal T? GetComponent<T>() where T : class => System as T;
+    }
+    internal sealed class ParticleSystem { internal int particleCount; }
+    internal sealed class ParticleSystemRenderer : Renderer { }
+    internal sealed class MeshRenderer : Renderer
     {
         internal readonly List<Material> Materials = new();
         internal int MaterialListReads, Restores;
@@ -41,11 +65,23 @@ namespace UnityEngine
         internal static float Abs(float value) => Math.Abs(value);
     }
 }
+internal sealed class HexSelect_Control { internal MeshRenderer? HexProjector; }
+internal sealed class HexSelectControlParticles
+{
+    internal ParticleSystem[]? ParticleBits, ParticleHover;
+    internal MeshRenderer? UnseenGroundPlane;
+}
+internal sealed class TilesOcclusionGenerator { internal readonly List<MeshRenderer> m_RoomRenderers = new(); }
 internal sealed class ActorBehaviour { }
 internal sealed class CInteractableActor { }
 
 namespace GloomhavenVR.Core
 {
+    internal static class ScenarioSceneryBudget
+    {
+        internal static readonly HashSet<Renderer> Hidden = new();
+        internal static bool IsOwnedHidden(Renderer renderer) => renderer.forceRenderingOff && Hidden.Contains(renderer);
+    }
     internal static class PerfConfig
     {
         internal static bool SharedWallReadCache = true;
@@ -67,6 +103,17 @@ namespace GloomhavenVR.Core
             private readonly List<Material> _matScratch = new();
             private readonly List<Material> _donors = new();
             private int _assertions;
+            private bool _prepWarmArmed, _boardUnmoved;
+            private int _cyclePrepRefusedReveal, _cyclePrepRefusedBoard, _memoDrops;
+            private readonly Table _live = new();
+            private sealed class Table { internal int BuiltRoomCount; }
+            private bool BoardStillWhereTheFloorPlanesSayItIs(TilesOcclusionGenerator _) => _boardUnmoved;
+            private void BeginStandingMemoScope() { _memoDrops++; ClearPreparedStandingLabels(); }
+            private sealed class MountedProp
+            {
+                internal Renderer Renderer = null!;
+                internal bool Driven;
+            }
             private sealed class Segment
             {
                 internal readonly List<MeshRenderer> PrevRenderers = new();
@@ -98,7 +145,129 @@ namespace GloomhavenVR.Core
                 driver.MaterialAdmission();
                 driver.FigureRoots();
                 driver.DisabledReads();
+                driver.NativeSelectionVisuals();
+                driver.BudgetMasks();
+                driver.PreparedReadLifetime();
+                driver.PreparedPublicationGate();
                 return driver._assertions;
+            }
+            private void PreparedPublicationGate()
+            {
+                var gen = new TilesOcclusionGenerator();
+                gen.m_RoomRenderers.Add(Renderer());
+                _live.BuiltRoomCount = 1;
+                _prepWarmArmed = true; _boardUnmoved = true;
+                VerifyPrepareStillValid(gen);
+                Check(_memoDrops == 0, "An unchanged prepared floor registry keeps its measured derivations");
+                gen.m_RoomRenderers.Add(Renderer());
+                VerifyPrepareStillValid(gen);
+                Check(_memoDrops == 1 && _cyclePrepRefusedReveal == 1,
+                    "A room reveal during preparation drops all old measured floor derivations before publication");
+                _live.BuiltRoomCount = 2; _boardUnmoved = false;
+                VerifyPrepareStillValid(gen);
+                Check(_memoDrops == 2 && _cyclePrepRefusedBoard == 1, "A board move during preparation retains the original live-read fallback");
+                _prepWarmArmed = false;
+                VerifyPrepareStillValid(gen);
+                Check(_memoDrops == 2, "A refused warm has no measured state to validate or discard");
+            }
+            private void PreparedReadLifetime()
+            {
+                var anchor = new Component();
+                var first = Renderer(Mat("Amp_Basic_WallFade"));
+                var second = Renderer(Mat("Amp_Basic_WallFade_Low"));
+                anchor.Children.Add(first); anchor.Children.Add(second);
+                var read = new List<MeshRenderer>();
+                Time.frameCount = 10;
+                ReadWallCacheChildren(anchor, read);
+                Check(anchor.HierarchyReads == 1 && read.SequenceEqual(anchor.Children), "An unwarmed wall retains its live native ordered hierarchy query");
+                NotePreparedWallChildren(anchor, read);
+                ReadWallCacheChildren(anchor, read);
+                Check(anchor.HierarchyReads == 1 && read.SequenceEqual(anchor.Children), "The same-frame prepared wall read avoids a second native hierarchy walk");
+                var other = new Component(); other.Children.Add(second);
+                ReadWallCacheChildren(other, read);
+                Check(other.HierarchyReads == 1 && read.SequenceEqual(other.Children), "A different anchor never borrows another wall's child list");
+                Time.frameCount++;
+                anchor.Children.RemoveAt(0);
+                ReadWallCacheChildren(anchor, read);
+                Check(anchor.HierarchyReads == 2 && read.SequenceEqual(anchor.Children), "A cross-frame native regeneration discards prepared hierarchy facts");
+                NotePreparedWallChildren(anchor, read);
+                Check(_preparedWallChildren.Count == 1 && _preparedWallChildPool[0].SequenceEqual(read), "Only the current frame's wall membership retains references");
+                ClearPreparedWallChildren();
+                Check(_preparedWallChildren.Count == 0 && _preparedWallChildPool.All(list => list.Count == 0), "Abandon and publication release all prepared child references");
+                ReadWallCacheChildren(anchor, read);
+                Check(anchor.HierarchyReads == 3, "An abandoned prepare never leaves a reusable wall snapshot");
+                ClearPreparedStandingLabels();
+                const int units = 100, childrenPerUnit = 50;
+                for (int i = 0; i < units; i++)
+                {
+                    var root = new Transform { name = "Unit " + i };
+                    string text = StandingNamedWhy(root, false, "measured floor geometry");
+                    for (int child = 1; child < childrenPerUnit; child++)
+                        Check(ReferenceEquals(text, StandingNamedWhy(root, false, "measured floor geometry")), "Repeated unit child keeps one exact immutable diagnostic label");
+                }
+                Check(_standingLabelsBuilt == units, "5000 child verdicts build 100 unit labels instead of 5000 labels");
+                var changed = new Transform { name = "Before" };
+                Check(StandingNamedWhy(changed, false, "floor") == "'Before' floor", "Label preserves original root and refusal sentence");
+                changed.name = "After";
+                Check(StandingNamedWhy(changed, false, "floor") == "'After' floor", "A renamed root immediately updates its diagnostic label");
+                Check(StandingNamedWhy(changed, true, "actor") == "'After' actor", "A changed arm and measured sentence never reuse another verdict");
+                ClearPreparedStandingLabels();
+                Check(_standingLabels.Count == 0 && _standingLabelsBuilt == 0, "Prepared labels and counters are released with the measured memo scope");
+            }
+            private void BudgetMasks()
+            {
+                var renderer = Renderer(Mat("Amp_Basic_Foliage"));
+                var piece = new MountedProp { Renderer = renderer, Driven = true };
+                int highest = 0;
+                Check(!SkipBudgetMaskedAttachment(piece, 2, ref highest), "An unmasked piece keeps its original visual lane");
+                renderer.forceRenderingOff = true;
+                Check(!SkipBudgetMaskedAttachment(piece, 2, ref highest), "A foreign visibility mask never grants our visual skip");
+                ScenarioSceneryBudget.Hidden.Add(renderer);
+                Check(SkipBudgetMaskedAttachment(piece, 2, ref highest) && highest == 2,
+                    "A masked driven piece retains the outstanding wall restitution latch");
+                highest = 2;
+                Check(SkipBudgetMaskedAttachment(piece, 1, ref highest) && highest == 2, "Mask skip never reduces another piece's lane state");
+                highest = 0; piece.Driven = false;
+                Check(SkipBudgetMaskedAttachment(piece, 2, ref highest) && highest == 0, "An undriven masked piece creates no new fade ownership");
+                renderer.forceRenderingOff = false;
+                Check(!SkipBudgetMaskedAttachment(piece, 2, ref highest), "Budget restoration immediately resumes ordinary fade delivery");
+                Check(IsActuallyDrawing(renderer), "An active enabled mesh contributes effective drawing");
+                renderer.forceRenderingOff = true;
+                Check(!IsActuallyDrawing(renderer), "Force-hidden scenery never contributes false drawing diagnostics");
+                renderer.forceRenderingOff = false; renderer.enabled = false;
+                Check(!IsActuallyDrawing(renderer), "Disabled native visibility remains part of the drawing predicate");
+                renderer.enabled = true; renderer.gameObject.activeInHierarchy = false;
+                Check(!IsActuallyDrawing(renderer), "Inactive native visibility remains part of the drawing predicate");
+                var emitter = new ParticleSystem();
+                var particleRenderer = new ParticleSystemRenderer { System = emitter };
+                Check(!IsActuallyDrawing(particleRenderer), "Empty emitters do not count as drawing");
+                emitter.particleCount = 1;
+                Check(IsActuallyDrawing(particleRenderer), "A live emitter retains its original drawing classification");
+                ScenarioSceneryBudget.Hidden.Clear();
+            }
+            private void NativeSelectionVisuals()
+            {
+                var selector = new HexSelect_Control();
+                var projected = Renderer(Mat("GloomhavenVR/HexDecalStable"));
+                projected.Selector = selector; selector.HexProjector = projected;
+                Check(IsNativeHexSelectionVisual(projected), "Exact native published selection decal is never wall scenery");
+                var masonry = Renderer(Mat("Amp_Basic_WallFade")); masonry.Selector = selector;
+                Check(!IsNativeHexSelectionVisual(masonry), "Being near a selector never exempts a real wall mesh");
+                var particles = new HexSelectControlParticles();
+                var emitter = new ParticleSystem();
+                var highlight = new ParticleSystemRenderer { System = emitter, SelectorParticles = particles };
+                particles.ParticleBits = new[] { emitter };
+                Check(IsNativeHexSelectionVisual(highlight), "Native selection bits use exact emitter identity");
+                particles.ParticleBits = null; particles.ParticleHover = new[] { emitter };
+                Check(IsNativeHexSelectionVisual(highlight), "Native hover bits use exact emitter identity");
+                highlight.System = new ParticleSystem();
+                Check(!IsNativeHexSelectionVisual(highlight), "Environmental particles beneath a selection root keep their native facts");
+                particles.UnseenGroundPlane = masonry; masonry.SelectorParticles = particles;
+                Check(!IsNativeHexSelectionVisual(masonry), "Native unseen ground protection stays outside selection exemption");
+                projected.Selector = null;
+                Check(!IsNativeHexSelectionVisual(projected), "A same-shader object without native ownership is not exempt");
+                particles.ParticleHover = null;
+                Check(!IsNativeHexSelectionVisual(highlight), "Unpublished missing selection arrays remain conservative");
             }
             private void MaterialAdmission()
             {

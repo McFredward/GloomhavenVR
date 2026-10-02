@@ -5,13 +5,21 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <ReadFactsSource Condition="'$(ReadFactsSource)' == ''">../../src/GloomhavenVR/Core/WallFade/WallSegmentFade.ReadFacts.cs</ReadFactsSource>
+    <PrepareSource Condition="'$(PrepareSource)' == ''">../../src/GloomhavenVR/Core/WallFade/WallSegmentFade.Prepare.cs</PrepareSource>
+    <MountedSource Condition="'$(MountedSource)' == ''">../../src/GloomhavenVR/Core/WallFade/WallSegmentFade.Mounted.cs</MountedSource>
+    <SelectionFactsSource Condition="'$(SelectionFactsSource)' == ''">../../src/GloomhavenVR/Core/WallFade/WallSegmentFade.SelectionFacts.cs</SelectionFactsSource>
+    <PreparedReadsSource Condition="'$(PreparedReadsSource)' == ''">../../src/GloomhavenVR/Core/WallFade/WallSegmentFade.PreparedReads.cs</PreparedReadsSource>
+    <BudgetMaskSource Condition="'$(BudgetMaskSource)' == ''">../../src/GloomhavenVR/Core/WallFade/WallSegmentFade.BudgetMask.cs</BudgetMaskSource>
     <DriverSource Condition="'$(DriverSource)' == ''">../../src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs</DriverSource>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="$(PreparedReadsSource)" Link="Production/WallSegmentFade.PreparedReads.cs" />
+    <Compile Include="$(BudgetMaskSource)" Link="Production/WallSegmentFade.BudgetMask.cs" />
+    <Compile Include="$(SelectionFactsSource)" Link="Production/WallSegmentFade.SelectionFacts.cs" />
     <Compile Include="$(ReadFactsSource)" Link="Production/WallSegmentFade.ReadFacts.cs" />
     <Compile Include="$(IntermediateOutputPath)DriverReads.g.cs" />
   </ItemGroup>
   <Target Name="ExtractDriverReads" BeforeTargets="BeforeCompile">
-    <Exec Command="python3 &quot;$(MSBuildProjectDirectory)/extract-driver.py&quot; &quot;$(DriverSource)&quot; &quot;$(IntermediateOutputPath)DriverReads.g.cs&quot;" />
+    <Exec Command="python3 &quot;$(MSBuildProjectDirectory)/extract-driver.py&quot; &quot;$(DriverSource)&quot; &quot;$(IntermediateOutputPath)DriverReads.g.cs&quot; &quot;$(MountedSource)&quot; &quot;$(PrepareSource)&quot;" />
   </Target>
 </Project>

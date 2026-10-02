@@ -64,7 +64,7 @@ public static class InteractionProgram
     {
         _count = 0; VRLog.Messages.Clear(); PerfMonitor.Marks.Clear(); SceneRegistry.MapTiles.Tiles.Clear();
         ExtraMeshes.Clear();
-        HeldProps.Held = null; NetHeldProps.Any = false; VRSession.IsRunning = true;
+        HeldProps.Held = null; NetHeldProps.Any = false; NetHeldProps.Visual = null; VRSession.IsRunning = true;
         PerfConfig.ScenarioSceneryDensityPercentValue = 100; PerfConfig.ScenarioDecorationDensityPercentValue = 100;
         PerfConfig.ScenarioVegetationDensityPercentValue = 100;
         SceneryClock.Now = 0; SceneController.Instance.IsLoading = true;
@@ -559,8 +559,16 @@ public static class InteractionProgram
             Check(bulk.Count(r=>r.forceRenderingOff)==1200,"large synthetic native room masks 1200 eligible leaves rather than old 27-leaf scale");
             Check(Value(driver,"_meshRenderers")==unique+1200,"late large population counts every unique discovered renderer");
             Check(PerfMonitor.Marks.Any(m=>m.Contains("ScenarioDecorationDensityPercent=0")) && PerfMonitor.Marks.Any(m=>m.Contains("retune complete")),"settings and finished retune mark distinct performance windows");
+            Check(ScenarioSceneryBudget.IsOwnedHidden(grass), "pure visual skip recognises only a live budget-owned decoration mask");
             HeldProps.Held=grass.transform; Tick(driver);
+            Check(Value(driver,"_heldMeshChecks")==1, "holding one mesh examines one renderer instead of 1200 unrelated scenery records");
             Check(!grass.forceRenderingOff,"local held decoration restores immediately before bounded ancestry watch"); HeldProps.Held=null;
+            Check(!ScenarioSceneryBudget.IsOwnedHidden(grass), "same-frame held rescue releases the budget visual ownership query");
+            NetHeldProps.Visual=bulk[1199].gameObject; NetHeldProps.Any=true; Tick(driver);
+            Check(!bulk[1199].forceRenderingOff && Value(driver,"_heldMeshChecks")==1,
+                "remote held decoration restores immediately using only its visual root index");
+            NetHeldProps.Any=false; NetHeldProps.Visual=null;
+            Check(!ScenarioSceneryBudget.IsOwnedHidden(foreign), "foreign renderer masks never qualify for skipping original visual lanes");
             treeLeaf.transform.SetParent(host.transform,false); Tick(driver,30);
             Check(!treeLeaf.forceRenderingOff,"reparented decoration no longer retains scenery mask");
             createArgs=new object?[]{template,pos,scaled,rot,full.transform,null};
