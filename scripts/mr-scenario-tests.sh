@@ -7,11 +7,16 @@ python3 "$repo_root/tests/GloomhavenVR.MrScenarioTests/extract.py"
 dotnet run --project "$project" --configuration Release
 python3 - "$repo_root" <<'PY'
 from pathlib import Path
-import sys
+import sys, re
 r=Path(sys.argv[1]); wall=(r/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs').read_text()
 mr=(r/'src/GloomhavenVR/Core/MixedReality/MixedReality.cs').read_text()
 layers=(r/'src/GloomhavenVR/Core/VRLayers.cs').read_text()
-assert '|| ModVisualOwnership.IsName(n);' in wall
+# The assignment also admits exact native selection-only visuals now. Assert the
+# retained ownership arms inside its expression, independent of the trailing term.
+mod_assignment=re.search(r'f\.Mod\s*=([^;]+);', wall)
+assert mod_assignment is not None
+assert 'ModVisualOwnership.IsName(n)' in mod_assignment.group(1)
+assert 'r.gameObject.layer == VRLayers.ModLayer' in mod_assignment.group(1)
 assert '|| ModVisualOwnership.IsName(r.name);' in wall
 assert 'internal const string ModOwnedNamePrefix = "VR";' in layers
 assert 'internal const string ModOwnedQualifiedPrefix = "GloomhavenVR.";' in layers
@@ -49,7 +54,7 @@ trap 'rm -rf "$mutation_dir"' EXIT
 for mutation in prefix overlap cutout inactive retirement sky-furniture; do
     python3 - "$repo_root" "$mutation_dir/Mutated.cs" "$mutation" <<'PY'
 from pathlib import Path
-import sys
+import sys, re
 r=Path(sys.argv[1]); mutation=sys.argv[3]
 path='Core/ModVisualOwnership.cs' if mutation=='prefix' else 'Core/MixedReality/MrUnseenRegionEligibility.cs'
 s=(r/'tests/GloomhavenVR.MrScenarioTests/obj/Retirement.g.cs').read_text() if mutation=='retirement' else (r/'src/GloomhavenVR'/path).read_text()
