@@ -1,6 +1,37 @@
 # State — where the project stands
 
-**Updated 2026-10-02: dev 1.1.0 / ModBuild 602, immersive multiplayer parity candidate.**
+**Updated 2026-10-02: dev 1.1.0 / ModBuild 603, configurable Frame scenery/figure candidate.**
+NPC Build 602 was published to origin/dev before this phase. Requested obsolete-run
+cleanup freed 399.61 GB net; hardware logs, original/reference assets, all existing
+branch refs and final NPC proof were retained. See the gitignored audit at
+`.planning/debug/storage-audit-20261002/README.md`.
+
+Latest Frame evidence identifies Build 601, including CampaignMap and ProcGen.
+Its zero-decoration budget actually masks 3,457 meshes, but the grass cap coupling
+prevents independent comparisons and anonymous structural foliage leaves remain.
+Build 603 separates grass/vegetation/dressing, extends original mesh/LOD provenance
+and retained collider representation, and adds original native player/enemy mesh
+detail, optional scenario-figure cloth and next-load procedural generation controls.
+PC keeps original defaults; fresh Frame adopts sparse detail without overwriting
+persisted choices. Native gameplay, structural cores, reveal focus, map UI, NPCs
+and local/remote cards are retained. Actual headset appearance/FPS remain open.
+See [STEAM-FRAME-SCENERY-603.md](STEAM-FRAME-SCENERY-603.md).
+
+Final integrated validation passed: **14/14 source gates, 95/95 local suites,
+286,754 wire/golden assertions, all three bundle-format checks**, strict Release
+with zero warnings/errors and five bilingual document pairs. Full local coverage
+took 590.7 s with eight jobs, and all report/log hashes were independently verified.
+The fixture inventory now pins 95 local/71 hosted suites without weakening coverage.
+Compared with the reviewed NPC602 compiled snapshot: 18 changed/six added/zero removed
+types; seven unrelated network/plugin types differ only in the inlined 602→603 build
+constant. The other changes are the ten intended config/localisation/UI/scenery
+types plus NetProtocol and six generation/figure driver/patch types. The historical
+98fba1a8d guard comparison reports 56 changed/13 added/zero removed, incorporating
+the already reviewed NPC phase. No config key, patch target or log marker was removed.
+Town bundles are unchanged from 602; users coming from 600 need that updated town bank
+as well as the 603 DLL. New hardware results are not implied by automated checks.
+
+The preceding immersive multiplayer checkpoint:
 The paired PCVR logs and supplied images identify Build 600. The review fixes
 rejected resident transitions, original font/effect dependency failures, first-use
 cabinet hierarchy mutation, held-stock loss, cold-page layout handover, movement
@@ -14,9 +45,8 @@ five bilingual document pairs. The full local suite took 588.7 s with eight
 jobs. The compiled review against `98fba1a8d` has 46 changed/seven added/zero
 removed types, all explained by this review and propagated defaults/build
 constants. No config key, patch target or log marker was removed. No new
-headset result is claimed. This validated NPC checkpoint is ready for dev
-publication; subsequent Frame work starts only after that push and the
-requested obsolete-run/worktree cleanup.
+headset result is claimed. This validated NPC checkpoint was published at `1b033daa`
+before the requested storage cleanup and subsequent Frame phase.
 
 The preceding essential-decoration checkpoint:
 The Build 600 hardware test confirms the previous grass scope was ineffective:

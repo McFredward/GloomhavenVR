@@ -81,10 +81,18 @@ not the black-box native graph's exact resulting floors/walls or renderer saving
 Focused source-linked proof: portable scenery classifier 51 assertions/eight negative
 controls; complete actual Unity scenery driver 66 assertions/11 negative controls;
 generation override 19 Unity assertions/six negative controls. The complete figure driver
-adds42 Unity assertions/eight negative controls, including original-settings idle bypass,
+adds 42 Unity assertions/eight negative controls, including original-settings idle bypass,
 local/remote holds, foreign native tables, orphaned fine meshes, native cloth resets and
-bounded fault restoration. Its separate42 source-boundary assertions run in hosted CI.
-Full final integrated gate results are recorded in STATE.md after completion.
+bounded fault restoration. Its separate 42 source-boundary assertions run in hosted CI.
+The final integrated gate passed 14/14 source checks, 95/95 local suites and 286,754
+wire/golden assertions. All three bundle-format checks, strict Release with zero
+warnings/errors and five bilingual document pairs passed. Local coverage took 590.7 s
+with eight jobs; reports and all suite-log hashes were independently verified.
+The compiled comparison against reviewed NPC602 has 18 changed/six added/zero removed
+types, including seven unrelated types with only the inlined build constant changed.
+No config key, patch target or log marker was removed. The previous NPC bundles stay
+unchanged; this phase adds DLL/config changes. Detailed final evidence is retained
+in `.planning/debug/frame603-final-validation/` and STATE.md.
 
 Hardware checks: load/reveal/retry the large scenario at the same 3408 eye target; compare
 all three scenery values 100 versus 0 at the same view. Verify essential floor/wall continuity,
