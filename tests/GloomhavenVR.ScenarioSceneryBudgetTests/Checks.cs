@@ -43,6 +43,38 @@ internal static partial class ScenarioSceneryBudget
         Check(Inspect(Leaf(mixed.transform,"FR_Wall_Grassy_Verge_Thin_Ivy_Grass_01"),tile)==Verdict.Eligible,"explicit wall foliage dressing is admitted");
         foreach(string name in new[]{"FR_Pillar_Tree_Trunk_01","FR_Wall_Grassy_Verge_Thin_01","FR_CW_UnderWall_01_Rock","EN_CR_Floor_BaseHex_Plain","CV_Wall_Generic_02"})
             Check(Inspect(Leaf(mixed.transform,name),tile)==Verdict.Structural,"structural geometry beats foliage shader: "+name);
+        var composite=Node(mixed.transform,"FR_Wall_Grassy_Verge_Thin_Narrow_01");
+        composite.AddComponent<Collider>();
+        var core=Leaf(composite.transform,"LOD0",false);
+        var canopy=Leaf(composite.transform,"LOD1");
+        Check(Inspect(canopy,tile)==Verdict.Eligible,"solid wall LOD represents composite collider for detached foliage");
+        composite.GetComponent<Collider>().enabled=false;
+        Check(Inspect(canopy,tile)==Verdict.Eligible,"dedicated wall foliage LOD is optional despite structural ancestor");
+        var lowerCanopy=Leaf(composite.transform,"LOD2");
+        Classify(canopy,tile,out var canopyUnit,out _);Classify(lowerCanopy,tile,out var lowerUnit,out _);
+        Check(ReferenceEquals(canopyUnit,lowerUnit)&&ReferenceEquals(canopyUnit,composite.transform),"foliage LOD levels share the original density unit");
+        Check(Inspect(core,tile)==Verdict.Structural,"anonymous native solid wall core stays structural");
+        canopy.sharedMaterials=new[]{canopy.sharedMaterials[0],core.sharedMaterials[0]};
+        Check(Inspect(canopy,tile)==Verdict.Structural,"mixed-material wall LOD cannot erase stone with grass");
+        canopy.sharedMaterials=new[]{new Material{shader=new Shader{name="Amp_Basic_Foliage"}}};
+        var treePillar=Node(mixed.transform,"FR_Pillar_Tree_Trunk_01");
+        Check(Inspect(Leaf(treePillar.transform,"LOD1"),tile)==Verdict.Eligible,"dedicated tree pillar canopy is optional while its trunk stays");
+        Check(Inspect(Leaf(treePillar.transform,"LOD0",false),tile)==Verdict.Structural,"solid tree pillar trunk stays visible");
+        var grassFloor=Node(mixed.transform,"FR_Floor_Grass_Half_01");
+        Check(Inspect(Leaf(grassFloor.transform,"LOD1"),tile)==Verdict.Eligible,"separate floor grass LOD is optional");
+        Check(Inspect(Leaf(grassFloor.transform,"LOD0",false),tile)==Verdict.Structural,"anonymous solid grass floor LOD is retained");
+        var fakeWall=Node(mixed.transform,"Player_Wall_Fake");
+        Check(Inspect(Leaf(fakeWall.transform,"LOD1"),tile)==Verdict.Structural,"shader alone cannot admit unknown structural asset");
+        var anonymousMesh=Leaf(mixed.transform,"Mesh");
+        anonymousMesh.GetComponent<MeshFilter>()!.sharedMesh!.name="FR_Floor_Detail_Grass_08_PR";
+        Check(Inspect(anonymousMesh,tile)==Verdict.Eligible,"original grass mesh family admits anonymous generated wrapper");
+        anonymousMesh.GetComponent<MeshFilter>()!.sharedMesh!.name="FR_Floor_Grass_Half_01";
+        anonymousMesh.sharedMaterials=core.sharedMaterials;
+        Check(Inspect(anonymousMesh,tile)==Verdict.Structural,"solid original floor mesh stays protected beneath anonymous wrapper");
+        var anonymousComposite=Node(mixed.transform,"PCG_Anonymous_Composite");
+        anonymousComposite.AddComponent<Collider>();
+        anonymousMesh.transform.SetParent(anonymousComposite.transform);
+        Check(Inspect(Leaf(anonymousComposite.transform,"FR_Floor_Detail_Grass_08_PR"),tile)==Verdict.Eligible,"original solid floor mesh represents an anonymous composite collider");
         var scatter=Node(mixed.transform,"CV_Floor_Scatter_01 (2)");
         Check(Inspect(Leaf(scatter.transform,"LOD2",false),tile)==Verdict.Eligible,"cave scatter LOD hierarchy is admitted");
         foreach(string name in new[]{"CV_Crystal_Medium_02","CV_Floor_Stalagmites_06","FR_Stones_01 (1)","CR_RU_Vines (5)"})

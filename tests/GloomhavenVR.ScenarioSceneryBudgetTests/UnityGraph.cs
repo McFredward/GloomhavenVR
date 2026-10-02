@@ -53,7 +53,7 @@ namespace UnityEngine
         internal float sqrMagnitude=>x*x+y*y+z*z;
     }
     internal struct Bounds { internal Vector3 size; }
-    internal class Mesh:Object { internal Bounds bounds; }
+    internal class Mesh:Object { internal Bounds bounds; internal string name=""; }
     internal class MeshFilter:Component { internal Mesh? sharedMesh; }
     internal class Shader:Object { internal string name=""; }
     internal class Material:Object { internal Shader shader=null!; }

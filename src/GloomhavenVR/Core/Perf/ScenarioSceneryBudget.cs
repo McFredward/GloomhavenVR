@@ -18,8 +18,10 @@ namespace GloomhavenVR.Core;
 ///
 /// Only owned false-to-true Renderer.forceRenderingOff writes are restored. Native enabled state,
 /// colliders, components, materials, property blocks, room reveal and multiplayer state are never
-/// written. The configurable decoration budget also caps grass; the existing grass key is an
-/// additional grass-only cap. Both 100 restores the original rendering on PC and Steam Frame.
+/// written. Grass, vegetation and loose-decoration budgets are independent: Build 601's
+/// decoration-zero cap otherwise made every grass slider movement ineffective. All three at
+/// 100 restore the original rendering on PC and Steam Frame. Dedicated foliage leaves beneath
+/// a structural asset remain optional; its solid or mixed-material core is never optional.
 /// Source and Unity hierarchy tests establish admission/restoration, not headset FPS improvement.
 /// </summary>
 internal static class ScenarioSceneryBudget
@@ -194,6 +196,7 @@ internal static class ScenarioSceneryBudget
         bool generated = false;
         bool reachedTile = false;
         bool structural = false;
+        Transform? structuralAsset = null;
         bool blockingCollider = false;
         bool ancestrySafe = !FigureRendererGuard.IsFigureOrActorRenderer(renderer)
                             && !FigureRendererGuard.HeldByPlayer(renderer);
@@ -232,7 +235,11 @@ internal static class ScenarioSceneryBudget
                     kind = named;
                 }
                 else if (IsStructuralName(t.name))
+                {
                     structural = true;
+                    if (structuralAsset == null)
+                        structuralAsset = t;
+                }
             }
         }
         if (!reachedTile || !generated)
@@ -241,8 +248,6 @@ internal static class ScenarioSceneryBudget
             return Verdict.Ancestry;
         if (blockingCollider)
             return Verdict.Effect;
-        if (unit == null || kind == Kind.None)
-            return structural ? Verdict.Structural : Verdict.Name;
         if (renderer.GetComponent<Animator>() != null
             || renderer.GetComponent<ParticleSystem>() != null)
             return Verdict.Effect;
@@ -257,13 +262,47 @@ internal static class ScenarioSceneryBudget
             || size.sqrMagnitude < .000001f)
             return Verdict.Geometry;
 
-        bool foliage = UsesFoliage(renderer);
-        string assetName = unit.name;
+        bool foliage = UsesOnlyFoliage(renderer);
+        bool dedicatedStructuralFoliage = false;
+        // Apparance can label a renderer Mesh/LOD0 while retaining the original mesh asset
+        // family. That asset is stronger provenance than the generated wrapper's generic name;
+        // it still cannot override an explicit structural leaf or a gameplay ancestry veto.
+        bool meshFamily = unit == null && !IsHardStructuralName(renderer.name)
+                          && IsNativeSceneryAsset(mesh.name) && NamedKind(mesh.name) != Kind.None;
+        if (meshFamily)
+        {
+            unit = renderer.transform;
+            kind = NamedKind(mesh.name);
+            structural = false;
+        }
+        // Real native composites put anonymous LOD/mesh children beneath their named asset.
+        // A foliage-only child is the canopy/grass layer, not the wall/pillar/floor core. The
+        // old nearest-asset veto retained those leaves just because a solid sibling's original
+        // asset name contained Wall or Pillar. Never infer this for the named core itself, or
+        // for a mixed-material renderer which could also carry the playable stone floor.
+        if (foliage && !IsHardStructuralName(renderer.name))
+        {
+            Transform? carrier = unit ?? structuralAsset;
+            if (carrier != null && carrier != renderer.transform && IsNativeSceneryAsset(carrier.name)
+                && (structural || IsHardStructuralName(carrier.name)))
+            {
+                kind = NamedKind(carrier.name) == Kind.Grass ? Kind.Grass : Kind.Vegetation;
+                // Keep the original carrier as the stable density key for every foliage LOD.
+                // Selecting each anonymous leaf separately makes grass appear/disappear when
+                // the native LOD switches, even though the user's density did not change.
+                unit = carrier;
+                structural = false;
+                dedicatedStructuralFoliage = true;
+            }
+        }
+        if (unit == null || kind == Kind.None)
+            return structural ? Verdict.Structural : Verdict.Name;
+        string assetName = meshFamily ? mesh.name : unit.name;
         // Vegetation textures attached to masonry are admitted only on foliage shader leaves.
         // FR_Pillar_Tree_Trunk_01 and the rock support beneath a wall are structural even though
         // they contain the word Tree or Floor. Ordinary FR_Tree_05 has separate foliage AND bark
         // renderers, all of which belong to the decorative tree and must disappear together.
-        if (structural || IsHardStructuralName(assetName)
+        if (structural || (!dedicatedStructuralFoliage && IsHardStructuralName(assetName))
             || (IsStructuralName(assetName) && !foliage))
             return Verdict.Structural;
         // The forest's floor-grass half/full plates also supply the playable floor. Their solid
@@ -320,9 +359,9 @@ internal static class ScenarioSceneryBudget
         {
             MeshRenderer member = members[j];
             if (member == null || !member.enabled || member.forceRenderingOff
-                || !member.gameObject.activeInHierarchy || UsesFoliage(member))
+                || !member.gameObject.activeInHierarchy || UsesOnlyFoliage(member))
                 continue;
-            if (IsStructuralName(member.name) || IsGrassBase(member.name))
+            if (RepresentsSolidComposite(member.transform, node))
                 return new ColliderFacts(colliders, true);
         }
         return new ColliderFacts(colliders, false);
@@ -338,6 +377,51 @@ internal static class ScenarioSceneryBudget
         return false;
     }
 
+    private static bool UsesOnlyFoliage(MeshRenderer renderer)
+    {
+        Material[] materials = renderer.sharedMaterials;
+        if (materials.Length == 0)
+            return false;
+        for (int i = 0; i < materials.Length; i++)
+            if (materials[i] == null || materials[i].shader == null
+                || materials[i].shader.name != GrassShader)
+                return false;
+        return true;
+    }
+
+    /// <summary>Native wall/floor colliders often sit on a composite whose solid member is
+    /// called LOD0, not FR_Wall_*. Read that member's nearest original asset ancestry. A tree's
+    /// decorative bark is never a retained structural member merely because a distant wall is
+    /// its parent. The collider owner itself is included for an authored solid composite.
+    /// </summary>
+    private static bool RepresentsSolidComposite(Transform member, Transform colliderOwner)
+    {
+        for (Transform? t = member; t != null; t = t.parent)
+        {
+            if (IsHardStructuralName(t.name) || IsGrassBase(t.name))
+                return true;
+            if (NamedKind(t.name) != Kind.None)
+                return false;
+            Mesh? mesh = t.GetComponent<MeshFilter>()?.sharedMesh;
+            if (mesh != null && IsNativeSceneryAsset(mesh.name))
+            {
+                if (IsHardStructuralName(mesh.name) || IsGrassBase(mesh.name))
+                    return true;
+                if (NamedKind(mesh.name) != Kind.None)
+                    return false;
+            }
+            if (t == colliderOwner)
+                break;
+        }
+        return false;
+    }
+
+    private static bool IsNativeSceneryAsset(string name) =>
+        name.StartsWith("FR_", StringComparison.Ordinal)
+        || name.StartsWith("CR_", StringComparison.Ordinal)
+        || name.StartsWith("CV_", StringComparison.Ordinal)
+        || name.StartsWith("EN_", StringComparison.Ordinal);
+
     private static Kind NamedKind(string name)
     {
         // These are original asset families observed in scenario census paths, not arbitrary
@@ -345,14 +429,18 @@ internal static class ScenarioSceneryBudget
         if (name.IndexOf("_Grass", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_Grassy", StringComparison.OrdinalIgnoreCase) >= 0)
             return Kind.Grass;
-        if (name.IndexOf("_Tree_", StringComparison.OrdinalIgnoreCase) >= 0
+        if (name.IndexOf("_Tree", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("Bush", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("Bushes", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_Plants", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_Vines", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_Ivy", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_Roots", StringComparison.OrdinalIgnoreCase) >= 0
-            || name.IndexOf("_Leaves", StringComparison.OrdinalIgnoreCase) >= 0)
+            || name.IndexOf("_Leaves", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Fern", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Shrub", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Reed", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Flower", StringComparison.OrdinalIgnoreCase) >= 0)
             return Kind.Vegetation;
         if (name.IndexOf("_Floor_Scatter_", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_Floor_Detail_", StringComparison.OrdinalIgnoreCase) >= 0
@@ -479,6 +567,7 @@ internal static class ScenarioSceneryBudget
         private readonly HashSet<int> _visitedRendererIds = new();
         private int _sceneHandle = int.MinValue;
         private int _density = 100;
+        private int _vegetationDensity = 100;
         private int _decorationDensity = 100;
         private ProceduralMapTile? _walkingTile;
         private bool _wasLoading;
@@ -490,6 +579,9 @@ internal static class ScenarioSceneryBudget
         private int _visitedNodes;
         private int _meshRenderers;
         private int _debugNames;
+        private int _debugRejectedNames;
+        private readonly int[] _debugRejectedVerdicts = new int[7];
+        private readonly HashSet<int> _debugRejectedIds = new();
         private bool _inScenarioScene;
         private bool _actualScenario;
         private bool _summaryPrinted;
@@ -497,7 +589,7 @@ internal static class ScenarioSceneryBudget
 
         internal void QueueTile(ProceduralMapTile? tile)
         {
-            if (!_inScenarioScene || (_density >= 100 && _decorationDensity >= 100)
+            if (!_inScenarioScene || !BudgetActive
                 || tile == null || !IsScenarioTile(tile))
                 return;
             _actualScenario = true;
@@ -534,9 +626,11 @@ internal static class ScenarioSceneryBudget
                 EnterScene(scene);
 
             int wantedGrass = Mathf.Clamp(PerfConfig.ScenarioSceneryDensityPercentValue, 0, 100);
+            int wantedVegetation = Mathf.Clamp(PerfConfig.ScenarioVegetationDensityPercentValue, 0, 100);
             int wantedDecoration = Mathf.Clamp(PerfConfig.ScenarioDecorationDensityPercentValue, 0, 100);
-            if (_density != wantedGrass || _decorationDensity != wantedDecoration)
-                ChangeDensity(wantedGrass, wantedDecoration);
+            if (_density != wantedGrass || _vegetationDensity != wantedVegetation
+                || _decorationDensity != wantedDecoration)
+                ChangeDensity(wantedGrass, wantedVegetation, wantedDecoration);
             if (!_inScenarioScene)
                 return;
 
@@ -572,7 +666,7 @@ internal static class ScenarioSceneryBudget
             MaybeReport(loading);
         }
 
-        private bool BudgetActive => _density < 100 || _decorationDensity < 100;
+        private bool BudgetActive => _density < 100 || _vegetationDensity < 100 || _decorationDensity < 100;
 
         private void EnterScene(Scene scene)
         {
@@ -582,6 +676,7 @@ internal static class ScenarioSceneryBudget
             // Real ProceduralScenario membership below gates each tile; menus/maps admit none.
             _inScenarioScene = VRSession.IsRunning;
             _density = 100;
+            _vegetationDensity = 100;
             _decorationDensity = 100;
             _actualScenario = false;
             _wasLoading = true;
@@ -590,13 +685,15 @@ internal static class ScenarioSceneryBudget
             _summaryDue = Time.unscaledTime + 3f;
         }
 
-        private void ChangeDensity(int wantedGrass, int wantedDecoration)
+        private void ChangeDensity(int wantedGrass, int wantedVegetation, int wantedDecoration)
         {
             bool wasActive = BudgetActive;
             _density = wantedGrass;
+            _vegetationDensity = wantedVegetation;
             _decorationDensity = wantedDecoration;
             PerfMonitor.MarkChange($"[Optimize] ScenarioSceneryDensityPercent={wantedGrass}; "
-                             + $"ScenarioDecorationDensityPercent={wantedDecoration}");
+                             + $"ScenarioDecorationDensityPercent={wantedDecoration}; "
+                             + $"ScenarioVegetationDensityPercent={wantedVegetation}");
             _retuneIndex = 0;
             _summaryPrinted = false;
             _summaryDue = Time.unscaledTime + 2f;
@@ -721,7 +818,21 @@ internal static class ScenarioSceneryBudget
             Verdict verdict = Classify(renderer, tile, out Transform? unit, out Kind kind);
             _rejected[(int)verdict]++;
             if (verdict != Verdict.Eligible || unit == null)
+            {
+                if (VRLog.WantsDebug && _debugRejectedNames < NamedDebugCap
+                    && _debugRejectedVerdicts[(int)verdict] < 2
+                    && (kind != Kind.None || UsesFoliage(renderer))
+                    && _debugRejectedIds.Add(id))
+                {
+                    _debugRejectedNames++;
+                    _debugRejectedVerdicts[(int)verdict]++;
+                    VRLog.Debug(Scope, "Scenario scenery rejected candidate "
+                                       + PathOf(renderer.transform, tile.transform)
+                                       + $" kind={kind} verdict={verdict} leafCollider="
+                                       + (renderer.GetComponent<Collider>() != null));
+                }
                 return;
+            }
 
             var record = new Record
             {
@@ -764,8 +875,12 @@ internal static class ScenarioSceneryBudget
             record.Invalidated = true;
         }
 
-        private int DensityFor(Record record) => record.Kind == Kind.Grass
-            ? Math.Min(_density, _decorationDensity) : _decorationDensity;
+        private int DensityFor(Record record) => record.Kind switch
+        {
+            Kind.Grass => _density,
+            Kind.Vegetation => _vegetationDensity,
+            _ => _decorationDensity,
+        };
 
         private void Retune()
         {
@@ -782,7 +897,7 @@ internal static class ScenarioSceneryBudget
                 return;
             _retuneIndex = -1;
             PerfMonitor.MarkChange($"Scenario scenery budget retune complete: grass {_density}%, "
-                             + $"decoration {_decorationDensity}%");
+                             + $"decoration {_decorationDensity}%, vegetation {_vegetationDensity}%");
             if (!BudgetActive)
             {
                 _records.Clear();
@@ -875,7 +990,7 @@ internal static class ScenarioSceneryBudget
             }
             PerfMonitor.MarkChange($"Scenario scenery preparation complete: {owned} owned renderer masks");
             VRLog.Note(Scope, $"Scenario scenery budget: density {_density}%, decoration "
-                              + $"{_decorationDensity}%; {_tileIds.Count} tile(s), "
+                              + $"{_decorationDensity}%, vegetation {_vegetationDensity}%; {_tileIds.Count} tile(s), "
                               + $"{_meshRenderers} unique mesh renderer(s) inspected, "
                               + $"eligible grass {grass}, trees/bushes/vines {vegetation}, "
                               + $"scatter/details {dressing}; {owned} owned and {actuallyForced} "
@@ -911,6 +1026,9 @@ internal static class ScenarioSceneryBudget
             _visitedNodes = 0;
             _meshRenderers = 0;
             _debugNames = 0;
+            _debugRejectedNames = 0;
+            Array.Clear(_debugRejectedVerdicts, 0, _debugRejectedVerdicts.Length);
+            _debugRejectedIds.Clear();
             _retuneIndex = -1;
             _pruneIndex = 0;
             _watchIndex = 0;

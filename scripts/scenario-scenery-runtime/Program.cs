@@ -14,6 +14,7 @@ public static class InteractionProgram
     private static readonly BindingFlags Private = BindingFlags.NonPublic | BindingFlags.Instance;
     private static readonly MethodInfo Classifier = typeof(ScenarioSceneryBudget).GetMethod("Classify", BindingFlags.NonPublic | BindingFlags.Static)!;
     private static Mesh _mesh = null!;
+    private static readonly List<Mesh> ExtraMeshes = new();
     private static Material _foliage = null!, _solid = null!;
     private static void Check(bool value, string text) { _count++; if (!value) throw new Exception(text); }
     private static GameObject Node(Transform parent, string name)
@@ -34,6 +35,10 @@ public static class InteractionProgram
     {
         object?[] args = { renderer, tile, null, null }; Classifier.Invoke(null, args); return args[3]!.ToString()!;
     }
+    private static Transform? Unit(MeshRenderer renderer, ProceduralMapTile tile)
+    {
+        object?[] args = { renderer, tile, null, null }; Classifier.Invoke(null, args); return args[2] as Transform;
+    }
     private static Component Driver(GameObject root)
     {
         ScenarioSceneryBudget.Install(root);
@@ -52,8 +57,10 @@ public static class InteractionProgram
     public static int Run()
     {
         _count = 0; VRLog.Messages.Clear(); PerfMonitor.Marks.Clear(); SceneRegistry.MapTiles.Tiles.Clear();
+        ExtraMeshes.Clear();
         HeldProps.Held = null; NetHeldProps.Any = false; VRSession.IsRunning = true;
         PerfConfig.ScenarioSceneryDensityPercentValue = 100; PerfConfig.ScenarioDecorationDensityPercentValue = 100;
+        PerfConfig.ScenarioVegetationDensityPercentValue = 100;
         SceneryClock.Now = 0; SceneController.Instance.IsLoading = true;
         var gameScene = SceneManager.GetActiveScene();
         var proceduralScene = SceneManager.CreateScene("Scenario scenery fixture " + Guid.NewGuid());
@@ -107,6 +114,41 @@ public static class InteractionProgram
             var water = Leaf(mixed.transform, "Water", false);
             Check(Classify(pillar, tile) == "Structural", "structural tree pillar is preserved");
             Check(Classify(wallStone, tile) == "Structural" && Classify(floor, tile) == "Structural", "native masonry and playable floor retain rendering");
+            var nativeComposite=Node(mixed.transform,"FR_Wall_Grassy_Verge_Thin_Narrow_01");
+            var compositeCollider=nativeComposite.AddComponent<BoxCollider>();
+            var solidLod=Leaf(nativeComposite.transform,"LOD0",false);
+            var foliageLod=Leaf(nativeComposite.transform,"LOD1");
+            Check(Classify(foliageLod,tile)=="Eligible","solid wall LOD represents composite collider beside detached foliage");
+            compositeCollider.enabled=false;
+            Check(Classify(foliageLod,tile)=="Eligible","dedicated wall foliage LOD remains optional despite structural parent");
+            var lowerFoliageLod=Leaf(nativeComposite.transform,"LOD2");
+            Check(Unit(foliageLod,tile)==nativeComposite.transform&&Unit(lowerFoliageLod,tile)==nativeComposite.transform,"native foliage LOD levels share a stable density unit");
+            Check(Classify(solidLod,tile)=="Structural","original anonymous solid wall LOD remains visible");
+            foliageLod.sharedMaterials=new[]{_foliage,_solid};
+            Check(Classify(foliageLod,tile)=="Structural","mixed-material stone and grass wall LOD remains intact");
+            foliageLod.sharedMaterials=new[]{_foliage};
+            compositeCollider.enabled=true;
+            var pillarComposite=Node(mixed.transform,"FR_Pillar_Tree_Trunk_01");
+            var pillarCanopy=Leaf(pillarComposite.transform,"LOD1");
+            var pillarCore=Leaf(pillarComposite.transform,"LOD0",false);
+            Check(Classify(pillarCanopy,tile)=="Eligible"&&Classify(pillarCore,tile)=="Structural","separate tree canopy is optional while original trunk remains");
+            var unknownComposite=Node(mixed.transform,"Player_Wall_Fake");
+            Check(Classify(Leaf(unknownComposite.transform,"LOD1"),tile)=="Structural","unknown structural asset cannot be admitted by foliage shader alone");
+            var anonymousGrass=Leaf(mixed.transform,"Mesh");
+            var originalGrass=UnityEngine.Object.Instantiate(_mesh); ExtraMeshes.Add(originalGrass);
+            originalGrass.name="FR_Floor_Detail_Grass_08_PR";
+            anonymousGrass.GetComponent<MeshFilter>().sharedMesh=originalGrass;
+            Check(Classify(anonymousGrass,tile)=="Eligible","original grass mesh family admits anonymous generated wrapper");
+            var anonymousFloor=Leaf(mixed.transform,"Mesh",false);
+            var originalFloor=UnityEngine.Object.Instantiate(_mesh); ExtraMeshes.Add(originalFloor);
+            originalFloor.name="FR_Floor_Grass_Half_01";
+            anonymousFloor.GetComponent<MeshFilter>().sharedMesh=originalFloor;
+            Check(Classify(anonymousFloor,tile)=="Structural","original solid floor mesh under anonymous wrapper stays visible");
+            var anonymousComposite=Node(mixed.transform,"PCG_Anonymous_Composite");
+            anonymousComposite.AddComponent<BoxCollider>();
+            anonymousFloor.transform.SetParent(anonymousComposite.transform,false);
+            var anonymousCompositeGrass=Leaf(anonymousComposite.transform,"FR_Floor_Detail_Grass_08_PR");
+            Check(Classify(anonymousCompositeGrass,tile)=="Eligible","original solid floor mesh represents an anonymous composite collider");
             Check(Classify(water, tile) != "Eligible", "water is not decorative detail");
             var scatter = Node(wallGenerated.transform, "CV_Floor_Scatter_01 (2)");
             var caveLod = Leaf(scatter.transform, "LOD2", false);
@@ -147,16 +189,25 @@ public static class InteractionProgram
             driver=Driver(host); Tick(driver,10);
             Check(!grass.forceRenderingOff && !treeLeaf.forceRenderingOff, "both 100 settings retain original rendering");
             PerfConfig.ScenarioDecorationDensityPercentValue=0; Tick(driver,50);
+            Check(!grass.forceRenderingOff&&!treeLeaf.forceRenderingOff&&caveLod.forceRenderingOff,"decoration budget is independent from grass and vegetation");
+            PerfConfig.ScenarioSceneryDensityPercentValue=0; PerfConfig.ScenarioVegetationDensityPercentValue=0; Tick(driver,50);
             Check(grass.forceRenderingOff && treeLeaf.forceRenderingOff && bush.forceRenderingOff && caveLod.forceRenderingOff, "decoration zero hides real generated grass tree and cave LOD meshes");
+            Check(foliageLod.forceRenderingOff&&pillarCanopy.forceRenderingOff&&!solidLod.forceRenderingOff&&!pillarCore.forceRenderingOff,"full production driver removes wall and pillar foliage while preserving structural LODs");
+            Check(anonymousGrass.forceRenderingOff&&!anonymousFloor.forceRenderingOff,"full production driver uses original mesh identity without erasing playable floor");
+            Check(compositeCollider.enabled,"retained composite collider remains enabled under density masking");
             Check(separateGrass.forceRenderingOff, "scene-root native scenario fallback is discovered despite active scene not ProcGen");
             Check(!floorBase.forceRenderingOff && !pillar.forceRenderingOff && !wallStone.forceRenderingOff && !floor.forceRenderingOff && !propGrass.forceRenderingOff && !chestGrass.forceRenderingOff && !water.forceRenderingOff, "essential scenario floor wall obstacle actors and native props remain rendered");
             Check(roots.GetComponent<BoxCollider>().enabled && wall.GetComponent<BoxCollider>().enabled, "budget never changes collider enabled state");
+            PerfConfig.ScenarioSceneryDensityPercentValue=100; Tick(driver,50);
+            Check(!grass.forceRenderingOff&&treeLeaf.forceRenderingOff&&caveLod.forceRenderingOff,"grass slider changes visible grass even at decoration zero");
+            PerfConfig.ScenarioVegetationDensityPercentValue=100; Tick(driver,50);
+            Check(!treeLeaf.forceRenderingOff&&caveLod.forceRenderingOff,"vegetation slider restores trees independently of loose decoration");
             PerfConfig.ScenarioDecorationDensityPercentValue=100; Tick(driver,50);
             Check(!grass.forceRenderingOff && !treeLeaf.forceRenderingOff && foreign.forceRenderingOff, "restoration clears owned masks and preserves foreign force flag");
             PerfConfig.ScenarioSceneryDensityPercentValue=0; Tick(driver,50);
-            Check(grass.forceRenderingOff && !treeLeaf.forceRenderingOff, "existing grass key works as a grass-only additional cap");
+            Check(grass.forceRenderingOff && !treeLeaf.forceRenderingOff, "existing grass key works as an independent grass-only budget");
             Check(!propGrass.forceRenderingOff && !floorBase.forceRenderingOff, "grass slider preserves gameplay props and floor bases");
-            PerfConfig.ScenarioDecorationDensityPercentValue=0; Tick(driver,50);
+            PerfConfig.ScenarioVegetationDensityPercentValue=0; PerfConfig.ScenarioDecorationDensityPercentValue=0; Tick(driver,50);
             var late=Leaf(full.transform,"FR_Floor_PlantsBushes_02");
             Check(!late.forceRenderingOff, "late fixture begins unmasked before native placement");
             SceneController.Instance.IsLoading=false; Tick(driver,10);
@@ -200,6 +251,8 @@ public static class InteractionProgram
             ScenarioSceneryBudget.Shutdown(); SceneRegistry.MapTiles.Tiles.Clear(); HeldProps.Held=null;
             UnityEngine.Object.DestroyImmediate(host); UnityEngine.Object.DestroyImmediate(scenario);
             UnityEngine.Object.DestroyImmediate(_foliage); UnityEngine.Object.DestroyImmediate(_solid); UnityEngine.Object.DestroyImmediate(_mesh);
+            foreach(var mesh in ExtraMeshes) UnityEngine.Object.DestroyImmediate(mesh);
+            ExtraMeshes.Clear();
             if(gameScene.IsValid())SceneManager.SetActiveScene(gameScene);
             foreach(var root in proceduralScene.GetRootGameObjects())UnityEngine.Object.DestroyImmediate(root);
             SceneManager.UnloadSceneAsync(proceduralScene);

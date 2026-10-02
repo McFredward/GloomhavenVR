@@ -35,9 +35,12 @@ def main():
             ('prop-grass-admitted', 'Scenery.cs', '|| t.GetComponent<ProceduralProp>() != null', '|| false', 'gameplay prop grass can never'),
             ('miss-late-apparance', 'Scenery.cs', 'if (_wasLoading && !loading && BudgetActive)', 'if (_wasLoading && !loading && BudgetActive && false)', 'loading-complete edge discovers late'),
             ('foreign-force-restored', 'Scenery.cs', 'if (!record.Owned && !renderer.forceRenderingOff)', 'if (!record.Owned)', 'restoration clears owned masks'),
-            ('active-procgen-only', 'Scenery.cs', '_inScenarioScene = VRSession.IsRunning;', '_inScenarioScene = VRSession.IsRunning && SceneManager.GetActiveScene().name == "ProcGen";', 'decoration zero hides real'),
+            ('active-procgen-only', 'Scenery.cs', '_inScenarioScene = VRSession.IsRunning;', '_inScenarioScene = VRSession.IsRunning && SceneManager.GetActiveScene().name == "ProcGen";', 'decoration budget is independent from grass'),
             ('root-sibling-missed', 'Scenery.cs', 'if (roots[i].GetComponent<ProceduralScenario>() != null)', 'if (roots[i].GetComponent<ProceduralScenario>() != null && false)', 'scene-root native scenario fallback'),
             ('late-material-missed', 'Scenery.cs', '_driver?.QueueRenderer(mesh);', '{ /* negative: omit native material readiness */ }', 'late native material completion reclassifies'),
+            ('structural-foliage-child-retained', 'Scenery.cs', 'if (foliage && !IsHardStructuralName(renderer.name))', 'if (foliage && !IsHardStructuralName(renderer.name) && false)', 'solid wall LOD represents'),
+            ('anonymous-solid-lod-missed', 'Scenery.cs', 'if (RepresentsSolidComposite(member.transform, node))', 'if (IsStructuralName(member.name) || IsGrassBase(member.name))', 'solid wall LOD represents'),
+            ('grass-still-capped', 'Scenery.cs', 'Kind.Grass => _density,', 'Kind.Grass => Math.Min(_density, _decorationDensity),', 'decoration budget is independent from grass'),
             ('subtree-cache-retained', 'Scenery.cs', 'finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }', 'finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }', ''),
         ]
         variants = [v for v in variants if v[0] != 'subtree-cache-retained']

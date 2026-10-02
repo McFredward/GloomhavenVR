@@ -59,6 +59,7 @@ namespace GloomhavenVR.Core
     internal static class PerfConfig
     {
         internal static int ScenarioSceneryDensityPercentValue = 100;
+        internal static int ScenarioVegetationDensityPercentValue = 100;
         internal static int ScenarioDecorationDensityPercentValue = 100;
     }
     internal static class PerfMonitor

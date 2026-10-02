@@ -34,11 +34,13 @@ def production(source):
         'private readonly struct ColliderFacts',
         'private static void SetHidden(', 'private static Verdict Classify(',
         'private static bool HasUnrepresentedCollider(', 'private static ColliderFacts ReadColliderFacts(',
-        'private static bool UsesFoliage(', 'private static Kind NamedKind(',
+        'private static bool UsesFoliage(', 'private static bool UsesOnlyFoliage(',
+        'private static bool RepresentsSolidComposite(', 'private static Kind NamedKind(',
         'private static bool IsHardStructuralName(', 'private static bool IsScenarioTile(',
     )]
     methods += [expression(source,key) for key in (
         'private static bool ShouldHide(', 'private static bool IsStructuralName(', 'private static bool IsGrassBase(',
+        'private static bool IsNativeSceneryAsset(',
     )]
     header='''using System; using System.Collections.Generic; using UnityEngine; using UnityEngine.SceneManagement;
 namespace GloomhavenVR.Core;
@@ -60,9 +62,11 @@ def main():
         ('old-generator-only','if (!reachedTile || !generated)','if (!reachedTile || !generated || unit == null || !unit.name.StartsWith("PCG_FR_Floor_Grass_Hex_", StringComparison.Ordinal))','hardware roots grass'),
         ('leaf-collider-invisible','if (blockingCollider)','if (blockingCollider && false)','disabled retained base'),
         ('native-prop-admitted','|| t.GetComponent<ProceduralProp>() != null','|| false','gameplay obstacle grass'),
-        ('structural-foliage-hidden','structural || IsHardStructuralName(assetName)','structural || false','structural geometry beats foliage shader'),
+        ('structural-foliage-hidden','(!dedicatedStructuralFoliage && IsHardStructuralName(assetName))','(!dedicatedStructuralFoliage && IsHardStructuralName(assetName) && false)','structural geometry beats foliage shader'),
         ('foreign-mask-restored','if (!record.Owned && !renderer.forceRenderingOff)','if (!record.Owned)','foreign renderer mask cannot'),
         ('root-sibling-missed','if (roots[i].GetComponent<ProceduralScenario>() != null)','if (roots[i].GetComponent<ProceduralScenario>() != null && false)','native scene-root scenario fallback'),
+        ('structural-foliage-child-retained','if (foliage && !IsHardStructuralName(renderer.name))','if (foliage && !IsHardStructuralName(renderer.name) && false)','solid wall LOD represents'),
+        ('anonymous-solid-lod-missed','if (RepresentsSolidComposite(member.transform, node))','if (IsStructuralName(member.name) || IsGrassBase(member.name))','solid wall LOD represents'),
     ):
         if source.count(old)!=1:raise SystemExit('Classifier mutation binding drift: '+name)
         variants.append((name,source.replace(old,new,1),expected))
@@ -83,6 +87,6 @@ def main():
             elif run.returncode==0 or 'error CS' in output or expected not in output:
                 raise SystemExit('Negative control failed to reach intended runtime defect: '+name+'\n'+output)
             else:print('Scenario classifier negative control: '+name+' failed as expected')
-    print('Scenario scenery: full production Classify graph and 6 runtime negative controls passed; actual Unity lifecycle tested separately')
+    print('Scenario scenery: full production Classify graph and 8 runtime negative controls passed; actual Unity lifecycle tested separately')
 
 if __name__=='__main__':main()
