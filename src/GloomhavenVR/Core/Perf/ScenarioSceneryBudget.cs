@@ -1095,6 +1095,8 @@ internal static class ScenarioSceneryBudget
             PrepareSubtree(renderer.gameObject);
             if (!_inScenarioScene || !BudgetActive || !renderer.enabled || renderer.forceRenderingOff
                 || !renderer.gameObject.activeInHierarchy || UsesOnlyFoliage(renderer)) return;
+            ProceduralMapTile? tile = TileAncestor(renderer.transform);
+            if (tile == null || !IsScenarioTile(tile)) return;
             // Native MaterialLoaderData completes independently for each renderer. A grass
             // sibling may have been rejected while this solid floor was still disabled. Only
             // the nearest original shared box below Generated Content needs immediate recheck;
