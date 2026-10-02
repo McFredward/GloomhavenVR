@@ -1,6 +1,29 @@
 # State — where the project stands
 
-**Updated 2026-10-02: dev 1.1.0 / ModBuild 607, figure measurement boundaries and window materialization toggle.**
+**Updated 2026-10-03: dev 1.1.0 / ModBuild 608, Frame607 hitch analysis and targeted interaction optimizations.**
+
+The new Frame607 hardware capture confirms real figure/FX/cloth application, including
+34.87% fewer admitted body vertices at 0/0. It does not isolate the slider FPS benefit:
+all settled markers are 0/0, other quality intervals have active VR Options, and many
+stationary samples are untracked. Both supplied logs identify607/5344a5504 and describe
+the same run. Loaded interaction frames still reach 200–500 ms, with source-backed
+card capture/census, prop pickup and atomic wall-table work. Actual GPU busy remains
+unavailable; conditional managed heap samples fall repeatedly and do not prove a leak.
+See [Frame607 hitch analysis](../docs/performance/FRAME-607-HITCH-ANALYSIS.md).
+
+Build608 removes false wall invalidation from native-named visual ghost children via
+their exact FigureVisualMirror owner, retaining real native and wall-shader signatures.
+The native HexHighlight root emitter is also identified by its exact same-object
+HexSelect_Control; unrelated descendants keep their conservative world facts.
+Synchronous card diagnostic work is Debug-gated, bounded across frames and genuinely
+deduplicated; blackout keeps native correction/recovery while bypassing repeated
+unprintable inventories and impossible bright/translucent candidates. The offline
+reader now accepts negative head-height medians, recovering eight pose records without
+relaxing measurement exclusions. No render feature, wire layout or asset bank changes.
+First-use mip readback and native/prop work remain targets. The current prewarm feeds
+already-adopted card widgets, not all party hands or complete mip caches; loading-time
+coverage needs the actual native hand skins and must not activate gameplay controllers.
+Hardware cadence for608 and a controlled figure-slider FPS benefit remain unverified.
 
 Build607 separates player/enemy/figure-FX/cloth measurement windows at the early
 Update seam, retaining OLD settings on completed samples and discarding one mixed
@@ -29,7 +52,7 @@ failed subordinate gate. Proof and source hashes are retained under
 assertions and seven controls, and the MR/switch suite has 576 assertions and
 seven controls. An independent review additionally removed mixed-frame work-counter
 contributions and omitted unfinished native captures at the boundary. Build607
-hardware cadence and appearance remain unverified; no new FPS gain is claimed. See
+hardware now confirms slider application and remaining hitches; no isolated FPS gain is claimed. See
 [Build607 measurements and test procedure](../docs/performance/FRAME-607-MEASUREMENTS.md).
 
 The maintainer approved the Frame605 optimization follow-up and clarified spectator

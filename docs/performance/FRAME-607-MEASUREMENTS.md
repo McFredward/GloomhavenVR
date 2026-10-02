@@ -100,8 +100,10 @@ The existing MR backing suite exercises production binding, effect entry points
 and teardown with saved/default choices and a switch during close.
 
 These checks establish source/runtime contracts. They do not establish headset
-appearance, a smooth frame cadence, or actual GPU cost. Hardware evidence for
-607 remains pending.
+appearance, a smooth frame cadence, or actual GPU cost. The subsequent
+[Build607 hardware analysis](FRAME-607-HITCH-ANALYSIS.md) confirms slider
+application and residual hitches; the supplied sweep does not contain a settled
+100% counterpart and cannot establish an isolated figure-detail FPS gain.
 
 The final integrated runtime tree `38eeb1e4` passed 14 source suites, 102 local
 suites and 286,760 wire/golden assertions, strict Release with zero warnings or

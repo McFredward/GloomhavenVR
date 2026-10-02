@@ -560,6 +560,9 @@ internal static class NetProtocol
     // now excludes these mod copies from non-wall membership and attachment adoption, so a
     // grab/release cannot rebuild the wall table solely for its home ghost. Native counterparts
     // and real wall-shader membership keep their existing conservative signatures and gates.
+    // The native HexHighlight prefab also owns its particle renderer on the HexSelect_Control
+    // root, outside the child-particle arrays. Exact same-object ownership excludes these
+    // root selection emitters; unrelated children beneath a selector are still world facts.
     // CardHalfTone census work is Debug-only and budgeted across actual frames, with a stable
     // report signature and bounded heartbeat. FaceBlackout no longer builds an unprintable
     // recurring full inventory; non-dark/non-opaque candidates bypass coverage probes after

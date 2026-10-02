@@ -2,8 +2,9 @@
 
 Internal engineering notes, 2026-10-03. The supplied Player.log and LogOutput.log
 both identify ModBuild 607, commit `5344a5504`. They describe the same run and
-must not be counted as independent captures. Immutable inputs, hashes, parsed
-windows and investigations are retained in
+must not be counted as independent captures. No new screenshots are present in
+the supplied Steam Frame folder. Immutable inputs, hashes, parsed windows and
+investigations are retained in
 `.planning/debug/frame607-run-analysis/`.
 
 ## What the sliders establish
@@ -55,9 +56,14 @@ Other large frames have little time in measured mod scopes. This does **not**
 exclude mod-induced downstream rendering or allocation costs. The historical
 SPIKE verdict that attributes every such remainder to the game/GPU/compositor
 is stronger than the instrument can prove. No measured GPU bottleneck or memory
-leak is established by these logs. Managed collection counters increase, but
-allocation estimates and window-level collections do not identify a particular
-frame's cause.
+leak is established by these logs. Conditional SPIKE heap samples rise and fall
+(533.7–644.1 MB across the relevant intervals, last observed 590.8 MB), rather
+than proving continual accumulation. Managed collection counters increase, but
+positive `GetTotalMemory` deltas are an allocation-pressure estimate, not exact
+allocated bytes. Window-level collections do not identify a particular frame's
+cause. Sixteen native Hydra SDK host-resolution exceptions also occur; they
+do not establish a networking cause for these hitches. No GloomhavenVR error,
+figure-driver failure or bank-resolution failure is logged.
 
 ## Source-backed unnecessary work
 
@@ -71,6 +77,22 @@ Exact mirror-component ancestry distinguishes these visual copies from their
 native counterparts. Genuine world geometry changes still require the commit;
 a mesh using the wall-fade shader retains its conservative signature exception.
 
+The same capture also logs signature deltas from native `HexHighlight(Clone)`
+selection roots. The previously recognized decal and child-emitter arrays miss
+the emitter on the selector itself. Read-only prefab inspection confirms that
+`resources.assets` HexHighlight GameObject 5746 owns HexSelect_Control 11576,
+ParticleSystem 8156 and ParticleSystemRenderer 8674 on the same object
+(asset SHA256 `bdbb12b62374aee0a00a07f07e162c7a558c052996ea7be360a2d59bd0c8c34a`).
+Build608 recognizes that exact same-object particle ownership, rather than exempting
+anything merely beneath a selector. Of twelve retained post-load signature-delta
+reports after LogOutput line 7000, six describe visual-ghost churn, five selection
+root churn and one genuine new environment content. Bounded diagnostic reports
+are not a whole-run census or a predicted percentage improvement.
+
+Mirror ancestry reads reuse the existing synchronous wall read-cache scopes.
+Positive and negative entries are cleared at both boundaries; mutable hierarchy
+ownership is never memoized across frames. No new steady scene census is added.
+
 Two card diagnostics also perform unnecessary synchronous work. CardHalfTone's
 global card census runs from the gameplay observation seam, including when its
 eventual Debug output cannot print. FaceBlackout repeatedly prepares a complete
@@ -79,9 +101,43 @@ report, another zero result cannot be printed, but the old report-interest test
 still requests the expensive geometry/probe inventory. These diagnostic costs
 must be reduced without changing artwork, opacity correction or restoration.
 
+Build608 gates the half-tone census before discovery at normal log levels. At
+Debug, discovery, sampling and reporting occupy separate frames; sampling checks
+a one-millisecond budget between faces and stops after at most eight faces.
+A native operation cannot be preempted, so this is not a hard one-millisecond
+duration guarantee. Unchanged results repeat only on a 30-second heartbeat.
+The blackout path retains the first Debug inventory and the first later positive
+correction while rejecting impossible bright/translucent candidates before
+geometry/probe work. Existing tracked-mute restoration runs first.
+
+The focused real-Unity card harness passes 486 assertions and ten deliberate
+defect controls, including 227 scene faces, Debug cancellation/reset and native
+color/art arrival/restoration. Repeated excluded-graphic maintenance performs
+zero inventory entries, geometry queries and silhouette probes in those tested
+paths. Unity Mono's allocation counter failed a 16 KB calibration; allocation
+bytes remain unavailable rather than being reported as zero allocation. These
+tests establish the work bypass and preservation contract, not a headset FPS gain.
+
 Some first-use work is genuine: card mip creation uses synchronous GPU readback
 and CPU texture conversion, while trap pickup builds a home visual and original
 prop information. Removing diagnostic amplification and false wall invalidation
 does not establish that those remaining first-use paths are fully prewarmed.
 Matched hardware measurements are required after the source changes before any
 claim that all hitches are resolved.
+
+## Next loading-time preparation target
+
+CardArtPrewarm is fed by `CardFace.Adopt` and prepares concrete widgets that have
+already reached the presentation path. It is not a scenario-wide party-hand or
+mip-cache prefill. Its CONFIRMED message checks native image/loader readiness,
+not complete mip-cache coverage. Both the new class atlas pin and its later
+native-art arrival can therefore occur during the first character switch.
+
+The native game creates hands for every non-summoned party character, not just
+the selected hand. A future loading-time feed can inspect their existing widgets
+as read-only sources after asynchronous construction. `cardsSpawned` is set
+before the first yield and must not serve as a completed-construction signal.
+Use the actual hand's skin: ordinary native initialization derives it from the
+player's DefaultModel and CustomCharacterConfig, whereas preview initialization
+uses the card's ClassModel. Activating hands or invoking native Show/Init solely
+to warm a cache would run gameplay/UI callbacks and is not an acceptable shortcut.
