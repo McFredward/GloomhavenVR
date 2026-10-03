@@ -679,7 +679,7 @@ internal static class PerfConfig
             + "to the head camera (work that appears in no other number here and that this game "
             + "uses for a full occlusion re-draw of every revealed room), and the head camera's "
             + "path / depth-texture / culling mask. Sampled ONCE PER WINDOW: the walk allocates and "
-            + "is spread across frames within the configurable scene-profile budget. Actual slices "
+            + "is spread across frames within the configurable scene-profile budget. IT TIMES ITSELF: actual slices "
             + "and capture span are reported; an indivisible engine call can still exceed the soft "
             + "budget. Live scene changes cancel the unfinished inventory. Never runs "
             + "in the pre-menu scenes (Bootstrap/Intro): there are five renderers there, and a "

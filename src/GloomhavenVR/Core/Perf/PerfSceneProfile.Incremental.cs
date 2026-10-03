@@ -123,7 +123,7 @@ internal static partial class PerfSceneProfile
         {
             sb.Append(" | scene census: ").Append(_completedRenderers.Length).Append(" renderer(s), ")
                 .Append(_completedEnabled).Append(" enabled, ").Append(_completedVisible)
-                .Append(" visible to at least one camera (incremental capture span ")
+                .Append(" visible to at least one camera (not ONE INSTANT; incremental capture span ")
                 .Append(_completedSpan.ToString("F2")).Append("s, age ")
                 .Append((Time.unscaledTime - _completedAt).ToString("F2"))
                 .Append("s; rolling per-frame estimate remains on ZOOM; forced-off excluded)")
