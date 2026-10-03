@@ -34,6 +34,15 @@ public static class QuestText
             case "mrActive": return german ? "Mixed Reality aktiv" : "Mixed reality active";
             case "vrActive": return german ? "VR aktiv" : "VR active";
             case "navigation": return german ? "Linker Stick: bewegen · Rechter Stick: drehen / Höhe · Trigger: auswählen" : "Left stick: move · Right stick: turn / height · Trigger: select";
+            case "startupTitle": return german ? "Startdiagnose des Originalspiels" : "Original game startup diagnostic";
+            case "startupPending": return german ? "Spielstart wird vorbereitet" : "Preparing game startup";
+            case "startupCheckingContent": return german ? "Spieldateien werden geprüft" : "Checking game files";
+            case "startupExtractingContent": return german ? "Spieldateien werden entpackt" : "Extracting game files";
+            case "startupAddressables": return german ? "Originale Startinhalte werden geladen" : "Loading original startup assets";
+            case "startupLoadingOriginal": return german ? "Originalspiel wird gestartet" : "Starting the original game";
+            case "startupOriginalLoaded": return german ? "Originalstart geladen" : "Original startup loaded";
+            case "startupFailed": return german ? "Spielstart angehalten" : "Game startup stopped";
+            case "startupDiagnosticScope": return german ? "Originalmenüs; Kampagne, Mod und Crossplay bleiben unbestätigt." : "Original menus; campaign, mod and crossplay remain unverified.";
             case "probeAim": return german ? "Zielpose links / rechts" : "Left / right aim pose";
             case "probeBattery": return german ? "Hardware-Prüfungen" : "Hardware checks";
             case "probeMaterials": return german ? "Materialien und Atlas" : "Materials and atlas";
