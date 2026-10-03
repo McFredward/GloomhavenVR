@@ -12,6 +12,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
 | [QUEST3-IMPLEMENTATION.md](QUEST3-IMPLEMENTATION.md) | Authorized Quest implementation branch, actual hardware checkpoint evidence and outstanding full-game gates |
+| [QUEST3-HARDWARE-608.md](QUEST3-HARDWARE-608.md) | Private Quest diagnostic installation, controls, evidence capture and explicit limits before campaign/multiplayer startup |
 | [QUEST3-PORT-PLAN.md](QUEST3-PORT-PLAN.md) | Quest 3 campaign port: local APK conversion, embedded Steam logo/name/ID without store/cloud services, necessary EOS multiplayer exception and native passthrough; implementation authorized 2026-10-03 |
 | [QUEST3-CRITICAL-SOLUTIONS.md](QUEST3-CRITICAL-SOLUTIONS.md) | Concrete future solutions for asset reconstruction, Apparance baking, generated ARM64 mod integration, original multiplayer, offline Steam identity, manual save transfer and Quest performance |
 | [QUEST3-PREFLIGHT-AND-BUILDER.md](QUEST3-PREFLIGHT-AND-BUILDER.md) | Source-backed preflight blockers and a builder maintenance contract: current mod/patch/helper/resource discovery, coherent inputs, dependency-aware caches and N -> N+1 acceptance |

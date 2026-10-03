@@ -55,7 +55,20 @@ in private build receipts; signing continuity is verified on subsequent builds.
 The first manifest inspection caught an unconditional eye-tracking requirement
 in the pinned Unity OpenXR1.13.0 MetaQuest build hook despite disabled EyeGaze.
 The target now removes those unused feature/permission declarations after that
-hook; the final APK must be checked again before handoff.
+hook. The final APK was checked again successfully: neither eye-tracking permission
+nor the mandatory eye-tracking feature is present. Validation additionally requires
+the actual Unity/OpenXR/passthrough libraries and checks every native ELF header
+for little-endian AArch64 shared-object code.
+
+The final local APK is 30,847,254 bytes, SHA-256
+`064986fdb1d5023ad07d79a54a84290e7d63f440ecd607e13f5b885fc93d8c20`,
+compiled from runtime/tool commit `7ded8773` and input key
+`d5d66d1462a6358c572bc66d81da9d2ab0d8713caf5fc06c6806e90ee8aa4dd1`.
+It is copied with a public-data-only receipt into the main checkout's ignored
+`.planning/debug/quest3/` for private hardware testing. The builder's default
+`.planning/quest3-local/` is also ignored, including its local signing/account data.
+See [hardware steps and limits](QUEST3-HARDWARE-608.md). No headset was attached
+to the build host, so passthrough/tracking/images have not been verified on Quest.
 
 Original core recovery has produced 13 build scenes and original managed plugins.
 All build-scene script identities resolve. The complete export remains unready:

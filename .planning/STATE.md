@@ -1,5 +1,29 @@
 # State — where the project stands
 
+**Quest branch checkpoint, 2026-10-03: `feature/quest3-standalone`, ModBuild 608.**
+
+The maintainer explicitly authorized implementation on a new branch from current
+`dev` (`5344a550`, Build607). This isolated branch includes the owned-game local
+builder, asset recovery/audit, generated static Harmony integration, an Android
+OpenXR template and native passthrough composition in Unity's existing XR session.
+A signed ARM64 IL2CPP hardware diagnostic with the original animated BanditGuard
+asset is available privately; it uses the explicitly authorized DUMMY profile.
+The concurrent main `dev` checkout remains untouched. This branch status does not
+change the Frame hardware acceptance or imply that its desktop package is the
+Quest app.
+
+The checkpoint tests head/controllers, native passthrough, local diagnostic storage,
+embedded identity and disabled Guildmaster/Workshop tooltip presentation. It is
+**not a playable campaign, complete mod startup, original save or multiplayer port**.
+The real export reports placeholder shaders, 16 serialization-layout errors and
+deferred bundles; standalone lifecycle/content-root and original IL2CPP/platform
+startup remain required. Compilation/signing and source tests are separate from
+unverified Quest images, tracking and performance. See
+[Quest implementation evidence](QUEST3-IMPLEMENTATION.md) and
+[private hardware test procedure](QUEST3-HARDWARE-608.md).
+
+The following records the `dev`/Steam Frame baseline this branch started from:
+
 **Updated 2026-10-02: dev 1.1.0 / ModBuild 607, figure measurement boundaries and window materialization toggle.**
 
 Build607 separates player/enemy/figure-FX/cloth measurement windows at the early
