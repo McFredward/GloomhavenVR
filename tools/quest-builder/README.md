@@ -67,6 +67,13 @@ python3 scripts/build-quest.py install --output-root /path/to/private/quest-outp
 python3 scripts/build-quest.py report --output-root /path/to/private/quest-output
 ```
 
+For repeated Windows tests, run
+`scripts/install-quest-wireless.cmd -OutputRoot "D:\Quest builds"` once with the
+authorized Quest connected by USB. After that, double-click the same script to
+reconnect over Wi-Fi and install this output's
+latest verified APK. See the [wireless setup and options](../../.planning/QUEST3-WIRELESS-INSTALL.md).
+The portable core is `scripts/install-quest-wireless.py`.
+
 Installation uses `adb install -r`, never automatic uninstall. Keep the output's
 `signing/quest.keystore` and private `signing/local-key.json` for updates; replacing
 the key prevents data-preserving APK updates. These files are never included in
