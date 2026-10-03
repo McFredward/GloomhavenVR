@@ -190,6 +190,17 @@ internal sealed partial class TownServiceSync
                     Publish("enchant.point", point.Content, point.Source, point.CloneOf);
                 foreach (TownServiceRitual.Piece piece in ritual.Pieces)
                 {
+                    if (service == 2)
+                    {
+                        VRHand? previewHand = VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left;
+                        // TempleOffering authors this exact wrist preview frame. A grabbed
+                        // body reparents to its actual GrabAnchor and a deposited body leaves
+                        // that frame, so neither is guessed from observer proximity.
+                        TownServiceMirror.RegisterMotionHand(piece.Root, previewHand, followsRotation: false);
+                        TownServiceMirror.RegisterMotionHand(piece.Body, piece.Token.HoldingHand, followsRotation: false);
+                        PriorityRoots.Add(piece.Root); PriorityRoots.Add(piece.Body);
+                        if (piece.Content != null) PriorityRoots.Add(piece.Content);
+                    }
                     if (piece.Token.IsMoving)
                     {
                         PriorityRoots.Add(piece.Body);

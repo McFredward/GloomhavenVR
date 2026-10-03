@@ -53,6 +53,8 @@ namespace GloomhavenVR.WorldUI
         internal static bool LocalReady, PublishedReady;
         internal static float LocalStrength, PublishedStrength;
         internal static int PublishedGuideOwner;
+        internal static int GuideOwner => PublishedGuideOwner;
+        internal static void PaintRemote(UnityEngine.CanvasGroup? gate, Transform? zone) { }
         internal static void ObserveVisitor(int peer, uint session, bool ready, float strength) { }
         internal static void ObserveShared(int peer, bool ready, float strength, int guideOwner) { }
         internal static void Forget(int peer) { }

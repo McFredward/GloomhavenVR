@@ -97,7 +97,7 @@ namespace GloomhavenVR.WorldUI
         {
             internal TownServiceToken Token = new();
             internal string Key = "", BodyKey = "merchant.cardbody", DetailKey = "";
-            internal Transform Source = null!, Content = null!, Body = null!;
+            internal Transform Source = null!, Content = null!, Body = null!, Root = null!;
             internal Transform? DetailSource, DetailContent;
             internal Transform? CloneOf(Transform source) => source == Source ? Content : null;
             internal Transform? DetailCloneOf(Transform source) => source == DetailSource ? DetailContent : null;
@@ -116,6 +116,7 @@ namespace GloomhavenVR.WorldUI
     internal sealed class TownServiceToken
     {
         internal bool IsPhysical, IsMoving, IsHeld;
+        internal GloomhavenVR.Hands.VRHand? HoldingHand;
         internal Transform? HeldContent;
         internal Transform Source = null!;
         internal readonly Dictionary<Transform, Transform> HeldMap = new();

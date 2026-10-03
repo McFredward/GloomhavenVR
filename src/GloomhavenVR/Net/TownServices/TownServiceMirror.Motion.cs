@@ -21,7 +21,6 @@ internal static partial class TownServiceMirror
     private sealed class SourceMotion
     {
         internal TownServiceFrame? Previous;
-        internal float NextCanvasRefresh;
         internal readonly Dictionary<TownServiceMotionKey, MotionSlot> Slots = new();
     }
     private sealed class PeerMotion
@@ -127,14 +126,9 @@ internal static partial class TownServiceMirror
             TownServiceMotionEntry root = MotionHeader(frame, laneId, 1);
             root.ParentModule = frame.ParentModule; root.Binding = frame.ParentBinding;
             root.ParentAlpha = frame.ParentAlpha; root.Visible = frame.Visible;
-            root.Pose = (float[])frame.Pose.Clone(); root.HasCanvasFrame = frame.HasCanvasFrame;
-            root.HasCanvasUpdate = previous == null || now >= source.NextCanvasRefresh || previous.HasCanvasFrame != frame.HasCanvasFrame
-                || !SameNumbers(previous.CanvasPose, frame.CanvasPose) || !SameNumbers(previous.CanvasRect, frame.CanvasRect)
-                || !SameNumbers(previous.CanvasSettings, frame.CanvasSettings)
-                || previous.CanvasSortingLayer != frame.CanvasSortingLayer || previous.CanvasSortingOrder != frame.CanvasSortingOrder;
-            if (root.HasCanvasUpdate) source.NextCanvasRefresh = now + TownServiceMotionCodec.Heartbeat;
-            root.CanvasPose = (float[])frame.CanvasPose.Clone(); root.CanvasRect = (float[])frame.CanvasRect.Clone();
-            root.CanvasSettings = (float[])frame.CanvasSettings.Clone(); root.CanvasSortingLayer = frame.CanvasSortingLayer;
+            root.Pose = frame.Pose; root.HasCanvasFrame = frame.HasCanvasFrame;
+            root.CanvasPose = frame.CanvasPose; root.CanvasRect = frame.CanvasRect;
+            root.CanvasSettings = frame.CanvasSettings; root.CanvasSortingLayer = frame.CanvasSortingLayer;
             root.CanvasSortingOrder = frame.CanvasSortingOrder;
             VRHand? hand = MotionHand(module.Binding.Root, out bool followsRotation);
             if (hand != null && hand.HasPose)
@@ -145,7 +139,17 @@ internal static partial class TownServiceMirror
                 if (!followsRotation)
                 { Quaternion rotation = Quaternion.Inverse(lane.SharedFrame.rotation) * module.Binding.Root.rotation;
                   root.Pose[3] = rotation.x; root.Pose[4] = rotation.y; root.Pose[5] = rotation.z; root.Pose[6] = rotation.w; }
+                Canvas? canvas = module.Binding.Root.GetComponentInParent<Canvas>(true);
+                if (root.HasCanvasFrame && canvas != null && ReferenceEquals(MotionHand(canvas.transform, out _), hand))
+                { root.CanvasOnHand = true; root.CanvasPose = ReadPose(canvas.transform, hand.Rig.Root); }
             }
+            source.Slots.TryGetValue(root.Key, out MotionSlot? priorRoot);
+            root.HasCanvasUpdate = priorRoot == null || now - priorRoot.SentAt >= TownServiceMotionCodec.Heartbeat
+                || priorRoot.Entry.HasCanvasFrame != root.HasCanvasFrame || priorRoot.Entry.CanvasOnHand != root.CanvasOnHand
+                || !SameNumbers(priorRoot.Entry.CanvasPose, root.CanvasPose)
+                || !SameNumbers(priorRoot.Entry.CanvasRect, root.CanvasRect)
+                || !SameNumbers(priorRoot.Entry.CanvasSettings, root.CanvasSettings)
+                || priorRoot.Entry.CanvasSortingOrder != root.CanvasSortingOrder || priorRoot.Entry.CanvasSortingLayer != root.CanvasSortingLayer;
             if (hand != null || module.HighPriority || previous != null && (!SameNumbers(previous.Pose, frame.Pose)
                 || previous.ParentAlpha != frame.ParentAlpha || previous.Visible != frame.Visible
                 || previous.ParentModule != frame.ParentModule || previous.ParentBinding != frame.ParentBinding
@@ -177,7 +181,7 @@ internal static partial class TownServiceMirror
                         }
                         TownServiceMotionEntry entry = MotionHeader(frame, laneId, 2);
                         entry.Binding = frame.Nodes[n].Binding; entry.Property = property.Key;
-                        entry.Numbers = (float[])property.Value.Numbers.Clone(); UpdateMotionSlot(source, entry);
+                        entry.Numbers = property.Value.Numbers; UpdateMotionSlot(source, entry);
                     }
             source.Previous = frame;
             foreach (MotionSlot slot in source.Slots.Values)
@@ -205,7 +209,7 @@ internal static partial class TownServiceMirror
         && a.Session == b.Session && a.Structure == b.Structure && a.PublicClaim == b.PublicClaim
         && a.ParentModule == b.ParentModule && a.Binding == b.Binding && a.Property == b.Property && a.Offset == b.Offset
         && a.ParentAlpha == b.ParentAlpha && a.Visible == b.Visible && a.Hand == b.Hand
-        && a.HasCanvasFrame == b.HasCanvasFrame && a.HasCanvasUpdate == b.HasCanvasUpdate && a.CanvasSortingOrder == b.CanvasSortingOrder
+        && a.HasCanvasFrame == b.HasCanvasFrame && a.CanvasOnHand == b.CanvasOnHand && a.CanvasSortingOrder == b.CanvasSortingOrder
         && a.CanvasSortingLayer == b.CanvasSortingLayer && SameNumbers(a.Pose, b.Pose)
         && SameNumbers(a.Numbers, b.Numbers) && SameNumbers(a.CanvasPose, b.CanvasPose)
         && SameNumbers(a.CanvasRect, b.CanvasRect) && SameNumbers(a.CanvasSettings, b.CanvasSettings);
@@ -213,7 +217,8 @@ internal static partial class TownServiceMirror
     {
         if (!source.Slots.TryGetValue(entry.Key, out MotionSlot? slot))
         { source.Slots[entry.Key] = new MotionSlot { Entry = entry, DirtySince = Time.unscaledTime }; return; }
-        if (SameMotion(slot.Entry, entry)) return;
+        if (SameMotion(slot.Entry, entry))
+        { if (entry.Kind == 1 && entry.HasCanvasUpdate) slot.Entry = entry; return; }
         slot.Entry = entry; if (!slot.Dirty) slot.DirtySince = Time.unscaledTime; slot.Dirty = true;
     }
 
@@ -237,7 +242,7 @@ internal static partial class TownServiceMirror
             if (entry.Kind == 1 && !entry.HasCanvasUpdate && old != null && old.Entry.Kind == 1
                 && old.Entry.Session == entry.Session && old.Entry.Structure == entry.Structure
                 && old.Entry.PublicClaim == entry.PublicClaim && old.Entry.HasCanvasUpdate)
-            { TownServiceMotionEntry canvas = old.Entry; entry.HasCanvasUpdate = true; entry.HasCanvasFrame = canvas.HasCanvasFrame;
+            { TownServiceMotionEntry canvas = old.Entry; entry.HasCanvasUpdate = true; entry.HasCanvasFrame = canvas.HasCanvasFrame; entry.CanvasOnHand = canvas.CanvasOnHand;
               entry.CanvasPose = canvas.CanvasPose; entry.CanvasRect = canvas.CanvasRect; entry.CanvasSettings = canvas.CanvasSettings;
               entry.CanvasSortingOrder = canvas.CanvasSortingOrder; entry.CanvasSortingLayer = canvas.CanvasSortingLayer; }
             state.Slots[entry.Key] = new MotionSlot { Entry = entry, ReceivedSequence = packet.Sequence,
@@ -350,7 +355,7 @@ internal static partial class TownServiceMirror
         { authored.HasCanvasFrame = entry.HasCanvasFrame; authored.CanvasPose = entry.CanvasPose;
           authored.CanvasRect = entry.CanvasRect; authored.CanvasSettings = entry.CanvasSettings;
           authored.CanvasSortingLayer = entry.CanvasSortingLayer; authored.CanvasSortingOrder = entry.CanvasSortingOrder; }
-        if (authored.HasCanvasFrame && module.AddedCanvas != null) ApplyCanvasFrame(module, authored, shared);
+        if (authored.HasCanvasFrame && module.AddedCanvas != null) ApplyCanvasFrame(module, authored, entry.CanvasOnHand ? mount : shared);
         Transform root = module.AddedCanvas != null && !authored.HasCanvasFrame ? module.Host.transform : module.Binding.Root;
         root.position = mount.TransformPoint(Position(entry.Pose));
         if (!continuousHand || entry.Hand <= 2)

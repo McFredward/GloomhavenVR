@@ -12,23 +12,23 @@ internal sealed class TownServiceMotionEntry
     internal uint Session, PublicClaim, Structure, Binding, Revision;
     internal ushort Module, ParentModule, Property, Offset;
     internal float ParentAlpha = 1f, CommitAge;
-    internal bool Visible, HasCanvasFrame, HasCanvasUpdate, CueReady, HasSharedCue, SharedCueReady;
+    internal bool Visible, HasCanvasFrame, HasCanvasUpdate, CanvasOnHand, CueReady, HasSharedCue, SharedCueReady;
     internal float CueStrength, SharedCueStrength;
     internal float[] Pose = Array.Empty<float>(), CanvasPose = Array.Empty<float>(),
         CanvasRect = Array.Empty<float>(), CanvasSettings = Array.Empty<float>(), Numbers = Array.Empty<float>();
     internal int CanvasSortingOrder, CanvasSortingLayer, SharedGuideOwner;
-    internal TownServiceMotionKey Key => new(Lane, Module, Kind is 2 or 4 ? Binding : 0, Kind == 5 ? (ushort)31 : Property, Offset);
+    internal TownServiceMotionKey Key => new(Kind, Lane, Module, Kind is 2 or 4 ? Binding : 0, Kind == 5 ? (ushort)31 : Property, Offset);
 }
 
 internal readonly struct TownServiceMotionKey : IEquatable<TownServiceMotionKey>
 {
-    private readonly byte _lane; private readonly ushort _module, _property, _offset; private readonly uint _binding;
-    internal TownServiceMotionKey(byte lane, ushort module, uint binding, ushort property, ushort offset)
-    { _lane = lane; _module = module; _binding = binding; _property = property; _offset = offset; }
-    public bool Equals(TownServiceMotionKey other) => _lane == other._lane && _module == other._module
+    private readonly byte _kind, _lane; private readonly ushort _module, _property, _offset; private readonly uint _binding;
+    internal TownServiceMotionKey(byte kind, byte lane, ushort module, uint binding, ushort property, ushort offset)
+    { _kind = kind; _lane = lane; _module = module; _binding = binding; _property = property; _offset = offset; }
+    public bool Equals(TownServiceMotionKey other) => _kind == other._kind && _lane == other._lane && _module == other._module
         && _binding == other._binding && _property == other._property && _offset == other._offset;
     public override bool Equals(object? other) => other is TownServiceMotionKey key && Equals(key);
-    public override int GetHashCode() => unchecked(((((_lane * 31 + _module) * 31 + (int)_binding) * 31 + _property) * 31) + _offset);
+    public override int GetHashCode() => unchecked((((((_kind * 31 + _lane) * 31 + _module) * 31 + (int)_binding) * 31 + _property) * 31) + _offset);
 }
 
 internal sealed class TownServiceMotionPacket
@@ -46,9 +46,16 @@ internal static class TownServiceMotionCodec
     internal const byte MessageType = 26, RecordId = 97;
     internal const float SendInterval = 1f / 15f, Heartbeat = 1f;
 
-    internal static int EntryBytes(TownServiceMotionEntry entry)
-    { using var stream = new MemoryStream(); using var writer = new BinaryWriter(stream);
-      WriteEntry(writer, entry); return checked((int)stream.Length + 2); }
+    // Exact grammar size without streams or serialization allocations on the hot path.
+    internal static int EntryBytes(TownServiceMotionEntry entry) => entry.Kind switch
+    {
+        1 => 72 + (entry.HasCanvasUpdate ? 1 + (entry.HasCanvasFrame ? 85 : 0) : 0),
+        2 => 26 + entry.Numbers.Length * 4,
+        3 => 17,
+        4 => 28 + entry.Numbers.Length * 4,
+        5 => 15 + (entry.HasSharedCue ? 9 : 0),
+        _ => throw new InvalidDataException("Unknown fast motion kind.")
+    };
 
     internal static byte[] Write(TownServiceMotionPacket packet)
     {
@@ -127,7 +134,7 @@ internal static class TownServiceMotionCodec
             w.Write(e.Hand); Floats(w, e.Pose); w.Write(e.HasCanvasUpdate);
             if (e.HasCanvasUpdate) w.Write(e.HasCanvasFrame);
             if (e.HasCanvasUpdate && e.HasCanvasFrame)
-            { Floats(w, e.CanvasPose); Floats(w, e.CanvasRect); Floats(w, e.CanvasSettings);
+            { w.Write(e.CanvasOnHand); Floats(w, e.CanvasPose); Floats(w, e.CanvasRect); Floats(w, e.CanvasSettings);
               w.Write(e.CanvasSortingOrder); w.Write(e.CanvasSortingLayer); }
         }
         else { w.Write(e.Binding); w.Write(e.Property); if (e.Kind == 4) w.Write(e.Offset);
@@ -149,7 +156,7 @@ internal static class TownServiceMotionCodec
             e.Visible = Bool(r); e.Hand = r.ReadByte(); e.Pose = Floats(r, 10); e.HasCanvasUpdate = Bool(r);
             if (e.HasCanvasUpdate) e.HasCanvasFrame = Bool(r);
             if (e.HasCanvasUpdate && e.HasCanvasFrame)
-            { e.CanvasPose = Floats(r, 10); e.CanvasRect = Floats(r, 4); e.CanvasSettings = Floats(r, 5);
+            { e.CanvasOnHand = Bool(r); e.CanvasPose = Floats(r, 10); e.CanvasRect = Floats(r, 4); e.CanvasSettings = Floats(r, 5);
               e.CanvasSortingOrder = r.ReadInt32(); e.CanvasSortingLayer = r.ReadInt32(); }
         }
         else if (kind is 2 or 4)
@@ -186,7 +193,7 @@ internal static class TownServiceMotionCodec
         if (e.Kind == 1)
         {
             CheckFloats(e.Pose, 10);
-            if (e.Hand > 4 || !Finite(e.ParentAlpha) || e.ParentAlpha < 0f || e.ParentAlpha > 1f)
+            if (e.Hand > 4 || e.CanvasOnHand && e.Hand == 0 || !Finite(e.ParentAlpha) || e.ParentAlpha < 0f || e.ParentAlpha > 1f)
                 throw new InvalidDataException("Invalid fast root visibility.");
             if (e.HasCanvasUpdate && e.HasCanvasFrame) { CheckFloats(e.CanvasPose, 10); CheckFloats(e.CanvasRect, 4); CheckFloats(e.CanvasSettings, 5); }
         }
