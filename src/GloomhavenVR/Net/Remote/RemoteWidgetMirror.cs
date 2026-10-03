@@ -1648,6 +1648,17 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
     private bool _rulesPresentation;
     private RectTransform? _rulesVisualRoot;
     internal void SetRulesVisualRoot(RectTransform? root) { _rulesVisualRoot = root; _mrNextSampleFrame = 0; }
+    /// <summary>Commit a fully validated owner frame, including the first collapsed frame whose
+    /// native content is deliberately transparent. Viewer layout cannot establish that fit.</summary>
+    internal void CommitRulesFrame()
+    {
+        RectTransform? host = RulesHost;
+        if (!_rulesPresentation || host == null || _cloneRect == null) return;
+        _backingSizePx = host.rect.size; _mrFrame = host.rect;
+        FittedSize = host.rect.size * host.localScale.x;
+        _measurePath = "owner native rules presentation"; _fitApplied = true; _withhold = null;
+        State = Fidelity.MirroredWidget; Reason = string.Empty;
+    }
     private Vector3 _ownerOffset;
     internal RectTransform? RulesHost => _host != null ? _host.transform as RectTransform : null;
     internal RectTransform? RulesContent => _cloneRect;

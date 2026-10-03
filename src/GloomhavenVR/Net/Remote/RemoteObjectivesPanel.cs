@@ -505,6 +505,9 @@ internal sealed class RemoteObjectivesPanel
         int styled = 0;
         foreach (TMP_Text t in _root.GetComponentsInChildren<TMP_Text>(includeInactive: true))
         {
+            // Owner-authored rules retain original materials, including their owned header.
+            // Missing96 keeps the preexisting legacy objectives relief path.
+            if (_nativeRules.UsesOwnerState && _rulesRoot != null && t.transform.IsChildOf(_rulesRoot)) continue;
             if (WorldUI.NativeButtonSkin.HasWorldReadableRelief(t))
                 continue;
             WorldUI.NativeButtonSkin.StyleWorldReadableLabel(t);

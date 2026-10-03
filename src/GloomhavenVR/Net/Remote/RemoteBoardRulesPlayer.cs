@@ -74,6 +74,9 @@ internal sealed class RemoteBoardRulesPlayer : IDisposable
                 for (int n = 0; n < _texts[r].Length; n++)
                 {
                     TMP_Text? text = _texts[r][n]; if (text == null) continue; NativeBoardRuleText value = discrete.Rows[r].Text[n];
+                    TMP_Text? original = _bindings[r].Nodes[n].Text;
+                    if (original != null && text.fontSharedMaterial != original.fontSharedMaterial)
+                        text.fontSharedMaterial = original.fontSharedMaterial; // clear pre96 objective-relief material
                     if (text.text != value.Text) text.text = value.Text;
                     text.alignment = (TextAlignmentOptions)value.Alignment; text.fontStyle = (FontStyles)value.Style;
                     text.overflowMode = (TextOverflowModes)value.Overflow; text.richText = (value.Flags & 1) != 0;
@@ -82,6 +85,7 @@ internal sealed class RemoteBoardRulesPlayer : IDisposable
                     text.characterSpacing = v[3]; text.wordSpacing = v[4]; text.margin = new Vector4(v[5], v[6], v[7], v[8]);
                 }
             }
+            mirror.CommitRulesFrame(); // only after every original row and its owner styling applied
             _refusal = null;
         }
         catch (Exception e)
