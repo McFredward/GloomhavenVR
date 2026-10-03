@@ -265,7 +265,7 @@ def main():
             variants += [
                 ("closed-fan-art-deferred", "PublisherTick.cs", 'Publish("item." + chip.Item.ID.ToString(System.Globalization.CultureInfo.InvariantCulture), face, prewarm: true);', 'Publish("item." + chip.Item.ID.ToString(System.Globalization.CultureInfo.InvariantCulture), face);', "closed owner item fan publishes complete original fronts with genuine hidden visibility before reveal"),
                 ("numeric-art-backlog", "TownServiceMirror.Motion.cs", "if (slot.Entry.Kind is 2 or 4) PatchMotionProperty(frame, slot.Entry);", "if (slot.Entry.Kind == 250) PatchMotionProperty(frame, slot.Entry);", "composing fast root scroll and hover preserves every simultaneous original property"),
-                ("rig-attachment-cadence", "TownServiceMirror.Motion.cs", "if (root != null && root.Entry.Hand != 0 && composed.Merged != null)", "if (root != null && root.Entry.Hand == 250 && composed.Merged != null)", "held original root follows the approved smoothed rig between network events"),
+                ("rig-attachment-cadence", "TownServiceMirror.Motion.cs", "root != null && root.Entry.Hand != 0 && composed.Merged != null", "root != null && root.Entry.Hand == 250 && composed.Merged != null", "held original root follows the approved smoothed rig between network events"),
                 ("canvas-attachment-cadence", "TownServiceMirror.Motion.cs", "else if (entry.CanvasOnHand)", "else if (!entry.CanvasOnHand)", "enclosing original canvas follows the same approved smoothed rig between events"),
             ]
     if args.suite == "voice-relay":

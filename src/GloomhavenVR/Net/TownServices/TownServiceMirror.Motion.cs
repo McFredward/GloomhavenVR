@@ -380,9 +380,12 @@ internal static partial class TownServiceMirror
             }
             // A held root consumes the same approved interpolated rig holder on
             // every render frame, rather than replaying an old shared-world pose.
-            if (root != null && root.Entry.Hand != 0 && composed.Merged != null)
-            { ApplyMotionRoot(module, root.Entry, composed, composed.Merged!, now, continuousHand: true);
-              TownServiceDepthOrder.Refresh(module.Host.transform); }
+            if (root != null && root.Entry.Hand != 0 && composed.Merged != null
+                && root.Entry.Visible && root.Entry.ParentAlpha > 0f && module.Host.activeInHierarchy)
+                ApplyMotionRoot(module, root.Entry, composed, composed.Merged, now, continuousHand: true);
+            // This continuous path writes only rig transforms. The registered
+            // furniture anchor already measures those live transforms in its own
+            // distance tick; reassert native sorting only after binding above.
         }
         foreach (RemoteModule removed in MotionFrameRemoval) MotionRemoteFrames.Remove(removed);
         MotionDiagnostics(now);
