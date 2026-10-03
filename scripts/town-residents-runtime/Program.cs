@@ -293,6 +293,20 @@ internal static class Program
             "old committed event does not restart for a late observer");
         Check(!commitGate.Observe(true,4,6,true,false,1,.25f,false),
             "legacy unavailable baseline without a commit clock cannot invent a donation");
+        Check(!commitGate.Observe(true,3,5,true,false,2,float.PositiveInfinity,true),
+            "invalid explicit later donation clock cannot replay a blessing");
+        Check(!commitGate.Observe(true,3,5,true,false,3,8f,true),
+            "stale explicit later donation clock cannot replay a blessing");
+        Reset();
+        TownServiceMirror.TempleStates.Add(new TownTempleDonationState(20,20,true,true,1,float.PositiveInfinity));
+        Tick(.7f);
+        TownServiceMirror.TempleStates[0]=new TownTempleDonationState(20,20,true,false,2,float.PositiveInfinity);
+        Tick(.01f);
+        Check(TownServiceStation.Live[2].Blessings==1
+            && TownActivityCodec.Valid(TownServicePopulation.PublishedActivities)
+            && TownServicePopulation.PublishedActivities.TempleBlessingStartedClock
+                == TownServicePopulation.PublishedActivities.Clock,
+            "clockless learned revision keeps the shared activity packet finite");
         Reset(); Tick(.7f);
         var state=TownServicePopulation.PublishedActivities;
         var face=TownServicePopulation.PublishedFaces;

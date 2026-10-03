@@ -25,6 +25,7 @@ FILES = {
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-root", type=Path, default=ROOT)
+    parser.add_argument("--negative-control", action="append", default=[], help="Run production and named focused controls")
     args = parser.parse_args()
     sources = {name: (args.source_root / source).read_text() for name, source in FILES.items()}
     sources["ActivityTypes.cs"] = (args.source_root / "src/GloomhavenVR/Net/TownActivityState.cs").read_text()
@@ -54,6 +55,8 @@ def main():
             ("viewer retains ahead facial clock", "Population.cs", "_faceClock = remoteFace.Clock;", "_faceClock = Mathf.Max(_faceClock, remoteFace.Clock);"),
             ("follower elects local facial target", "Population.cs", "IsFaceAuthor = !follows && enabled;", "IsFaceAuthor = enabled;"),
             ("opted out observer authors faces", "Population.cs", "SampleFace(IsFaceAuthor, hasFace", "SampleFace(!follows, hasFace"),
+            ("clockless revision invalidates shared packet", "Population.cs",
+                "? 0f : state.TransitionAge;", "? float.PositiveInfinity : state.TransitionAge;"),
             ("temple unchanged revision replays blessing", "Population.cs", "bool committed = known && unchecked((int)(revision - previous)) > 0;", "bool committed = known;"),
             ("story commitment leaves resident input", "Population.cs", "bool interactive = enabled && !StoryComposite.PointOfNoReturn;", "bool interactive = enabled;"),
             ("unavailable approach passes through available pose", "Population.cs", "!resident.TempleAvailabilityObserved", "false"),
@@ -69,6 +72,11 @@ def main():
             ("observer never applies shared fill", "Population.cs", "else if (hasActivity) TownServiceLighting.ApplyEnvironment(_frame!.transform, in remoteActivity);", "else if (!hasActivity) TownServiceLighting.ApplyEnvironment(_frame!.transform, in remoteActivity);"),
             ("stale author never expires", "Remote.cs", "now - pair.Value.Received <= NetProtocol.StaleTimeoutSeconds", "true"),
         ]
+        if args.negative_control:
+            known = {v[0] for v in variants}
+            unknown = set(args.negative_control) - known
+            if unknown: parser.error("Unknown controls: " + ", ".join(sorted(unknown)))
+            variants = [v for v in variants if v[1] is None or v[0] in args.negative_control]
         for label, file, before, after in variants:
             variant = dict(sources)
             if file:

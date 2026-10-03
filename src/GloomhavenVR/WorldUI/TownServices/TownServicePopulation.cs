@@ -42,7 +42,11 @@ internal static class TownServicePopulation
             }
             bool committed = known && unchecked((int)(revision - previous)) > 0;
             if (committed) _seen[key] = revision;
-            return committed;
+            // A fresh clockless legacy revision can still be acknowledged now.
+            // An explicit stale/invalid event age must not restart an old blessing.
+            return committed && (!hasCommitAge || !float.IsNaN(commitAge)
+                && !float.IsInfinity(commitAge) && commitAge >= 0f
+                && commitAge < TownServiceActivityMotion.TempleBlessingVisualSeconds);
         }
     }
 
@@ -322,9 +326,15 @@ internal static class TownServicePopulation
                             state.Known, state.Available, state.Revision, state.TransitionAge, state.HasCommitAge))
                         {
                             donationCommitted = true;
-                            if (state.TransitionAge < transitionAge
-                                || state.TransitionAge == transitionAge && (blessedVisitor == 0 || state.Peer < blessedVisitor))
-                            { transitionAge = state.TransitionAge; blessedVisitor = state.Peer; }
+                            // Legacy manifests can advance a learned revision without an
+                            // explicit clock. Never subtract infinity from the shared clock:
+                            // that would invalidate the whole body/face packet for every NPC.
+                            float eventAge = float.IsNaN(state.TransitionAge)
+                                || float.IsInfinity(state.TransitionAge) || state.TransitionAge < 0f
+                                    ? 0f : state.TransitionAge;
+                            if (eventAge < transitionAge
+                                || eventAge == transitionAge && (blessedVisitor == 0 || state.Peer < blessedVisitor))
+                            { transitionAge = eventAge; blessedVisitor = state.Peer; }
                         }
                     if (donationCommitted)
                     {
