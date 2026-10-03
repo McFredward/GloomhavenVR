@@ -268,8 +268,8 @@ def mutations():
          ")\n            { original(); return; }",
          "revoked grant at native callback dispatch closes confirmation without committing or waiting for Tick"),
         ("flat-confirm-fallback", name,
-         "if (owner == null || !HasCurrentOffering) return original;",
-         "if (owner == null) return original;",
+         "internal static Action GuardNativeConfirmation(Action original)\n    {\n        TownServiceEnhancementHandoff? owner = _current;\n        if (owner == null || !HasCurrentOffering) return original;",
+         "internal static Action GuardNativeConfirmation(Action original)\n    {\n        TownServiceEnhancementHandoff? owner = _current;\n        if (owner == null) return original;",
          "an inactive immersive service leaves the original confirmation callback untouched"),
         ("other-service", name,
          "if (destination != EGuildmasterMode.None && destination != EGuildmasterMode.Merchant\n            && destination != EGuildmasterMode.Temple) return;",
@@ -374,6 +374,14 @@ def main():
             parser.error("Unknown mutation(s): " + ", ".join(sorted(unknown)))
         variants += [case for case in available if not selected or case[0] in selected]
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
+    # Validate every selected mutation before compiling any assembly. Confirmation
+    # and cancellation intentionally share eligibility guards; a mutation must name
+    # its exact method instead of silently modifying both or failing after dozens
+    # of unrelated builds have already completed.
+    for name, filename, before, after, _ in variants[1:]:
+        if filename not in bound:
+            raise RuntimeError(f"Production binding drift: missing {filename} for {name}")
+        replace_once(bound[filename], before, after)
     for name, filename, before, after, expected in variants:
         build = run / name
         production = build / "production"
