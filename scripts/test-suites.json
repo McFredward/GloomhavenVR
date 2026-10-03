@@ -1383,6 +1383,12 @@
       "weight": 1
     },
     {
+      "id": "quest-network",
+      "command": ["python3", "scripts/quest-python-tests.py", "network"],
+      "groups": ["local", "ci"],
+      "weight": 1
+    },
+    {
       "id": "quest-native",
       "command": ["python3", "scripts/quest-native-tests.py"],
       "groups": ["local", "ci"],

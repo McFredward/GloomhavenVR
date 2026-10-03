@@ -40,32 +40,46 @@ namespace GloomhavenVR.Quest.Editor
         static void BuildPlayer()
         {
             string target = Required("GHVR_QUEST_TARGET");
-            if (target != "probe") throw new InvalidOperationException("Game target is gated until recovered assets, platform adapter and complete AOT conversion pass.");
+            if (target != "probe" && target != "startup")
+                throw new InvalidOperationException("Game target is gated until recovered assets, platform adapter and complete AOT conversion pass.");
             string apk = Required("GHVR_QUEST_OUTPUT_APK");
             string package = Required("GHVR_QUEST_PACKAGE");
-            ConfigureAndroid(package);
+            ConfigureAndroid(package, target == "startup");
             ConfigureNativePlugin();
             ConfigureXr();
             PrepareDiagnosticMaterials();
             PrepareDiagnosticResources();
-            ValidateOwnedModel();
+            if (target == "probe") ValidateOwnedModel();
             var manifest = JsonUtility.FromJson<InputManifest>(File.ReadAllText(Required("GHVR_QUEST_MANIFEST_PATH")));
             File.WriteAllText("Assets/Quest/Resources/quest-build.json", JsonUtility.ToJson(new BuildStamp
             {
                 modBuild = manifest.mod.modBuild, inputKey = manifest.inputKey
             }));
-            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            new GameObject("Quest hardware diagnostic").AddComponent<QuestHardwareProbe>();
-            Directory.CreateDirectory("Assets/Quest/Scenes");
-            const string scenePath = "Assets/Quest/Scenes/QuestHardwareProbe.unity";
-            EditorSceneManager.SaveScene(scene, scenePath);
-            EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(scenePath, true) };
+            string[] scenes;
+            if (target == "startup")
+            {
+#if GHVR_QUEST_STARTUP
+                scenes = PrepareOriginalStartup();
+#else
+                throw new InvalidOperationException("Original startup compile contract is missing; regenerate the startup project.");
+#endif
+            }
+            else
+            {
+                var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+                new GameObject("Quest hardware diagnostic").AddComponent<QuestHardwareProbe>();
+                Directory.CreateDirectory("Assets/Quest/Scenes");
+                const string scenePath = "Assets/Quest/Scenes/QuestHardwareProbe.unity";
+                EditorSceneManager.SaveScene(scene, scenePath);
+                scenes = new[] { scenePath };
+            }
+            EditorBuildSettings.scenes = scenes.Select(path => new EditorBuildSettingsScene(path, true)).ToArray();
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Directory.CreateDirectory(Path.GetDirectoryName(apk));
             var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {
-                scenes = new[] { scenePath }, locationPathName = apk,
+                scenes = scenes, locationPathName = apk,
                 target = BuildTarget.Android, options = BuildOptions.Development
             });
             byte[] profile = File.ReadAllBytes(Required("GHVR_QUEST_PROFILE_PATH"));
@@ -76,13 +90,13 @@ namespace GloomhavenVR.Quest.Editor
             {
                 target = target, inputKey = manifest.inputKey, package = package,
                 profileSha256 = hash, unityVersion = Application.unityVersion,
-                buildResult = report.summary.result.ToString(), scenes = new[] { scenePath }
+                buildResult = report.summary.result.ToString(), scenes = scenes
             }, true));
             if (report.summary.result != BuildResult.Succeeded)
                 throw new InvalidOperationException("Android build failed: " + report.summary.result + ", errors=" + report.summary.totalErrors);
-            Debug.Log("[GloomhavenVR Quest] signed ARM64 IL2CPP hardware diagnostic built: " + apk);
+            Debug.Log("[GloomhavenVR Quest] signed ARM64 IL2CPP " + target + " diagnostic built: " + apk);
         }
-        static void ConfigureAndroid(string package)
+        static void ConfigureAndroid(string package, bool originalStartup)
         {
             if (!EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Android, BuildTarget.Android))
                 throw new InvalidOperationException("Android build target switch failed");
@@ -92,6 +106,8 @@ namespace GloomhavenVR.Quest.Editor
             PlayerSettings.bundleVersion = "0.1.0";
             PlayerSettings.Android.bundleVersionCode = 1;
             PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android, ScriptingImplementation.IL2CPP);
+            if (originalStartup)
+                PlayerSettings.SetApiCompatibilityLevel(BuildTargetGroup.Android, ApiCompatibilityLevel.NET_4_6);
             PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
             PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel29;
             PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevel30;
@@ -108,8 +124,44 @@ namespace GloomhavenVR.Quest.Editor
             // Passwords are never logged or saved in the source template.
             var settings = new SerializedObject(Unsupported.GetSerializedAssetInterfaceSingleton("PlayerSettings"));
             var input = settings.FindProperty("activeInputHandler");
-            if (input != null) { input.intValue = 1; settings.ApplyModifiedPropertiesWithoutUndo(); }
+            if (input != null) { input.intValue = originalStartup ? 2 : 1; settings.ApplyModifiedPropertiesWithoutUndo(); }
         }
+#if GHVR_QUEST_STARTUP
+        [Serializable] sealed class StartupEvidence
+        {
+            public int schema;
+            public string target;
+            public bool fullGameReady;
+            public string[] selectedScenes;
+        }
+        [Serializable] sealed class StandaloneEvidence { public bool startupAdapterComplete, fullGameReady; }
+        static string[] PrepareOriginalStartup()
+        {
+            const string evidencePath = "Assets/Quest/Resources/quest-startup-report.json";
+            const string adapterPath = "Assets/Quest/Resources/quest-standalone-report.json";
+            var evidence = JsonUtility.FromJson<StartupEvidence>(File.ReadAllText(evidencePath));
+            var adapter = JsonUtility.FromJson<StandaloneEvidence>(File.ReadAllText(adapterPath));
+            if (evidence == null || evidence.schema != 1 || evidence.target != "startup" || evidence.fullGameReady ||
+                adapter == null || !adapter.startupAdapterComplete || adapter.fullGameReady)
+                throw new InvalidOperationException("Original startup evidence is absent or claims an unsupported full game.");
+            string[] names = { "Bootstrap", "Intro", "Gloomhaven_unified", "MainMenu" };
+            if (evidence.selectedScenes == null || !evidence.selectedScenes.Select(Path.GetFileNameWithoutExtension).SequenceEqual(names))
+                throw new InvalidOperationException("Original Bootstrap/Intro/menu scene names or order were lost.");
+            foreach (string path in evidence.selectedScenes)
+                if (AssetDatabase.LoadAssetAtPath<SceneAsset>(path) == null)
+                    throw new InvalidOperationException("Required original scene is unavailable: " + path);
+            // The recovery helper remaps exact original package-script identities
+            // before any original scene runs. Unsupported references remain a build error.
+            QuestOriginalScriptBindings.RemapAndValidate();
+            QuestStartupAddressablesBuild.Build();
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            new GameObject("Original Gloomhaven startup diagnostic").AddComponent<QuestGameBootstrap>();
+            Directory.CreateDirectory("Assets/Quest/Scenes");
+            const string startupScene = "Assets/Quest/Scenes/QuestOriginalStartup.unity";
+            EditorSceneManager.SaveScene(scene, startupScene);
+            return new[] { startupScene }.Concat(evidence.selectedScenes).ToArray();
+        }
+#endif
         sealed class AndroidToolsOverride : IDisposable
         {
             readonly System.Collections.Generic.List<Action> restore = new System.Collections.Generic.List<Action>();

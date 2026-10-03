@@ -7,7 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("suite", choices=("builder", "recovery", "installer"))
+parser.add_argument("suite", choices=("builder", "recovery", "installer", "network"))
 args = parser.parse_args()
 suite = unittest.defaultTestLoader.discover(str(ROOT / "tests" / ("quest-" + args.suite)), pattern="test_*.py")
 result = unittest.TextTestRunner(verbosity=1).run(suite)
