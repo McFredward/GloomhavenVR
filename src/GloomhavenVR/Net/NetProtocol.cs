@@ -93,6 +93,12 @@ internal static class NetProtocol
     /// <summary>Bounded owner-authored numeric town presentation, independent of
     /// immutable native artwork and fragmented module delivery.</summary>
     public const byte ExtIdTownMotion = 97;
+    /// <summary>Lossless bounded packing of original TLV97 numeric samples, retaining
+    /// the same 864-byte event and original 15 Hz clock.</summary>
+    public const byte ExtIdTownMotionPacked = 98;
+    /// <summary>Visitor readiness for the common merchant offered-hand pose. Personal
+    /// map drop guides never accompany this numeric intent.</summary>
+    public const byte ExtIdTownVisitorReady = 99;
     public const byte MsgTownMotion = 26;
     public const byte ExtIdTownRack = 85;
     public const byte ExtIdTownCassette = 86;
@@ -560,7 +566,27 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 613;
+    public const ushort ModBuild = 614;
+
+    // ModBuild 614 — NPC multiplayer native artwork, fair delivery and shared attention.
+    // Both hardware endpoints identify Build612: native atlas wrappers differ across
+    // OpenXR backends, verified template aliases were not all registered, and dense
+    // numeric state waited over six seconds. Original serialized UIInfoTools sprite
+    // provenance and verified template dependency aliases resolve local game artwork;
+    // no card bitmap is sent. Cold originals get a finite urgent share of the existing
+    // presentation scheduler; additive TLV98 packs unchanged TLV97 numbers losslessly
+    // within the original event/cadence. TLV99 shares merchant readiness independently
+    // of native service sessions or personal guides. Town pre-drop guides are local
+    // by the maintainer's explicit exception; physical cards, wrist/held purses, native
+    // controls, animation, voice and NPC hand poses remain public. Global attention
+    // and speech belong to an actual offered-card owner, never a browsing lease.
+    // The priestess follows the accepted donor through the shared blessing clock.
+    // Public cabinet clock/layout adoption cannot wait for its next card artwork;
+    // rejected category presses do not steal authorship. Added-canvas child geometry
+    // uses exactly one absolute root pose during both baseline and fast playback.
+    // Existing scenario card concealment, input and board guides remain unchanged.
+    // Unity/native source fixtures and full local gates verify controlled behavior;
+    // actual headset presentation and timing require the next matching614 hardware run.
 
     // ModBuild 613 — prevent actor skinning budgets from fighting four-bone hands.
     // The Frame612 capture proves 12,830 global TwoBones -> FourBones repairs: the
