@@ -626,7 +626,7 @@ internal static partial class TownServiceMirror
         internal ulong Sequence;
         internal TownServiceFrame? LastFrame;
         internal Renderer[]? RackBodyRenderers;
-        internal bool StockMasked;
+        internal bool StockMasked, PublicMasked;
         internal TownServiceMotion Motion = null!;
         internal bool Alive => Host != null && Binding.Root != null;
         public void Dispose()
@@ -842,8 +842,11 @@ internal static partial class TownServiceMirror
                         && (!NeedsHeartbeat(module) || now < module.NextRefresh)
                         && TownServiceFastNumbers.SameArtwork(module.Last, frame))
                     {
-                        frame.Sequence = module.Last.Sequence;
-                        module.Last = TownServiceDelta.Retain(frame);
+                        if (!SamePresentation(module.Last, frame))
+                        {
+                            frame.Sequence = module.Last.Sequence;
+                            module.Last = TownServiceDelta.Retain(frame);
+                        }
                         continue;
                     }
                     bool sameSurface = SamePresentation(module.Last, frame);
@@ -903,7 +906,8 @@ internal static partial class TownServiceMirror
         if (frame!.Module == TownServiceFrame.ManifestModule)
         {
             if (Sessions.TryGetValue(peer, out TownServiceSessionInfo? previous) && frame.Sequence <= previous.Sequence) return true;
-            if (previous != null && (previous.Session != frame.Session || previous.Service != frame.Service)) ClearRemoteModules(peer);
+            if (previous != null && (previous.Session != frame.Session || previous.Service != frame.Service))
+            { ForgetPublicPicture(peer); ClearRemoteModules(peer); }
             bool donationAdvanced = previous != null && previous.Session == frame.Session && previous.Service == frame.Service
                 && previous.TempleDonationKnown && frame.TempleDonationKnown
                 && frame.TempleDonationRevision > previous.TempleDonationRevision;
@@ -923,12 +927,14 @@ internal static partial class TownServiceMirror
                 ObserveTempleDonationCommit(peer, frame.Session, frame.TempleDonationRevision,
                     frame.TempleDonationCommitAge);
             if (peer > 0) InteractionOwner(frame.Service); // start/advance the bounded claim window
+            StagePreviousPublicPicture();
             if (!frame.Visible) ClearRemoteModules(peer);
             else if (Remote.TryGetValue(peer, out Dictionary<ushort, RemoteModule>? standing))
             {
                 var removed = new List<ushort>();
                 foreach (var pair in standing) if (Array.BinarySearch(frame.Modules, pair.Key) < 0 && !RackRetains(peer, pair.Key)) removed.Add(pair.Key);
-                foreach (ushort id in removed) { standing[id].Dispose(); standing.Remove(id); }
+                if (removed.Count == 0 || !StagePublicPicture(peer))
+                    foreach (ushort id in removed) { standing[id].Dispose(); standing.Remove(id); }
             }
             PrunePending(Pending, peer, frame);
             PrunePending(ReceivedBaselines, peer, frame);
@@ -956,7 +962,7 @@ internal static partial class TownServiceMirror
                 baselines[frame.Module] = frame;
         }
         if (!pending.TryGetValue(frame.Module, out TownServiceFrame? old) || frame.Sequence > old.Sequence)
-            { pending[frame.Module] = frame; ObserveMerchantOffering(peer, frame); }
+            { StageChangingPublicRack(peer, frame); pending[frame.Module] = frame; ObserveMerchantOffering(peer, frame); }
         if (IsStockPeerKey(peer)) FlushStockVoicePending(RealPeer(peer));
         return true;
     }
@@ -979,6 +985,7 @@ internal static partial class TownServiceMirror
     internal static void TickRemote(Func<int, Transform?> sharedFrame)
     {
         float now = Time.unscaledTime;
+        StagePreviousPublicPicture();
         foreach (var entry in Sessions)
         {
             TownServiceSessionInfo session = entry.Value;
@@ -1157,6 +1164,7 @@ internal static partial class TownServiceMirror
                 if (cue.Alive && cue.LastFrame?.Service == 3 && cue.Address == "merchant.zone|")
                     TownServiceSharedCue.PaintRemote(cue.Host.GetComponent<CanvasGroup>(), cue.Binding.Root);
         }
+        CommitPublicPicture();
     }
 
     private static string DescribeTemplateMismatch(TownServiceFrame frame, TownServiceBinding local)
@@ -1360,7 +1368,7 @@ internal static partial class TownServiceMirror
         canvas.sortingOrder = frame.CanvasSortingOrder; canvas.sortingLayerID = frame.CanvasSortingLayer;
     }
     internal static void RemovePeer(int peer)
-    { MerchantOfferings.Remove(peer); ClearVoicePeer(peer); ClearRemoteModules(peer); Pending.Remove(peer); ReceivedBaselines.Remove(peer); Sessions.Remove(peer); VisitorSessions.Remove(peer);
+    { ForgetPublicPicture(-peer); MerchantOfferings.Remove(peer); ClearVoicePeer(peer); ClearRemoteModules(peer); Pending.Remove(peer); ReceivedBaselines.Remove(peer); Sessions.Remove(peer); VisitorSessions.Remove(peer);
       ClearRemoteModules(-peer); Pending.Remove(-peer); ReceivedBaselines.Remove(-peer); Sessions.Remove(-peer);
       RemoveStockPeer(peer); ForgetDonationCommits(peer); ForgetRemoteMotion(peer); }
     private static void ForgetDonationCommits(int peer)
@@ -1386,6 +1394,7 @@ internal static partial class TownServiceMirror
     internal static void ResetNetwork()
     {
         ResetMotionNetwork();
+        ResetPublicPicture();
         DonationCommits.Clear(); DonationCommitOrder.Clear();
         if (PrivateLane.TransactionActive)
             TownServiceGrantSync.SetOffer(PrivateLane.Service, PrivateLane.Session, false);
