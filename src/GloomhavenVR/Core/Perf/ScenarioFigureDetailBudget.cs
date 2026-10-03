@@ -514,7 +514,7 @@ internal static class ScenarioFigureDetailBudget
                 {
                     int lods = 0, changed = 0, clothes = 0, coarseActors = 0, nativeVertices = 0, chosenVertices = 0;
                     int fx = 0, maskedFx = 0, pausedFx = 0, visibleMeshes = 0, visibleVertices = 0;
-                    int derivedMeshes = 0, sourceBodyVertices = 0, currentBodyVertices = 0;
+                    int derivedMeshes = 0, farMeshes = 0, sourceBodyVertices = 0, currentBodyVertices = 0;
                     foreach (ActorRecord record in _actors)
                     {
                         lods += record.Lods.Count;
@@ -536,7 +536,11 @@ internal static class ScenarioFigureDetailBudget
                             Mesh? current = mesh.Current;
                             if (current == null) continue;
                             sourceBodyVertices += mesh.Original.vertexCount; currentBodyVertices += current.vertexCount;
-                            if (mesh.UsesDerivative) derivedMeshes++;
+                            if (mesh.UsesDerivative)
+                            {
+                                derivedMeshes++;
+                                if (current.name.EndsWith("-5", StringComparison.Ordinal)) farMeshes++;
+                            }
                         }
                         foreach (KeyValuePair<Renderer, int> mesh in record.Meshes)
                         {
@@ -553,7 +557,7 @@ internal static class ScenarioFigureDetailBudget
                             }
                         }
                     }
-                    VRLog.Debug(Scope, $"Scenario figure detail: players={_players}% enemies={_enemies}% "
+                    VRLog.Info(Scope, $"Scenario figure detail: players={_players}% enemies={_enemies}% "
                         + $"nativeCloth={_cloth}; {_actors.Count} actor(s), {changed}/{lods} native LOD cap(s), "
                         + $"{clothes} cloth solver(s) disabled; {coarseActors}/{_actors.Count} actor(s) with authored coarse bodies; "
                         + "original/selected near-mesh vertices "
@@ -562,6 +566,7 @@ internal static class ScenarioFigureDetailBudget
                         + $"of {fx} identified optional part(s); last-frame visible unmasked body meshes/vertices "
                         + $"{visibleMeshes}/{visibleVertices} (any camera, including bodies without authored LOD). "
                         + $"Verified derivatives={derivedMeshes}; original/current admitted body vertices {sourceBodyVertices}/{currentBodyVertices}. "
+                        + $"DistanceLOD={_distance} far5={farMeshes} boneLimit={_bones}. "
                         + "Native board models may live in Game while scenery lives in ProcGen; "
                         + "authored LODs may already be coarse at this view.");
                 }

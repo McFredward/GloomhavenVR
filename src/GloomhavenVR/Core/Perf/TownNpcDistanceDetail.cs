@@ -11,10 +11,14 @@ internal sealed class TownNpcDistanceDetail : IDisposable
     private readonly List<ScenarioFigureMeshBank.Record> _meshes = new();
     private readonly List<FigureSkinningBudget.Record> _skins = new();
     private readonly FigureDistanceLodPolicy _distance = new();
+    private readonly Transform _root;
     private int _cap = -2;
     private bool _distanceEnabled;
+    private float _reportAt;
+    private int _reports;
     internal TownNpcDistanceDetail(Transform root)
     {
+        _root = root;
         if (root == null) return;
         foreach (SkinnedMeshRenderer skin in root.GetComponentsInChildren<SkinnedMeshRenderer>(true))
         {
@@ -55,6 +59,28 @@ internal sealed class TownNpcDistanceDetail : IDisposable
         }
         foreach (ScenarioFigureMeshBank.Record mesh in _meshes) mesh.Apply(wanted);
         foreach (FigureSkinningBudget.Record skin in _skins) skin.Apply(restore);
+        // The scenario-body census cannot prove this map-only setting. Read the exact
+        // owned renderer slots after application, never re-enumerate the scene or bake
+        // geometry. A capped five-second Debug census is also present in LogOutput.log.
+        if (VRLog.WantsDebug && _root != null && _reports < 48 && Time.unscaledTime >= _reportAt)
+        {
+            _reportAt = Time.unscaledTime + 5f; _reports++;
+            int original = 0, current = 0, derivatives = 0, far = 0;
+            foreach (ScenarioFigureMeshBank.Record mesh in _meshes)
+            {
+                Mesh? live = mesh.Current;
+                if (live == null) continue;
+                original += mesh.Original.vertexCount; current += live.vertexCount;
+                if (!mesh.UsesDerivative) continue;
+                derivatives++;
+                if (live.name.EndsWith("-5", StringComparison.Ordinal)) far++;
+            }
+            VRLog.Info("Perf", $"NPC body detail: root='{_root.name}' cap={_cap}% "
+                + $"distanceLOD={_distanceEnabled} requestedDetail={wanted} boneLimit={PerfConfig.MaximumSkinningBones}; "
+                + $"verified derivatives={derivatives}/{_meshes.Count} far5={far}; "
+                + $"original/current body vertices {original}/{current} "
+                + $"(cached renderer readback, not draw counts; bounded report {_reports}/48).");
+        }
     }
     public void Dispose()
     {

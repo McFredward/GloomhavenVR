@@ -806,6 +806,16 @@ internal static partial class PerfMonitor
         LogSteps(windowSeconds);
         LogCounters(windowSeconds);
         LogSplit(windowSeconds, mean);
+        // These are end-of-window settings, not an isolated experiment or a renderer
+        // census. Existing figure-window revisions still cover the four original dials.
+        // Build612 omitted the new quality controls entirely, so a hardware slider change
+        // could not be distinguished from an unchanged/non-applicable map-only setting.
+        if (VRLog.WantsDebug)
+            VRLog.Info(Scope0, $"QUALITY-CONTROLS end-of-window snapshot: "
+                + $"distanceLOD={PerfConfig.FigureDistanceLodEnabled} npcBody={PerfConfig.TownNpcMeshDetailPercent}% "
+                + $"boneLimit={PerfConfig.MaximumSkinningBones} "
+                + $"idleBarInterval={PerfConfig.ActorBarPoseCheckInterval:F3}s "
+                + $"panelInterval={PerfConfig.UiMaintenanceInterval:F3}s; not a latched A/B boundary.");
         LogSceneProfile();
     }
 

@@ -560,7 +560,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 612;
+    public const ushort ModBuild = 613;
+
+    // ModBuild 613 — prevent actor skinning budgets from fighting four-bone hands.
+    // The Frame612 capture proves 12,830 global TwoBones -> FourBones repairs: the
+    // new actor budget and existing hand protection wrote the same quality slot.
+    // Only owned figure/NPC renderer quality is capped now, including native Auto;
+    // original Auto/explicit slots restore on Off, VR shutdown and native changes.
+    // Hands keep their original global protection. Exact original hand-guard execution
+    // in both update orders rejects the previous conflict through causal controls.
+    // Debug-only bounded NPC readbacks and end-of-window effective quality snapshots
+    // expose the map-only slider, distance tier and bone cap without a new scene walk.
+    // Existing scenario admission reports also retain actual original/current meshes
+    // in LogOutput.log. These snapshots are not isolated A/B attribution or draw counts.
+    // Frame612 scenario admission and removed native camera passes are log-proven;
+    // remaining wall-table churn and conservative idle-bar refusals are documented,
+    // not claimed fixed. No bundles/wire layouts change; FPS gain needs hardware evidence.
 
     // ModBuild 612 — reversible Frame CPU/render budgets and visible inline scenario rules.
     // The supplied Frame610 log still contains discarded native ScenarioCamera/UI Camera
