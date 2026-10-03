@@ -172,6 +172,10 @@ namespace GloomhavenVR.WorldUI;
 /// is the same state the config-off build is in today, because the probe's own bake is
 /// gated on the identical entry.</para>
 /// </summary>
+// Build615 supersedes the historical periodic-recapture description above. Membership
+// changes are now signalled by native hierarchy callbacks, and only those changes pay a
+// component walk. The old thirty-frame safety cadence checks a cached dirty bit; known
+// Image sprite arrivals, including inactive art, still run before rendering every frame.
 internal static class PanelMipBake
 {
     /// <summary>Reused Image scan buffer (List overload of GetComponentsInChildren -- no
@@ -392,6 +396,7 @@ internal static class PanelMipBake
             HostId = host.GetInstanceID();
             Target = target;
             Name = name;
+            Inventory = new UiHierarchyInventory(host.transform);
         }
 
         internal readonly GameObject Host;
@@ -403,6 +408,7 @@ internal static class PanelMipBake
         internal readonly RectTransform Target;
 
         internal readonly string Name;
+        internal readonly UiHierarchyInventory Inventory;
 
         internal Image[] Images = System.Array.Empty<Image>();
 
@@ -634,6 +640,7 @@ internal static class PanelMipBake
             // Gone home: full-restore contract. Idempotent with the probe's own RestoreDeparted --
             // whichever runs second finds the originals already in place and writes nothing.
             Restore(watch.Target);
+            watch.Inventory.Dispose();
             Watches.RemoveAt(i);
             WatchByHost.Remove(watch.HostId);
         }
@@ -643,7 +650,10 @@ internal static class PanelMipBake
     private static void StandDownArrivals(string why)
     {
         for (int i = 0; i < Watches.Count; i++)
+        {
             Restore(Watches[i].Target);
+            Watches[i].Inventory.Dispose();
+        }
         VRLog.Info("WorldUI", $"MIP BAKE ARRIVAL stand-down ({why}): {Watches.Count} watched panel(s) " +
                               "restored to the game's own mipless graphics. This is the pre-192 state " +
                               "exactly -- freshly loaded art on a floated panel will again be aliased for " +
@@ -667,10 +677,15 @@ internal static class PanelMipBake
             if (watch.Host == null)
                 continue; // dropped on the next SyncWatches
 
-            if (!recaptured && frame >= watch.NextRecaptureFrame)
+            if (!recaptured && (watch.Inventory.IsDirty || frame >= watch.NextRecaptureFrame))
             {
-                recaptured = true;
-                Recapture(watch);
+                // The periodic safety poll is a bool check on a stable panel. Original Image
+                // sprite arrivals are still compared below every frame, including hidden art.
+                if (watch.Inventory.Refresh())
+                {
+                    recaptured = true;
+                    Recapture(watch);
+                }
                 // Stagger the panels so their walks never collide on one frame.
                 watch.NextRecaptureFrame = frame + RecaptureIntervalFrames + w;
             }

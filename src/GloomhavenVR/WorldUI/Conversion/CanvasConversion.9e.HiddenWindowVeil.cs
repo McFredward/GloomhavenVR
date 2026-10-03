@@ -154,6 +154,9 @@ internal static partial class CanvasConversion
 
     private sealed class HiddenWindowVeilState
     {
+        public UiHierarchyInventory? Inventory;
+        public readonly List<UIWindow> Windows = new(16);
+        public readonly HashSet<UIWindow> WindowSet = new();
         public readonly List<VeiledWindow> Veiled = new(4);
         public int VeilEvents;
         public int WindowsSeen;
@@ -304,12 +307,13 @@ internal static partial class CanvasConversion
         // 2. VEIL — every nested window the game reports hidden, on an active object.
         using (PerfMonitor.Scope("WorldUI.HiddenWindowVeil.Discovery"))
         {
+            RefreshVeilWindowInventory(st, target);
             VeilWindowScratch.Clear();
-            target.GetComponentsInChildren(includeInactive: false, VeilWindowScratch);
+            VeilWindowScratch.AddRange(st.Windows);
             for (int i = 0; i < VeilWindowScratch.Count; i++)
             {
                 UIWindow w = VeilWindowScratch[i];
-                if (w == null)
+                if (w == null || !w.gameObject.activeInHierarchy)
                     continue;
                 Transform wt = w.transform;
                 // The panel's own window and anything above the conversion target are never
@@ -341,6 +345,38 @@ internal static partial class CanvasConversion
                 Veil(panel, st, w, group);
             }
             VeilWindowScratch.Clear();
+        }
+    }
+
+    private static void RefreshVeilWindowInventory(HiddenWindowVeilState state, Transform target)
+    {
+        // Build612 walked the full character column (thousands of transforms) every frame.
+        // Pool/hierarchy callbacks invalidate its component inventory; live window/alpha
+        // verdicts above remain per-frame. Include disabled UIWindow components as the old
+        // subtree discovery did: the game's active registry alone would omit them.
+        if (state.Inventory == null || !ReferenceEquals(state.Inventory.Root, target))
+        {
+            state.Inventory?.Dispose();
+            state.Inventory = new UiHierarchyInventory(target);
+        }
+        if (state.Inventory.Refresh())
+        {
+            state.Windows.Clear();
+            target.GetComponentsInChildren(includeInactive: true, state.Windows);
+            state.WindowSet.Clear();
+            for (int i = 0; i < state.Windows.Count; i++) state.WindowSet.Add(state.Windows[i]);
+        }
+        // OnEnable also covers a UIWindow added to an existing transform after capture.
+        // Native registry enumeration allocates nothing and reads no descendant transforms
+        // for already inventoried entries; a newly registered window is admitted immediately.
+        HashSet<UIWindow>? registered = UIWindow.GetWindows();
+        if (registered == null) return;
+        foreach (UIWindow window in registered)
+        {
+            if (window == null || state.WindowSet.Contains(window)
+                || !window.transform.IsChildOf(target)) continue;
+            state.WindowSet.Add(window);
+            state.Windows.Add(window);
         }
     }
 
@@ -740,6 +776,9 @@ internal static partial class CanvasConversion
         if (!HiddenWindowVeils.TryGetValue(panel, out HiddenWindowVeilState? st))
             return;
         HiddenWindowVeils.Remove(panel);
+        st.Inventory?.Dispose();
+        st.Windows.Clear();
+        st.WindowSet.Clear();
         for (int i = 0; i < st.Veiled.Count; i++)
             Unveil(st.Veiled[i]);
         st.Veiled.Clear();

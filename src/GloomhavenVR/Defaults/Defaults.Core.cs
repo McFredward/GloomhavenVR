@@ -70,6 +70,11 @@ internal static partial class Defaults
     internal const int ScenarioVegetationDensityPercent = 100; // => [Optimize] ScenarioVegetationDensityPercent
     internal const float ActorBarPoseCheckIntervalSeconds = 0f;
     internal const bool SuspendUnusedCameras = false;
+    internal const bool OffscreenIdleAnimation = false;     // => [Optimize] OffscreenIdleAnimation
+    internal const bool ScenarioStructuralBatching = false; // => [Optimize] ScenarioStructuralBatching
+    internal const bool ScenarioStructuralInstancing = false; // => [Optimize] ScenarioStructuralInstancing
+    internal const float SceneProfileBudgetMilliseconds = .5f; // => [Perf] SceneProfileBudgetMilliseconds
+    internal const int SceneProfileObjectsPerFrame = 64;    // => [Perf] SceneProfileObjectsPerFrame
     internal const float UiMaintenanceIntervalSeconds = 0f;
     internal const bool FigureDistanceLod = false;
     internal const int TownNpcDetailPercent = 100;

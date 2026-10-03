@@ -221,8 +221,9 @@ internal static partial class Loc
                 + "begrenzt. 0 = jeden Frame, heutiges Verhalten; die gemessenen Kosten dieses Durchlaufs "
                 + "steigen mit der Zahl der Figuren in der Runde. Der Durchlauf ist IDEMPOTENT und leitet "
                 + "jedes Ziel erneut aus dem gespeicherten Original-z ab, deshalb kann ein Takt von z. B. "
-                + "0.05 (20 Hz) nicht ändern, wo ein Porträt landet — er verzögert höchstens um dieses "
-                + "Intervall, wann ein NEU eingereihtes Porträt zum ersten Mal flachgelegt wird.",
+                + "0.05 (20 Hz) nicht ändern, wo ein Porträt landet. Änderungen der Hierarchie, "
+                + "Aktivierung oder Tiefengrenze umgehen das Intervall: neue Porträts werden sofort "
+                + "flachgelegt. Unveränderte Unterbäume werden zwischengespeichert.",
             ["Optimize/ScenarioSceneryDensityPercent"] =
                 "Anteil des dekorativen Grases im Szenario, unabhängig von Bäumen, Büschen und "
                 + "anderer Dekoration. 100% erhält alles geeignete Gras, 0% entfernt geeignetes "
@@ -253,6 +254,29 @@ internal static partial class Loc
                 "Stoppt das Rendering ungenutzter Spielkameras. Ihre Projektion und Laser-Zielprüfung "
                 + "bleiben erhalten. Sichtbare Flat-Menüs und benötigte Vorschauen rendern weiter. "
                 + "Neue Frame-Profile Ein, PC Aus; wirkt sofort.",
+            ["Optimize/OffscreenIdleAnimation"] =
+                "Reduziert bei geprüften Szenariofiguren außerhalb des Blickfelds die Berechnung der "
+                + "Ruhepose. Die native Animationszeit läuft weiter. Aktionen, Übergänge, gehaltene "
+                + "Figuren, unbekannte Rigs und Clips mit Ereignissen werden vollständig berechnet. "
+                + "Sichtbare Figuren und gemeinsam synchronisierte Map-NPCs bleiben unverändert.",
+            ["Optimize/ScenarioStructuralBatching"] =
+                "Bündelt geprüftes statisches Mauerwerk und Zierelemente innerhalb kleiner nativer "
+                + "Kachel-/Raumgrenzen. Benötigt die vereinfachten Umgebungsshader. Kollisionen und "
+                + "Spielobjekte bleiben erhalten. Dynamische Wand-Durchsicht sowie Änderungen von "
+                + "Material oder Sichtbarkeit stellen zuerst die ursprünglichen Renderer wieder her. "
+                + "Türen, Figuren, Wasser, UI und unbekannte Flächen werden ausgeschlossen.",
+            ["Optimize/ScenarioStructuralInstancing"] =
+                "Bündelt geeignete wiederholte Szenariogeometrie mit nativen GPU-Instanzen. "
+                + "Objekte, Kollisionen, Sichtbarkeit und Interaktion bleiben unabhängig. Nicht "
+                + "unterstützte Shader und dynamische Renderer behalten ihren ursprünglichen Pfad. "
+                + "Beim Ausschalten wird der ursprüngliche Zustand wiederhergestellt.",
+            ["Perf/SceneProfileBudgetMilliseconds"] =
+                "Weiches Arbeitsbudget pro Frame für die schrittweise Debug-Szenen-Inventur in "
+                + "Millisekunden. Ein unteilbarer Unity-Aufruf kann länger dauern; tatsächliche "
+                + "Spitzen werden protokolliert. FRAME, STEPS, SPLIT und Spielabläufe bleiben gleich.",
+            ["Perf/SceneProfileObjectsPerFrame"] =
+                "Maximale Arbeitsschritte pro Frame für die schrittweise Debug-Szenen-Inventur. "
+                + "Betrifft nur Diagnosen, nicht Rendering oder Eingaben.",
             ["Optimize/UiMaintenanceIntervalSeconds"] =
                 "Sekunden zwischen Wartungsschritten unveränderter VR-Fenster. 0 aktualisiert jeden Frame. "
                 + "Erstellen, Aufdecken, Greifen und Spiel-Callbacks bleiben sofort wirksam. "

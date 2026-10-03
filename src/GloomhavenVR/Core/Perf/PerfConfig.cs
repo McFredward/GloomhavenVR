@@ -88,6 +88,8 @@ internal static class PerfConfig
 
     /// <summary>Break the renderer census down by root/layer/type/material and dump the render state.</summary>
     internal static ConfigEntry<bool> SceneProfile = null!;
+    internal static ConfigEntry<float> SceneProfileBudgetMilliseconds = null!;
+    internal static ConfigEntry<int> SceneProfileObjectsPerFrame = null!;
 
     /// <summary>Split each camera's render-loop figure into culling and submission halves.</summary>
     internal static ConfigEntry<bool> CullSubmitSplit = null!;
@@ -158,6 +160,9 @@ internal static class PerfConfig
     internal static ConfigEntry<float> ActorBarPoseCheckIntervalSeconds = null!;
     internal static ConfigEntry<bool> SuspendUnusedCameras = null!;
     internal static ConfigEntry<float> UiMaintenanceIntervalSeconds = null!;
+    internal static ConfigEntry<bool> OffscreenIdleAnimation = null!;
+    internal static ConfigEntry<bool> ScenarioStructuralInstancing = null!;
+    internal static ConfigEntry<bool> ScenarioStructuralBatching = null!;
     internal static ConfigEntry<bool> FigureDistanceLod = null!;
     internal static ConfigEntry<int> TownNpcDetailPercent = null!;
     internal static ConfigEntry<int> SkinningBoneLimit = null!;
@@ -274,6 +279,9 @@ internal static class PerfConfig
         ? Defaults.SuspendUnusedCameras : SuspendUnusedCameras.Value;
     internal static float UiMaintenanceInterval => UiMaintenanceIntervalSeconds == null
         ? 0f : Mathf.Clamp(UiMaintenanceIntervalSeconds.Value, 0f, .2f);
+    internal static bool OffscreenIdleAnimationOn => OffscreenIdleAnimation != null && OffscreenIdleAnimation.Value;
+    internal static bool StructuralBatchingOn => ScenarioStructuralBatching != null && ScenarioStructuralBatching.Value;
+    internal static bool StructuralInstancingOn => ScenarioStructuralInstancing != null && ScenarioStructuralInstancing.Value;
     internal static bool FigureDistanceLodEnabled => FigureDistanceLod == null
         ? Defaults.FigureDistanceLod : FigureDistanceLod.Value;
     internal static int TownNpcMeshDetailPercent => TownNpcDetailPercent == null
@@ -450,6 +458,23 @@ internal static class PerfConfig
             FrameDefaults.Active ? FrameDefaults.SuspendUnusedCameras : Defaults.SuspendUnusedCameras,
             "Stop rendering from unused native cameras while preserving their projection and raycasting. "
             + "Visible flat menus and required preview captures still render. Fresh Frame On, PC Off; works live.");
+        OffscreenIdleAnimation = _file.Bind("Optimize", "OffscreenIdleAnimation",
+            FrameDefaults.Active ? FrameDefaults.OffscreenIdleAnimation : Defaults.OffscreenIdleAnimation,
+            "For audited native scenario figures only, skip offscreen idle bone-transform evaluation "
+            + "while native animation time continues. Actions, transitions, held figures, unknown rigs "
+            + "and eventful clips retain their original evaluation. Original culling restores on Off. "
+            + "Shared map NPC clocks and visible figures are unchanged.");
+        ScenarioStructuralBatching = _file.Bind("Optimize", "ScenarioStructuralBatching",
+            FrameDefaults.Active ? FrameDefaults.ScenarioStructuralBatching : Defaults.ScenarioStructuralBatching,
+            "Combine audited static masonry/trim within small native tile/cell boundaries. Requires "
+            + "ScenarioSimpleEnvironmentShading. Keeps colliders and gameplay objects; restores native "
+            + "renderers before dynamic wall fade or material/visibility changes. Unknown surfaces, "
+            + "doors, characters, water and UI remain native. Reversible quality compromise.");
+        ScenarioStructuralInstancing = _file.Bind("Optimize", "ScenarioStructuralInstancing",
+            FrameDefaults.Active ? FrameDefaults.ScenarioStructuralInstancing : Defaults.ScenarioStructuralInstancing,
+            "Enable supported native GPU instancing for repeated eligible static scenario geometry. "
+            + "Original objects, colliders, visibility and interaction remain independent. Unsupported "
+            + "shaders and dynamic/unsafe renderers keep their original path. Reversible live option.");
         UiMaintenanceIntervalSeconds = _file.Bind("Optimize", "UiMaintenanceIntervalSeconds",
             FrameDefaults.Active ? FrameDefaults.UiMaintenanceIntervalSeconds : Defaults.UiMaintenanceIntervalSeconds,
             new ConfigDescription("Seconds between maintenance passes for unchanged converted panels. "
@@ -654,13 +679,23 @@ internal static class PerfConfig
             + "to the head camera (work that appears in no other number here and that this game "
             + "uses for a full occlusion re-draw of every revealed room), and the head camera's "
             + "path / depth-texture / culling mask. Sampled ONCE PER WINDOW: the walk allocates and "
-            + "would be a stutter of its own at frame rate. IT TIMES ITSELF and prints the figure "
-            + "on the SIM and SCENE lines; if that figure is above a few milliseconds it skips the "
-            + "next few windows so its amortised cost stays under budget, and says so. Never runs "
+            + "is spread across frames within the configurable scene-profile budget. Actual slices "
+            + "and capture span are reported; an indivisible engine call can still exceed the soft "
+            + "budget. Live scene changes cancel the unfinished inventory. Never runs "
             + "in the pre-menu scenes (Bootstrap/Intro): there are five renderers there, and a "
             + "fault in a walk that runs before the settings pane exists cannot be switched off "
             + "from inside the headset.");
 
+        SceneProfileBudgetMilliseconds = _file.Bind("Perf", "SceneProfileBudgetMilliseconds",
+            Defaults.SceneProfileBudgetMilliseconds, new ConfigDescription(
+                "Soft per-frame work budget for incremental Debug scene inventories in milliseconds. "
+                + "An indivisible Unity call can exceed it; actual worst slices are reported. "
+                + "Does not alter FRAME, STEPS, SPLIT or gameplay.", new AcceptableValueRange<float>(.1f, 4f)));
+        SceneProfileObjectsPerFrame = _file.Bind("Perf", "SceneProfileObjectsPerFrame",
+            Defaults.SceneProfileObjectsPerFrame, new ConfigDescription(
+                "Maximum work items per frame for incremental Debug scene inventories. "
+                + "Only diagnostics are scheduled; no render or input cadence changes.",
+                new AcceptableValueRange<int>(8, 512)));
         // DEFAULT ON since ModBuild 227. It is pure measurement — it changes no pixel — and the
         // question it settles is now live: with all rooms open the head camera spends 6–9 ms per
         // frame over two eye passes on a scene of 8,600 renderers that it culls against a BLANKET
@@ -812,15 +847,15 @@ internal static class PerfConfig
             + "there carries the derivation of how high the number may safely go (the binding "
             + "constraint is the 0.20 s dwell before a wall may go transparent).",
             new AcceptableValueRange<float>(0f, 0.25f)));
-        InitiativeDepthEvalInterval = _file.Bind("Optimize", "InitiativeDepthEvalInterval", Defaults.InitiativeDepthEvalInterval, new ConfigDescription(
+        InitiativeDepthEvalInterval = _file.Bind("Optimize", "InitiativeDepthEvalInterval", FrameDefaults.Active ? FrameDefaults.InitiativeDepthEvalInterval : Defaults.InitiativeDepthEvalInterval, new ConfigDescription(
             "Minimum seconds between two DEPTH NORMALISATIONS of the docked initiative row — the "
             + "pass that walks every active portrait's subtree and clamps the row's authored "
             + "front-to-back spread to [WorldUI] InitiativeDepthMaxSpreadPx. 0 = every frame, "
             + "today's behaviour, and the measured cost of that walk rises with the number of "
             + "figures in the round. The pass is IDEMPOTENT and re-derives every target from the "
             + "recorded authored z, so running it at e.g. 0.05 (20 Hz) cannot change where a "
-            + "portrait ends up — it only delays by at most that interval when a NEWLY pooled "
-            + "portrait is first flattened.",
+            + "portrait ends up. Hierarchy/activation changes and cap changes bypass the interval "
+            + "so a newly pooled portrait is flattened immediately. Stable descendants are cached.",
             new AcceptableValueRange<float>(0f, 0.25f)));
         QuietDiagnostics = _file.Bind("Optimize", "QuietDiagnostics", Defaults.QuietDiagnostics,
             "Suppress the high-cadence per-subsystem DIAGNOSTIC log lines (the wall-fade 'diag:' "

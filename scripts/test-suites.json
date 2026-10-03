@@ -1336,6 +1336,12 @@
       "weight": 90
     },
     {
+      "id": "ui-inventory-runtime",
+      "command": ["python3", "scripts/check-ui-inventory-runtime.py"],
+      "groups": ["local"],
+      "weight": 40
+    },
+    {
       "id": "actor-bar-pose-runtime",
       "command": ["python3", "scripts/check-actor-bar-pose-runtime.py"],
       "groups": ["local"],

@@ -906,6 +906,9 @@ internal static class ConfigCatalog
                                      || key == "ScenarioFigureEffectsDensityPercent"
                                      || key == "ScenarioEnvironmentEffectsDensityPercent"
                                      || key == "ScenarioStaticBatching"
+                                     || key == "OffscreenIdleAnimation"
+                                     || key == "ScenarioStructuralInstancing"
+                                     || key == "ScenarioStructuralBatching"
                                      || key == "ScenarioSimpleEnvironmentShading"
                                      || key == "ScenarioFigureClothSimulation"
                                      || key == "ReduceScenarioGenerationDetail"))

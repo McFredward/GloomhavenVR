@@ -118,6 +118,11 @@ internal static class ConfigSteps
     /// </summary>
     private static readonly Dictionary<string, double> Explicit = new(StringComparer.Ordinal)
     {
+        // Millisecond work budgets are not the Seconds suffix's wall-clock intervals.
+        // 0.1ms lands on the 0.5ms default; 16 work items keeps the 8..512 integral
+        // range reachable without hundreds of button presses.
+        ["Perf/SceneProfileBudgetMilliseconds"] = 0.1d,
+        ["Perf/SceneProfileObjectsPerFrame"] = 16d,
         // ---- The retired "Komfort ▸ Tisch & Welt" block -------------------------------------
         // Rig/WorldScale is GONE (2026-08: the "Tischgröße" setting was removed, legacy no-op)
         // and so is Comfort/TableHeightOffset (2026-08: "Tischhöhe" removed — free locomotion

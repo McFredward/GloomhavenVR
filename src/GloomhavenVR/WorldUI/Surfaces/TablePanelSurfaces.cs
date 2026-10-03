@@ -522,8 +522,10 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// <summary>Depth-bearing transforms this tick (reused; no per-frame allocation).</summary>
     private readonly List<DepthNode> _depthScratch = new(64);
 
-    /// <summary>DFS work stack for the per-portrait subtree walk (reused; no per-frame allocation).</summary>
-    private readonly List<Transform> _depthStack = new(64);
+    /// <summary>Membership cache; native hierarchy/activation changes invalidate before rendering.</summary>
+    private UiHierarchyInventory? _depthInventory;
+    private int _depthRevision = -1;
+    private float _depthCap = float.NaN;
 
     /// <summary>Next unscaled time <see cref="NormalizeDepth"/> may run when
     /// <c>[Optimize] InitiativeDepthEvalInterval</c> is non-zero. Inert at the default 0.</summary>
@@ -706,7 +708,13 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             if (!_reorderActive)
             {
                 float depthInterval = PerfConfig.InitiativeDepthInterval;
-                if (depthInterval <= 0f || Time.unscaledTime >= _nextDepthEval)
+                Transform? depthHolder = InitiativeTrack.Instance != null
+                    ? InitiativeTrack.Instance.initiativeTrackHolder : null;
+                bool changed = _depthInventory == null || _depthInventory.IsDirty
+                    || !ReferenceEquals(_depthInventory.Root, depthHolder)
+                    || _depthRevision != _depthInventory.Revision
+                    || _depthCap != WorldUIConfig.InitiativeDepthMaxSpreadPx.Value;
+                if (changed || depthInterval <= 0f || Time.unscaledTime >= _nextDepthEval)
                 {
                     _nextDepthEval = Time.unscaledTime + depthInterval;
                     using (PerfMonitor.Scope("InitTrack.NormalizeDepth"))
@@ -1471,99 +1479,50 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         if (holder == null)
             return;
 
-        // The row's visible recession/emphasis is authored NOT on the holder's DIRECT
-        // children (their local z are ~equal — remapping only those did nothing and 0 was
-        // never flat) but on transforms NESTED inside each portrait: the avatar image, and
-        // the selection frame whose forward z pops the acting actor toward the head ("manche
-        // hervorgehoben"). The game's own selection path never moves a portrait transform in
-        // z or scale (Select → selectionObject.SetActive + material _FXAnim only), so the
-        // pop is authored geometry, not an animated offset — a subtree walk reaches all of
-        // it. Zeroing local z on this single world-space uGUI canvas removes ONLY the
-        // geometric protrusion; draw order is hierarchy-based, so the selection glow stays
-        // visible (whose turn it is is never hidden) — the row just goes flat.
-        _depthScratch.Clear();
-        int visited = 0;
-        float rawMin = 0f; // the holder plane (local z == 0) is the shallow reference
-        float rawMax = 0f;
-        // INDEXED, not `foreach (Transform rootChild in holder)` (S2 perf round). Transform's
-        // enumerator is a CLASS returned as a non-generic IEnumerator, so the foreach allocated one
-        // object per tick on a per-frame path — gen0 pressure for nothing. GetChild(i) in index
-        // order visits exactly the same children in exactly the same order.
-        int rootCount = holder.childCount;
-        for (int r = 0; r < rootCount; r++)
+        if (_depthInventory == null || !ReferenceEquals(_depthInventory.Root, holder))
         {
-            Transform rootChild = holder.GetChild(r);
-            if (!rootChild.gameObject.activeSelf)
-                continue;
-            // The ENTRY ROOTS themselves are deliberately NOT candidates (round 2). Their authored
-            // z are ~equal and flat — remapping only them was tried and did nothing — but they ARE
-            // the transforms vanilla's world-x writes leak an out-of-plane offset onto (see
-            // InitiativeReorderSlide's round-2 note). Left in the candidate set, the FIRST frame
-            // that carried such a leak would be recorded here as that entry's "authored" depth and
-            // then re-asserted forever, which both cements the leak and turns the row's real
-            // recession into noise (the remap factor is cap / spread). The row's axis guard owns
-            // an entry root's z; this pass owns the depth NESTED inside each portrait, which is
-            // where the game actually authored it.
-            // childCount hoisted here and at the DFS node below: it is a Unity interop property
-            // read, it was evaluated on EVERY loop iteration, and neither loop body can change the
-            // child count of the transform it is reading (both only push onto _depthStack). Same
-            // children, same order, ~one interop call per node instead of one per node PLUS one per
-            // child.
-            int seedCount = rootChild.childCount;
-            for (int k = 0; k < seedCount; k++)
-            {
-                Transform seed = rootChild.GetChild(k);
-                if (seed.gameObject.activeSelf)
-                    _depthStack.Add(seed);
-            }
-            while (_depthStack.Count > 0)
-            {
-                int last = _depthStack.Count - 1;
-                Transform t = _depthStack[last];
-                _depthStack.RemoveAt(last);
+            _depthInventory?.Dispose();
+            _depthInventory = new UiHierarchyInventory(holder);
+        }
+        bool rebuilt = _depthInventory.Refresh();
+        bool membershipChanged = rebuilt || _depthRevision != _depthInventory.Revision;
+        _depthRevision = _depthInventory.Revision;
+        _depthCap = WorldUIConfig.InitiativeDepthMaxSpreadPx.Value;
+        PerfMonitor.Count("InitDepth.InventoryRebuilds", rebuilt ? 1 : 0);
 
+        // Native portrait z is authored geometry; selection only toggles children and
+        // material FX. Inventory only depth-bearing nodes on membership/activity changes;
+        // steady maintenance reads their live visibility and transforms, not every flat
+        // text/graphic descendant. Native hierarchy/activation callbacks bypass the interval.
+        int visited = 0;
+        if (membershipChanged)
+        {
+            _depthScratch.Clear();
+            IReadOnlyList<Transform> nodes = _depthInventory.Nodes;
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                Transform node = nodes[i];
+                if (node == null || ReferenceEquals(node, holder)
+                    || ReferenceEquals(node.parent, holder) || !node.gameObject.activeInHierarchy)
+                    continue;
                 visited++;
-
-                // Record the authored z once; thereafter the remap reads from here, so a
-                // prior frame's compressed value never becomes the new baseline. Only
-                // depth-BEARING transforms are tracked (|z| >= epsilon) — a flat transform's
-                // target is always 0, so tracking it would only add pointless writes.
-                //
-                // ONE dictionary lookup per node instead of two (S2 perf round). The shipped body
-                // asked TryGetValue and then ContainsKey for the very same key on every node of
-                // every portrait subtree, every frame. The three cases are enumerated and each is
-                // bit-identical to the shipped answer: key present ⇒ tracked with the stored raw;
-                // key absent and |z| ≥ epsilon ⇒ recorded, then tracked with that z (which is what
-                // ContainsKey found); key absent and |z| < epsilon ⇒ not recorded, not tracked.
-                bool tracked;
-                if (_rawDepth.TryGetValue(t, out float raw))
+                bool tracked = _rawDepth.TryGetValue(node, out float raw);
+                if (!tracked)
                 {
-                    tracked = true;
-                }
-                else
-                {
-                    raw = t.localPosition.z;
+                    raw = node.localPosition.z;
                     tracked = Mathf.Abs(raw) >= DepthEpsilonPixels;
-                    if (tracked)
-                        _rawDepth[t] = raw;
+                    if (tracked) _rawDepth[node] = raw;
                 }
-                if (tracked)
-                {
-                    _depthScratch.Add(new DepthNode { T = t, Raw = raw });
-                    if (raw < rawMin)
-                        rawMin = raw;
-                    if (raw > rawMax)
-                        rawMax = raw;
-                }
-
-                int childCount = t.childCount;
-                for (int i = 0; i < childCount; i++)
-                {
-                    Transform c = t.GetChild(i);
-                    if (c.gameObject.activeSelf)
-                        _depthStack.Add(c);
-                }
+                if (tracked) _depthScratch.Add(new DepthNode { T = node, Raw = raw });
             }
+        }
+        float rawMin = 0f, rawMax = 0f;
+        for (int i = 0; i < _depthScratch.Count; i++)
+        {
+            DepthNode node = _depthScratch[i];
+            if (node.T == null || !node.T.gameObject.activeInHierarchy) continue;
+            if (node.Raw < rawMin) rawMin = node.Raw;
+            if (node.Raw > rawMax) rawMax = node.Raw;
         }
 
         float rawSpread = rawMax - rawMin;
@@ -1588,6 +1547,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             // node.Raw IS _rawDepth[node.T] — the walk above only ever records a node with the
             // value it just read out of (or wrote into) that dictionary, so dropping the lookup
             // here changes nothing but the cost.
+            if (node.T == null || !node.T.gameObject.activeInHierarchy) continue;
             float target = node.Raw * scale;
             Vector3 lp = node.T.localPosition;
             if (Mathf.Abs(lp.z - target) > 0.001f)
@@ -1602,6 +1562,10 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// <summary>Restore each recorded portrait's authored z (reversibility) and forget them.</summary>
     private void RestoreDepth()
     {
+        _depthInventory?.Dispose();
+        _depthInventory = null;
+        _depthRevision = -1;
+        _depthCap = float.NaN;
         if (_rawDepth.Count == 0)
             return;
         foreach (KeyValuePair<Transform, float> kv in _rawDepth)

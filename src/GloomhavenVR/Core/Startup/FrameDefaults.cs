@@ -40,7 +40,15 @@ internal static class FrameDefaults
     internal const int ScenarioVegetationDensityPercent = 0;
     internal const float ActorBarPoseCheckIntervalSeconds = .1f;
     internal const bool SuspendUnusedCameras = true;
-    internal const float UiMaintenanceIntervalSeconds = .05f;
+    // Build615: .05 expired on nearly every measured 53ms application frame.
+    // Reveal, input, grabs and animations retain their immediate paths.
+    internal const float UiMaintenanceIntervalSeconds = .15f;
+    internal const float InitiativeDepthEvalInterval = .1f;
+    internal const bool OffscreenIdleAnimation = true;
+    // The native materials already have instancing enabled in the supplied run.
+    // Leave the extra flag experiment off; structural chunks are the renderer lever.
+    internal const bool ScenarioStructuralInstancing = false;
+    internal const bool ScenarioStructuralBatching = true;
     internal const bool FigureDistanceLod = true;
     internal const int TownNpcDetailPercent = 45;
     internal const int SkinningBoneLimit = 2;
