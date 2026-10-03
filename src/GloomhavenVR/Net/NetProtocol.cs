@@ -560,7 +560,33 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 611;
+    public const ushort ModBuild = 612;
+
+    // ModBuild 612 — reversible Frame CPU/render budgets and visible inline scenario rules.
+    // The supplied Frame610 log still contains discarded native ScenarioCamera/UI Camera
+    // render callbacks. Optional camera suspension removes those automatic passes after a
+    // managed bridge preserves original main-camera and UI-projection identities. Visible
+    // flat menu/preview captures and the active movie decoder remain necessary; missing
+    // bridge setup fails back to existing draw suppression instead of blocking continuation.
+    // Static converted-panel fitting and verified stationary original animation-loop bar
+    // sampling gain configurable intervals. Native input, callbacks, reveals, root changes
+    // and non-loop actions stay immediate. Original loop envelopes stabilize absolute bar
+    // height without following every wing beat; sleeping/waking transitions remain dynamic.
+    // Card diagnostics seed one native registry during startup and follow actual widget
+    // OnEnable/Init/OnDestroy lifetimes instead of repeating a synchronous resource census.
+    // Optional projected-size LOD, NPC body detail and per-renderer bone influence caps use
+    // immutable prepared mesh parts; original materials, skeletons and facial expressions
+    // remain in use. Quality compromises work on PC and Frame and restore when disabled.
+    // Fresh Frame defaults: suspend unused cameras, distance LOD, NPC detail45, two bones,
+    // panel maintenance0.05s and verified idle-bar checks0.1s; saved settings are retained.
+    // Build610 rules were effectively invisible because PlaceHost multiplied metres/pixel
+    // by CanvasScaleMm a second time. Correct native mounting keeps short rules visible;
+    // long rules show a real rendered "...", expand on hover or pin on click and animate
+    // occupied height to move private goals/elements below them. Existing owner-authored
+    // record96 and its interpolated remote clock retain geometry, wording and animation.
+    // FULL INSTALL: new immutable NPC/far-figure mesh bank parts are required. Unity proofs
+    // execute original camera consumers, skinned poses and native rules mounting; hardware
+    // FPS, headset appearance and standalone/Steam Link passthrough remain unverified.
 
     // ModBuild 611 — responsive shared NPC presentation and reliable offer completion.
     // Additive message26/record97 carries bounded numeric motion independently of

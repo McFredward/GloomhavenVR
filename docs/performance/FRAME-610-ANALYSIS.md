@@ -1,19 +1,19 @@
 # Build 610: Steam Frame CPU and rendering budget
 
 The supplied `steam_frame/LogOutput.log`, `Player.log` and OpenXR log identify
-**610 / 3edbcb 284**, not the later NPC multiplayer Build 611. Player and BepInEx
+**610 / 3edbcb284**, not the later NPC multiplayer Build 611. Player and BepInEx
 logs duplicate one run. Input hashes and parser output are preserved under
-`.planning/debug/frame 612-analysis/`. No new image or video accompanies this run.
+`.planning/debug/frame612-analysis/`. No new image or video accompanies this run.
 
 ## Loaded gameplay
 
 The trace contains both CampaignMap and ProcGen. Exclude initial generation,
 preparation and loading: the first ProcGen window is still mixed with setup.
 The following later tracked windows permit normal head motion rather than
-requiring a stationary VR camera. Means are frame-weighted; p 95 ranges are
+requiring a stationary VR camera. Means are frame-weighted; p95 ranges are
 per-window values, not a pooled percentile.
 
-| Context | Windows / frames | Frame mean | Mod scopes | Logic | Render loop | Window-p 95 range |
+| Context | Windows / frames | Frame mean | Mod scopes | Logic | Render loop | Window-p95 range |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | CampaignMap, windows 6–10 | 5 / 1234 | 56.91ms | 31.41ms | 39.50ms | 5.97ms | 84.67–186.60ms |
 | ProcGen, windows 13–23 | 11 / 3280 | 61.21ms | 19.60ms | 34.66ms | 9.72ms | 95.63–120.76ms |
