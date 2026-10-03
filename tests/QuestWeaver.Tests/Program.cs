@@ -165,6 +165,7 @@ try
     }
     context.Unload();
     StartupTests.Run(projectRoot, Check);
+    PackageApiTests.Run(temp + "-package-api", Check);
     Console.WriteLine($"QuestWeaver executable fixture: {assertions} assertions passed.");
 }
 finally { if (Directory.Exists(temp)) Directory.Delete(temp, true); }

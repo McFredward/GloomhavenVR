@@ -1,6 +1,16 @@
 # Quest implementation and hardware checkpoints
 
-Current isolated implementation: ModBuild612, a successfully built and signed
+Current isolated implementation: ModBuild613 is being validated after the B612
+hardware capture and the maintainer's request to activate the existing VR mod.
+The candidate reuses its real rig/input/UI/keyboard, shares the player-owned XR
+session and supplies an authored Android mod bank with verified local paths.
+It also adds actual Unity-package API compatibility gates, restores the owned
+UGUI layout batching contract and initializes the original lazy rule root.
+Bounded threaded startup logging now reserves first distinct error stacks.
+See [613 hardware procedure](QUEST3-HARDWARE-613.md). Actual headset startup,
+campaign generation, original save round trips and Android crossplay remain gates.
+
+Previous checkpoint: ModBuild612, a successfully built and signed
 real original-scene startup/menu checkpoint after the maintainer accepted B611 animation, lighting,
 textures and button handling. Right-stick height and the Windows capture repair
 are integrated. See [612 hardware procedure](QUEST3-HARDWARE-612.md),
@@ -16,7 +26,9 @@ suites, 286,760 wire/golden assertions and bundle/mesh/surface checks pass;
 strict Release has zero warnings/errors. The fresh compiled comparison is
 accepted against reviewed609, separately from the expected nonzero historical
 Build-601 guard comparison. Actual Windows package selection is independently
-validated; no B612 headset outcome is claimed.
+validated. The subsequent B612 capture confirms original content/catalog loads,
+an InputSystem getter failure and a native load-error window after the intro;
+it does not establish the first Android rule failure or campaign readiness.
 
 
 Implementation was explicitly authorized on 2026-10-03 after the planning-only

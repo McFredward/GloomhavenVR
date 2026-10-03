@@ -1401,6 +1401,30 @@
       "weight": 2
     },
     {
+      "id": "quest-startup-log",
+      "command": ["python3", "scripts/quest-startup-log-tests.py"],
+      "groups": ["local", "ci"],
+      "weight": 2
+    },
+    {
+      "id": "quest-platform",
+      "command": ["python3", "scripts/quest-platform-tests.py"],
+      "groups": ["local", "ci"],
+      "weight": 2
+    },
+    {
+      "id": "quest-mod-bundles",
+      "command": ["python3", "scripts/quest-mod-bundle-tests.py"],
+      "groups": ["local", "ci"],
+      "weight": 2
+    },
+    {
+      "id": "quest-mod-content",
+      "command": ["python3", "scripts/quest-mod-content-tests.py"],
+      "groups": ["local", "ci"],
+      "weight": 2
+    },
+    {
       "id": "quest-probe-input",
       "command": [
         "python3",

@@ -148,8 +148,43 @@ namespace GloomhavenVR.Quest.Editor
             public string[] selectedScenes;
         }
         [Serializable] sealed class StandaloneEvidence { public bool startupAdapterComplete, fullGameReady; }
+        [Serializable] sealed class ApiFile { public string path, sha256; public long size; }
+        [Serializable] sealed class ApiContract { public int schema; public bool complete; public string reportSha256; public ApiFile[] plugins, sdk; }
+        static string FileHash(string path)
+        {
+            using (var stream = File.OpenRead(path))
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+                return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
+        }
+        static void ValidatePackageApiContract()
+        {
+            const string root = "Assets/Quest/Resources/quest-package-api-";
+            var contract = JsonUtility.FromJson<ApiContract>(File.ReadAllText(root + "contract.json"));
+            if (contract == null || contract.schema != 1 || !contract.complete ||
+                contract.reportSha256 != FileHash(root + "report.json") || contract.plugins == null ||
+                contract.plugins.Length == 0 || contract.sdk == null || contract.sdk.Length != 8)
+                throw new InvalidOperationException("The imported Unity package API compatibility gate is missing or stale.");
+            string[] packages = { "UnityEngine.UI", "Unity.InputSystem", "Unity.Addressables", "Unity.ResourceManager",
+                "Unity.ScriptableBuildPipeline", "Unity.XR.Management", "Unity.XR.OpenXR", "Unity.XR.CoreUtils" };
+            foreach (var file in contract.plugins.Concat(contract.sdk))
+            {
+                bool sdk = contract.sdk.Contains(file);
+                string path = sdk ? "Library/ScriptAssemblies/" + file.path : file.path;
+                if (file.path.Contains("..") || Path.IsPathRooted(file.path) ||
+                    (!sdk && !file.path.StartsWith("Assets/", StringComparison.Ordinal)) ||
+                    (sdk && !packages.Contains(Path.GetFileNameWithoutExtension(file.path))) ||
+                    !File.Exists(path) || new FileInfo(path).Length != file.size || FileHash(path) != file.sha256)
+                    throw new InvalidOperationException("Imported package API inputs changed: " + file.path);
+            }
+            string[] actual = Directory.GetFiles("Assets", "*.dll", SearchOption.AllDirectories)
+                .Select(path => path.Replace('\\', '/'))
+                .Where(path => !packages.Contains(Path.GetFileNameWithoutExtension(path))).OrderBy(path => path).ToArray();
+            if (!actual.SequenceEqual(contract.plugins.Select(file => file.path).OrderBy(path => path)))
+                throw new InvalidOperationException("Imported package API contract does not cover all active plugins.");
+        }
         static string[] PrepareOriginalStartup()
         {
+            ValidatePackageApiContract();
             const string evidencePath = "Assets/Quest/Resources/quest-startup-report.json";
             const string adapterPath = "Assets/Quest/Resources/quest-standalone-report.json";
             var evidence = JsonUtility.FromJson<StartupEvidence>(File.ReadAllText(evidencePath));

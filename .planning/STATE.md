@@ -1,5 +1,30 @@
 # State — where the project stands
 
+**Quest real-mod startup candidate, 2026-10-03: isolated feature, ModBuild 613.**
+
+The supplied B612 capture verifies the installed APK/input and original loading
+error after Intro. Original content and native Addressables loads succeeded;
+an absent InputSystem getter is recorded, but repeated errors exhausted the
+old budget before the first Android rule failure could be retained. The native
+pause timeout does not prove OOM. Actual original rule libraries parse the
+same content in Unity2021.3.5; B612 native output retained all protected types.
+
+The maintainer requested immediate reuse of the real VR mod. B613 adopts the
+player-owned XR session, activates the real plugin after verified Android mod
+art extraction and uses its existing rig/input/menu/keyboard. The synthetic
+menu bridge is not created. Native Quest passthrough replaces the desktop key
+color and handles session recreation. All authored bank/compiler inputs and
+the actual Android GLES3 shaders/textures are verified privately.
+
+The local builder now audits imported Unity-package APIs before IL2CPP, restores
+the original UGUI batching gate in a generated private package and initializes
+the original public lazy rule root. Threaded, bounded diagnostics reserve 64
+distinct error stacks. Unknown first Android rule failure, actual headset
+startup, campaign generation/saves, Android crossplay and sustained performance
+remain gates. [B613 procedure and evidence](QUEST3-HARDWARE-613.md).
+Final signed APK/handoff and full local gate are being validated; no B613 headset
+success is claimed. Work remains solely on `feature/quest3-standalone`.
+
 **Quest original-startup checkpoint, 2026-10-03: isolated feature, ModBuild 612.**
 
 The maintainer accepted B611 animation, lighting, textures and native button

@@ -553,7 +553,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 612;
+    public const ushort ModBuild = 613;
+
+    // ModBuild 613 — original Quest startup with the real VR mod after B612 hardware evidence.
+    // The installed APK/input identity and original loading-error dialog are verified.
+    // Replaced Unity package APIs are checked against the actual compiled SDK before
+    // player compilation; narrowly equivalent getter bindings preserve original input.
+    // Durable startup diagnostics retain bounded distinct errors from loader threads,
+    // rather than allowing repeated input exceptions to consume the first-cause budget.
+    // Original rules/content remain unchanged. Menu execution, campaign generation,
+    // the complete VR mod and crossplay require separate hardware evidence.
 
     // ModBuild 612 — isolated original-menu Quest startup diagnostic.
     // Recovered Bootstrap/Intro/unified/MainMenu scenes retain original callbacks;

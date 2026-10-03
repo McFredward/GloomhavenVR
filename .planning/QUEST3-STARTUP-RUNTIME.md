@@ -1,5 +1,13 @@
 # Original Quest startup boundary
 
+The B613 candidate activates the existing VR mod before original scene startup,
+with verified authored Android art and the player-owned XR session. Its existing
+input, menu presentation and VR keyboard replace the B612 synthetic menu bridge.
+The earlier diagnostic implementation below records the original recovery
+boundary; [the B613 procedure](QUEST3-HARDWARE-613.md) supersedes its synthetic
+pointer/keyboard activation and inactive-mod assumption. Original load, full
+campaign/save behavior and crossplay still require hardware evidence.
+
 Worker baseline: `6b2dbce3`, ModBuild611. This implements an explicitly scoped
 original-menu diagnostic. It does not certify the original campaign, full mod,
 save round trips, shader parity or multiplayer on Android.

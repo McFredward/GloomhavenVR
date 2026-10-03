@@ -24,12 +24,17 @@ import startup
 
 from profile import discover_steam_root, dummy_identity, load_profile, read_logo, ProfileError
 from storage import (BuildError, Stages, canonical, digest, ensure_output, inventory,
-                     output_lock, snapshot, value_hash, write_json)
+                     output_lock, record_file, snapshot, value_hash, verify_files, write_json)
 
 
 RECIPE = 1
 PACKAGE = "dev.gloomhavenvr.quest"
 REPO = Path(__file__).resolve().parents[2]
+REPLACED_PACKAGES = ("UnityEngine.UI", "Unity.InputSystem", "Unity.Addressables",
+                     "Unity.ResourceManager", "Unity.ScriptableBuildPipeline",
+                     "Unity.XR.Management", "Unity.XR.OpenXR", "Unity.XR.CoreUtils")
+UGUI_LAYOUT_SOURCE_SHA256 = "386d0e978df81c3bfde2c91acf01c8fc447a36e170684fdd83a06fdebaac944c"
+ORIGINAL_UGUI_SHA256 = "267daefe946bbed18d13c7c572043bee15cd265ef1b443934b3dcbcd3a351f5f"
 
 
 def command(argv: list[str], log: Path, *, cwd: Path | None = None,
@@ -345,6 +350,8 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             editor = tool_path(args.unity_editor, "Unity")
             package_data["dependencies"].update(original_builtin_modules(game, editor))
             write_json(project / "Packages/manifest.json", package_data)
+            restore_ugui_layout_gate(project, game, editor)
+            package_mod_content(project, inputs, output, source, editor)
             (project / "Assets/csc.rsp").write_text("-define:GHVR_QUEST_STARTUP\n", encoding="utf-8")
             # Before the first Unity domain load, exclude duplicate package DLLs.
             # Raw recovery and immutable original inputs retain their GUIDs/bytes.
@@ -376,6 +383,10 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
                               project / "Assets/StreamingAssets/quest-startup-content.zip",
                               project / "QuestStartupEvidence/compute-source-restoration.json"])
             contracts.extend(startup_shader_contracts(project))
+            contracts.extend([project / "QuestStartupEvidence/ugui-layout-gate.json",
+                              project / "Packages/com.unity.ugui/Runtime/UI/Core/Layout/LayoutRebuilder.cs"])
+            contracts.extend([resources / "quest-mod-content.json", resources / "quest-mod-bundles.json",
+                              project / "Assets/StreamingAssets/quest-mod-content.zip"])
         contracts.extend(p for p in (project / "Assets/Quest").rglob("*")
                          if p.is_file() and p.suffix in (".cs", ".shader", ".asmdef", ".cginc"))
         if inputs.get("probeAssets"):
@@ -428,6 +439,89 @@ def package_startup_content(project: Path, input_key: str) -> dict:
     return manifest
 
 
+def validate_mod_bundle(folder: Path, authored: Path, source_files: list[dict]) -> dict:
+    """Verify native Android art and all declared compiler inputs on cache reuse."""
+    receipt = json.loads((folder / "quest-mod-bundles.json").read_text(encoding="utf-8"))
+    contract = {"schema": 1, "target": "Android", "unityVersion": "2021.3.5f1",
+                "bundleName": "gloomhavenvr.bundle", "graphicsApi": "OpenGLES3",
+                "colorSpace": "Linear", "stereoRenderingPath": "SinglePass",
+                "typeTreesEnabled": True, "chunkBasedCompression": True, "townBanksIncluded": False}
+    if any(receipt.get(name) != value for name, value in contract.items()):
+        raise BuildError("Authored mod bundle has an unsupported Android rendering contract.")
+    names = receipt.get("assetNames", [])
+    required = receipt.get("requiredAssetNames", [])
+    if (not names or len(names) != len(set(names)) or not required or len(required) != len(set(required))
+            or not set(required).issubset(names)
+            or any(not name.startswith("Assets/Bundle/") or "\\" in name or ":" in name
+                   or any(part in ("", ".", "..", "TownServices") for part in name.split("/")) for name in names)):
+        raise BuildError("Authored mod bundle is missing its required menu/rig assets.")
+    known = {row["path"]: row for row in source_files}
+    declared = receipt.get("sourceFiles", [])
+    if not declared or len(declared) != len({row["path"] for row in declared}):
+        raise BuildError("Authored mod bundle compiler-input receipt is empty or duplicated.")
+    for row in declared:
+        if row != known.get(row.get("path")) or not row["path"].startswith("Assets/"):
+            raise BuildError("Authored mod bundle references unknown or changed compiler input.")
+    if not set(names).issubset(row["path"] for row in declared):
+        raise BuildError("Authored mod bundle names art absent from its compiler-input receipt.")
+    if not verify_files(authored, declared):
+        raise BuildError("Authored mod art changed during Android compilation.")
+    bundle = receipt.get("bundle", {})
+    path = folder / "gloomhavenvr.bundle"
+    if bundle != record_file(path, "gloomhavenvr.bundle"):
+        raise BuildError("Authored Android bundle bytes differ from their receipt.")
+    with path.open("rb") as stream:
+        if stream.read(8) != b"UnityFS\0":
+            raise BuildError("Authored mod art is not a real Unity AssetBundle.")
+    return receipt
+
+
+def package_mod_content(project: Path, inputs: dict, output: Path, source: Path, editor: Path) -> dict:
+    """Build current authored mod art independently of changing gameplay code."""
+    prefix = "unity/GloomhavenVR.Assets/"
+    files = [{**row, "path": row["path"][len(prefix):]} for row in inputs["mod"]["files"]
+             if row["path"].startswith(prefix) and row["path"][len(prefix):].split("/")[0]
+             in ("Assets", "Packages", "ProjectSettings")]
+    if not any(row["path"] == "Assets/Editor/QuestModBundles.cs" for row in files):
+        raise BuildError("The selected source is missing the authored Android mod bundle recipe.")
+    key = value_hash({"files": files, "editorSha256": digest(editor), "recipe": RECIPE})
+    root = output / "cache/mod-bundle" / key
+    authored, bundles = root / "project", root / "bundles"
+
+    def compile_art():
+        # These paths are exclusively owned generated cache, never the source tree.
+        for path in (authored, bundles):
+            if path.exists():
+                shutil.rmtree(path)
+        snapshot(source / prefix, files, authored)
+        env = dict(os.environ)
+        env["GHVR_QUEST_MOD_BUNDLE_OUTPUT"] = str(bundles)
+        command([str(editor), "-batchmode", "-nographics", "-projectPath", str(authored),
+                 "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.QuestModBundles.BuildAll",
+                 "-logFile", str(output / "logs" / ("mod-bundle-" + key[:12] + ".log"))],
+                output / "logs" / ("mod-bundle-launch-" + key[:12] + ".log"), env=env)
+        receipt = validate_mod_bundle(bundles, authored, files)
+        return [bundles / "gloomhavenvr.bundle", bundles / "quest-mod-bundles.json"], receipt
+
+    Stages(output).run("mod-bundle", key, compile_art)
+    receipt = validate_mod_bundle(bundles, authored, files)
+    streaming = project / "Assets/StreamingAssets"
+    streaming.mkdir(parents=True, exist_ok=True)
+    archive_path = streaming / "quest-mod-content.zip"
+    name = "StreamingAssets/gloomhavenvr.bundle"
+    record = {**receipt["bundle"], "path": name}
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_STORED) as archive:
+        info = zipfile.ZipInfo(name, date_time=(2020, 1, 1, 0, 0, 0))
+        with (bundles / "gloomhavenvr.bundle").open("rb") as original, archive.open(info, "w") as destination:
+            shutil.copyfileobj(original, destination, 1024 * 1024)
+    manifest = {"schema": 1, "inputKey": inputs["inputKey"], "archive": archive_path.name,
+                "archiveSha256": digest(archive_path), "files": [record]}
+    resources = project / "Assets/Quest/Resources"
+    write_json(resources / "quest-mod-content.json", manifest)
+    write_json(resources / "quest-mod-bundles.json", receipt)
+    return manifest
+
+
 def exclude_recovered_package_plugins(project: Path) -> None:
     """Keep original script assets for exact remapping; compile one copy of each package."""
     for name in ("UnityEngine.UI", "Unity.InputSystem", "Unity.Addressables", "Unity.ResourceManager", "Unity.ScriptableBuildPipeline"):
@@ -437,6 +531,42 @@ def exclude_recovered_package_plugins(project: Path) -> None:
                 raise BuildError("Recovered package plugin has no import contract: " + str(path.relative_to(project)))
             text = re.sub(r"(?m)^([ \t]+enabled:)[ \t]*1[ \t]*$", r"\1 0", text)
             path.write_text(text, encoding="utf-8")
+
+
+def restore_ugui_layout_gate(project: Path, game: Path, editor: Path) -> None:
+    """Restore the owned game's layout batching ABI in a private embedded package.
+
+    ObjectPool temporarily disables MarkLayoutForRebuild while reparenting cards.
+    Ignoring its setter changes behavior; shipping unmodified UGUI calls an absent
+    method. The audited original getter/setter and default are a static bool, with
+    an early return before all MarkLayoutForRebuild work. Editor and game stay read-only.
+    """
+    source = editor.parent / "Data/Resources/PackageManager/BuiltInPackages/com.unity.ugui"
+    relative = Path("Runtime/UI/Core/Layout/LayoutRebuilder.cs")
+    original = game / "Managed/UnityEngine.UI.dll"
+    if not original.is_file() or digest(original) != ORIGINAL_UGUI_SHA256:
+        raise BuildError("Original UGUI layout gate ABI changed; audit the owned assembly before rebuilding.")
+    if not (source / relative).is_file() or digest(source / relative) != UGUI_LAYOUT_SOURCE_SHA256:
+        raise BuildError("Selected Unity UGUI layout source changed; audit its batching gate before rebuilding.")
+    text = (source / relative).read_text(encoding="utf-8")
+    declaration = "    public class LayoutRebuilder : ICanvasElement\n    {\n"
+    method = "        public static void MarkLayoutForRebuild(RectTransform rect)\n        {\n"
+    if text.count(declaration) != 1 or text.count(method) != 1:
+        raise BuildError("Audited UGUI layout source anchors changed.")
+    text = text.replace(declaration, declaration +
+                        "        // Owned Gloomhaven batching contract; default and guard match original IL.\n"
+                        "        public static bool Enable { get; set; } = true;\n\n")
+    text = text.replace(method, method + "            if (!Enable) return;\n")
+    target = project / "Packages/com.unity.ugui"
+    if target.exists():
+        raise BuildError("Generated UGUI package already exists; regenerate the isolated project.")
+    shutil.copytree(source, target)
+    (target / relative).write_text(text, encoding="utf-8")
+    write_json(project / "QuestStartupEvidence/ugui-layout-gate.json", {
+        "schema": 1, "originalAssemblySha256": digest(original),
+        "sourceSha256": UGUI_LAYOUT_SOURCE_SHA256, "derivedSha256": digest(target / relative),
+        "defaultEnabled": True, "guard": "MarkLayoutForRebuild early return when disabled",
+        "scope": "private generated UGUI package; original game and editor unchanged"})
 
 
 def weave(args, inputs: dict, output: Path, source: Path, game: Path, project: Path) -> None:
@@ -697,6 +827,8 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                  str(project / "Assets/Quest/Plugins/Android/arm64/libghvr_quest_passthrough.so"),
                  "--cache", str(output / "tool-cache/openxr-headers")],
                 output / "logs" / ("native-" + key[:12] + ".log"), cwd=source)
+        if args.target == "startup":
+            bind_startup_package_apis(args, output, source, project, tools, key)
         env = dict(os.environ)
         env.update({"GHVR_QUEST_OUTPUT_APK": str(apk), "GHVR_QUEST_TARGET": args.target,
                     "GHVR_QUEST_PACKAGE": PACKAGE,
@@ -725,6 +857,85 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
     print("build: verified " + str(apk) + (" (DIAGNOSTIC: " + args.target + ")" if args.target != "game" else "") +
           (" (DUMMY IDENTITY)" if inputs["profile"].get("isDummy") else ""), flush=True)
     return apk
+
+
+def bind_startup_package_apis(args, output: Path, source: Path, project: Path,
+                            tools: dict, build_key: str) -> dict:
+    """Check staged plugins against real imported packages before IL2CPP compilation.
+
+    MonoScript remapping preserves serialized identities, but says nothing about
+    binary calls into newer packages. B612 called an absent Vector2Control getter
+    after InputSystem changed it to return DeltaControl. Unsupported member drift
+    must stop here; only audited equivalent bindings may reach the player.
+    """
+    sdk = project / "Library/ScriptAssemblies"
+    command([tools["editor"], "-batchmode", "-nographics", "-quit", "-projectPath", str(project),
+             "-buildTarget", "Android", "-logFile",
+             str(output / "logs" / ("package-import-" + build_key[:12] + ".log"))],
+            output / "logs" / ("package-import-launch-" + build_key[:12] + ".log"))
+    sdk_files = inventory(sdk, [name + ".dll" for name in REPLACED_PACKAGES])
+    plugins = {}
+    for path in sorted((project / "Assets").rglob("*.dll")):
+        if path.stem in REPLACED_PACKAGES:
+            continue
+        if path.name in plugins:
+            raise BuildError("Package API audit requires one staged plugin per assembly: " + path.name)
+        plugins[path.name] = path
+    if not plugins:
+        raise BuildError("Package API audit has no actual staged game/mod plugins.")
+    selected = [record_file(path, name) for name, path in sorted(plugins.items())]
+    key = value_hash({"build": build_key, "plugins": selected, "sdk": sdk_files})
+    root = output / "cache/package-api" / key
+    original, rewritten = root / "input", root / "output"
+    report_path = root / "report.json"
+
+    def validate_report():
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        expected = {row["path"]: row["sha256"] for row in selected}
+        sdk_expected = {row["path"]: row["sha256"] for row in sdk_files}
+        if (report.get("schema") != 1 or report.get("complete") is not True or report.get("issues")
+                or report.get("inputAssemblies") != expected or report.get("sdkAssemblies") != sdk_expected
+                or set(report.get("outputAssemblies", {})) != set(expected)):
+            raise BuildError("Package API compatibility report is incomplete or belongs to different inputs.")
+        if not verify_files(original, selected) or inventory(sdk, [row["path"] for row in sdk_files]) != sdk_files:
+            raise BuildError("Package API audit inputs changed during validation.")
+        actual = inventory(rewritten)
+        if {row["path"]: row["sha256"] for row in actual} != report["outputAssemblies"]:
+            raise BuildError("Package API rewritten plugins differ from the audited outputs.")
+        return report
+
+    def audit():
+        root.mkdir(parents=True, exist_ok=True)
+        for folder in (original, rewritten):
+            if folder.exists():
+                shutil.rmtree(folder)
+        original.mkdir()
+        for row in selected:
+            shutil.copyfile(plugins[row["path"]], original / row["path"])
+        reference = output / "inputs/game"
+        # The immutable original snapshot supplies framework/base type resolution;
+        # it never receives rewritten outputs.
+        manifest = json.loads((project / "Assets/StreamingAssets/Quest/input-manifest.json").read_text())
+        reference = reference / manifest["game"]["key"] / "Managed"
+        command([str(tool_path(args.dotnet, "dotnet")), "run", "--project",
+                 str(source / "tools/QuestWeaver/QuestWeaver.csproj"), "--configuration", "Release", "--",
+                 "package-api", "--managed", str(original), "--sdk", str(sdk),
+                 "--reference-managed", str(reference), "--output", str(rewritten), "--report", str(report_path)],
+                output / "logs" / ("package-api-" + key[:12] + ".log"), cwd=source)
+        report = validate_report()
+        return [report_path, *sorted(rewritten.glob("*.dll"))], {"report": report}
+
+    Stages(output).run("package-api", key, audit)
+    report = validate_report()
+    for name, path in plugins.items():
+        shutil.copyfile(rewritten / name, path)
+    shutil.copyfile(report_path, project / "Assets/Quest/Resources/quest-package-api-report.json")
+    write_json(project / "Assets/Quest/Resources/quest-package-api-contract.json", {
+        "schema": 1, "complete": True, "reportSha256": digest(report_path),
+        "plugins": [record_file(path, path.relative_to(project).as_posix())
+                    for name, path in sorted(plugins.items())],
+        "sdk": sdk_files})
+    return report
 
 
 def verified_latest_build(output: Path) -> tuple[Path, dict]:

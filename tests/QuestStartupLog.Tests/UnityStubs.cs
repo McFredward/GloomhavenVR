@@ -78,13 +78,25 @@ namespace GloomhavenVR.Quest
 {
     public class QuestGameMenu { }
     public class QuestGameKeyboard { public bool Bound, Visible; public string Failure; }
+    // These are lifecycle seams for the logging fixture, not a real mod execution proof.
+    public class QuestGameScope { }
+    public class QuestGameModLifecycle
+    {
+        public bool Available, InitializationComplete, RigReady, InviteKeyboardVisible;
+        public int CompletedModules;
+        public string Stage, Failure;
+        public IEnumerator Activate(string root) { yield break; }
+        public void Observe() { }
+    }
     public static class QuestPassthroughFeature { public static bool Active; }
-    public class QuestGameContentManifest { public string archive; public string[] files; }
+    public class QuestGameContentFile { public string path; }
+    public class QuestGameContentManifest { public string archive; public QuestGameContentFile[] files; }
     public static class QuestGameContent
     {
-        public static void Validate(QuestGameContentManifest manifest, string key) { }
+        public static void Validate(QuestGameContentManifest manifest, string key, string expectedArchive = "quest-startup-content.zip") { }
         public static bool IsReady(QuestGameContentManifest manifest, string root) { return true; }
-        public static void Extract(QuestGameContentManifest manifest, string archive, string root) { }
+        public static void Extract(QuestGameContentManifest manifest, string archive, string root, string expectedArchive = "quest-startup-content.zip") { }
+        public static string ResolveVerifiedPath(QuestGameContentManifest manifest, string root, string relative) { return relative; }
     }
     public class QuestGameAddressablesManifest { }
     public class QuestGameAddressables : IDisposable
