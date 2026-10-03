@@ -49,12 +49,12 @@ def read_json(path):
 
 
 def builder_module():
-    # The builder's historical profile/storage import names must neither consume
+    # The builder's historical profile/storage/startup imports must neither consume
     # nor replace an application's existing stdlib profile or cached test module.
     missing = object()
-    previous = {name: sys.modules.get(name, missing) for name in ("profile", "storage")}
+    previous = {name: sys.modules.get(name, missing) for name in ("profile", "storage", "startup")}
     try:
-        for name in ("profile", "storage", "builder"):
+        for name in ("profile", "storage", "startup", "builder"):
             spec = importlib.util.spec_from_file_location(
                 "_ghvr_wireless_" + name, REPO / "tools/quest-builder" / (name + ".py"))
             module = importlib.util.module_from_spec(spec)

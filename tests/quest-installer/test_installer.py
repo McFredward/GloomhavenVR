@@ -366,13 +366,40 @@ class InstallerTests(unittest.TestCase):
             with self.assertRaises(installer.InstallError):
                 installer.adb_path(self.root / "missing-adb.exe")
 
-    def test_builder_import_preserves_preexisting_profile_and_storage_modules(self):
-        profile, storage = types.ModuleType("existing_profile"), types.ModuleType("existing_storage")
-        with mock.patch.dict(sys.modules, {"profile": profile, "storage": storage}):
+    def test_builder_import_preserves_preexisting_profile_storage_and_startup_modules(self):
+        profile, storage, startup = (types.ModuleType("existing_" + name) for name in ("profile", "storage", "startup"))
+        with mock.patch.dict(sys.modules, {"profile": profile, "storage": storage, "startup": startup}):
             module = installer.builder_module()
             self.assertTrue(callable(module.verified_latest_build))
             self.assertIs(sys.modules["profile"], profile)
             self.assertIs(sys.modules["storage"], storage)
+            self.assertIs(sys.modules["startup"], startup)
+            self.assertIsNot(module.startup, startup)
+            self.assertIs(module.startup.BuildError, module.BuildError)
+
+    def test_builder_import_does_not_leave_new_global_dependency_aliases(self):
+        with mock.patch.dict(sys.modules):
+            for name in ("profile", "storage", "startup"):
+                sys.modules.pop(name, None)
+            module = installer.builder_module()
+            self.assertTrue(callable(module.startup.inspect_project))
+            self.assertIs(module.startup.BuildError, module.BuildError)
+            self.assertTrue(all(name not in sys.modules for name in ("profile", "storage", "startup")))
+
+    def test_builder_startup_import_failure_restores_preexisting_dependency_modules(self):
+        repo = self.root / "isolated builder repo"
+        tools = repo / "tools/quest-builder"
+        tools.mkdir(parents=True)
+        (tools / "profile.py").write_text("PROFILE_FIXTURE = True\n")
+        (tools / "storage.py").write_text("class BuildError(RuntimeError): pass\n")
+        (tools / "startup.py").write_text("from storage import BuildError\nraise BuildError('fixture startup rejected')\n")
+        (tools / "builder.py").write_text("raise AssertionError('builder must not execute after startup failure')\n")
+        previous = {name: types.ModuleType("existing_" + name) for name in ("profile", "storage", "startup")}
+        with mock.patch.object(installer, "REPO", repo), mock.patch.dict(sys.modules, previous):
+            with self.assertRaisesRegex(RuntimeError, "fixture startup rejected"):
+                installer.builder_module()
+            for name, module in previous.items():
+                self.assertIs(sys.modules[name], module)
 
     def test_builder_source_verifies_real_stage_receipt_and_rejects_output_escape(self):
         output = self.root / "output"
