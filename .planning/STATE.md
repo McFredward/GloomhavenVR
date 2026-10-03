@@ -22,8 +22,10 @@ the original public lazy rule root. Threaded, bounded diagnostics reserve 64
 distinct error stacks. Unknown first Android rule failure, actual headset
 startup, campaign generation/saves, Android crossplay and sustained performance
 remain gates. [B613 procedure and evidence](QUEST3-HARDWARE-613.md).
-Final signed APK/handoff and full local gate are being validated; no B613 headset
-success is claimed. Work remains solely on `feature/quest3-standalone`.
+The signed 1,153,868,013-byte APK is built and verified from clean runtime/tool
+source `6a62daf2`, input `99fd0fec…`; package/signing identity are retained. The
+final Windows handoff and complete local gate are being validated; no B613
+headset success is claimed. Work remains solely on `feature/quest3-standalone`.
 
 **Quest original-startup checkpoint, 2026-10-03: isolated feature, ModBuild 612.**
 

@@ -97,8 +97,25 @@ mod integration have actual hardware evidence.
 
 ## Validation and remaining gates
 
-Actual signed APK, frozen source/input identity, private archive checks and final
-local-gate results are recorded with the handoff. Automated tests establish
+The actual ARM64 IL2CPP build succeeded with Unity 2021.3.5f1 and the five original
+startup scenes. Its 1,153,868,013-byte APK has SHA-256
+`66733e82c77b1ccfd513a6097845b315c03e83713d47baf9bf241af635dbe226`.
+Frozen runtime/tool source is clean `6a62daf210d0d64d6822cd2ff7904975a516654b`,
+input `99fd0fece7990200066a06a131f729098696bfb347bc68857f5f756e76986393`.
+Package `dev.gloomhavenvr.quest` and certificate SHA-256
+`1412542b0b4cac2f1bc4941cbb4b01a5556eb8da2c34709086ab9375fd33c012`
+retain update continuity. Android tools verified signature and manifest;
+the builder verified ZIP integrity and AArch64 ELF headers.
+
+The actual player-package audit checked 535 type and 1,441 member references
+across 48 plugins with no unresolved issues. Four getter calls and the one exact
+desktop-only HID cast were adapted; 1,897 protected and 19,517 other types remain
+unchanged. The new Android UnityLinker output independently retains all 2,391
+original rule types and their fields, methods and properties. These checks do
+not prove rule execution on the headset.
+
+Private archive checks and final local-gate results are recorded with the handoff.
+Automated tests establish
 source contracts and tool output; the next headset run establishes actual
 initialization, pixels, controls and the first Android rule failure.
 
