@@ -129,7 +129,7 @@ internal sealed class Weaver
             clone.Body.Instructions.Add(i);
         }
         foreach (ExceptionHandler eh in oldBody.ExceptionHandlers) clone.Body.ExceptionHandlers.Add(eh);
-        target.Body = new MethodBody(target) { InitLocals = true, MaxStackSize = Math.Max(16, target.Parameters.Count + 8) };
+        target.Body = new MethodBody(target) { InitLocals = true, MaxStackSize = Math.Max(16, Math.Max(target.Parameters.Count, hooks.Max(h => h.Patch.Parameters.Count)) + 8) };
         ILProcessor il = target.Body.GetILProcessor();
         VariableDefinition? result = target.ReturnType.MetadataType == MetadataType.Void ? null : Local(target.ReturnType);
         VariableDefinition run = Local(module.TypeSystem.Boolean);

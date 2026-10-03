@@ -23,8 +23,6 @@ namespace HarmonyLib
     public sealed class HarmonyMethod
     {
         public MethodInfo method;
-        public int priority = -1;
-        public string[]? before, after;
         public HarmonyMethod(MethodInfo method) { this.method = method ?? throw new ArgumentNullException(nameof(method)); }
         public HarmonyMethod(Type type, string name, Type[]? argumentTypes = null)
         { method = AccessTools.Method(type, name, argumentTypes) ?? throw new MissingMethodException(type.FullName, name); }
