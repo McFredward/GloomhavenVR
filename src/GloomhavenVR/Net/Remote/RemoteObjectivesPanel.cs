@@ -271,15 +271,19 @@ internal sealed class RemoteObjectivesPanel
 
     /// <summary>Per-FRAME: keep the mirrored container in step with the original, so a progress bar
     /// filling or a row ticking off plays out at the source's own rate. No-op on the fallback.</summary>
+    private readonly RemoteBoardRulesPlayer _nativeRules = new();
+    internal void SetNativeState(NativeBoardState? state, List<NativeBoardState> history) => _nativeRules.SetState(state, history);
     public void TickLive()
     {
         _mirror.TickLive();
         _rulesMirror.TickLive();
+        _nativeRules.Apply(_rulesMirror, _rulesRoot);
     }
 
     public void Destroy()
     {
         _mirror.Destroy();
+        _nativeRules.Dispose();
         _rulesMirror.Destroy();
     }
 

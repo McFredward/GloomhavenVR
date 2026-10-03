@@ -56,6 +56,25 @@ internal sealed class NativeElementRenderBinding
             { AddSprite(config.creationIcon); AddSprite(config.strongIcon); AddSprite(config.waningIcon); AddSprite(config.textHighlightBackground); }
     }
 
+    /// <summary>Rules-only original-widget binding. Asset indices resolve against the original
+    /// serialized row prefab; no live gameplay component or callback is executed.</summary>
+    internal NativeElementRenderBinding(Transform source, Transform originalPrefab)
+    {
+        var nodes = new List<Node>();
+        Add(source, 255, 2166136261u, nodes);
+        Nodes = nodes.ToArray();
+        Scratch = new NativeElementRenderState { Nodes = new NativeElementRenderNode[Nodes.Length] };
+        for (int i = 0; i < Nodes.Length; i++)
+        {
+            Node node = Nodes[i];
+            Scratch.Nodes[i] = new NativeElementRenderNode { Parent = node.Parent, Binding = node.Binding,
+                Geometry = new float[node.Rect != null ? 18 : 10], Color = new float[node.Graphic != null ? 4 : 0],
+                RendererColor = new float[node.Renderer != null ? 4 : 0], Uv = new float[node.Raw != null ? 4 : 0] };
+        }
+        foreach (Image image in originalPrefab.GetComponentsInChildren<Image>(true))
+        { AddSprite(image.sprite); AddSprite(image.overrideSprite); }
+    }
+
     private static void Add(Transform source, byte parent, uint parentHash, List<Node> nodes)
     {
         if (nodes.Count >= NativeElementRenderState.NodesMax) throw new InvalidOperationException("original element hierarchy exceeds32 nodes");

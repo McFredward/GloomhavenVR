@@ -397,8 +397,10 @@ internal sealed class RemoteElementStrip
     private readonly RemoteWidgetMirror _mirror;
     private readonly RemoteNativeElements _native = new();
 
-    internal void SetNativeState(NativeBoardState? state, List<NativeBoardState> history) =>
+    internal void SetNativeState(NativeBoardState? state, List<NativeBoardState> history)
+    {
         _native.SetState(state, history);
+    }
 
     /// <summary>Which peer's board this strip is on. Diagnostic only — it is what lets the parity
     /// line's one-shot key be PER BOARD, so a second board's empty strip cannot be swallowed by a

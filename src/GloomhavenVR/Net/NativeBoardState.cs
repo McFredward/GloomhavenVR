@@ -86,9 +86,10 @@ internal sealed class NativeBoardState
     internal readonly uint Generation;
     internal readonly NativeElementState[] Elements;
     internal readonly NativeElementRenderState[]? RenderElements;
+    internal readonly NativeBoardRulesState? Rules;
     internal readonly float[] Frame; // fitted host W/H, source parent W/H, source root rect8
     internal NativeBoardState(float sampleTime, float initiativeDepthPixels, uint generation, NativeElementState[] elements,
-        float[]? frame = null, NativeElementRenderState[]? renderElements = null)
+        float[]? frame = null, NativeElementRenderState[]? renderElements = null, NativeBoardRulesState? rules = null)
     {
         if (!UseBarAnimationValue.Finite(sampleTime) || sampleTime < 0
             || !UseBarAnimationValue.Finite(initiativeDepthPixels) || initiativeDepthPixels < 0
@@ -125,15 +126,18 @@ internal sealed class NativeBoardState
                 RenderElements[i] = renderElements[i].Copy();
             }
         }
+        if (rules != null && !rules.Validate()) throw new ArgumentException("Invalid native rules presentation.");
+        Rules = rules?.Copy();
         SampleTime = sampleTime; InitiativeDepthPixels = initiativeDepthPixels; Generation = generation;
         Frame = (float[])frame.Clone();
         Elements = new NativeElementState[elements.Length];
         for (int i = 0; i < elements.Length; i++) Elements[i] = elements[i].Copy();
     }
     internal NativeBoardState CopyWithTime(float time) =>
-        new(time, InitiativeDepthPixels, Generation, Elements, Frame, RenderElements);
+        new(time, InitiativeDepthPixels, Generation, Elements, Frame, RenderElements, Rules);
     internal bool SamePicture(NativeBoardState other)
     {
+        if ((Rules == null) != (other.Rules == null) || (Rules != null && !Rules.Same(other.Rules!))) return false;
         if (Generation != other.Generation || InitiativeDepthPixels != other.InitiativeDepthPixels
             || Elements.Length != other.Elements.Length) return false;
         if ((RenderElements == null) != (other.RenderElements == null)) return false;

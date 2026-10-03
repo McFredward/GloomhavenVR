@@ -76,6 +76,8 @@ internal sealed class RemoteNativeElements
                     if (frame.SampleTime > cursor) { to = frame; break; }
                 }
             float progress = _clock.Progress(from.SampleTime, to.SampleTime);
+            mirror.SetOwnerOffset(new Vector3(0f, Mathf.LerpUnclamped(from.Rules?.Frame[11] ?? 0f,
+                to.Rules?.Frame[11] ?? 0f, progress), 0f));
             // Validate the COMPLETE frame before any clone field is touched.
             for (int i = 0; i < _elements.Length; i++)
             {

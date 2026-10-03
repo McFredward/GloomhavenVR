@@ -824,6 +824,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     {
         _track?.SetNativeDepthPixels(_owner.NativeInitiativeDepthPixels);
         _elements?.SetNativeState(_owner.NativeBoardState, _owner.NativeBoardHistory);
+        _objectives?.SetNativeState(_owner.NativeBoardState, _owner.NativeBoardHistory);
         // The visibility mode is read through the SHARED gate (RemoteBoardGate) rather than off the
         // ConfigEntry directly, because the board is no longer the only thing the setting governs:
         // the transient item / pile-browse fans and the card-flight FX are separate classes with

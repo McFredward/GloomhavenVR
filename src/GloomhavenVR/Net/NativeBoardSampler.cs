@@ -23,13 +23,15 @@ internal static class NativeBoardSampler
     {
         try
         {
+            NativeBoardRulesState rules = WorldUI.Surfaces.BoardRulesPresentation.Sample();
             float depth = Mathf.Max(0f, WorldUI.WorldUIConfig.InitiativeDepthMaxSpreadPx.Value);
             InfusionBoardUI? source = InfusionBoardUI.Instance;
             if (source == null)
             {
                 _source = null; _bindings = Array.Empty<NativeElementBindings>();
-                if (_published == null || _published.Generation != 0 || _published.InitiativeDepthPixels != depth)
-                    _published = new NativeBoardState(Time.unscaledTime, depth, 0, Array.Empty<NativeElementState>());
+                if (_published == null || _published.Generation != 0 || _published.InitiativeDepthPixels != depth
+                    || _published.Rules == null || !_published.Rules.Same(rules))
+                    _published = new NativeBoardState(Time.unscaledTime, depth, 0, Array.Empty<NativeElementState>(), rules: rules);
                 return _published;
             }
             if (!ReferenceEquals(source, _source) || !BindingsMatch(source))
@@ -46,7 +48,7 @@ internal static class NativeBoardSampler
             }
             ReadFrame(source);
             bool changed = _published == null || _published.Generation != _generation
-                           || _published.InitiativeDepthPixels != depth;
+                           || _published.InitiativeDepthPixels != depth || _published.Rules == null || !_published.Rules.Same(rules);
             for (int f = 0; !changed && f < Frame.Length; f++) changed |= Frame[f] != _published!.Frame[f];
             for (int i = 0; i < _bindings.Length; i++)
             {
@@ -58,7 +60,7 @@ internal static class NativeBoardSampler
             {
                 var elements = new NativeElementState[6]; var render = new NativeElementRenderState[6];
                 for (int i = 0; i < elements.Length; i++) { elements[i] = _bindings[i].Scratch; render[i] = _bindings[i].Render.Scratch; }
-                _published = new NativeBoardState(Time.unscaledTime, depth, _generation, elements, Frame, render);
+                _published = new NativeBoardState(Time.unscaledTime, depth, _generation, elements, Frame, render, rules);
             }
             _refusal = null;
             return _published;
@@ -97,7 +99,7 @@ internal static class NativeBoardSampler
         return true;
     }
     internal static void Reset()
-    { _source = null; _bindings = Array.Empty<NativeElementBindings>(); _published = null; _refusal = null; }
+    { _source = null; _bindings = Array.Empty<NativeElementBindings>(); _published = null; _refusal = null; WorldUI.Surfaces.BoardRulesPresentation.Reset(); }
 }
 
 /// <summary>Canonical original field/setting bindings shared by sampling and clone playback.</summary>

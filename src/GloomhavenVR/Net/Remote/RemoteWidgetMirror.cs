@@ -1643,8 +1643,19 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
     /// down only when the content would overflow this dock's budget, and the panel grows from the
     /// mount origin along <see cref="_grow"/>.
     /// </summary>
+    private bool _rulesPresentation;
+    private Vector3 _ownerOffset;
+    internal RectTransform? RulesHost => _host != null ? _host.transform as RectTransform : null;
+    internal RectTransform? RulesContent => _cloneRect;
+    internal void SetRulesPresentation(bool enabled) => _rulesPresentation = enabled;
+    internal void SetOwnerOffset(Vector3 offset)
+    {
+        if (_host != null) _host.transform.localPosition += offset - _ownerOffset;
+        _ownerOffset = offset;
+    }
     private void Fit()
     {
+        if (_rulesPresentation) return;
         if (_host == null || _pivot == null || _cloneRect == null || _source == null)
             return;
 
@@ -1667,7 +1678,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
             MinDensityScale, MaxDensityScale);
         float metersPerPx = fit / density;
 
-        _host.transform.localPosition = new Vector3(
+        _host.transform.localPosition = _ownerOffset + new Vector3(
             _grow.x * w * metersPerPx * 0.5f,
             _grow.y * h * metersPerPx * 0.5f,
             0f);

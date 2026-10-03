@@ -8,7 +8,7 @@ namespace GloomhavenVR.Net;
 /// message11 reassembly is separate. No partial body or malformed tail can publish a frame.</summary>
 internal static class NativeBoardCodec
 {
-    internal const int MaxSize = 40960;
+    internal const int MaxSize = 65535;
     internal const byte MessageType = 10, FragmentType = 11, RecordId = 52;
     private const int BodyMax = 11000, ChunkBytes = 240;
 
@@ -63,7 +63,8 @@ internal static class NativeBoardCodec
             U16(buffer, ref output, total); U16(buffer, ref output, offset);
             Buffer.BlockCopy(payload, offset, buffer, output, count); output += count;
         }
-        return state.RenderElements == null ? output : NativeElementRenderCodec.Write(state.RenderElements, buffer, output);
+        if (state.RenderElements != null) output = NativeElementRenderCodec.Write(state.RenderElements, buffer, output);
+        return state.Rules == null ? output : NativeBoardRulesCodec.Write(state.Rules, buffer, output);
     }
 
     internal static bool TryRead(byte[] buffer, int length, out NativeBoardState? state)
@@ -78,7 +79,8 @@ internal static class NativeBoardCodec
         // publishing either known block. Known pages retain their exact order and bytes.
         var known = new byte[length];
         Buffer.BlockCopy(buffer, 0, known, 0, at);
-        int retained = at;
+        int retained = at, rulesSize = 0;
+        byte[]? rulesBytes = null;
         while (at < length)
         {
             if (at + 2 > length) return false;
@@ -86,8 +88,12 @@ internal static class NativeBoardCodec
             if (bytes > length - at) return false;
             if (buffer[at] == RecordId || buffer[at] == NativeElementRenderCodec.RecordId)
             { Buffer.BlockCopy(buffer, at, known, retained, bytes); retained += bytes; }
+            if (buffer[at] == NativeBoardRulesCodec.RecordId)
+            { rulesBytes ??= new byte[length]; Buffer.BlockCopy(buffer, at, rulesBytes, rulesSize, bytes); rulesSize += bytes; }
             at += bytes;
         }
+        NativeBoardRulesState? rules = null;
+        if (rulesSize > 0 && !NativeBoardRulesCodec.TryRead(rulesBytes!, rulesSize, out rules)) return false;
         buffer = known; length = retained; at = 6;
         byte[]? body = null; int filled = 0;
         while (at < length)
@@ -167,7 +173,7 @@ internal static class NativeBoardCodec
             NativeElementRenderState[]? renderElements = null;
             if (at < length && !NativeElementRenderCodec.TryRead(buffer, length, ref at, out renderElements)) return false;
             if (at != length) return false;
-            state = new NativeBoardState(time, depth, generation, elements, frame, renderElements); return true;
+            state = new NativeBoardState(time, depth, generation, elements, frame, renderElements, rules); return true;
         }
         catch (ArgumentException) { return false; }
         catch (IndexOutOfRangeException) { return false; }
