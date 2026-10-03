@@ -872,11 +872,18 @@ def bind_startup_package_apis(args, output: Path, source: Path, project: Path,
     after InputSystem changed it to return DeltaControl. Unsupported member drift
     must stop here; only audited equivalent bindings may reach the player.
     """
-    sdk = project / "Library/ScriptAssemblies"
+    sdk = project / "QuestStartupEvidence/PlayerSdk"
+    env = dict(os.environ)
+    env.update({"GHVR_QUEST_PACKAGE": PACKAGE, "GHVR_QUEST_ANDROID_SDK": tools["androidSdk"],
+                "GHVR_QUEST_ANDROID_NDK": tools["androidNdk"], "GHVR_QUEST_JDK": tools["jdk"]})
     command([tools["editor"], "-batchmode", "-nographics", "-quit", "-projectPath", str(project),
-             "-buildTarget", "Android", "-logFile",
+             "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuild.CompileStartupSdk", "-logFile",
              str(output / "logs" / ("package-import-" + build_key[:12] + ".log"))],
-            output / "logs" / ("package-import-launch-" + build_key[:12] + ".log"))
+            output / "logs" / ("package-import-launch-" + build_key[:12] + ".log"), env=env)
+    evidence = json.loads((sdk / "compilation.json").read_text(encoding="utf-8"))
+    if evidence != {"schema": 1, "target": "Android", "backend": "IL2CPP", "compilation": "Player",
+                    "options": "DevelopmentBuild|Assertions", "unityVersion": "2021.3.5f1"}:
+        raise BuildError("Package compatibility requires actual Android IL2CPP player SDK compilation.")
     sdk_files = inventory(sdk, [name + ".dll" for name in REPLACED_PACKAGES])
     plugins = {}
     for path in sorted((project / "Assets").rglob("*.dll")):
@@ -897,7 +904,7 @@ def bind_startup_package_apis(args, output: Path, source: Path, project: Path,
         report = json.loads(report_path.read_text(encoding="utf-8"))
         expected = {row["path"]: row["sha256"] for row in selected}
         sdk_expected = {row["path"]: row["sha256"] for row in sdk_files}
-        if (report.get("schema") != 1 or report.get("complete") is not True or report.get("issues")
+        if (report.get("schema") != 1 or report.get("sdkTarget") != "Android" or report.get("complete") is not True or report.get("issues")
                 or report.get("inputAssemblies") != expected or report.get("sdkAssemblies") != sdk_expected
                 or set(report.get("outputAssemblies", {})) != set(expected)):
             raise BuildError("Package API compatibility report is incomplete or belongs to different inputs.")
@@ -923,7 +930,7 @@ def bind_startup_package_apis(args, output: Path, source: Path, project: Path,
         reference = reference / manifest["game"]["key"] / "Managed"
         command([str(tool_path(args.dotnet, "dotnet")), "run", "--project",
                  str(source / "tools/QuestWeaver/QuestWeaver.csproj"), "--configuration", "Release", "--",
-                 "package-api", "--managed", str(original), "--sdk", str(sdk),
+                 "package-api", "--managed", str(original), "--sdk", str(sdk), "--sdk-target", "Android",
                  "--reference-managed", str(reference), "--output", str(rewritten), "--report", str(report_path)],
                 output / "logs" / ("package-api-" + key[:12] + ".log"), cwd=source)
         report = validate_report()
@@ -936,6 +943,7 @@ def bind_startup_package_apis(args, output: Path, source: Path, project: Path,
     shutil.copyfile(report_path, project / "Assets/Quest/Resources/quest-package-api-report.json")
     write_json(project / "Assets/Quest/Resources/quest-package-api-contract.json", {
         "schema": 1, "complete": True, "reportSha256": digest(report_path),
+        "sdkRoot": "QuestStartupEvidence/PlayerSdk",
         "plugins": [record_file(path, path.relative_to(project).as_posix())
                     for name, path in sorted(plugins.items())],
         "sdk": sdk_files})

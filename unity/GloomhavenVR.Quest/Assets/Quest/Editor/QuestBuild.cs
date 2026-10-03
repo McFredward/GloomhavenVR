@@ -4,6 +4,7 @@ using System.Linq;
 using UnityEditor;
 using UnityEditor.Android;
 using UnityEditor.Build.Reporting;
+using UnityEditor.Build.Player;
 using UnityEditor.SceneManagement;
 using UnityEditor.XR.Management;
 using UnityEditor.XR.Management.Metadata;
@@ -99,7 +100,7 @@ namespace GloomhavenVR.Quest.Editor
                 throw new InvalidOperationException("Android build failed: " + report.summary.result + ", errors=" + report.summary.totalErrors);
             Debug.Log("[GloomhavenVR Quest] signed ARM64 IL2CPP " + target + " diagnostic built: " + apk);
         }
-        static void ConfigureAndroid(string package, bool originalStartup)
+        static void ConfigureAndroid(string package, bool originalStartup, bool configureSigning = true)
         {
             if (!EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Android, BuildTarget.Android))
                 throw new InvalidOperationException("Android build target switch failed");
@@ -129,11 +130,14 @@ namespace GloomhavenVR.Quest.Editor
             PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] { GraphicsDeviceType.OpenGLES3 });
             PlayerSettings.stereoRenderingPath = StereoRenderingPath.SinglePass;
             PlayerSettings.runInBackground = true;
-            PlayerSettings.Android.useCustomKeystore = true;
-            PlayerSettings.Android.keystoreName = Required("GHVR_QUEST_KEYSTORE_PATH");
-            PlayerSettings.Android.keyaliasName = Required("GHVR_QUEST_KEYSTORE_ALIAS");
-            PlayerSettings.Android.keystorePass = Required("GHVR_QUEST_KEYSTORE_PASSWORD");
-            PlayerSettings.Android.keyaliasPass = Required("GHVR_QUEST_KEYALIAS_PASSWORD");
+            if (configureSigning)
+            {
+                PlayerSettings.Android.useCustomKeystore = true;
+                PlayerSettings.Android.keystoreName = Required("GHVR_QUEST_KEYSTORE_PATH");
+                PlayerSettings.Android.keyaliasName = Required("GHVR_QUEST_KEYSTORE_ALIAS");
+                PlayerSettings.Android.keystorePass = Required("GHVR_QUEST_KEYSTORE_PASSWORD");
+                PlayerSettings.Android.keyaliasPass = Required("GHVR_QUEST_KEYALIAS_PASSWORD");
+            }
             // Passwords are never logged or saved in the source template.
             var settings = new SerializedObject(Unsupported.GetSerializedAssetInterfaceSingleton("PlayerSettings"));
             var input = settings.FindProperty("activeInputHandler");
@@ -149,7 +153,32 @@ namespace GloomhavenVR.Quest.Editor
         }
         [Serializable] sealed class StandaloneEvidence { public bool startupAdapterComplete, fullGameReady; }
         [Serializable] sealed class ApiFile { public string path, sha256; public long size; }
-        [Serializable] sealed class ApiContract { public int schema; public bool complete; public string reportSha256; public ApiFile[] plugins, sdk; }
+        [Serializable] sealed class ApiContract { public int schema; public bool complete; public string reportSha256, sdkRoot; public ApiFile[] plugins, sdk; }
+        [Serializable] sealed class PlayerSdkEvidence
+        {
+            public int schema = 1;
+            public string target = "Android", backend = "IL2CPP", compilation = "Player",
+                options = "DevelopmentBuild|Assertions", unityVersion;
+        }
+        public static void CompileStartupSdk()
+        {
+            using (new AndroidToolsOverride())
+            {
+                ConfigureAndroid(Required("GHVR_QUEST_PACKAGE"), true, false);
+                const string output = "QuestStartupEvidence/PlayerSdk";
+                if (Directory.Exists(output)) Directory.Delete(output, true);
+                Directory.CreateDirectory(output);
+                var result = PlayerBuildInterface.CompilePlayerScripts(new ScriptCompilationSettings
+                {
+                    group = BuildTargetGroup.Android, target = BuildTarget.Android,
+                    options = ScriptCompilationOptions.DevelopmentBuild | ScriptCompilationOptions.Assertions
+                }, output);
+                if (result.assemblies == null || result.assemblies.Count == 0)
+                    throw new InvalidOperationException("Actual Android player script compilation produced no assemblies.");
+                File.WriteAllText(output + "/compilation.json", JsonUtility.ToJson(new PlayerSdkEvidence { unityVersion = Application.unityVersion }, true));
+                Debug.Log("[Quest startup] actual Android IL2CPP Development player SDK compiled; assemblies=" + result.assemblies.Count);
+            }
+        }
         static string FileHash(string path)
         {
             using (var stream = File.OpenRead(path))
@@ -162,14 +191,15 @@ namespace GloomhavenVR.Quest.Editor
             var contract = JsonUtility.FromJson<ApiContract>(File.ReadAllText(root + "contract.json"));
             if (contract == null || contract.schema != 1 || !contract.complete ||
                 contract.reportSha256 != FileHash(root + "report.json") || contract.plugins == null ||
-                contract.plugins.Length == 0 || contract.sdk == null || contract.sdk.Length != 8)
+                contract.plugins.Length == 0 || contract.sdk == null || contract.sdk.Length != 8 ||
+                contract.sdkRoot != "QuestStartupEvidence/PlayerSdk")
                 throw new InvalidOperationException("The imported Unity package API compatibility gate is missing or stale.");
             string[] packages = { "UnityEngine.UI", "Unity.InputSystem", "Unity.Addressables", "Unity.ResourceManager",
                 "Unity.ScriptableBuildPipeline", "Unity.XR.Management", "Unity.XR.OpenXR", "Unity.XR.CoreUtils" };
             foreach (var file in contract.plugins.Concat(contract.sdk))
             {
                 bool sdk = contract.sdk.Contains(file);
-                string path = sdk ? "Library/ScriptAssemblies/" + file.path : file.path;
+                string path = sdk ? contract.sdkRoot + "/" + file.path : file.path;
                 if (file.path.Contains("..") || Path.IsPathRooted(file.path) ||
                     (!sdk && !file.path.StartsWith("Assets/", StringComparison.Ordinal)) ||
                     (sdk && !packages.Contains(Path.GetFileNameWithoutExtension(file.path))) ||

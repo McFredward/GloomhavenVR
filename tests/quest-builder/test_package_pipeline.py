@@ -230,8 +230,9 @@ class PackageApiStageTests(Temporary):
         super().setUp()
         self.dotnet = self.write(self.root / "dotnet", b"controlled CLI executable")
         self.args = SimpleNamespace(dotnet=str(self.dotnet))
-        self.tools = {"editor": str(self.editor)}
-        self.sdk = self.project / "Library/ScriptAssemblies"
+        self.tools = {"editor": str(self.editor), "androidSdk": "controlled-sdk",
+                      "androidNdk": "controlled-ndk", "jdk": "controlled-jdk"}
+        self.sdk = self.project / "QuestStartupEvidence/PlayerSdk"
         for name in SDK_NAMES:
             self.write(self.sdk / (name + ".dll"), ("imported package identity:" + name).encode())
         self.plugin = self.write(self.project / "Assets/Plugins/GH.Runtime.dll", b"current generated game plugin")
@@ -247,11 +248,15 @@ class PackageApiStageTests(Temporary):
         self.change_sdk = False
         self.fail_cli = False
         self.rewrite_payload = False
+        self.player_evidence = {"schema": 1, "target": "Android", "backend": "IL2CPP", "compilation": "Player",
+                                "options": "DevelopmentBuild|Assertions", "unityVersion": "2021.3.5f1"}
 
     def command(self, argv, log, **kwargs):
         if "package-api" not in argv:
             self.import_count += 1
             self.assertIn("-buildTarget", argv)
+            self.assertIn("GloomhavenVR.Quest.Editor.QuestBuild.CompileStartupSdk", argv)
+            storage.write_json(self.sdk / "compilation.json", self.player_evidence)
             return "controlled package import"
         self.cli_count += 1
         original = Path(argv[argv.index("--managed") + 1]); rewritten = Path(argv[argv.index("--output") + 1])
@@ -261,9 +266,9 @@ class PackageApiStageTests(Temporary):
         for path in original.glob("*.dll"):
             suffix = b":audited package signature fix" if self.rewrite_payload and path.name == "GH.Runtime.dll" else b""
             self.write(rewritten / path.name, path.read_bytes() + suffix)
-        report = {"schema": 1, "complete": True, "issues": [], "inputAssemblies": input_map,
+        report = {"schema": 1, "sdkTarget": "Android", "complete": True, "issues": [], "inputAssemblies": input_map,
                   "outputAssemblies": {row["path"]: row["sha256"] for row in storage.inventory(rewritten)},
-                  "sdkAssemblies": {row["path"]: row["sha256"] for row in storage.inventory(self.sdk)}}
+                  "sdkAssemblies": {row["path"]: row["sha256"] for row in storage.inventory(self.sdk, [name + ".dll" for name in SDK_NAMES])}}
         if self.alter_report:
             self.alter_report(report)
         storage.write_json(Path(argv[argv.index("--report") + 1]), report)
@@ -285,7 +290,7 @@ class PackageApiStageTests(Temporary):
         self.assertEqual((self.import_count, self.cli_count), (2, 1))
         self.assertEqual(set(first["sdkAssemblies"]), {name + ".dll" for name in SDK_NAMES})
         self.assertEqual(set(first["inputAssemblies"]), {"GH.Runtime.dll", "GloomhavenVR.dll"})
-        self.assertEqual(first["sdkAssemblies"], {row["path"]: row["sha256"] for row in storage.inventory(self.sdk)})
+        self.assertEqual(first["sdkAssemblies"], {row["path"]: row["sha256"] for row in storage.inventory(self.sdk, [name + ".dll" for name in SDK_NAMES])})
         for path, data in before.items():
             self.assertEqual(path.read_bytes(), data)
         for meta, data in self.metas.items():
@@ -297,6 +302,19 @@ class PackageApiStageTests(Temporary):
         self.assertEqual({row["path"] for row in contract["plugins"]},
                          {"Assets/Plugins/GH.Runtime.dll", "Assets/Plugins/QuestGame/GloomhavenVR.dll"})
         self.assertTrue(storage.verify_files(self.project, contract["plugins"]))
+        self.assertEqual(contract["sdkRoot"], "QuestStartupEvidence/PlayerSdk")
+
+    def test_editor_or_wrong_player_compilation_cannot_reach_api_audit(self):
+        for key, value in (("compilation", "Editor"), ("target", "StandaloneWindows64"), ("backend", "Mono"),
+                           ("options", "None"), ("unityVersion", "2021.3.6f1")):
+            original = self.player_evidence[key]
+            with self.subTest(key=key):
+                self.player_evidence[key] = value
+                with patch.object(builder, "command", side_effect=self.command), self.assertRaises(storage.BuildError):
+                    self.bind()
+                self.assertEqual(self.cli_count, 0)
+                self.assertEqual(self.plugin.read_bytes(), b"current generated game plugin")
+            self.player_evidence[key] = original
 
     def test_audited_rewritten_bytes_deploy_with_original_script_guid(self):
         before = self.plugin.read_bytes(); self.rewrite_payload = True

@@ -34,9 +34,14 @@ without rewriting rules or treating the unknown first failure as solved.
 
 ## Integrated boundaries
 
-- The builder audits all staged game/mod plugin calls against the eight actual
-  imported Unity package assemblies. Only the two audited covariant input
-  getters are rebound. Unsupported differences stop before player compilation;
+- The builder compiles Android IL2CPP Development scripts with the final backend,
+  API and input settings, then audits game/mod plugin calls against the eight
+  actual player package assemblies. Editor assemblies contain desktop-only types
+  and cannot substitute for this gate. The two audited covariant input getters
+  are rebound. One exact InControl device-style cast to a desktop-only Switch HID
+  type becomes an always-null cast on Android; Xbox/DualShock/Unknown results and
+  surrounding branches stay unchanged. Unsupported differences stop before native
+  player compilation;
   protected rule/network types and unrelated game types are checked unchanged.
 - Gloomhaven's original UGUI `LayoutRebuilder.Enable` batching gate is restored
   in a private generated package, with its original true default and early
