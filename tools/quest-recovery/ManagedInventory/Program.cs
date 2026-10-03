@@ -29,7 +29,26 @@ foreach (var path in Directory.EnumerateFiles(args[0], "*.dll").Order(StringComp
         types.Add(new { @namespace = ns, name, nested = !declaring.IsNil });
     }
     var references = reader.AssemblyReferences.Select(h => reader.GetString(reader.GetAssemblyReference(h).Name)).Order(StringComparer.Ordinal).ToArray();
-    assemblies[Path.GetFileName(path)] = new { name = reader.GetString(definition.Name), types, references };
+    var nativeImports = new List<object>();
+    foreach (var handle in reader.MethodDefinitions)
+    {
+        var method = reader.GetMethodDefinition(handle);
+        if ((method.Attributes & System.Reflection.MethodAttributes.PinvokeImpl) == 0) continue;
+        var import = method.GetImport();
+        var owner = reader.GetTypeDefinition(method.GetDeclaringType());
+        nativeImports.Add(new
+        {
+            type = reader.GetString(owner.Namespace) + "." + reader.GetString(owner.Name),
+            method = reader.GetString(method.Name),
+            library = reader.GetString(reader.GetModuleReference(import.Module).Name),
+            entryPoint = reader.GetString(import.Name), flags = import.Attributes.ToString()
+        });
+    }
+    assemblies[Path.GetFileName(path)] = new
+    {
+        name = reader.GetString(definition.Name), assemblyVersion = definition.Version.ToString(),
+        types, references, nativeImports
+    };
 }
 File.WriteAllText(args[1], JsonSerializer.Serialize(assemblies, new JsonSerializerOptions { WriteIndented = true }) + "\n");
 return 0;
