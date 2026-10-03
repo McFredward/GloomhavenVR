@@ -26,6 +26,14 @@ internal static class TownMotionVectors
         byte[] invalidIntent = (byte[])intent.Clone(); invalidIntent[21] = 97;
         t.True(!TownServiceMotionCodec.TryRead(invalidIntent, invalidIntent.Length, out _),
             "new visitor intent cannot extend or reinterpret old record97 grammar");
+        // Independently specified record98: Python struct + raw zlib/CRC32 over
+        // ten original record97 transform bodies. Reading this fixed vector tests
+        // the grammar without deriving expected bytes from the production writer.
+        byte[] fixedPacked = Hex.Bytes("31 52 56 47 03 1A 61 0D 00 01 00 00 00 00 00 00 00 00 00 00 40 62 5F 01 A9 02 58 00 00 00 A5 CC 3D 0E 80 20 00 83 D1 8F 3F 51 12 2F E0 2D BC 80 B0 B1 3B B8 73 13 8E EE 62 88 AE B6 49 87 26 CD DB CF AB BA AD AD 18 46 4A 2B 16 17 9F 6D F0 40 00 0C 09 FA 01 E4 F1 1D E9 99 57 3F 82 95 05 27 0B 5E 16 82 2C 4C B2 10 65 61 96 85 45 16 D2 1F E1 06 E9 C2 0A AC");
+        t.True(TownServiceMotionCodec.TryRead(fixedPacked, fixedPacked.Length, out var fixedRead)
+            && fixedRead!.Entries.Count == 10 && fixedRead.Sequence == 1 && fixedRead.SampleTime == 2f
+            && fixedRead.Entries[9].Module == 10 && fixedRead.Entries[9].Numbers[0] == .25f,
+            "independent packed golden vector preserves exact original TLV97 grammar");
         var packet = Packet();
         for (ushort i = 1; i <= 70; i++) packet.Entries.Add(new TownServiceMotionEntry
             { Kind = 2, Service = 3, Session = 7, Structure = 4, Module = i,
@@ -314,6 +322,8 @@ internal static class TownMotionVectors
         {
             t.True(fanAt[peer] >= 0 && fanAt[peer] < TownServiceFragments.AssemblyLifetime, "every cold urgent original fan completes while catalog and ordinary streams stay saturated");
             t.True(ordinaryAt[peer] >= 0 && ordinaryAt[peer] < 3, "original presence/board/native appearance streams retain their finite turn");
+            if (CapturedFront != null) t.True(fanAt[peer] <= .8,
+                "eight cold captured Unity fronts assemble in a subsecond urgent turn without increasing event size or cadence");
         }
         Console.WriteLine($"NPC queue measured fixture: frontSource={(CapturedFront != null ? "production Unity native capture" : "wire representative")}, nodes={Front(1).Nodes.Length}, fanRawBytes={rawBytes}, coldCatalogRows={coldRows}, peers={peers}, fanComplete={fanAt[0]:F3}s, ordinaryStreamsSeen={ordinaryAt[0]:F3}s, townPages={pagesSeen[0]}, independentFastEvents={fastEvents}, independentFastBytes={fastBytes}");
         t.True(pageStreams.Contains(TownServiceFrame.UrgentBundleStream), "cold priority fronts share the dedicated loss-safe urgent bundle stream");

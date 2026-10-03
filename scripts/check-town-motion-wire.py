@@ -40,6 +40,13 @@ def main():
             source = case / "OriginalTownServiceSendQueue.cs"; source.write_bytes(old)
             lines.append(f'<Compile Remove="{q(str(root / "src/GloomhavenVR/Net/TownServices/TownServiceSendQueue.cs"))}"/><Compile Include="{q(str(source))}"/>')
             (case / "source.sha256").write_text(hashlib.sha256(old).hexdigest() + "\n")
+            # The prior queue and its original global scheduler form one control.
+            # A new direct urgent turn cannot be compiled against that old queue.
+            name = "src/GloomhavenVR/Net/ExtrasSendQueue.cs"
+            old_scheduler = subprocess.check_output(["git", "show", "3edbcb28:" + name], cwd=root)
+            scheduler = case / "OriginalExtrasSendQueue.cs"; scheduler.write_bytes(old_scheduler)
+            lines.append(f'<Compile Remove="{q(str(root / name))}"/><Compile Include="{q(str(scheduler))}"/>')
+            (case / "scheduler.sha256").write_text(hashlib.sha256(old_scheduler).hexdigest() + "\n")
         lines.append("</ItemGroup></Target></Project>")
         overlay = case / "Focused.targets"; overlay.write_text("\n".join(lines))
         build = [dotnet, "build", str(root / "tests/GloomhavenVR.WireTests/GloomhavenVR.WireTests.csproj"), "-c", "Release", "--nologo", "--verbosity", "quiet", "-p:StartupObject=GloomhavenVR.WireTests.TownMotionProgram",

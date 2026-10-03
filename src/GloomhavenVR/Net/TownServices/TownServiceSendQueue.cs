@@ -81,7 +81,15 @@ internal sealed class TownServiceLaneSendQueue
             queue.Enqueue(bytes, length, frame);
         }
     }
-    internal byte[]? Next(double now)
+    internal byte[]? NextUrgent(double now)
+    {
+        bool waiting = _urgentBundle.HasInFlight || _urgentBundle.HasPending;
+        foreach (ushort id in _priority)
+            if (_queues.TryGetValue(id, out var queue) && (queue.HasPending || queue.HasInFlight)) { waiting = true; break; }
+        if (!waiting) return null;
+        return NextManifest(now) ?? Take(now, true);
+    }
+    private byte[]? NextManifest(double now)
     {
         if (_queues.TryGetValue(TownServiceFrame.ManifestModule, out ExtrasSendQueue? manifest))
         {
@@ -95,6 +103,12 @@ internal sealed class TownServiceLaneSendQueue
             byte[]? page = manifest.Next(now);
             if (page != null) return page;
         }
+        return null;
+    }
+    internal byte[]? Next(double now)
+    {
+        byte[]? census = NextManifest(now);
+        if (census != null) return census;
         // Two urgent turns, then one background turn. A held face cannot wait behind
         // thousands of catalog rows; the full catalog cannot starve behind a held card.
         bool normalFirst = _priorityTurns >= 2;
@@ -252,6 +266,16 @@ internal sealed class TownServiceSendQueue
         return _laneTurn == 0 ? _private.Next(now) ?? _public.Next(now) ?? _stock.Next(now)
             : _laneTurn == 1 ? _public.Next(now) ?? _stock.Next(now) ?? _private.Next(now)
             : _stock.Next(now) ?? _private.Next(now) ?? _public.Next(now);
+    }
+    // Cold visible originals get a bounded direct turn in the existing global
+    // scheduler. The public, private and stock lanes retain equal arbitration;
+    // this never bypasses their manifests or starts a separate send clock.
+    internal byte[]? NextUrgent(double now)
+    {
+        _laneTurn = (_laneTurn + 1) % 3;
+        return _laneTurn == 0 ? _private.NextUrgent(now) ?? _public.NextUrgent(now) ?? _stock.NextUrgent(now)
+            : _laneTurn == 1 ? _public.NextUrgent(now) ?? _stock.NextUrgent(now) ?? _private.NextUrgent(now)
+            : _stock.NextUrgent(now) ?? _private.NextUrgent(now) ?? _public.NextUrgent(now);
     }
     internal void Clear()
     { _private.Clear(); _public.Clear(); _stock.Clear(); _voice.Clear(); _stockVoice.Clear();

@@ -151,7 +151,7 @@ internal sealed class ExtrasSendScheduler
     private readonly ExtrasSendQueue[] _native = new ExtrasSendQueue[32];
     private readonly byte _animationType;
     private double _next;
-    private int _turn, _nativeCursor = 8;
+    private int _turn, _urgentTownTurn, _nativeCursor = 8;
 
     internal ExtrasSendScheduler(ulong sequence, byte animationType, byte animationEnvelope)
     {
@@ -259,6 +259,12 @@ internal sealed class ExtrasSendScheduler
     private byte[]? TakeNext(double now, byte[]? announcement = null)
     {
         byte[]? result = announcement;
+        // Build614 cold original item/purse/confirmation output otherwise waits
+        // through 21 global turns and another three NPC lanes before the first
+        // front can exist. Reserve at most one of three page turns for urgent
+        // originals; the old fair rotation owns the other two. The event cap,
+        // 50 ms clock, immutable asset descriptors and no-catch-up rule stay exact.
+        if (result == null && _urgentTownTurn++ % 3 == 0) result = _town.NextUrgent(now);
         // Empty streams cost no turn. With only the original two streams populated this is
         // two animation pages followed by two presence pages; the larger durable burn record
         // must also assemble within the shorter presence lifetime when all streams are busy.
@@ -297,6 +303,6 @@ internal sealed class ExtrasSendScheduler
         _presence.Clear(); _animation.Clear(); _plumes.Clear(); _board.Clear(); _appearance.Clear(); _prompt.Clear(); _itemAppearance.Clear(); _mapTooltip.Clear(); _heldPage = null;
         _town.Clear();
         for (int i = 8; i < _native.Length; i++) _native[i].Clear();
-        _next = 0; _turn = 0; _nativeCursor = 8;
+        _next = 0; _turn = _urgentTownTurn = 0; _nativeCursor = 8;
     }
 }
