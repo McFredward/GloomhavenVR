@@ -403,6 +403,36 @@ public static partial class MirrorProgram
         object value = modules[module]!;
         return (TownServiceBinding)value.GetType().GetField("Binding", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(value)!;
     }
+    private static string FirstPlaybackDiagnostic(List<byte[]> packets, float receivedAt, float tickAt, bool created)
+    {
+        // Inspect only after the original single playback tick. This evidence must
+        // not refresh leases, warm playback, retry, or alter its assertion/deadline.
+        var text = new System.Text.StringBuilder();
+        text.Append("elapsed=").Append(tickAt - receivedAt).Append(" receivedAt=").Append(receivedAt)
+            .Append(" tickAt=").Append(tickAt).Append(" created=").Append(created);
+        if (TownServiceMirror.RemoteSessions.TryGetValue(1, out TownServiceSessionInfo? session))
+            text.Append(" sessionActive=").Append(session.Active).Append(" lastSeenAge=").Append(tickAt - session.LastSeenTime)
+                .Append(" service=").Append(session.Service).Append(" session=").Append(session.Session)
+                .Append(" census=").Append(string.Join(",", session.Modules));
+        else text.Append(" session=absent");
+        foreach (string name in new[] { "Pending", "ReceivedBaselines", "Remote" })
+        {
+            var store = (IDictionary)typeof(TownServiceMirror).GetField(name, PrivateStatic)!.GetValue(null)!;
+            text.Append(' ').Append(name).Append("=").Append(store.Contains(1) ? ((IDictionary)store[1]!).Count : -1);
+        }
+        var leases = (Array)typeof(TownServiceMirror).GetField("InteractionLeases", PrivateStatic)!.GetValue(null)!;
+        object lease = leases.GetValue(1)!;
+        var fields = BindingFlags.Instance | BindingFlags.NonPublic;
+        text.Append(" electedPlayer=").Append(lease.GetType().GetField("Player", fields)!.GetValue(lease))
+            .Append(" pendingSince=").Append(lease.GetType().GetField("PendingSince", fields)!.GetValue(lease));
+        foreach (byte[] packet in packets)
+            if (TownServiceCodec.TryRead(packet, packet.Length, out TownServiceFrame? frame))
+                text.Append(" packet[mod=").Append(frame!.Module).Append(" visible=").Append(frame.Visible)
+                    .Append(" service=").Append(frame.Service).Append(" session=").Append(frame.Session)
+                    .Append(" sequence=").Append(frame.Sequence).Append(" base=").Append(frame.BaseSequence)
+                    .Append(" parent=").Append(frame.ParentModule).Append(" address=").Append(frame.TemplateAddress).Append(']');
+        return text.ToString();
+    }
     private static List<byte[]> Capture()
     {
         var packets = new List<byte[]>();
@@ -1430,9 +1460,14 @@ public static partial class MirrorProgram
             TownServiceMirror.RegisterModule(10, 1, source);
             List<byte[]> baseline = Capture(); Check(baseline.Count == 2, "first capture emits module and manifest");
             Receive(1, baseline); TownServiceMirror.InteractionOwner(1);
+            float firstReceivedAt = Time.unscaledTime;
             for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+            float firstTickAt = Time.unscaledTime;
             TownServiceMirror.TickRemote(_ => observer);
-            var copy = Remote(1); Check(copy != null, "owner packet creates inert observer module");
+            var copy = Remote(1);
+            string firstPlayback = FirstPlaybackDiagnostic(baseline, firstReceivedAt, firstTickAt, copy != null);
+            File.WriteAllText(Path.Combine(_output, "first-playback.txt"), firstPlayback + "\n");
+            Check(copy != null, "owner packet creates inert observer module; " + firstPlayback);
             Inert(copy!, awakes, enables);
             Check(copy!.Root.gameObject.layer == 9, "observer uses configured presentation layer before rendering");
             Check(copy.Root.GetComponent<Canvas>().worldCamera == _camera, "observer Canvas receives configured head camera before rendering");
