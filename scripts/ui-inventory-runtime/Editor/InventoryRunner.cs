@@ -6,8 +6,8 @@ using System.Reflection;
 using UnityEditor;
 using UnityEngine;
 
-// Run actual evaluated native animation and render frames for the actor bar height proof.
-public static class PoseRunner
+// Run actual evaluated native animation and render frames for the UI inventory proof.
+public static class InventoryRunner
 {
     [Serializable] private class Case { public string name,dll,expected; }
     [Serializable] private class Manifest { public string result; public Case[] cases; }

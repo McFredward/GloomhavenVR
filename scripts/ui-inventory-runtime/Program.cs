@@ -21,6 +21,11 @@ public static class InteractionProgram {
    newChild.transform.SetParent(entry.transform,false);Check(inventory.IsDirty,"reparent invalidates immediately");inventory.Refresh();
    int revision=inventory.Revision;inactive.SetActive(true);Check(inventory.Revision!=revision,"activation wakes maintenance cadence");
    UnityEngine.Object.DestroyImmediate(newChild);Check(inventory.IsDirty,"removal invalidates immediately");inventory.Refresh();Check(inventory.Nodes.Count==4,"destroyed node removed");
+   int beforeClone=inventory.Revision;
+   var clone=UnityEngine.Object.Instantiate(root);Node("clone only",clone.transform);
+   Check(inventory.Revision==beforeClone&&!inventory.IsDirty,"native widget cloning never copies old inventory subscriptions");
+   UnityEngine.Object.DestroyImmediate(clone);
+   Check(inventory.Revision==beforeClone,"clone destruction does not invalidate original panel");
    var nested=new UiHierarchyInventory(entry.transform);nested.Refresh();inventory.Dispose();Node("second",entry.transform);Check(nested.IsDirty,"disposing outer inventory retains inner subscriptions");nested.Dispose();
   }
   InitiativeTrack.Instance=new InitiativeTrack{initiativeTrackHolder=root.transform};

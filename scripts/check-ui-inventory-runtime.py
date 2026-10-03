@@ -42,10 +42,10 @@ def main():
  for folder in ['Assets/Editor','Assets/Plugins','Packages','ProjectSettings']:(project/folder).mkdir(parents=True)
  for entry in manifest['cases']:
   dest=project/'Assets/Plugins'/Path(entry['dll']).name;shutil.copyfile(entry['dll'],dest);entry['dll']=str(dest)
- shutil.copyfile(fixture/'Editor/PoseRunner.cs',project/'Assets/Editor/PoseRunner.cs')
+ shutil.copyfile(fixture/'Editor/InventoryRunner.cs',project/'Assets/Editor/InventoryRunner.cs')
  (project/'Packages/manifest.json').write_text(json.dumps({'dependencies':{'com.unity.ugui':'1.0.0'}}));(project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
  path=run/'manifest.json';path.write_text(json.dumps(manifest,indent=2))
- r=subprocess.run(['xvfb-run','-a',str(unity),'-batchmode','-force-glcore','-projectPath',str(project),'-executeMethod','PoseRunner.Start','-interactionManifest',str(path),'-logFile',str(run/'unity.log')],timeout=180)
+ r=subprocess.run(['xvfb-run','-a',str(unity),'-batchmode','-force-glcore','-projectPath',str(project),'-executeMethod','InventoryRunner.Start','-interactionManifest',str(path),'-logFile',str(run/'unity.log')],timeout=180)
  if (run/'results.txt').exists():print((run/'results.txt').read_text())
  print('Evidence: '+str(run));raise SystemExit(r.returncode)
 if __name__=='__main__':main()
