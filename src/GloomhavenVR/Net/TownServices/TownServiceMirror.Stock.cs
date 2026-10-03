@@ -112,16 +112,24 @@ internal static partial class TownServiceMirror
     private static void SetSecondaryTempleInscriptions(TownServiceSessionInfo session,
         Dictionary<ushort, TownServiceFrame> pending, Dictionary<ushort, RemoteModule> modules)
     {
-        bool heldPurse = false;
-        foreach (TownServiceFrame frame in pending.Values)
-            if (frame.Session == session.Session && frame.TemplateAddress == "ritual.purse.held|"
+        bool visiblePurse = false;
+        foreach (RemoteModule body in modules.Values)
+        {
+            TownServiceFrame? frame = body.LastFrame;
+            if (frame == null || !body.Alive) continue;
+            if (frame.Session == session.Session && (frame.TemplateAddress == "ritual.purse.held|"
+                    || frame.TemplateAddress == "ritual.purse|" && PhysicalPurse(frame.Nodes))
                 && frame.Visible && frame.ParentAlpha > .01f
-                && Array.BinarySearch(session.Modules, frame.Module) >= 0) { heldPurse = true; break; }
+                && Array.BinarySearch(session.Modules, frame.Module) >= 0) { visiblePurse = true; break; }
+        }
         foreach (RemoteModule module in modules.Values)
         {
             if (!module.Alive || !module.Address.StartsWith("temple.row|", StringComparison.Ordinal)
                 || module.LastFrame == null) continue;
-            bool shown = heldPurse && module.LastFrame.Visible;
+            // The palm-gated purse preview is a real owner's fan, already public
+            // before pickup. Election of another visitor's shared book/bowl must
+            // not hide either this original purse or its original inscriptions.
+            bool shown = visiblePurse && module.LastFrame.Visible;
             if (module.Host.activeSelf != shown) module.Host.SetActive(shown);
         }
     }

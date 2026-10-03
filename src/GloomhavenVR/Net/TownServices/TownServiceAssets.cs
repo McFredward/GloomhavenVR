@@ -146,6 +146,20 @@ internal sealed class TownServiceAssets
                && texture.format == TextureFormat.RGBA32 && texture.mipmapCount == 1
             || texture.name == "T_flowmap_outwards_02" && texture.width == 512 && texture.height == 512
                && texture.format == TextureFormat.RGBA32 && texture.mipmapCount == 10
+            // Build609's paired NPC logs identify duplicate runtime wrappers for these
+            // three originals. Read-only inspection of EVERY original *.assets found
+            // exactly one source each: sharedassets1/181, sharedassets2/131 and
+            // sharedassets4/44. Their complete native descriptors are the identity;
+            // neither visit order nor a generated template slot may name these assets.
+            // HeroHighlight_Darken also has exactly one Sprite (sharedassets2/247).
+            // Its canonical texture identity makes that original hover sprite resolve
+            // on the other peer even when their borrowed item rows arrive in another order.
+            || texture.name == "T_Noise_Spherical_Sparks" && texture.width == 512 && texture.height == 512
+               && texture.format == TextureFormat.RGB24 && texture.mipmapCount == 10
+            || texture.name == "HeroHighlight_Darken" && texture.width == 300 && texture.height == 218
+               && texture.format == TextureFormat.RGBA32 && texture.mipmapCount == 1
+            || texture.name == "T_flowmap_outwards" && texture.width == 1024 && texture.height == 1024
+               && texture.format == TextureFormat.DXT5 && texture.mipmapCount == 11
             || texture.name == "CoinIcon2_White" && texture.width == 128 && texture.height == 128
                && texture.format == TextureFormat.DXT5 && texture.mipmapCount == 1
             || texture.name.StartsWith("sactx-", StringComparison.Ordinal)

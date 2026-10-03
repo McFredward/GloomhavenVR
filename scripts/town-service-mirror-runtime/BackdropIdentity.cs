@@ -158,6 +158,40 @@ public static partial class MirrorProgram
             Check(refused, "unverified texture format still fails closed: " + verified.name);
             Object.Destroy(original); Object.Destroy(wrapper); Object.Destroy(otherFormat); Object.Destroy(otherFormatTwin);
         }
+        foreach (var verified in new[]
+        {
+            (name: "T_Noise_Spherical_Sparks", width: 512, height: 512, format: TextureFormat.RGB24, mips: true),
+            (name: "HeroHighlight_Darken", width: 300, height: 218, format: TextureFormat.RGBA32, mips: false),
+            (name: "T_flowmap_outwards", width: 1024, height: 1024, format: TextureFormat.DXT5, mips: true)
+        })
+        {
+            var original = new Texture2D(verified.width, verified.height, verified.format, verified.mips) { name = verified.name };
+            var wrapper = new Texture2D(verified.width, verified.height, verified.format, verified.mips) { name = verified.name };
+            Check(owner.Key(original) == owner.Key(wrapper) && observer.Key(wrapper) == owner.Key(original),
+                "Build609's duplicated audited original dependency binds on both peers: " + verified.name);
+            var mismatch = new Texture2D(verified.width, verified.height, verified.format, !verified.mips) { name = verified.name };
+            var mismatchTwin = new Texture2D(verified.width, verified.height, verified.format, !verified.mips) { name = verified.name };
+            owner.Key(mismatch); refused = false;
+            try { owner.Key(mismatchTwin); } catch (InvalidDataException) { refused = true; }
+            Check(refused, "the audited descriptor does not admit a different native mip chain: " + verified.name);
+            if (verified.name == "HeroHighlight_Darken")
+            {
+                Sprite first = Sprite.Create(original, new Rect(0f, 0f, 300f, 218f), Vector2.one * .5f);
+                Sprite second = Sprite.Create(wrapper, new Rect(0f, 0f, 300f, 218f), Vector2.one * .5f);
+                first.name = second.name = verified.name;
+                Transform row = Rect("Native merchant row", Go("native original merchant row holder").transform,
+                    Vector2.zero, new Vector2(300f, 218f));
+                row.gameObject.AddComponent<Image>().sprite = first;
+                TownServiceTemplateAssets.Register(owner, "merchant.row", row);
+                string key = owner.Key(first);
+                Check(key.StartsWith("sprite|texture|HeroHighlight_Darken|", StringComparison.Ordinal),
+                    "native merchant hover sprite has canonical resource identity rather than first template-borrow identity");
+                Check(observer.Key(second) == key && observer.Resolve<Sprite>(key) == second,
+                    "merchant hover sprite resolves when the receiving original item row was borrowed in another order");
+                Object.Destroy(first); Object.Destroy(second);
+            }
+            Object.Destroy(original); Object.Destroy(wrapper); Object.Destroy(mismatch); Object.Destroy(mismatchTwin);
+        }
         Object.Destroy(red); Object.Destroy(redTwin); Object.Destroy(unknown); Object.Destroy(unknownTwin);
         Object.Destroy(wrongFormat); Object.Destroy(wrongFormatTwin); Object.Destroy(wrongMips); Object.Destroy(wrongMipsTwin);
         Object.Destroy(atlas); Object.Destroy(atlasTwin);

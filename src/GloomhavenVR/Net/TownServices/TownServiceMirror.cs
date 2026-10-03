@@ -185,6 +185,10 @@ internal static partial class TownServiceMirror
     internal static int TransactionOwner(byte service)
     {
         if (service < 1 || service > 3) return 0;
+        // The priestess never occupies an exclusive NPC transaction. Her short
+        // reliable native-commit reservation still gates LocalTransactionSettled,
+        // but must not lock another visitor's purse or select a different shared pose.
+        if (service == 2) return 0;
         // The host's ReliableOrdered grant outranks the lossy visual claim manifest.
         // Under two simultaneous drops the older browsing session may not be the first
         // granted physical offer, so TLV92 cannot decide who can use original callbacks.
@@ -242,6 +246,7 @@ internal static partial class TownServiceMirror
     {
         if (session == 0 || !PrivateLane.Active || PrivateLane.Service != service
             || PrivateLane.Session != session) return false;
+        if (service == 2) return true;
         // Every visitor at the same NPC may browse until a physical offer is placed.
         // The elected shared-animation author is not an exclusive interaction lock.
         int granted = TownServiceGrantSync.GrantedOwner(service);
@@ -260,6 +265,7 @@ internal static partial class TownServiceMirror
     internal static bool CanLocalBeginTransaction(byte service)
     {
         if (service < 1 || service > 3) return false;
+        if (service == 2) return true;
         int granted = TownServiceGrantSync.GrantedOwner(service);
         if (granted != 0) return granted == LocalPeer;
         float now = Time.unscaledTime;
@@ -270,6 +276,13 @@ internal static partial class TownServiceMirror
                 return false;
         return true;
     }
+
+    /// <summary>The maintainer explicitly permits one shared pre-drop enchantress cue
+    /// instead of overlapping each visitor's identical hologram (NPC test 2026-10-03).
+    /// This is only a renderer election: all eligible visitors retain the same physical
+    /// drop collider, hover feedback and reliable first-offer claim.</summary>
+    internal static bool CanShowLocalCue(byte service) => service != 3
+        || InteractionOwner(service) == LocalPeer;
 
     internal static void SetLocalTransactionActive(byte service, bool active)
     {
@@ -351,6 +364,49 @@ internal static partial class TownServiceMirror
         PrivateLane.TempleDonationKnown = true;
         PrivateLane.TempleDonationAvailable = false;
         PrivateLane.NextManifest = 0f;
+        ObserveTempleDonationCommit(LocalPeer, PrivateLane.Session,
+            PrivateLane.TempleDonationRevision, 0f);
+    }
+
+    private sealed class DonationCommit
+    {
+        internal uint Revision;
+        internal float ChangedTime;
+    }
+    // Donation events are independent of browsing/window lifetime. The Build609
+    // co-player's original callback ran, while bulk native modules remained behind
+    // missing assets and their queues. Closing that visit must not discard the only
+    // proof of the blessing. The fast numeric lane republishes this bounded event;
+    // it never reconstructs a donation from availability or a local selected hero.
+    private static readonly Dictionary<(int Peer, uint Session), DonationCommit> DonationCommits = new();
+    private static readonly Queue<(int Peer, uint Session)> DonationCommitOrder = new();
+    internal static void ObserveTempleDonationCommit(int peer, uint session, uint revision, float age)
+    {
+        if (peer <= 0 || session == 0 || revision == 0 || float.IsNaN(age)
+            || float.IsInfinity(age) || age < 0f || age > 30f) return;
+        var key = (peer, session);
+        if (DonationCommits.TryGetValue(key, out DonationCommit? old))
+        {
+            if (old.Revision == revision) return; // repeated fast/presence clocks never restart it
+            if (unchecked((int)(revision - old.Revision)) <= 0) return;
+        }
+        else
+        {
+            old = new DonationCommit(); DonationCommits.Add(key, old); DonationCommitOrder.Enqueue(key);
+            if (DonationCommitOrder.Count > 64) DonationCommits.Remove(DonationCommitOrder.Dequeue());
+        }
+        old.Revision = revision; old.ChangedTime = Time.unscaledTime - age;
+    }
+    internal static bool TryLocalTempleDonationCommit(out uint session, out uint revision, out float age)
+    {
+        session = revision = 0; age = 0f;
+        float latest = float.NegativeInfinity;
+        foreach (var pair in DonationCommits)
+            if (pair.Key.Peer == LocalPeer && pair.Value.ChangedTime > latest)
+            { session = pair.Key.Session; revision = pair.Value.Revision; latest = pair.Value.ChangedTime; }
+        if (session == 0) return false;
+        age = Mathf.Max(0f, Time.unscaledTime - latest);
+        return age <= 30f;
     }
 
     internal static void CollectTempleDonationStates(List<TownTempleDonationState> destination)
@@ -373,6 +429,23 @@ internal static partial class TownServiceMirror
                 visitor.TempleDonationRevision,
                 visitor.TempleDonationRevision == 0 ? 0f : Mathf.Max(0f, now - visitor.TempleDonationChangedTime),
                 hasCommitAge: visitor.HasTempleDonationCommitAge));
+        }
+        foreach (var pair in DonationCommits)
+        {
+            float age = Mathf.Max(0f, now - pair.Value.ChangedTime);
+            if (age > 30f) continue;
+            bool alreadyIncluded = false;
+            for (int i = 0; i < destination.Count; i++)
+                if (destination[i].Peer == pair.Key.Peer && destination[i].Session == pair.Key.Session)
+                {
+                    alreadyIncluded = true;
+                    if (unchecked((int)(pair.Value.Revision - destination[i].Revision)) > 0)
+                        destination[i] = new TownTempleDonationState(pair.Key.Peer, pair.Key.Session,
+                            true, false, pair.Value.Revision, age, hasCommitAge: true);
+                    break;
+                }
+            if (!alreadyIncluded) destination.Add(new TownTempleDonationState(pair.Key.Peer, pair.Key.Session,
+                true, false, pair.Value.Revision, age, hasCommitAge: true));
         }
     }
 
@@ -826,6 +899,10 @@ internal static partial class TownServiceMirror
                 TransactionActive = frame.TransactionActive,
                 Modules = frame.Modules, Position = Position(frame.Pose), Rotation = Rotation(frame.Pose), Scale = Scale(frame.Pose) };
             if (peer > 0) VisitorSessions[peer] = Sessions[peer];
+            if (peer > 0 && frame.Service == 2 && frame.TempleDonationKnown
+                && frame.HasTempleDonationCommitAge && frame.TempleDonationRevision != 0)
+                ObserveTempleDonationCommit(peer, frame.Session, frame.TempleDonationRevision,
+                    frame.TempleDonationCommitAge);
             if (peer > 0) InteractionOwner(frame.Service); // start/advance the bounded claim window
             if (!frame.Visible) ClearRemoteModules(peer);
             else if (Remote.TryGetValue(peer, out Dictionary<ushort, RemoteModule>? standing))
@@ -919,7 +996,11 @@ internal static partial class TownServiceMirror
             {
                 TownServiceFrame received = packet.Value;
                 if (stockVisitor && !StockModule(received.TemplateAddress)) continue;
-                if (secondaryVisitor && !IndependentVisitorModule(received)) continue;
+                // A cumulative delta need not repeat the purse's Mesh property.
+                // Classify that original body only after expansion; a row/image
+                // with the same address is still not a second shared bowl cue.
+                if (secondaryVisitor && !IndependentVisitorModule(received)
+                    && !(received.Service == 2 && received.TemplateAddress == "ritual.purse|")) continue;
                 if (entry.Key > 0 && PrivateMerchantCatalogModule(received.Service,
                     received.TemplateAddress, received.ParentModule)) continue;
                 long retryKey = ((long)entry.Key << 16) | received.Module;
@@ -931,6 +1012,7 @@ internal static partial class TownServiceMirror
                 TownServiceFrame? expanded = TownServiceDelta.Expand(baseline, received);
                 if (expanded == null) continue;
                 TownServiceFrame frame = expanded;
+                if (secondaryVisitor && !IndependentVisitorModule(frame)) continue;
                 if (frame.Session != session.Session || frame.Service != session.Service || Array.BinarySearch(session.Modules, frame.Module) < 0) continue;
                 try
                 {
@@ -1012,7 +1094,18 @@ internal static partial class TownServiceMirror
                         // Failure cleanup must never throw from the same destroyed
                         // Unity object; that secondary exception used to escape the
                         // per-module guard and abort every other network presentation.
-                        if (module.Alive) { module.Host.SetActive(false); module.Motion.Reset(); }
+                        // Validation resolves every original asset BEFORE changing the
+                        // picture. A transient missing dependency may not turn an already
+                        // validated item grey or erase a complete cabinet page. Retain only
+                        // this exact original/session/structure; a changed card identity or
+                        // hierarchy is a new module and cannot borrow the preceding artwork.
+                        if (module.Alive)
+                        {
+                            bool sameOriginal = module.LastFrame != null
+                                && module.Session == frame.Session && module.Template == frame.Template
+                                && module.Address == frame.TemplateAddress && module.Binding.Structure == frame.Structure;
+                            if (!sameOriginal) { module.Host.SetActive(false); module.Motion.Reset(); }
+                        }
                         else { module.Dispose(); standing.Remove(frame.Module); }
                     }
                     if (RemoteRetry.Count >= 8 * TownServiceFrame.MaxModules && !RemoteRetry.ContainsKey(retryKey)) RemoteRetry.Clear();
@@ -1053,7 +1146,14 @@ internal static partial class TownServiceMirror
     // still inspect a personal purse; only that held physical prop crosses this
     // election boundary. No donation control or native callback is mirrored here.
     private static bool IndependentVisitorModule(TownServiceFrame frame) =>
-        IndependentVisitorModule(frame.Service, frame.TemplateAddress, frame.ParentModule);
+        IndependentVisitorModule(frame.Service, frame.TemplateAddress, frame.ParentModule)
+        || frame.Service == 2 && frame.TemplateAddress == "ritual.purse|" && PhysicalPurse(frame.Nodes);
+    private static bool PhysicalPurse(TownServiceNode[] nodes)
+    {
+        foreach (TownServiceNode node in nodes)
+            if (node.Values.ContainsKey(TownServiceProperty.Mesh)) return true;
+        return false;
+    }
     private static bool IndependentVisitorModule(byte service, string address, ushort parentModule)
     {
         if (service == 2)
@@ -1079,8 +1179,8 @@ internal static partial class TownServiceMirror
     {
         SecondaryVisitorRetire.Clear();
         foreach (var pair in modules)
-            if (!IndependentVisitorModule(service, pair.Value.Address,
-                    pair.Value.LastFrame?.ParentModule ?? TownServiceFrame.ManifestModule))
+            if (!(pair.Value.LastFrame != null ? IndependentVisitorModule(pair.Value.LastFrame)
+                : IndependentVisitorModule(service, pair.Value.Address, TownServiceFrame.ManifestModule)))
                 SecondaryVisitorRetire.Add(pair.Key);
         foreach (ushort id in SecondaryVisitorRetire) { modules[id].Dispose(); modules.Remove(id); }
     }
@@ -1203,7 +1303,17 @@ internal static partial class TownServiceMirror
     internal static void RemovePeer(int peer)
     { MerchantOfferings.Remove(peer); ClearVoicePeer(peer); ClearRemoteModules(peer); Pending.Remove(peer); ReceivedBaselines.Remove(peer); Sessions.Remove(peer); VisitorSessions.Remove(peer);
       ClearRemoteModules(-peer); Pending.Remove(-peer); ReceivedBaselines.Remove(-peer); Sessions.Remove(-peer);
-      RemoveStockPeer(peer); }
+      RemoveStockPeer(peer); ForgetDonationCommits(peer); }
+    private static void ForgetDonationCommits(int peer)
+    {
+        int count = DonationCommitOrder.Count;
+        for (int i = 0; i < count; i++)
+        {
+            var key = DonationCommitOrder.Dequeue();
+            if (key.Peer == peer) DonationCommits.Remove(key);
+            else DonationCommitOrder.Enqueue(key);
+        }
+    }
     internal static void RequestFullRefresh()
     {
         foreach (LocalModule module in AllLocalModules())
@@ -1216,6 +1326,7 @@ internal static partial class TownServiceMirror
       foreach (LocalModule module in StockLane.Modules.Values) yield return module; }
     internal static void ResetNetwork()
     {
+        DonationCommits.Clear(); DonationCommitOrder.Clear();
         if (PrivateLane.TransactionActive)
             TownServiceGrantSync.SetOffer(PrivateLane.Service, PrivateLane.Session, false);
         foreach (int peer in new List<int>(Remote.Keys)) ClearRemoteModules(peer);

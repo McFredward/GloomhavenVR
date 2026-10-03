@@ -108,6 +108,10 @@ public static partial class MirrorProgram
         Check(TownServiceMirror.TryTempleDonationState(out _, out _, out known, out _, out revision, out _)
             && known && revision == 1,
             "only the original committed donation advances the shared blessing revision");
+        var commits = new List<TownTempleDonationState>();
+        Check(TownServiceMirror.TryLocalTempleDonationCommit(out uint committedSession, out uint committedRevision, out _)
+            && committedSession == 102 && committedRevision == 1,
+            "native donation callback makes a durable fast-lane event independent of original artwork");
         List<byte[]> packets = Capture();
         Check(packets.Exists(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame)
             && frame!.Module == TownServiceFrame.ManifestModule && frame.TempleDonationKnown
@@ -116,6 +120,22 @@ public static partial class MirrorProgram
         TownServiceMirror.EndSession();
         Check(TownServiceMirror.InteractionOwner(2) == 0,
             "local close releases its resident without retaining stale ritual state");
+        TownServiceMirror.CollectTempleDonationStates(commits);
+        Check(commits.Exists(commit => commit.Peer == 1 && commit.Session == 102 && commit.Revision == 1
+                && commit.HasCommitAge),
+            "leaving the temple before delivery retains its explicit committed blessing event");
+        TownServiceMirror.ObserveTempleDonationCommit(5, 1001, 3, .5f);
+        TownServiceMirror.CollectTempleDonationStates(commits);
+        var explicitCommit = commits.Find(commit => commit.Peer == 5 && commit.Session == 1001);
+        TownServiceMirror.ObserveTempleDonationCommit(5, 1001, 3, 0f);
+        TownServiceMirror.ObserveTempleDonationCommit(5, 1001, 2, 0f);
+        TownServiceMirror.CollectTempleDonationStates(commits);
+        var repeatedCommit = commits.Find(commit => commit.Peer == 5 && commit.Session == 1001);
+        Check(repeatedCommit.Revision == 3 && repeatedCommit.TransitionAge >= explicitCommit.TransitionAge,
+            "duplicate and reordered donation packets cannot rewind or replay the blessing");
+        TownServiceMirror.RemovePeer(5); TownServiceMirror.CollectTempleDonationStates(commits);
+        Check(!commits.Exists(commit => commit.Peer == 5),
+            "disconnect retires only that visitor's durable blessing events");
 
         TownServiceMirror.ResetNetwork();
         Check(TownServiceMirror.InteractionOwner(1) == 0
@@ -138,6 +158,8 @@ public static partial class MirrorProgram
         GloomhavenVR.Net.NetPlayerActors.Peer = 1;
         IEnumerator purses = SecondaryTemplePurses();
         while (purses.MoveNext()) yield return purses.Current;
+        IEnumerator retention = RetainValidatedOriginalOnMissingAsset();
+        while (retention.MoveNext()) yield return retention.Current;
     }
 
     private static IEnumerator SecondaryTemplePurses()
@@ -155,6 +177,10 @@ public static partial class MirrorProgram
         TownServiceMirror.BeginSession(2, 600, shared, shared);
         TownServiceMirror.RegisterModule(7, 1, purse, address: "ritual.purse.held|");
         TownServiceMirror.RegisterModule(8, 2, counter, address: "temple.counter|");
+        Transform preview = GameObject.CreatePrimitive(PrimitiveType.Cube).transform;
+        preview.SetParent(shared, false); preview.name = "Palm-gated original purse preview";
+        TownServiceMirror.RegisterTemplate(2, 3, preview, address: "ritual.purse|");
+        TownServiceMirror.RegisterModule(9, 3, preview, address: "ritual.purse|");
         List<byte[]> captured = Capture();
         TownServiceMirror.EndSession();
         Check(captured.Exists(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? f)
@@ -163,7 +189,7 @@ public static partial class MirrorProgram
         foreach (int peer in new[] { 2, 3 })
         {
             uint session = (uint)(700 + peer);
-            InteractionManifest(peer, 2, session, 100, modules: new ushort[] { 7, 8 });
+            InteractionManifest(peer, 2, session, 100, modules: new ushort[] { 7, 8, 9 });
             foreach (byte[] bytes in captured)
             {
                 Check(TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? f),
@@ -183,6 +209,10 @@ public static partial class MirrorProgram
             "secondary visitor cannot create a second temple counter");
         Check(Remote(2, 7) != null && Remote(3, 7) != null,
             "both visitors' held purses remain visible simultaneously");
+        Check(Remote(2, 9) != null && Remote(3, 9) != null,
+            "both visitors' palm-gated purse previews mirror before pickup independently of shared temple election");
+        Check(TownServiceMirror.TransactionOwner(2) == 0 && TownServiceMirror.CanLocalBeginTransaction(2),
+            "temple native commit serialization never creates an exclusive NPC occupation");
         InteractionManifest(3, 2, 703, 102, modules: new ushort[] { 8 });
         TownServiceMirror.TickRemote(_ => observer);
         Check(Remote(3, 7) == null && Remote(2, 7) != null,
