@@ -216,7 +216,8 @@ namespace GloomhavenVR.Quest.Editor
             foreach (var item in new[]
             {
                 new[] { "quest-ray-material", "Unlit/Color" },
-                new[] { "quest-surface-material", "Standard" }
+                new[] { "quest-surface-material", "Standard" },
+                new[] { "quest-albedo-material", "GloomhavenVR/Quest/DiagnosticAlbedo" }
             })
             {
                 string path = "Assets/Quest/Resources/" + item[0] + ".mat";
@@ -231,28 +232,11 @@ namespace GloomhavenVR.Quest.Editor
                 material.shader = shader;
                 EditorUtility.SetDirty(material);
             }
-            Debug.Log("[GloomhavenVR Quest] diagnostic shader Resources retained: Unlit/Color, Standard");
+            Debug.Log("[GloomhavenVR Quest] diagnostic shader Resources retained: Unlit/Color, Standard, DiagnosticAlbedo");
         }
         static void PrepareDiagnosticMaterials()
         {
-            // Only the isolated, explicitly labelled probe uses this approximation.
-            // Never accept this conversion as recovered game shader parity.
-            foreach (string guid in AssetDatabase.FindAssets("t:Material", new[] { "Assets/Quest/Recovered" }))
-            {
-                var material = AssetDatabase.LoadAssetAtPath<Material>(AssetDatabase.GUIDToAssetPath(guid));
-                if (material == null || !material.HasProperty("_Diffuse")) continue;
-                var diffuse = material.GetTexture("_Diffuse");
-                var normal = material.HasProperty("_NormalMap") ? material.GetTexture("_NormalMap") : null;
-                material.shader = Shader.Find("Standard");
-                material.SetTexture("_MainTex", diffuse);
-                if (normal != null)
-                {
-                    material.SetTexture("_BumpMap", normal);
-                    material.EnableKeyword("_NORMALMAP");
-                }
-                material.enableInstancing = true;
-                EditorUtility.SetDirty(material);
-            }
+            QuestProbeMaterialConversion.Prepare();
         }
         static void ValidateOwnedModel()
         {
@@ -267,6 +251,7 @@ namespace GloomhavenVR.Quest.Editor
             var animator = prefab.GetComponentInChildren<Animator>(true);
             if (animator == null || animator.runtimeAnimatorController == null || animator.runtimeAnimatorController.animationClips.Length == 0)
                 throw new InvalidOperationException("Original model animator/clips are missing");
+            QuestProbeMaterialConversion.ValidateModel(prefab);
             Debug.Log("[GloomhavenVR Quest] original native model import verified skinnedRenderers=" + renderers.Length +
                 " clips=" + animator.runtimeAnimatorController.animationClips.Length + " shaderParity=false");
         }
