@@ -26,6 +26,10 @@ receipt containment, exit-zero ADB failures and signature mismatch controls.
 Dry-runs against the actual B609 handoff and builder output select the reviewed
 `5818e9d22cd47...` APK without ADB activity or settings writes. A portable
 PowerShell7.6.6 runtime verifies option/path forwarding and failure exit codes.
+The bootstrap adds 20 PowerShell controls for actual venv creation/reuse,
+path relocation, owned-folder repair, exclusive setup, pinned runtime validation
+and a real local-wheel install/hash rejection. These portable checks exercise
+the provisioning code; native Windows CPython execution remains a Windows check.
 The complete feature-branch gate evidence is retained privately in the main
 checkout's `.planning/debug/quest3/wireless-validation/`. Actual Windows/Quest
 wireless transport and installation remain hardware checks. See

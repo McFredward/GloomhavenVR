@@ -143,7 +143,13 @@ signing files must remain intact for future updates.
 The portable installer suite covers connection setup/reconnect, device selection,
 artifact validation and failed installation paths using controlled ADB responses.
 PowerShell wrapper parsing/argument forwarding can be verified on a portable
-PowerShell runtime. These checks do not establish an actual wireless connection
+PowerShell runtime. The bootstrap suite also exercises actual isolated venvs,
+cache reuse, moved/broken environments, ownership and locking, pinned archive
+validation and a local hash-pinned dependency install with a hash-mismatch control.
+Run it with `GHVR_PWSH_PATH` pointing to `pwsh`, or put `pwsh` on PATH; without
+PowerShell these controls are explicitly skipped. Native Windows runtime launch
+and the Windows 5.1 host still need Windows testing.
+These checks do not establish an actual wireless connection
 to the maintainer's Quest; that requires the headset test.
 
 See [the diagnostic hardware procedure](QUEST3-HARDWARE-609.md) for controls,

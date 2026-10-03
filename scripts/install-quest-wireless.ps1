@@ -51,7 +51,7 @@ try {
     if ($Setup) { $installerArguments += "--setup" }
     if ($NoLaunch) { $installerArguments += "--no-launch" }
     if ($DryRun) { $installerArguments += "--dry-run" }
-    & $pythonExecutable -I -X utf8 @installerArguments
+    & $pythonExecutable -I -B -X utf8 @installerArguments
     exit $LASTEXITCODE
 } catch {
     [Console]::Error.WriteLine("Quest installer: " + $_.Exception.Message)
