@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using UnityEditor;
+using UnityEditor.Android;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
 using UnityEditor.XR.Management;
@@ -33,6 +34,10 @@ namespace GloomhavenVR.Quest.Editor
             return value;
         }
         public static void Build()
+        {
+            using (new AndroidToolsOverride()) BuildPlayer();
+        }
+        static void BuildPlayer()
         {
             string target = Required("GHVR_QUEST_TARGET");
             if (target != "probe") throw new InvalidOperationException("Game target is gated until recovered assets, platform adapter and complete AOT conversion pass.");
@@ -103,12 +108,53 @@ namespace GloomhavenVR.Quest.Editor
             var settings = new SerializedObject(Unsupported.GetSerializedAssetInterfaceSingleton("PlayerSettings"));
             var input = settings.FindProperty("activeInputHandler");
             if (input != null) { input.intValue = 1; settings.ApplyModifiedPropertiesWithoutUndo(); }
-            foreach (string item in new[] { "SDK", "NDK", "JDK" })
+        }
+        sealed class AndroidToolsOverride : IDisposable
+        {
+            readonly System.Collections.Generic.List<Action> restore = new System.Collections.Generic.List<Action>();
+            public AndroidToolsOverride()
             {
-                string path = Environment.GetEnvironmentVariable(item == "JDK" ? "GHVR_QUEST_JDK" : "GHVR_QUEST_ANDROID_" + item);
-                if (string.IsNullOrWhiteSpace(path)) continue;
-                EditorPrefs.SetBool("Android" + item + "UseEmbedded", false);
-                EditorPrefs.SetString(item == "JDK" ? "JdkPath" : "Android" + item + "Root", path);
+                try
+                {
+                    Apply("SDK", "GHVR_QUEST_ANDROID_SDK", "SdkUseEmbedded", "AndroidSdkRoot",
+                        value => AndroidExternalToolsSettings.sdkRootPath = value,
+                        () => AndroidExternalToolsSettings.sdkRootPath);
+                    Apply("NDK", "GHVR_QUEST_ANDROID_NDK", "NdkUseEmbedded", "AndroidNdkRootR21D",
+                        value => AndroidExternalToolsSettings.ndkRootPath = value,
+                        () => AndroidExternalToolsSettings.ndkRootPath);
+                    Apply("JDK", "GHVR_QUEST_JDK", "JdkUseEmbedded", "JdkPath",
+                        value => AndroidExternalToolsSettings.jdkRootPath = value,
+                        () => AndroidExternalToolsSettings.jdkRootPath);
+                }
+                catch { Dispose(); throw; }
+            }
+            void Apply(string label, string variable, string embeddedKey, string rootKey,
+                Action<string> setRoot, Func<string> getRoot)
+            {
+                string value = Environment.GetEnvironmentVariable(variable);
+                if (string.IsNullOrWhiteSpace(value)) return;
+                string expected = Path.GetFullPath(value).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (!Directory.Exists(expected)) throw new InvalidOperationException("Android " + label + " override directory does not exist");
+                bool hadEmbedded = EditorPrefs.HasKey(embeddedKey), embedded = EditorPrefs.GetBool(embeddedKey, true);
+                bool hadRoot = EditorPrefs.HasKey(rootKey);
+                string previous = EditorPrefs.GetString(rootKey);
+                restore.Add(() =>
+                {
+                    if (hadRoot) EditorPrefs.SetString(rootKey, previous); else EditorPrefs.DeleteKey(rootKey);
+                    if (hadEmbedded) EditorPrefs.SetBool(embeddedKey, embedded); else EditorPrefs.DeleteKey(embeddedKey);
+                });
+                EditorPrefs.SetBool(embeddedKey, false);
+                setRoot(expected);
+                string actual = Path.GetFullPath(getRoot()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var comparison = Application.platform == RuntimePlatform.WindowsEditor ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+                if (!string.Equals(expected, actual, comparison) || EditorPrefs.GetBool(embeddedKey, true))
+                    throw new InvalidOperationException("Unity did not select the explicit Android " + label + " override");
+                Debug.Log("[GloomhavenVR Quest] selected Android " + label + " override: " + actual);
+            }
+            public void Dispose()
+            {
+                for (int index = restore.Count - 1; index >= 0; index--) restore[index]();
+                restore.Clear();
             }
         }
         static void ConfigureXr()
