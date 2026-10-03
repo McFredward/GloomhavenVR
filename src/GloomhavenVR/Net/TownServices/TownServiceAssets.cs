@@ -52,6 +52,7 @@ internal sealed class TownServiceAssets
     {
         if (asset == null) return string.Empty;
         if (asset is Texture textureAsset) asset = GloomhavenVR.WorldUI.PanelMipBake.OriginalFor(textureAsset);
+        if (asset is Sprite spriteAsset) asset = CardFaceMipBake.OriginalFor(spriteAsset);
         if (_keys.TryGetValue(asset.GetInstanceID(), out string? cached)) return cached;
         string key;
         switch (asset)

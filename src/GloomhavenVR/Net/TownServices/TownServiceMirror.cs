@@ -1099,11 +1099,7 @@ internal static partial class TownServiceMirror
                     Vector3 worldScale = Vector3.Scale(mount.lossyScale, Scale(frame.Pose)), parentScale = poseRoot.parent.lossyScale;
                     poseRoot.localScale = new Vector3(worldScale.x / parentScale.x, worldScale.y / parentScale.y, worldScale.z / parentScale.z);
                     if (module.AddedCanvas != null && !frame.HasCanvasFrame)
-                    {
-                        if (root is RectTransform rr && module.Host.transform is RectTransform hostRect)
-                        { hostRect.pivot = rr.pivot; hostRect.sizeDelta = rr.rect.size; }
-                        root.localPosition = Vector3.zero; root.localRotation = Quaternion.identity; root.localScale = Vector3.one;
-                    }
+                        NormalizeDetachedRoot(module);
                     if (module.LastFrame != null && module.Host.activeSelf && module.LastFrame.ParentModule == frame.ParentModule
                         && module.LastFrame.ParentBinding == frame.ParentBinding)
                         module.Motion.AfterApply(now, frame.SampleTime - module.LastFrame.SampleTime);
@@ -1344,6 +1340,16 @@ internal static partial class TownServiceMirror
 
     private static bool NeedsCanvas(TownServiceFrame frame) => frame.HasCanvasFrame
         || frame.ParentModule == TownServiceFrame.ManifestModule && !frame.Nodes[0].Values.ContainsKey(TownServiceProperty.Canvas);
+
+    private static void NormalizeDetachedRoot(RemoteModule module)
+    {
+        Transform root = module.Binding.Root;
+        if (root is RectTransform rect && module.Host.transform is RectTransform hostRect)
+        { hostRect.pivot = rect.pivot; hostRect.sizeDelta = rect.rect.size; }
+        // The enclosing host carries this detached original's complete world pose.
+        // Native local offset, rotation and scale must not also affect its child.
+        root.localPosition = Vector3.zero; root.localRotation = Quaternion.identity; root.localScale = Vector3.one;
+    }
     private static void ApplyCanvasFrame(RemoteModule module, TownServiceFrame frame, Transform shared)
     {
         Transform host = module.Host.transform;

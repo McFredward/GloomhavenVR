@@ -475,6 +475,11 @@ internal static partial class TownServiceMirror
             ? Vector3.LerpUnclamped(motion.HandFrom, Position(entry.Pose), blend) : Position(entry.Pose));
         if (!continuousHand || entry.Hand <= 2)
             root.rotation = (entry.Hand > 2 ? shared.rotation : mount.rotation) * Rotation(entry.Pose);
+        // Binding's numeric Transform replays the original local pose before this absolute
+        // host pose. Baseline playback already normalizes that detached child; omitting the
+        // same step here applied backing rotation/crop scale twice and separated the plain
+        // item slab from its native readable face (Build612 multiplayer screenshots).
+        if (module.AddedCanvas != null && !authored.HasCanvasFrame) NormalizeDetachedRoot(module);
         if (continuousHand) return;
         Vector3 world = Vector3.Scale(mount.lossyScale, Scale(entry.Pose)); Vector3 parentScale = root.parent.lossyScale;
         root.localScale = new Vector3(world.x / parentScale.x, world.y / parentScale.y, world.z / parentScale.z);
