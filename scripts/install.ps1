@@ -107,9 +107,13 @@ if ($figureEntries.Count -eq 0 -or $figureEntries.Count -gt 4096) { Write-Error 
 $figureNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
 $figurePartNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
 foreach ($entry in $figureEntries) {
-    if ($entry.mesh -notmatch '^figure-[0-9a-f]{16}-(20|45|75)$') { Write-Error "Invalid figure mesh identity." }
+    if ($entry.mesh -notmatch '^figure-[0-9a-f]{16}-(5|20|45|75)$') { Write-Error "Invalid figure mesh identity." }
     $figureTier = $Matches[1]
-    if ($entry.bank -notmatch '^ghvr-figure-meshes-(20|45|75)-[0-9]{2}\.bundle$' -or $Matches[1] -ne $figureTier) {
+    # Build612 adds tier5 and mixed-tier distance parts, including NPC body meshes.
+    # Keep the same grammar as check-figure-mesh-bank.py; legacy numeric parts must
+    # still match the indexed mesh tier. Distance parts intentionally contain any tier.
+    if ($entry.bank -notmatch '^ghvr-figure-meshes-(5|20|45|75|distance)-[0-9]{2}\.bundle$' -or
+        ($Matches[1] -ne 'distance' -and $Matches[1] -ne $figureTier)) {
         Write-Error "Invalid figure mesh part filename or tier."
     }
     if (-not $figureNames.Add($entry.mesh)) { Write-Error "Duplicate figure mesh identity." }
