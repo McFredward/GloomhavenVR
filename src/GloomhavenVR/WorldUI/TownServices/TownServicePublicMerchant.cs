@@ -21,7 +21,7 @@ internal static class TownServicePublicMerchant
     private static float _opened, _retryAt;
     private static object? _character, _context;
     private static readonly HashSet<string> Failures = new(StringComparer.Ordinal);
-    private static bool _failed;
+    private static bool _failed, _observingPublic;
     internal static TownServiceCatalog? Catalog => _catalog;
     internal static Transform? StationRoot => _station?.Root;
     internal static uint Session => _session;
@@ -43,12 +43,12 @@ internal static class TownServicePublicMerchant
     {
         if (_catalog == null || !CanClaim || !MapRoomDriver.Active || StoryComposite.PointOfNoReturn) return;
         TownRackState? state = TownServiceMirror.PublicRack;
-        if (!TownServiceMirror.IsPublicAuthor && state != null)
+        if (!TownServiceMirror.IsPublicAuthor && TownServiceMirror.HasReadyPublicPresentation && state != null)
         {
             if (state.Layout != null) _catalog.AdoptStockLayout(state.Layout);
             _catalog.Drawers[0].Follow(state);
         }
-        TownServiceMirror.ClaimPublicCatalog(); _catalog.SetObserver(false);
+        TownServiceMirror.ClaimPublicCatalog(); _observingPublic = false; _catalog.SetObserver(false);
     }
     private static object? Context()
     {
@@ -88,13 +88,23 @@ internal static class TownServicePublicMerchant
                     () => MapRoomDriver.Active && WorldUIConfig.ImmersiveTownServices.Value && _session == session,
                     _mat.transform, persistent: true);
                 UiScrollFocus.PhysicalHoverProbe = ProbeScrollHover;
+                TownServiceMirror.CommitPublicVisibility = CommitPublicVisibility;
             }
             if (_station == null || _station.Root == null) { Reset(); return; }
-            if (!TownServiceMirror.IsPublicAuthor && TownServiceMirror.PublicRack is TownRackState remote)
+            bool publicAuthor = TownServiceMirror.IsPublicAuthor;
+            bool remoteReady = !publicAuthor && TownServiceMirror.HasReadyPublicPresentation;
+            if (remoteReady && TownServiceMirror.PublicRack is TownRackState remote)
             {
                 if (remote.Layout != null) _catalog.AdoptStockLayout(remote.Layout);
                 _catalog.Drawers[0].Follow(remote);
             }
+            // A manifest elects an author before that author's original page, holders,
+            // faces and card bodies have arrived. Keep the last verified picture until
+            // the receiver can replace it as one complete group. If we were already an
+            // observer, the mirror retains that previous remote group; if we were the
+            // author, keep this local cabinet. Neither case authorizes a stale publish.
+            if (publicAuthor) _observingPublic = false;
+            else if (remoteReady) _observingPublic = true;
             using (PerfMonitor.Scope("TownPublicStock.Catalog"))
             {
                 _catalog.SetVisibility(Mathf.Clamp01((Time.unscaledTime - _opened) / .22f),
@@ -104,10 +114,9 @@ internal static class TownServicePublicMerchant
                     allowInput: !StoryComposite.PointOfNoReturn);
                 _catalog.Tick(_station.Root.lossyScale.x);
             }
-            bool observer = !TownServiceMirror.IsPublicAuthor;
             using (PerfMonitor.Scope("TownPublicStock.Observer"))
             {
-                _catalog.SetObserver(observer);
+                _catalog.SetObserver(_observingPublic);
             }
             TownServiceCatalogCategory.TickLaser();
             _catalog.Drawers[0].TickStickScroll();
@@ -133,6 +142,25 @@ internal static class TownServicePublicMerchant
             _catalog?.Drawers[0].NoteScrollHover(hand);
     }
 
+    // Called by the mirror after it validates the candidate's complete original
+    // cabinet and before it reveals that group. Hide the retained local picture
+    // on this same render frame, regardless of presentation/receiver tick order.
+    private static void CommitPublicVisibility()
+    {
+        if (_catalog == null) return;
+        if (TownServiceMirror.IsPublicAuthor) _observingPublic = false;
+        else if (TownServiceMirror.HasReadyPublicPresentation)
+        {
+            if (TownServiceMirror.PublicRack is TownRackState remote)
+            {
+                if (remote.Layout != null) _catalog.AdoptStockLayout(remote.Layout);
+                _catalog.Drawers[0].Follow(remote);
+            }
+            _observingPublic = true;
+        }
+        _catalog.SetObserver(_observingPublic);
+    }
+
     internal static void LateTick()
     {
         if (_catalog == null || _station == null || TownServicePopulation.Frame == null) return;
@@ -143,9 +171,12 @@ internal static class TownServicePublicMerchant
     internal static void Reset()
     {
         if (UiScrollFocus.PhysicalHoverProbe == ProbeScrollHover) UiScrollFocus.PhysicalHoverProbe = null;
+        if (TownServiceMirror.CommitPublicVisibility == CommitPublicVisibility)
+            TownServiceMirror.CommitPublicVisibility = null;
         TownServiceSync.ResetPublic(); _catalog?.Dispose(); _catalog = null; _station = null;
         if (_mount != null) UnityEngine.Object.Destroy(_mount);
         if (_mat != null) UnityEngine.Object.Destroy(_mat);
         _mount = _mat = null; _character = _context = null;
+        _observingPublic = false;
     }
 }
