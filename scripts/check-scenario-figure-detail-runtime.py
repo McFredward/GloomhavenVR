@@ -27,6 +27,8 @@ def main():
     figures = (base / 'Perf/ScenarioFigureDetailBudget.cs').read_text()
     sources = {'Figures.cs': figures.replace('Time.unscaledTime', 'FigureClock.Now')}
     sources['Effects.cs'] = (base / 'Perf/ScenarioFigureEffects.cs').read_text()
+    sources['Distance.cs'] = (base / 'Perf/FigureDistanceLodPolicy.cs').read_text()
+    sources['Skinning.cs'] = (base / 'Perf/FigureSkinningBudget.cs').read_text()
     sources['MeshBank.cs'] = (base / 'Perf/ScenarioFigureMeshBank.cs').read_text()
     (run / 'source-hashes.json').write_text(json.dumps({'root': str(args.source_root.resolve()), 'sha256': {key: hashlib.sha256(text.encode()).hexdigest() for key, text in sources.items()}}, indent=2)+'\n')
     variants = [('production', '', '', '', '')]

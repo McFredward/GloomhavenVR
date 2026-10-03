@@ -102,10 +102,14 @@ require("sources['Effects.cs']" in runner and "'-nographics'" not in runner
         and "'keep-particle-solver-running'" in runner and "'skip-particle-mask'" in runner,
         'Complete ambient helper must run with real graphics and simulation/render negative controls')
 bank = (ROOT/'src/GloomhavenVR/Core/Perf/ScenarioFigureMeshBank.cs').read_text()
-for token in ('ScenarioFigureMeshBank.Prepare(players);', 'mesh.Apply(wanted);',
+for token in ('ScenarioFigureMeshBank.Prepare(players);', 'mesh.Apply(meshDetail);',
               'mesh.Restore();', 'actual != null ? actual.vertexCount : 0',
               'renderer.GetComponent<Cloth>() == null', 'Verified derivatives='):
     require(token in source, 'Offline original-body derivative boundary: '+token)
+for token in ('Distance.Select(wanted, bounds, head.transform.position,',
+              'HeldFigures.Owns(Actor) || NetHeldFigures.Owns(Actor)',
+              'skin.Apply(restore);', 'PerfConfig.MaximumSkinningBones > 0'):
+    require(token in source, 'Optional distance/skinning must retain cap, held and exact restoration boundaries: '+token)
 for token in ('if (current != (_applied ?? Original))', 'Resolve(Original, detail) ?? Original',
               'detail >= 100', 'AssetBundle.LoadFromFile(path)',
               'SourceKeys.Count >= 2048', 'Missing.Count < 32'):

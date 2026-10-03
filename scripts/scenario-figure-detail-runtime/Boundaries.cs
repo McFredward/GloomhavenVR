@@ -80,8 +80,11 @@ namespace GloomhavenVR.Core
         internal static bool IsRunning=true;
         internal static HarmonyLib.TestHarmony Harmony=new();
     }
+    internal static class VRCameraPolicy { internal static Camera? AllowedHead => null; }
     internal static class PerfConfig
     {
+        internal static bool FigureDistanceLodEnabled => false;
+        internal static int MaximumSkinningBones => 0;
         internal static int PlayerFigureDetailPercent=100,EnemyFigureDetailPercent=100,FigureEffectsDensityPercent=100;
         internal static bool ThrowOnRead;
         private static bool ClothEnabled=true;
