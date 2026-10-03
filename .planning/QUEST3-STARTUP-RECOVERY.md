@@ -163,3 +163,83 @@ python3 tests/quest-recovery/run_unity_bindings.py \
 This fixture establishes the SDK remap mechanism and fail-closed controls; it
 does not substitute for importing/building the complete original startup
 closure or testing its original code on Quest hardware.
+
+## Generated project case migration
+
+The real integration import reported that Unity ignores recovered paths which
+differ only in casing. The raw v4 stage has 33 collision groups: the
+`Resources/GenerateCompendium` and `Resources/generatecompendium` directories,
+four corresponding prefab/meta pairs, and twelve Sprite/meta pairs. The
+Compendium copies have distinct GUIDs and distinct sprite, font, material and
+audio-profile references. `Sprite/Brute.asset` and `Sprite/brute.asset` also
+have different original textures and geometry. They must remain separate
+objects; neither matching names nor normalized text justifies deduplication.
+
+The upper Compendium directory is associated by exact container path and GUID
+with the original catalog's `BundledAssetProvider` entries. The lower directory
+is the separately recovered, unaddressed Resources copy. Retain that lower
+directory at its existing Resources key and move the catalog-associated upper
+variant outside every Resources folder. No direct Compendium Resources.Load
+string was found in the provided decompiled runtime source; existing serialized
+references remain exact through their unchanged GUIDs. Ambiguous Resources
+collisions or directories mixing addressed and unaddressed content reject
+before mutation, instead of guessing which original key should survive.
+
+After validating the immutable startup source receipt and overlaying the Quest
+template, **before the first Unity import**, run:
+
+```sh
+python3 tools/quest-recovery/case_paths.py --project /private/generated/project
+```
+
+The tool requires `Assets/Quest` to reject raw recovery exports/stages. It
+relocates distinct variants under deterministic
+`Assets/QuestOriginalStartup/CaseVariants/case_<path hash>/` paths, retaining
+all original asset bytes, metadata bytes, GUIDs and callback pointers. Folder
+metadata moves with its owner. Only owned `startup-addressables.json` native
+`assetPath` fields and `script-bindings.json` `assetPaths` change. Original
+Addressables keys, labels, `originalAssetPath`, `recoveredGuid` and the input
+recovery receipt remain unchanged. `QuestStartupEvidence/case-path-migration.json`
+records path mappings, original/new file paths, hashes, GUIDs and manifest
+hashes; `fullGameReady` stays false. The raw receipt still describes immutable
+source input, not the transformed generated project.
+
+The actual private v4-copy run at
+`/home/claw/quest3-local/recovery/startup-audit/case-migration-real-vj5fmbid`
+retained **17,890 original input files byte-for-byte**, excluding the two owned
+path manifests. Thirteen units / 32 asset and metadata files moved; zero case
+collisions remain. Original Addressables keys, labels and GUIDs compare equal,
+the raw receipt compares equal, and an identical repeat retains the first
+receipt. Eleven focused controls cover the exact Resources folder defect,
+distinct sprite assets, metadata/folder movement, callbacks, determinism,
+idempotence and rejection of ambiguous keys, wrong GUIDs, orphan/missing
+metadata, escaping paths, symlinks and occupied/case-conflicting destinations.
+All 35 Python recovery checks pass. No Unity process was invoked for this
+change; the actual integration import must verify AssetDatabase availability.
+
+## Apparance startup audit
+
+None of the four selected scenes serializes ApparanceEntity, ApparanceLayer,
+ProceduralStyle or Choreographer. Unified's active `Apparance Engine` object
+contains enabled ApparanceEngine, ApparanceResources, ProceduralTileTracker,
+ApparanceAbout and ApparanceResourceListLoader components. Loader.Awake only
+gets the existing engine component and writes its public PrefabInstancing bool.
+Tracker.Start computes spacing from the original hex prefab's renderer bounds;
+it does not instantiate an entity or generate geometry. All ten actual
+ObjectPool startup prefabs were audited and contain no Apparance SDK entity.
+MainMenuUIManager waits for PersistentData.IsDataLoaded; SceneController waits
+for MainMenuUIManager.Initialised, rather than an Apparance generation gate.
+
+However, suppressing ApparanceEngine's Unity lifecycle alone is insufficient:
+SceneController.Start calls ClearAfterSceneUnloading at source line 579, which
+calls ApparanceResourceListLoader.UnloadAll at line 2737. After genuine managed
+asset release/clearing, that method calls ApparanceEngine.RefreshResources.
+It unconditionally calls Apparance.Net.Engine.AssetCacheClear, which invokes
+native ApparanceUpdateAsset even without an initialized engine or Instance.
+The startup diagnostic must narrowly guard this refresh call while preserving
+the actual managed cleanup. No PCG readiness or generated result may be
+fabricated. Gameplay entry/ProcGen stays unavailable; a full port must resolve
+the native generation requirement separately. Metadata evidence is private
+`startup-audit/apparance-scene-components.json` and
+`apparance-startup-pools.json`; exact SDK decompiles remain private in
+`apparance-source/`. These are source facts, not Android runtime evidence.
