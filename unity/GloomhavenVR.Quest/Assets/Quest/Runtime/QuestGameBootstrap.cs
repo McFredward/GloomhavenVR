@@ -17,8 +17,8 @@ namespace GloomhavenVR.Quest
         [Serializable] sealed class StartupState
         {
             public int schema = 1, modBuild, originalErrors, loadedScenes;
-            public string inputKey, state, failureDetail, lastScene, scope = "original-startup-diagnostic";
-            public bool contentReady, addressablesReady, originalBootstrapStarted, modLifecycleAvailable, fullGameReady, eosAuthorised, proceduralRuntimeAvailable, voiceNativeAvailable, passthroughActive, focused, paused;
+            public string inputKey, state, failureDetail, inviteKeyboardFailure, lastScene, scope = "original-startup-diagnostic";
+            public bool contentReady, addressablesReady, originalBootstrapStarted, modLifecycleAvailable, fullGameReady, eosAuthorised, proceduralRuntimeAvailable, voiceNativeAvailable, passthroughActive, inviteKeyboardBound, inviteKeyboardVisible, focused, paused;
         }
         public string originalScene = "Bootstrap";
         public bool ContentReady { get; private set; }
@@ -131,10 +131,12 @@ namespace GloomhavenVR.Quest
         void SaveState()
         {
             if (logPath == null) return;
+            QuestGameKeyboard keyboard = GetComponent<QuestGameKeyboard>();
             var state = new StartupState { modBuild = build != null ? build.modBuild : 0, inputKey = build != null ? build.inputKey : null, state = State, failureDetail = FailureDetail,
                 contentReady = ContentReady, addressablesReady = addressables != null && addressables.Ready, originalBootstrapStarted = OriginalBootstrapStarted,
                 modLifecycleAvailable = ModLifecycleAvailable, fullGameReady = false, eosAuthorised = false, originalErrors = Math.Min(failures, 24),
                 passthroughActive = QuestPassthroughFeature.Active,
+                inviteKeyboardBound = keyboard != null && keyboard.Bound, inviteKeyboardVisible = keyboard != null && keyboard.Visible, inviteKeyboardFailure = keyboard != null ? keyboard.Failure : null,
                 loadedScenes = loadedScenes, lastScene = lastScene, focused = focused, paused = paused };
             string path = Path.Combine(Application.persistentDataPath, "quest-startup-state.json"), temp = path + ".tmp";
             try

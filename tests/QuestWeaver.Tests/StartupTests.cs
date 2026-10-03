@@ -110,6 +110,18 @@ internal static class StartupTests
                 Instruction originalRefresh = originalLoader.Methods.Single(m => m.Name == "UnloadAll").Body.Instructions.Single(i => i.Operand is MethodReference c && c.DeclaringType.FullName == "ApparanceEngine" && c.Name == "RefreshResources");
                 originalRefresh.OpCode = OpCodes.Pop; originalRefresh.Operand = null;
                 check(ProtectedTypes.Fingerprint(loader) == ProtectedTypes.Fingerprint(originalLoader), "Resource loader changed beyond the one scoped native-refresh call.");
+                foreach (string nativeKeyboardType in new[] { "UIKeyboard", "Script.GUI.Controller.ControllerInputKeyboard", "Script.GUI.Controller.Keyboard.UIKeyboardKey" })
+                    check(ProtectedTypes.Fingerprint(emitted.MainModule.GetType(nativeKeyboardType)) == ProtectedTypes.Fingerprint(original.MainModule.GetType(nativeKeyboardType)),
+                        "Original keyboard implementation was forked or changed: " + nativeKeyboardType);
+                TypeDefinition keyboardProcessor = emitted.MainModule.GetType("Script.GUI.Controller.ControllerInputKeyboard");
+                MethodDefinition processor = keyboardProcessor.Methods.Single(m => m.Name == "ProcessKeyCode");
+                check(processor.Body.Instructions.Any(i => i.Operand is MethodReference c && c.DeclaringType.FullName == "TMPro.TMP_InputField" && c.Name == "ProcessEvent")
+                    && processor.Body.Instructions.Any(i => i.Operand is MethodReference c && c.DeclaringType.FullName == "TMPro.TMP_InputField" && c.Name == "ForceLabelUpdate"),
+                    "Original keyboard no longer routes native KeyCodes through field validation/labels.");
+                check(keyboardProcessor.Fields.Single(f => f.Name == "m_KeyboardInputField").FieldType.FullName == "TMPro.TMP_InputField"
+                    && keyboardProcessor.Fields.Single(f => f.Name == "keyboard").FieldType.FullName == "UIKeyboard"
+                    && emitted.MainModule.GetType("GLOOM.MainMenu.UIMultiplayerJoinSessionWindow").Fields.Single(f => f.Name == "inviteCodeInput").FieldType.FullName == "TMPro.TMP_InputField",
+                    "Exact invite field/keyboard metadata ABI changed.");
             }
             using (var emitted = AssemblyDefinition.ReadAssembly(Path.Combine(output, "SM.Consoles.dll")))
             {

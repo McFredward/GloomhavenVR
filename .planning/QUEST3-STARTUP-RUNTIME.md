@@ -153,12 +153,30 @@ path has no campaign or mod-lifecycle prerequisite, and the diagnostic adds no
 second client. Android native dependencies, session-code keyboard entry and actual
 peer connection still require device evidence.
 
+The recovered desktop MainMenu serializes keyboardBehaviour as null and the
+actual invite field with HideSoftKeyboard=true. Its original UIKeyboard and
+ControllerInputKeyboard share an inactive popup GameObject; in desktop mode the
+controller component's OnEnable would immediately hide that object. The temporary
+QuestGameKeyboard bridge opens only the exact serialized invite field's keyboard,
+disabling only its controller component before Show. Unity2021 documents that
+Awake still runs for a disabled component when its GameObject becomes active,
+so the original Awake key-event registration remains in effect.
+See [Unity MonoBehaviour.Awake](https://docs.unity3d.com/2021.3/Documentation/ScriptReference/MonoBehaviour.Awake.html).
+Original KeyButtons emit KeyCodes through ControllerInputKeyboard.ProcessKeyCode
+and TMP_InputField.ProcessEvent/ForceLabelUpdate; validation and onValueChanged
+remain original. Before an original key click only the caret moves to the text
+end, avoiding focus/select-all replacement. Closing restores the original
+component flag. The native keyboard/control/key classes are semantically unchanged;
+the bridge adds no characters, networking calls or alternate Join callbacks.
+Bound/visible/bounded failure state is collected; actual Unity key clicks and
+session join still require hardware evidence.
+
 Focused .NET suite executes real original platform getters/initialization from
 generated GH.Runtime, actual original config value persistence and reload, logger
 and path APIs. Semantic fingerprints compare all untouched types after output
 serialization and verify seven protected types. ZIP corruption, build mismatch,
 traversal, extra entries, repeated conversion and unknown BepInEx API are negative
-controls. The focused Release run passed 94 assertions, including actual bounded
+controls. The focused Release run passed 99 assertions, including actual bounded
 log persistence/rotation/deduplication and Unicode byte/record caps. These are managed-boundary
 proofs, not an actual Unity menu/device test. Without private owned-game inputs,
 CI explicitly skips those actual-boundary checks and still runs portable content

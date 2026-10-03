@@ -31,6 +31,7 @@ namespace GloomhavenVR.Quest
         readonly List<AudioListener> originalListeners = new List<AudioListener>();
         readonly HashSet<Camera> reportedCameras = new HashSet<Camera>();
         QuestGamePointer pointer;
+        QuestGameKeyboard keyboard;
         Text tooltip;
         Text startupStatus;
         QuestGameBootstrap startup;
@@ -73,6 +74,7 @@ namespace GloomhavenVR.Quest
             var labelRect = (RectTransform)label.transform; labelRect.anchorMin = Vector2.zero; labelRect.anchorMax = Vector2.one; labelRect.offsetMin = labelRect.offsetMax = Vector2.zero;
             tooltip = label.GetComponent<Text>(); tooltip.font = Resources.GetBuiltinResource<Font>("Arial.ttf"); tooltip.fontSize = 28; tooltip.alignment = TextAnchor.MiddleCenter; tooltip.color = Color.white; tooltip.raycastTarget = false;
             startup = GetComponent<QuestGameBootstrap>();
+            keyboard = gameObject.GetComponent<QuestGameKeyboard>() ?? gameObject.AddComponent<QuestGameKeyboard>();
             var status = new GameObject("Quest original-startup status", typeof(Canvas)); status.transform.SetParent(transform, false);
             var statusCanvas = status.GetComponent<Canvas>(); statusCanvas.renderMode = RenderMode.WorldSpace; statusCanvas.worldCamera = view; statusCanvas.sortingOrder = 32760;
             var statusRect = (RectTransform)status.transform; statusRect.sizeDelta = new Vector2(1000, 400); statusRect.localScale = Vector3.one * .001f; statusRect.position = new Vector3(0, 1.5f, 1.7f);
@@ -310,6 +312,8 @@ namespace GloomhavenVR.Quest
             }
             tooltip.text = key != null ? QuestText.Get(key, Application.systemLanguage == SystemLanguage.German) : "";
         }
+        internal void BeforeOriginalClick(GameObject target) { if (keyboard != null) keyboard.BeforeOriginalClick(target); }
+        internal void AfterOriginalClick(GameObject target) { if (keyboard != null) keyboard.AfterOriginalClick(target); }
         void OnApplicationFocus(bool value) { focused = value; if (!value) { navigation.Suspend(); mrButton.Reset(); } }
         void OnApplicationPause(bool value) { paused = value; if (value) { navigation.Suspend(); mrButton.Reset(); } }
         void OnDestroy() { SceneManager.sceneLoaded -= SceneLoaded; Camera.onPreCull -= BeforeCameraRender; head.Dispose(); aim.Dispose(); leftGrip.Dispose(); rightGrip.Dispose(); trigger.Dispose(); leftStick.Dispose(); rightStick.Dispose(); primary.Dispose(); if (markerMaterial != null) Destroy(markerMaterial); }
@@ -370,7 +374,12 @@ namespace GloomhavenVR.Quest
             {
                 ExecuteEvents.Execute(data.pointerPress, data, ExecuteEvents.pointerUpHandler);
                 GameObject target = ExecuteEvents.GetEventHandler<IPointerClickHandler>(data.pointerEnter);
-                if (click && data.eligibleForClick && !data.dragging && data.pointerPress == target) ExecuteEvents.Execute(data.pointerPress, data, ExecuteEvents.pointerClickHandler);
+                if (click && data.eligibleForClick && !data.dragging && data.pointerPress == target)
+                {
+                    if (owner != null) owner.BeforeOriginalClick(target);
+                    ExecuteEvents.Execute(data.pointerPress, data, ExecuteEvents.pointerClickHandler);
+                    if (owner != null) owner.AfterOriginalClick(target);
+                }
             }
             if (data.dragging && data.pointerDrag != null) ExecuteEvents.Execute(data.pointerDrag, data, ExecuteEvents.endDragHandler);
             data.pointerPress = data.rawPointerPress = data.pointerDrag = null; data.eligibleForClick = data.dragging = false;
