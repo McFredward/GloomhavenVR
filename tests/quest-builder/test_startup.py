@@ -191,6 +191,19 @@ class StartupPackagingTests(unittest.TestCase):
 
 
 class RestoredBepInExTests(unittest.TestCase):
+    def test_global_debug_wrapper_is_hidden_from_package_compilers_only(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            plugin = root / "Assets/Plugins/GH.Runtime.FirstPass.dll"
+            plugin.parent.mkdir(parents=True)
+            plugin.write_bytes(b"original wrapper fixture")
+            meta = Path(str(plugin) + ".meta")
+            original = "guid: original-script-id\nPluginImporter:\n  isExplicitlyReferenced: 0\n  platformData:\n    enabled: 1\n"
+            meta.write_text(original)
+            builder.isolate_original_compiler_namespace(root)
+            self.assertEqual(meta.read_text(), original.replace("isExplicitlyReferenced: 0", "isExplicitlyReferenced: 1"))
+            self.assertEqual(plugin.read_bytes(), b"original wrapper fixture")
+
     def test_only_real_restored_runtime_is_selected(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

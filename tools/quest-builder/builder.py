@@ -347,6 +347,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             # Before the first Unity domain load, exclude duplicate package DLLs.
             # Raw recovery and immutable original inputs retain their GUIDs/bytes.
             exclude_recovered_package_plugins(project)
+            isolate_original_compiler_namespace(project)
         manifest = project / "Assets/StreamingAssets/Quest/input-manifest.json"
         write_json(manifest, inputs)
         settings = project / "QuestBuilderSettings.json"
@@ -481,6 +482,22 @@ def weave(args, inputs: dict, output: Path, source: Path, game: Path, project: P
         Stages(output).run("standalone", key, adapt_startup)
         deploy_woven_assemblies(compatibility, game, project, link_name="Standalone/link.xml")
         shutil.copyfile(compatibility_report, project / "Assets/Quest/Resources/quest-standalone-report.json")
+
+
+def isolate_original_compiler_namespace(project: Path) -> None:
+    """Keep the original global Debug wrapper out of unrelated package compilation.
+
+    Auto Reference only controls C# compiler references. The recovered plugin's
+    platform availability, GUID and original runtime dependencies are retained.
+    """
+    matches = list((project / "Assets").rglob("GH.Runtime.FirstPass.dll.meta"))
+    if len(matches) != 1:
+        raise BuildError("Original startup needs one recovered FirstPass plugin importer.")
+    metadata = matches[0].read_text(encoding="utf-8")
+    metadata, count = re.subn(r"(?m)^([ \t]*isExplicitlyReferenced:)[ \t]*[01][ \t]*$", r"\1 1", metadata)
+    if count != 1:
+        raise BuildError("The recovered FirstPass plugin has no unique compiler-reference setting.")
+    matches[0].write_text(metadata, encoding="utf-8")
 
 
 def resolved_bepinex_runtime(assets: Path) -> Path:
