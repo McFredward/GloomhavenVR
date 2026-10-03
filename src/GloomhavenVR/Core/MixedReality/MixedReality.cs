@@ -11,6 +11,9 @@ namespace GloomhavenVR.Core;
 /// chroma-key it and composite the game over the real room — the diorama/table geometry
 /// keeps rendering, only the sky/background becomes the flat key color the compositor
 /// punches out.
+/// On the explicitly configured Quest standalone player, the same mode instead requests
+/// Unity's existing native passthrough underlay and clears the sky to transparent black.
+/// UI backing, scene geometry and element treatment keep their existing owners.
 ///
 /// HOW THE SKYBOX IS DISABLED WHILE THE DIORAMA STAYS VISIBLE
 /// ----------------------------------------------------------
@@ -432,7 +435,8 @@ internal static partial class MixedReality
     /// binding stays owned by the rig path.
     /// </summary>
     internal static bool BackingsWanted =>
-        _file != null && Enabled.Value && VRSession.IsRunning;
+        _file != null && Enabled.Value && VRSession.IsRunning
+        && (!QuestStandalonePlatform.Enabled || QuestStandalonePlatform.PassthroughActive);
 
     /// <summary>
     /// No-op (kept for its ModalFallback call sites). The floated-menu-vs-sky occlusion is now fixed
@@ -604,6 +608,8 @@ internal static partial class MixedReality
         ElementMood.Tick();
 
         bool want = Enabled.Value && VRSession.IsRunning;
+        if (QuestStandalonePlatform.Enabled)
+            want = QuestStandalonePlatform.SetPassthrough(want) && want;
         if (!want)
         {
             if (_active)
@@ -633,8 +639,10 @@ internal static partial class MixedReality
         // (restores the renderer/material first, so HideSkyGeometry disables a clean renderer).
         SkyBackdrop.Tick(skyOwnedElsewhere: true);
 
-        Color key = KeyColor.Value;
-        key.a = 1f; // the sky clear must be fully opaque for a clean chroma key
+        // Desktop keeps its exact chroma-key workflow. Quest composites the real
+        // room via the already active Unity session's native underlay, so the
+        // head/sky cameras must leave alpha zero rather than render a greenscreen.
+        Color key = QuestStandalonePlatform.MixedRealityClearColor(KeyColor.Value);
 
         // 1) Kill the global skybox (ambient/reflection contributions + any Skybox clear).
         if (!_skyboxSaved)
@@ -684,7 +692,10 @@ internal static partial class MixedReality
         {
             _loggedActive = true;
             _loggedColor = key;
-            VRLog.Info("Core", $"Mixed reality ON — skybox disabled, sky/background keyed to " +
+            if (QuestStandalonePlatform.Enabled)
+                VRLog.Info("Core", "Quest mixed reality ON — native passthrough active, transparent sky clear; existing UI backings and scenery rules retained.");
+            else
+                VRLog.Info("Core", $"Mixed reality ON — skybox disabled, sky/background keyed to " +
                                $"{KeyColorName} (RGBA {key.r:0.##},{key.g:0.##},{key.b:0.##},{key.a:0.##}); " +
                                $"diorama geometry stays visible.");
         }
@@ -2429,6 +2440,8 @@ internal static partial class MixedReality
     /// <summary>Restore every recorded camera + the skybox material (MR off / VR stop / hot reload).</summary>
     internal static void RestoreAll()
     {
+        if (QuestStandalonePlatform.Enabled)
+            QuestStandalonePlatform.SetPassthrough(false);
         int restored = 0;
         foreach (KeyValuePair<Camera, (CameraClearFlags Flags, Color Bg)> pair in CamOriginals)
         {
