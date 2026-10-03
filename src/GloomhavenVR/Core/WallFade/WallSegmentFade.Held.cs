@@ -190,6 +190,7 @@ internal static partial class WallSegmentFade
             if (!(p.Driven || p.SwapCopies != null || IsHeldHidden(r) || r.HasPropertyBlock()))
                 return false;
             RestoreProp(p, null, HeldRestoreReason);
+            ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
             r.SetPropertyBlock(null);
             _heldHandedBack++;
             _heldSessionHandedBack++;
@@ -239,7 +240,7 @@ internal static partial class WallSegmentFade
                 if (!isProp)
                     return;
             }
-            Bounds b = r.bounds;
+            Bounds b = WallCommitGeometryReads.Read(r);
             if (!NearestAnchoredFloorY(b.min.y, out float floorY))
                 return; // no anchored room yet - undecidable, and never guessed
             float foot = b.min.y - floorY;

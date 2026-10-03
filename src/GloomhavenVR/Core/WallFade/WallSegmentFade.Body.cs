@@ -126,7 +126,7 @@ internal static partial class WallSegmentFade
                 if (!_mountedTouched.TryGetValue(r, out MountedProp? prop))
                     prop = ClassifyProp(r);
                 seg.Body.Add(prop);
-                Bounds b = r.bounds;
+                Bounds b = WallCommitGeometryReads.Read(r);
                 if (!seg.HasBounds)
                 {
                     seg.Bounds = b;

@@ -97,6 +97,7 @@ internal static partial class WallSegmentFade
             // ever claim we did.
             if (HeldNeverFades(r))
                 return;
+            ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
             if (r.enabled)
                 r.enabled = false;
             _hidByEnable.Add(r);
@@ -116,6 +117,7 @@ internal static partial class WallSegmentFade
                 _declinedForeignEnables++;
                 return false;
             }
+            ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
             r.enabled = true;
             return true;
         }

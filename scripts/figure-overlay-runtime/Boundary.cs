@@ -28,6 +28,13 @@ namespace GloomhavenVR.Cards
 }
 namespace GloomhavenVR.Core
 {
+    // Profiling is an inert external boundary; actual overlay renderer behavior runs below.
+    internal static class PerfMonitor
+    {
+        internal readonly struct Marker : System.IDisposable { public void Dispose() { } }
+        internal static Marker Scope(string label) => new();
+    }
+    internal static class ScenarioEnvironmentBudget { internal static void BeforeNativeRendererWrite(Renderer renderer) { } }
     internal static class VRLayers { internal const int ModLayer = 26; internal const string ModOwnedNamePrefix = "VR", ModOwnedQualifiedPrefix = "GloomhavenVR."; }
     internal static class VRLog { internal static void Note(string area, string text) { } internal static void Alert(string area, string text) { } }
 }

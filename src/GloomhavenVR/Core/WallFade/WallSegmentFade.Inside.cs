@@ -1044,7 +1044,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private string LeftoverExemptionNote(Renderer r)
         {
-            Bounds b = r.bounds;
+            Bounds b = WallCommitGeometryReads.Read(r);
             if (IsWaterProtected(b))
                 return " [EXEMPT: water feature, user ruling 2026-08-09 — allowed to stay]";
             if (IsArchProtected(b, r.name))
@@ -1196,7 +1196,7 @@ internal static partial class WallSegmentFade
         private string ClassifyLeftover(Renderer r, int room, out int blockedSamples,
             out float foot, out float top, out int visibleSamples, out string obstructionNote)
         {
-            Bounds b = r.bounds;
+            Bounds b = WallCommitGeometryReads.Read(r);
             blockedSamples = 0;
             visibleSamples = 0;
             foot = 0f;
@@ -1314,7 +1314,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private bool IsWallGeneratedMember(Renderer r, float floorY)
         {
-            Bounds b = r.bounds;
+            Bounds b = WallCommitGeometryReads.Read(r);
             if (b.max.y <= floorY + GroundExclusionHeightWU)
                 return false;               // ground band — the wall never owned it
             if (IsWaterProtected(b))
@@ -1357,7 +1357,7 @@ internal static partial class WallSegmentFade
             int total = _live.RoomSampleCount[room];
             if (total <= 0)
                 return -1;
-            Bounds b = r.bounds;
+            Bounds b = WallCommitGeometryReads.Read(r);
             float thicknessEps = Mathf.Clamp(0.5f * Mathf.Min(b.size.x, b.size.z),
                                              BlockEpsMinWorld, BlockEpsMaxWorld);
             int start = _live.RoomSampleStart[room];
@@ -2341,7 +2341,7 @@ internal static partial class WallSegmentFade
                 MeshRenderer r = list[i];
                 if (r == null)
                     continue;
-                Bounds b = r.bounds;
+                Bounds b = WallCommitGeometryReads.Read(r);
                 if (IsStandingPiece(b))
                 {
                     admitted++;

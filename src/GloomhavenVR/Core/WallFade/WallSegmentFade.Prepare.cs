@@ -1179,12 +1179,12 @@ internal static partial class WallSegmentFade
                     }
                     if (!has)
                     {
-                        live = r.bounds;
+                        live = WallCommitGeometryReads.Read(r);
                         has = true;
                     }
                     else
                     {
-                        live.Encapsulate(r.bounds);
+                        live.Encapsulate(WallCommitGeometryReads.Read(r));
                     }
                 }
                 if (!has)
@@ -1218,12 +1218,12 @@ internal static partial class WallSegmentFade
                     return false;
                 if (!has)
                 {
-                    live = r.bounds;
+                    live = WallCommitGeometryReads.Read(r);
                     has = true;
                 }
                 else
                 {
-                    live.Encapsulate(r.bounds);
+                    live.Encapsulate(WallCommitGeometryReads.Read(r));
                 }
             }
             if (!has)

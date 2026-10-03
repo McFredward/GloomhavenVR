@@ -70,6 +70,20 @@ internal static partial class WallSegmentFade
                 || SelectionArrayOwns(particles.ParticleHover, system);
         }
 
+        /// <summary>Only particles under an actual active native actor are outside every
+        /// wall-table consumer. FootstepSound spawns its native prefab under m_FeetArray;
+        /// detached projectile/world particles are deliberately not admitted. A live query
+        /// preserves pool reparenting. Water still contributes protection rects. This is a
+        /// signature exemption only: original effects, callbacks and visibility are untouched.
+        /// </summary>
+        private static bool IsActorParticleSignatureExempt(Renderer renderer, bool water)
+        {
+            if (!(renderer is ParticleSystemRenderer) || water
+                || renderer.GetComponent<ParticleSystem>() == null) return false;
+            ActorBehaviour? owner = renderer.GetComponentInParent<ActorBehaviour>(true);
+            return owner != null && owner.gameObject.activeInHierarchy;
+        }
+
         private static bool SelectionArrayOwns(ParticleSystem[]? systems, ParticleSystem system)
         {
             if (systems == null) return false;

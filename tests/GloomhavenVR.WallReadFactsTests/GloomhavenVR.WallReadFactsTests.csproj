@@ -13,6 +13,7 @@
     <DriverSource Condition="'$(DriverSource)' == ''">../../src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs</DriverSource>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../src/GloomhavenVR/Core/WallFade/WallCommitGeometryReads.cs" />
     <Compile Include="$(PreparedReadsSource)" Link="Production/WallSegmentFade.PreparedReads.cs" />
     <Compile Include="$(BudgetMaskSource)" Link="Production/WallSegmentFade.BudgetMask.cs" />
     <Compile Include="../../src/GloomhavenVR/Core/ModVisualOwnership.cs" Link="Production/ModVisualOwnership.cs" />

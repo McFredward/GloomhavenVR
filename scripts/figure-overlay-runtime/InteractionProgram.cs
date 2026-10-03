@@ -248,6 +248,45 @@ public static class InteractionProgram
         Object.DestroyImmediate(selectorRoot);selectionRow=selectionOwnership.Survey(rootSelection);
         Check(selectionRow.Exempt&&selectionRow.Folded==0&&selectionRow.Scene==0,
             "destroyed native root selector keeps its exact signature exemption");
+        // Same native FootstepSound topology: the returned pool instance is parented to an
+        // animated foot beneath an actual ActorBehaviour. Exercise true Unity inactive/null
+        // semantics and reparenting instead of admitting effects by name or Animator alone.
+        var footActor=new GameObject("native foot owner");footActor.AddComponent<ActorBehaviour>();
+        var foot=new GameObject("native animated foot");foot.transform.SetParent(footActor.transform,false);
+        var pfx=new GameObject("pooled native footsteps");pfx.transform.SetParent(foot.transform,false);
+        var particle=pfx.AddComponent<ParticleSystem>().GetComponent<ParticleSystemRenderer>();
+        var particleOwnership=new WallSegmentFade.OwnershipProbe();
+        var particleRow=particleOwnership.Survey(particle);
+        Check(!particleRow.Mod&&particleRow.Exempt&&particleRow.Scene==0&&particleRow.Narrow==0&&particleRow.Figures==0,
+            "native actor particles keep all wall signature halves unchanged");
+        pfx.SetActive(false);particleRow=particleOwnership.Survey(particle);
+        Check(particleRow.Exempt&&particleRow.Scene==0,"native pooled child activation never rebuilds its unrelated wall table");
+        pfx.transform.SetParent(null,false);particleRow=particleOwnership.Survey(particle);
+        Check(!particleRow.Exempt&&particleRow.Folded==1,"detached native particles restore conservative wall membership");
+        pfx.transform.SetParent(foot.transform,false);footActor.SetActive(false);particleRow=particleOwnership.Survey(particle);
+        Check(!particleRow.Exempt,"inactive native actor never grants new particle signature exemptions");
+        footActor.SetActive(true);particle.sharedMaterial=waterMaterial;particleRow=new WallSegmentFade.OwnershipProbe().Survey(particle);
+        Check(!particleRow.Exempt&&particleRow.WaterCount==1,"native actor water particles retain protection rects");
+        particle.sharedMaterial=plain;particleOwnership=new WallSegmentFade.OwnershipProbe();particleOwnership.Survey(particle);
+        Object.DestroyImmediate(pfx);particleRow=particleOwnership.Survey(particle);
+        Check(particleRow.Exempt&&particleRow.Scene==0,"destroyed native actor particle retains the last live exact exemption");
+        Object.DestroyImmediate(footActor);
+        Renderer geometry=Surface("native wall geometry read",quad,plain);
+        WallCommitGeometryReads.Begin(true);
+        Bounds exact=geometry.bounds;
+        for(int repeat=0;repeat<500;repeat++)
+            Check(WallCommitGeometryReads.Read(geometry)==exact,"synchronous wall geometry reads retain exact native mesh bounds");
+        Check(WallCommitGeometryReads.NativeReads==1&&WallCommitGeometryReads.ReusedReads==499,
+            "five hundred repeated commit reads cross the native bounds boundary once");
+        WallCommitGeometryReads.End();
+        WallCommitGeometryReads.Begin(false);
+        for(int i=0;i<20;i++) WallCommitGeometryReads.Read(geometry);
+        Check(WallCommitGeometryReads.NativeReads==20 && WallCommitGeometryReads.ReusedReads==0 && WallCommitGeometryReads.RetainedCount==0,
+            "disabled commit cache reports actual native reads without retaining geometry");
+        WallCommitGeometryReads.End();geometry.transform.position=Vector3.up*3;
+        Check(WallCommitGeometryReads.RetainedCount==0&&WallCommitGeometryReads.Read(geometry)==geometry.bounds,
+            "publication close releases native geometry and immediately observes new frame movement");
+        Object.DestroyImmediate(geometry.gameObject);
         var dormantRoot=new GameObject("native actor with dormant surface");
         var dormant=Surface("dormant native surface",quad,ringMaterial);dormant.transform.SetParent(dormantRoot.transform,false);dormant.gameObject.SetActive(false);
         var visible=Surface("visible native surface",quad,plain);visible.transform.SetParent(dormantRoot.transform,false);

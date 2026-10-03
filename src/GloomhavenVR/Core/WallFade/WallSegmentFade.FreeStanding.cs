@@ -291,7 +291,7 @@ internal static partial class WallSegmentFade
                     continue; // the GAME disabled it — not ours to manage
                 if (_freeListed.Contains(r))
                     continue;
-                Bounds b = r.bounds;
+                Bounds b = WallCommitGeometryReads.Read(r);
                 if ((b.min.y < airborneBar && b.max.y < topBar) || !IsArchitectureScale(b.size, 0f))
                     continue;
                 // ModBuild 413: anything under a ProceduralDoorway belongs to the doorway pass —
@@ -678,7 +678,7 @@ internal static partial class WallSegmentFade
                 {
                     if (r == null)
                         continue;
-                    Bounds b = r.bounds;
+                    Bounds b = WallCommitGeometryReads.Read(r);
                     if (b.center.x < minX || b.center.x > maxX || b.center.z < minZ || b.center.z > maxZ)
                         continue;
                     if (b.max.y <= band)
@@ -698,9 +698,12 @@ internal static partial class WallSegmentFade
                         continue; // a standing prop keeps its protection; nothing else refuses here
                     g.Renderers.Remove(r);
                     if (g.HasBlock && unit.Fade <= 0f)
-                        r.SetPropertyBlock(null); // the group had it faded, the unit is solid: restore
+                    {
+                        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
+                        r.SetPropertyBlock(null);
+                    } // the group had it faded, the unit is solid: restore
                     unit.Renderers.Add(r);
-                    unit.Bounds.Encapsulate(r.bounds);
+                    unit.Bounds.Encapsulate(WallCommitGeometryReads.Read(r));
                     pulled++;
                 }
                 // The group's decision box shrinks to what it still owns.
@@ -709,15 +712,15 @@ internal static partial class WallSegmentFade
                 {
                     if (r == null)
                         continue;
-                    if (!g.HasBounds) { g.Bounds = r.bounds; g.HasBounds = true; }
-                    else g.Bounds.Encapsulate(r.bounds);
+                    if (!g.HasBounds) { g.Bounds = WallCommitGeometryReads.Read(r); g.HasBounds = true; }
+                    else g.Bounds.Encapsulate(WallCommitGeometryReads.Read(r));
                 }
                 foreach (MountedProp p in g.Body)
                 {
                     if (p.Renderer == null)
                         continue;
-                    if (!g.HasBounds) { g.Bounds = p.Renderer.bounds; g.HasBounds = true; }
-                    else g.Bounds.Encapsulate(p.Renderer.bounds);
+                    if (!g.HasBounds) { g.Bounds = WallCommitGeometryReads.Read(p.Renderer); g.HasBounds = true; }
+                    else g.Bounds.Encapsulate(WallCommitGeometryReads.Read(p.Renderer));
                 }
             }
             return pulled;
@@ -973,7 +976,7 @@ internal static partial class WallSegmentFade
                 if (!c.enabled && !_mountedTouched.ContainsKey(c))
                     continue; // the GAME disabled it — not ours to manage
                 bool particles = f.Particles;
-                Bounds b = c.bounds;
+                Bounds b = WallCommitGeometryReads.Read(c);
                 Vector3 anchorPt = particles
                     ? c.transform.position
                     : new Vector3(b.center.x, b.min.y, b.center.z);
@@ -1086,7 +1089,7 @@ internal static partial class WallSegmentFade
                 total++;
                 bool ps = r is ParticleSystemRenderer;
                 if (ps) particles++; else meshes++;
-                float anchorY = ps ? r.transform.position.y : r.bounds.min.y;
+                float anchorY = ps ? r.transform.position.y : WallCommitGeometryReads.Read(r).min.y;
                 if (anchorY < floorY + MountedClearanceWU)
                     floorFooted++;
             }
@@ -1122,7 +1125,10 @@ internal static partial class WallSegmentFade
                 foreach (MeshRenderer r in seg.Renderers)
                 {
                     if (r != null)
+                    {
+                        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                         r.SetPropertyBlock(null);
+                    }
                 }
                 seg.HasBlock = false;
             }

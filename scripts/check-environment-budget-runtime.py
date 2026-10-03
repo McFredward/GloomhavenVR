@@ -13,8 +13,34 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def native_masonry(root, run):
+    """Extract original channels verbatim; native artwork is never checked in."""
+    python = Path.home()/"unitypy-venv/bin/python"
+    bundle = root/"ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_crypt.asset.bundle"
+    code = r'''
+import UnityPy, hashlib, json, sys
+from pathlib import Path
+from UnityPy.helpers.MeshHelper import MeshHandler
+p=Path(sys.argv[1]); env=UnityPy.load(str(p))
+obj=next(x for x in env.objects if x.type.name=="Mesh" and x.read().m_Name=="EN_CR_Pillar_Thin")
+mesh=obj.read(); assert mesh.m_IsReadable and len(mesh.m_SubMeshes)==1
+h=MeshHandler(mesh); h.process()
+vector=lambda values,keys:[dict(zip(keys,value)) for value in values]
+data={"name":mesh.m_Name,"vertices":vector(h.m_Vertices,"xyz"),"normals":vector(h.m_Normals,"xyz"),"uv":vector(h.m_UV0,"xy"),"triangles":[i for triangle in h.get_triangles()[0] for i in triangle]}
+Path(sys.argv[2]).write_text(json.dumps(data)+"\n")
+large_obj=next(x for x in env.objects if x.type.name=="Mesh" and x.read().m_Name=="EN_CR_Pillar_Large")
+large=large_obj.read(); lh=MeshHandler(large); lh.process()
+Path(sys.argv[2]).with_name("native-pillar-large.json").write_text(json.dumps({"name":large.m_Name,"vertices":vector(lh.m_Vertices,"xyz"),"normals":vector(lh.m_Normals,"xyz"),"uv":vector(lh.m_UV0,"xy"),"triangles":[i for triangle in lh.get_triangles()[0] for i in triangle]})+"\n")
+Path(sys.argv[3]).write_text(json.dumps({"bundle":str(p),"sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"mesh_path_id":obj.path_id,"name":mesh.m_Name,"native_readable":mesh.m_IsReadable,"submeshes":len(mesh.m_SubMeshes),"vertices":len(h.m_Vertices),"triangles":len(data["triangles"])/3,"second_mesh":{"name":large.m_Name,"path_id":large_obj.path_id,"vertices":len(lh.m_Vertices)},"transfer":"original vertex, normal, UV and index channels; no OBJ coordinate/winding conversion","limits":"native Windows shader, material/art textures and procedural controllers are NOT executed by this GL fixture"},indent=2)+"\n")
+'''
+    result = subprocess.run([str(python),"-c",code,str(bundle),str(run/"native-pillar.json"),str(run/"native-masonry-provenance.json")],capture_output=True,text=True)
+    if result.returncode: raise SystemExit(result.stdout+result.stderr)
+    return run/"native-pillar.json"
 
 
 def material_repair_binding(source):
@@ -41,6 +67,15 @@ def main():
     repair_path = args.source_root/'src/GloomhavenVR/Core/MaterialLoaderHeal.cs'
     floor_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallFloorTile.cs'
     source, shader, repair, floor = source_path.read_text(), shader_path.read_text(), repair_path.read_text(), floor_path.read_text()
+    wall_writes = []
+    for path in (args.source_root/'src/GloomhavenVR/Core/WallFade').glob('WallSegmentFade*.cs'):
+        text = path.read_text()
+        for match in re.finditer(r'(?m)^\s*([\w.]+)\.SetPropertyBlock\([^\n]+\);', text):
+            renderer = match.group(1)
+            previous = text[:match.start()].rstrip().splitlines()[-1].strip()
+            assert previous == 'ScenarioEnvironmentBudget.BeforeNativeRendererWrite('+renderer+');', 'Wall renderer effect has no synchronous release: '+str(path)
+            wall_writes.append(path.name+':'+str(text.count('\n',0,match.start())+1))
+    assert len(wall_writes) == 22, 'Wall setter census drift; review new primitive safety before batching'
     material_repair_binding(repair)
     try:
         material_repair_binding(repair.replace('ScenarioEnvironmentBudget.MaterialReady(r);','/* injected: native repair edge removed */'))
@@ -68,6 +103,9 @@ def main():
             ('loading-drain-missing','DrainBatches(int.MaxValue);','/* injected: loading ended before mesh prep */','compatible static floor geometry creates one render substitute',1),
             ('ancestor-floor-union','bool identity = FloorIdentity(mesh.name) || FloorIdentity(renderer.name);','bool identity = FloorIdentity(mesh.name) || FloorIdentity(renderer.name) || (renderer.transform.parent != null && FloorIdentity(renderer.transform.parent.name));','native scope exclusions retain original rendering: MountedDecoration',1),
             ('elevated-pillar-name-bypass','return WallFloorTile.Judge(new WallFloorTile.Plate(min.y, max.y, max.x - min.x, max.z - min.z), 0f)\n            == WallFloorTile.Verdict.FloorTile;','return true;','native scope exclusions retain original rendering: CV_Floor_Base_Raised',1),
+            ('structural-never-admitted','bool structural = !floor && StructuralIdentity(filter.sharedMesh) && !renderer.HasPropertyBlock();','bool structural = false;','audited native masonry creates a bounded structural render substitute',1),
+            ('structural-command-renderer-masked','if (camera != null && camera.commandBufferCount > 0)','if (bool.Parse("false"))','native command-buffer DrawRenderer keeps the original structural renderer identity and geometry',1),
+            ('structural-effect-release-missing','InvalidateBatch(id);\n            if (_surfaces.TryGetValue(id, out Surface surface) && surface.Structural)','/* injected: substitute survives write */\n            if (_surfaces.TryGetValue(id, out Surface surface) && surface.Structural)','wall effect write restores structural sources and material synchronously',1),
             ('native-continuation-fault-guard-removed','try { _driver?.MaterialReady(renderer); }\n        catch (Exception error) { StopAfterFailure(error); }','_driver?.MaterialReady(renderer);','generated shader resolver fault',1),
         ]
         for name, before, after, expected, occurrences in changes:
@@ -87,6 +125,8 @@ def main():
     partial = args.production_only or bool(args.case)
     args.output_dir.mkdir(parents=True,exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-',dir=args.output_dir.resolve()))
+    native_mesh = native_masonry(args.source_root, run)
+    (run/'wall-write-bindings.json').write_text(json.dumps({'mpb_writes':wall_writes,'count':len(wall_writes),'contract':'synchronous native source restoration immediately before each actual wall MPB setter; enable primitives and material swaps additionally hooked'},indent=2)+'\n')
     fixture = ROOT/'tests/environment-budget-runtime'
     manifest = {'result':str(run/'results.txt'),'cases':[]}
     (run/'source-hashes.json').write_text(json.dumps({'root':str(args.source_root.resolve()),'sha256':{str(source_path):hashlib.sha256(source.encode()).hexdigest(),str(shader_path):hashlib.sha256(shader.encode()).hexdigest(),str(repair_path):hashlib.sha256(repair.encode()).hexdigest(),str(floor_path):hashlib.sha256(floor.encode()).hexdigest()},'coverage':'partial' if partial else 'production-and-negative-controls','cases':[name for name,_,_ in variants],'limits':['Native scene classes/config are boundary surrogates.','Actual Unity meshes, renderer masks, shaders, pixels, cloning and camera callbacks are executed.','Native material healer integration is source-bound; its native callbacks are not executed.','Native game scenes, OpenXR HMD images and FPS remain hardware-open.']},indent=2)+'\n')
@@ -113,7 +153,8 @@ def main():
     command = [str(args.unity),'-batchmode','-force-glcore','-projectPath',str(unity_project),'-executeMethod','EnvironmentRunner.Start','-environmentManifest',str(manifest_path),'-logFile',str(run/'unity.log')]
     if not os.environ.get('DISPLAY'): command = ['xvfb-run','-a']+command
     try:
-        result = subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.STDOUT,timeout=240)
+        environment = os.environ.copy(); environment["GHVR_ENVIRONMENT_NATIVE_MESH"] = str(native_mesh)
+        result = subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.STDOUT,timeout=240,env=environment)
     finally:
         # Keep complete source, compiled test assemblies and logs; native API copies
         # are disabled and disposable import caches never accumulate across runs.

@@ -24,7 +24,7 @@ namespace UnityEngine
         internal readonly float x, y, z;
         internal Vector3(float x, float y, float z) { this.x = x; this.y = y; this.z = z; }
     }
-    internal sealed class Bounds { internal Vector3 center = default, min = default; }
+    internal struct Bounds { internal Vector3 center, min; }
     internal sealed class Transform
     {
         internal Transform? parent;
@@ -62,6 +62,7 @@ namespace UnityEngine
         internal FigureVisualMirror? Mirror;
         internal int MirrorQueries;
         internal bool ActorParent = false;
+        internal ActorBehaviour ActorOwner = new();
         internal HexSelect_Control? Selector, OwnSelector;
         internal HexSelectControlParticles? SelectorParticles;
         internal ParticleSystem? System;
@@ -69,7 +70,7 @@ namespace UnityEngine
         {
             if (!includeInactive) throw new InvalidOperationException("Exact visual ownership must include inactive children");
             if (typeof(T) == typeof(FigureVisualMirror)) { MirrorQueries++; return Mirror as T; }
-            if (typeof(T) == typeof(ActorBehaviour)) return ActorParent ? new ActorBehaviour() as T : null;
+            if (typeof(T) == typeof(ActorBehaviour)) return ActorParent ? ActorOwner as T : null;
             return typeof(T) == typeof(HexSelect_Control) ? Selector as T : SelectorParticles as T;
         }
         internal T? GetComponent<T>() where T : class => typeof(T) == typeof(HexSelect_Control) ? OwnSelector as T : System as T;
@@ -96,7 +97,7 @@ internal sealed class HexSelectControlParticles
     internal MeshRenderer? UnseenGroundPlane;
 }
 internal sealed class TilesOcclusionGenerator { internal readonly List<MeshRenderer> m_RoomRenderers = new(); }
-internal sealed class ActorBehaviour { }
+internal sealed class ActorBehaviour { internal readonly GameObject gameObject = new(); }
 internal sealed class CInteractableActor { }
 
 namespace GloomhavenVR.Board.FigureGrab { internal sealed class FigureVisualMirror { } }
@@ -105,6 +106,7 @@ namespace GloomhavenVR.Core
     internal static class VRLayers
     { internal const int ModLayer = 31; internal const string ModOwnedNamePrefix = "VR", ModOwnedQualifiedPrefix = "GloomhavenVR."; }
 
+    internal static class ScenarioEnvironmentBudget { internal static void BeforeNativeRendererWrite(Renderer renderer) { } }
     internal static class ScenarioSceneryBudget
     {
         internal static readonly HashSet<Renderer> Hidden = new();
@@ -189,6 +191,7 @@ namespace GloomhavenVR.Core
                 driver.VisualCloneOwnership();
                 driver.VisualCloneOwnershipQueries();
                 driver.NativeSelectionVisuals();
+                driver.ActorParticleSignatures();
                 driver.BudgetMasks();
                 driver.PreparedReadLifetime();
                 driver.PreparedPublicationGate();
@@ -324,6 +327,38 @@ namespace GloomhavenVR.Core
                 ClassifySlice(0, 1);
                 _classifyCold = false;
             }
+            private void ActorParticleSignatures()
+            {
+                var particles = new ParticleSystemRenderer { ActorParent = true, System = new ParticleSystem() };
+                SurveyOwned(particles);
+                Check(!_facts[0].Mod && _sceneExemptRows == 1 && _sceneFoldedRows == 0
+                    && _sceneFactSigSum == 0 && _narrowSceneSigSum == 0 && _figureSetSigSum == 0,
+                    "An exact native actor particle leaves all three signature halves unchanged");
+                particles.gameObject.activeInHierarchy = false;
+                SurveyOwned(particles);
+                Check(_sceneExemptRows == 1 && _sceneFactSigSum == 0,
+                    "A pooled child deactivation under an active native actor remains non-wall");
+                SurveyOwned(null);
+                Check(_sceneExemptRows == 1 && _sceneFactSigSum == 0,
+                    "A destroyed exact actor particle retains its last live exemption");
+                particles.ActorParent = false;
+                SurveyOwned(particles);
+                Check(_sceneFoldedRows == 1 && _sceneFactSigSum != 0,
+                    "A pooled particle reparented outside its actor returns to conservative folding");
+                particles.ActorParent = true; particles.ActorOwner.gameObject.activeInHierarchy = false;
+                SurveyOwned(particles);
+                Check(_sceneFoldedRows == 1, "An inactive native actor retains conservative particle membership");
+                particles.ActorOwner.gameObject.activeInHierarchy = true;
+                particles.Materials.Add(Mat("Fixture/Water_Shd")); _classifyCold = true;
+                SurveyOwned(particles);
+                Check(_sceneFoldedRows == 1 && _factWater.Count == 1,
+                    "An actor water particle retains native protection and conservative signatures");
+                var actorMesh = Renderer(Mat("Amp_Basic_WallFade")); actorMesh.ActorParent = true;
+                SurveyOwned(actorMesh);
+                Check(_sceneFoldedRows == 1 && _factWallFade.Count == 1,
+                    "Actor ancestry never exempts a structural or wall-shader mesh");
+            }
+
             private void VisualCloneOwnership()
             {
                 var native = Renderer(Mat("Amp_Basic")); native.name = "MO_Spitting_Drake_Mesh_LOD2";

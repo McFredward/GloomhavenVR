@@ -1049,8 +1049,8 @@ internal static partial class WallSegmentFade
                 if (!CountsTowardFadeUnit(piece))
                     continue;
                 kept++;
-                if (!have) { union = piece.bounds; have = true; }
-                else union.Encapsulate(piece.bounds);
+                if (!have) { union = WallCommitGeometryReads.Read(piece); have = true; }
+                else union.Encapsulate(WallCommitGeometryReads.Read(piece));
             }
             _fadeCensusScratch.Clear();
             unit.TotalRenderers = kept;
@@ -1364,7 +1364,7 @@ internal static partial class WallSegmentFade
                 sb.Append("<destroyed mid-frame>");
                 return;
             }
-            Bounds b = w.R.bounds;
+            Bounds b = WallCommitGeometryReads.Read(w.R);
             sb.Append('\'').Append(w.R.name).Append("'[").Append(RendererKind(w.R))
               .Append("] under '").Append(AncestorPath(w.R.transform))
               .Append("' anchor ").Append((b.min.y - floorY).ToString("0.00"))

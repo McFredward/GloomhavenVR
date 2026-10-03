@@ -37,6 +37,7 @@ public static class EnvironmentProgram
             VRSession.IsRunning = true;
             VRLog.Faults.Clear();
             Configure(false, false, 100);
+            ScenarioEnvironmentBudget.ConfigureStructuralBatching(() => false);
             Root = new GameObject("RuntimeFixture.Scenario"); Root.AddComponent<ProceduralScenario>();
             var tile = Child("RuntimeFixture.Tile", Root.transform); Tile = tile.AddComponent<ProceduralMapTile>();
             Generated = Child("Generated Content", tile.transform);
@@ -374,6 +375,102 @@ public static class EnvironmentProgram
         Check(VRLog.Faults.Count == 0, "batch preparation and real render validation finish without faults");
     }
 
+    private static Mesh NativePillar(bool large = false)
+    {
+        string path = Environment.GetEnvironmentVariable("GHVR_ENVIRONMENT_NATIVE_MESH")!;
+        Check(!string.IsNullOrEmpty(path), "audited native pillar geometry is supplied by the extractor");
+        if (large) path = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path)!,"native-pillar-large.json");
+        NativeMesh data = JsonUtility.FromJson<NativeMesh>(System.IO.File.ReadAllText(path));
+        Check(data.vertices.Length == (large ? 1595 : 1440) && data.name == (large ? "EN_CR_Pillar_Large" : "EN_CR_Pillar_Thin"), "actual native pillar identity and original vertex count remain intact");
+        var mesh = new Mesh { name = data.name, vertices = data.vertices, normals = data.normals, uv = data.uv, triangles = data.triangles };
+        mesh.RecalculateBounds(); return mesh;
+    }
+    [Serializable] private sealed class NativeMesh
+    {
+        public string name = "";
+        public Vector3[] vertices = Array.Empty<Vector3>(), normals = Array.Empty<Vector3>();
+        public Vector2[] uv = Array.Empty<Vector2>();
+        public int[] triangles = Array.Empty<int>();
+    }
+    private static void StructuralChunks()
+    {
+        using var room = new Room();
+        var mesh = NativePillar(); var largeMesh = NativePillar(true);
+        var first = room.Surface("NativePillarA", x:1f);
+        var second = room.Surface("NativePillarB", x:2.2f);
+        first.GetComponent<MeshFilter>().sharedMesh = mesh;
+        second.GetComponent<MeshFilter>().sharedMesh = largeMesh;
+        var collider = first.GetComponent<BoxCollider>();
+        Matrix4x4 originalTransform = first.transform.localToWorldMatrix;
+        Configure(false,true,100); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(room.Chunks().Length == 0 && first.sharedMaterial == room.Original,
+            "structural setting off never simplifies or batches non-floor masonry");
+        ScenarioEnvironmentBudget.ConfigureStructuralBatching(() => true);
+        ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(room.Chunks().Length == 1 && first.sharedMaterial.shader.name == "GloomhavenVR/ScenarioSimpleEnvironment",
+            "audited native masonry creates a bounded structural render substitute with explicit simpler shading");
+        var chunk = room.Chunks()[0];
+        Check(chunk.GetComponent<MeshFilter>().sharedMesh.vertexCount == 3035 && first.GetComponent<MeshFilter>().sharedMesh == mesh
+            && first.transform.localToWorldMatrix == originalTransform && collider.enabled && !first.isPartOfStaticBatch,
+            "native structural identity mesh collider transforms and non-static-batch state remain exact");
+        Tick("OnPreCull",room.Camera);
+        Check(first.forceRenderingOff && second.forceRenderingOff && chunk.enabled,
+            "structural draw lease reduces two different native mesh submissions to one exact geometry chunk");
+        Tick("OnPostRender",room.Camera);
+        // Compare geometry using the SAME explicit quality-compromise material on both
+        // paths. The original Windows shader itself is not executable on this GL host.
+        Material simple = first.sharedMaterial;
+        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(first);
+        first.sharedMaterial = simple; second.sharedMaterial = simple;
+        Color32[] originalPixels = room.Render();
+        first.sharedMaterial = room.Original; second.sharedMaterial = room.Original;
+        ScenarioEnvironmentBudget.Placed(room.Generated); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Color32[] chunkPixels = room.Render(); bool same = true; int drawn = 0;
+        for (int i=0;i<originalPixels.Length;i++) { same &= originalPixels[i].Equals(chunkPixels[i]); if (originalPixels[i].r>10) drawn++; }
+        Check(drawn > 15 && same, "actual native pillar geometry has identical rendered pixels across structural source and chunk paths");
+        var command = new CommandBuffer { name = "Native identity probe" };
+        var commandMaterial = room.Material(); commandMaterial.SetColor("_Tint",Color.blue);
+        command.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
+        command.ClearRenderTarget(true,true,Color.green);
+        command.SetViewProjectionMatrices(room.Camera.worldToCameraMatrix,GL.GetGPUProjectionMatrix(room.Camera.projectionMatrix,true));
+        command.DrawRenderer(first,commandMaterial);
+        room.Camera.AddCommandBuffer(CameraEvent.BeforeImageEffects, command);
+        bool commandSourcesNative = false;
+        room.ObserveRender = () => commandSourcesNative = !first.forceRenderingOff && !second.forceRenderingOff && !chunk.enabled;
+        Color32[] combinedCommandPixels = room.Render();
+        room.ObserveRender = null;
+        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(first);
+        first.sharedMaterial = simple;
+        Color32[] sourceCommandPixels = room.Render(); bool sameCommand = true; int green = 0;
+        for(int i=0;i<sourceCommandPixels.Length;i++) { sameCommand &= sourceCommandPixels[i].Equals(combinedCommandPixels[i]); if(sourceCommandPixels[i].b>10)green++; }
+        Check(commandSourcesNative && sameCommand && green>15 && room.LastRenderedChunks == 0, "native command-buffer DrawRenderer keeps the original structural renderer identity and geometry: same="+sameCommand+", green="+green+", rendered chunks="+room.LastRenderedChunks);
+        room.Camera.RemoveCommandBuffer(CameraEvent.BeforeImageEffects,command); command.Release();
+        ScenarioEnvironmentBudget.Placed(room.Generated); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Tick("OnPreCull",room.Camera);
+        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(first);
+        Check(!first.forceRenderingOff && !second.forceRenderingOff && first.sharedMaterial == room.Original && room.Chunks().Length == 0,
+            "wall effect write restores structural sources and material synchronously inside an active camera lease");
+        var block = new MaterialPropertyBlock(); block.SetColor("_Tint",Color.blue); first.SetPropertyBlock(block);
+        ScenarioEnvironmentBudget.Placed(room.Generated); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(room.Chunks().Length == 0, "structural per-renderer wall effects stay native after re-admission");
+        first.SetPropertyBlock(null);
+        first.sharedMaterial = room.Original; second.sharedMaterial = room.Original;
+        ScenarioEnvironmentBudget.Placed(room.Generated); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Tick("OnPreCull",room.Camera); ScenarioEnvironmentBudget.BeforeNativeContentChange();
+        Check(!first.forceRenderingOff && !second.forceRenderingOff, "native reveal prefix releases structural render masks before visibility changes");
+        second.gameObject.SetActive(false); room.Render();
+        Check(room.LastRenderedChunks == 0 && !first.forceRenderingOff, "structural cull boundary invalidates the substitute before the next camera sees it");
+        second.gameObject.SetActive(true);
+        var foreign = room.Material(); first.sharedMaterial = foreign;
+        ScenarioEnvironmentBudget.ConfigureStructuralBatching(() => false); Tick();
+        Check(first.sharedMaterial == foreign && second.sharedMaterial == room.Original && room.Chunks().Length == 0,
+            "structural toggle restoration preserves exact foreign materials and native unowned renderer flags");
+        ScenarioEnvironmentBudget.ConfigureStructuralBatching(() => true); Configure(false,false,100); Tick();
+        Check(room.Chunks().Length == 0 && second.sharedMaterial == room.Original,
+            "structural chunks require explicit simple-environment shading rather than reinterpret a native object-space shader");
+        UnityEngine.Object.DestroyImmediate(mesh); UnityEngine.Object.DestroyImmediate(largeMesh);
+    }
+
     private static void IncrementalAndUnsafeMeshes()
     {
         using var room = new Room();
@@ -474,7 +571,7 @@ public static class EnvironmentProgram
     public static int Run()
     {
         count = 0;
-        ScopeAndMaterials(); AmbientScopes(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault();
+        ScopeAndMaterials(); AmbientScopes(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault(); StructuralChunks();
         return count;
     }
 }

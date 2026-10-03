@@ -224,7 +224,7 @@ internal static partial class WallSegmentFade
                 // LIVE bounds, not the census snapshot: this AABB becomes a PROTECTION RECT
                 // that other passes measure against, so it is authoritative geometry and is
                 // read here exactly as before. The census only decided membership.
-                Bounds b = any.bounds;
+                Bounds b = WallCommitGeometryReads.Read(any);
                 if (b.max.y - minFloorY > WaterFeatureMaxHeightWU)
                 {
                     // NOT a low prop — a waterfall on a wall face, a water wall. It keeps

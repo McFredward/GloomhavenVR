@@ -303,6 +303,7 @@ internal static partial class WallSegmentFade
             p.SwapChecked = true;
             p.NativeFade = true; // driven by the same native ramp
             p.DissolveWhy = null;
+            ScenarioEnvironmentBudget.BeforeNativeRendererWrite(mr);
             mr.sharedMaterials = copies;
             // PERF S2: this renderer's shader family just changed under the scene census —
             // force the next cycle to re-derive its facts. See _censusMaterialsDirty.
@@ -401,6 +402,7 @@ internal static partial class WallSegmentFade
                 _mountedMpb.SetTexture(TilesOcclusionMapId, _noiseTex!);
                 _mountedMpb.SetFloat(CutoffId, Mathf.Lerp(-0.05f, 1f, fade));
             }
+            ScenarioEnvironmentBudget.BeforeNativeRendererWrite(p.Renderer);
             p.Renderer.SetPropertyBlock(_mountedMpb);
         }
 
@@ -419,6 +421,7 @@ internal static partial class WallSegmentFade
             }
             if (r is MeshRenderer mr && mr != null && p.SwapOriginals != null)
             {
+                ScenarioEnvironmentBudget.BeforeNativeRendererWrite(mr);
                 mr.sharedMaterials = p.SwapOriginals;
                 // PERF S2: the authored materials are back — the census's cached shader
                 // verdict for this renderer is stale. See _censusMaterialsDirty.

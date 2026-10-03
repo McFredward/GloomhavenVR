@@ -649,7 +649,7 @@ internal static partial class WallSegmentFade
             {
                 if (r == null || !r.enabled || ScenarioSceneryBudget.IsOwnedHidden(r))
                     continue;
-                Bounds b = r.bounds;
+                Bounds b = WallCommitGeometryReads.Read(r);
                 if (b.max.x < unionMinX || b.min.x > unionMaxX
                     || b.max.z < unionMinZ || b.min.z > unionMaxZ
                     || b.min.y < bandFloor || b.min.y > bandCeil)
@@ -1142,7 +1142,7 @@ internal static partial class WallSegmentFade
                         if (seg.HasBounds)
                         {
                             Bounds ext = seg.Bounds;
-                            ext.Encapsulate(p.Renderer.bounds);
+                            ext.Encapsulate(WallCommitGeometryReads.Read(p.Renderer));
                             seg.Bounds = ClampExtensionToFace(seg, ext); // Y grows, XZ face-clamped
                         }
                     }
@@ -1279,7 +1279,7 @@ internal static partial class WallSegmentFade
                         _figureGuardNames.Add(r.name);
                     continue;
                 }
-                if (r.bounds.min.y < bar)
+                if (WallCommitGeometryReads.Read(r).min.y < bar)
                     continue; // touches the ground band — not a stacked story (LIVE bounds)
                 if (_stackedOwned.Contains(r))
                     continue; // sticky-owned this rescan
@@ -1369,7 +1369,7 @@ internal static partial class WallSegmentFade
                 {
                     if (c == null || _stackedOwned.Contains(c) || _stackDead.Contains(c))
                         continue;
-                    Bounds b = c.bounds;
+                    Bounds b = WallCommitGeometryReads.Read(c);
                     // ARCH PROTECTION (user ruling 2026-08-07): the rectangular arch around
                     // a door is the doorway ruling's permanently-solid remainder. The reject
                     // prints the XZ containment fraction (round 10) so a hardware log can
@@ -1702,7 +1702,7 @@ internal static partial class WallSegmentFade
             {
                 if (c == null || _stackedOwned.Contains(c) || _stackDead.Contains(c))
                     continue;
-                Bounds b = c.bounds;
+                Bounds b = WallCommitGeometryReads.Read(c);
                 if (IsArchProtected(b, c.name))
                     continue; // arch stays solid (already rejected+logged by the adoption pass)
                 if (IsWaterProtected(b))
@@ -1769,7 +1769,7 @@ internal static partial class WallSegmentFade
                             continue;
                         if (listed++ >= 8) { sb.Append("; …"); break; }
                         if (sb.Length > 0) sb.Append("; ");
-                        Bounds cb = r.bounds;
+                        Bounds cb = WallCommitGeometryReads.Read(r);
                         string an = cp.A.Anchor != null ? cp.A.Anchor.name : "<dead>";
                         string bn = cp.B == null ? "-"
                             : cp.B.Anchor != null ? cp.B.Anchor.name : "<dead>";
@@ -1858,7 +1858,7 @@ internal static partial class WallSegmentFade
             {
                 if (c == null || _stackedOwned.Contains(c) || _stackDead.Contains(c))
                     continue;
-                Bounds b = c.bounds;
+                Bounds b = WallCommitGeometryReads.Read(c);
                 Segment? near = null;              // nearest ELIGIBLE wall — the one adoption tried
                 float nearGap = float.PositiveInfinity;
                 Segment? nearAny = null;           // nearest wall of any kind (diag anchor)
@@ -1919,7 +1919,7 @@ internal static partial class WallSegmentFade
             _censusStackedRejected++;
             if (_stackRejects.Count < StackRejectCap)
             {
-                Bounds b = c.bounds;
+                Bounds b = WallCommitGeometryReads.Read(c);
                 // Full y-band on every reject (round 2): the piece TOPS are what decide
                 // whether the trigger geometry can ever work — they must be readable from
                 // the log without another blind hardware round.

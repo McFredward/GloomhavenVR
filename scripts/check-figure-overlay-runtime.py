@@ -24,6 +24,7 @@ def main():
     parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity')))
     parser.add_argument('--native-drake-bundle', type=Path, default=ROOT / 'ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64/npc_spittingdrake_assets_all.bundle')
     parser.add_argument('--no-negative-controls', action='store_true')
+    parser.add_argument('--case', action='append', help='Partial focused variant list')
     args = parser.parse_args()
     if not args.unity.is_file() or not args.native_drake_bundle.is_file():
         parser.error('Actual Unity and native SpittingDrake bundle required; no silent skip')
@@ -39,6 +40,7 @@ def main():
                     str(wall / 'WallSegmentFade.Mounted.cs'), str(wall / 'WallSegmentFade.Prepare.cs'),
                     '--ownership-only'], check=True)
     sources.update({'WallOwnershipReads.cs': generated.read_text(),
+                    'WallCommitGeometryReads.cs': (wall / 'WallCommitGeometryReads.cs').read_text(),
                     'WallSegmentFade.SelectionFacts.cs': (wall / 'WallSegmentFade.SelectionFacts.cs').read_text(),
                     'WallSegmentFadeCulprits.cs': (wall / 'WallSegmentFadeCulprits.cs').read_text(),
                     'ModVisualOwnership.cs': (args.source_root / 'src/GloomhavenVR/Core/ModVisualOwnership.cs').read_text()})
@@ -71,7 +73,15 @@ def main():
             ('fold-dead-native-named-ghost', 'WallOwnershipReads.cs', 'bool holeExempt = SceneRowWasExemptWhenAlive(i);', 'bool holeExempt = false;', 'destroyed native-named ghost row retains exact exemption'),
             ('broaden-native-root-selection', 'WallSegmentFade.SelectionFacts.cs', 'renderer.GetComponent<HexSelect_Control>() != null', 'renderer.GetComponentInParent<HexSelect_Control>(true) != null', 'foreign emitter beneath native selector remains a conservative'),
             ('miss-native-root-selection', 'WallSegmentFade.SelectionFacts.cs', 'renderer.GetComponent<HexSelect_Control>() != null', 'bool.Parse("false")', 'exact native root selector emitter keeps its wall-census exemption'),
+            ('ignore-actor-particles', 'WallSegmentFade.SelectionFacts.cs', 'return owner != null && owner.gameObject.activeInHierarchy;', 'return false;', 'native actor particles keep all wall signature halves unchanged'),
+            ('admit-detached-particles', 'WallSegmentFade.SelectionFacts.cs', 'return owner != null && owner.gameObject.activeInHierarchy;', 'return (owner != null && owner.gameObject.activeInHierarchy) || !renderer.gameObject.activeSelf;', 'detached native particles restore conservative wall membership'),
+            ('admit-actor-water', 'WallSegmentFade.SelectionFacts.cs', '!(renderer is ParticleSystemRenderer) || water', '!(renderer is ParticleSystemRenderer)', 'native actor water particles retain protection rects'),
+            ('uncached-geometry', 'WallCommitGeometryReads.cs', 'if (Memo.TryGetValue(renderer, out Bounds bounds))', 'if (bool.Parse("false") && Memo.TryGetValue(renderer, out Bounds bounds))', 'five hundred repeated commit reads cross the native bounds boundary once'),
         ]
+    if args.case:
+        missing=set(args.case)-{v[0] for v in variants}
+        if missing: parser.error('Unknown cases: '+str(missing))
+        variants=[v for v in variants if v[0] in args.case]
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
     manifest = {'result': str(run / 'results.txt'), 'cases': []}
     case_shaders = {}

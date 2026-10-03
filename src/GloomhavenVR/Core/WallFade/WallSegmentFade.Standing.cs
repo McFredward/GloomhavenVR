@@ -951,8 +951,8 @@ internal static partial class WallSegmentFade
                 // hits per unit per RESCAN.
                 if (!fadeChannel && RendererHasFadeChannel(piece))
                     fadeChannel = true;
-                if (!have) { union = piece.bounds; have = true; }
-                else union.Encapsulate(piece.bounds);
+                if (!have) { union = WallCommitGeometryReads.Read(piece); have = true; }
+                else union.Encapsulate(WallCommitGeometryReads.Read(piece));
             }
             _standingUnitScratch.Clear();
             bool ok = have && NearestAnchoredFloorY(union.min.y, out floorY);

@@ -1657,7 +1657,7 @@ internal static partial class WallSegmentFade
         private long _coverageSegments;   // BlockedFraction calls
         private long _coverageSamples;    // (segment, sample) pairs the broad phase looked at
         private long _coverageBoxSkips;   // pairs the managed box reject removed before the ICall
-        private long _coveragePieceReads; // Renderer.bounds reads the narrow phase actually made
+        private long _coveragePieceReads; // Renderer.bounds reads the narrow phase actually requested
         private long _coveragePieceHits;  // narrow-phase piece tests served from the per-segment cache
         private readonly Dictionary<MeshRenderer, float> _floorYByRenderer = new(); // volume anchors
         private readonly List<float> _floorYScratch = new();    // median fallback scratch
@@ -2034,6 +2034,7 @@ internal static partial class WallSegmentFade
         private int _cycleClassifyFrames;
         private float _cycleWorstFrameMillis;
         private float _cycleWorstCommitMillis;
+        private long _cycleGeometryNativeReads, _cycleGeometryReusedReads;
         private float _cycleWorstSweepMillis;
         private float _nextBudgetLogTime;
         private bool _budgetLoggedOnce;
@@ -3502,7 +3503,7 @@ internal static partial class WallSegmentFade
             if (r == null)
                 return;
             _narrowPieces.Add(r);
-            _narrowBounds.Add(r.bounds);
+            _narrowBounds.Add(WallCommitGeometryReads.Read(r));
             _narrowFromList.Add(fromList);
             _coveragePieceReads++;
         }
@@ -4050,7 +4051,7 @@ internal static partial class WallSegmentFade
             byContains = false;
             if (r == null)
                 return false;
-            Bounds rb = r.bounds;
+            Bounds rb = WallCommitGeometryReads.Read(r);
             meshes++;
             if (!rb.IntersectRay(ray, out float rd))
                 return false;
@@ -4113,7 +4114,7 @@ internal static partial class WallSegmentFade
 
         private static bool ContainsHead(Renderer? r, Vector3 headPos, ref string meshName)
         {
-            if (r == null || !r.bounds.Contains(headPos))
+            if (r == null || !WallCommitGeometryReads.Read(r).Contains(headPos))
                 return false;
             meshName = r.name;
             return true;
@@ -4151,7 +4152,7 @@ internal static partial class WallSegmentFade
                         continue;
                     if (listed++ >= 6) { rl.Append(", …"); break; }
                     if (rl.Length > 0) rl.Append(", ");
-                    rl.Append(r.name).Append('@').Append(r.bounds.max.y.ToString("F1"));
+                    rl.Append(r.name).Append('@').Append(WallCommitGeometryReads.Read(r).max.y.ToString("F1"));
                 }
                 string cutoff = $"map occ(r=1,a=0)→m=0, _Cutoff={seg.HeldCutoff:0.00} " +
                     (seg.CutoffAuthored ? "(authored)" : "(fallback)");
@@ -4297,6 +4298,7 @@ internal static partial class WallSegmentFade
             if (r == null)
                 return;
             ShowIfWeHid(r); // enable ledger — never re-enable what the GAME switched off
+            ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
             r.SetPropertyBlock(null);
         }
 
@@ -4330,7 +4332,10 @@ internal static partial class WallSegmentFade
                 if (r == null)
                     continue;
                 if (wroteBlock)
+                {
+                    ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                     r.SetPropertyBlock(null);
+                }
                 ShowIfWeHid(r); // enable ledger — never re-enable what the GAME switched off
             }
             seg.FoliageProps.Clear();
@@ -4350,7 +4355,10 @@ internal static partial class WallSegmentFade
                     || p.DissolveControlId >= 0;
                 RestorePropSwap(p, r);
                 if (wroteBlock)
+                {
+                    ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                     r.SetPropertyBlock(null);
+                }
             }
             ShowIfWeHid(r); // enable ledger — never re-enable what the GAME switched off
         }
@@ -4379,7 +4387,10 @@ internal static partial class WallSegmentFade
                 if (r == null)
                     continue;
                 if (wroteBlock)
+                {
+                    ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                     r.SetPropertyBlock(null);
+                }
                 ShowIfWeHid(r); // enable ledger — never re-enable what the GAME switched off
             }
             seg.SiblingProps.Clear();
@@ -4607,7 +4618,10 @@ internal static partial class WallSegmentFade
                     foreach (MeshRenderer r in seg.Renderers)
                     {
                         if (r != null)
+                        {
+                            ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                             r.SetPropertyBlock(null);
+                        }
                     }
                 }
                 return;
@@ -4717,6 +4731,7 @@ internal static partial class WallSegmentFade
                 // renderer that has no block is a no-op. See WallSegmentFade.Floor.cs.
                 if (FloorNeverFades(r))
                 {
+                    ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                     r.SetPropertyBlock(null);
                     continue;
                 }
@@ -4728,6 +4743,7 @@ internal static partial class WallSegmentFade
                 // back. ShowIfWeHid is ledgered - a renderer the GAME switched off stays off.
                 if (HeldNeverFades(r))
                 {
+                    ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                     r.SetPropertyBlock(null);
                     ShowIfWeHid(r);
                     continue;
@@ -4736,6 +4752,7 @@ internal static partial class WallSegmentFade
                 // pixel delivery is already masked. Unfade restitution above remains unconditional.
                 if (ScenarioSceneryBudget.IsOwnedHidden(r))
                     continue;
+                ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                 r.SetPropertyBlock(_mpb);
             }
             if (lostRenderer)
@@ -5406,7 +5423,7 @@ internal static partial class WallSegmentFade
                     f.Mountable = IsMountableRendererType(r);
                     ClassifyMaterialsAndName(r, ref f);
                 }
-                f.Bounds = r.bounds;
+                f.Bounds = WallCommitGeometryReads.Read(r);
                 f.Anchor = f.Particles
                     ? r.transform.position
                     : new Vector3(f.Bounds.center.x, f.Bounds.min.y, f.Bounds.center.z);
@@ -5529,6 +5546,9 @@ internal static partial class WallSegmentFade
                 // EXEMPT rows that are not mod-owned, or a session in which a wall stays solid
                 // while that line's exempt count is the only thing moving.
                 bool modExempt = f.Mod && !(f.Mesh != null && f.WallFadeShader);
+                // Birth/death/pooled activation of exact native actor particles cannot enter
+                // mesh-only lanes; water and detached scenery effects remain conservative.
+                modExempt |= !f.WallFadeShader && IsActorParticleSignatureExempt(r, f.WaterSurface);
                 // ModBuild 440: the instance id goes into the row bank too. It costs no
                 // interop — it is the very value `ident` was folded from one line above — and it
                 // is what makes the census's diff order-free across a fresh sweep.
@@ -5716,6 +5736,9 @@ internal static partial class WallSegmentFade
               .Append($"WALL-PROVENANCE MEMO: {_wallGeneratedDressingMemoHits} repeated ")
               .Append($"query/queries reused, {_wallGeneratedDressingMemoMisses} first queries ")
               .Append("answered during synchronous commits in this window.");
+            sb.Append(" COMMIT-GEOMETRY READS: ").Append(_cycleGeometryNativeReads)
+              .Append(" exact native mesh bounds, ").Append(_cycleGeometryReusedReads)
+              .Append(" repeated same-publication reads reused; no geometry survives a frame.");
             AppendSkipClause(sb);
             AppendPrepareClause(sb);
             AppendCommitPhaseBreakdown(sb);
@@ -5733,6 +5756,7 @@ internal static partial class WallSegmentFade
             _cycleClassifyFrames = 0;
             _cycleWorstFrameMillis = 0f;
             _cycleWorstCommitMillis = 0f;
+            _cycleGeometryNativeReads = _cycleGeometryReusedReads = 0;
             _cycleWorstSweepMillis = 0f;
             _cyclePrepareFrames = 0;
             _cycleWorstPrepareMillis = 0f;
@@ -5812,6 +5836,7 @@ internal static partial class WallSegmentFade
         private void RescanCore(TilesOcclusionGenerator gen)
         {
             BeginCommitPhases();
+            WallCommitGeometryReads.Begin(PerfConfig.SharedWallReadCacheOn);
             try
             {
                 // Figures first (round 7): nothing below may keep or re-take an actor renderer.
@@ -5947,6 +5972,9 @@ internal static partial class WallSegmentFade
             {
                 // In a finally so a throwing phase still leaves the window arithmetic consistent
                 // — a diagnostic that lies after an exception is worse than none.
+                _cycleGeometryNativeReads += WallCommitGeometryReads.NativeReads;
+                _cycleGeometryReusedReads += WallCommitGeometryReads.ReusedReads;
+                WallCommitGeometryReads.End();
                 EndCommitPhases();
             }
         }
@@ -6295,14 +6323,14 @@ internal static partial class WallSegmentFade
                     if (_keyToRoomScratch.TryGetValue(groupKey, out int idx))
                     {
                         Bounds merged = _live.RoomBounds[idx];
-                        merged.Encapsulate(r.bounds);
+                        merged.Encapsulate(WallCommitGeometryReads.Read(r));
                         _live.RoomBounds[idx] = merged;
                         _roomRendererCounts[idx]++;
                         continue;
                     }
                     _keyToRoomScratch[groupKey] = _live.RoomBounds.Count;
                 }
-                _live.RoomBounds.Add(r.bounds);
+                _live.RoomBounds.Add(WallCommitGeometryReads.Read(r));
                 _live.RoomFloorY.Add(anchored ? floorY : float.NaN);
                 _live.RoomFloorAnchored.Add(anchored);
                 _live.RoomLabels.Add(key != null && _roomMapLabelByRenderer.TryGetValue(r, out string lbl)
@@ -6536,10 +6564,13 @@ internal static partial class WallSegmentFade
                     // has no fade channel at all, stayed hanging in mid-air. Water-protected
                     // pieces leave the segment on the same path as the ground band, so they
                     // are held solid with the same machinery (block cleared, AABB rebuilt).
-                    if (r == null || (r.bounds.max.y > ceiling && !IsWaterProtected(r.bounds)))
+                    if (r == null || (WallCommitGeometryReads.Read(r).max.y > ceiling && !IsWaterProtected(WallCommitGeometryReads.Read(r))))
                         continue;
                     if (seg.HasBlock)
-                        r.SetPropertyBlock(null); // it was mid-fade — return it to solid NOW
+                    {
+                        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
+                        r.SetPropertyBlock(null);
+                    } // it was mid-fade — return it to solid NOW
                     seg.Renderers.RemoveAt(i);
                     changed = true;
                 }
@@ -6548,7 +6579,7 @@ internal static partial class WallSegmentFade
                 for (int i = seg.Foliage.Count - 1; i >= 0; i--)
                 {
                     MeshRenderer f = seg.Foliage[i];
-                    if (f == null || (f.bounds.max.y > ceiling && !IsWaterProtected(f.bounds)))
+                    if (f == null || (WallCommitGeometryReads.Read(f).max.y > ceiling && !IsWaterProtected(WallCommitGeometryReads.Read(f))))
                         continue;
                     if (seg.FoliageState != 0)
                         RestoreFoliageRenderer(f);
@@ -6565,7 +6596,7 @@ internal static partial class WallSegmentFade
                 for (int i = seg.Body.Count - 1; i >= 0; i--)
                 {
                     Renderer br = seg.Body[i].Renderer;
-                    if (br == null || (br.bounds.max.y > ceiling && !IsWaterProtected(br.bounds)))
+                    if (br == null || (WallCommitGeometryReads.Read(br).max.y > ceiling && !IsWaterProtected(WallCommitGeometryReads.Read(br))))
                         continue;
                     if (seg.BodyState != 0)
                         RestoreProp(seg.Body[i]);
@@ -6602,12 +6633,12 @@ internal static partial class WallSegmentFade
                         continue;
                     if (!seg.HasBounds)
                     {
-                        seg.Bounds = r.bounds;
+                        seg.Bounds = WallCommitGeometryReads.Read(r);
                         seg.HasBounds = true;
                     }
                     else
                     {
-                        seg.Bounds.Encapsulate(r.bounds);
+                        seg.Bounds.Encapsulate(WallCommitGeometryReads.Read(r));
                     }
                 }
                 foreach (MountedProp p in seg.Body)
@@ -6616,12 +6647,12 @@ internal static partial class WallSegmentFade
                         continue;
                     if (!seg.HasBounds)
                     {
-                        seg.Bounds = p.Renderer.bounds;
+                        seg.Bounds = WallCommitGeometryReads.Read(p.Renderer);
                         seg.HasBounds = true;
                     }
                     else
                     {
-                        seg.Bounds.Encapsulate(p.Renderer.bounds);
+                        seg.Bounds.Encapsulate(WallCommitGeometryReads.Read(p.Renderer));
                     }
                 }
                 if (seg.HasBounds)
@@ -6700,7 +6731,10 @@ internal static partial class WallSegmentFade
                     foreach (MeshRenderer r in group.Renderers)
                     {
                         if (r != null)
+                        {
+                            ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                             r.SetPropertyBlock(null);
+                        }
                     }
                 }
                 foreach (MeshRenderer r in group.Renderers)
@@ -6721,7 +6755,7 @@ internal static partial class WallSegmentFade
                     if (CollectWallFadeInfo(r, sub, relaxG))
                     {
                         sub.Renderers.Add(r);
-                        sub.Bounds = r.bounds;
+                        sub.Bounds = WallCommitGeometryReads.Read(r);
                         sub.HasBounds = true;
                         sub.RunPassenger = relaxG && IsStandingFigureProp(r);
                     }
@@ -6833,7 +6867,7 @@ internal static partial class WallSegmentFade
                     // instead and fades NATIVELY with the gate face (round 12: the
                     // round-11 "leave unclaimed" left them solid forever). Sliver-skipped
                     // doors keep the old full-radius grouping.
-                    if (HasGateColumnFor(doorRoot) && !IsArchProtected(r.bounds, r.name))
+                    if (HasGateColumnFor(doorRoot) && !IsArchProtected(WallCommitGeometryReads.Read(r), r.name))
                     {
                         UnityGameEditorDoorProp? gdp =
                             doorRoot.GetComponent<UnityGameEditorDoorProp>();
@@ -6842,7 +6876,7 @@ internal static partial class WallSegmentFade
                         {
                             gseg.Renderers.Add(r);
                             Bounds gb = gseg.Bounds;
-                            gb.Encapsulate(r.bounds);
+                            gb.Encapsulate(WallCommitGeometryReads.Read(r));
                             gseg.Bounds = gb;
                         }
                         continue;
@@ -6876,12 +6910,12 @@ internal static partial class WallSegmentFade
                     seg.Renderers.Add(r);
                     if (!seg.HasBounds)
                     {
-                        seg.Bounds = r.bounds;
+                        seg.Bounds = WallCommitGeometryReads.Read(r);
                         seg.HasBounds = true;
                     }
                     else
                     {
-                        seg.Bounds.Encapsulate(r.bounds);
+                        seg.Bounds.Encapsulate(WallCommitGeometryReads.Read(r));
                     }
                     _censusAdopted++;
                 }
@@ -7044,7 +7078,7 @@ internal static partial class WallSegmentFade
                 if (CollectWallFadeInfo(r, sub, relaxG))
                 {
                     sub.Renderers.Add(r);
-                    sub.Bounds = r.bounds;
+                    sub.Bounds = WallCommitGeometryReads.Read(r);
                     sub.HasBounds = true;
                     sub.RunPassenger = relaxG && IsStandingFigureProp(r);
                 }
@@ -7070,7 +7104,7 @@ internal static partial class WallSegmentFade
                     continue;
                 Segment? best = null;
                 float bestSq = float.PositiveInfinity;
-                Vector3 c = r.bounds.center;
+                Vector3 c = WallCommitGeometryReads.Read(r).center;
                 foreach (Segment piece in _splitPieceScratch)
                 {
                     if (!piece.HasBounds)
@@ -7135,7 +7169,7 @@ internal static partial class WallSegmentFade
         /// walk's documented fail-open), while the door prop is a SIBLING subtree — but the door
         /// object knows exactly where it stands, and archway frames exist only around doors.
         /// </summary>
-        private Transform? FindDoorwayRoot(MeshRenderer r) => FindDoorwayRootFor(r.bounds);
+        private Transform? FindDoorwayRoot(MeshRenderer r) => FindDoorwayRootFor(WallCommitGeometryReads.Read(r));
 
         /// <summary>The same link on a bare box (ModBuild 410): the free-standing lane asks it
         /// for meshes AND particle emitters (a zero-size box at the emitter), so a doorway's
@@ -7230,9 +7264,9 @@ internal static partial class WallSegmentFade
                                 continue;
                             if (RendererUsesWallFade(c))
                                 continue;
-                            if (c.bounds.max.y <= ceiling)
+                            if (WallCommitGeometryReads.Read(c).max.y <= ceiling)
                                 continue; // floor-ish — never rides a fade, in any form
-                            if (IsWaterProtected(c.bounds))
+                            if (IsWaterProtected(WallCommitGeometryReads.Read(c)))
                                 continue; // fountain/pond (user ruling 2026-08-09) — never fades
                             if (c.GetComponentInParent<ProceduralWall>() != null
                                 || c.GetComponentInParent<ActorBehaviour>() != null
@@ -7346,7 +7380,7 @@ internal static partial class WallSegmentFade
                 {
                     if (mr == null)
                         continue;
-                    Bounds b = mr.bounds;
+                    Bounds b = WallCommitGeometryReads.Read(mr);
                     if (center.x < b.min.x || center.x > b.max.x
                         || center.z < b.min.z || center.z > b.max.z)
                         continue;
@@ -7517,7 +7551,7 @@ internal static partial class WallSegmentFade
                         if (mr.enabled)
                             drawing++;
                     }
-                    Bounds b = mr.bounds;
+                    Bounds b = WallCommitGeometryReads.Read(mr);
                     if (!haveBounds) { union = b; haveBounds = true; }
                     else union.Encapsulate(b);
                 }
@@ -7544,7 +7578,7 @@ internal static partial class WallSegmentFade
                     if (mr == null)
                         continue;
                     if (listed >= MaxChildRendererSamples) { sb.Append(" …"); break; }
-                    Bounds b = mr.bounds;
+                    Bounds b = WallCommitGeometryReads.Read(mr);
                     bool disabled = mr.gameObject.activeInHierarchy && !mr.enabled;
                     sb.Append(listed == 0 ? "; sample: '" : " '").Append(mr.name)
                       .Append("'[").Append(mr.gameObject.activeInHierarchy
@@ -8056,7 +8090,7 @@ internal static partial class WallSegmentFade
             _splitToggleRescued++;
             if (_splitToggleRescuedNames.Count >= SplitToggleRescuedNameCap)
                 return;
-            Bounds b = r.bounds;
+            Bounds b = WallCommitGeometryReads.Read(r);
             _splitToggleRescuedNames.Add(
                 $"'{r.name}' y[{b.min.y:0.0}..{b.max.y:0.0}] under "
                 + $"'{(wall != null ? wall.name : "<dead>")}'");
@@ -8407,7 +8441,7 @@ internal static partial class WallSegmentFade
                 {
                     _paFigures++;
                 }
-                else if (roomKnown && r.bounds.max.y <= ceiling)
+                else if (roomKnown && WallCommitGeometryReads.Read(r).max.y <= ceiling)
                 {
                     _paGround++;
                 }
@@ -8416,11 +8450,11 @@ internal static partial class WallSegmentFade
                 // renderer back off its wall, which is precisely what left it owned by no list.
                 // Asked after the ground band so that band keeps its meaning, and before
                 // gated-off/UNCLAIMED so a ruling can never be reported as a defect.
-                else if (IsWaterProtected(r.bounds))
+                else if (IsWaterProtected(WallCommitGeometryReads.Read(r)))
                 {
                     _paWater++;
                 }
-                else if (IsArchProtected(r.bounds, r.name))
+                else if (IsArchProtected(WallCommitGeometryReads.Read(r), r.name))
                 {
                     _paArch++;
                 }
@@ -9844,7 +9878,7 @@ internal static partial class WallSegmentFade
                     continue;
                 }
                 seg.Renderers.Add(r);
-                Bounds bounds = r.bounds;
+                Bounds bounds = WallCommitGeometryReads.Read(r);
                 if (!seg.HasBounds)
                 {
                     seg.Bounds = bounds;
@@ -9935,7 +9969,10 @@ internal static partial class WallSegmentFade
                 foreach (MeshRenderer prev in seg.PrevRenderers)
                 {
                     if (prev != null && !_refreshMembership.Contains(prev))
+                    {
+                        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(prev);
                         prev.SetPropertyBlock(null);
+                    }
                 }
             }
             _refreshMembership.Clear();
@@ -10034,7 +10071,10 @@ internal static partial class WallSegmentFade
                     }
                 }
                 if (seg.PrevRendererSet.Contains(r))
+                {
+                    ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                     r.SetPropertyBlock(null);
+                }
                 return false;
             }
             bool any = false;
@@ -10165,6 +10205,7 @@ internal static partial class WallSegmentFade
                 {
                     if (r != null)
                     {
+                        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                         r.SetPropertyBlock(null);
                         cleared++;
                     }

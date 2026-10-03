@@ -1281,6 +1281,7 @@ internal static partial class WallSegmentFade
                     _mountedMpb.SetFloat(p.DissolveControlId,
                         Mathf.Lerp(p.BaseDissolveControl, 1f, fade));
                 }
+                ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                 r.SetPropertyBlock(_mountedMpb);
             }
             if (p.System != null)
@@ -1338,7 +1339,10 @@ internal static partial class WallSegmentFade
             NoteOwnershipChange(r, "released(" + reason + ")"); // churn tripwire (round 11)
             NoteReleaseOverFadedWall(r, owner, reason);
             if (wroteBlock)
+            {
+                ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                 r.SetPropertyBlock(null);
+            }
             if (p.System != null)
             {
                 ParticleSystem.MainModule main = p.System.main;
@@ -1589,7 +1593,7 @@ internal static partial class WallSegmentFade
         {
             if (_mountedRejects.Count >= MountedRejectCap || float.IsInfinity(_mountedAirborneBar))
                 return;
-            Bounds b = c.bounds;
+            Bounds b = WallCommitGeometryReads.Read(c);
             float anchorY = c is ParticleSystemRenderer ? c.transform.position.y : b.min.y;
             if (anchorY < _mountedAirborneBar)
                 return; // rests on something — would not float even if the wall went
@@ -2335,7 +2339,7 @@ internal static partial class WallSegmentFade
                         // sconce dressing and proceeds into the geometric tests below so it
                         // rides its wall (gate columns included). Wall-sized fade meshes
                         // keep the old skip: they are walls, not dressing.
-                        Bounds fb = mr.bounds;
+                        Bounds fb = WallCommitGeometryReads.Read(mr);
                         bool sconceScale = fb.size.x <= MountedMaxSpanWU
                             && fb.size.y <= MountedMaxSpanWU
                             && fb.size.z <= MountedMaxSpanWU
@@ -2357,7 +2361,7 @@ internal static partial class WallSegmentFade
                     // drift every frame, which is what made the candles blink.
                     bool particles = c is ParticleSystemRenderer;
                     _mountedPastStructural++; // ModBuild 439 — past every structural reject
-                    Bounds b = c.bounds;
+                    Bounds b = WallCommitGeometryReads.Read(c);
                     // PERF S6 (2026-09-05) — THE EMITTER POSITION IS READ ONCE. `c.transform`
                     // is a native property get and `.position` is another, and the pair was
                     // taken FIVE times per particle candidate — twice here, twice for the
@@ -3446,7 +3450,7 @@ internal static partial class WallSegmentFade
             bool particles = r is ParticleSystemRenderer;
             Bounds b = particles
                 ? new Bounds(r.transform.position, Vector3.zero)
-                : r.bounds;
+                : WallCommitGeometryReads.Read(r);
             if (!particles)
             {
                 Vector3 sz = b.size;

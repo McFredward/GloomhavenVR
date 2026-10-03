@@ -13,7 +13,7 @@ namespace GloomhavenVR.Core;
 /// ambience budgets target that remaining work. Native GameObjects, colliders, picking, visibility
 /// controllers and continuations are retained. A batch is a render substitute only: if any original
 /// changes visibility, transform, material or per-renderer effects, restore it before camera culling.
-/// Only positively identified floor cores and ambient prefab families are admitted; no
+/// Only positively identified floor cores, audited masonry meshes and ambient prefab families are admitted; no
 /// actor, held prop, water, foliage, UI or active wall-dissolve surface enters.
 /// Fresh Frame defaults differ; these same reversible settings are available on PC.
 /// </summary>
@@ -27,6 +27,24 @@ internal static class ScenarioEnvironmentBudget
     private static Driver? _driver;
     private static LeaseRecovery? _recovery;
     private static bool _failed;
+    private static Func<bool>? _structuralEnabled;
+
+    internal static void ConfigureStructuralBatching(Func<bool> enabled) => _structuralEnabled = enabled;
+    private static bool StructuralEnabled => _structuralEnabled?.Invoke() == true;
+
+    // A renderer write can occur inside a nested render callback. Drop its substitute
+    // synchronously, before native/wall effects can encounter an old chunk or mask.
+    internal static void BeforeNativeRendererWrite(Renderer renderer)
+    {
+        if (_failed || renderer == null) return;
+        try { _driver?.BeforeNativeRendererWrite(renderer); }
+        catch (Exception error) { StopAfterFailure(error); }
+    }
+    internal static void BeforeNativeContentChange()
+    {
+        try { _driver?.RecoverRenderLeases(); }
+        catch (Exception error) { StopAfterFailure(error); }
+    }
 
     internal static void Install(GameObject host)
     {
@@ -94,6 +112,22 @@ internal static class ScenarioEnvironmentBudget
             || name.IndexOf("_Floor_Basic", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_FloorTiles", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_Stone_Floor_", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static bool StructuralIdentity(Mesh mesh)
+    {
+        // Exact authored Mesh identities, audited in pcg_crypt/ancientcaverns/cave.
+        // Ancestor labels, generic "Wall" meshes and decorative roots never qualify.
+        return AuthoredName(mesh.name) is "EN_CR_Pillar_Thin" or "EN_CR_Pillar_Large"
+            or "EN_CR_Pillar_Large_02" or "EN_CR_Wall_Top_x2" or "EN_CR_Wall_Top_x4"
+            or "EN_CR_Wall_Basic_Tall" or "EN_CR_Wall_TrimBasic_01"
+            or "CR_RU_UnderWall_01_Pillar" or "CR_RU_UnderWall_01_Slabs"
+            or "CR_RU_UnderWall_01_Wall" or "CR_FR_Pillar_Stoun_02"
+            or "CV_Pillar_Generic_01" or "CV_Pillar_Generic_02"
+            or "CV_Wall_Generic_01" or "CV_Wall_Generic_02" or "CV_Wall_Generic_03"
+            or "CV_Wall_Generic_04" or "CV_Wall_Generic_05"
+            or "CV_Wall_Generic_Thin_01" or "CV_Wall_Generic_Thin_Narrow_01"
+            or "CV_Wall_Generic_Thin_Narrow_02";
     }
 
     private static bool Gate(Material material, string name) =>
@@ -185,6 +219,7 @@ internal static class ScenarioEnvironmentBudget
         internal MeshFilter Filter = null!;
         internal ProceduralMapTile Tile = null!;
         internal bool Floor;
+        internal bool Structural;
         internal Mesh Mesh = null!;
         internal Material[] Original = Array.Empty<Material>();
         internal Material[]? Applied;
@@ -300,7 +335,7 @@ internal static class ScenarioEnvironmentBudget
 
     private readonly struct BatchKey : IEquatable<BatchKey>
     {
-        private readonly int _tile, _material, _layer, _x, _z, _flags;
+        private readonly int _tile, _material, _layer, _x, _z, _y, _flags;
         internal BatchKey(Surface surface, Material material)
         {
             _tile = surface.Tile.GetInstanceID(); _material = material.GetInstanceID();
@@ -313,12 +348,13 @@ internal static class ScenarioEnvironmentBudget
                 _flags = (_flags * 397 ^ (r.allowOcclusionWhenDynamic ? 1 : 0)) * 397 ^ (int)r.renderingLayerMask; }
             Vector3 p = surface.Tile.transform.InverseTransformPoint(surface.Renderer.bounds.center);
             _x = Mathf.FloorToInt(p.x / 4f); _z = Mathf.FloorToInt(p.z / 4f);
+            _y = surface.Structural ? Mathf.FloorToInt(p.y / 4f) : 0;
         }
         public bool Equals(BatchKey other) => _tile == other._tile && _material == other._material
-            && _layer == other._layer && _x == other._x && _z == other._z && _flags == other._flags;
+            && _layer == other._layer && _x == other._x && _z == other._z && _y == other._y && _flags == other._flags;
         public override bool Equals(object? other) => other is BatchKey key && Equals(key);
         public override int GetHashCode()
-        { unchecked { return ((((_tile * 397 ^ _material) * 397 ^ _layer) * 397 ^ _x) * 397 ^ _z) * 397 ^ _flags; } }
+        { unchecked { return (((((_tile * 397 ^ _material) * 397 ^ _layer) * 397 ^ _x) * 397 ^ _z) * 397 ^ _y) * 397 ^ _flags; } }
     }
 
     // Recover an interrupted camera render before native Update can instantiate an
@@ -343,7 +379,7 @@ internal static class ScenarioEnvironmentBudget
         private readonly Dictionary<int, Batch> _batchBySource = new();
         private readonly Queue<List<Surface>> _parts = new();
         private readonly List<int> _dead = new();
-        private bool _batchOn, _simpleOn, _active, _buildPending;
+        private bool _batchOn, _structuralOn, _simpleOn, _active, _buildPending;
         private int _effects = 100, _unreadable, _renderDepth;
         private Shader? _shader;
 
@@ -382,13 +418,13 @@ internal static class ScenarioEnvironmentBudget
         internal void QueueRoot(GameObject root)
         {
             if (!VRSession.IsRunning || root == null || !(PerfConfig.StaticScenarioBatchesOn
-                || PerfConfig.SimpleEnvironmentShadingOn || PerfConfig.EnvironmentEffectsDensityPercent < 100)) return;
+                || StructuralEnabled || PerfConfig.SimpleEnvironmentShadingOn || PerfConfig.EnvironmentEffectsDensityPercent < 100)) return;
             if (_queued.Add(root.GetInstanceID())) _pending.Enqueue(root.transform);
         }
         internal void MaterialReady(Renderer renderer)
         {
             if (renderer == null || !VRSession.IsRunning || !(PerfConfig.StaticScenarioBatchesOn
-                || PerfConfig.SimpleEnvironmentShadingOn || PerfConfig.EnvironmentEffectsDensityPercent < 100)
+                || StructuralEnabled || PerfConfig.SimpleEnvironmentShadingOn || PerfConfig.EnvironmentEffectsDensityPercent < 100)
                 || TileScope(renderer.transform, out _) == null) return;
             Settings();
             int id = renderer.GetInstanceID();
@@ -426,15 +462,16 @@ internal static class ScenarioEnvironmentBudget
         {
             bool batch = VRSession.IsRunning && PerfConfig.StaticScenarioBatchesOn;
             bool simple = VRSession.IsRunning && PerfConfig.SimpleEnvironmentShadingOn;
+            bool structural = VRSession.IsRunning && StructuralEnabled && simple;
             int effects = VRSession.IsRunning ? PerfConfig.EnvironmentEffectsDensityPercent : 100;
-            bool active = batch || simple || effects < 100;
-            if (batch == _batchOn && simple == _simpleOn && effects == _effects && active == _active) return;
+            bool active = batch || structural || simple || effects < 100;
+            if (batch == _batchOn && structural == _structuralOn && simple == _simpleOn && effects == _effects && active == _active) return;
             ReleaseBatches();
             foreach (Surface surface in _surfaces.Values) surface.RestoreMaterial();
             RestoreClonedMaterials();
             foreach (Material material in _materials.Values) if (material != null) UnityEngine.Object.Destroy(material);
             _materials.Clear(); _originalByVariant.Clear();
-            _batchOn = batch; _simpleOn = simple; _effects = effects; _active = active;
+            _batchOn = batch; _structuralOn = structural; _simpleOn = simple; _effects = effects; _active = active;
             foreach (Surface surface in _surfaces.Values) ApplyMaterial(surface);
             foreach (Ambient ambient in _ambient.Values) ambient.Apply(Hide(ambient.Hash));
             if (!active) { RestoreAll(); return; }
@@ -489,6 +526,13 @@ internal static class ScenarioEnvironmentBudget
                     if (materials[i] != null && _originalByVariant.TryGetValue(materials[i], out Material original))
                     { materials[i] = original; cloned = true; }
                 floor = ProvenFloorCore(renderer, filter.sharedMesh, tile, materials);
+                bool structural = !floor && StructuralIdentity(filter.sharedMesh) && !renderer.HasPropertyBlock();
+                if (structural)
+                    foreach (Material material in materials)
+                        structural &= material != null && !Gate(material, "_WallFade_On")
+                            && !Gate(material, "_ToggleWallfade") && !Gate(material, "ToggleWallFade")
+                            && !Gate(material, "_ToggleWallFadeLocal")
+                            && !Array.Exists(material.shaderKeywords, keyword => keyword.IndexOf("WALLFADE", StringComparison.OrdinalIgnoreCase) >= 0);
                 // Apparance clones keep native material slots. Canonicalize only our known
                 // variant references so a later Off restores the genuine original shader.
                 if (cloned && !_surfaces.ContainsKey(renderer.GetInstanceID())) renderer.sharedMaterials = materials;
@@ -505,11 +549,11 @@ internal static class ScenarioEnvironmentBudget
                     _surfaces.Remove(renderer.GetInstanceID());
                 }
                 bool compatible = materials.Length > 0;
-                foreach (Material material in materials) compatible &= CompatibleMaterial(material, floor);
+                foreach (Material material in materials) compatible &= CompatibleMaterial(material, floor || structural);
                 if (compatible)
                 {
                     var surface = new Surface { Renderer = renderer, Id = renderer.GetInstanceID(), Filter = filter, Tile = tile,
-                        Floor = floor, Mesh = filter.sharedMesh, Original = materials };
+                        Floor = floor, Structural = structural, Mesh = filter.sharedMesh, Original = materials };
                     _surfaces[renderer.GetInstanceID()] = surface;
                     ApplyMaterial(surface);
                     _buildPending = true;
@@ -547,7 +591,7 @@ internal static class ScenarioEnvironmentBudget
 
         private void ApplyMaterial(Surface surface)
         {
-            if (!_simpleOn || surface.Renderer == null) return;
+            if (!_simpleOn || (surface.Structural && !_structuralOn) || surface.Renderer == null) return;
             _shader ??= BundleShaders.Resolve(SimpleShader, Scope, "simpler scenario environment shader available", "original environment materials retained");
             if (_shader == null) return;
             var changed = new Material[surface.Original.Length];
@@ -581,13 +625,13 @@ internal static class ScenarioEnvironmentBudget
             foreach (var pair in _ambient) if (pair.Value.System == null) _dead.Add(pair.Key);
             foreach (int id in _dead) _ambient.Remove(id);
             _dead.Clear();
-            if (!_batchOn) return;
+            if (!_batchOn && !_structuralOn) return;
             var groups = new Dictionary<BatchKey, List<Surface>>();
             foreach (Surface surface in _surfaces.Values)
             {
                 MeshRenderer renderer = surface.Renderer;
                 if (renderer == null || _batchBySource.ContainsKey(renderer.GetInstanceID())
-                    || !surface.Floor || surface.Tile == null || surface.Mesh == null
+                    || !(surface.Floor ? _batchOn : surface.Structural && _structuralOn && surface.IsApplied()) || surface.Tile == null || surface.Mesh == null
                     || renderer.transform.localToWorldMatrix.determinant <= 0f
                     || !renderer.enabled || !renderer.gameObject.activeInHierarchy || renderer.forceRenderingOff
                     || renderer.HasPropertyBlock() || surface.Filter.sharedMesh != surface.Mesh
@@ -631,8 +675,9 @@ internal static class ScenarioEnvironmentBudget
                     || s.Mesh == null || !s.Mesh.isReadable || s.Filter.sharedMesh != s.Mesh
                     || s.Renderer.forceRenderingOff || !s.Renderer.enabled
                     || !s.Renderer.gameObject.activeInHierarchy || s.Renderer.HasPropertyBlock()
-                    || s.Renderer.sharedMaterials.Length != 1 || !s.Floor
-                    || !CompatibleMaterial(s.Renderer.sharedMaterial, s.Floor)
+                    || s.Renderer.sharedMaterials.Length != 1
+                    || !(s.Floor ? _batchOn : s.Structural && _structuralOn && s.IsApplied())
+                    || !CompatibleMaterial(s.Renderer.sharedMaterial, s.Floor || s.Structural)
                     || s.Renderer.transform.localToWorldMatrix.determinant <= 0f
                     || _batchBySource.ContainsKey(s.Renderer.GetInstanceID()));
                 if (members.Count < 2) continue;
@@ -640,6 +685,17 @@ internal static class ScenarioEnvironmentBudget
                 members.RemoveAll(s => s.Renderer.sharedMaterial != material
                     || !SameRenderFlags(s.Renderer, members[0].Renderer));
                 CreateBatch(members);
+            }
+        }
+
+        internal void BeforeNativeRendererWrite(Renderer renderer)
+        {
+            int id = renderer.GetInstanceID();
+            InvalidateBatch(id);
+            if (_surfaces.TryGetValue(id, out Surface surface) && surface.Structural)
+            {
+                surface.RestoreMaterial();
+                _surfaces.Remove(id);
             }
         }
 
@@ -713,7 +769,13 @@ internal static class ScenarioEnvironmentBudget
             using var scope = PerfMonitor.Scope("EnvironmentBudget.PreCull");
             try
             {
-                _renderDepth++; ValidateBatches();
+                _renderDepth++;
+                // DrawRenderer command buffers target exact native Renderer identities.
+                // Keep these sources available with native flags for command-buffer
+                // consumers; such cameras use originals, never a substitute mask.
+                if (camera != null && camera.commandBufferCount > 0)
+                    foreach (Batch batch in _batches) { batch.Unmask(); }
+                else ValidateBatches();
                 foreach (Ambient ambient in _ambient.Values) ambient.Mask(Hide(ambient.Hash));
             }
             catch (Exception error) { StopAfterFailure(error); }
@@ -738,6 +800,7 @@ internal static class ScenarioEnvironmentBudget
             VRLog.Debug(Scope, "Scenario environment budget: " + _surfaces.Count + " compatible static surfaces; "
                 + batched + " source renderers / " + _batches.Count + " chunks; " + _unreadable
                 + " unreadable originals retained; " + _materials.Count + " simpler materials; "
+                + (_structuralOn ? "audited structural chunks on; " : "structural chunks off; ")
                 + _ambient.Count + " identified ambient solvers; effects " + _effects + "%. Actual FPS remains a hardware measurement.");
         }
         private void RestoreClonedMaterials()
@@ -783,12 +846,15 @@ internal static class ProceduralBase_Placed_EnvironmentBudgetPatch
 [HarmonyPatch(typeof(ProceduralMapTile), nameof(ProceduralMapTile.ShowContent))]
 internal static class ProceduralMapTile_Show_EnvironmentBudgetPatch
 {
+    private static void Prefix() => ScenarioEnvironmentBudget.BeforeNativeContentChange();
     private static void Postfix(GameObject o)
     { try { ScenarioEnvironmentBudget.Placed(o); } catch (Exception e) { ScenarioEnvironmentBudget.StopAfterFailure(e); } }
 }
 [HarmonyPatch(typeof(MaterialLoaderData), "CheckAllMaterialLoaded")]
 internal static class MaterialLoaderData_Ready_EnvironmentBudgetPatch
 {
+    private static void Prefix(MaterialLoaderData __instance)
+    { try { if (__instance.Renderer != null) ScenarioEnvironmentBudget.BeforeNativeRendererWrite(__instance.Renderer); } catch (Exception e) { ScenarioEnvironmentBudget.StopAfterFailure(e); } }
     private static void Postfix(MaterialLoaderData __instance)
     { try { if (__instance.Renderer != null) ScenarioEnvironmentBudget.MaterialReady(__instance.Renderer); } catch (Exception e) { ScenarioEnvironmentBudget.StopAfterFailure(e); } }
 }
