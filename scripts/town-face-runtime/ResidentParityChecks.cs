@@ -93,7 +93,7 @@ internal static class ResidentParityChecks
         remote.Service = 3; FaceClock.Now += 3.01f;
         Check(!TownServiceSharedCue.HasReadyVisitor(3), "stale mage readiness cannot retain the shared palm");
 
-        var guide = new GameObject("Local native drop guide", typeof(RectTransform), typeof(CanvasGroup));
+        var guide = new GameObject("Local native card drop guide", typeof(RectTransform), typeof(CanvasGroup));
         var border = new GameObject("Border", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
         border.transform.SetParent(guide.transform, false);
         var gate = guide.GetComponent<CanvasGroup>(); gate.alpha = 1f;
@@ -102,6 +102,9 @@ internal static class ResidentParityChecks
             "pre-drop guide exception leaves observer guide invisible");
         gate.alpha = .7f; TownServiceSharedCue.PaintLocal(gate, guide.transform);
         Check(gate.alpha == .7f, "shared readiness cannot alter an eligible player's original local guide");
+        // SharedCue only controls merchant/mage card guides. Reuse this actual
+        // Canvas/Image to check the temple's local haptic/ink endpoint separately;
+        // purse guide network publication belongs to the transport/mirror suite.
         var hand = new VRHand();
         var feedback = new TownServiceOfferFeedback(gate, guide.transform);
         FaceClock.Delta = .1f;

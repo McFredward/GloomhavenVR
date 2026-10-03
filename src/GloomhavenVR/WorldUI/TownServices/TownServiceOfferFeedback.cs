@@ -4,8 +4,9 @@ using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
-/// <summary>Local owner's physical offer intent and controller feedback. The maintainer's
-/// local-only pre-drop guide exception keeps this personal affordance off observer copies.</summary>
+/// <summary>Original owner's physical offer intent and local controller feedback.
+/// Card pre-drop guides are local-only by the maintainer's explicit exception;
+/// purse guide appearance and feedback still belong to shared presentation.</summary>
 internal sealed class TownServiceOfferFeedback
 {
     private readonly CanvasGroup? _gate;

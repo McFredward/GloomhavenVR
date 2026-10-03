@@ -6,7 +6,7 @@ using UnityEngine;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>Bounded visitor readiness for the shared mage's offered-hand pose. The
-/// maintainer explicitly made pre-drop guides local-only (2026-10-03): they never
+/// maintainer explicitly made card pre-drop guides local-only (2026-10-03): they never
 /// elect a visual owner, hide another eligible visitor's guide or paint remote ink.
 /// Historical shared-guide wire fields remain readable for protocol compatibility.</summary>
 internal static class TownServiceSharedCue
