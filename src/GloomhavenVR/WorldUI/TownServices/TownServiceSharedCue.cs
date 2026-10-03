@@ -65,20 +65,18 @@ internal static class TownServiceSharedCue
         }
     }
 
-    /// <summary>Read the original visitor's readiness without depending on a rendered
-    /// guide. Matching the fresh native visit prevents an old palm affordance from
-    /// extending a hand after that visitor changed service or reopened its session.</summary>
+    /// <summary>Read original visitor readiness from its independent motion lifetime,
+    /// without depending on a native service selection or rendered guide. One head
+    /// may validly stand in merchant and mage ranges simultaneously. The numeric
+    /// receiver rejects obsolete lifetimes/sequences before this call.</summary>
     internal static bool HasReadyVisitor(byte service)
     {
         if (service != 3 || StoryComposite.PointOfNoReturn) return false;
+        if (TownServiceMirror.TransactionOwner(3) != 0) return true;
         float now = Time.unscaledTime;
-        foreach (var pair in Visitors)
+        foreach (Visitor visitor in Visitors.Values)
         {
-            Visitor visitor = pair.Value;
-            if (!visitor.Ready || now - visitor.Received > FreshSeconds
-                || !TownServiceMirror.RemoteSessions.TryGetValue(pair.Key, out TownServiceSessionInfo? session)
-                || !session.Active || session.Service != service || session.Session != visitor.Session
-                || now - session.LastSeenTime > NetProtocol.StaleTimeoutSeconds) continue;
+            if (!visitor.Ready || now - visitor.Received > FreshSeconds) continue;
             return true;
         }
         return false;

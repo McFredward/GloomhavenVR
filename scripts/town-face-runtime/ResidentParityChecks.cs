@@ -79,13 +79,17 @@ internal static class ResidentParityChecks
             { Active = true, Service = 3, Session = 12, LastSeenTime = FaceClock.Now };
         TownServiceMirror.RemoteSessions[2] = remote;
         TownServiceSharedCue.ObserveVisitor(2, 11, true, .8f);
-        Check(!TownServiceSharedCue.HasReadyVisitor(3),
-            "ready evidence from a previous native visit cannot extend the mage hand");
+        Check(TownServiceSharedCue.HasReadyVisitor(3),
+            "independent motion lifetime may differ from the native mage session");
         TownServiceSharedCue.ObserveVisitor(2, 12, true, .8f);
         Check(TownServiceSharedCue.HasReadyVisitor(3),
             "fresh visitor readiness survives local-only remote guide suppression");
         remote.Service = 1;
-        Check(!TownServiceSharedCue.HasReadyVisitor(3), "changed service retires old mage readiness");
+        Check(TownServiceSharedCue.HasReadyVisitor(3),
+            "simultaneous merchant and mage readiness cannot be gated by native service selection");
+        TownServiceSharedCue.ObserveVisitor(2, 12, false, 0f);
+        Check(!TownServiceSharedCue.HasReadyVisitor(3), "numeric mage readiness withdrawal releases the palm");
+        TownServiceSharedCue.ObserveVisitor(2, 12, true, .8f);
         remote.Service = 3; FaceClock.Now += 3.01f;
         Check(!TownServiceSharedCue.HasReadyVisitor(3), "stale mage readiness cannot retain the shared palm");
 

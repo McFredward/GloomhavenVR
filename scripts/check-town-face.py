@@ -61,7 +61,7 @@ def mutations():
         ("distant-visit-steals-gaze", "TownServiceFaceAttention.cs", "delta.sqrMagnitude <= 2.4f * 2.4f", "delta.sqrMagnitude <= 36f", "a distant native visit cannot suppress a nearby valid resident gaze"),
         ("blessing-loses-donor", "TownServiceFaceAttention.cs", "? _blessedVisitor : 0;", "? 0 : 0;", "priestess looks at the currently blessed visitor without taking a lease"),
         ("remote-guide-visible", "TownServiceSharedCue.cs", "gate.alpha = 0f;", "gate.alpha = 1f;", "pre-drop guide exception leaves observer guide invisible"),
-        ("stale-guide-session", "TownServiceSharedCue.cs", "session.Session != visitor.Session", "false", "ready evidence from a previous native visit cannot extend the mage hand"),
+        ("native-visit-gates-ready", "TownServiceSharedCue.cs", "if (!visitor.Ready || now - visitor.Received > FreshSeconds) continue;", "if (!visitor.Ready || now - visitor.Received > FreshSeconds || !TownServiceMirror.RemoteSessions.TryGetValue(2, out var native) || native.Session != visitor.Session) continue;", "independent motion lifetime may differ from the native mage session"),
         ("offer-feedback-misses-hover", "TownServiceOfferFeedback.cs", "if (near && !_near && Time.unscaledTime >= _nextNearPulse)", "if (false && near && !_near && Time.unscaledTime >= _nextNearPulse)", "valid purse approach pulses once before its snap edge"),
     ]
 
