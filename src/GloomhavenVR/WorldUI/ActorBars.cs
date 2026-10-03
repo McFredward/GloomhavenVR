@@ -148,9 +148,11 @@ internal static class ActorBars
         /// the table larger and sank the bars into the miniatures.
         /// </summary>
         public float AnchorOffsetWU;
+        public float PoseAnchorY;
 
-        /// <summary>Original-skin bounds attached to cached native bones. Evaluated every late
-        /// frame without the former renderer/bone-array/vertex census or lifetime maximum.</summary>
+        /// <summary>Original-skin bounds attached to cached native bones. Full native loops keep
+        /// their prepared ceiling; transitions/actions are evaluated every late frame. The optional
+        /// pure-loop verification cadence never slows original health or animation callbacks.</summary>
         public ActorBarPose? Pose;
 
         /// <summary>
@@ -331,6 +333,8 @@ internal static class ActorBars
     // Bars.PoseWrites / Bars.ScaleWrites against Bars.Bars is the hit rate of the change gate, and
     // Bars.DepthScans per frame shows whether the 2 s rescans are still landing in one frame.
     private static int s_barPoseWrites;
+    private static int s_barBoneChecks;
+    private static int s_barLoopSkips;
     private static int s_barScaleWrites;
     private static int s_barDepthScans;
 
@@ -550,6 +554,8 @@ internal static class ActorBars
         float sampleRectPx = 0f;
 
         s_barPoseWrites = 0;
+        s_barBoneChecks = 0;
+        s_barLoopSkips = 0;
         s_barScaleWrites = 0;
         s_barDepthScans = 0;
 
@@ -660,10 +666,19 @@ internal static class ActorBars
                 }
             }
 
-            // Native skins follow their evaluated pose in both directions (Build609 flying/sleeping
-            // Drake screenshots). Only preparation/fallback retains the bounded discovery samples;
-            // steady pose reads use cached bone-local envelopes, not another geometry inventory.
+            // Native waking/action blends follow their evaluated pose in both directions; cyclic
+            // flaps use the complete original loop ceiling (Build610 Frame hardware clarification).
+            // Preparation remains bounded; steady posing never performs a geometry inventory.
+            ActorBarPose? previousPose = adopted.Pose;
+            int previousChecks = previousPose?.VerificationCount ?? 0;
+            int previousSkips = previousPose?.SkippedVerificationCount ?? 0;
             ResampleAnchor(adopted, controller, now);
+            if (adopted.Pose != null)
+            {
+                bool samePose = adopted.Pose == previousPose;
+                s_barBoneChecks += adopted.Pose.VerificationCount - (samePose ? previousChecks : 0);
+                s_barLoopSkips += adopted.Pose.SkippedVerificationCount - (samePose ? previousSkips : 0);
+            }
             bool haveTrack = TryGetTrackPoint(controller, out Vector3 track);
             Vector3 pos = track + Vector3.up * adopted.AnchorOffsetWU;
 
@@ -809,6 +824,8 @@ internal static class ActorBars
 
         PerfMonitor.Count("Bars.Bars", Adoptions.Count);
         PerfMonitor.Count("Bars.PoseWrites", s_barPoseWrites);
+        PerfMonitor.Count("Bars.PoseChecks", s_barBoneChecks);
+        PerfMonitor.Count("Bars.LoopSkips", s_barLoopSkips);
         PerfMonitor.Count("Bars.ScaleWrites", s_barScaleWrites);
         PerfMonitor.Count("Bars.DepthScans", s_barDepthScans);
     }
@@ -2254,7 +2271,8 @@ internal static class ActorBars
     }
 
     /// <summary>
-    /// Follow the evaluated native skin envelope in both directions. Height rises immediately;
+    /// Follow the original skin's complete native loop envelope, with dynamic evaluated blends
+    /// and non-loop actions. Height rises immediately;
     /// lowering is smoothed. Preparation retries use the existing bounded, staggered budget.
     /// For unsupported/headless/prop bodies only, re-measure the legacy anchor while its budget lasts (see
     /// <see cref="AnchorSampleBudget"/>), and adopt the new value when it RISES by more than
@@ -2291,8 +2309,7 @@ internal static class ActorBars
         }
         if (TryPoseOffset(adopted.Pose, controller, out float poseOffset))
         {
-            adopted.AnchorOffsetWU = ActorBarPose.Follow(
-                adopted.AnchorOffsetWU, poseOffset, Time.unscaledDeltaTime);
+            FollowPoseAnchor(adopted, controller, poseOffset);
             return;
         }
         if (adopted.Pose != null)
@@ -2328,8 +2345,8 @@ internal static class ActorBars
             {
                 adopted.Pose = candidate;
                 adopted.AnchorSamplesLeft = 0;
-                adopted.AnchorOffsetWU = ActorBarPose.Follow(
-                    adopted.AnchorOffsetWU, poseOffset, Time.unscaledDeltaTime);
+                adopted.PoseAnchorY = TrackY(controller) + adopted.AnchorOffsetWU;
+                FollowPoseAnchor(adopted, controller, poseOffset);
                 return;
             }
         }
@@ -2361,6 +2378,21 @@ internal static class ActorBars
             return null; // headless/attached props keep their existing authored body/arch policy
         using (PerfMonitor.Scope("ActorBars.Pose.Prepare"))
             return ActorBarPose.Capture(tracked, controller.m_HeadBonePoint);
+    }
+
+    private static float TrackY(WorldspacePanelUIController controller)
+    {
+        return TryGetTrackPoint(controller, out Vector3 point) ? point.y : 0f;
+    }
+
+    private static void FollowPoseAnchor(Adopted adopted, WorldspacePanelUIController controller, float offset)
+    {
+        // A stable wing-cycle top still bobs if a head-relative OFFSET is smoothed while the
+        // head itself animates. Follow absolute board-world height, then subtract this frame's
+        // exact track point. Native movement/root scale changes are still represented immediately.
+        float trackY = TrackY(controller);
+        adopted.PoseAnchorY = ActorBarPose.Follow(adopted.PoseAnchorY, trackY + offset, Time.unscaledDeltaTime);
+        adopted.AnchorOffsetWU = adopted.PoseAnchorY - trackY;
     }
 
     private static bool TryPoseOffset(ActorBarPose? pose, WorldspacePanelUIController controller,
@@ -2407,6 +2439,7 @@ internal static class ActorBars
         if (TryPoseOffset(pose, controller, out anchorOffset))
             anchorReport = $"EVALUATED SKIN ENVELOPE from {pose!.BoneCount} cached native bone(s), "
                 + "12% body clearance; authored flight offset is a fallback, never a pose floor. "
+                + $"{pose.LoopCount} prepared native loop envelope(s); loop heights stay fixed. "
                 + "Native transitions raise immediately and lower smoothly; no steady bake or geometry census.";
         else
         {
@@ -2420,6 +2453,7 @@ internal static class ActorBars
             Panel = panel,
             ScanPhase = phase,
             AnchorOffsetWU = anchorOffset,
+            PoseAnchorY = TrackY(controller) + anchorOffset,
             Pose = pose,
             AnchorSamplesLeft = pose != null ? 0 : AnchorSampleBudget,
             NextAnchorSample = Time.unscaledTime + AnchorSampleIntervalSeconds

@@ -8,6 +8,7 @@ public class ActorBehaviour : MonoBehaviour
 {
     public static ActorBehaviour? GetActorBehaviour(GameObject root) => root.GetComponent<ActorBehaviour>();
 }
+public class UnknownPoseWriter : MonoBehaviour { }
 public class WorldspaceDisplayPanelBase : MonoBehaviour
 {
     public enum PoinToTrack { Base, HeadBone, HeadBoneStatic }
@@ -37,6 +38,10 @@ namespace GloomhavenVR.Core
         internal readonly struct Sample : IDisposable { public void Dispose() { } }
         internal static int Preparations;
         internal static Sample Scope(string label) { Preparations++; return new Sample(); }
+    }
+    internal static class PerfConfig
+    {
+        internal static float ActorBarPoseCheckInterval = 0;
     }
     internal static partial class ScenarioFigureDetailBudget
     {
@@ -82,7 +87,7 @@ namespace GloomhavenVR.WorldUI
         internal sealed class Adopted
         {
             internal ActorBarPose? Pose;
-            internal float AnchorOffsetWU, NextAnchorSample, ScanPhase = 0;
+            internal float AnchorOffsetWU, PoseAnchorY, NextAnchorSample, ScanPhase = 0;
             internal int AnchorSamplesLeft;
             internal bool AttachedPropActor;
             internal ActorBehaviour? Actor;
@@ -100,6 +105,7 @@ namespace GloomhavenVR.WorldUI
             var pose = CapturePose(controller);
             bool known = TryPoseOffset(pose, controller, out float height);
             return new Adopted { Pose = known ? pose : null, AnchorOffsetWU = known ? height : 2.1f,
+                PoseAnchorY = TrackY(controller) + (known ? height : 2.1f),
                 AnchorSamplesLeft = known ? 0 : 8, NextAnchorSample = 0.25f,
                 Actor = ActorBehaviour.GetActorBehaviour(controller.m_ObjectToTrack),
                 AttachedPropActor = GloomhavenVR.Board.FigureGrab.ActorPropBody.PropFor(ActorBehaviour.GetActorBehaviour(controller.m_ObjectToTrack)) != null };

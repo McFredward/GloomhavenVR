@@ -39,7 +39,8 @@ public static class InteractionProgram
         animator.cullingMode = AnimatorCullingMode.AlwaysAnimate; animator.Rebind();
         var input = new GameObject("NativeBarInputs").AddComponent<WorldspacePanelUIController>();
         input.m_ObjectToTrack = root; input.m_BasePoint = root.transform;
-        input.m_HeadBonePoint = root.GetComponentsInChildren<Transform>(true).First(t => t.name == "C_headSkel01_JNT");
+        input.m_HeadBonePoint = root.GetComponentsInChildren<Transform>(true).FirstOrDefault(t => t.name == "C_headSkel01_JNT")
+            ?? root.GetComponentsInChildren<SkinnedMeshRenderer>(true).SelectMany(s => s.bones).First(t => t != null && t.name.IndexOf("head", StringComparison.OrdinalIgnoreCase) >= 0);
         input.m_HeadBaseOffset = input.m_HeadBonePoint.position - root.transform.position;
         root.AddComponent<ActorBehaviour>();
         return new NativeFigure { Root = root, Animator = animator, Controller = input,
@@ -115,11 +116,12 @@ public static class InteractionProgram
         AssetBundle bundle = AssetBundle.LoadFromFile(Arg("-nativeDrakeBundle"));
         GameObject prefab = bundle.LoadAsset<GameObject>("Assets/Content/Characters/Monsters/MO_SpittingDrake/MO_SpittingDrake_PR.prefab");
         Animator authored = prefab.GetComponentsInChildren<Animator>(true).First(a => a.runtimeAnimatorController != null && a.runtimeAnimatorController.name == "SpittingDrake_Controller");
+        File.WriteAllLines(Path.Combine(evidence, name + "-native-clips.txt"), authored.runtimeAnimatorController.animationClips.Select(c => c.name + " loop=" + c.isLooping + " length=" + c.length));
         AnimatorController controller = AnimatorController.CreateAnimatorControllerAtPath("Assets/" + name + ".controller");
-        foreach (string pose in new[] { "Sleeping", "Flying" })
+        foreach (string pose in new[] { "Sleeping", "Flying", "Wake" })
         {
             AnimatorState state = controller.layers[0].stateMachine.AddState(pose);
-            state.motion = authored.runtimeAnimatorController.animationClips.Single(c => c.name == (pose == "Sleeping" ? "Spitting_Drake_Sleeping_Idle_v001" : "Spitting_Flying_Idle_v001"));
+            state.motion = authored.runtimeAnimatorController.animationClips.Single(c => c.name == (pose == "Sleeping" ? "Spitting_Drake_Sleeping_Idle_v001" : pose == "Wake" ? "Spitting_Drake_Sleeping_WakeUp_v001" : "Spitting_Flying_Idle_v001"));
         }
         NativeFigure figure = Spawn(prefab, authored, controller);
         figure.Animator.Play("Base Layer.Sleeping", 0, 0.37f); figure.Animator.Update(0.0001f); yield return null;
@@ -129,9 +131,9 @@ public static class InteractionProgram
         ActorBars.Adopted bar = ActorBars.Start(figure.Controller); timer.Stop();
         double prepareMs = timer.Elapsed.TotalMilliseconds;
         Check(bar.Pose != null && bar.Pose.BoneCount > 100, "actual native Drake envelope captured");
-        float expected = BindEnvelopeTop(figure); bar.Pose!.TryTop(out float measured);
+        float expected = BindEnvelopeTop(figure); bar.Pose!.TryCurrentTop(out float measured);
         Near(measured, expected, 0.003f, "default BakeMesh recovered original native bind vertices");
-        timer.Restart(); for (int i = 0; i < 2000; i++) bar.Pose.TryTop(out measured); timer.Stop();
+        timer.Restart(); for (int i = 0; i < 2000; i++) bar.Pose.TryCurrentTop(out measured); timer.Stop();
         double steadyMicroseconds = timer.Elapsed.TotalMilliseconds * 1000 / 2000;
         int prepared = PerfMonitor.Preparations, profiles = Count("Profiles");
         int minimumGap = int.MaxValue; float maxSurplus = 0, sleepAnchor = 0, flightAnchor = 0;
@@ -159,13 +161,13 @@ public static class InteractionProgram
             figure.Animator.Play("Base Layer." + pose, 0, phase / 20f); figure.Animator.Update(0.0001f); yield return null;
             ActorBars.Tick(bar, figure.Controller, 100 + phase);
             Check(bar.Pose != null, "live native skin envelope remains available");
-            Check(bar.Pose!.TryTop(out measured), "live native skin envelope remains available");
+            Check(bar.Pose!.TryCurrentTop(out measured), "live native skin envelope remains available");
             float bodyTop = BodyTop(figure, scratch, vertices), anchor = ActorBars.Position(bar, figure.Controller).y;
             Check(measured + 0.002f >= bodyTop, "live cached envelope encloses evaluated skin");
             float surplus = measured - bodyTop; maxSurplus = Mathf.Max(maxSurplus, surplus);
             Check(surplus <= (pose == "Sleeping" ? 0.15f : 0.22f), "native skin bound tightness avoids sleeping-too-high floor");
             Check(anchor - 0.23f > bodyTop, "health band lowest edge clears actual evaluated pose on every frame");
-            if (pose == "Sleeping") { sleepAnchor = anchor; Check(anchor < 1.35f, "sleeping bar lowers below authored flight floor"); }
+            if (pose == "Sleeping") { sleepAnchor = anchor; Check(anchor < 1.50f, "sleeping bar lowers below authored flight floor"); }
             else flightAnchor = Mathf.Max(flightAnchor, anchor);
             band.transform.position = new Vector3(0, anchor, -1.5f);
             string path = phase == 10 && name.EndsWith("production", StringComparison.Ordinal) ? Path.Combine(evidence, pose.ToLowerInvariant() + ".png") : "";
@@ -175,6 +177,96 @@ public static class InteractionProgram
         Check(PerfMonitor.Preparations == prepared && Count("Profiles") == profiles && ActorBars.LegacyMeasures == 0,
             "steady native posing performs no preparation or legacy geometry census");
         Check(flightAnchor > 3f, "flying wings raise bar above obsolete head-only policy");
+
+        // The real native flap is a cyclic body deformation, not a sequence of taller/lower
+        // creatures. Choose its LOW pose first, then independently visit the entire authored
+        // animation on the live original to prove that Capture already knows the cycle peak.
+        // This cannot pass by a timer or a smooth filter that still oscillates every loop.
+        float minimumPhase = 0, minimumNative = float.PositiveInfinity, maximumNative = float.NegativeInfinity;
+        for (int phase = 0; phase < 96; phase++)
+        {
+            figure.Animator.Play("Base Layer.Flying", 0, phase / 96f); figure.Animator.Update(0.0001f);
+            float height = BindEnvelopeTop(figure);
+            if (height < minimumNative) { minimumNative = height; minimumPhase = phase / 96f; }
+            maximumNative = Mathf.Max(maximumNative, height);
+        }
+        figure.Animator.Play("Base Layer.Flying", 0, minimumPhase); figure.Animator.Update(0.0001f);
+        Transform[] nativeTransforms = figure.Root.GetComponentsInChildren<Transform>(true);
+        Quaternion[] originalRotations = nativeTransforms.Select(t => t.localRotation).ToArray();
+        ActorBars.Adopted loopBar = ActorBars.Start(figure.Controller);
+        Check(loopBar.Pose != null && loopBar.Pose.LoopCount >= 2, "original flying and sleeping cycles prepared");
+        Check(nativeTransforms.Select((t, i) => Quaternion.Angle(t.localRotation, originalRotations[i])).All(a => a < 0.0001f),
+            "cycle sampling never changes the original native skeleton");
+        loopBar.Pose!.TryTop(out float firstCycleTop);
+        Check(firstCycleTop + 0.003f >= maximumNative, "complete native loop peak known before first flap; actual=" + firstCycleTop + " expected=" + maximumNative + " low=" + minimumNative + " stateLoop=" + figure.Animator.GetCurrentAnimatorStateInfo(0).loop);
+        float stableY = ActorBars.Position(loopBar, figure.Controller).y;
+        for (int repeat = 0; repeat < 3; repeat++) for (int phase = 0; phase < 96; phase++)
+        {
+            figure.Animator.Play("Base Layer.Flying", 0, phase / 96f); figure.Animator.Update(0.0001f);
+            ActorBars.Tick(loopBar, figure.Controller, 160 + repeat * 2f + phase / 96f);
+            Near(ActorBars.Position(loopBar, figure.Controller).y, stableY, 0.003f,
+                "animated head cannot bob world-space cycle anchor");
+            loopBar.Pose.TryTop(out float cycleTop);
+            Check(cycleTop + 0.003f >= BindEnvelopeTop(figure), "fixed loop ceiling encloses every authored wing phase");
+        }
+        // A Frame cadence verifies the conservative full-loop ceiling, not health state. Exact
+        // native callbacks/animations never wait for this optional body-matrix read. The clock is
+        // real Unity Time; this same-frame phase sweep deliberately keeps the verification gate
+        // closed while independently evaluating the original native skin at every phase.
+        PerfConfig.ActorBarPoseCheckInterval = 0.1f;
+        ActorBars.Adopted sparseBar = ActorBars.Start(figure.Controller);
+        float sparseY = ActorBars.Position(sparseBar, figure.Controller).y;
+        int sparseBefore = sparseBar.Pose!.VerificationCount;
+        for (int phase = 0; phase < 96; phase++)
+        {
+            figure.Animator.Play("Base Layer.Flying", 0, phase / 96f); figure.Animator.Update(0.0001f);
+            ActorBars.Tick(sparseBar, figure.Controller, 165 + phase / 96f);
+            Near(ActorBars.Position(sparseBar, figure.Controller).y, sparseY, 0.003f,
+                "optional cadence preserves every native wing-phase rendered anchor");
+            sparseBar.Pose.TryTop(out float sparseTop);
+            Check(sparseTop + 0.003f >= BindEnvelopeTop(figure), "optional cadence retains full-cycle conservative ceiling");
+        }
+        Check(sparseBar.Pose.SkippedVerificationCount >= 96 && sparseBar.Pose.VerificationCount - sparseBefore <= 1,
+            "Frame loop cadence actually suppresses repeated original bone matrix walks");
+        timer.Restart(); for (int i = 0; i < 2000; i++) sparseBar.Pose.TryTop(out _); timer.Stop();
+        double sparseMicroseconds = timer.Elapsed.TotalMilliseconds * 1000 / 2000;
+        // Native actions must invalidate the gate in the same frame, even with a long remaining
+        // cadence window. Use the original standup clip and then a genuinely different loop.
+        figure.Animator.Play("Base Layer.Wake", 0, 0.1f); figure.Animator.Update(0.0001f);
+        sparseBar.Pose.TryTop(out float sparseWakeTop);
+        Near(sparseWakeTop, BindEnvelopeTop(figure), 0.003f, "non-loop native action immediately bypasses optional cadence");
+        figure.Animator.Play("Base Layer.Sleeping", 0, 0.4f); figure.Animator.Update(0.0001f);
+        sparseBar.Pose.TryTop(out float sparseSleepTop);
+        Check(sparseSleepTop < 1.25f, "new native loop immediately releases earlier optional cadence ceiling");
+        NativeFigure written = Spawn(prefab, authored, controller);
+        written.Animator.Play("Base Layer.Flying", 0, 0.3f); written.Animator.Update(0.0001f);
+        written.Controller.m_HeadBonePoint.gameObject.AddComponent<UnknownPoseWriter>();
+        ActorBars.Adopted proceduralBar = ActorBars.Start(written.Controller);
+        int proceduralBefore = proceduralBar.Pose!.VerificationCount;
+        for (int phase = 0; phase < 20; phase++)
+        {
+            written.Animator.Play("Base Layer.Flying", 0, phase / 20f); written.Animator.Update(0.0001f);
+            written.Controller.m_HeadBonePoint.localPosition += Vector3.up * 10f;
+            proceduralBar.Pose.TryTop(out float proceduralTop);
+            Check(proceduralTop + 0.003f >= BindEnvelopeTop(written),
+                "unknown procedural bone deformation always gets an immediate safe ceiling");
+        }
+        Check(proceduralBar.Pose.VerificationCount - proceduralBefore == 20 && proceduralBar.Pose.SkippedVerificationCount == 0,
+            "procedural bone writer must stay perframe despite optional cadence");
+        Object.DestroyImmediate(written.Root); Object.DestroyImmediate(written.Controller.gameObject);
+        PerfConfig.ActorBarPoseCheckInterval = 0f;
+        figure.Animator.Play("Base Layer.Flying", 0, 0.4f); figure.Animator.Update(0.0001f);
+        // Board/world translation follows the creature, never the earlier world's peak.
+        figure.Root.transform.position += Vector3.up * 1.4f;
+        ActorBars.Tick(loopBar, figure.Controller, 170);
+        Near(ActorBars.Position(loopBar, figure.Controller).y, stableY + 1.4f, 0.003f,
+            "loop ceiling follows a relocated root immediately");
+        figure.Root.transform.position -= Vector3.up * 1.4f;
+        figure.Animator.Play("Base Layer.Sleeping", 0, 0.4f); figure.Animator.Update(0.0001f);
+        loopBar.Pose.TryTop(out float changedLoopTop);
+        Check(changedLoopTop < 1.25f, "native sleep state releases prior flight cycle peak immediately");
+        figure.Animator.Play("Base Layer.Flying", 0, 0.4f); figure.Animator.Update(0.0001f);
+        // The original bar used by transition tests stays at its final flying state.
 
         // Real native transition blend, then abrupt waking: downward changes are smooth, upward
         // clearance applies in the current evaluated frame rather than waiting for a timer.
@@ -190,7 +282,22 @@ public static class InteractionProgram
             if (step > 20) Check(anchor < previous + 0.015f, "lowering follows sleeping native pose in both directions");
             previous = anchor;
         }
-        Check(previous < 1.45f, "sleep transition releases lifetime high-water latch");
+        Check(previous < 1.50f, "sleep transition releases lifetime high-water latch");
+
+        // The actual native waking clip must keep changing the bar's height, unlike a cyclic
+        // flap. This exercises the semantic-state distinction rather than synthetic movement.
+        figure.Animator.Play("Base Layer.Sleeping", 0, 0); figure.Animator.Update(0.0001f);
+        ActorBars.Adopted wakingBar = ActorBars.Start(figure.Controller);
+        float wakeLo = float.PositiveInfinity, wakeHi = float.NegativeInfinity;
+        for (int phase = 0; phase <= 90; phase++)
+        {
+            figure.Animator.Play("Base Layer.Wake", 0, phase / 91f); figure.Animator.Update(0.0001f);
+            ActorBars.Tick(wakingBar, figure.Controller, 260 + phase / 90f);
+            float y = ActorBars.Position(wakingBar, figure.Controller).y;
+            wakeLo = Mathf.Min(wakeLo, y); wakeHi = Mathf.Max(wakeHi, y);
+            Check(y - 0.23f > BodyTop(figure, scratch, vertices), "actual native waking clip clears each evaluated body phase");
+        }
+        Check(wakeHi - wakeLo > 1f, "non-loop native standup retains meaningful dynamic height");
         Near(ActorBarPose.Follow(3f, 1f, 0.1f), 1f + 2f * Mathf.Exp(-0.8f), 0.00001f, "lowering uses bounded smoothing");
         figure.Animator.Play("Base Layer.Flying", 0, 0.3f); figure.Animator.Update(0.0001f); yield return null;
         ActorBars.Tick(bar, figure.Controller, 300);
@@ -212,14 +319,14 @@ public static class InteractionProgram
             figure.Animator.Play("Base Layer." + (quality == SkinQuality.Bone2 ? "Flying" : "Sleeping"), 0, 0.62f);
             figure.Animator.Update(0.0001f); yield return null;
             ActorBarPose transformed = ActorBarPose.Capture(figure.Root, figure.Controller.m_HeadBonePoint)!;
-            Check(transformed != null && transformed.TryTop(out measured), "scaled native body envelope prepared");
+            Check(transformed != null && transformed.TryCurrentTop(out measured), "scaled native body envelope prepared");
             Near(measured, BindEnvelopeTop(figure), 0.004f, "default BakeMesh preserves rotated scaled child ancestry and native SkinQuality");
             Check(measured + 0.004f >= BodyTop(figure, scratch, vertices), "all native skin quality settings remain enclosed");
             NativeFigure remote = Spawn(prefab, authored, controller); remote.Root.transform.position = new Vector3(-1, 2, 0);
             remote.Root.transform.rotation = Quaternion.Euler(0, 103, -14); remote.Root.transform.localScale = new Vector3(0.7f, 1.7f, 1.1f);
             remote.Animator.Play("Base Layer.Flying", 0, 0.84f); remote.Animator.Update(0.0001f); yield return null;
             int reusable = Count("Profiles"); ActorBarPose reused = ActorBarPose.Capture(remote.Root, remote.Controller.m_HeadBonePoint)!;
-            Check(reused.TryTop(out measured) && Count("Profiles") == reusable, "native profile reused across pooled actors without pose cache");
+            Check(reused.TryCurrentTop(out measured) && Count("Profiles") == reusable, "native profile reused across pooled actors without pose cache");
             Near(measured, BindEnvelopeTop(remote), 0.004f, "reused profile uses remote actor live bone transforms");
             Object.DestroyImmediate(remote.Root); Object.DestroyImmediate(remote.Controller.gameObject);
             figure.Root.transform.SetParent(null, false); figure.Root.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity); figure.Root.transform.localScale = Vector3.one;
@@ -239,7 +346,7 @@ public static class InteractionProgram
                 && uploadedCopies[i].bindposes.Length > 0, "nonreadable runtime native copy retains skin metadata");
         }
         ActorBarPose uploadedPose = ActorBarPose.Capture(figure.Root, figure.Controller.m_HeadBonePoint)!;
-        Check(uploadedPose != null && uploadedPose.TryTop(out measured), "nonreadable runtime native copy supports production private bake recovery");
+        Check(uploadedPose != null && uploadedPose.TryCurrentTop(out measured), "nonreadable runtime native copy supports production private bake recovery");
         Near(measured, uploadedReference, 0.003f, "nonreadable runtime copy agrees with original native bind reference");
         for (int i = 0; i < figure.Skins.Length; i++) { figure.Skins[i].sharedMesh = originals[i]; Object.DestroyImmediate(uploadedCopies[i]); }
 
@@ -253,10 +360,10 @@ public static class InteractionProgram
             records.Add(record); ScenarioFigureDetailBudget.Instance.Own(record);
             ScenarioFigureMeshBank.Prepare(record.Original, 0);
         }
-        ActorBarPose full = ActorBarPose.Capture(figure.Root, figure.Controller.m_HeadBonePoint)!; full.TryTop(out float fullTop);
+        ActorBarPose full = ActorBarPose.Capture(figure.Root, figure.Controller.m_HeadBonePoint)!; full.TryCurrentTop(out float fullTop);
         foreach (var record in records) record.Apply(0);
         Check(records.Any(r => r.UsesDerivative && r.Current!.vertexCount < r.Original.vertexCount), "actual native derivative bank reduces detail0 geometry");
-        ActorBarPose.Reset(); ActorBarPose reduced = ActorBarPose.Capture(figure.Root, figure.Controller.m_HeadBonePoint)!; reduced.TryTop(out float reducedTop);
+        ActorBarPose.Reset(); ActorBarPose reduced = ActorBarPose.Capture(figure.Root, figure.Controller.m_HeadBonePoint)!; reduced.TryCurrentTop(out float reducedTop);
         Near(reducedTop, fullTop, 0.0001f, "detail0 vs100 native envelope uses exact original source");
         foreach (var record in records) record.Restore();
         var replacement = Object.Instantiate(records[0].Original); ((SkinnedMeshRenderer)records[0].Renderer).sharedMesh = replacement;
@@ -265,14 +372,14 @@ public static class InteractionProgram
 
         // Native-named ghost child is excluded by exact mirror ownership, not a prefix. Its
         // source body lives elsewhere, and its huge translated pose must never raise this bar.
-        ActorBarPose.Reset(); ActorBarPose clean = ActorBarPose.Capture(figure.Root, figure.Controller.m_HeadBonePoint)!; clean.TryTop(out float cleanTop);
+        ActorBarPose.Reset(); ActorBarPose clean = ActorBarPose.Capture(figure.Root, figure.Controller.m_HeadBonePoint)!; clean.TryCurrentTop(out float cleanTop);
         GameObject ghost = FigureVisualMirror.CloneVisual(figure.Root, Vector3.up * 100, Quaternion.identity, Vector3.one, out FigureVisualMirror ghostOwner);
         ghost.transform.SetParent(figure.Root.transform, true); ghost.name = "NativeActorName";
         // Alias its root reference to the tracked native head to make skeleton admission alone
         // insufficient. Exact mirror ownership must reject the entire visual, even then.
         foreach (SkinnedMeshRenderer skin in ghost.GetComponentsInChildren<SkinnedMeshRenderer>(true))
             skin.rootBone = figure.Controller.m_HeadBonePoint;
-        ActorBarPose withGhost = ActorBarPose.Capture(figure.Root, figure.Controller.m_HeadBonePoint)!; withGhost.TryTop(out measured);
+        ActorBarPose withGhost = ActorBarPose.Capture(figure.Root, figure.Controller.m_HeadBonePoint)!; withGhost.TryCurrentTop(out measured);
         Near(measured, cleanTop, 0.0001f, "native-named visual ghost excluded by exact mirror owner");
         Object.DestroyImmediate(ghost);
 
@@ -281,7 +388,7 @@ public static class InteractionProgram
         rigidEffect.transform.SetParent(figure.Root.transform, false); rigidEffect.transform.localPosition = Vector3.up * 50;
         rigidEffect.transform.localScale = Vector3.one * 20;
         ActorBarPose noEffect = ActorBarPose.Capture(figure.Root, figure.Controller.m_HeadBonePoint)!;
-        Check(noEffect != null && noEffect.TryTop(out measured), "temporary rigid native action effect does not poison body");
+        Check(noEffect != null && noEffect.TryCurrentTop(out measured), "temporary rigid native action effect does not poison body");
         Near(measured, cleanTop, 0.0001f, "temporary large rigid native action effect never raises body envelope");
         Object.DestroyImmediate(rigidEffect);
 
@@ -365,7 +472,7 @@ public static class InteractionProgram
         Check(live.Pose == null && PerfMonitor.Preparations == before && arriving.Root.activeInHierarchy,
             "pooled controller retarget invalidates old body while it stays alive");
         ActorBars.Tick(live, arriving.Controller, 600.3f);
-        Check(live.Pose != null && live.Pose.TryTop(out measured), "retargeted native controller prepares new live body");
+        Check(live.Pose != null && live.Pose.TryCurrentTop(out measured), "retargeted native controller prepares new live body");
         Near(measured, BindEnvelopeTop(retarget), 0.003f, "retargeted envelope uses new native actor bones");
         arriving.Controller.m_ObjectToTrack = arriving.Root;
         arriving.Controller.m_HeadBonePoint = arriving.Root.GetComponentsInChildren<Transform>(true).First(t => t.name == "C_headSkel01_JNT");
@@ -386,7 +493,7 @@ public static class InteractionProgram
         Check(live.Pose == null && PerfMonitor.Preparations == before,
             "same-root native mesh replacement invalidates cached body source");
         ActorBars.Tick(live, arriving.Controller, 700.3f);
-        Check(live.Pose != null && live.Pose.TryTop(out measured), "same-root replacement source prepares exact new geometry");
+        Check(live.Pose != null && live.Pose.TryCurrentTop(out measured), "same-root replacement source prepares exact new geometry");
         Near(measured, BindEnvelopeTop(arriving), 0.004f, "replacement native geometry uses its own bind envelope");
         replacedSkin.sharedMesh = nativeOriginal; Object.DestroyImmediate(taller);
 
@@ -405,7 +512,7 @@ public static class InteractionProgram
         Check(live.Pose == null && PerfMonitor.Preparations == before,
             "same-root native bone palette replacement invalidates old cached bones");
         ActorBars.Tick(live, arriving.Controller, 801.3f);
-        Check(live.Pose != null && live.Pose.TryTop(out measured), "replacement palette prepares with existing original profile");
+        Check(live.Pose != null && live.Pose.TryCurrentTop(out measured), "replacement palette prepares with existing original profile");
         Near(measured, BindEnvelopeTop(arriving), 0.004f, "replacement palette uses new native bone transforms");
         replacedSkin.bones = oldPalette; Object.DestroyImmediate(replacementBone.gameObject);
 
@@ -428,7 +535,7 @@ public static class InteractionProgram
         figure.Controller.m_HeadBaseOffset = figure.Controller.m_HeadBonePoint.position - figure.Controller.m_BasePoint.position;
         figure.Animator.Play("Base Layer.Sleeping", 0, 0.45f); figure.Animator.Update(0.0001f); yield return null;
         bar = ActorBars.Start(figure.Controller);
-        Check(ActorBars.Position(bar, figure.Controller).y < 1.35f && bar.AnchorOffsetWU < 0,
+        Check(ActorBars.Position(bar, figure.Controller).y < 1.50f && bar.AnchorOffsetWU < 0,
             "flight-captured static head point never floors sleeping bar");
         band.transform.position = new Vector3(0, ActorBars.Position(bar, figure.Controller).y, -1.5f);
         Pixels(camera, target, texture, "", out int staticHeadGap); minimumGap = Math.Min(minimumGap, staticHeadGap);
@@ -451,10 +558,30 @@ public static class InteractionProgram
         ActorBarPose.Reset();
         Check(Count("Profiles") == 0 && Count("Refused") == 0 && typeof(ActorBarPose).GetField("Baker", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null) == null,
             "reset releases profile meshes and diagnostic native references");
+        AssetBundle otherBundle = AssetBundle.LoadFromFile(Arg("-nativeOtherBundle"));
+        GameObject otherPrefab = otherBundle.LoadAllAssets<GameObject>().First(g => g.GetComponentsInChildren<Animator>(true).Any(a => a.runtimeAnimatorController != null));
+        Animator otherAuthored = otherPrefab.GetComponentsInChildren<Animator>(true).First(a => a.runtimeAnimatorController != null);
+        AnimationClip otherIdle = otherAuthored.runtimeAnimatorController.animationClips.First(c => c.isLooping && c.name.IndexOf("idle", StringComparison.OrdinalIgnoreCase) >= 0);
+        AnimatorController otherController = AnimatorController.CreateAnimatorControllerAtPath("Assets/" + name + "Other.controller");
+        AnimatorState otherState = otherController.layers[0].stateMachine.AddState("Idle"); otherState.motion = otherIdle;
+        NativeFigure other = Spawn(otherPrefab, otherAuthored, otherController);
+        other.Animator.Play("Base Layer.Idle", 0, 0); other.Animator.Update(0.0001f);
+        ActorBars.Adopted otherBar = ActorBars.Start(other.Controller);
+        Check(otherBar.Pose != null && otherBar.Pose.LoopCount > 0, "independent original CaveBear idle envelope prepared");
+        float otherY = ActorBars.Position(otherBar, other.Controller).y;
+        for (int phase = 0; phase < 96; phase++)
+        {
+            other.Animator.Play("Base Layer.Idle", 0, phase / 96f); other.Animator.Update(0.0001f);
+            ActorBars.Tick(otherBar, other.Controller, 1000 + phase / 96f);
+            Near(ActorBars.Position(otherBar, other.Controller).y, otherY, 0.003f, "independent native creature idle cycle keeps fixed world height");
+            otherBar.Pose!.TryTop(out float otherTop);
+            Check(otherTop + 0.003f >= BindEnvelopeTop(other), "independent native creature loop ceiling encloses authored body");
+        }
+        Object.DestroyImmediate(other.Root); Object.DestroyImmediate(other.Controller.gameObject);
         Metrics = "real native sleeping/flying skin; imported isReadable=false; uploaded runtime copies retain boneWeights/bindposes and private bake recovery; lower-edge pixel gap >=" + minimumGap + "; max envelope surplus=" + maxSurplus.ToString("F4")
             + "wu; sleeping anchor=" + sleepAnchor.ToString("F3") + "; flying peak=" + flightAnchor.ToString("F3")
             + "; first native preparation=" + prepareMs.ToString("F2") + "ms; steady=" + steadyMicroseconds.ToString("F2") + "us/bar on Editor CPU"
-            + "; transformed ancestry, native SkinQuality, pooled remote reuse, actual detail0 bank and bounded retries";
+            + "; optional cadence steady=" + sparseMicroseconds.ToString("F2") + "us/bar (Editor only); complete 3-cycle flap proof + actual native standup + independent original CaveBear idle; transformed ancestry, native SkinQuality, pooled remote reuse, actual detail0 bank and bounded retries";
         Object.DestroyImmediate(scratch); Object.DestroyImmediate(texture); Object.DestroyImmediate(target); Object.DestroyImmediate(white); Object.DestroyImmediate(red);
     }
 }

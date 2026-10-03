@@ -15,6 +15,11 @@ namespace GloomhavenVR.WorldUI;
 /// Each original vertex is enclosed in the local bounds of EVERY bone with positive weight.
 /// Its skinned world position is a convex combination of those transformed points; their union
 /// therefore encloses the skin in every evaluated pose, including native animation blends.
+/// Build612's Frame test confirms that following each evaluated wing beat makes this envelope
+/// bob. Native loop clips now get one bounded preparation pass on a transform-only private
+/// skeleton. Their complete cycle bounds stay fixed until the native state changes; non-loop
+/// actions and waking/sleeping blends still follow the evaluated original body. The latch is
+/// STATE-scoped, never a lifetime maximum that would leave a sleeping Drake's bar in flight.
 /// One preparation bake recovers bind vertices on non-readable meshes. No bake, vertices,
 /// hierarchy search, renderer/LOD inventory or allocation belongs to the steady height read.
 /// </summary>
@@ -23,8 +28,10 @@ internal sealed class ActorBarPose
     private readonly struct Bone
     {
         internal readonly Transform Transform;
+        internal readonly Transform? Parent;
         internal readonly Bounds Local;
-        internal Bone(Transform transform, Bounds local) { Transform = transform; Local = local; }
+        internal Bone(Transform transform, Bounds local)
+        { Transform = transform; Parent = transform.parent; Local = local; }
     }
     private sealed class Profile
     {
@@ -59,9 +66,29 @@ internal sealed class ActorBarPose
     private readonly Transform _root;
     private readonly Transform _head;
     private readonly Skin[] _skins;
+    private readonly Animator? _animator;
+    private readonly Dictionary<AnimationClip, Bounds> _loops = new();
+    private readonly List<AnimatorClipInfo> _clips = new(4);
+    private int _loopState;
+    private bool _hasLoop;
+    private float _loopTop;
+    private Vector3 _loopScale;
+    private Quaternion _loopRotation;
+    private int _cycleReports;
+    private bool _quietRig = true;
+    private float _nextVerification;
+    private float _verifiedRelativeTop;
+    private int _verifications, _skippedVerifications;
     private ActorBarPose(Transform root, Transform head, Bone[] bones, Skin[] skins)
-    { _root = root; _head = head; _bones = bones; _skins = skins; }
+    {
+        _root = root; _head = head; _bones = bones; _skins = skins;
+        _animator = head.GetComponentInParent<Animator>(true);
+        if (_animator != null && _animator.transform.IsChildOf(root)) PrepareLoops();
+    }
     internal int BoneCount => _bones.Length;
+    internal int LoopCount => _loops.Count;
+    internal int VerificationCount => _verifications;
+    internal int SkippedVerificationCount => _skippedVerifications;
 
     internal static ActorBarPose? Capture(GameObject root, Transform head)
     {
@@ -137,16 +164,186 @@ internal sealed class ActorBarPose
         return true;
     }
 
-    internal bool TryTop(out float top)
+    internal bool TryCurrentTop(out float top)
     {
         top = float.NegativeInfinity;
         foreach (Skin skin in _skins) if (!skin.SourceMatches()) return false;
+        _verifications++;
         foreach (Bone bone in _bones)
         {
             if (_root == null || bone.Transform == null || !bone.Transform.IsChildOf(_root)) return false;
             top = Mathf.Max(top, Top(bone.Transform.localToWorldMatrix, bone.Local));
         }
-        return !float.IsNaN(top) && !float.IsInfinity(top);
+        return Finite(top);
+    }
+
+    internal bool TryTop(out float top)
+    {
+        top = float.NegativeInfinity;
+        if (_root == null || _head == null || !_head.IsChildOf(_root)) return false;
+        foreach (Skin skin in _skins) if (!skin.SourceMatches()) return false;
+        // The body can animate its head as well as its wings. Keep the high-water mark in ANIMATOR
+        // coordinates, not a head-relative offset or a lifetime/world-space maximum. Translation,
+        // table zoom and a genuine new native animation must not inherit an earlier flight peak.
+        if (_animator == null || !_animator.isActiveAndEnabled || _animator.layerCount == 0
+            || _animator.IsInTransition(0)) { _hasLoop = false; return TryCurrentTop(out top); }
+        AnimatorStateInfo state = _animator.GetCurrentAnimatorStateInfo(0);
+        if (!state.loop) { _hasLoop = false; return TryCurrentTop(out top); }
+        _clips.Clear(); _animator.GetCurrentAnimatorClipInfo(0, _clips);
+        if (_clips.Count == 0) { _hasLoop = false; return TryCurrentTop(out top); }
+        int key = state.fullPathHash;
+        bool haveBounds = false;
+        Bounds cycle = default;
+        foreach (AnimatorClipInfo clip in _clips)
+        {
+            if (clip.clip == null || clip.weight <= 0.001f) continue;
+            if (_loops.TryGetValue(clip.clip, out Bounds bounds))
+            {
+                if (!haveBounds) { cycle = bounds; haveBounds = true; }
+                else { cycle.Encapsulate(bounds.min); cycle.Encapsulate(bounds.max); }
+            }
+            key = unchecked(key * 31 + clip.clip.GetInstanceID());
+        }
+        Transform frame = _animator.transform;
+        Vector3 scale = frame.lossyScale;
+        Quaternion rotation = frame.rotation;
+        bool changed = !_hasLoop || key != _loopState || scale != _loopScale || rotation != _loopRotation;
+        if (!_hasLoop || key != _loopState || scale != _loopScale || rotation != _loopRotation)
+        {
+            _loopTop = float.NegativeInfinity; _loopState = key; _hasLoop = true;
+            _loopScale = scale; _loopRotation = rotation;
+            if (VRLog.WantsDebug && _cycleReports < 12)
+            {
+                _cycleReports++;
+                VRLog.Debug("WorldUI", $"BAR POSE native loop '{_root.name}' state={state.fullPathHash} "
+                    + $"clips={_clips.Count} prepared={haveBounds} sparseEligible={_quietRig}; cycle height fixed until state/scale/rotation changes "
+                    + $"(bounded report {_cycleReports}/12).");
+            }
+        }
+        float interval = PerfConfig.ActorBarPoseCheckInterval;
+        bool sparse = interval > 0f && _quietRig && haveBounds && _animator.layerCount == 1 && _clips.Count == 1;
+        if (sparse && !changed && Time.unscaledTime < _nextVerification)
+        {
+            // Keep source/topology liveness immediate. Unknown bone writers, humanoid IK and
+            // layered/blended animation are deliberately NOT admitted to the optional shortcut.
+            foreach (Bone bone in _bones)
+                if (bone.Transform == null || bone.Transform.parent != bone.Parent)
+                { _quietRig = false; return TryCurrentTop(out top); }
+            _skippedVerifications++;
+        }
+        else
+        {
+            if (!TryCurrentTop(out top)) return false;
+            _verifiedRelativeTop = top - frame.position.y;
+            _nextVerification = Time.unscaledTime + interval;
+        }
+        float relative = _verifiedRelativeTop;
+        if (haveBounds) relative = Mathf.Max(relative, Top(frame.localToWorldMatrix, cycle) - frame.position.y);
+        _loopTop = Mathf.Max(_loopTop, relative);
+        top = frame.position.y + _loopTop;
+        return true;
+    }
+
+    // SampleAnimation writes only private Transform copies through a disabled original Avatar
+    // binding. No native state machine, renderer, script or gameplay callback runs on this
+    // hierarchy. Transform copies alone do NOT bind the imported Generic Avatar clips.
+    // Work is bounded and belongs to Capture (the existing loading/preparation path), not Tick.
+    private void PrepareLoops()
+    {
+        Animator animator = _animator!;
+        if (animator.runtimeAnimatorController == null) return;
+        GameObject? host = null;
+        try
+        {
+            var transforms = new Dictionary<Transform, Transform>();
+            var needed = new HashSet<Transform> { _root };
+            foreach (Bone bone in _bones)
+                for (Transform? t = bone.Transform; t != null && t != _root; t = t.parent) needed.Add(t);
+            for (Transform? t = animator.transform; t != null && t != _root; t = t.parent) needed.Add(t);
+            _quietRig = !animator.isHuman;
+            foreach (Transform transform in needed)
+            {
+                // Only the existing animation graph may deform the sampled skeleton. Unity IK,
+                // constraints, native/mod procedural writers or unknown scripts retain exact
+                // evaluated checks; no inference from a decorative object's name is made.
+                foreach (Component component in transform.GetComponents<Component>())
+                    if (component is MonoBehaviour || component is UnityEngine.Animations.IConstraint)
+                    {
+                        if (transform == _root && component.GetType() == typeof(ActorBehaviour)) continue;
+                        _quietRig = false; break;
+                    }
+            }
+            host = new GameObject("GloomhavenVR.BarLoopSampler") { hideFlags = HideFlags.HideAndDontSave };
+            host.SetActive(false);
+            CloneTransforms(_root, host.transform, transforms, needed);
+            Transform animated = transforms[animator.transform];
+            // Native imported clips bind through their Avatar's skeleton map. The disabled
+            // private Animator supplies that map; no state-machine behaviours are cloned.
+            Animator sampler = animated.gameObject.AddComponent<Animator>();
+            sampler.avatar = animator.avatar; sampler.enabled = false;
+            var localBones = new Bone[_bones.Length];
+            for (int i = 0; i < _bones.Length; i++)
+                localBones[i] = new Bone(transforms[_bones[i].Transform], _bones[i].Local);
+            AnimationClip[] clips = animator.runtimeAnimatorController.animationClips;
+            int samplesLeft = 6144;
+            foreach (AnimationClip clip in clips)
+            {
+                if (clip == null || !clip.isLooping || _loops.ContainsKey(clip) || _loops.Count >= 48) continue;
+                int samples = Mathf.Clamp(Mathf.CeilToInt(clip.length * 90f), 32, 256);
+                if (samples > samplesLeft) break;
+                samplesLeft -= samples;
+                foreach (KeyValuePair<Transform, Transform> pair in transforms)
+                {
+                    pair.Value.localPosition = pair.Key == _root ? Vector3.zero : pair.Key.localPosition;
+                    pair.Value.localRotation = pair.Key == _root ? Quaternion.identity : pair.Key.localRotation;
+                    pair.Value.localScale = pair.Key == _root ? Vector3.one : pair.Key.localScale;
+                }
+                bool initialized = false;
+                Bounds cycle = default;
+                for (int frame = 0; frame <= samples; frame++)
+                {
+                    clip.SampleAnimation(animated.gameObject, clip.length * frame / samples);
+                    Matrix4x4 inverse = animated.worldToLocalMatrix;
+                    foreach (Bone bone in localBones)
+                    {
+                        Matrix4x4 matrix = inverse * bone.Transform.localToWorldMatrix;
+                        Bounds box = TransformBounds(matrix, bone.Local);
+                        if (!initialized) { cycle = box; initialized = true; }
+                        else { cycle.Encapsulate(box.min); cycle.Encapsulate(box.max); }
+                    }
+                }
+                if (initialized && Finite(cycle.max.y)) _loops.Add(clip, cycle);
+            }
+        }
+        catch (Exception error)
+        {
+            // Generic skins with unsupported clip bindings retain a native-state-scoped peak.
+            // One bounded anomaly per preparation, not a stream tied to every animated frame.
+            VRLog.Note("WorldUI", "BAR POSE cycle preparation unavailable (" + error.GetType().Name
+                + "); evaluated native-state peak retained.");
+        }
+        finally { if (host != null) UnityEngine.Object.Destroy(host); }
+    }
+
+    private static Transform CloneTransforms(Transform source, Transform parent,
+        Dictionary<Transform, Transform> copies, HashSet<Transform> needed)
+    {
+        var copy = new GameObject(source.name).transform;
+        copy.SetParent(parent, false); copies[source] = copy;
+        copy.localPosition = copies.Count == 1 ? Vector3.zero : source.localPosition;
+        copy.localRotation = copies.Count == 1 ? Quaternion.identity : source.localRotation;
+        copy.localScale = copies.Count == 1 ? Vector3.one : source.localScale;
+        foreach (Transform child in source) if (needed.Contains(child)) CloneTransforms(child, copy, copies, needed);
+        return copy;
+    }
+
+    private static Bounds TransformBounds(in Matrix4x4 matrix, in Bounds box)
+    {
+        Vector3 e = box.extents;
+        Vector3 extents = new(Mathf.Abs(matrix.m00) * e.x + Mathf.Abs(matrix.m01) * e.y + Mathf.Abs(matrix.m02) * e.z,
+            Mathf.Abs(matrix.m10) * e.x + Mathf.Abs(matrix.m11) * e.y + Mathf.Abs(matrix.m12) * e.z,
+            Mathf.Abs(matrix.m20) * e.x + Mathf.Abs(matrix.m21) * e.y + Mathf.Abs(matrix.m22) * e.z);
+        return new Bounds(matrix.MultiplyPoint3x4(box.center), extents * 2f);
     }
 
     private static float Top(in Matrix4x4 matrix, in Bounds box)
@@ -159,7 +356,10 @@ internal sealed class ActorBarPose
     internal static float Offset(float top, float trackY, float baseY, float userOffset)
     {
         float height = Mathf.Max(top - baseY, 0.01f);
-        float needed = top - trackY + Mathf.Max(0.05f, 0.12f * height);
+        // The original figure-follow health/status band reaches ~0.23wu below its anchor. The
+        // old 0.05 minimum could put that LOWER EDGE inside the evaluated native waking pose
+        // even while the anchor point itself cleared the skin. Reserve that band plus 0.03wu.
+        float needed = top - trackY + Mathf.Max(0.26f, 0.12f * height);
         // A verified, scaled native body may exceed the legacy 6wu guard. Never clamp its bar
         // inside that body. The player's offset remains last; its old 0..6wu limit still applies
         // to ordinary figures. A native HeadBoneStatic point captured in flight can sit above

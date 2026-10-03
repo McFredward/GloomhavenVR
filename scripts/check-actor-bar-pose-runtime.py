@@ -29,10 +29,11 @@ def main():
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/actor-bar-pose-runtime')
     parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity')))
     parser.add_argument('--native-drake-bundle', type=Path, default=ROOT / 'ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64/npc_spittingdrake_assets_all.bundle')
+    parser.add_argument('--native-other-bundle', type=Path, default=ROOT / 'ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64/npc_cavebear_assets_all.bundle')
     parser.add_argument('--no-negative-controls', action='store_true')
     parser.add_argument('--case', action='append')
     args = parser.parse_args()
-    if not args.unity.is_file() or not args.native_drake_bundle.is_file():
+    if not args.unity.is_file() or not args.native_drake_bundle.is_file() or not args.native_other_bundle.is_file():
         parser.error('Real Unity and original native Drake bundle required; no silent skip')
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve())) if args.output_dir.is_dir() else None
     if run is None:
@@ -54,7 +55,8 @@ def main():
         raise SystemExit('Last native bar release must drop cached native mesh references')
     methods = '\n'.join(method(bars, signature) for signature in (
         'private static bool TryGetTrackPoint(', 'private static void ResampleAnchor(',
-        'private static ActorBarPose? CapturePose(', 'private static bool TryPoseOffset('))
+        'private static ActorBarPose? CapturePose(', 'private static bool TryPoseOffset(',
+        'private static float TrackY(', 'private static void FollowPoseAnchor('))
     budget = (source / 'Core/Perf/ScenarioFigureDetailBudget.cs').read_text()
     seam = method(budget, 'internal Mesh? OriginalMeshFor(Renderer renderer)')
     seam += '\n' + method(budget, 'internal ScenarioFigureMeshBank.Record? OriginalRecordFor(Renderer renderer)')
@@ -68,15 +70,22 @@ def main():
     proof = {'root': str(args.source_root.resolve()), 'sha256': {name: hashlib.sha256(code.encode()).hexdigest() for name, code in sources.items()}}
     proof['sha256']['ActorBars.cs'] = hashlib.sha256(bars.encode()).hexdigest()
     proof['sha256']['ScenarioFigureDetailBudget.cs'] = hashlib.sha256(budget.encode()).hexdigest()
+    proof['sha256']['native_other_bundle'] = hashlib.file_digest(args.native_other_bundle.open('rb'), 'sha256').hexdigest()
     proof['sha256']['native_drake_bundle'] = hashlib.file_digest(args.native_drake_bundle.open('rb'), 'sha256').hexdigest()
     (run / 'source-hashes.json').write_text(json.dumps(proof, indent=2) + '\n')
     variants = [('production', '', '', '', '')]
     if not args.no_negative_controls:
         variants += [
+            ('no-avatar-cycle-binding', 'ActorBarPose.cs', 'Animator sampler = animated.gameObject.AddComponent<Animator>();\n            sampler.avatar = animator.avatar; sampler.enabled = false;', '', 'complete native loop peak known before first flap'),
+            ('lifetime-loop-cache', 'ActorBarPose.cs', 'if (!_hasLoop || key != _loopState || scale != _loopScale || rotation != _loopRotation)', 'if (!_hasLoop || scale != _loopScale || rotation != _loopRotation)', 'native sleep state releases prior flight cycle peak immediately'),
+            ('skip-unknown-bone-writer', 'ActorBarPose.cs', 'if (component is MonoBehaviour || component is UnityEngine.Animations.IConstraint)', 'if (bool.Parse("false"))', 'unknown procedural bone deformation always gets an immediate safe ceiling'),
+            ('disable-loop-cadence', 'ActorBarPose.cs', 'bool sparse = interval > 0f && _quietRig', 'bool sparse = bool.Parse("false") && _quietRig', 'Frame loop cadence actually suppresses repeated original bone matrix walks'),
+            ('omit-cycle-envelope', 'ActorBarPose.cs', 'if (haveBounds) relative =', 'if (false && haveBounds) relative =', 'complete native loop peak known before first flap'),
+            ('head-offset-smoothing', 'ActorBarsReads.cs', 'adopted.AnchorOffsetWU = adopted.PoseAnchorY - trackY;', 'adopted.AnchorOffsetWU = ActorBarPose.Follow(adopted.AnchorOffsetWU, offset, Time.unscaledDeltaTime);', 'animated head cannot bob world-space cycle anchor'),
             ('ignore-live-pose', 'ActorBarsReads.cs', 'if (TryPoseOffset(adopted.Pose, controller, out float poseOffset))', 'if (TryPoseOffset(null, controller, out float poseOffset))', 'live native skin envelope remains available'),
             ('keep-lifetime-maximum', 'ActorBarPose.cs', ': Mathf.Lerp(current, needed, 1f - Mathf.Exp(-8f * Mathf.Max(0f, deltaSeconds)))', ': current', 'sleep transition releases lifetime high-water latch'),
             ('smooth-waking', 'ActorBarPose.cs', '? needed // abrupt native waking', '? Mathf.Lerp(current, needed, 0.01f) // abrupt native waking', 'health band lowest edge clears actual evaluated pose'),
-            ('retain-flight-floor', 'ActorBarPose.cs', 'float needed = top - trackY + Mathf.Max(0.05f, 0.12f * height);', 'float needed = Mathf.Max(2.10f, top - trackY + 0.12f * height);', 'sleeping bar lowers below authored flight floor'),
+            ('retain-flight-floor', 'ActorBarPose.cs', 'float needed = top - trackY + Mathf.Max(0.26f, 0.12f * height);', 'float needed = Mathf.Max(2.10f, top - trackY + 0.12f * height);', 'sleeping bar lowers below authored flight floor'),
             ('clamp-to-static-head', 'ActorBarPose.cs', 'baseY - trackY, upper', '0f, upper', 'flight-captured static head point never floors sleeping bar'),
             ('lose-bake-world-space', 'ActorBarPose.cs', 'Matrix4x4 world = Baker.transform.localToWorldMatrix;', 'Matrix4x4 world = skin.transform.localToWorldMatrix;', 'default BakeMesh preserves rotated scaled child ancestry'),
             ('head-bones-only', 'ActorBarPose.cs', 'Top(bone.Transform.localToWorldMatrix, bone.Local)', 'bone.Transform.position.y', 'default BakeMesh recovered original native bind vertices'),
@@ -128,7 +137,7 @@ def main():
     (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {'com.unity.modules.' + name: '1.0.0' for name in ('physics', 'cloth', 'animation', 'assetbundle', 'imageconversion', 'particlesystem')}}))
     (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
     command = ['xvfb-run', '-a', str(args.unity), '-batchmode', '-force-glcore', '-projectPath', str(project), '-executeMethod', 'PoseRunner.Start',
-               '-interactionManifest', str(manifest_path), '-nativeDrakeBundle', str(args.native_drake_bundle.resolve()), '-evidenceRoot', str(run), '-logFile', str(run / 'unity.log')]
+               '-interactionManifest', str(manifest_path), '-nativeDrakeBundle', str(args.native_drake_bundle.resolve()), '-nativeOtherBundle', str(args.native_other_bundle.resolve()), '-evidenceRoot', str(run), '-logFile', str(run / 'unity.log')]
     result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=600)
     report = Path(manifest['result'])
     if report.is_file(): print(report.read_text(), end='')
