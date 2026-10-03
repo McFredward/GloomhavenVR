@@ -1,5 +1,44 @@
 # State — where the project stands
 
+**NPC multiplayer checkpoint in progress, 2026-10-03: 1.1.0 / ModBuild 611.**
+
+The supplied host and peer logs both identify Build609; the reviewed video and six
+screenshots belong to that run. They show an empty public cabinet, overlapping
+mage guides, delayed/grey moving item faces and missing observer donation visuals.
+The logs independently contain missing `HeroHighlight_Darken`, ambiguous native
+flow/spark textures and exact card topology differences at invisible `PokePad`
+nodes. These are public 3D-map rendering defects, never card concealment.
+
+Numeric pose, button/scroll, hover and shader animation no longer wait behind full
+native artwork delivery. Additive message26/record97 is capped at one 864-byte
+event per 1/15 second, with change detection and a one-second recovery heartbeat.
+Visitor-held item/purse originals attach to the existing interpolated avatar hand
+frames; immutable assets retain their original module/session/structure affinity.
+Urgent cold fan baselines share compression without increasing the ordinary
+fragment scheduler budget. Old wire records retain their exact byte layout.
+
+A successful original temple callback records a durable commit revision/age for
+shared resident animation and blessing VFX even after its visitor departs. Temple
+native commits remain serialized briefly, but never occupy the NPC or hide another
+visitor's purse. Merchant/mage occupations begin only on physical offering and use
+the approved board avatar/name component above the NPC; removing the offered card
+releases the occupation. Original mage cancellation clears native state and returns
+only that exact offered card/session. Mage decision geometry clears the original
+raised book through the complete owner-authored yaw sweep.
+
+The maintainer's NPC test of 2026-10-03 explicitly permits **one shared enchantress
+pre-drop hologram** instead of duplicated visitor guides. Its visual author is
+selected among ready visitors, independently of native UI/gameplay ownership.
+Every eligible visitor keeps its original release target and controller haptics;
+the shared response uses the existing guide's ink/scale paint. No other NPC parity
+exception is introduced. Review also found personal item partition descendants,
+released mage return flights and independent temple inscription/purse previews
+crossing the old shared-widget election; these originals must remain visible.
+
+Final integrated validation and headset acceptance are pending in this record.
+Compact input/worker evidence is retained under `.planning/debug/npc611-review/`;
+the Build610 compiled snapshot is preserved there for the final scope comparison.
+
 **Desktop dev checkpoint, 2026-10-03: 1.1.0 / ModBuild 610.**
 
 The two supplied Frame captures both identify 609/24400128c; normal uses 3408×3408
