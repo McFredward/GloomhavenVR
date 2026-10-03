@@ -58,8 +58,12 @@ internal static class Program
     private static void AllVisible()
     {
         Check(TownServiceStation.Live.Count==3,"all three permanent residents");
+        Check(TownServiceOccupationBadge.Live.Count == 3,
+            "population allocates one identity lifecycle component per resident");
+        Check(TownServiceSharedCue.Ticks > 0,
+            "population ticks the shared guide lifecycle after ready residents");
         for(byte s=1;s<=3;s++)
-        {Check(TownServicePopulation.Available(s),"resident ready affordance");Near(TownServiceStation.Live[s].Visibility,1,"resident fully visible");Check(TownServiceVisitTarget.Live[s].Enabled,"ready resident input");}
+        {Check(TownServicePopulation.Available(s),"resident ready affordance");Near(TownServiceStation.Live[s].Visibility,1,"resident fully visible");Check(TownServiceVisitTarget.Live[s].Enabled,"ready resident input");Check(TownServiceOccupationBadge.Live[s].Visible,"ready population ticks its identity lifecycle");}
     }
     private static void MerchantOffering()
     {

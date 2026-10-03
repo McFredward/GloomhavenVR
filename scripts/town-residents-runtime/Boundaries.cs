@@ -300,3 +300,26 @@ namespace GloomhavenVR.WorldUI {
 }
 
 namespace GloomhavenVR.WorldUI { internal static class TownServiceMerchantHandoff { internal static bool WantsOffering; } }
+
+// The native palm renderer binds the actual OwnerTag/badge and the enhancement
+// suite binds the actual shared guide. This population fixture records only the
+// component lifecycle so it cannot pretend to validate their rendered picture.
+namespace GloomhavenVR.WorldUI
+{
+    internal sealed class TownServiceOccupationBadge : IDisposable
+    {
+        internal static readonly Dictionary<byte, TownServiceOccupationBadge> Live = new();
+        private readonly byte _service;
+        internal bool Visible;
+        internal TownServiceOccupationBadge(byte service, UnityEngine.Transform station)
+        { _service = service; Live.Add(service, this); }
+        internal void Tick(bool visible) => Visible = visible;
+        public void Dispose() => Live.Remove(_service);
+    }
+    internal static class TownServiceSharedCue
+    {
+        internal static int Ticks;
+        internal static void Tick() => Ticks++;
+        internal static void Reset() => Ticks = 0;
+    }
+}
