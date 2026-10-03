@@ -2,6 +2,19 @@
 
 **Steam Frame CPU/render checkpoint, 2026-10-03: 1.1.0 / ModBuild 612.**
 
+Windows installer follow-up: the PowerShell preflight still accepted only the
+old 20/45/75 identities and numeric part names after the bank gained tier5 and
+mixed-tier distance parts. This omitted installer update reproduced the reported
+`Invalid figure mesh identity` on the committed index. Its corrected original
+PowerShell block now accepts all 1606 entries/78 compatible parts, and the full
+script reaches the deliberate absent-game guard after SDK validation without
+installation writes. Asset-copy and archive membership paths already use the
+complete indexed part set. Runtime, mesh data and ModBuild remain unchanged;
+validation is limited to the affected packaging/preflight checks. All 20 targeted
+tests pass, including actual PowerShell execution, malformed asset rejection and
+the full installer's no-write guard. Source-bound before/after evidence lives in
+`.planning/debug/frame612-installer-validation/`.
+
 The latest Frame inputs identify **610 / 3edbcb284**. Loaded CampaignMap and
 ProcGen windows average 56.91ms and 61.21ms respectively; actual GPU busy remains
 unavailable. Four automatic camera passes still run: two eyes plus discarded
