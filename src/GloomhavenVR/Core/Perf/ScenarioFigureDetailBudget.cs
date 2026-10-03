@@ -75,7 +75,8 @@ internal static class ScenarioFigureDetailBudget
         _driver = null;
     }
 
-    private static bool BudgetActive => PerfConfig.PlayerFigureDetailPercent < 100
+    private static bool BudgetActive => PerfConfig.FigureDistanceLodEnabled || PerfConfig.MaximumSkinningBones > 0
+        || PerfConfig.PlayerFigureDetailPercent < 100
         || PerfConfig.EnemyFigureDetailPercent < 100 || PerfConfig.FigureEffectsDensityPercent < 100
         || !PerfConfig.FigureClothSimulationEnabled;
 
@@ -239,6 +240,8 @@ internal static class ScenarioFigureDetailBudget
         internal ScenarioFigureEffects.Record Effects = null!;
         internal readonly List<KeyValuePair<Renderer, int>> Meshes = new();
         internal readonly List<ScenarioFigureMeshBank.Record> MeshDetails = new();
+        internal readonly List<FigureSkinningBudget.Record> Skinning = new();
+        internal readonly FigureDistanceLodPolicy Distance = new();
         internal int Detail = 100;
         internal bool ClothNative = true;
         internal void Apply(bool restore = false)
@@ -248,7 +251,19 @@ internal static class ScenarioFigureDetailBudget
             bool cloth = restore || PerfConfig.FigureClothSimulationEnabled;
             if (Detail != wanted)
                 foreach (LodRecord lod in Lods) lod.Apply(wanted);
-            foreach (ScenarioFigureMeshBank.Record mesh in MeshDetails) mesh.Apply(wanted);
+            int meshDetail = wanted;
+            Camera head = VRCameraPolicy.AllowedHead!;
+            if (!restore && head != null && MeshDetails.Count > 0)
+            {
+                Bounds bounds = MeshDetails[0].Renderer.bounds;
+                foreach (ScenarioFigureMeshBank.Record mesh in MeshDetails)
+                    if (mesh.Renderer != null) bounds.Encapsulate(mesh.Renderer.bounds);
+                // Held actors retain the user's near cap, locally and remotely.
+                meshDetail = Distance.Select(wanted, bounds, head.transform.position,
+                    HeldFigures.Owns(Actor) || NetHeldFigures.Owns(Actor));
+            }
+            foreach (ScenarioFigureMeshBank.Record mesh in MeshDetails) mesh.Apply(meshDetail);
+            foreach (FigureSkinningBudget.Record skin in Skinning) skin.Apply(restore);
             Detail = wanted; ClothNative = cloth;
             Effects.Apply(restore ? 100 : PerfConfig.FigureEffectsDensityPercent);
             if (Clothes.Count > 0)
@@ -302,7 +317,8 @@ internal static class ScenarioFigureDetailBudget
         private int _scene = int.MinValue;
         private bool _running, _wasLoading;
         private int _players = 100, _enemies = 100, _effects = 100;
-        private bool _cloth = true;
+        private bool _cloth = true, _distance;
+        private int _bones;
         private float _reportAt;
         private bool _reportPending;
         private bool _faulted;
@@ -312,7 +328,9 @@ internal static class ScenarioFigureDetailBudget
             && _players == PerfConfig.PlayerFigureDetailPercent
             && _enemies == PerfConfig.EnemyFigureDetailPercent
             && _effects == PerfConfig.FigureEffectsDensityPercent
-            && _cloth == PerfConfig.FigureClothSimulationEnabled);
+            && _cloth == PerfConfig.FigureClothSimulationEnabled
+            && _distance == PerfConfig.FigureDistanceLodEnabled
+            && _bones == PerfConfig.MaximumSkinningBones);
         private int _rejectedScope, _nativeCandidates;
         private bool _scopeAnomalyReported;
 
@@ -431,16 +449,27 @@ internal static class ScenarioFigureDetailBudget
             ScenarioFigureMeshBank.Prepare(players); ScenarioFigureMeshBank.Prepare(enemies);
             int effects = PerfConfig.FigureEffectsDensityPercent;
             bool cloth = PerfConfig.FigureClothSimulationEnabled;
-            if (_players != players || _enemies != enemies || _effects != effects || _cloth != cloth)
+            bool distance = PerfConfig.FigureDistanceLodEnabled;
+            int bones = PerfConfig.MaximumSkinningBones;
+            if (_players != players || _enemies != enemies || _effects != effects || _cloth != cloth
+                || _distance != distance || _bones != bones)
             {
                 _players = players; _enemies = enemies; _effects = effects; _cloth = cloth;
+                _distance = distance; _bones = bones;
                 Seed(scene); _reportPending = true; _reportAt = Time.unscaledTime + 1f;
                 foreach (ActorRecord record in _actors)
                 {
                     if (record.Actor == null || record.Root == null) continue;
                     foreach (ScenarioFigureMeshBank.Record mesh in record.MeshDetails)
                         if (mesh.Renderer != null && mesh.Original != null)
+                        {
                             ScenarioFigureMeshBank.Prepare(mesh.Original, ActorDetail(record.Actor));
+                            if (distance)
+                            {
+                                ScenarioFigureMeshBank.Prepare(mesh.Original, Mathf.Min(ActorDetail(record.Actor), 45));
+                                ScenarioFigureMeshBank.Prepare(mesh.Original, -1);
+                            }
+                        }
                 }
             }
             if (_wasLoading && !loading) Seed(scene);
@@ -460,6 +489,7 @@ internal static class ScenarioFigureDetailBudget
                 foreach (LodRecord lod in _actors[i].Lods) { lod.Restore(); _lods.Remove(lod); }
                 _actors[i].Effects.Restore();
                 foreach (ScenarioFigureMeshBank.Record mesh in _actors[i].MeshDetails) mesh.Restore();
+                foreach (FigureSkinningBudget.Record skin in _actors[i].Skinning) skin.Apply(true);
                 _seen.Remove(_actors[i].Id);
                 _roots.Remove(_actors[i].RootId);
                 foreach (ClothRecord item in _actors[i].Clothes) item.Apply(true, false);
@@ -553,6 +583,8 @@ internal static class ScenarioFigureDetailBudget
                 if (other != null && other != actor) continue;
                 Mesh? mesh = renderer is SkinnedMeshRenderer skinned ? skinned.sharedMesh
                     : renderer is MeshRenderer ? renderer.GetComponent<MeshFilter>()?.sharedMesh : null;
+                if (renderer is SkinnedMeshRenderer originalSkin)
+                    record.Skinning.Add(new FigureSkinningBudget.Record { Renderer = originalSkin });
                 if (mesh != null)
                 {
                     record.Meshes.Add(new KeyValuePair<Renderer, int>(renderer, mesh.vertexCount));
@@ -565,6 +597,11 @@ internal static class ScenarioFigureDetailBudget
                         && renderer.GetComponent<Cloth>() == null)
                     {
                         ScenarioFigureMeshBank.Prepare(mesh, ActorDetail(actor));
+                        if (PerfConfig.FigureDistanceLodEnabled)
+                        {
+                            ScenarioFigureMeshBank.Prepare(mesh, Mathf.Min(ActorDetail(actor), 45));
+                            ScenarioFigureMeshBank.Prepare(mesh, -1);
+                        }
                         record.MeshDetails.Add(new ScenarioFigureMeshBank.Record { Renderer = renderer, Original = mesh });
                     }
                 }
@@ -641,6 +678,8 @@ internal static class ScenarioFigureDetailBudget
                 try { record.Effects.Restore(); } catch { /* other actors still restore if a cosmetic disappeared */ }
                 foreach (ScenarioFigureMeshBank.Record mesh in record.MeshDetails)
                     try { mesh.Restore(); } catch { /* foreign/destroyed slots cannot gate native teardown */ }
+                foreach (FigureSkinningBudget.Record skin in record.Skinning)
+                    try { skin.Apply(true); } catch { /* restore the other renderer slots */ }
                 foreach (ClothRecord item in record.Clothes)
                     try
                     {

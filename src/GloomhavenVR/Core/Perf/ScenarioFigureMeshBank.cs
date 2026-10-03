@@ -82,6 +82,7 @@ internal static class ScenarioFigureMeshBank
     {
         if (detail >= 100) return;
         Prepare(detail);
+        if (detail < 0) Prepare(source, 0); // constrained far targets fall back to verified tier 20
         string identity = SourceKey(source) + "-" + Tier(detail);
         if (!Index.TryGetValue(identity, out string filename) || !AttemptedBanks.Add(filename)) return;
         try
@@ -108,6 +109,7 @@ internal static class ScenarioFigureMeshBank
         string key = SourceKey(source);
         int tier = Tier(detail);
         if (Meshes.TryGetValue(key + "-" + tier, out Mesh mesh)) return mesh;
+        if (tier == 5 && Meshes.TryGetValue(key + "-20", out mesh)) return mesh;
         if (VRLog.WantsDebug && Missing.Count < 32 && Missing.Add(key))
             VRLog.Debug("Perf", "Scenario figure mesh: no verified derivative for " + source.name + " (" + key + "); original surface retained.");
         return null;
@@ -122,7 +124,7 @@ internal static class ScenarioFigureMeshBank
         }
         return key;
     }
-    private static int Tier(int detail) => detail < 34 ? 20 : detail < 67 ? 45 : 75;
+    private static int Tier(int detail) => detail < 0 ? 5 : detail < 34 ? 20 : detail < 67 ? 45 : 75;
 
     /// <summary>Exact renderer identity owns restoration. Original collider/bones/materials and
     /// culling bounds are never assigned; foreign native changes relinquish this visual slot.</summary>

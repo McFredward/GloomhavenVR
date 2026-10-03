@@ -193,6 +193,7 @@ internal static class AutoLod
     {
         int restored = RestoreDisabled();
         bool bias = ReleaseLodBias();
+        FigureSkinningBudget.Restore();
         if (restored > 0 || bias)
             VRLog.Info(Scope, $"[Optimize] AutomaticLOD teardown — re-enabled {restored} behaviour(s)"
                               + (bias ? $" and put QualitySettings.lodBias back to {_lodBiasOriginal:F2}" : "")
@@ -214,6 +215,7 @@ internal static class AutoLod
     /// </summary>
     private static void Tick()
     {
+        FigureSkinningBudget.Tick();
         // A dial flipped back to off must undo itself immediately, not at the next sweep.
         if (Disabled.Count > 0 && !IdleSkipActive)
         {
@@ -1192,6 +1194,7 @@ internal static class AutoLod
                 {
                     RestoreDisabled();
                     ReleaseLodBias();
+                    FigureSkinningBudget.Restore();
                 }
                 catch (Exception)
                 {
