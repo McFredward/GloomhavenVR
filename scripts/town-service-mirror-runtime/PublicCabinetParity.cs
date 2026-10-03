@@ -45,7 +45,9 @@ public static partial class MirrorProgram
         price.gameObject.AddComponent<Image>().color = Color.green;
         Transform neighbour = Rect("Original cold neighbour stock", rack, Vector2.zero, new Vector2(80, 120));
         neighbour.gameObject.AddComponent<Image>().sprite = artwork;
-        Func<Transform, bool> rackParts = t => t == category || t == crank || t == mount || t == neighbour;
+        Transform extraKey = Rect("Original newly unlocked category key", rack, Vector2.zero, new Vector2(40, 30));
+        extraKey.gameObject.AddComponent<Image>().color = Color.yellow; extraKey.gameObject.SetActive(false);
+        Func<Transform, bool> rackParts = t => t == category || t == crank || t == mount || t == neighbour || t == extraKey;
         Func<Transform, bool> mountParts = t => t == face || t == body || t == price;
         TownServiceMirror.RegisterTemplate(1, 1, rack, rackParts, "merchant.rack|");
         TownServiceMirror.RegisterTemplate(1, 1, category, address: "merchant.category.weapon|");
@@ -55,6 +57,7 @@ public static partial class MirrorProgram
         TownServiceMirror.RegisterTemplate(1, 1, body, address: "merchant.cardbody|");
         TownServiceMirror.RegisterTemplate(1, 1, price, address: "merchant.row|");
         TownServiceMirror.RegisterTemplate(1, 1, neighbour, address: "item.612|");
+        TownServiceMirror.RegisterTemplate(1, 1, extraKey, address: "merchant.category.unlocked|");
         var catalog = new TownServiceCatalog { ObserverRoot = rack };
         catalog.Drawers.Add(new TownServiceMerchantDrawer { Root = rack, HousingRoot = rack });
         TownServicePublicMerchant.Catalog = catalog;
@@ -117,21 +120,26 @@ public static partial class MirrorProgram
         // The next press belongs to the same author. Its new member epoch can
         // overtake the rack root without revealing an empty or stale page.
         NetPlayerActors.Peer = 3; key.onClick.Invoke();
-        using (TownServiceMirror.UsePublicLane()) SetPopulatedRack(2, 512);
+        using (TownServiceMirror.UsePublicLane())
+        {
+            extraKey.gameObject.SetActive(true);
+            TownServiceMirror.RegisterModule(13, 1, extraKey, address: "merchant.category.unlocked|");
+            SetPopulatedRack(2, 512);
+        }
         List<byte[]> next = Capture().Where(bytes => ReadModule(bytes) != 31).ToList(); NetPlayerActors.Peer = 10;
         byte[] firstMember = next.Single(bytes => ReadModule(bytes) == 21);
         Receive(3, new[] { firstMember }); TownServiceMirror.TickRemote(_ => viewer);
         Check(!TownServiceMirror.HasReadyPublicPresentation && second.gameObject.activeInHierarchy,
             "a reordered native member starts the same-author replacement without destroying the previous complete page");
-        Receive(3, next.Where(bytes => ReadModule(bytes) != 12 && ReadModule(bytes) != 21));
+        Receive(3, next.Where(bytes => ReadModule(bytes) != 13 && ReadModule(bytes) != 21));
         TownServiceMirror.TickRemote(_ => viewer);
         Check(!TownServiceMirror.HasReadyPublicPresentation && second.gameObject.activeInHierarchy
             && !Remote(-3, 10)!.Root.gameObject.activeInHierarchy,
             "missing current mechanical originals delay atomic reveal even when every card original is ready");
-        Receive(3, next.Where(bytes => ReadModule(bytes) == 12)); TownServiceMirror.TickRemote(_ => viewer);
+        Receive(3, next.Where(bytes => ReadModule(bytes) == 13)); TownServiceMirror.TickRemote(_ => viewer);
         Transform third = Remote(-3, 10)!.Root;
         Check(TownServiceMirror.HasReadyPublicPresentation && third.gameObject.activeInHierarchy
-            && !second.gameObject.activeInHierarchy && Remote(-3, 12)!.Root.gameObject.activeInHierarchy,
+            && !second.gameObject.activeInHierarchy && Remote(-3, 12)!.Root.gameObject.activeInHierarchy && Remote(-3, 13)!.Root.gameObject.activeInHierarchy,
             "the same author's next complete category remains populated and retires the old native group once");
         NetPlayerActors.Peer = 2; key.onClick.Invoke();
         Check(TownServiceMirror.IsPublicAuthor && key.interactable && !TownServicePublicMerchant.FixtureObserving,
