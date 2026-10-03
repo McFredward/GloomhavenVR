@@ -35,6 +35,9 @@ for bundle,name in [('pcg_materials_assets_cr_st_candleflame.bundle','CandleAnim
     base = args.source_root / 'src/GloomhavenVR/Net/TownServices'
     sources = {name: (base / name).read_text().replace('Time.unscaledTime', 'FlameTestClock.Now') for name in (
         'TownServiceAssets.cs', 'TownServiceFrame.cs', 'TownRackState.cs', 'TownCatalogLayout.cs', 'TownServiceDelta.cs', 'TownServiceMaterial.cs', 'TownServiceBinding.cs', 'TownServiceFlameClock.cs')}
+    # Binding prunes only verified invisible input pads; compile the exact shipped marker.
+    pad = args.source_root / 'src/GloomhavenVR/Hands/Interact/PokeOnlyTarget.cs'
+    sources[pad.name] = pad.read_text()
     variants = [('production', None, '', '', ''),
         ('clock-pooling', 'TownServiceMaterial.cs', 'canonical.Numbers[n + 1] = 0f;', 'canonical.Numbers[n + 1] = clock;', 'pooled flame clock is canonical and immutable'),
         ('no-intermediate-clock', 'TownServiceFlameClock.cs', 'now + _ownerOffset - _sample', '0f', 'flame advances between owner packets'),
