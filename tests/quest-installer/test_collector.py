@@ -222,6 +222,17 @@ class CollectorTests(unittest.TestCase):
         self.assertFalse(set(collector.OPTIONAL_APP_FILES).intersection(files))
         self.assertEqual({row["item"] for row in manifest["optionalFilesUnavailable"]}, set(collector.OPTIONAL_APP_FILES))
 
+    def test_previous_startup_run_is_retained_with_same_bounded_transfer_validation(self):
+        self.fake.pull_stream = "stderr"
+        self.fake.app_files["quest-startup.previous.log"] = "Previous startup run fixture: Menü geladen\n"
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertEqual(files["quest-startup.previous.log"], self.fake.app_files["quest-startup.previous.log"].encode())
+        row = next(row for row in manifest["files"] if row["path"] == "quest-startup.previous.log")
+        self.assertEqual(row["kind"], "app-file-pull")
+        self.assertEqual(row["bytes"], len(files["quest-startup.previous.log"]))
+        self.assertEqual(manifest["status"], "complete")
+
     def test_startup_file_fallback_is_bounded_and_other_saves_not_requested(self):
         self.fake.pull_denied = True
         self.fake.run_as_allowed = True
@@ -259,7 +270,8 @@ class CollectorTests(unittest.TestCase):
         manifest, files = self.capture()
         self.assertEqual(manifest["status"], "partial")
         self.assertEqual(manifest["app"]["processIds"], [])
-        self.assertTrue(set(collector.OPTIONAL_APP_FILES).issubset(files))
+        self.assertTrue(set(self.fake.app_files).issubset(files))
+        self.assertEqual([row["item"] for row in manifest["optionalFilesUnavailable"]], ["quest-startup.previous.log"])
 
     def test_failed_transfer_does_not_keep_partial_file_even_with_success_text(self):
         self.fake.pull_stream = "stderr"

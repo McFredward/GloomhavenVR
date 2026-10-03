@@ -12,7 +12,7 @@ import zipfile
 
 import installer
 
-OPTIONAL_APP_FILES = ("quest-startup.log", "quest-startup-state.json")
+OPTIONAL_APP_FILES = ("quest-startup.log", "quest-startup.previous.log", "quest-startup-state.json")
 APP_FILES = ("quest-hardware.log", "quest-hardware.log.previous", "quest-hardware-storage.json", "quest-hardware-state.json") + OPTIONAL_APP_FILES
 REMOTE_FILES = "/sdcard/Android/data/" + installer.PACKAGE + "/files"
 MAX_FILE = 2 * 1024 * 1024

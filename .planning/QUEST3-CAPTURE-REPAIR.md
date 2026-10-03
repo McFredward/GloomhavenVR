@@ -60,12 +60,14 @@ A future hardware collection is needed to verify repaired file retention.
 
 ## Optional original-game startup diagnostics
 
-The collector also accepts exactly `quest-startup.log` and
-`quest-startup-state.json` from the original-game bootstrap. They use the same
+The collector also accepts exactly `quest-startup.log`,
+`quest-startup.previous.log`, and `quest-startup-state.json` from the
+original-game bootstrap. The previous log retains the rotated previous run.
+They use the same
 fixed app directory, 2 MiB per-file bound, verified pull receipts and fixed-path
 read-only fallback. No other save/configuration files are requested.
 
-These two files are optional for older/probe APKs. If neither the bounded direct
+These three files are optional for older/probe APKs. If neither the bounded direct
 probe nor fallback can access them, the manifest records
 `optionalFilesUnavailable` separately; this does not turn an otherwise complete
 probe collection into a failure. A known-present empty, oversized or failed/
@@ -74,11 +76,11 @@ capture evidence when the app has already exited and no probe log/PID exists.
 
 ## Focused validation
 
-The collector suite passes 36 tests with zero skips, including real portable
+The collector suite passes 37 tests with zero skips, including real portable
 PowerShell Legacy-mode wrapper checks. New controls cover successful stderr
 receipts (including the three captured file sizes), nonzero exits, zero-exit
 transfer errors, missing/empty/partial files, mismatched metadata/receipt sizes,
 and absent success receipts. These checks prove the source repair and failure
 handling; they do not claim a new headset capture has been performed.
-Startup controls cover stderr success, older APK absence, bounded allowlisted
+Startup controls cover stderr success, rotated previous-run retention, older APK absence, bounded allowlisted
 fallback, real transfer failure, oversized state and capture after process exit.
