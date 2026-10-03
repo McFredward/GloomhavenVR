@@ -73,7 +73,7 @@ def main():
             ('original-coin-refused', 'TownServiceAssets.cs', '|| texture.name == "CoinIcon2_White"', '|| false && texture.name == "CoinIcon2_White"',
              'Ambiguous native town-service texture requires an explicit binding: CoinIcon2_White'),
             ('original-ring-refused', 'TownServiceAssets.cs', '|| texture.name == "T_disc_ring"', '|| false && texture.name == "T_disc_ring"',
-             'original public item fronts capture even when native texture descriptors collide'),
+             'different borrow orders retain the original native effect identity'),
             ('front-sprite-omitted', 'TownServiceBinding.cs', 'image.sprite = assets.Resolve<Sprite>(text[0]); image.overrideSprite = assets.Resolve<Sprite>(text[1]);',
              'image.sprite = null; image.overrideSprite = null;', 'public held item retains its complete original artwork sprite'),
         ]
