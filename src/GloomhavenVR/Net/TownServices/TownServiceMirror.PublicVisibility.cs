@@ -11,6 +11,7 @@ internal static partial class TownServiceMirror
     // The previous inert native group stays intact until that atomic replacement;
     // its source is never republished and it contains no gameplay callbacks.
     private static Dictionary<ushort, RemoteModule>? RetainedPublic;
+    private static readonly HashSet<ushort> PublicPagedModules = new();
     private static int _displayedPublicPeer, _pendingPublicPeer, _retainedPublicPeer;
     private static uint _pendingPublicTurn;
     private static int _committedPublicAuthor;
@@ -52,15 +53,14 @@ internal static partial class TownServiceMirror
         Dictionary<ushort, RemoteModule> modules)
     {
         if (!Pending.TryGetValue(session.Peer, out var pending)) return false;
+        PublicPagedModules.Clear();
+        foreach (TownRackMember member in state.Members) PublicPagedModules.Add(member.Id);
         foreach (ushort id in session.Modules)
         {
             // The root clock names neighbour prewarm membership before its
             // original packets exist. Current members are validated separately
             // by PublicPageReady; known off-page members must never gate reveal.
-            bool paged = false;
-            foreach (TownRackMember member in state.Members)
-                if (member.Id == id) { paged = true; break; }
-            if (paged) continue;
+            if (PublicPagedModules.Contains(id)) continue;
             if (!pending.TryGetValue(id, out var received)) return false;
             // A cumulative packet repeats the complete routing/rack header;
             // readiness does not need to allocate and expand its native artwork.
@@ -193,6 +193,6 @@ internal static partial class TownServiceMirror
     private static void ResetPublicPicture()
     {
         ClearRetainedPublic(); _displayedPublicPeer = _committedPublicAuthor = 0;
-        _committedPublicReady = false; _pendingPublicPeer = 0; _pendingPublicTurn = 0;
+        _committedPublicReady = false; _pendingPublicPeer = 0; _pendingPublicTurn = 0; PublicPagedModules.Clear();
     }
 }

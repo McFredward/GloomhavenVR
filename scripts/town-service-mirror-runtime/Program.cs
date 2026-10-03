@@ -164,6 +164,10 @@ public static partial class MirrorProgram
         while (pooled.MoveNext()) yield return pooled.Current;
         IEnumerator partitions = SecondaryVisitorOriginalPartitions();
         while (partitions.MoveNext()) yield return partitions.Current;
+        IEnumerator publicCabinet = PopulatedPublicCabinetHandover();
+        while (publicCabinet.MoveNext()) yield return publicCabinet.Current;
+        IEnumerator offeringLifetime = FastOfferingLifetime();
+        while (offeringLifetime.MoveNext()) yield return offeringLifetime.Current;
     }
 
     private static IEnumerator SecondaryTemplePurses()
