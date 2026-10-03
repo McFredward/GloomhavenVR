@@ -16,6 +16,9 @@ public static class QuestStandalonePlatform
     private static Func<bool, bool>? _setPassthrough;
     private static Func<bool>? _isPassthroughActive;
     private static Func<bool>? _isSessionRunning;
+    private static Func<long>? _passthroughSessionGeneration;
+    private static long _lastPassthroughSessionGeneration;
+    private static bool _havePassthroughSessionGeneration;
     private static bool? _lastPassthroughRequest;
     private static bool _passthroughFailureLogged;
 
@@ -26,7 +29,8 @@ public static class QuestStandalonePlatform
 
     /// <summary>Called by the player before plugin creation, with its verified local resource root.</summary>
     public static void Configure(string pluginDirectory, Func<bool, bool> setPassthrough,
-        Func<bool> isPassthroughActive, Func<bool> isSessionRunning)
+        Func<bool> isPassthroughActive, Func<bool> isSessionRunning,
+        Func<long>? passthroughSessionGeneration = null)
     {
         if (Application.platform != RuntimePlatform.Android)
             throw new InvalidOperationException("Quest standalone configuration requires the Android player.");
@@ -37,6 +41,7 @@ public static class QuestStandalonePlatform
         _setPassthrough = setPassthrough ?? throw new ArgumentNullException(nameof(setPassthrough));
         _isPassthroughActive = isPassthroughActive ?? throw new ArgumentNullException(nameof(isPassthroughActive));
         _isSessionRunning = isSessionRunning ?? throw new ArgumentNullException(nameof(isSessionRunning));
+        _passthroughSessionGeneration = passthroughSessionGeneration;
         _resourceDirectory = Path.GetFullPath(pluginDirectory);
     }
 
@@ -57,6 +62,22 @@ public static class QuestStandalonePlatform
             return false;
         try
         {
+            if (_passthroughSessionGeneration != null)
+            {
+                long generation = _passthroughSessionGeneration();
+                if (!_havePassthroughSessionGeneration || generation != _lastPassthroughSessionGeneration)
+                {
+                    // Native instance destruction resets its wanted flag. A new
+                    // session may be created wholly between two mod frames, so
+                    // observing Available=false is insufficient. The player bumps
+                    // this generation after every native OnSessionCreate; retry
+                    // once for that new session without per-frame native traffic.
+                    _lastPassthroughSessionGeneration = generation;
+                    _havePassthroughSessionGeneration = true;
+                    _lastPassthroughRequest = null;
+                    _passthroughFailureLogged = false;
+                }
+            }
             // Native SetEnabled returns the resulting ACTIVE flag, so successful
             // disable returns false. Compare observed state rather than treating
             // that flag as an operation-success result. Dedup requests to avoid

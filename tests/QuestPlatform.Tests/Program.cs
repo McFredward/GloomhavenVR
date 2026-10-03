@@ -58,13 +58,14 @@ internal static class Program
         Check(!OpenXRBootstrap.Start("forbidden", "forbidden", false), "android-explicit-gate: unconfigured Android adopted a running display without authorization");
         Check(ScriptableObject.Creations == creations && OpenXRRuntimeRegistry.CandidatesRead == registry && SubsystemManager.DescriptorReads == descriptorReads, "android-explicit-gate: failed Android gate executed desktop work");
         bool nativeActive = false, requestedActive = true, ownerRunning = true;
+        long sessionGeneration = 1;
         int nativeCalls = 0;
         Func<bool, bool> setNative = wanted => { nativeCalls++; nativeActive = wanted && requestedActive; return nativeActive; };
         Reject(() => QuestStandalonePlatform.Configure("relative-resources", setNative, () => nativeActive, () => ownerRunning), "resource-validation: relative Android resource path accepted");
         Reject(() => QuestStandalonePlatform.Configure(Path.Combine(directory, "missing"), setNative, () => nativeActive, () => ownerRunning), "resource-validation: missing Android resource path accepted");
         Reject(() => QuestStandalonePlatform.Configure(directory, setNative, null!, () => ownerRunning), "resource-validation: null passthrough observer accepted");
         Check(!QuestStandalonePlatform.Enabled, "resource-validation: failed configuration partially enabled standalone");
-        QuestStandalonePlatform.Configure(directory, setNative, () => nativeActive, () => ownerRunning);
+        QuestStandalonePlatform.Configure(directory, setNative, () => nativeActive, () => ownerRunning, () => sessionGeneration);
         Check(QuestStandalonePlatform.Enabled && QuestStandalonePlatform.ResourceDirectory == Path.GetFullPath(directory) && RuntimeDepsLoader.PluginDir == Path.GetFullPath(directory), "android-resource: player-owned resource root was not used");
         Reject(() => QuestStandalonePlatform.Configure(directory, setNative, () => nativeActive, () => ownerRunning), "single-config: live player callbacks were silently replaced");
         Color clear = QuestStandalonePlatform.MixedRealityClearColor(new Color(0, 1, 0, 1));
@@ -102,15 +103,22 @@ internal static class Program
         // Toggle off/on retries the unavailable feature while retaining normal VR.
         Check(QuestStandalonePlatform.SetPassthrough(false), "native-retry: failed feature could not be disabled");
         requestedActive = true; Check(QuestStandalonePlatform.SetPassthrough(true), "native-retry: fresh player request did not recover passthrough");
+        // Native instance recreation clears wanted=false and can finish between
+        // two frames. The original request remains true; the new session epoch
+        // must nevertheless trigger exactly one fresh enable request.
+        nativeActive = false; sessionGeneration++;
+        Check(QuestStandalonePlatform.SetPassthrough(true) && nativeActive && nativeCalls == 6, "native-session-recreate: unchanged MR request did not re-enable the new native session");
+        for (int i = 0; i < 1000; i++) Check(QuestStandalonePlatform.SetPassthrough(true), "native-session-recreate: new native session lost the requested mode");
+        Check(nativeCalls == 6, "native-session-recreate: native epoch recovery repeated work every frame");
         core.Shutdown();
         Check(!VRSession.IsRunning && VRSession.RuntimeName == null && !QuestStandalonePlatform.ModRunning && !QuestStandalonePlatform.RigReady, "core-teardown: plugin-local VR state survived shutdown");
-        Check(!nativeActive && nativeCalls == 6, "core-teardown: plugin teardown did not release its native passthrough request");
+        Check(!nativeActive && nativeCalls == 7, "core-teardown: plugin teardown did not release its native passthrough request");
         Check(ownerManager.Stops == 0 && ownerManager.Deinitializations == 0 && ownerManager.Starts == 0, "external-teardown: plugin stopped/reinitialized the player-owned XR manager");
         Check(!Object.Destroyed.Contains(ownerSettings) && !Object.Destroyed.Contains(ownerManager) && !Object.Destroyed.Contains(ownerLoader) && display.running && input.running, "external-teardown: plugin destroyed player settings/loader or stopped its running subsystems");
         Check(Loc.Stops == 1 && ExceptionTraces.Stops == 1 && PerfMonitor.Stops == 1, "core-teardown: original core module cleanup was bypassed");
         Application.platform = RuntimePlatform.WindowsPlayer;
         Check(!QuestStandalonePlatform.Enabled, "configured-desktop-gate: configured bridge stayed active outside Android");
-        Check(!QuestStandalonePlatform.SetPassthrough(true) && nativeCalls == 6, "configured-desktop-gate: desktop called the Android native bridge");
+        Check(!QuestStandalonePlatform.SetPassthrough(true) && nativeCalls == 7, "configured-desktop-gate: desktop called the Android native bridge");
         Console.WriteLine("PASS Quest platform/core lifecycle: " + assertions + " assertions (XR/environment seams; not native rendering/AOT proof)");
     }
 }
