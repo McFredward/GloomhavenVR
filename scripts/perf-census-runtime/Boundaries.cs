@@ -2,15 +2,16 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
-public sealed class SceneController { public static SceneController Instance = new(); public Scene Current; public Scene GetCurrentScene=>Current; public bool IsLoading, ScenarioIsLoading; }
+public sealed class SceneController { public static SceneController Instance = new(); public Scene Current; public bool ThrowRead; public Scene GetCurrentScene=>ThrowRead?throw new InvalidOperationException("fixture scene context failure"):Current; public bool IsLoading, ScenarioIsLoading; }
 public sealed class Choreographer { public static Choreographer? s_Choreographer; public Scene m_ProcGenScene; }
 namespace GloomhavenVR.Core {
  internal sealed class Entry<T> { public T Value; public Entry(T value){Value=value;} }
  internal static class VRLog { internal static bool WantsDebug=true; internal static readonly List<string> Lines=new(); internal static void Info(string s,string text)=>Lines.Add(text); internal static void Error(string s,string text)=>Lines.Add(text); }
  internal static class VRLayers { internal const int ModLayer=31; }
+ internal static class PerfNativeLoopProbe { internal static void LogSummary(int frames){} }
  internal static class Defaults { internal const bool DesktopMirrorLeftEye=false; }
  internal static class PerfConfig {
- internal static Entry<bool> Enabled=new(true); internal static Entry<bool> SceneCensus=new(true); internal static bool SceneProfileOn=true;
+ internal static Entry<bool> FrameSplit=new(true); internal static Entry<bool> Enabled=new(true); internal static Entry<bool> SceneCensus=new(true); internal static bool SceneProfileOn=true;
  internal static int ScenarioSceneryDensityPercentValue=0, ScenarioDecorationDensityPercentValue=0, ScenarioVegetationDensityPercentValue=0, PlayerFigureDetailPercent=0,EnemyFigureDetailPercent=0, EnvironmentEffectsDensityPercent=0,HeadMaskDropMask=0;
  internal static bool FigureClothSimulationEnabled=false,StaticScenarioBatchesOn=false,SimpleEnvironmentShadingOn=false,ReducedScenarioGenerationOn=false,SharedWallReadCacheOn=false,LightStabiliserWorkCacheOn=false;
  }

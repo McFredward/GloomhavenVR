@@ -834,7 +834,12 @@ internal static partial class PerfMonitor
         bool includeNativeCapture = !_figureBoundarySummary || PerfFrameSplit.NativeProbeComplete;
         PerfFrameSplit.AppendSplit(sb, windowSeconds, frameMeanMs, includeNativeCapture);
         if (PerfConfig.SceneCensus.Value)
-            PerfFrameSplit.AppendSceneCensus(sb);
+        {
+            if (_sceneProfileFaulted)
+                sb.Append(" | scene census n/a (diagnostic fault; disabled for this session)");
+            else
+                PerfFrameSplit.AppendSceneCensus(sb);
+        }
         VRLog.Info(Scope0, sb.ToString());
         if (includeNativeCapture)
             PerfNativeLoopProbe.LogSummary(PerfFrameSplit.NativeProbeCapturedFrames);
@@ -873,6 +878,7 @@ internal static partial class PerfMonitor
         }
         catch (Exception e)
         {
+            PerfSceneProfile.Cancel();
             _sceneProfileFaulted = true;
             VRLog.Error(Scope0, $"Scene profile threw and DISABLED ITSELF for this session "
                                 + $"(the rest of the [Perf] lines are unaffected): {e}");

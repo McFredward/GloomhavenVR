@@ -20,6 +20,8 @@ FILES = {name: "src/GloomhavenVR/Core/Perf/" + name for name in (
     "PerfSceneProfile.cs", "PerfSceneProfile.Incremental.cs", "PerfTextureCensus.cs", "LodGroupCensus.cs")}
 FILES["IGrabbable.cs"] = "src/GloomhavenVR/Hands/Interact/IGrabbable.cs"
 CONTROLS = (
+    ("omit-profile-fault-cancel", "ScopeMethods.cs", "PerfSceneProfile.Cancel();\n            _sceneProfileFaulted = true;", "_sceneProfileFaulted = true;", "profile summary fault cancels pending job and completed roster"),
+    ("queue-after-profile-fault", "ScopeMethods.cs", "if (_sceneProfileFaulted)", "if (false)", "profile summary fault cannot schedule a new census"),
     ("unsliced-textures", "PerfTextureCensus.cs", "yield return null;\n            Surf s = Surfaces[i];", "Surf s = Surfaces[i];", "texture native population is sliced per surface"),
     ("missing-lightweight-roster", "PerfSceneProfile.Incremental.cs", "bool full = PerfConfig.SceneProfileOn;", "bool full = PerfConfig.SceneProfileOn; if (!full) return;", "SceneProfile off still schedules lightweight census"),
     ("retain-zoom-roster", "PerfSceneProfile.Incremental.cs", "PerfFrameSplit.ClearCensusRoster();", "// negative control: retain old epoch roster", "Debug off drops completed Zoom roster and pending census"),
@@ -49,8 +51,8 @@ def bound_sources(root):
     monitor = (root / "src/GloomhavenVR/Core/Perf/PerfMonitor.cs").read_text()
     members = [braced(monitor, m) for m in (
         "    private sealed class Step", "    internal static long BeginStep()", "    internal static void EndStep(",
-        "    internal readonly struct Measure")]
-    bound["ScopeMethods.cs"] = "using System; using System.Collections.Generic; using System.Diagnostics; namespace GloomhavenVR.Core; internal static class PerfMonitor { internal static bool StepsActive=true; private static int _depth; private static double _frameModSeconds; private static readonly Dictionary<string,Step> Steps=new(); private static readonly List<Step> StepOrder=new(); internal static Measure Scope(string name)=>new(name); internal static int Depth=>_depth; internal static int Calls(string name)=>Steps.TryGetValue(name,out Step step)?step.FrameCalls:0; internal static double Ms(string name)=>Steps.TryGetValue(name,out Step step)?step.FrameSeconds*1000:0; internal static void Reset(){Steps.Clear();StepOrder.Clear();_frameModSeconds=0;}\n" + "\n".join(members) + "}\n"
+        "    internal readonly struct Measure", "    private static void LogSceneProfile()", "    private static void LogSplit(")]
+    bound["ScopeMethods.cs"] = "using System; using System.Collections.Generic; using System.Diagnostics; using System.Text; namespace GloomhavenVR.Core; internal static class PerfMonitor { internal static bool StepsActive=true; private static int _depth; private static double _frameModSeconds; private const string Scope0=\"Perf\"; private static bool _sceneProfileFaulted,_figureBoundarySummary; private static readonly System.Text.StringBuilder Sb=new(); internal static void ProfileSummary()=>LogSceneProfile(); internal static void SplitSummary()=>LogSplit(30,10); internal static void ResetFault()=>_sceneProfileFaulted=false; private static readonly Dictionary<string,Step> Steps=new(); private static readonly List<Step> StepOrder=new(); internal static Measure Scope(string name)=>new(name); internal static int Depth=>_depth; internal static int Calls(string name)=>Steps.TryGetValue(name,out Step step)?step.FrameCalls:0; internal static double Ms(string name)=>Steps.TryGetValue(name,out Step step)?step.FrameSeconds*1000:0; internal static void Reset(){Steps.Clear();StepOrder.Clear();_frameModSeconds=0;}\n" + "\n".join(members) + "}\n"
     split = (root / "src/GloomhavenVR/Core/Perf/PerfFrameSplit.cs").read_text()
     zoom = (root / "src/GloomhavenVR/Core/Perf/PerfFrameSplit.Zoom.cs").read_text()
     # Expression-bodied endpoints are copied exactly; state adoption uses the original
@@ -61,7 +63,7 @@ def bound_sources(root):
         if not match: raise RuntimeError("Endpoint marker drift: "+name)
         expression.append(match[0])
     members = [braced(zoom,m) for m in ("    private static void SeedRoster(", "    private static void DropRoster()")]
-    bound["RosterMethods.cs"] = "using UnityEngine; namespace GloomhavenVR.Core; internal static class PerfFrameSplit { private static Renderer[]? _roster; private static bool[] _rosterSeen=System.Array.Empty<bool>(); private static int _rosterCursor,_rosterVisible;private static bool _rosterReady; internal static Renderer[]? Roster=>_roster; internal static bool[] Shadow=>_rosterSeen; internal static int Visible=>_rosterVisible;\n"+"\n".join(expression+members)+"}\n"
+    bound["RosterMethods.cs"] = "using UnityEngine; namespace GloomhavenVR.Core; internal static class PerfFrameSplit { internal static bool HasWindow=>true; internal static bool NativeProbeComplete=>true; internal static int NativeProbeCapturedFrames=>0; internal static void AppendSplit(System.Text.StringBuilder sb,float seconds,float mean,bool capture){sb.Append(\"SPLIT fixture external render window\");} private static Renderer[]? _roster; private static bool[] _rosterSeen=System.Array.Empty<bool>(); private static int _rosterCursor,_rosterVisible;private static bool _rosterReady; internal static Renderer[]? Roster=>_roster; internal static bool[] Shadow=>_rosterSeen; internal static int Visible=>_rosterVisible;\n"+"\n".join(expression+members)+"}\n"
     grab = (root / "src/GloomhavenVR/Hands/Interact/ProximityGrabber.cs").read_text()
     members = [braced(grab, m) for m in (
         "    private void BeginGrab(", "    private static float ReachDistance(",
@@ -78,7 +80,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-root", type=Path, default=ROOT)
     parser.add_argument("--no-negative-controls", action="store_true")
+    parser.add_argument("--control", action="append", choices=[c[0] for c in CONTROLS], help="Run production and only selected causal controls")
     args = parser.parse_args()
+    if args.control and args.no_negative_controls: parser.error("--control and --no-negative-controls are exclusive")
     out = ROOT / ".planning/debug/perf-census-runtime"
     out.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=out))
@@ -89,7 +93,7 @@ def main():
     native = ROOT / "ressources/GH_Data/Managed"
     refs = "".join('<Reference Include="' + p.stem + '"><HintPath>' + str(p) + '</HintPath><Private>false</Private></Reference>' for p in native.glob("UnityEngine*.dll"))
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
-    variants = [("production", None)] + ([] if args.no_negative_controls else [(c[0],c) for c in CONTROLS])
+    variants = [("production", None)] + ([] if args.no_negative_controls else [(c[0],c) for c in CONTROLS if not args.control or c[0] in args.control])
     manifest = {"result": str(run / "results.txt"), "cases": []}
     for name, control in variants:
         case = run / name

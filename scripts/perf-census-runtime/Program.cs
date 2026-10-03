@@ -138,6 +138,21 @@ public static class InteractionProgram
             VRLog.WantsDebug=false;PerfSceneProfile.Tick(persistent.scene);
             Check(PerfFrameSplit.Roster==null&&!Pending(),"Debug off drops completed Zoom roster and pending census");
             VRLog.WantsDebug=true;PerfConfig.SceneProfileOn=true;
+            // Use the actual monitor summary/catch methods. Inject only the external game
+            // context failure while a real native roster and refresh job are alive.
+            PerfConfig.SceneProfileOn=false;
+            frame.Length=0;PerfFrameSplit.AppendSceneCensus(frame);Drain(persistent.scene);
+            frame.Length=0;PerfFrameSplit.AppendSceneCensus(frame);
+            Check(Pending()&&PerfFrameSplit.Roster!=null,"profile fault starts with native pending and complete inventory");
+            PerfConfig.SceneProfileOn=true;SceneController.Instance.ThrowRead=true;
+            PerfMonitor.ProfileSummary();SceneController.Instance.ThrowRead=false;
+            Check(!Pending()&&PerfFrameSplit.Roster==null,
+                "profile summary fault cancels pending job and completed roster");
+            int faultLog=VRLog.Lines.Count;PerfMonitor.SplitSummary();
+            Check(!Pending()&&VRLog.Lines.Count>faultLog
+                &&VRLog.Lines[VRLog.Lines.Count-1].Contains("scene census n/a (diagnostic fault"),
+                "profile summary fault cannot schedule a new census");
+            PerfMonitor.ResetFault();
             // Price actual distance native API and user callbacks without contact throttling.
             var handMethods=new NativeGrabMethods();
             var target=new Target();
@@ -165,7 +180,7 @@ public static class InteractionProgram
         }
         finally
         {
-            PerfSceneProfile.Cancel();VRLog.WantsDebug=true;PerfConfig.SceneProfileOn=true;
+            PerfSceneProfile.Cancel();VRLog.WantsDebug=true;PerfConfig.SceneProfileOn=true;SceneController.Instance.ThrowRead=false;PerfMonitor.ResetFault();
             foreach(var go in created)if(go!=null)UnityEngine.Object.DestroyImmediate(go);
             created.Clear();
             foreach(var asset in graphics)if(asset!=null)UnityEngine.Object.DestroyImmediate(asset);graphics.Clear();
