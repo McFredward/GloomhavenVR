@@ -178,6 +178,7 @@ class UgUiLayoutGateTests(Temporary):
         self.layout = self.write(self.package / LAYOUT, LAYOUT_SOURCE.encode())
         self.write(self.package / (LAYOUT + ".meta"), b"original editor MonoScript GUID")
         self.write(self.package / "package.json", b'{"name":"com.unity.ugui","version":"1.0.0"}')
+        self.write(self.package / "Tests/Runtime/RequiresUnityTestEnvironment.cs", b"builtin test source")
         self.write(self.package / "Runtime/UI/Other.cs", b"other editor package code")
 
     def restore(self):
@@ -193,8 +194,10 @@ class UgUiLayoutGateTests(Temporary):
         self.assertIn("public static bool Enable { get; set; } = true;", derived)
         self.assertIn("public static void MarkLayoutForRebuild(RectTransform rect)\n        {\n            if (!Enable) return;\n            OriginalLayoutWork(rect);", derived)
         for row in original:
-            if row["path"] != LAYOUT:
+            if row["path"] != LAYOUT and not row["path"].startswith("Tests/"):
                 self.assertEqual(storage.digest(target / row["path"]), row["sha256"])
+        self.assertFalse((target / "Tests").exists())
+        self.assertTrue((self.package / "Tests/Runtime/RequiresUnityTestEnvironment.cs").is_file())
         self.assertEqual(storage.inventory(self.package), original)
         receipt = json.loads((self.project / "QuestStartupEvidence/ugui-layout-gate.json").read_text())
         self.assertEqual(receipt["derivedSha256"], storage.digest(target / LAYOUT))

@@ -560,12 +560,16 @@ def restore_ugui_layout_gate(project: Path, game: Path, editor: Path) -> None:
     target = project / "Packages/com.unity.ugui"
     if target.exists():
         raise BuildError("Generated UGUI package already exists; regenerate the isolated project.")
-    shutil.copytree(source, target)
+    # Embedded packages also compile their loose Tests sources. Built-in UGUI
+    # relies on Unity's own test environment, which the player project does not
+    # have. Retain its runtime/editor/package files, excluding only that test tree.
+    shutil.copytree(source, target, ignore=shutil.ignore_patterns("Tests", "Tests.meta"))
     (target / relative).write_text(text, encoding="utf-8")
     write_json(project / "QuestStartupEvidence/ugui-layout-gate.json", {
         "schema": 1, "originalAssemblySha256": digest(original),
         "sourceSha256": UGUI_LAYOUT_SOURCE_SHA256, "derivedSha256": digest(target / relative),
         "defaultEnabled": True, "guard": "MarkLayoutForRebuild early return when disabled",
+        "builtinTestSourcesExcluded": True,
         "scope": "private generated UGUI package; original game and editor unchanged"})
 
 
