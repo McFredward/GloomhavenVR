@@ -16,6 +16,18 @@ namespace GloomhavenVR.Quest
         public QuestGameContentFile[] files;
     }
 
+    /// <summary>A bounded worker-thread update. The receiver must marshal Unity work itself.</summary>
+    public sealed class QuestGameContentProgress
+    {
+        public string Phase { get; }
+        public string File { get; }
+        public long ProcessedBytes { get; }
+        public long TotalBytes { get; }
+
+        public QuestGameContentProgress(string phase, string file, long processedBytes, long totalBytes)
+        { Phase = phase; File = file; ProcessedBytes = processedBytes; TotalBytes = totalBytes; }
+    }
+
     /// <summary>File-backed original content delivery. No rule or save interpretation.</summary>
     public static class QuestGameContent
     {
@@ -32,12 +44,13 @@ namespace GloomhavenVR.Quest
                     throw new InvalidDataException("Invalid or duplicate startup content manifest entry.");
         }
 
-        public static bool IsReady(QuestGameContentManifest manifest, string root)
+        public static bool IsReady(QuestGameContentManifest manifest, string root, Action<QuestGameContentProgress> progress = null)
         {
             foreach (QuestGameContentFile file in manifest.files)
             {
                 string target = Target(root, file.path);
-                if (!File.Exists(target) || new FileInfo(target).Length != file.size || Hash(target) != file.sha256) return false;
+                if (!File.Exists(target) || new FileInfo(target).Length != file.size
+                    || Hash(target, progress, "checking-files", file.path) != file.sha256) return false;
             }
             return true;
         }
@@ -55,10 +68,12 @@ namespace GloomhavenVR.Quest
             throw new InvalidDataException("Required startup file is not manifested: " + relative);
         }
 
-        public static void Extract(QuestGameContentManifest manifest, string archive, string root, string expectedArchive = "quest-startup-content.zip")
+        public static void Extract(QuestGameContentManifest manifest, string archive, string root, string expectedArchive = "quest-startup-content.zip",
+            Action<QuestGameContentProgress> progress = null)
         {
-            Validate(manifest, manifest.inputKey, expectedArchive);
-            if (Hash(archive) != manifest.archiveSha256) throw new InvalidDataException("Startup archive SHA-256 does not match the build manifest.");
+            Validate(manifest, manifest == null ? null : manifest.inputKey, expectedArchive);
+            if (Hash(archive, progress, "verifying-archive", expectedArchive) != manifest.archiveSha256)
+                throw new InvalidDataException("Startup archive SHA-256 does not match the build manifest.");
             Directory.CreateDirectory(root);
             var wanted = new Dictionary<string, QuestGameContentFile>(StringComparer.Ordinal);
             foreach (QuestGameContentFile file in manifest.files) wanted.Add(file.path, file);
@@ -77,7 +92,8 @@ namespace GloomhavenVR.Quest
                 foreach (QuestGameContentFile file in manifest.files)
                 {
                     string target = Target(root, file.path);
-                    if (File.Exists(target) && new FileInfo(target).Length == file.size && Hash(target) == file.sha256) continue;
+                    if (File.Exists(target) && new FileInfo(target).Length == file.size
+                        && Hash(target, progress, "checking-files", file.path) == file.sha256) continue;
                     Directory.CreateDirectory(Path.GetDirectoryName(target));
                     string temp = target + ".quest-" + Guid.NewGuid().ToString("N") + ".tmp";
                     try
@@ -85,23 +101,27 @@ namespace GloomhavenVR.Quest
                         using (Stream input = entries[file.path].Open())
                         using (var output = new FileStream(temp, FileMode.CreateNew, FileAccess.Write))
                         {
-                            byte[] buffer = new byte[65536]; long written = 0; int count;
+                            byte[] buffer = new byte[65536]; long written = 0, reported = 0; int count;
+                            Report(progress, "extracting-file", file.path, 0, file.size);
                             while ((count = input.Read(buffer, 0, buffer.Length)) != 0)
                             {
                                 written += count;
                                 if (written > file.size) throw new InvalidDataException("Startup entry exceeds its manifested size.");
                                 output.Write(buffer, 0, count);
+                                if (written - reported >= 1048576) { Report(progress, "extracting-file", file.path, written, file.size); reported = written; }
                             }
                             if (written != file.size) throw new InvalidDataException("Startup entry is truncated.");
                             output.Flush(true);
+                            if (written != reported || written == 0) Report(progress, "extracting-file", file.path, written, file.size);
                         }
-                        if (Hash(temp) != file.sha256) throw new InvalidDataException("Startup file SHA-256 mismatch: " + file.path);
+                        if (Hash(temp, progress, "verifying-file", file.path) != file.sha256)
+                            throw new InvalidDataException("Startup file SHA-256 mismatch: " + file.path);
                         if (File.Exists(target)) File.Replace(temp, target, null); else File.Move(temp, target);
                     }
                     finally { if (File.Exists(temp)) File.Delete(temp); }
                 }
             }
-            if (!IsReady(manifest, root)) throw new InvalidDataException("Extracted startup content failed its final verification.");
+            if (!IsReady(manifest, root, progress)) throw new InvalidDataException("Extracted startup content failed its final verification.");
         }
 
         static string Target(string root, string relative)
@@ -130,11 +150,28 @@ namespace GloomhavenVR.Quest
             foreach (char c in hash) if (!(c >= '0' && c <= '9') && !(c >= 'a' && c <= 'f')) return false;
             return true;
         }
-        public static string Hash(string path)
+        internal static void Report(Action<QuestGameContentProgress> progress, string phase, string file, long processed, long total)
+        { if (progress != null) progress(new QuestGameContentProgress(phase, file, processed, total)); }
+
+        public static string Hash(string path, Action<QuestGameContentProgress> progress = null, string phase = "hash", string relative = null)
         {
             using (var sha = SHA256.Create())
             using (var file = File.OpenRead(path))
-                return BitConverter.ToString(sha.ComputeHash(file)).Replace("-", "").ToLowerInvariant();
+            {
+                if (progress == null) return BitConverter.ToString(sha.ComputeHash(file)).Replace("-", "").ToLowerInvariant();
+                byte[] buffer = new byte[65536]; long processed = 0, reported = 0; int count;
+                long total = file.Length;
+                Report(progress, phase, relative ?? Path.GetFileName(path), 0, total);
+                while ((count = file.Read(buffer, 0, buffer.Length)) != 0)
+                {
+                    sha.TransformBlock(buffer, 0, count, buffer, 0);
+                    processed += count;
+                    if (processed - reported >= 1048576) { Report(progress, phase, relative ?? Path.GetFileName(path), processed, total); reported = processed; }
+                }
+                sha.TransformFinalBlock(buffer, 0, 0);
+                if (processed != reported || processed == 0) Report(progress, phase, relative ?? Path.GetFileName(path), processed, total);
+                return BitConverter.ToString(sha.Hash).Replace("-", "").ToLowerInvariant();
+            }
         }
     }
 }
