@@ -49,8 +49,36 @@ public static partial class MirrorProgram
         { TownServiceMirror.TickRemote(_ => observer); yield return null; }
         TownServiceMirror.TickRemote(_ => observer);
     }
+    private static IEnumerator FastNpcIntents()
+    {
+        TownServiceMirror.Shutdown(); NetPlayerActors.Peer = 1;
+        Transform frame = Go("Independent NPC intent source frame").transform;
+        TownServiceMirror.BeginSession(2, 991, frame, frame);
+        TownServiceMirror.MarkLocalTempleDonationCommitted();
+        GloomhavenVR.WorldUI.TownServiceMerchantHandoff.WantsOffering = true;
+        GloomhavenVR.WorldUI.TownServiceSharedCue.LocalReady = true;
+        FastCapture first = CaptureFast();
+        Check(first.Motion.Count == 1, "cold NPC readiness and committed donation share an immediate independent numeric event");
+        DeliverMotion(2, first);
+        Check(TownServiceMirror.RemoteMerchantOffering,
+            "shared merchant offered-hand intent arrives before any guide or native artwork");
+        Check(GloomhavenVR.WorldUI.TownServiceSharedCue.MageReady[2]
+            && GloomhavenVR.WorldUI.TownServiceSharedCue.MageSessions[2] != 991,
+            "actual fast mage intent uses its motion lifetime instead of a private service session");
+        var donations = new List<TownTempleDonationState>(); TownServiceMirror.CollectTempleDonationStates(donations);
+        Check(donations.Exists(state => state.Peer == 2 && state.Session == 991 && state.Revision == 1 && state.HasCommitAge),
+            "the actual captured committed donation reaches observers without a service artwork manifest");
+        for (float until = Time.unscaledTime + .09f; Time.unscaledTime < until;) yield return null;
+        GloomhavenVR.WorldUI.TownServiceMerchantHandoff.WantsOffering = false;
+        GloomhavenVR.WorldUI.TownServiceSharedCue.LocalReady = false;
+        FastCapture withdrawn = CaptureFast(); DeliverMotion(2, withdrawn); DeliverMotion(2, first);
+        Check(!TownServiceMirror.RemoteMerchantOffering && !GloomhavenVR.WorldUI.TownServiceSharedCue.MageReady[2],
+            "late reordered readiness cannot revive withdrawn merchant or mage palm intent");
+        TownServiceMirror.Shutdown();
+    }
     private static IEnumerator MotionFast()
     {
+        IEnumerator intents = FastNpcIntents(); while (intents.MoveNext()) yield return intents.Current;
         TownServiceMirror.Shutdown();
         Transform shared = Go("Fast author frame").transform;
         Transform observer = Go("Fast observer frame").transform; observer.position = Vector3.right * 12f;

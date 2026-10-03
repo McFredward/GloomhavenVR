@@ -51,17 +51,22 @@ namespace GloomhavenVR.WorldUI
     internal static class TownServiceSharedCue
     {
         internal static readonly Dictionary<int, bool> MerchantReady = new();
+        internal static readonly Dictionary<int, uint> MageSessions = new();
+        internal static readonly Dictionary<int, bool> MageReady = new();
         internal static bool HasReadyMerchantVisitor => MerchantReady.ContainsValue(true);
         internal static void ObserveMerchantVisitor(int peer, uint session, bool ready) => MerchantReady[peer] = ready;
+        internal static bool HasReadyVisitor(byte service) => service == 3 && MageReady.ContainsValue(true);
         internal static bool LocalReady, PublishedReady;
         internal static float LocalStrength, PublishedStrength;
         internal static int PublishedGuideOwner;
         internal static int GuideOwner => PublishedGuideOwner;
         internal static void PaintRemote(UnityEngine.CanvasGroup? gate, Transform? zone) { }
-        internal static void ObserveVisitor(int peer, uint session, bool ready, float strength) { }
+        internal static void ObserveVisitor(int peer, uint session, bool ready, float strength)
+        { MageSessions[peer] = session; MageReady[peer] = ready; }
         internal static void ObserveShared(int peer, bool ready, float strength, int guideOwner) { }
-        internal static void Forget(int peer) { }
-        internal static void Reset() { LocalReady = PublishedReady = false; LocalStrength = PublishedStrength = 0f; }
+        internal static void Forget(int peer) { MerchantReady.Remove(peer); MageSessions.Remove(peer); MageReady.Remove(peer); }
+        internal static void Reset()
+        { MerchantReady.Clear(); MageSessions.Clear(); MageReady.Clear(); LocalReady = PublishedReady = false; LocalStrength = PublishedStrength = 0f; }
     }
 
     // The converted-window distance ladder has its own production harness. Here
