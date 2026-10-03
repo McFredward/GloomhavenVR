@@ -342,6 +342,8 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             package_startup_content(project, inputs["inputKey"])
             package_data = json.loads((project / "Packages/manifest.json").read_text(encoding="utf-8"))
             package_data.setdefault("dependencies", {})["com.unity.addressables"] = "1.19.19"
+            editor = tool_path(args.unity_editor, "Unity")
+            package_data["dependencies"].update(original_builtin_modules(game, editor))
             write_json(project / "Packages/manifest.json", package_data)
             (project / "Assets/csc.rsp").write_text("-define:GHVR_QUEST_STARTUP\n", encoding="utf-8")
             # Before the first Unity domain load, exclude duplicate package DLLs.
@@ -488,6 +490,29 @@ def weave(args, inputs: dict, output: Path, source: Path, game: Path, project: P
         Stages(output).run("standalone", key, adapt_startup)
         deploy_woven_assemblies(compatibility, game, project, link_name="Standalone/link.xml")
         shutil.copyfile(compatibility_report, project / "Assets/Quest/Resources/quest-standalone-report.json")
+
+
+def original_builtin_modules(game: Path, editor: Path) -> dict:
+    """Restore the owned player's native modules using the selected editor's catalog.
+
+    A recovered scene export need not contain its original Packages directory.
+    Missing modules otherwise silently discard serialized ParticleSystems, video,
+    cloth and other genuine original components during Android bundle building.
+    """
+    catalog = editor.parent / "Data/Resources/PackageManager/BuiltInPackages"
+    if not catalog.is_dir():
+        raise BuildError("The selected Unity editor has no built-in module package catalog.")
+    required = {"com.unity.modules." + path.stem[len("UnityEngine."):-len("Module")].lower()
+                for path in (game / "Managed").glob("UnityEngine.*Module.dll")}
+    dependencies = {}
+    for package in sorted(catalog.glob("com.unity.modules.*/package.json")):
+        metadata = json.loads(package.read_text(encoding="utf-8"))
+        name, version = metadata.get("name"), metadata.get("version")
+        if metadata.get("type") == "module" and name in required:
+            if not isinstance(version, str) or not version:
+                raise BuildError("A selected Unity built-in module has no version: " + str(name))
+            dependencies[name] = version
+    return dependencies
 
 
 def isolate_original_compiler_namespace(project: Path) -> None:

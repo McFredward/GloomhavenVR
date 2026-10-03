@@ -191,6 +191,22 @@ class StartupPackagingTests(unittest.TestCase):
 
 
 class RestoredBepInExTests(unittest.TestCase):
+    def test_owned_native_modules_use_real_editor_package_catalog(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            managed = root / "game/Managed"
+            managed.mkdir(parents=True)
+            for name in ("ParticleSystem", "Video", "Core", "Unused"):
+                (managed / ("UnityEngine." + name + "Module.dll")).write_bytes(b"module fixture")
+            editor = root / "Editor/Unity"
+            catalog = editor.parent / "Data/Resources/PackageManager/BuiltInPackages"
+            for name in ("particlesystem", "video", "cloth"):
+                package_name = "com.unity.modules." + name
+                storage.write_json(catalog / package_name / "package.json", {
+                    "name": package_name, "version": "1.0.0", "type": "module"})
+            self.assertEqual(builder.original_builtin_modules(root / "game", editor), {
+                "com.unity.modules.particlesystem": "1.0.0", "com.unity.modules.video": "1.0.0"})
+
     def test_global_debug_wrapper_is_hidden_from_package_compilers_only(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
