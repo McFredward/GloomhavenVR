@@ -77,7 +77,7 @@ internal static partial class TownServiceMirror
                 if (parent != null && parent.alpha <= .01f) continue;
                 if (visit.TransactionActive && module.Address.StartsWith("face.", StringComparison.Ordinal))
                     return true;
-                if (module.Address != "merchant.zone") continue;
+                if (module.Address != "merchant.zone|") continue;
                 CanvasGroup? cue = module.Binding.Root.GetComponent<CanvasGroup>();
                 if (cue != null && cue.alpha > .01f) return true;
             }
@@ -282,7 +282,7 @@ internal static partial class TownServiceMirror
     /// This is only a renderer election: all eligible visitors retain the same physical
     /// drop collider, hover feedback and reliable first-offer claim.</summary>
     internal static bool CanShowLocalCue(byte service) => service != 3
-        || InteractionOwner(service) == LocalPeer;
+        || TownServiceSharedCue.GuideOwner == LocalPeer;
 
     internal static void SetLocalTransactionActive(byte service, bool active)
     {
@@ -987,7 +987,7 @@ internal static partial class TownServiceMirror
             // supplies the shared native widgets. A placed offer takes authorship.
             bool electedVisitor = entry.Key > 0 && InteractionOwner(session.Service) == entry.Key;
             bool secondaryVisitor = entry.Key > 0 && !electedVisitor
-                && (session.Service == 1 || session.Service == 2);
+                && (session.Service == 1 || session.Service == 2 || session.Service == 3);
             if (entry.Key > 0 && !electedVisitor && !secondaryVisitor)
             { ClearRemoteModules(entry.Key); continue; }
             if (entry.Key < 0 && !stockVisitor && -entry.Key != PublicAuthor)
@@ -996,8 +996,9 @@ internal static partial class TownServiceMirror
             if (parent == null || !Pending.TryGetValue(entry.Key, out Dictionary<ushort, TownServiceFrame>? pending)) continue;
             if (!Remote.TryGetValue(entry.Key, out Dictionary<ushort, RemoteModule>? standing))
             { standing = new Dictionary<ushort, RemoteModule>(); Remote.Add(entry.Key, standing); }
-            if (secondaryVisitor) RetainIndependentVisitorOnly(standing, session.Service);
+            if (secondaryVisitor) RetainIndependentVisitorOnly(entry.Key, standing, session);
             else if (entry.Key > 0 && session.Service == 1) RetirePrivateMerchantCatalog(standing);
+            if (entry.Key > 0 && session.Service == 3) RetireNonCanonicalMageCue(entry.Key, standing);
             // Unity destroys child GameObjects when their old module parent is retired.
             // An unchanged child packet must then rebuild its observer clone, not keep
             // a C# module whose native Host has been destroyed. The Build 587 peer
@@ -1014,7 +1015,9 @@ internal static partial class TownServiceMirror
                 // A cumulative delta need not repeat the purse's Mesh property.
                 // Classify that original body only after expansion; a row/image
                 // with the same address is still not a second shared bowl cue.
-                if (secondaryVisitor && !IndependentVisitorModule(received)
+                if (received.Service == 3 && received.TemplateAddress == "merchant.zone|"
+                    && entry.Key != TownServiceSharedCue.GuideOwner) continue;
+                if (secondaryVisitor && !IndependentVisitorModule(received, entry.Key, !session.TransactionActive)
                     && !(received.Service == 2 && received.TemplateAddress == "ritual.purse|")) continue;
                 if (entry.Key > 0 && PrivateMerchantCatalogModule(received.Service,
                     received.TemplateAddress, received.ParentModule)) continue;
@@ -1027,7 +1030,7 @@ internal static partial class TownServiceMirror
                 TownServiceFrame? expanded = TownServiceDelta.Expand(baseline, received);
                 if (expanded == null) continue;
                 TownServiceFrame frame = expanded;
-                if (secondaryVisitor && !IndependentVisitorModule(frame)) continue;
+                if (secondaryVisitor && !IndependentVisitorModule(frame, entry.Key, !session.TransactionActive)) continue;
                 if (frame.Session != session.Session || frame.Service != session.Service || Array.BinarySearch(session.Modules, frame.Module) < 0) continue;
                 try
                 {
@@ -1138,6 +1141,13 @@ internal static partial class TownServiceMirror
         }
         SuppressRemoteStockDuplicates();
         ApplyRemoteMotion(now);
+        foreach (var visitor in Remote)
+        {
+            if (visitor.Key != TownServiceSharedCue.GuideOwner) continue;
+            foreach (RemoteModule cue in visitor.Value.Values)
+                if (cue.Alive && cue.LastFrame?.Service == 3 && cue.Address == "merchant.zone|")
+                    TownServiceSharedCue.PaintRemote(cue.Host.GetComponent<CanvasGroup>(), cue.Binding.Root);
+        }
     }
 
     private static string DescribeTemplateMismatch(TownServiceFrame frame, TownServiceBinding local)
@@ -1158,11 +1168,11 @@ internal static partial class TownServiceMirror
             + ", " + binding + ".";
     }
 
-    // The stand and original UI have one elected author. An unselected visitor may
-    // still inspect a personal purse; only that held physical prop crosses this
-    // election boundary. No donation control or native callback is mirrored here.
-    private static bool IndependentVisitorModule(TownServiceFrame frame) =>
-        IndependentVisitorModule(frame.Service, frame.TemplateAddress, frame.ParentModule)
+    // The stand and original UI have one elected author. Personal fan/held props,
+    // released card flights and the one elected mage guide remain independent of
+    // that UI lease. No native callback is mirrored on any of these copies.
+    private static bool IndependentVisitorModule(TownServiceFrame frame, int peer = 0, bool returning = false) =>
+        IndependentVisitorModule(frame.Service, frame.TemplateAddress, frame.ParentModule, peer, returning)
         || frame.Service == 2 && frame.TemplateAddress == "ritual.purse|" && PhysicalPurse(frame.Nodes);
     private static bool PhysicalPurse(TownServiceNode[] nodes)
     {
@@ -1170,11 +1180,22 @@ internal static partial class TownServiceMirror
             if (node.Values.ContainsKey(TownServiceProperty.Mesh)) return true;
         return false;
     }
-    private static bool IndependentVisitorModule(byte service, string address, ushort parentModule)
+    private static bool IndependentVisitorModule(byte service, string address, ushort parentModule,
+        int peer = 0, bool returning = false)
     {
         if (service == 2)
             return address.StartsWith("ritual.purse.held|", StringComparison.Ordinal)
                 || address.StartsWith("temple.row|", StringComparison.Ordinal);
+        if (service == 3)
+        {
+            // Only the explicitly approved shared guide has a separate visual
+            // author. Native controls and a parked card still follow the grant.
+            if (address == "merchant.zone|") return peer > 0 && peer == TownServiceSharedCue.GuideOwner;
+            // A released face/body can still be flying to its owner's ordinary
+            // map fan while a different visitor is already using the enchantress.
+            return returning && (address.StartsWith("face.", StringComparison.Ordinal)
+                || address.StartsWith("map.cardbody|", StringComparison.Ordinal));
+        }
         if (service != 1) return false;
         // The public cabinet has a separate elected lane. A visitor's original
         // item fan and physically held card remain visible even while another
@@ -1182,22 +1203,35 @@ internal static partial class TownServiceMirror
         // Cabinet cards have a published cardmount parent; the fan has none.
         if (address.StartsWith("inspectionbody.", StringComparison.Ordinal)) return true;
         if (!address.StartsWith("item.", StringComparison.Ordinal)
-            || address.StartsWith("item.confirm", StringComparison.Ordinal)
-            || parentModule != TownServiceFrame.ManifestModule) return false;
+            || address.StartsWith("item.confirm", StringComparison.Ordinal)) return false;
         int end = address.IndexOf('|');
         if (end <= 5) return false;
         for (int i = 5; i < end; i++) if (address[i] < '0' || address[i] > '9') return false;
-        return true;
+        // Partitioned children of the same original face retain a parent module.
+        // A cabinet's root face has a physical cardmount parent and is excluded;
+        // its children cannot build without that parent. Personal fan root faces
+        // and their native partitions must all survive another visitor's lease.
+        return parentModule == TownServiceFrame.ManifestModule || end + 1 < address.Length;
     }
 
     private static readonly List<ushort> SecondaryVisitorRetire = new();
-    private static void RetainIndependentVisitorOnly(Dictionary<ushort, RemoteModule> modules, byte service)
+    private static void RetainIndependentVisitorOnly(int peer, Dictionary<ushort, RemoteModule> modules,
+        TownServiceSessionInfo session)
     {
         SecondaryVisitorRetire.Clear();
         foreach (var pair in modules)
-            if (!(pair.Value.LastFrame != null ? IndependentVisitorModule(pair.Value.LastFrame)
-                : IndependentVisitorModule(service, pair.Value.Address, TownServiceFrame.ManifestModule)))
+            if (!(pair.Value.LastFrame != null ? IndependentVisitorModule(pair.Value.LastFrame, peer, !session.TransactionActive)
+                : IndependentVisitorModule(session.Service, pair.Value.Address, TownServiceFrame.ManifestModule, peer, !session.TransactionActive)))
                 SecondaryVisitorRetire.Add(pair.Key);
+        foreach (ushort id in SecondaryVisitorRetire) { modules[id].Dispose(); modules.Remove(id); }
+    }
+
+    private static void RetireNonCanonicalMageCue(int peer, Dictionary<ushort, RemoteModule> modules)
+    {
+        if (peer == TownServiceSharedCue.GuideOwner) return;
+        SecondaryVisitorRetire.Clear();
+        foreach (var pair in modules)
+            if (pair.Value.Address == "merchant.zone|") SecondaryVisitorRetire.Add(pair.Key);
         foreach (ushort id in SecondaryVisitorRetire) { modules[id].Dispose(); modules.Remove(id); }
     }
 
@@ -1206,7 +1240,7 @@ internal static partial class TownServiceMirror
         if (service != 1) return false;
         if (address.StartsWith("item.", StringComparison.Ordinal)
             && !address.StartsWith("item.confirm", StringComparison.Ordinal)
-            && parentModule != TownServiceFrame.ManifestModule) return true;
+            && parentModule != TownServiceFrame.ManifestModule && address.EndsWith("|", StringComparison.Ordinal)) return true;
         return address.StartsWith("merchant.cardmount|", StringComparison.Ordinal)
             || address.StartsWith("merchant.cardbody|", StringComparison.Ordinal)
             || address.StartsWith("merchant.row|", StringComparison.Ordinal)
