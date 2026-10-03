@@ -15,6 +15,7 @@ namespace GloomhavenVR.WorldUI
         private static bool _observingPublic;
         internal static bool FixtureObserving => _observingPublic;
         internal static void FixtureCommitVisibility() => CommitPublicVisibility();
+        internal static void FixtureFollowPublicRack() => FollowPublicRack();
         internal static void FixtureResetVisibility() => _observingPublic = false;
     }
     internal static class StoryComposite { internal static bool PointOfNoReturn; }

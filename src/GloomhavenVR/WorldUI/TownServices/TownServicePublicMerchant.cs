@@ -42,13 +42,18 @@ internal static class TownServicePublicMerchant
     internal static void Claim()
     {
         if (_catalog == null || !CanClaim || !MapRoomDriver.Active || StoryComposite.PointOfNoReturn) return;
-        TownRackState? state = TownServiceMirror.PublicRack;
-        if (!TownServiceMirror.IsPublicAuthor && TownServiceMirror.HasReadyPublicPresentation && state != null)
-        {
-            if (state.Layout != null) _catalog.AdoptStockLayout(state.Layout);
-            _catalog.Drawers[0].Follow(state);
-        }
+        if (!TownServiceMirror.IsPublicAuthor) FollowPublicRack();
         TownServiceMirror.ClaimPublicCatalog(); _observingPublic = false; _catalog.SetObserver(false);
+    }
+    // Artwork completeness gates the atomic picture replacement, not the public
+    // mechanism or its local input proxy. One still-cold original image must not
+    // strand the other player's category/page or make its next press start from
+    // an obsolete local page.
+    private static void FollowPublicRack()
+    {
+        if (_catalog == null || TownServiceMirror.PublicRack is not TownRackState state) return;
+        if (state.Layout != null) _catalog.AdoptStockLayout(state.Layout);
+        _catalog.Drawers[0].Follow(state);
     }
     private static object? Context()
     {
@@ -93,11 +98,7 @@ internal static class TownServicePublicMerchant
             if (_station == null || _station.Root == null) { Reset(); return; }
             bool publicAuthor = TownServiceMirror.IsPublicAuthor;
             bool remoteReady = !publicAuthor && TownServiceMirror.HasReadyPublicPresentation;
-            if (remoteReady && TownServiceMirror.PublicRack is TownRackState remote)
-            {
-                if (remote.Layout != null) _catalog.AdoptStockLayout(remote.Layout);
-                _catalog.Drawers[0].Follow(remote);
-            }
+            if (!publicAuthor) FollowPublicRack();
             // A manifest elects an author before that author's original page, holders,
             // faces and card bodies have arrived. Keep the last verified picture until
             // the receiver can replace it as one complete group. If we were already an
@@ -151,11 +152,7 @@ internal static class TownServicePublicMerchant
         if (TownServiceMirror.IsPublicAuthor) _observingPublic = false;
         else if (TownServiceMirror.HasReadyPublicPresentation)
         {
-            if (TownServiceMirror.PublicRack is TownRackState remote)
-            {
-                if (remote.Layout != null) _catalog.AdoptStockLayout(remote.Layout);
-                _catalog.Drawers[0].Follow(remote);
-            }
+            FollowPublicRack();
             _observingPublic = true;
         }
         _catalog.SetObserver(_observingPublic);

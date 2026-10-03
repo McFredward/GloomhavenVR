@@ -25,7 +25,7 @@ def sources(root):
     merchant = (base / "TownServicePublicMerchant.cs").read_text()
     drawer = (base / "TownServiceMerchantDrawer.cs").read_text()
     claim = "\n".join(block(merchant, signature) for signature in (
-        "internal static bool CanClaim", "internal static void Claim()",
+        "internal static bool CanClaim", "internal static void Claim()", "private static void FollowPublicRack()",
         "private static void CommitPublicVisibility()"))
     follower = block(drawer, "internal void Follow(TownRackState state)")
     generated = ("using UnityEngine; using GloomhavenVR.Net.TownServices; "

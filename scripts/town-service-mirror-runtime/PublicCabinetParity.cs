@@ -107,6 +107,10 @@ public static partial class MirrorProgram
         Check(TownServiceMirror.PublicAuthor == 3 && !TownServiceMirror.HasReadyPublicPresentation
             && first.gameObject.activeInHierarchy && !Remote(-3, 10)!.Root.gameObject.activeInHierarchy,
             "new remote author retains the previous complete cabinet while one real original price is missing");
+        TownServicePublicMerchant.FixtureFollowPublicRack();
+        Check(catalog.Drawers[0].Page == 256 && !catalog.Drawers[0].FixtureFollowingTurn
+            && !TownServiceMirror.HasReadyPublicPresentation,
+            "public category proxy follows the validated owner clock while original price artwork is still missing");
         Receive(3, changed.Where(bytes => ReadModule(bytes) == 23));
         TownServiceMirror.TickRemote(_ => viewer);
         Transform second = Remote(-3, 10)!.Root;
