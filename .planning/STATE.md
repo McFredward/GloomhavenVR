@@ -1,5 +1,24 @@
 # State — where the project stands
 
+**Quest hardware response, 2026-10-03: isolated feature, ModBuild 611.**
+
+The first private headset photographs show native passthrough, both controllers
+and a successful diagnostic storage read. The maintainer reports incorrect rays,
+an orange figure and missing navigation. Source evidence identifies grip-based
+pointing and a dormant orange material property activated by the Standard shader
+conversion; original 2048x2048 albedo/normal textures are present. The photographs
+lack a visible build banner and cannot independently establish installed identity.
+
+The611 diagnostic separates tracked grip/aim, adds joystick navigation with
+neutral resume guards, corrects approximate tint mapping and adds reversible
+material/atlas, animation, enlarged model, stereo/colour and lifecycle/timing
+checks. Actual build/input identity is displayed; bounded evidence is persisted
+for the new read-only Windows ADB collector. Private installation and one-run
+hardware procedure: [expanded611 checklist](QUEST3-HARDWARE-611.md).
+This remains a diagnostic; campaign/startup, original shaders/saves and crossplay
+are still required. New headset outcomes remain unverified. Quest work is kept
+on `feature/quest3-standalone`; parallel Frame610 `dev` work is untouched.
+
 **Quest wireless installer, 2026-10-03: `feature/quest3-standalone`.**
 
 The maintainer clarified that Quest work stays isolated on this feature branch

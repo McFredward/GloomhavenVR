@@ -1,4 +1,10 @@
-# Quest implementation and first hardware checkpoint
+# Quest implementation and hardware checkpoints
+
+Current isolated checkpoint: ModBuild611, responding to the first Quest hardware
+report with corrected aim/tint, diagnostic navigation, a larger visual test battery
+and a read-only Windows log collector. See [611 hardware procedure](QUEST3-HARDWARE-611.md).
+This remains a probe; complete original-game startup and the gates below are pending.
+
 
 Implementation was explicitly authorized on 2026-10-03 after the planning-only
 instruction. The maintainer requested a new branch from current `dev` and work
@@ -7,10 +13,11 @@ is `feature/quest3-standalone`, starting from `5344a550`, ModBuild 607.
 Original game references remain untouched. The parallel `dev` Frame608 changes
 through `8146ed02` were merged into the Quest branch before the final checkpoint.
 The combined checkpoint uses ModBuild609, retaining the Frame608 notes and behavior.
-Worker worktrees and the primary Quest branch were used for isolation. Following
-the repository's integration workflow, the reviewed combined tree was fast-forwarded
-locally to `dev`; only `origin/dev` is a push destination. No worker branch, original
-game payload or APK is published.
+Worker worktrees and the primary Quest branch are used for isolation. The
+maintainer's explicit 2026-10-03 clarification supersedes the generic integration
+workflow: publish only `origin/feature/quest3-standalone`, keeping concurrent
+Steam Frame `dev` work separate. Worker branches, original game payload and APKs
+are not published.
 
 The maintainer also explicitly authorized a visibly marked dummy identity for
 builds on this host. The local diagnostic uses name `Quest Local Test (DUMMY)`,
@@ -66,13 +73,13 @@ nor the mandatory eye-tracking feature is present. Validation additionally requi
 the actual Unity/OpenXR/passthrough libraries and checks every native ELF header
 for little-endian AArch64 shared-object code.
 
-The final private APK and exact content/source hashes are recorded in the main
+The first609 private APK and exact content/source hashes are recorded in the main
 checkout's ignored `.planning/debug/quest3/handoff.json`. The builder's default
 `.planning/quest3-local/` is also ignored, including its local signing/account data.
 See [hardware steps and limits](QUEST3-HARDWARE-609.md). No headset was attached
 to the build host, so passthrough/tracking/images have not been verified on Quest.
 
-The reviewed final file is 30,861,781 bytes, APK SHA-256
+The reviewed609 file is 30,861,781 bytes, APK SHA-256
 `5818e9d22cd47ed8fb79bde1c41dab815cb0a53faedc49da4075b9e5c1bddd6b`,
 from runtime/tool commit `cc041fab` and input key
 `58cd43841e856021966270f5c09ce9d46ef80f486472c60ff6addbd4e3c2991d`.

@@ -3,8 +3,8 @@
 `scripts/install-quest-wireless.cmd` is the Windows double-click entry point.
 It connects the remembered Quest over Wi-Fi, installs the selected local APK
 with `adb install -r`, and starts the app. The accompanying PowerShell and Python
-entry points support command-line use. This tooling does not change ModBuild 609
-or turn its hardware diagnostic into a playable campaign.
+entry points support command-line use. The installer selects the latest verified private diagnostic; the current
+hardware checkpoint is611 and remains distinct from a playable campaign.
 
 ## First installation on Windows
 
@@ -174,3 +174,37 @@ to the maintainer's Quest; that requires the headset test.
 
 See [the diagnostic hardware procedure](QUEST3-HARDWARE-609.md) for controls,
 evidence capture and the outstanding full-game conversion gates.
+
+## Collecting a standalone run on Windows
+
+After a test, keep the headset awake and double-click
+`scripts/collect-quest-logs.cmd` (or `Collect-Quest-Logs.cmd` in the private package).
+It reuses the local Python/venv, managed ADB and remembered verified Wi-Fi endpoint.
+If Wi-Fi cannot reconnect, attach an authorized USB Quest: collection can read USB
+directly without enabling TCP/IP. An APK or Unity installation is unnecessary.
+
+Each run writes a private timestamped ZIP under
+`.planning/debug/quest3/captures/`. It includes recent main/crash logcat, the
+allowlisted diagnostic app log/previous log, storage marker and hardware snapshot,
+plus firmware/package/provenance information and explicit missing-file errors.
+Historical build banners are kept distinguishable from actual installed-package
+queries and local PC receipts. Scoped-storage restrictions can leave gaps; the
+script retains useful partial captures. Collection never clears logs, restarts or
+installs the app, deletes saves or uploads evidence.
+
+```powershell
+# Collect directly from authorized USB, without changing Wi-Fi settings.
+.\scripts\collect-quest-logs.cmd -Setup
+
+# Select a headset or a different PC destination.
+.\scripts\collect-quest-logs.cmd -Serial "YOUR_QUEST_SERIAL" -OutputRoot "D:\Quest captures"
+
+# Use an already enabled wireless endpoint.
+.\scripts\collect-quest-logs.cmd -QuestHost "192.168.1.70"
+```
+
+Copy the resulting ZIP and relevant pictures into the main checkout's ignored
+`.planning/debug/quest3_probleme/` and describe the triggering action. The files
+can include baked profile IDs, headset identifiers and recent Android log lines;
+keep them private. `-OutputRoot` here is the capture destination, whereas the
+installer's same option denotes a builder-output source.

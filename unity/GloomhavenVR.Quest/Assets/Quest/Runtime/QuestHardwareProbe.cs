@@ -32,15 +32,20 @@ namespace GloomhavenVR.Quest
             public XRNode node;
             public Transform pose;
             public LineRenderer ray;
-            public bool primary, secondary, tracked;
-            public InputAction position, rotation, tracking, primaryAction, secondaryAction;
+            public bool primary, secondary, trigger, tracked, aimTracked, buttonsReady;
+            public Vector3 aimPosition, aimDirection;
+            public QuestProbePoseInput gripInput, aimInput;
+            public InputAction primaryAction, secondaryAction, triggerAction, stick;
         }
         Camera view;
-        Transform stage;
+        Transform stage, rig;
+        QuestProbeDiagnostics diagnostics;
+        BuildStamp stamp;
+        readonly QuestProbeLocomotion locomotion = new QuestProbeLocomotion();
         Controller left, right;
         Controller[] controllers;
         Profile profile;
-        Text instructions, tooltip, status, performance, modelStatus, profileStatus;
+        Text instructions, tooltip, status, performance, modelStatus, profileStatus, buildStatus, trackingStatus;
         GameObject model;
         bool german, mrRequested, storagePassed;
         bool lastActive;
@@ -52,7 +57,9 @@ namespace GloomhavenVR.Quest
         Font font;
         string logPath;
         string mrError;
-        InputAction headPosition, headRotation;
+        QuestProbePoseInput headInput;
+        bool headTracked, focused = true, paused;
+        string originMode = "unavailable";
         bool floorConfigured;
         float nextOriginCheck;
 
@@ -69,7 +76,7 @@ namespace GloomhavenVR.Quest
                 " storage=" + Application.persistentDataPath);
             var stampAsset = Resources.Load<TextAsset>("quest-build");
             if (stampAsset == null) throw new InvalidOperationException("Quest build provenance is missing");
-            var stamp = JsonUtility.FromJson<BuildStamp>(stampAsset.text);
+            stamp = JsonUtility.FromJson<BuildStamp>(stampAsset.text);
             Debug.Log("[GloomhavenVR Quest] ModBuild=" + stamp.modBuild + " input=" + stamp.inputKey);
             var asset = Resources.Load<TextAsset>("quest-profile");
             if (asset != null) profile = JsonUtility.FromJson<Profile>(asset.text);
@@ -93,25 +100,26 @@ namespace GloomhavenVR.Quest
         }
         void BuildRig()
         {
-            var rig = new GameObject("Quest tracking origin");
+            rig = new GameObject("Quest tracking origin").transform;
             view = new GameObject("Tracked head").AddComponent<Camera>();
             view.tag = "MainCamera";
-            view.transform.SetParent(rig.transform, false);
+            view.transform.SetParent(rig, false);
             view.transform.localPosition = new Vector3(0, 1.6f, 0);
             view.nearClipPlane = .03f;
             view.farClipPlane = 30;
             view.clearFlags = CameraClearFlags.SolidColor;
             view.backgroundColor = new Color(.018f, .025f, .045f, 1);
             view.gameObject.AddComponent<AudioListener>();
-            headPosition = Action("Head position", "<XRHMD>/centerEyePosition");
-            headRotation = Action("Head rotation", "<XRHMD>/centerEyeRotation");
-            left = MakeController(XRNode.LeftHand, rig.transform, new Color(.2f, .7f, 1));
-            right = MakeController(XRNode.RightHand, rig.transform, new Color(1, .7f, .2f));
+            headInput = new QuestProbePoseInput("Head", "<XRHMD>/centerEyePosition",
+                "<XRHMD>/centerEyeRotation", "<XRHMD>/isTracked", "<XRHMD>/trackingState");
+            left = MakeController(XRNode.LeftHand, rig, new Color(.2f, .7f, 1));
+            right = MakeController(XRNode.RightHand, rig, new Color(1, .7f, .2f));
             controllers = new[] { left, right };
             var light = new GameObject("Diagnostic light").AddComponent<Light>();
             light.type = LightType.Directional;
             light.intensity = 1;
             light.transform.rotation = Quaternion.Euler(40, -30, 0);
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
             RenderSettings.ambientLight = new Color(.45f, .45f, .45f);
             foreach (var subsystem in GetDisplays())
                 Debug.Log("[GloomhavenVR Quest] XR display running=" + subsystem.running);
@@ -142,9 +150,10 @@ namespace GloomhavenVR.Quest
             return new Controller
             {
                 node = node, pose = pose, ray = ray,
-                position = Action(node + " position", prefix + "devicePosition"),
-                rotation = Action(node + " rotation", prefix + "deviceRotation"),
-                tracking = Action(node + " tracking", prefix + "isTracked"),
+                gripInput = QuestProbePoseInput.ForController(node + " grip", prefix, false),
+                aimInput = QuestProbePoseInput.ForController(node + " aim", prefix, true),
+                triggerAction = Action(node + " trigger", prefix + "trigger"),
+                stick = Action(node + " stick", prefix + "thumbstick"),
                 primaryAction = Action(node + " primary", prefix + "primaryButton"),
                 secondaryAction = Action(node + " secondary", prefix + "secondaryButton")
             };
@@ -193,24 +202,25 @@ namespace GloomhavenVR.Quest
             var canvas = new GameObject("Hardware diagnostic panel").AddComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
             canvas.transform.SetParent(stage, false);
-            canvas.transform.localPosition = new Vector3(0, 1.65f, 1.95f);
+            canvas.transform.localPosition = new Vector3(.35f, 1.65f, 1.95f);
             canvas.transform.localScale = Vector3.one * .001f;
             var rect = canvas.GetComponent<RectTransform>();
-            rect.sizeDelta = new Vector2(1100, 880);
+            rect.sizeDelta = new Vector2(1100, 1000);
             var background = new GameObject("UI backing").AddComponent<Image>();
             background.transform.SetParent(canvas.transform, false);
             background.color = new Color(.025f, .03f, .05f, .96f);
             background.rectTransform.sizeDelta = rect.sizeDelta;
-            TextLine(canvas.transform, "title", 385, 38, Color.white);
-            TextLine(canvas.transform, "diagnostic", 333, 26, new Color(1, .75f, .3f));
-            profileStatus = TextLine(canvas.transform, null, 280, 30, Color.white);
+            TextLine(canvas.transform, "title", 445, 38, Color.white);
+            TextLine(canvas.transform, "diagnostic", 393, 26, new Color(1, .75f, .3f));
+            buildStatus = TextLine(canvas.transform, null, 340, 23, new Color(.6f, .9f, 1));
+            profileStatus = TextLine(canvas.transform, null, 270, 30, Color.white);
             var logoTexture = Resources.Load<Texture2D>("quest-steam-logo");
             if (logoTexture != null)
             {
                 var logo = new GameObject("Embedded static Steam logo").AddComponent<RawImage>();
                 logo.transform.SetParent(canvas.transform, false);
                 logo.texture = logoTexture;
-                logo.rectTransform.anchoredPosition = new Vector2(-420, 280);
+                logo.rectTransform.anchoredPosition = new Vector2(-420, 270);
                 logo.rectTransform.sizeDelta = new Vector2(140, 42);
             }
             if (profile.isDummy) TextLine(canvas.transform, "dummy", 210, 26, new Color(1, .6f, .3f));
@@ -222,7 +232,11 @@ namespace GloomhavenVR.Quest
             status = TextLine(canvas.transform, null, -170, 26, Color.white);
             modelStatus = TextLine(canvas.transform, null, -225, 25, Color.white);
             performance = TextLine(canvas.transform, null, -280, 25, Color.white);
-            TextLine(canvas.transform, "tracking", -340, 26, Color.white);
+            trackingStatus = TextLine(canvas.transform, null, -370, 22, Color.white);
+            TextLine(canvas.transform, "navigation", -440, 24, Color.white);
+            diagnostics = stage.gameObject.AddComponent<QuestProbeDiagnostics>();
+            diagnostics.Initialize(stage, view, model, stamp.modBuild, stamp.inputKey, german);
+            diagnostics.Panel.localPosition = new Vector3(-.68f, 1.65f, 1.95f);
         }
         Text TextLine(Transform parent, string key, float y, int size, Color color)
         {
@@ -251,8 +265,30 @@ namespace GloomhavenVR.Quest
         void Update()
         {
             TrackHead();
-            bool hovered = TrackController(left) | TrackController(right);
+            UpdateControllerPose(left);
+            UpdateControllerPose(right);
+            bool inputAllowed = headTracked && focused && !paused;
+            locomotion.Step(rig, view.transform, left.tracked ? left.stick.ReadValue<Vector2>() : Vector2.zero,
+                right.tracked ? right.stick.ReadValue<Vector2>().x : 0, Time.unscaledDeltaTime,
+                inputAllowed && left.tracked && right.tracked);
+            // Origin movement changes world-space aim without changing the tracked local samples.
+            UpdateControllerPose(left);
+            UpdateControllerPose(right);
+            bool hovered = HandleController(left, inputAllowed) | HandleController(right, inputAllowed);
             tooltip.enabled = hovered;
+            diagnostics.UpdateTracking(new QuestProbeTrackingSnapshot
+            {
+                headTracked = headTracked, leftTracked = left.tracked, rightTracked = right.tracked,
+                headPosition = view.transform.position, leftPosition = left.pose.position, rightPosition = right.pose.position,
+                leftAimTracked = left.aimTracked, rightAimTracked = right.aimTracked,
+                leftAimPosition = left.aimPosition, rightAimPosition = right.aimPosition,
+                leftAimDirection = left.aimDirection, rightAimDirection = right.aimDirection,
+                rigPosition = rig.position, rigYaw = rig.eulerAngles.y,
+                originMode = originMode, passthroughActive = QuestPassthroughFeature.Active,
+                headPoseBound = headInput.Bound, leftGripBound = left.gripInput.Bound, rightGripBound = right.gripInput.Bound,
+                leftAimBound = left.aimInput.Bound, rightAimBound = right.aimInput.Bound,
+                leftLayout = left.gripInput.Layout, rightLayout = right.gripInput.Layout
+            });
             bool active = QuestPassthroughFeature.Active;
             if (active != lastActive)
             {
@@ -273,75 +309,95 @@ namespace GloomhavenVR.Quest
         }
         void TrackHead()
         {
-            if (!floorConfigured && Time.unscaledTime >= nextOriginCheck)
+            if (Time.unscaledTime >= nextOriginCheck)
             {
                 nextOriginCheck = Time.unscaledTime + .5f;
                 var inputs = new System.Collections.Generic.List<XRInputSubsystem>();
                 SubsystemManager.GetInstances(inputs);
                 foreach (var input in inputs)
-                    if (input.running && input.TrySetTrackingOriginMode(TrackingOriginModeFlags.Floor)) floorConfigured = true;
-                if (floorConfigured) Debug.Log("[GloomhavenVR Quest] tracking origin=Floor");
+                {
+                    if (!input.running) continue;
+                    if (!floorConfigured) floorConfigured = input.TrySetTrackingOriginMode(TrackingOriginModeFlags.Floor);
+                    string observedOrigin = input.GetTrackingOriginMode().ToString();
+                    if (originMode != observedOrigin) Debug.Log("[GloomhavenVR Quest] tracking origin=" + observedOrigin);
+                    originMode = observedOrigin;
+                    break;
+                }
             }
-            var head = InputDevices.GetDeviceAtXRNode(XRNode.Head);
             Vector3 position;
             Quaternion rotation;
-            if (head.TryGetFeatureValue(CommonUsages.devicePosition, out position)) view.transform.localPosition = position;
-            if (head.TryGetFeatureValue(CommonUsages.deviceRotation, out rotation)) view.transform.localRotation = rotation;
-            if (headPosition.activeControl != null) view.transform.localPosition = headPosition.ReadValue<Vector3>();
-            if (headRotation.activeControl != null) view.transform.localRotation = headRotation.ReadValue<Quaternion>();
+            headTracked = headInput.Bound ? headInput.TryRead(out position, out rotation) :
+                QuestProbePoseInput.TryReadDevice(InputDevices.GetDeviceAtXRNode(XRNode.Head), out position, out rotation);
+            if (!headTracked) return;
+            view.transform.localPosition = position;
+            view.transform.localRotation = rotation;
         }
         void BeforeRender()
         {
-            // The same pose author also consumes the latest before-render input sample.
+            if (controllers == null) return;
+            // Pose sampling is shared; navigation and button edges are authored only in Update.
             TrackHead();
-            foreach (var controller in controllers)
-            {
-                if (!controller.tracked) continue;
-                if (controller.position.activeControl != null) controller.pose.localPosition = controller.position.ReadValue<Vector3>();
-                if (controller.rotation.activeControl != null) controller.pose.localRotation = controller.rotation.ReadValue<Quaternion>();
-                var origin = controller.pose.position;
-                var direction = controller.pose.forward;
-                RaycastHit hit;
-                controller.ray.SetPosition(0, origin);
-                controller.ray.SetPosition(1, Physics.Raycast(origin, direction, out hit, 5) ? hit.point : origin + direction * 3);
-            }
+            foreach (var controller in controllers) { UpdateControllerPose(controller); UpdateRay(controller, out _); }
         }
-        bool TrackController(Controller controller)
+        void UpdateControllerPose(Controller controller)
         {
-            var device = InputDevices.GetDeviceAtXRNode(controller.node);
-            bool tracked;
-            controller.tracked = device.TryGetFeatureValue(CommonUsages.isTracked, out tracked) && tracked;
-            if (controller.tracking.activeControl != null) controller.tracked = controller.tracking.ReadValue<float>() > .5f;
-            controller.pose.gameObject.SetActive(controller.tracked);
-            if (!controller.tracked) { controller.primary = controller.secondary = false; return false; }
             Vector3 position;
             Quaternion rotation;
-            if (device.TryGetFeatureValue(CommonUsages.devicePosition, out position)) controller.pose.localPosition = position;
-            if (device.TryGetFeatureValue(CommonUsages.deviceRotation, out rotation)) controller.pose.localRotation = rotation;
-            if (controller.position.activeControl != null) controller.pose.localPosition = controller.position.ReadValue<Vector3>();
-            if (controller.rotation.activeControl != null) controller.pose.localRotation = controller.rotation.ReadValue<Quaternion>();
-            bool primary, secondary;
-            device.TryGetFeatureValue(CommonUsages.primaryButton, out primary);
-            device.TryGetFeatureValue(CommonUsages.secondaryButton, out secondary);
-            if (controller.primaryAction.activeControl != null) primary = controller.primaryAction.ReadValue<float>() > .5f;
-            if (controller.secondaryAction.activeControl != null) secondary = controller.secondaryAction.ReadValue<float>() > .5f;
-            if (primary && !controller.primary)
+            controller.tracked = controller.gripInput.Bound ? controller.gripInput.TryRead(out position, out rotation) :
+                QuestProbePoseInput.TryReadDevice(InputDevices.GetDeviceAtXRNode(controller.node), out position, out rotation);
+            controller.pose.gameObject.SetActive(controller.tracked);
+            if (controller.tracked)
             {
-                if (controller.node == XRNode.RightHand) ToggleMr(); else WriteStorage();
+                controller.pose.localPosition = position;
+                controller.pose.localRotation = rotation;
             }
-            if (secondary && !controller.secondary)
+            // OpenXR aim is never reconstructed from grip orientation or an arbitrary fixed angle.
+            controller.aimTracked = controller.aimInput.TryRead(out position, out rotation);
+            controller.aimPosition = controller.aimTracked ? rig.TransformPoint(position) : Vector3.zero;
+            controller.aimDirection = controller.aimTracked ? rig.TransformDirection(rotation * Vector3.forward) : Vector3.zero;
+            controller.ray.enabled = controller.aimTracked && controller.tracked && headTracked && focused && !paused;
+        }
+        bool UpdateRay(Controller controller, out RaycastHit hit)
+        {
+            hit = default;
+            if (!controller.ray.enabled) return false;
+            bool hasHit = Physics.Raycast(controller.aimPosition, controller.aimDirection, out hit, 5);
+            controller.ray.SetPosition(0, controller.aimPosition);
+            controller.ray.SetPosition(1, hasHit ? hit.point : controller.aimPosition + controller.aimDirection * 3);
+            return hasHit;
+        }
+        bool HandleController(Controller controller, bool allowed)
+        {
+            bool hasHit = UpdateRay(controller, out RaycastHit hit);
+            if (!controller.tracked || !allowed)
             {
-                if (controller.node == XRNode.RightHand) PlaceTable();
-                else { german = !german; RefreshText(); }
+                controller.buttonsReady = false;
+                controller.primary = controller.secondary = controller.trigger = false;
+                return false;
+            }
+            bool primary = controller.primaryAction.ReadValue<float>() > .5f;
+            bool secondary = controller.secondaryAction.ReadValue<float>() > .5f;
+            bool trigger = controller.triggerAction.ReadValue<float>() > .65f;
+            if (!controller.buttonsReady)
+            {
+                controller.buttonsReady = !primary && !secondary && !trigger;
+            }
+            else
+            {
+                if (primary && !controller.primary)
+                {
+                    if (controller.node == XRNode.RightHand) ToggleMr(); else WriteStorage();
+                }
+                if (secondary && !controller.secondary)
+                {
+                    if (controller.node == XRNode.RightHand) PlaceTable();
+                    else { german = !german; diagnostics.SetLanguage(german); RefreshText(); }
+                }
+                if (trigger && !controller.trigger && hasHit) diagnostics.TryActivate(hit.collider);
             }
             controller.primary = primary;
             controller.secondary = secondary;
-            var origin = controller.pose.position;
-            var direction = controller.pose.forward;
-            RaycastHit hit;
-            bool hasHit = Physics.Raycast(origin, direction, out hit, 5);
-            controller.ray.SetPosition(0, origin);
-            controller.ray.SetPosition(1, hasHit ? hit.point : origin + direction * 3);
+            controller.trigger = trigger;
             return hasHit && hit.collider.GetComponent<QuestExcludedEntry>() != null;
         }
         void ToggleMr()
@@ -397,8 +453,12 @@ namespace GloomhavenVR.Quest
             catch (Exception error) { saveStatus = "saveFailed"; Debug.LogException(error); }
             RefreshText();
         }
+        string Tracked(bool value) => QuestText.Get(value ? "probeYes" : "probeNo", german);
         void RefreshText()
         {
+            buildStatus.text = "ModBuild " + stamp.modBuild + " · " + stamp.inputKey.Substring(0, Math.Min(12, stamp.inputKey.Length));
+            trackingStatus.text = QuestText.Get("probeTracking", german) + ": " + Tracked(headTracked) + " / " + Tracked(left.tracked) + " / " + Tracked(right.tracked) +
+                "\n" + QuestText.Get("probeAim", german) + ": " + Tracked(left.aimTracked) + " / " + Tracked(right.aimTracked) + " · " + originMode;
             profileStatus.text = profile.displayName + "\n" + QuestText.Get("steamId", german) + ": " + profile.steamId;
             foreach (var label in stage.GetComponentsInChildren<QuestLabel>())
                 label.GetComponent<Text>().text = QuestText.Get(label.key, german);
@@ -409,20 +469,26 @@ namespace GloomhavenVR.Quest
             modelStatus.text = QuestText.Get(model != null ? "model" : "modelMissing", german);
             performance.text = QuestText.Get("performance", german) + ": " + fps.ToString("F1", CultureInfo.InvariantCulture) + " fps";
         }
-        void OnApplicationPause(bool paused) { Debug.Log("[GloomhavenVR Quest] pause=" + paused); }
-        void OnApplicationFocus(bool focused) { Debug.Log("[GloomhavenVR Quest] focus=" + focused); }
+        void OnApplicationPause(bool value) { paused = value; SuspendInput(); Debug.Log("[GloomhavenVR Quest] pause=" + value); }
+        void OnApplicationFocus(bool value) { focused = value; SuspendInput(); Debug.Log("[GloomhavenVR Quest] focus=" + value); }
+        void SuspendInput()
+        {
+            locomotion.Suspend();
+            floorConfigured = false; nextOriginCheck = 0;
+            if (controllers != null) foreach (var controller in controllers) controller.buttonsReady = false;
+        }
         void OnDestroy()
         {
             Application.logMessageReceived -= CaptureLog;
             Application.onBeforeRender -= BeforeRender;
-            headPosition?.Dispose();
-            headRotation?.Dispose();
+            headInput?.Dispose();
             if (controllers == null) return;
             foreach (var controller in controllers)
             {
                 if (controller == null) continue;
-                controller.position.Dispose(); controller.rotation.Dispose(); controller.tracking.Dispose();
+                controller.gripInput.Dispose(); controller.aimInput.Dispose();
                 controller.primaryAction.Dispose(); controller.secondaryAction.Dispose();
+                controller.triggerAction.Dispose(); controller.stick.Dispose();
             }
         }
         void CaptureLog(string message, string trace, LogType type)

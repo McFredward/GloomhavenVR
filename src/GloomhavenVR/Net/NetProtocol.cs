@@ -553,7 +553,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 609;
+    public const ushort ModBuild = 611;
+
+    // ModBuild 611 — expanded Quest hardware diagnostic after the first headset report.
+    // Frame610 is reserved on the parallel dev branch; this Quest checkpoint stays isolated.
+    // Pointing uses the separately tracked OpenXR aim pose, while markers retain grip poses.
+    // Joystick translation and head-pivot snap turns change only the diagnostic tracking origin.
+    // Dormant orange source properties no longer tint the approximate diagnostic shader.
+    // Reversible lighting/atlas/animation/scale checks and bounded lifecycle/timing snapshots
+    // accompany a read-only Windows ADB log collector. Full-game startup, original shader
+    // fidelity, campaign saves, multiplayer and headset acceptance remain separate gates.
+    // Desktop presentation and the existing wire layout are unchanged.
 
     // ModBuild 609 — isolated Quest conversion and first hardware diagnostic checkpoint.
     // The local builder snapshots owned PC content, selected mod/tool source and offline
