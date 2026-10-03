@@ -408,6 +408,7 @@ internal static partial class PerfMonitor
         PerfConfig.Bind();
         if (_host == null || !PerfConfig.Enabled.Value)
             return;
+        PerfSceneProfile.Cancel();
         float now = Time.unscaledTime;
         float elapsed = now - _windowStart;
         VRLog.Info(Scope0, $"MARK: {what} — closing the measurement window here ({elapsed:F1}s, "
@@ -425,6 +426,7 @@ internal static partial class PerfMonitor
     internal static void Shutdown()
     {
         StepsActive = false;
+        PerfSceneProfile.Cancel();
         FigureMeasurement.Clear();
         _figureChangeLoggedAt = float.NegativeInfinity;
         if (_host != null)
@@ -856,7 +858,7 @@ internal static partial class PerfMonitor
         // SceneProfileOn, not SceneProfile.Value: this runs from the window close, which can fire
         // before Bind on a partially-initialised session, and an NRE here escapes into the host's
         // catch and takes the whole instrumentation down with it.
-        if (_sceneProfileFaulted || !PerfConfig.SceneProfileOn || PerfSceneProfile.IsPreMenuScene())
+        if (_sceneProfileFaulted || !VRLog.WantsDebug || !PerfConfig.SceneProfileOn || PerfSceneProfile.IsPreMenuScene())
             return;
         // Latched guard of its own rather than relying on the host's: the host's catch disables
         // the WHOLE instrumentation for the session, and a walk over ~1700 foreign renderers is
@@ -868,15 +870,27 @@ internal static partial class PerfMonitor
             sb.Length = 0;
             PerfSceneProfile.AppendSceneLine(sb);
             VRLog.Info(Scope0, sb.ToString());
-            sb.Length = 0;
-            PerfSceneProfile.AppendGfxLine(sb);
-            VRLog.Info(Scope0, sb.ToString());
         }
         catch (Exception e)
         {
             _sceneProfileFaulted = true;
             VRLog.Error(Scope0, $"Scene profile threw and DISABLED ITSELF for this session "
                                 + $"(the rest of the [Perf] lines are unaffected): {e}");
+        }
+    }
+
+    // This is exclusively an instrument pump. Its fault latch cannot govern a
+    // non-diagnostic update or native gameplay continuation.
+    private static void CensusTick(UnityEngine.SceneManagement.Scene persistentScene)
+    {
+        if (_sceneProfileFaulted) return;
+        try { PerfSceneProfile.Tick(persistentScene); }
+        catch (Exception e)
+        {
+            PerfSceneProfile.Cancel();
+            _sceneProfileFaulted = true;
+            VRLog.Error(Scope0, $"Scene profile threw and DISABLED ITSELF for this session "
+                + $"(the rest of the [Perf] lines are unaffected): {e}");
         }
     }
 
@@ -1141,10 +1155,12 @@ internal static partial class PerfMonitor
             try
             {
                 Sample();
+                CensusTick(gameObject.scene);
             }
             catch (Exception e)
             {
                 _faulted = true;
+                PerfSceneProfile.Cancel();
                 StepsActive = false;
                 VRLog.Error(Scope0, "Instrumentation threw and DISABLED ITSELF (measuring must never "
                                     + $"break the frame): {e}");

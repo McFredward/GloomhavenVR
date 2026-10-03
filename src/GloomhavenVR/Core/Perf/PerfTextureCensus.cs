@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
@@ -375,34 +376,53 @@ internal static class PerfTextureCensus
     /// so and says why, because a silent instrument and an instrument that never ran must never
     /// look the same (this project's standing rule, learned the expensive way).
     /// </summary>
-    internal static void Log()
+    private static readonly StringBuilder PreparedLine = new(4096);
+
+    // The bounded SCENE pump also owns texture-population reads. Keeping the previous
+    // 512-surface loop in the final Log call would merely move the diagnostic hitch.
+    internal static IEnumerable PrepareLine()
     {
-        Stopwatch clock = Stopwatch.StartNew();
-        StringBuilder sb = new(4096);
+        _costMs = 0;
+        PreparedLine.Length = 0;
+        long before = Stopwatch.GetTimestamp();
+        PreparedLine.Append("TEX — why a surface looks soft up close: the source texels behind the "
+            + "renderers that fill the view, and the three global dials that can throw "
+            + "them away before they are ever sampled");
+        AppendGlobals(PreparedLine);
+        _costMs += (Stopwatch.GetTimestamp() - before) * (1000d / Stopwatch.Frequency);
+        IEnumerator population = AppendPopulation(PreparedLine).GetEnumerator();
         try
         {
-            sb.Append("TEX — why a surface looks soft up close: the source texels behind the "
-                      + "renderers that fill the view, and the three global dials that can throw "
-                      + "them away before they are ever sampled");
-            AppendGlobals(sb);
-            AppendPopulation(sb);
-            AppendVerdict(sb);
+            while (true)
+            {
+                before = Stopwatch.GetTimestamp();
+                bool more = population.MoveNext();
+                _costMs += (Stopwatch.GetTimestamp() - before) * (1000d / Stopwatch.Frequency);
+                if (!more) break;
+                yield return null;
+            }
         }
-        catch (Exception e)
-        {
-            sb.Append(" | census threw ").Append(e.GetType().Name).Append(": ").Append(e.Message);
-        }
-        finally
-        {
-            clock.Stop();
-            _costMs = clock.Elapsed.TotalMilliseconds;
-            sb.Append(" | INSTRUMENT COST, measured not asserted: ")
-              .Append(_costMs.ToString("F2"))
-              .Append("ms for this line, on top of the SCENE walk it rides (it adds no scene walk "
-                      + "of its own — see the class doc)");
-            Reset();
-        }
-        VRLog.Info(Scope, sb.ToString());
+        finally { (population as IDisposable)?.Dispose(); }
+        before = Stopwatch.GetTimestamp();
+        AppendVerdict(PreparedLine);
+        _costMs += (Stopwatch.GetTimestamp() - before) * (1000d / Stopwatch.Frequency);
+        PreparedLine.Append(" | INSTRUMENT COST, measured not asserted: ")
+            .Append(_costMs.ToString("F2"))
+            .Append("ms for this line, included in the incremental SCENE sample "
+                + "(it adds no scene walk of its own — see the class doc)");
+    }
+
+    internal static void Log()
+    {
+        if (PreparedLine.Length > 0 && VRLog.WantsDebug)
+            VRLog.Info(Scope, PreparedLine.ToString());
+        Cancel();
+    }
+
+    internal static void Cancel()
+    {
+        PreparedLine.Length = 0;
+        Reset();
     }
 
     /// <summary>
@@ -547,7 +567,7 @@ internal static class PerfTextureCensus
 
     /// <summary>The census proper: the population, its size/format/mip/aniso distributions, its
     /// VRAM bill, and the softest surfaces named individually.</summary>
-    private static void AppendPopulation(StringBuilder sb)
+    private static IEnumerable AppendPopulation(StringBuilder sb)
     {
         if (!_armed)
         {
@@ -557,7 +577,7 @@ internal static class PerfTextureCensus
                       + "render target, in which case no rendered-pixel size and therefore no "
                       + "texels-per-pixel can be computed for anything. The global dials above are "
                       + "live readings either way");
-            return;
+            yield break;
         }
         if (Surfaces.Count == 0)
         {
@@ -566,7 +586,7 @@ internal static class PerfTextureCensus
               .Append(" submitted renderer(s) examined. Either the head is far from everything "
                       + "(the zoomed-out overview) or the game's shaders bind their albedo on a "
                       + "property this line does not probe (_Alb / _MainTex / _BaseMap)");
-            return;
+            yield break;
         }
 
         int mipped = 0, mipless = 0, readable = 0, streamingBehind = 0, streamingTracked = 0;
@@ -579,6 +599,7 @@ internal static class PerfTextureCensus
         RatioScratch.Clear();
         for (int i = 0; i < Surfaces.Count; i++)
         {
+            yield return null;
             Surf s = Surfaces[i];
             Texture? t = s.Tex;
             if (t == null)

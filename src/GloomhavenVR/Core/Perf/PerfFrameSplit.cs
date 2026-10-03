@@ -1015,12 +1015,11 @@ internal static partial class PerfFrameSplit
     /// <summary>
     /// HOW MUCH THERE IS TO DRAW. <c>UnityStats</c> (batches, draw calls, tris) is editor-only, so
     /// the available runtime context is a renderer census: total, enabled, and isVisible to any
-    /// camera at one instant. It cannot count actual head-camera draws or price a camera pass.
+    /// camera across a stated capture span. It cannot count actual head-camera draws or price a pass.
     ///
-    /// <para>DELIBERATELY ONCE PER WINDOW, NEVER PER FRAME: <c>FindObjectsOfType</c> walks every
-    /// loaded object and allocates the array, which is far too expensive for a frame budget and
-    /// would make the instrumentation the stutter. At a 30 s cadence it is one hitch of a few
-    /// milliseconds per window, and it is skipped entirely while the census is switched off.</para>
+    /// <para>Build615 replaces the former synchronous global queries with the shared incremental
+    /// scene-root census. This summary requests/adopts only bounded diagnostic work and cached
+    /// numeric counts; SceneProfile off still prepares the lighter original ZOOM roster.</para>
     ///
     /// <para>IT COUNTS uGUI GRAPHICS TOO, AND THAT HALF EXISTS BECAUSE ITS ABSENCE COST A SESSION
     /// (2026-08-09). <c>Graphic</c> does NOT derive from <see cref="Renderer"/> — a uGUI Image is a
@@ -1042,86 +1041,14 @@ internal static partial class PerfFrameSplit
     /// still be checked against profiler evidence or a targeted intervention.</para>
     /// </summary>
     internal static void AppendSceneCensus(System.Text.StringBuilder sb)
-    {
-        Renderer[] all;
-        try
-        {
-            all = UnityEngine.Object.FindObjectsOfType<Renderer>();
-        }
-        catch (Exception e)
-        {
-            sb.Append(" | scene census n/a (").Append(e.GetType().Name).Append(')');
-            return;
-        }
-        // The walk doubles as the ZOOM axis's SEED: every renderer's visibility is written into the
-        // shadow array and the total into the running counter, so the per-frame slice sampler starts
-        // correct instead of ramping up over its first sweep. Costs one bool store per renderer on a
-        // walk that was already happening.
-        bool[] shadow = RosterShadow(all.Length);
-        int enabled = 0, visible = 0;
-        for (int i = 0; i < all.Length; i++)
-        {
-            Renderer r = all[i];
-            bool vis = false;
-            if (r != null && r.enabled)
-            {
-                enabled++;
-                vis = r.isVisible;
-                if (vis)
-                    visible++;
-            }
-            shadow[i] = vis;
-        }
-        SeedRoster(all, visible, shadow);
-        sb.Append(" | scene census: ").Append(all.Length).Append(" renderer(s), ")
-          .Append(enabled).Append(" enabled, ").Append(visible)
-          .Append(" visible to at least one camera (ONE INSTANT, sampled once per window — the "
-                  + "per-frame cost of this walk would itself be a stutter, which is why this "
-                  + "number shows no trend across windows and the ZOOM clause above carries the "
-                  + "per-frame estimate instead. This walk is also that estimate's seed)");
-        AppendGraphicCensus(sb);
-    }
+        => PerfSceneProfile.AppendFrameCensus(sb);
 
-    /// <summary>The uGUI half of <see cref="AppendSceneCensus"/> — see there for why it exists.
-    /// Separate method so a throw inside it cannot cost the renderer census that already
-    /// succeeded.</summary>
-    private static void AppendGraphicCensus(System.Text.StringBuilder sb)
-    {
-        UnityEngine.UI.Graphic[] graphics;
-        try
-        {
-            graphics = UnityEngine.Object.FindObjectsOfType<UnityEngine.UI.Graphic>();
-        }
-        catch (Exception e)
-        {
-            sb.Append("; uGUI census n/a (").Append(e.GetType().Name).Append(')');
-            return;
-        }
+    // Preserve the established smoothed ZOOM roster; its seed now arrives from the
+    // bounded census pump instead of a second full renderer/uGUI walk at the summary.
+    internal static void AdoptCensusRoster(Renderer[] all, int visible, bool[] seen)
+        => SeedRoster(all, visible, seen);
 
-        int enabled = 0, mod = 0;
-        for (int i = 0; i < graphics.Length; i++)
-        {
-            UnityEngine.UI.Graphic g = graphics[i];
-            if (g == null || !g.enabled)
-                continue;
-            enabled++;
-            // MOD-OWNED means "under one of our own world-space hosts", which is where a mirrored
-            // panel's clone lives. Splitting them out is what turns "UI is growing" into "OUR UI is
-            // growing" without a second capture: the game's own HUD churns legitimately, ours must
-            // not. Resolved by layer, which costs an int compare — no name string, no allocation.
-            if (g.gameObject.layer == VRLayers.ModLayer)
-                mod++;
-        }
-
-        sb.Append("; uGUI: ").Append(graphics.Length).Append(" graphic(s), ")
-          .Append(enabled).Append(" enabled, ").Append(mod)
-          .Append(" on the mod's own layer. A Graphic is NOT a Renderer, so the count "
-                  + "above cannot see these — and canvas rebuild runs after LateUpdate and before "
-                  + "the render loop, so its cost shows up as 'blocked', not as logic or submit. "
-                  + "A mod count that CLIMBS window over window with a steady scenario is an object "
-                  + "leak onto a world-space canvas, which is precisely the shape that collapsed "
-                  + "both machines of the 2026-08-09 multiplayer session");
-    }
+    internal static void ClearCensusRoster() => DropRoster();
 
     /// <summary>One clause for the startup CAPS line.</summary>
     internal static string Describe() =>

@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
@@ -58,117 +59,13 @@ internal static class CensusVisibility
 }
 
 /// <summary>
-/// WHAT THE RENDER LOOP IS ACTUALLY SUBMITTING — the per-object breakdown of the frame.
-///
-/// <para>THE INVESTIGATION THIS WAS BUILT FOR IS CLOSED (2026-07-28,
-/// <c>.planning/perf/FINDINGS.md</c>): the wall was that Unity submitted every draw call on ONE
-/// thread, and threaded submission (<c>[Core] EnableGraphicsJobs</c>) took the main-thread render
-/// loop from 14.9 ms to 1.8 ms and the headset from 45 Hz to 90 Hz. This line stays because it is
-/// how a regression would be seen at all — and because its own numbers are still exactly what they
-/// always were. Note what it can and cannot show now: it counts renderers and MATERIAL SLOTS, which
-/// is submission VOLUME, and volume is no longer the same thing as main-thread cost. Read it
-/// together with the <c>[Perf] SPLIT</c> line, which is the one that settled the question.</para>
-///
-/// <para>WHERE THIS COMES FROM. <see cref="PerfFrameSplit"/> settled WHICH LAYER owns the frame:
-/// the main thread spends 78–84 % of it inside Unity's render loop, ~11–16 ms of that in the head
-/// camera alone over two MultiPass passes, against ~1 ms of logic and ~2.5 ms blocked. That
-/// verdict kills every pixel-cost lever (an 11× cut in pixel samples moved nothing) and points at
-/// the NUMBER of things submitted. But its scene census was a bare count — "1683 renderers, 1536
-/// enabled, 811–1511 visible" — and a count cannot choose a lever. Board tiles, wall segments,
-/// props, figures, particle systems and the mod's own visuals all cost the same in a total and
-/// nothing at all alike in what can be done about them.</para>
-///
-/// <para>2026-08-22, THE REPORT THIS LINE WAS FINALLY SWITCHED ON FOR (user, verbatim): <i>"Ich hab
-/// nun mal eine Map aufgemacht mit vielen Details und hab dort zum Testen alle Räume aufgemacht. Ich
-/// merke deutliche Laggs wenn ich alle Räume von oben anschaue. In VR ist dieses überblickende 'von
-/// oben schauen' sehr wichtig, dass es möglich ist."</i> The ModBuild 226 log measures that session
-/// exactly: the scene census climbs from ~2,120 renderers with a few rooms open to <b>8,569–8,631
-/// renderers, 8,176–8,288 enabled, up to 5,660 visible</b>, and the frame goes with it — 12–14 ms
-/// with a few rooms, <b>43–78 ms with all of them</b>, of which <c>[Perf] SPLIT</c> puts ~50 % in
-/// main-thread LOGIC, ~13 % in the render loop and ~36 % blocked, with the mod itself at 6.3 ms
-/// (14.6 %). Half the frame is the GAME'S OWN <c>Update</c>/<c>LateUpdate</c>, and this file could
-/// not say one word about what runs in it: it counted renderers, and renderers are the render loop.</para>
-///
-/// <para>THE SENTENCE THAT HAD NEVER BEEN CHECKED. The <c>ZOOM</c> clause on the SPLIT line
-/// concludes, whenever most of a near/far delta lands in logic, that the cost is <i>"view-scaled
-/// SIMULATION — animators, particle systems and isVisible-gated scripts that stop being culled as
-/// the head rises"</i>. That is a HYPOTHESIS the zoom axis cannot test, and the same log contains
-/// windows that contradict it: one window's MIDDLE third is the most expensive of the three
-/// (29.56 / 48.86 / 20.29 ms), and the last window of the session reads 71.58 / 70.99 / 71.12 ms
-/// across a 18.5→31.3 wu distance sweep — a flat 71 ms that does not care where the head is. If the
-/// game ships its animators at Unity's default <see cref="AnimatorCullingMode.AlwaysAnimate"/>, then
-/// every animator ticks whether or not it is on screen, the correlation with the visible-renderer
-/// count is a COINCIDENCE OF POPULATION (more rooms open ⇒ both more renderers and more animators),
-/// and no culling lever can touch it. That is one number, and the <c>[Perf] SIM</c> line below is
-/// here to print it.</para>
-///
-/// <para>THREE LINES, THREE QUESTIONS:</para>
-/// <list type="bullet">
-/// <item><b><c>[Perf] SIM</c></b> — WHAT THE MAIN-THREAD LOOP ITERATES OVER, which is a different
-/// population from the renderers and the one that owns ~50 % of this frame. Unity's per-frame
-/// script loop is exactly "every enabled Behaviour whose type DECLARES <c>Update</c>", so that
-/// count is not a proxy for the loop, it IS the loop's length; the same for <c>LateUpdate</c> and
-/// <c>FixedUpdate</c>. Beside it: the heaviest ticking TYPES by instance count (mod-owned ones
-/// marked, so the mod's 14.6 % is separable from the game's 85 %), the <see cref="Animator"/>
-/// census broken down BY <see cref="AnimatorCullingMode"/>, and the <see cref="ParticleSystem"/>
-/// census broken down by <see cref="ParticleSystemCullingMode"/>. Emitted BEFORE the SCENE line it
-/// shares a walk with, deliberately: it is the line that decides what to do, and SCENE is its
-/// context.</item>
-/// <item><b><c>[Perf] SCENE</c></b> — WHAT is there, grouped the way a lever would have to group
-/// it: by scene-root object (so "the board" and "the mod's hands" are separable), by layer (so
-/// culling-mask hygiene becomes a decision instead of a guess), by renderer type, by shadow-casting
-/// mode, and by MATERIAL COUNT. Materials matter more than renderers: the built-in pipeline emits
-/// at least one draw call per renderer PER MATERIAL, so the submitted draw-call estimate is the sum
-/// of material counts over the renderers that are enabled, visible and inside the head camera's
-/// culling mask — multiplied by the pass count, because MultiPass pays all of it twice.</item>
-/// <item><b><c>[Perf] GFX</c></b> — the RENDER STATE that multiplies all of it: the live quality
-/// level and every <see cref="QualitySettings"/> field that changes submission volume (shadows,
-/// cascades, shadow distance, pixel light count, LOD bias), a census of real-time shadow-casting
-/// lights, and the head camera's own configuration (culling mask decoded to layer NAMES, rendering
-/// path, depth-texture mode, occlusion culling).</item>
-/// </list>
-///
-/// <para>SHADOWS: TESTED AND REFUTED (2026-07, hardware). The shadow-cascade hypothesis was the
-/// strongest remaining mechanism — in the built-in pipeline a real-time shadow-casting light
-/// re-submits every shadow caster once per cascade, which is invisible to a pixel-cost experiment
-/// and scales with renderer count exactly as the judder does. It is wrong here. With shadows
-/// switched off in the game's own Options › Graphics AND the quality preset at its lowest, the head
-/// camera measured 15.0–17.4 ms of cull+submit against 10.8–17.8 ms with shadows on at normal
-/// quality: no improvement at all. The state fields are still printed below, because a hypothesis
-/// is only refuted for the state it was refuted in and the next log has to be able to show that
-/// state — but no shadow-side lever is worth building.</para>
-///
-/// <para>WHAT THE COUNTS DO AND DO NOT INCLUDE. <see cref="UnityEngine.Object.FindObjectsOfType{T}"/>
-/// returns components on ACTIVE GameObjects only. So an object hidden with
-/// <c>SetActive(false)</c> never appears here at all, while one hidden by <c>renderer.enabled =
-/// false</c>, zero alpha or zero scale appears and is counted — deliberately, because the second
-/// kind still costs culling and, at zero alpha, usually still costs submission. "Total" is
-/// therefore "active in the hierarchy", not "exists".</para>
-///
-/// <para>COST, MEASURED RATHER THAN ASSERTED, AND SELF-LIMITING. The walk is five
-/// <c>FindObjectsOfType</c> calls plus a per-renderer material-list fill, over a population that the
-/// ModBuild 226 log puts at 8,600 renderers and an unknown but larger number of behaviours — far too
-/// expensive per frame, which is exactly why it runs ONCE PER SUMMARY WINDOW (30 s by default).
-/// Every name lookup is done once per BUCKET, not once per object (<see cref="UnityEngine.Object.name"/>
-/// and <c>Shader.name</c> allocate a fresh string on every read), and the <c>Update</c>/<c>LateUpdate</c>
-/// reflection is cached per <see cref="Type"/> for the life of the process, so the second window pays
-/// none of it. It <b>times itself with a <see cref="Stopwatch"/> and prints the figure on both lines</b>
-/// — the way <c>Perf.ZoomSample</c> prints its 0.006 ms — and if that figure comes in above
-/// <see cref="AmortiseTargetMs"/> it SKIPS the next few windows so the amortised cost stays under
-/// that target. An instrument is not allowed to become the thing it measures, and "I promise it is
-/// cheap" is not a measurement.</para>
-///
-/// <para>REJECTED: sampling any of this per frame (it is a full-scene walk — the per-frame estimate
-/// on the ZOOM clause already exists for that and works by round-robin slices); gating the walk on
-/// a scenario being loaded (the pre-menu gate below is the only place it is genuinely worthless, and
-/// the campaign map is a legitimate subject); and counting behaviours by <c>GetComponents</c> per
-/// GameObject (one <c>FindObjectsOfType&lt;MonoBehaviour&gt;</c> is a single native walk, the other
-/// is a managed loop with an allocation per object).</para>
-///
-/// <para>MULTIPLAYER / REVERSIBILITY. Reads state, writes log lines. It never touches a game
-/// object, game state or wire traffic, and it holds no reference past the end of the call.</para>
+/// Read-only debug population census. Build612 measured 91–120ms synchronous walks.
+/// Build615 traverses loaded scene roots, one object/component at a time, and tallies
+/// the original SIM/SCENE/GFX/TEX populations across bounded Update slices. No full
+/// Resources/FindObjects census runs here. Counts are observations across the stated
+/// sampling span, not a simultaneous snapshot or measured eye draw calls.
 /// </summary>
-internal static class PerfSceneProfile
+internal static partial class PerfSceneProfile
 {
     /// <summary>How many groups the SCENE line names before collapsing the tail into "+N more".</summary>
     private const int TopRoots = 16;
@@ -182,7 +79,7 @@ internal static class PerfSceneProfile
     /// <summary>
     /// The amortised per-window budget, in milliseconds, this whole walk is allowed to cost.
     ///
-    /// <para>The walk is a one-frame hitch by construction and its size is a property of the scene,
+    /// <para>The total CPU price is a property of the scene,
     /// not of this code: 8,600 renderers and every MonoBehaviour in the process. Rather than guess
     /// whether that is affordable, it is TIMED and then RATIONED — a window that measured 40 ms
     /// skips the next nine, so the instrument's own share of the session stays at this number no
@@ -232,8 +129,6 @@ internal static class PerfSceneProfile
     /// <summary>Last measured total walk cost, milliseconds — printed on both lines.</summary>
     private static double _lastWalkMs;
 
-    /// <summary>Latched after the SIM half throws once, so a fault there cannot cost the SCENE line.</summary>
-    private static bool _simFaulted;
 
     /// <summary>One scene-root's share of the renderer population.</summary>
     private sealed class RootRec
@@ -306,81 +201,29 @@ internal static class PerfSceneProfile
     /// Compose the renderer breakdown. Never throws out to the caller: an instrumentation walk
     /// that takes the summary line down with it is strictly worse than a missing line.
     /// </summary>
-    internal static void AppendSceneLine(StringBuilder sb)
+    private static IEnumerator SampleSceneLine(StringBuilder sb, int sceneHandle,
+        int procGenHandle, string provenance, bool newScene)
     {
-        // SceneManager.sceneLoaded fires before procgen completes. The game's loading flags are
-        // cleared only after WaitForProcGen and the loading screen handoff, so a census during
-        // that period would describe an incomplete scenario.
-        SceneController controller = SceneController.Instance;
-        Scene scene = controller != null ? controller.GetCurrentScene : default;
-        bool valid = scene.IsValid();
-        bool loaded = valid && scene.isLoaded;
-        bool loading = controller == null || controller.IsLoading;
-        bool scenarioLoading = controller != null && controller.ScenarioIsLoading;
-        int sceneHandle = valid ? scene.handle : 0;
-        Scene procGen = Choreographer.s_Choreographer != null
-            ? Choreographer.s_Choreographer.m_ProcGenScene : default;
-        int procGenHandle = procGen.IsValid() && procGen.isLoaded ? procGen.handle : 0;
-        string provenance = $" | scene '{(valid ? scene.name : "unavailable")}' handle "
-            + $"{sceneHandle} procgen {procGenHandle} loaded {loaded} loading {loading} "
-            + $"scenarioLoading {scenarioLoading}";
-        CensusDecision decision = _rationer.Decide(loaded && !loading && !scenarioLoading,
-            sceneHandle, procGenHandle);
-        if (decision == CensusDecision.Deferred)
-        {
-            sb.Append("SCENE — deferred: game scene has not finished loading");
-            sb.Append(provenance);
-            return;
-        }
-
-        bool newScene = decision == CensusDecision.NewScene;
-        // ---- rationing (see AmortiseTargetMs) --------------------------------------------------
-        // Checked BEFORE anything is walked, and it still emits a line: a window that silently
-        // produced no output would be indistinguishable from the instrument having faulted, and
-        // this project has already lost rounds to a remedy that never ran while looking like it had.
-        if (decision == CensusDecision.Skipped)
-        {
-            sb.Append("SCENE — skipped this window. The last walk measured ")
-              .Append(_lastWalkMs.ToString("F1"))
-              .Append("ms, so it is being rationed down to an amortised ")
-              .Append(AmortiseTargetMs.ToString("F0")).Append("ms/window; ")
-              .Append(_rationer.SkipWindows).Append(" more window(s) will be skipped before the next sample. "
-                      + "This is the instrument refusing to become the thing it measures, not a "
-                      + "fault. Set [Perf] SceneProfile = false to stop it entirely.");
-            sb.Append(provenance);
-            return;
-        }
-
-        Stopwatch clock = Stopwatch.StartNew();
-
-        // The SIM half runs FIRST and is logged first: it is the line that decides what to do about
-        // the ~50 % of the frame that main-thread logic owns, and SCENE is its context. It is also
-        // the half that walks the largest population, so if the whole sample has to be cut short by
-        // an exception, this is the half worth having.
-        double simMs = BuildSimLine();
-        if (SimSb.Length > 0)
-            SimSb.Append(provenance);
-
+        foreach (object? step in InventoryScene()) yield return step;
+        _inSim = true;
+        SimSb.Length = 0;
+        SimSb.Append("SIM — active component population eligible for Unity callbacks "
+            + "(sampled ONCE this window, same walk as the SCENE line that follows). "
+            + "Counts do not time these callbacks, Unity internal animation or waits; "
+            + "compare the aligned NATIVE and SPLIT lines before assigning cost");
+        foreach (object? step in AppendBehaviours(SimSb)) yield return step;
+        foreach (object? step in AppendAnimators(SimSb)) yield return step;
+        foreach (object? step in AppendParticles(SimSb)) yield return step;
+        SimSb.Append(provenance);
+        _inSim = false;
+        yield return null;
         sb.Append("SCENE — renderer/material submission estimate (sampled ONCE this window; "
-                  + "FindObjectsOfType sees ACTIVE GameObjects only, so anything hidden with "
-                  + "SetActive(false) is absent from every number here, while anything hidden by "
-                  + "renderer.enabled/alpha/scale is present; actual draw calls are unmeasured)");
+            + "loaded scene-root traversal sees ACTIVE GameObjects only in these counts; "
+            + "SetActive(false) is absent, renderer.enabled/alpha/scale remains present; "
+            + "actual draw calls are unmeasured)");
         sb.Append(provenance);
-        if (newScene)
-            sb.Append(" | new loaded scene bypassed the prior scene's census cooldown once");
-
-        Renderer[] all;
-        try
-        {
-            all = UnityEngine.Object.FindObjectsOfType<Renderer>();
-        }
-        catch (Exception e)
-        {
-            sb.Append(" | n/a (renderer walk threw ").Append(e.GetType().Name).Append(')');
-            FinishWalk(sb, clock, simMs, sceneHandle, procGenHandle);
-            return;
-        }
-
+        if (newScene) sb.Append(" | new loaded scene bypassed the prior scene's census cooldown once");
+        List<Renderer> all = _inventoryRenderers;
         Camera? head = Rig.VRRigDriver.HeadCamera;
         int headMask = head != null ? head.cullingMask : ~0;
         int modLayer = VRLayers.ModLayer;
@@ -398,10 +241,11 @@ internal static class PerfSceneProfile
         int propertyBlocks = 0, propertyBlocksSubmitted = 0;
         int castOff = 0, castOn = 0, castTwoSided = 0, castShadowsOnly = 0;
 
-        for (int i = 0; i < all.Length; i++)
+        for (int i = 0; i < all.Count; i++)
         {
+            yield return null;
             Renderer r = all[i];
-            if (r == null)
+            if (r == null || !r.gameObject.activeInHierarchy)
                 continue;
 
             int layer = r.gameObject.layer;
@@ -410,6 +254,7 @@ internal static class PerfSceneProfile
             bool vis = CensusVisibility.CountVisible(r.isVisible, forced);
             bool masked = (headMask & (1 << layer)) != 0;
             bool subm = CensusVisibility.EstimateSubmitted(on, vis, masked);
+            RecordRoster(r, on, on && vis);
 
             if (forced)
                 forcedOff++;
@@ -493,7 +338,7 @@ internal static class PerfSceneProfile
 
         int passes = XRSettings.stereoRenderingMode == XRSettings.StereoRenderingMode.MultiPass ? 2 : 1;
 
-        sb.Append(" | totals: ").Append(all.Length).Append(" active renderer(s), ")
+        sb.Append(" | totals: ").Append(all.Count).Append(" active renderer(s), ")
           .Append(enabled).Append(" enabled, ").Append(forcedOff)
           .Append(" forceRenderingOff, ").Append(visible)
           .Append(" visible (excluding forceRenderingOff), ")
@@ -538,20 +383,19 @@ internal static class PerfSceneProfile
                     + "the property-block/render-queue count above is worth an A/B — if it were "
                     + "not for the property blocks and queue bumps, these could merge.");
         }
-        // The mod's own experimental batching pass was REMOVED (2026-08 user ruling — see
-        // .planning/static-batching-removed.md), so a non-zero count can only come from the
-        // game's own debug hotkey.
+        // These are actual Renderer batch flags. Historical experiments and the native
+        // hotkey are not proof of which current optional pass authored them.
         if (staticBatched == 0)
             sb.Append(" NOTHING is statically batched (the game only ever calls "
-                      + "StaticBatchingUtility.Combine from a debug hotkey, and its board geometry "
-                      + "is generated at runtime, so this is expected rather than a regression).");
+                      + "StaticBatchingUtility.Combine from a debug hotkey; compare optional scenario "
+                      + "batching separately rather than infer an enabled optimisation from this count).");
         else
-            sb.Append(" — the mod never batches, so that count is the game's own debug-hotkey "
-                      + "StaticBatchingUtility.Combine.");
+            sb.Append(" — renderer-reported static-batch membership; compare configured "
+                      + "scenario batching and the native debug-hotkey StaticBatchingUtility.Combine.");
 
         sb.Append(" | mod-owned (layer ").Append(modLayer).Append("): ").Append(modOwned)
           .Append(" renderer(s), ").Append(modOwnedEnabled).Append(" enabled (")
-          .Append(all.Length > 0 ? (100f * modOwned / all.Length).ToString("F1") : "0")
+          .Append(all.Count > 0 ? (100f * modOwned / all.Count).ToString("F1") : "0")
           .Append("% of the scene)");
 
         sb.Append(" | shadow casting: ").Append(castOn).Append(" On, ").Append(castOff)
@@ -561,16 +405,20 @@ internal static class PerfSceneProfile
 
         AppendKinds(sb);
         AppendShaders(sb, passes);
-        AppendLayers(sb, headMask, all.Length);
+        AppendLayers(sb, headMask, all.Count);
         AppendRoots(sb, passes);
-        FinishWalk(sb, clock, simMs, sceneHandle, procGenHandle);
+        yield return null;
+        foreach (object? step in PrepareGraphics()) yield return step;
+        foreach (object? step in AppendLights(_gfxLights)) yield return step;
+        foreach (object? step in PerfTextureCensus.PrepareLine()) yield return step;
+        FinishWalk(sb, _sampleCpu, _simMs, sceneHandle, procGenHandle);
     }
 
     /// <summary>
     /// Stop the clock, print the instrument's OWN price on both lines, ration the next few windows
-    /// if it was expensive, and emit the SIM line. Called on every exit path from
-    /// <see cref="AppendSceneLine"/> — including the failure ones, because a walk that threw
-    /// halfway still spent the time it spent.
+    /// if it was expensive, and emit the SIM line. The pump passes a stopwatch that
+    /// runs only around work units; time between frames is deliberately excluded.
+    /// Failed/cancelled samples never publish an apparently complete population.
     /// </summary>
     private static void FinishWalk(StringBuilder sb, Stopwatch clock, double simMs,
         int sceneHandle, int procGenHandle)
@@ -588,7 +436,13 @@ internal static class PerfSceneProfile
         cost.Append(" | INSTRUMENT COST, measured not asserted: this whole sample took ")
             .Append(_lastWalkMs.ToString("F1")).Append("ms (SIM half ").Append(simMs.ToString("F1"))
             .Append("ms, SCENE half ").Append(sceneMs.ToString("F1"))
-            .Append("ms) in ONE frame of this window");
+            .Append("ms) across ").Append(_sampleSlices).Append(" bounded slice(s), ")
+            .Append((Time.unscaledTime - _sampleStart).ToString("F2"))
+            .Append("s observation span; max slice ").Append(_maxSliceMs.ToString("F3"))
+            .Append("ms, max atomic work unit ").Append(_maxUnitMs.ToString("F3"))
+            .Append("ms, budget ").Append(_budgetMilliseconds.ToString("F3"))
+            .Append("ms or ").Append(_objectsPerFrame)
+            .Append(" units/frame (a Unity API call cannot be preempted)");
         if (_rationer.SkipWindows > 0)
         {
             cost.Append(" — above the ").Append(AmortiseTargetMs.ToString("F0"))
@@ -953,50 +807,13 @@ internal static class PerfSceneProfile
     /// hierarchies are exactly that shape (<c>ProceduralMapTile</c> overrides
     /// <c>ProceduralTileObserver.Update</c>).</para>
     /// </summary>
-    private static double BuildSimLine()
-    {
-        SimSb.Length = 0;
-        if (_simFaulted)
-            return 0d;
-
-        Stopwatch clock = Stopwatch.StartNew();
-        try
-        {
-            SimSb.Append("SIM — active component population eligible for Unity callbacks "
-                         + "(sampled ONCE this window, same walk as the SCENE line that follows). "
-                         + "Counts do not time these callbacks, Unity internal animation or waits; "
-                         + "compare the aligned NATIVE and SPLIT lines before assigning cost");
-            AppendBehaviours(SimSb);
-            AppendAnimators(SimSb);
-            AppendParticles(SimSb);
-        }
-        catch (Exception e)
-        {
-            _simFaulted = true;
-            SimSb.Append(" | SIM walk threw ").Append(e.GetType().Name)
-                 .Append(" and has DISABLED ITSELF for this session; the SCENE and GFX lines are "
-                         + "unaffected: ").Append(e.Message);
-        }
-        clock.Stop();
-        return clock.Elapsed.TotalMilliseconds;
-    }
-
     /// <summary>
     /// The behaviour census: how long Unity's per-frame script lists actually are, and which TYPES
     /// fill them.
     /// </summary>
-    private static void AppendBehaviours(StringBuilder sb)
+    private static IEnumerable AppendBehaviours(StringBuilder sb)
     {
-        MonoBehaviour[] all;
-        try
-        {
-            all = UnityEngine.Object.FindObjectsOfType<MonoBehaviour>();
-        }
-        catch (Exception e)
-        {
-            sb.Append(" | behaviours n/a (walk threw ").Append(e.GetType().Name).Append(')');
-            return;
-        }
+        List<MonoBehaviour> all = _inventoryBehaviours;
 
         Behaviours.Clear();
         BehaviourOrder.Clear();
@@ -1006,10 +823,11 @@ internal static class PerfSceneProfile
         int modUpd = 0, modLate = 0;
         int tickingTypes = 0;
 
-        for (int i = 0; i < all.Length; i++)
+        for (int i = 0; i < all.Count; i++)
         {
+            yield return null;
             MonoBehaviour mb = all[i];
-            if (mb == null)
+            if (mb == null || !mb.gameObject.activeInHierarchy)
                 continue;
             total++;
             bool on = mb.isActiveAndEnabled;
@@ -1187,26 +1005,18 @@ internal static class PerfSceneProfile
     /// a <c>CanvasRenderer</c> is not a <see cref="Renderer"/>. The count of animators that own no
     /// renderer is therefore the count that no culling mode can ever touch, and it is reported.</para>
     /// </summary>
-    private static void AppendAnimators(StringBuilder sb)
+    private static IEnumerable AppendAnimators(StringBuilder sb)
     {
-        Animator[] all;
-        try
-        {
-            all = UnityEngine.Object.FindObjectsOfType<Animator>();
-        }
-        catch (Exception e)
-        {
-            sb.Append(" | animators n/a (walk threw ").Append(e.GetType().Name).Append(')');
-            return;
-        }
+        List<Animator> all = _inventoryAnimators;
 
         int enabled = 0, controller = 0, human = 0, rootMotion = 0, layers = 0, noRenderer = 0;
         int always = 0, cullTransforms = 0, cullCompletely = 0, otherMode = 0;
 
-        for (int i = 0; i < all.Length; i++)
+        for (int i = 0; i < all.Count; i++)
         {
+            yield return null;
             Animator a = all[i];
-            if (a == null)
+            if (a == null || !a.gameObject.activeInHierarchy)
                 continue;
             bool on = a.isActiveAndEnabled;
             if (on)
@@ -1238,11 +1048,11 @@ internal static class PerfSceneProfile
             // GetComponentInChildren is a subtree walk, so it is only done for the animators that
             // are enabled and could therefore cost anything — and it answers the one question no
             // culling mode can override.
-            if (on && a.GetComponentInChildren<Renderer>(true) == null)
+            if (on && !_rendererAncestors.Contains(a.transform.GetInstanceID()))
                 noRenderer++;
         }
 
-        sb.Append(" | ANIMATORS: ").Append(all.Length).Append(" on active GameObject(s), ")
+        sb.Append(" | ANIMATORS: ").Append(all.Count).Append(" on active GameObject(s), ")
           .Append(enabled).Append(" enabled, ").Append(controller)
           .Append(" with a runtime controller, ").Append(human).Append(" humanoid (retarget+IK), ")
           .Append(rootMotion).Append(" with root motion, ").Append(layers).Append(" layer(s) total")
@@ -1263,7 +1073,7 @@ internal static class PerfSceneProfile
         {
             sb.Append("no enabled animators in this scene at all — the ZOOM clause's "
                       + "'view-scaled animators' cannot be what this frame is made of.");
-            return;
+            yield break;
         }
 
         bool uncullable = always >= enabled - noRenderer;
@@ -1318,26 +1128,18 @@ internal static class PerfSceneProfile
     /// here is already the optimised one, and a lever would only be adding risk unless this census
     /// shows a large AlwaysSimulate population.
     /// </summary>
-    private static void AppendParticles(StringBuilder sb)
+    private static IEnumerable AppendParticles(StringBuilder sb)
     {
-        ParticleSystem[] all;
-        try
-        {
-            all = UnityEngine.Object.FindObjectsOfType<ParticleSystem>();
-        }
-        catch (Exception e)
-        {
-            sb.Append(" | particles n/a (walk threw ").Append(e.GetType().Name).Append(')');
-            return;
-        }
+        List<ParticleSystem> all = _inventoryParticles;
 
         int playing = 0, emitting = 0, live = 0, looping = 0;
         int automatic = 0, pauseCatchup = 0, pause = 0, alwaysSimulate = 0;
 
-        for (int i = 0; i < all.Length; i++)
+        for (int i = 0; i < all.Count; i++)
         {
+            yield return null;
             ParticleSystem p = all[i];
-            if (p == null)
+            if (p == null || !p.gameObject.activeInHierarchy)
                 continue;
             try
             {
@@ -1363,7 +1165,7 @@ internal static class PerfSceneProfile
             }
         }
 
-        sb.Append(" | PARTICLES: ").Append(all.Length).Append(" system(s) on active GameObject(s), ")
+        sb.Append(" | PARTICLES: ").Append(all.Count).Append(" system(s) on active GameObject(s), ")
           .Append(playing).Append(" playing, ").Append(emitting).Append(" emitting, ").Append(looping)
           .Append(" looping, ").Append(live).Append(" live particle(s)")
           .Append(" | cullingMode: Automatic ").Append(automatic).Append(", PauseAndCatchup ")
@@ -1486,7 +1288,7 @@ internal static class PerfSceneProfile
                   + "view)");
 
         AppendLodGroups(sb);
-        AppendLights(sb);
+        sb.Append(_gfxLights);
         AppendHeadCamera(sb);
     }
 
@@ -1507,7 +1309,7 @@ internal static class PerfSceneProfile
             // fresher or whether they were even the same measurement — and they were not. The
             // sentence below is this line's own and is unchanged; only the counting moved, and the
             // population rule is now stated in the line the way the SCENE line above already does.
-            LodGroupCensus.Result lod = LodGroupCensus.Sweep();
+            LodGroupCensus.Result lod = new(_inventoryLodGroups.ToArray(), _lodEnabled);
             sb.Append(" | LOD groups: ").Append(lod.Active).Append(" active, ").Append(lod.Enabled)
               .Append(" enabled");
             if (lod.Active == 0)
@@ -1516,7 +1318,8 @@ internal static class PerfSceneProfile
                           + "is no LOD lever to pull. Distance-based reduction would have to come "
                           + "from Camera.layerCullDistances instead");
             }
-            LodGroupCensus.AppendPopulationRule(sb, "[Perf] GFX", PerfConfig.SummaryIntervalClamped);
+            sb.Append(" [population: loaded scene-root traversal, inactive objects excluded; "
+                + "disabled components counted separately; same incremental SCENE sampling span]");
         }
         catch (Exception e)
         {
@@ -1529,22 +1332,14 @@ internal static class PerfSceneProfile
     /// lights cast shadows", because only those add shadow-map passes — a baked or shadow-less
     /// light adds no submission at all.
     /// </summary>
-    private static void AppendLights(StringBuilder sb)
+    private static IEnumerable AppendLights(StringBuilder sb)
     {
-        Light[] lights;
-        try
-        {
-            lights = UnityEngine.Object.FindObjectsOfType<Light>();
-        }
-        catch (Exception e)
-        {
-            sb.Append(" | lights n/a (").Append(e.GetType().Name).Append(')');
-            return;
-        }
+        List<Light> lights = _inventoryLights;
 
         int enabled = 0, realtimeShadow = 0, dir = 0, point = 0, spot = 0, area = 0, baked = 0;
-        for (int i = 0; i < lights.Length; i++)
+        for (int i = 0; i < lights.Count; i++)
         {
+            yield return null;
             Light l = lights[i];
             if (l == null || !l.isActiveAndEnabled)
                 continue;
@@ -1564,7 +1359,7 @@ internal static class PerfSceneProfile
                 realtimeShadow++;
         }
 
-        sb.Append(" | lights: ").Append(lights.Length).Append(" active object(s), ").Append(enabled)
+        sb.Append(" | lights: ").Append(lights.Count).Append(" active object(s), ").Append(enabled)
           .Append(" enabled (").Append(dir).Append(" dir, ").Append(point).Append(" point, ")
           .Append(spot).Append(" spot, ").Append(area).Append(" other; ").Append(baked)
           .Append(" fully baked) | REAL-TIME SHADOW-CASTING LIGHTS: ").Append(realtimeShadow);

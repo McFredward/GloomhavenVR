@@ -235,7 +235,8 @@ internal sealed class ProximityGrabber
                 IGrabbable released = Held;
                 Held = null;
                 _releaseOnTriggerUp = false;
-                released.OnRelease(_hand, _hand.PalmVelocity);
+                using (Core.PerfMonitor.Scope("Hands.NearGrip.Release"))
+                    released.OnRelease(_hand, _hand.PalmVelocity);
                 LogGrab($"{_hand.Side} release — {_grabLabel}.");
             }
             return;
@@ -612,9 +613,9 @@ internal sealed class ProximityGrabber
             if (!VRInteractables.IsUsablePickShape(collider))
                 continue;
             IGrabbable target = entries[i].Target;
-            if (!target.GrabWithGrip || !target.CanGrab)
+            if (!target.GrabWithGrip || !CanGrabNow(target))
                 continue;
-            if (target is IGrabbableHandFilter filter && !filter.AllowsHand(_hand))
+            if (target is IGrabbableHandFilter filter && !AllowsHandNow(filter, _hand))
                 continue;
             float dist = ReachDistance(entries[i], palm);
             if (dist <= reach && dist < nearestDist)
@@ -672,7 +673,8 @@ internal sealed class ProximityGrabber
         _grabLabel = $"{button}/{source}";
         if (clearHighlight)
             SetHighlighted(null);
-        Held.OnGrab(_hand);
+        using (Core.PerfMonitor.Scope("Hands.NearGrip.Pickup"))
+            Held.OnGrab(_hand);
         _hand.SendHaptic(HapticPreset.GrabPulse);
         // Controls lesson: "reach out and take hold of something". Any near grab counts —
         // a figure, a prop or a card are all the same gesture, which is the thing being taught.
@@ -715,12 +717,12 @@ internal sealed class ProximityGrabber
         }
         if (target == null)
             return false;
-        if (!target.CanGrab)
+        if (!CanGrabNow(target))
         {
             LogRefusal($"ForceGrab refused — target '{DescribeGrabbable(target)}' CanGrab=false");
             return false;
         }
-        if (target is IGrabbableHandFilter filter && !filter.AllowsHand(_hand))
+        if (target is IGrabbableHandFilter filter && !AllowsHandNow(filter, _hand))
         {
             LogRefusal($"ForceGrab refused — target '{DescribeGrabbable(target)}' AllowsHand({_hand.Side})=false");
             return false;
@@ -749,7 +751,7 @@ internal sealed class ProximityGrabber
             why = "held object was destroyed";
         else if (held is MonoBehaviour mb && !mb.isActiveAndEnabled)
             why = $"held object '{mb.name}' was disabled/re-parked while held";
-        else if (held is IGrabbableHandFilter filter && !filter.AllowsHand(_hand))
+        else if (held is IGrabbableHandFilter filter && !AllowsHandNow(filter, _hand))
             why = $"held object '{DescribeGrabbable(held)}' no longer allows this hand";
         if (why == null)
             return false;
@@ -813,6 +815,7 @@ internal sealed class ProximityGrabber
     /// </summary>
     private static float ReachDistance(in VRInteractables.GrabbableEntry entry, Vector3 point)
     {
+        using var distanceTiming = Core.PerfMonitor.Scope("Hands.NearGrip.Distance");
         if (entry.Target is IGrabReachVolume volume)
             return volume.ReachDistance(point);
         return Vector3.Distance(point, entry.Collider.ClosestPoint(point));
@@ -938,7 +941,7 @@ internal sealed class ProximityGrabber
             if (dist > reach || dist >= nearest)
                 continue;
             IGrabbable target = entries[i].Target;
-            if (!target.CanGrab)
+            if (!CanGrabNow(target))
             {
                 nearest = dist;
                 // NAME THE CLAUSE, not the conjunction (ModBuild 445). This line used to stop at
@@ -951,7 +954,7 @@ internal sealed class ProximityGrabber
                 reason = $"nearest in-reach grabbable '{DescribeGrabbable(target)}' has "
                          + $"CanGrab=false because {why}";
             }
-            else if (target is IGrabbableHandFilter filter && !filter.AllowsHand(_hand))
+            else if (target is IGrabbableHandFilter filter && !AllowsHandNow(filter, _hand))
             {
                 nearest = dist;
                 reason = $"nearest in-reach grabbable '{DescribeGrabbable(target)}' refuses this hand (AllowsHand)";
@@ -1005,6 +1008,9 @@ internal sealed class ProximityGrabber
     /// </summary>
     private void UpdateHighlight()
     {
+        // Keep registry election and real contact unthrottled. Build612's late near-grip
+        // outlier alone cannot distinguish native distance checks from custom callbacks.
+        using var electionTiming = Core.PerfMonitor.Scope("Hands.NearGrip.Election");
         var entries = VRInteractables.Grabbables;
         Vector3 palm = _hand.Rig.PalmCenter.position;
         float reach = ReachMeters * _hand.WorldScale;
@@ -1063,7 +1069,7 @@ internal sealed class ProximityGrabber
                 currentMeasured = true;
             }
 
-            if (!target.CanGrab)
+            if (!CanGrabNow(target))
             {
                 if (isCurrent)
                     currentBlocker = "CanGrab went false (a busy figure the turn machine is waiting "
@@ -1072,7 +1078,7 @@ internal sealed class ProximityGrabber
                 continue;
             }
             // Per-hand gate (P7): e.g. fan cards reject the fan-owning hand entirely.
-            if (target is IGrabbableHandFilter filter && !filter.AllowsHand(_hand))
+            if (target is IGrabbableHandFilter filter && !AllowsHandNow(filter, _hand))
             {
                 if (isCurrent)
                     currentBlocker = "the per-hand veto turned it off for this hand "
@@ -1268,6 +1274,7 @@ internal sealed class ProximityGrabber
 
     private void SetHighlighted(IGrabbable? target)
     {
+        using var callbackTiming = Core.PerfMonitor.Scope("Hands.NearGrip.HoverCallbacks");
         if (ReferenceEquals(target, Highlighted))
             return;
 
@@ -1291,4 +1298,16 @@ internal sealed class ProximityGrabber
             Core.VRLog.Error("Interact", $"HighlightChanged subscriber threw: {ex}");
         }
     }
+    private static bool CanGrabNow(IGrabbable target)
+    {
+        using var gateTiming = Core.PerfMonitor.Scope("Hands.NearGrip.Eligibility");
+        return target.CanGrab;
+    }
+
+    private static bool AllowsHandNow(IGrabbableHandFilter filter, VRHand hand)
+    {
+        using var gateTiming = Core.PerfMonitor.Scope("Hands.NearGrip.Eligibility");
+        return filter.AllowsHand(hand);
+    }
+
 }

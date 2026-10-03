@@ -119,7 +119,7 @@ internal static partial class PerfFrameSplit
 
     // ---- the sampled roster ----------------------------------------------------------------------
 
-    /// <summary>The census's own FindObjectsOfType array, retained as the sampling roster. Renderers
+    /// <summary>The completed incremental census array, retained as the sampling roster. Renderers
     /// created since it was taken are invisible to the estimate until the next window refreshes
     /// it — the census total printed on the same line is what says whether the scene grew.</summary>
     private static Renderer[]? _roster;
@@ -259,7 +259,8 @@ internal static partial class PerfFrameSplit
             Renderer r = roster[c];
             // A destroyed renderer reads as not-visible and is subtracted ONCE; the next window's
             // census walk drops it from the roster entirely. Degrading, never throwing.
-            bool vis = r != null && r.isVisible;
+            bool vis = r != null && r.gameObject.activeInHierarchy && r.enabled
+                && !r.forceRenderingOff && r.isVisible;
             if (vis != seen[c])
             {
                 seen[c] = vis;
@@ -285,15 +286,6 @@ internal static partial class PerfFrameSplit
         _rosterCursor = 0;
         _rosterVisible = visible;
         _rosterReady = true;
-    }
-
-    /// <summary>Grow the visibility shadow array to cover the roster (never shrinks; the slack costs
-    /// one byte per renderer and saves an allocation on every window whose scene wobbles).</summary>
-    private static bool[] RosterShadow(int n)
-    {
-        if (_rosterSeen.Length < n)
-            _rosterSeen = new bool[n + 256];
-        return _rosterSeen;
     }
 
     /// <summary>Drop the roster (the census switched off mid-session; it reseeds when it comes back).</summary>

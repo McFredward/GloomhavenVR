@@ -107,6 +107,9 @@ internal static class FigureOverlay
     internal static GameObject? BuildFrozenGhost(GameObject animatedRoot, Vector3 worldPos, Quaternion worldRot,
         Vector3 worldScale, Material ghostMat, out string report, Transform? preserveOriginal = null)
     {
+        // Pickup includes snapshot baking, cloned native render slots and optional FX
+        // sanitisation. Separate it from the registry distance/hover callbacks in STEPS.
+        using var constructionTiming = Core.PerfMonitor.Scope("Hands.NearGrip.GhostConstruction");
         report = "no source subtree";
         if (animatedRoot == null)
             return null;
