@@ -6,6 +6,7 @@ using System.Collections;
 namespace UnityEngine
 {
     public enum LogType { Error, Assert, Warning, Log, Exception }
+    public enum RuntimePlatform { Android, LinuxEditor }
     public class MonoBehaviour
     {
         protected static void DontDestroyOnLoad(object value) { }
@@ -17,8 +18,10 @@ namespace UnityEngine
     public static class Time { public static float unscaledTime; }
     public static class Application
     {
-        public static string persistentDataPath, streamingAssetsPath;
-        public static string unityVersion = "fixture", platform = "fixture";
+        public static string persistentDataPath, streamingAssetsPath, dataPath;
+        public static string unityVersion = "fixture";
+        public static RuntimePlatform platform = RuntimePlatform.LinuxEditor;
+        public static bool isEditor = true;
         public static event Action<string, string, LogType> logMessageReceived;
         public static event Action<string, string, LogType> logMessageReceivedThreaded;
         public static bool CanStreamedLevelBeLoaded(string name) { return true; }
@@ -85,17 +88,25 @@ namespace GloomhavenVR.Quest
         public bool Available, InitializationComplete, RigReady, InviteKeyboardVisible;
         public int CompletedModules;
         public string Stage, Failure;
+        public bool StartupViewAvailable;
+        public void PrepareStartupView() { StartupViewAvailable = true; }
+        public void UpdateStartupView(string state, QuestGameContentProgress progress) { }
         public IEnumerator Activate(string root) { yield break; }
         public void Observe() { }
     }
     public static class QuestPassthroughFeature { public static bool Active; }
     public class QuestGameContentFile { public string path; }
     public class QuestGameContentManifest { public string archive; public QuestGameContentFile[] files; }
+    public class QuestGameContentProgress { public string Phase, File; public long ProcessedBytes, TotalBytes; }
+    public static class QuestGameArchiveDelivery
+    {
+        public static void Stage(QuestGameContentManifest manifest, string source, string destination, bool sourceIsApk, Action<QuestGameContentProgress> progress = null) { }
+    }
     public static class QuestGameContent
     {
         public static void Validate(QuestGameContentManifest manifest, string key, string expectedArchive = "quest-startup-content.zip") { }
-        public static bool IsReady(QuestGameContentManifest manifest, string root) { return true; }
-        public static void Extract(QuestGameContentManifest manifest, string archive, string root, string expectedArchive = "quest-startup-content.zip") { }
+        public static bool IsReady(QuestGameContentManifest manifest, string root, Action<QuestGameContentProgress> progress = null) { return true; }
+        public static void Extract(QuestGameContentManifest manifest, string archive, string root, string expectedArchive = "quest-startup-content.zip", Action<QuestGameContentProgress> progress = null) { }
         public static string ResolveVerifiedPath(QuestGameContentManifest manifest, string root, string relative) { return relative; }
     }
     public class QuestGameAddressablesManifest { }

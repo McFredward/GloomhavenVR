@@ -233,7 +233,12 @@ namespace GloomhavenVR.Quest.Editor
             QuestOriginalScriptBindings.RemapAndValidate();
             QuestStartupAddressablesBuild.Build();
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            new GameObject("Original Gloomhaven startup diagnostic").AddComponent<QuestGameBootstrap>();
+            GameObject bootstrap = new GameObject("Original Gloomhaven startup diagnostic");
+            bootstrap.AddComponent<QuestGameBootstrap>();
+            // Serialize the first rendering camera and built-in font reference
+            // into the startup scene. Dynamic resources alone would not retain
+            // the loading text material/font in a stripped Android player.
+            bootstrap.AddComponent<QuestGameModLifecycle>().PrepareStartupView();
             Directory.CreateDirectory("Assets/Quest/Scenes");
             const string startupScene = "Assets/Quest/Scenes/QuestOriginalStartup.unity";
             EditorSceneManager.SaveScene(scene, startupScene);

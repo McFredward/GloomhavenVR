@@ -6,6 +6,7 @@ using System.IO;
 using System.Reflection;
 using GloomhavenVR.Core;
 using UnityEngine;
+using UnityEngine.UI;
 using UnityEngine.XR;
 using UnityEngine.XR.Management;
 
@@ -25,7 +26,11 @@ namespace GloomhavenVR.Quest
         public string Stage { get; private set; } = "pending";
         public string Failure { get; private set; }
         Plugin plugin;
-        Camera startupAnchor;
+        [SerializeField] Camera startupAnchor;
+        [SerializeField] Canvas loadingCanvas;
+        [SerializeField] Text loadingLabel;
+        string lastLoadingText;
+        public bool StartupViewAvailable { get { return startupAnchor != null && startupAnchor.isActiveAndEnabled && loadingCanvas != null; } }
         string lastObservation;
         bool activated;
 
@@ -51,7 +56,8 @@ namespace GloomhavenVR.Quest
                 InitializeBepInEx(bepRoot);
                 PrepareDiagnosticConfig(bepRoot);
                 QuestStandaloneModuleHealth.InstallUnityLogListener();
-                CreateStartupAnchor();
+                PrepareStartupView();
+                StopLoadingView();
                 Stage = "creating-real-plugin";
                 plugin = gameObject.AddComponent<Plugin>();
                 if (plugin == null) throw new InvalidOperationException("Unity refused the original GloomhavenVR.Plugin component.");
@@ -133,20 +139,73 @@ namespace GloomhavenVR.Quest
             UnityEngine.Debug.Log("[Quest startup] fresh real-mod diagnostic configuration created; existing configuration is preserved.");
         }
 
-        void CreateStartupAnchor()
+        public void PrepareStartupView()
         {
+            if (startupAnchor != null) return;
             GameObject anchor = new GameObject("Quest original startup camera anchor");
             anchor.transform.SetParent(transform, false);
             anchor.transform.position = new Vector3(0, 1.6f, 0);
             startupAnchor = anchor.AddComponent<Camera>();
             startupAnchor.tag = "MainCamera";
-            startupAnchor.cullingMask = 0;
-            startupAnchor.stereoTargetEye = StereoTargetEyeMask.None;
+            // The initial scene must submit frames while bank delivery runs.
+            // This camera renders only its temporary label; the plugin adopts
+            // the same neutral reference once its verified assets are available.
+            startupAnchor.cullingMask = 1 << 31;
+            startupAnchor.clearFlags = CameraClearFlags.SolidColor;
+            startupAnchor.backgroundColor = new Color(.025f, .03f, .045f, 1f);
+            startupAnchor.stereoTargetEye = StereoTargetEyeMask.Both;
             startupAnchor.depth = -100;
             startupAnchor.enabled = true;
-            // This is solely the reference required by the EXISTING rig driver.
-            // It renders no geometry and never owns tracking, hands or pointer.
-            UnityEngine.Debug.Log("[Quest startup] neutral camera anchor available for original VR rig before Intro.");
+            GameObject panel = new GameObject("Quest temporary loading view", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler));
+            panel.layer = 31;
+            panel.transform.SetParent(anchor.transform, false);
+            loadingCanvas = panel.GetComponent<Canvas>();
+            loadingCanvas.renderMode = RenderMode.ScreenSpaceCamera;
+            loadingCanvas.worldCamera = startupAnchor;
+            loadingCanvas.planeDistance = 1f;
+            CanvasScaler scaler = panel.GetComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1600, 900);
+            GameObject label = new GameObject("Quest loading status", typeof(RectTransform), typeof(Text));
+            label.layer = 31;
+            label.transform.SetParent(panel.transform, false);
+            RectTransform rectangle = label.GetComponent<RectTransform>();
+            rectangle.anchorMin = new Vector2(.15f, .25f); rectangle.anchorMax = new Vector2(.85f, .75f);
+            rectangle.offsetMin = rectangle.offsetMax = Vector2.zero;
+            loadingLabel = label.GetComponent<Text>();
+            loadingLabel.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            if (loadingLabel.font == null) throw new InvalidDataException("The serialized startup font is unavailable.");
+            loadingLabel.fontSize = 40;
+            loadingLabel.alignment = TextAnchor.MiddleCenter;
+            loadingLabel.color = Color.white;
+            loadingLabel.raycastTarget = false;
+            // No GraphicRaycaster, input actions, buttons, hands or pointer are
+            // introduced here. Remove this canvas before original mod creation.
+            UpdateStartupView("pending", null);
+            UnityEngine.Debug.Log("[Quest startup] temporary stereo loading view available before content delivery; neutral anchor retained for original VR rig.");
+        }
+
+        public void UpdateStartupView(string state, QuestGameContentProgress progress)
+        {
+            if (loadingLabel == null) return;
+            bool german = Application.systemLanguage == SystemLanguage.German;
+            string key = state == "failed" ? "startupFailed"
+                : state.StartsWith("checking-mod-", StringComparison.Ordinal) ? "startupCheckingMod"
+                : state.StartsWith("copying-mod-", StringComparison.Ordinal) ? "startupCopyingMod"
+                : state.StartsWith("extracting-mod-", StringComparison.Ordinal) ? "startupExtractingMod"
+                : state == "starting-real-mod" ? "startupStartingMod" : "startupPending";
+            string value = QuestText.Get("title", german) + "\n\n" + QuestText.Get(key, german);
+            if (progress != null && progress.TotalBytes > 0)
+                value += "\n" + (progress.ProcessedBytes / 1048576f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)
+                    + " / " + (progress.TotalBytes / 1048576f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " MiB";
+            if (value != lastLoadingText) { lastLoadingText = value; loadingLabel.text = value; }
+        }
+
+        void StopLoadingView()
+        {
+            if (loadingCanvas != null) { loadingCanvas.gameObject.SetActive(false); Destroy(loadingCanvas.gameObject); }
+            loadingCanvas = null; loadingLabel = null;
+            if (startupAnchor != null) { startupAnchor.cullingMask = 0; startupAnchor.stereoTargetEye = StereoTargetEyeMask.None; }
         }
 
         void RetireStartupAnchor()

@@ -1,5 +1,19 @@
 # State — where the project stands
 
+**Quest loading follow-up, 2026-10-03: isolated feature, ModBuild 614.**
+
+The new B613 capture verifies the installed APK/input and a stop inside the opaque
+mod-content delivery gate before plugin creation, without a retained managed
+exception. Its scene has no camera until delivery completes; a 42-second
+observation does not rule out slow Debug/O0 verification. The exact old stall
+cause is unresolved. B614 serializes an early temporary stereo loading view,
+streams APK archives on workers with preserved verification, removes the extra
+main-thread bank hash and records phase/bytes/UTC/frame progress. The collector
+adds bounded app-start history and fixed stat-only delivery metadata.
+[B614 evidence and procedure](QUEST3-HARDWARE-614.md). Focused validation and the
+new signed handoff are in progress; hardware outcomes remain unverified. Work
+stays solely on `feature/quest3-standalone`.
+
 **Quest real-mod startup candidate, 2026-10-03: isolated feature, ModBuild 613.**
 
 The supplied B612 capture verifies the installed APK/input and original loading

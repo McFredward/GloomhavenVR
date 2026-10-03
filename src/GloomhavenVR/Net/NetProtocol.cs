@@ -553,7 +553,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 613;
+    public const ushort ModBuild = 614;
+
+    // ModBuild 614 — observable Quest loading after the verified B613 logo-only capture.
+    // B613 stops before real-mod creation, with no retained managed exception;
+    // its state conflates archive transfer and extraction. A temporary stereo
+    // view now renders before delivery and retires before original plugin creation.
+    // Local APK archives stream on managed workers with retained hash/size gates,
+    // phase/byte snapshots and bounded lifecycle logs; no 68 MB SHA runs on the
+    // Unity main thread. The capture adds bounded app-start logs and fixed file
+    // size metadata. Exact headset stall cause and original menu remain unverified.
 
     // ModBuild 613 — original Quest startup with the real VR mod after B612 hardware evidence.
     // The installed APK/input identity and original loading-error dialog are verified.

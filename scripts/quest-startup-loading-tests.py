@@ -22,7 +22,7 @@ def main():
     sources = {name: (args.runtime_source / name).read_text() for name in names}
     bootstrap = sources["QuestGameBootstrap.cs"]
     mutations = (
-        ("late-loading-view", "modLifecycle.PrepareStartupView();", "// Missing early loading view", "early-view"),
+        ("late-loading-view", "modLifecycle.PrepareStartupView();", "/* Missing early loading view */", "early-view"),
         ("mod-before-files", 'yield return EnsureContent(modManifest, modRoot, "quest-mod-content.zip", "mod-content");',
          "yield return null;", "mod-before-content"),
         ("missing-mod-error-gate", 'yield return EnsureContent(modManifest, modRoot, "quest-mod-content.zip", "mod-content");\n            if (State == "failed") yield break;',
