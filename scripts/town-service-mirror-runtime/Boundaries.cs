@@ -81,7 +81,7 @@ namespace GloomhavenVR.Net
         internal const byte ExtIdTownCatalogLayout = 94, ExtIdTownVisitorStock = 95, ExtIdTownDonationClock = 93;
         internal const float StaleTimeoutSeconds = 3f;
     }
-    internal static class NetAvatarDriver
+    internal sealed partial class NetAvatarDriver
     {
         internal static readonly Dictionary<int, Transform[]> MotionHandFrames = new();
         internal static bool TryGetTownMotionHand(int player, byte side, out Transform? root)
