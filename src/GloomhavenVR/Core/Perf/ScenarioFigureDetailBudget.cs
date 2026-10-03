@@ -83,6 +83,12 @@ internal static class ScenarioFigureDetailBudget
     // census actors/meshes every frame merely to know when a quality change is applied.
     internal static bool MeasurementReady => _driver == null || _driver.MeasurementReady;
 
+    /// <summary>Read the native fine mesh only while its exact renderer still belongs to our
+    /// detail record. Pose envelopes must not change when a player chooses a derivative.</summary>
+    internal static Mesh? OriginalMeshFor(Renderer renderer) => _driver?.OriginalMeshFor(renderer);
+    internal static ScenarioFigureMeshBank.Record? OriginalRecordFor(Renderer renderer)
+        => _driver?.OriginalRecordFor(renderer);
+
     internal static void ActorReady(GameObject root)
     {
         if (VRSession.IsRunning && BudgetActive) _driver?.QueueRoot(root);
@@ -269,6 +275,23 @@ internal static class ScenarioFigureDetailBudget
     private sealed class Driver : MonoBehaviour
     {
         private readonly List<ActorRecord> _actors = new();
+
+        internal Mesh? OriginalMeshFor(Renderer renderer)
+        {
+            foreach (ActorRecord actor in _actors)
+                foreach (ScenarioFigureMeshBank.Record mesh in actor.MeshDetails)
+                    if (mesh.Renderer == renderer && (mesh.UsesDerivative || mesh.Current == mesh.Original))
+                        return mesh.Original;
+            return null; // a foreign replacement is its own source, never an owned derivative
+        }
+        internal ScenarioFigureMeshBank.Record? OriginalRecordFor(Renderer renderer)
+        {
+            foreach (ActorRecord actor in _actors)
+                foreach (ScenarioFigureMeshBank.Record mesh in actor.MeshDetails)
+                    if (mesh.Renderer == renderer && (mesh.UsesDerivative || mesh.Current == mesh.Original))
+                        return mesh;
+            return null;
+        }
         private readonly Dictionary<int, ActorRecord> _roots = new();
         private readonly HashSet<int> _seen = new();
         private readonly Queue<GameObject> _pending = new();

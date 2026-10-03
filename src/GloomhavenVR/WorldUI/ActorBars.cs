@@ -149,9 +149,14 @@ internal static class ActorBars
         /// </summary>
         public float AnchorOffsetWU;
 
+        /// <summary>Original-skin bounds attached to cached native bones. Evaluated every late
+        /// frame without the former renderer/bone-array/vertex census or lifetime maximum.</summary>
+        public ActorBarPose? Pose;
+
         /// <summary>
         /// How many more times <see cref="ResampleAnchor"/> may re-measure this bar's anchor
-        /// before latching it forever, and when the next of those samples is due. See
+        /// before its legacy fallback latches, and when the next sample is due. Supported skins
+        /// instead use this slow clock to validate their cached native bone palettes. See
         /// <see cref="AnchorSampleBudget"/> for why one measurement at adopt is not enough.
         /// </summary>
         public int AnchorSamplesLeft;
@@ -655,12 +660,9 @@ internal static class ActorBars
                 }
             }
 
-            // Anchor in BOARD units (P6 fix #4): the cached bounds-derived offset
-            // scales with the diorama by construction — zooming the table keeps the
-            // bar exactly above the miniature instead of inside it. The cache is no longer
-            // written once and trusted forever: ResampleAnchor re-measures it a bounded number
-            // of times after adopt, because the game finishes assembling a character (child
-            // prefab + streamed materials) AFTER its bar controller registers itself.
+            // Native skins follow their evaluated pose in both directions (Build609 flying/sleeping
+            // Drake screenshots). Only preparation/fallback retains the bounded discovery samples;
+            // steady pose reads use cached bone-local envelopes, not another geometry inventory.
             ResampleAnchor(adopted, controller, now);
             bool haveTrack = TryGetTrackPoint(controller, out Vector3 track);
             Vector3 pos = track + Vector3.up * adopted.AnchorOffsetWU;
@@ -2252,11 +2254,13 @@ internal static class ActorBars
     }
 
     /// <summary>
-    /// Re-measure this bar's anchor while its sample budget lasts (see
+    /// Follow the evaluated native skin envelope in both directions. Height rises immediately;
+    /// lowering is smoothed. Preparation retries use the existing bounded, staggered budget.
+    /// For unsupported/headless/prop bodies only, re-measure the legacy anchor while its budget lasts (see
     /// <see cref="AnchorSampleBudget"/>), and adopt the new value when it RISES by more than
     /// <see cref="AnchorResampleTolerance"/>. Silent otherwise.
     ///
-    /// <para><b>THE WINDOW KEEPS ITS MAXIMUM, AND THAT IS THE FIX FOR THE JITTER.</b> In the
+    /// <para>The legacy fallback window keeps its maximum. In the
     /// ModBuild 293 log <c>ElderDrakeID</c>'s anchor was re-adopted SEVEN times in one session —
     /// 5.09, 4.79, 5.14, 4.81, 5.05, 4.88, 5.10 wu — oscillating 0.35 wu with no trend, because the
     /// number it was measuring (a baked box carried by a bobbing root bone) oscillated. A bar that
@@ -2268,13 +2272,36 @@ internal static class ActorBars
     /// so it converges and stops logging on its own: the budget still bounds the work, but the
     /// value latches because it runs out of things to rise to, not because a timer said so.</para>
     ///
-    /// <para>The cost of being wrong in this direction is a bar that sits a little high on a figure
-    /// that briefly reared up and then settled; the cost of the other direction is a bar drawn
-    /// through the figure's chest. The user has reported the second one twice and the first one
-    /// never.</para>
+    /// <para>Build609's sleeping/flying Drake proves that a lifetime maximum and authored flight
+    /// floor cannot represent supported animated bodies. Their cached skin envelope above replaces
+    /// this fallback without adding steady geometry work.</para>
     /// </summary>
     private static void ResampleAnchor(Adopted adopted, WorldspacePanelUIController controller, float now)
     {
+        if (adopted.Pose != null && now >= adopted.NextAnchorSample)
+        {
+            adopted.NextAnchorSample = now + DepthScanIntervalSeconds;
+            if (!adopted.Pose.PaletteMatches())
+            {
+                adopted.Pose = null;
+                adopted.AnchorSamplesLeft = AnchorSampleBudget;
+                adopted.NextAnchorSample = now + AnchorSampleIntervalSeconds
+                    * (0.5f + adopted.ScanPhase / DepthScanIntervalSeconds);
+            }
+        }
+        if (TryPoseOffset(adopted.Pose, controller, out float poseOffset))
+        {
+            adopted.AnchorOffsetWU = ActorBarPose.Follow(
+                adopted.AnchorOffsetWU, poseOffset, Time.unscaledDeltaTime);
+            return;
+        }
+        if (adopted.Pose != null)
+        {
+            adopted.Pose = null; // pooled native body replaced/destroyed/reparented
+            adopted.AnchorSamplesLeft = AnchorSampleBudget;
+            adopted.NextAnchorSample = now + AnchorSampleIntervalSeconds
+                * (0.5f + adopted.ScanPhase / DepthScanIntervalSeconds);
+        }
         // A BAR WHOSE BODY HAS NOT ARRIVED HAS NOT BEEN MEASURED YET, so its budget must not run
         // out (2026-09-03). An attached-prop actor's body is its host prop's visual, and that
         // visual is resolved asynchronously — the ModBuild 396 [Props] census still read
@@ -2291,6 +2318,21 @@ internal static class ActorBars
             return;
         adopted.AnchorSamplesLeft--;
         adopted.NextAnchorSample = now + AnchorSampleIntervalSeconds;
+
+        // Async native body arrival gets only the existing bounded, staggered preparation budget.
+        // A refused/temporarily singular skin can never turn into a per-frame bake or subtree scan.
+        if (adopted.Pose == null && !adopted.AttachedPropActor)
+        {
+            ActorBarPose? candidate = CapturePose(controller);
+            if (TryPoseOffset(candidate, controller, out poseOffset))
+            {
+                adopted.Pose = candidate;
+                adopted.AnchorSamplesLeft = 0;
+                adopted.AnchorOffsetWU = ActorBarPose.Follow(
+                    adopted.AnchorOffsetWU, poseOffset, Time.unscaledDeltaTime);
+                return;
+            }
+        }
 
         // Silent sample: no census walk, no strings. The report costs a SECOND subtree walk and is
         // paid for only by the samples that turn out to be news.
@@ -2309,6 +2351,28 @@ internal static class ActorBars
         LogAnchor($"RESAMPLED UP (was {current:F2} wu)",
                   LabelOf(controller, adopted.Actor), offset, report);
         adopted.AnchorOffsetWU = offset;
+    }
+
+    private static ActorBarPose? CapturePose(WorldspacePanelUIController controller)
+    {
+        GameObject tracked = controller.m_ObjectToTrack;
+        if (tracked == null || controller.m_HeadBonePoint == null
+            || ActorPropBody.PropFor(ActorBehaviour.GetActorBehaviour(tracked)) != null)
+            return null; // headless/attached props keep their existing authored body/arch policy
+        using (PerfMonitor.Scope("ActorBars.Pose.Prepare"))
+            return ActorBarPose.Capture(tracked, controller.m_HeadBonePoint);
+    }
+
+    private static bool TryPoseOffset(ActorBarPose? pose, WorldspacePanelUIController controller,
+                                      out float offset)
+    {
+        offset = 0f;
+        if (pose == null || !pose.Matches(controller.m_ObjectToTrack, controller.m_HeadBonePoint)
+            || !TryGetTrackPoint(controller, out Vector3 track) || !pose.TryTop(out float top))
+            return false;
+        float ground = controller.m_BasePoint != null ? controller.m_BasePoint.position.y : track.y;
+        offset = ActorBarPose.Offset(top, track.y, ground, BarHeightOffsetWU);
+        return true;
     }
 
     private static void Adopt(WorldspacePanelUIController controller)
@@ -2337,7 +2401,18 @@ internal static class ActorBars
                       * (s_depthScanPhaseSeq++ & (DepthScanPhaseBuckets - 1))
                       / DepthScanPhaseBuckets;
 
-        float anchorOffset = MeasureAnchorOffsetWU(controller, wantReport: true, out string anchorReport, out _);
+        ActorBarPose? pose = CapturePose(controller);
+        float anchorOffset;
+        string anchorReport;
+        if (TryPoseOffset(pose, controller, out anchorOffset))
+            anchorReport = $"EVALUATED SKIN ENVELOPE from {pose!.BoneCount} cached native bone(s), "
+                + "12% body clearance; authored flight offset is a fallback, never a pose floor. "
+                + "Native transitions raise immediately and lower smoothly; no steady bake or geometry census.";
+        else
+        {
+            pose = null; // a partial controller cannot repeatedly re-arm a valid skin profile
+            anchorOffset = MeasureAnchorOffsetWU(controller, wantReport: true, out anchorReport, out _);
+        }
 
         Adoptions[controller] = new Adopted
         {
@@ -2345,8 +2420,10 @@ internal static class ActorBars
             Panel = panel,
             ScanPhase = phase,
             AnchorOffsetWU = anchorOffset,
-            AnchorSamplesLeft = AnchorSampleBudget,
-            NextAnchorSample = Time.unscaledTime + AnchorSampleIntervalSeconds,
+            Pose = pose,
+            AnchorSamplesLeft = pose != null ? 0 : AnchorSampleBudget,
+            NextAnchorSample = Time.unscaledTime + AnchorSampleIntervalSeconds
+                * (0.5f + phase / DepthScanIntervalSeconds),
             Actor = controller.m_ObjectToTrack != null
                 ? ActorBehaviour.GetActorBehaviour(controller.m_ObjectToTrack)
                 : null,
@@ -2573,6 +2650,7 @@ internal static class ActorBars
         }
         Adoptions.Remove(controller);
         Owned.Remove(controller);
+        if (Adoptions.Count == 0) ActorBarPose.Reset(); // release native mesh references between boards
     }
 
     internal static void ReleaseAll()
@@ -2597,6 +2675,7 @@ internal static class ActorBars
         // is a dictionary nobody notices growing. One bake per class on the next scenario is the
         // price, and it is the price the fresh path was designed for.
         MeshTopRatioBySkin.Clear();
+        ActorBarPose.Reset();
     }
 }
 
