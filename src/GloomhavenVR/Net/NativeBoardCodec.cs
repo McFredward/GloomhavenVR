@@ -8,7 +8,7 @@ namespace GloomhavenVR.Net;
 /// message11 reassembly is separate. No partial body or malformed tail can publish a frame.</summary>
 internal static class NativeBoardCodec
 {
-    internal const int MaxSize = 65535;
+    internal const int LegacyMaxSize = 40960, MaxSize = 65535;
     internal const byte MessageType = 10, FragmentType = 11, RecordId = 52;
     private const int BodyMax = 11000, ChunkBytes = 240;
 

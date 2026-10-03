@@ -64,7 +64,8 @@ internal sealed class FfsNetTransport : INetTransport
     private readonly ExtrasFragments _mapTooltipFragments = new(NetProtocol.MsgMapButtonTooltip,
         NetProtocol.MsgMapButtonTooltipFragments, MapButtonTooltipCodec.MaxSize, ExtrasFragments.PresentationAssemblyLifetime);
     private readonly ExtrasFragments _boardFragments = new(NetProtocol.MsgNativeBoard,
-        NetProtocol.MsgNativeBoardFragments, NativeBoardCodec.MaxSize, ExtrasFragments.PresentationAssemblyLifetime);
+        NetProtocol.MsgNativeBoardFragments, NativeBoardCodec.MaxSize, ExtrasFragments.PresentationAssemblyLifetime,
+        lifetimeSizeBase: NativeBoardCodec.LegacyMaxSize);
     private readonly ExtrasFragments[] _nativeFragments = CreateNativeFragments();
     private static ExtrasFragments[] CreateNativeFragments()
     {
