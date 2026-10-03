@@ -39,11 +39,17 @@ namespace UnityEngine
     {
         public string name;
         public HideFlags hideFlags;
+        public bool activeInHierarchy = true;
         public static List<Type> AddedComponents = new();
         public GameObject(string name) { this.name = name; }
         public T AddComponent<T>() where T : new() { AddedComponents.Add(typeof(T)); return new T(); }
     }
-    public class Camera : Object { }
+    public class Camera : Object
+    {
+        public bool enabled = true;
+        public GameObject gameObject = new GameObject("fixture camera");
+        public bool isActiveAndEnabled => enabled && gameObject.activeInHierarchy;
+    }
     public class MonoBehaviour : Object { public void StartCoroutine(IEnumerator value) { } }
     public interface ISubsystemDescriptor { string id { get; } }
     public static class SubsystemManager

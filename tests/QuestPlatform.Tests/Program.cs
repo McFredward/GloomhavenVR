@@ -86,6 +86,12 @@ internal static class Program
         Check(GameObject.AddedComponents.Contains(typeof(VRHeartbeat)) && GameObject.AddedComponents.Contains(typeof(VRPresenceWatch)), "core-lifecycle: running-session heartbeat/presence integration was bypassed");
         Check(!QuestStandalonePlatform.RigReady, "rig-ready: session existence was mislabeled as a built mod rig");
         VRRigDriver.HeadCamera = new Camera(); Check(QuestStandalonePlatform.RigReady, "rig-ready: real mod head camera did not publish rig availability");
+        VRRigDriver.HeadCamera.enabled = false;
+        Check(!QuestStandalonePlatform.RigReady, "active-head-gate: disabled head camera was reported as a running rig");
+        VRRigDriver.HeadCamera.enabled = true; VRRigDriver.HeadCamera.gameObject.activeInHierarchy = false;
+        Check(!QuestStandalonePlatform.RigReady, "active-head-gate: inactive head camera object was reported as a running rig");
+        VRRigDriver.HeadCamera.gameObject.activeInHierarchy = true;
+        Check(QuestStandalonePlatform.RigReady, "active-head-gate: reactivated head camera did not restore rig availability");
         Check(ScriptableObject.Creations == creations && XRGeneralSettings.Initializations == init && OpenXRRuntimeRegistry.CandidatesRead == registry && SubsystemManager.DescriptorReads == descriptorReads, "android-no-second-session: adoption executed desktop preflight/settings/registry/init");
         Check(ReferenceEquals(XRGeneralSettings.Instance, ownerSettings) && ReferenceEquals(ownerManager.activeLoader, ownerLoader) && ReferenceEquals(OpenXRSettings.Instance.features, ownerFeatures), "android-owner: player settings/loader/interaction profiles were replaced");
         Check(Environment.GetEnvironmentVariable("XR_RUNTIME_JSON") == "owned-player-env-sentinel", "android-runtime-env: adoption changed the player runtime selector");

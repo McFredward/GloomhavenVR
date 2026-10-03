@@ -34,6 +34,7 @@ def main():
         ("external-manager-stop", "OpenXRBootstrap.cs", "QuestStandalonePlatform.SetPassthrough(false);", "{ QuestStandalonePlatform.SetPassthrough(false); XRGeneralSettings.Instance.Manager.StopSubsystems(); }", "external-teardown"),
         ("android-guard-removed", "QuestStandalonePlatform.cs", "Application.platform == RuntimePlatform.Android && _resourceDirectory != null", "_resourceDirectory != null", "configured-desktop-gate"),
         ("session-epoch-not-invalidated", "QuestStandalonePlatform.cs", "if (!_havePassthroughSessionGeneration || generation != _lastPassthroughSessionGeneration)", "if (!_havePassthroughSessionGeneration)", "native-session-recreate"),
+        ("disabled-head-reported-ready", "QuestStandalonePlatform.cs", "VRRigDriver.HeadCamera != null && VRRigDriver.HeadCamera.isActiveAndEnabled", "VRRigDriver.HeadCamera != null", "active-head-gate"),
     ):
         if original[target].count(before) != 1:
             raise RuntimeError("Mutation binding drift: " + name)
@@ -70,7 +71,7 @@ def main():
             print(next(line for line in result.stdout.splitlines() if line.startswith("PASS Quest platform/core lifecycle:")), flush=True)
         else:
             print("PASS rejected " + name + " at " + expected, flush=True)
-    print("PASS production core lifecycle and 10 platform defect controls")
+    print("PASS production core lifecycle and 11 platform defect controls")
 
 
 if __name__ == "__main__":

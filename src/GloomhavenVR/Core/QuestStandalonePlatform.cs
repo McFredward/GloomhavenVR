@@ -25,7 +25,7 @@ public static class QuestStandalonePlatform
     public static bool Enabled => Application.platform == RuntimePlatform.Android && _resourceDirectory != null;
     public static string ResourceDirectory => Enabled ? _resourceDirectory! : throw new InvalidOperationException("Quest standalone platform is not configured.");
     public static bool ModRunning => Enabled && VRSession.IsRunning;
-    public static bool RigReady => ModRunning && VRRigDriver.HeadCamera != null;
+    public static bool RigReady => ModRunning && VRRigDriver.HeadCamera != null && VRRigDriver.HeadCamera.isActiveAndEnabled;
 
     /// <summary>Called by the player before plugin creation, with its verified local resource root.</summary>
     public static void Configure(string pluginDirectory, Func<bool, bool> setPassthrough,
