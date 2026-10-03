@@ -105,6 +105,19 @@ Any success there proves this host/client configuration only; Android must repea
 the actual operation. The source audit deliberately never sets runtime success
 fields from its own pattern matches.
 
+The first real desktop smoke on 2026-10-03 succeeded. Unity 2021.3.5f1 on
+`LinuxEditor` invoked the original `PhotonPlatformConfig` and original internal
+`PhotonClient`, with null custom auth and the original manager's US default
+region. It reached the original master/default lobby in 1.3077 seconds and
+exited zero after original client cleanup. No EOS initialization or game room
+join occurred. The private receipt
+`editor-smoke/unity-photon-8rvwo979/smoke-report.json` has SHA256
+`dca8bad1da12bf41509d66429ee02260dcd71736c792e791916cbc01b7c936a6`.
+This demonstrates backend acceptance of this desktop configuration without EOS
+at that time. It proves neither an Android connection nor original host token/
+save admission. The repeatable command is `scripts/quest-network-smoke.py`;
+automated audit/orchestrator controls pass 30 tests, separate from the live run.
+
 ## EOS contingency only if a real required stage proves necessary
 
 The installed PlayEveryWare wrapper reports version `2.3.3`; its selected

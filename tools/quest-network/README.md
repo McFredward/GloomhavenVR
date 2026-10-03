@@ -47,3 +47,29 @@ publisher/player inputs.
 
 The concrete next device test and the narrowly optional EOS route are recorded
 in [the network preflight plan](../../.planning/QUEST3-NETWORK-PREFLIGHT.md).
+
+## Explicit desktop connection smoke
+
+This separate command makes a real Photon connection. It copies seven original
+unmodified network DLLs and their recovered importers plus the original Bolt
+settings into a fresh private Unity project. It invokes the original
+`PhotonPlatformConfig`/`PhotonClient`, reaches the original default lobby, then
+calls the original client's disable/disconnect method. It never creates or joins
+a game room, starts EOS, or reads a store account/ticket. This is desktop editor
+evidence and cannot establish Android connectivity or game-host admission.
+
+```sh
+python3 scripts/quest-network-smoke.py \
+  --game-data /path/to/Gloomhaven/GH_Data \
+  --recovered-project /private/recovered-project \
+  --unity-editor /path/to/2021.3.5f1/Editor/Unity \
+  --output-root /private/network-smoke \
+  --timeout 45
+```
+
+Keep `unity-private.log`, copied configuration and original DLLs private. Console
+output only states coarse outcome and evidence paths. Each fresh project has its
+own runtime/result report; receipt flags and process exit must agree before the
+command reports a connection. Missing receipts, timeouts, nonzero exits, callback
+failure or expanded EOS/room/Android flags fail verification. The timeout bounds
+network work to 10–90 seconds, plus 180 seconds for editor startup/import.
