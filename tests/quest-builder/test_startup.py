@@ -247,5 +247,30 @@ class RestoredBepInExTests(unittest.TestCase):
                 builder.resolved_bepinex_runtime(assets)
 
 
+class RestoredShaderCacheTests(unittest.TestCase):
+    def test_resources_compute_and_include_tampering_invalidates_preparation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            project = output / "projects/generated"
+            shaders = project / "Assets/Resources/shaders"
+            shaders.mkdir(parents=True)
+            for name, content in (("EyeHistogram.compute", "original kernel source"),
+                                  ("EyeHistogram.compute.meta", "original GUID"),
+                                  ("Common.cginc", "original include source")):
+                (shaders / name).write_text(content)
+            stages = storage.Stages(output)
+            key = "a" * 64
+            contracts = builder.startup_shader_contracts(project)
+            stages.run("prepare", key, lambda: (contracts, {"target": "startup"}))
+            self.assertIsNotNone(stages.valid("prepare", key))
+            for path in contracts:
+                original = path.read_bytes()
+                path.write_bytes(original + b"tampered")
+                with self.subTest(file=path.name):
+                    self.assertIsNone(stages.valid("prepare", key))
+                path.write_bytes(original)
+                self.assertIsNotNone(stages.valid("prepare", key))
+
+
 if __name__ == "__main__":
     unittest.main()

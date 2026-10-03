@@ -356,6 +356,12 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             command([sys.executable, str(source / "tools/quest-recovery/case_paths.py"),
                      "--project", str(project)],
                     output / "logs" / ("startup-case-paths-" + key[:12] + ".log"))
+            # Dumped Windows compute variants contain neither portable source nor
+            # a valid Android compilation context. Restore only audited original
+            # kernels from pinned official sources before any Unity import.
+            command([sys.executable, str(source / "tools/quest-recovery/compute_sources.py"),
+                     "--project", str(project), "--cache", str(output / "tool-cache/legacy-compute")],
+                    output / "logs" / ("startup-compute-source-" + key[:12] + ".log"))
         manifest = project / "Assets/StreamingAssets/Quest/input-manifest.json"
         write_json(manifest, inputs)
         settings = project / "QuestBuilderSettings.json"
@@ -367,7 +373,9 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
         contracts = [settings, manifest, resources / "quest-profile.json", resources / "quest-steam-logo.png"]
         if args.target == "startup":
             contracts.extend([resources / startup.REPORT, resources / "quest-startup-content.json",
-                              project / "Assets/StreamingAssets/quest-startup-content.zip"])
+                              project / "Assets/StreamingAssets/quest-startup-content.zip",
+                              project / "QuestStartupEvidence/compute-source-restoration.json"])
+            contracts.extend(startup_shader_contracts(project))
         contracts.extend(p for p in (project / "Assets/Quest").rglob("*")
                          if p.is_file() and p.suffix in (".cs", ".shader", ".asmdef", ".cginc"))
         if inputs.get("probeAssets"):
@@ -379,6 +387,13 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
 
     stages.run("prepare", key, generate)
     return project
+
+
+def startup_shader_contracts(project: Path) -> list[Path]:
+    """Validate restored shader bytes outside the Quest template on cache reuse."""
+    assets = project / "Assets"
+    return sorted(path for path in assets.rglob("*") if path.is_file() and
+                  (path.suffix in (".compute", ".cginc") or path.name.endswith(".compute.meta")))
 
 
 def package_startup_content(project: Path, input_key: str) -> dict:
