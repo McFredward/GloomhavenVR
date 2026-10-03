@@ -190,9 +190,25 @@ def inspect_purse_contract(source, offering, sync, mirror, templates):
             or "if (piece.Token.IsMoving)" not in sync \
             or "PriorityRoots.Add(piece.Body);" not in sync:
         missing.append("held physical purse does not publish its owner-authored pose")
-    if "secondaryVisitor && !IndependentVisitorModule(received)" not in mirror \
-            or "RetainIndependentVisitorOnly(standing, session.Service);" not in mirror \
-            or "address.StartsWith(\"ritual.purse.held|\"" not in mirror:
+    # Personal wrist and held bodies survive another visitor's shared UI lease.
+    # A cumulative delta can omit Mesh, so the ordinary purse address is admitted
+    # provisionally and classified only after expansion. That must not admit a
+    # second shared bowl guide/image with the same address.
+    independent_purse = (
+        "if (secondaryVisitor) RetainIndependentVisitorOnly(entry.Key, standing, session);",
+        "if (secondaryVisitor && !IndependentVisitorModule(received, entry.Key, !session.TransactionActive)\n"
+        '                    && !(received.Service == 2 && received.TemplateAddress == "ritual.purse|")) continue;',
+        "TownServiceFrame? expanded = TownServiceDelta.Expand(baseline, received);",
+        "TownServiceFrame frame = expanded;\n"
+        "                if (secondaryVisitor && !IndependentVisitorModule(frame, entry.Key, !session.TransactionActive)) continue;",
+        '|| frame.Service == 2 && frame.TemplateAddress == "ritual.purse|" && PhysicalPurse(frame.Nodes);',
+        "if (node.Values.ContainsKey(TownServiceProperty.Mesh)) return true;",
+        'if (service == 2)\n            return address.StartsWith("ritual.purse.held|", StringComparison.Ordinal)\n'
+        '                || address.StartsWith("temple.row|", StringComparison.Ordinal);',
+        "IndependentVisitorModule(pair.Value.LastFrame, peer, !session.TransactionActive)",
+        "IndependentVisitorModule(session.Service, pair.Value.Address, TownServiceFrame.ManifestModule, peer, !session.TransactionActive)",
+    )
+    if any(entry not in mirror for entry in independent_purse):
         missing.append("secondary temple visitor loses their independent held purse")
     if 'key == "ritual.purse" || key == "ritual.purse.held"' not in templates:
         missing.append("remote held purse has no inert original template")
@@ -242,7 +258,7 @@ def sources(root):
     else:
         raise RuntimeError("Temple purse held-pose publication negative control did not fail")
     elected_only = replace_once(mirror_raw,
-        "if (secondaryVisitor && !IndependentVisitorModule(received)) continue;",
+        "if (secondaryVisitor && !IndependentVisitorModule(frame, entry.Key, !session.TransactionActive)) continue;",
         "if (secondaryVisitor) continue;")
     try:
         inspect_purse_contract(raw, offering_raw, sync_raw, elected_only, templates_raw)
@@ -250,6 +266,24 @@ def sources(root):
         pass
     else:
         raise RuntimeError("Secondary visitor purse playback negative control did not fail")
+    missing_mesh_delta = replace_once(mirror_raw,
+        '&& !(received.Service == 2 && received.TemplateAddress == "ritual.purse|")) continue;',
+        ") continue;")
+    try:
+        inspect_purse_contract(raw, offering_raw, sync_raw, missing_mesh_delta, templates_raw)
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("Secondary visitor cumulative purse delta negative control did not fail")
+    shared_image_as_body = replace_once(mirror_raw,
+        '|| frame.Service == 2 && frame.TemplateAddress == "ritual.purse|" && PhysicalPurse(frame.Nodes);',
+        '|| frame.Service == 2 && frame.TemplateAddress == "ritual.purse|";')
+    try:
+        inspect_purse_contract(raw, offering_raw, sync_raw, shared_image_as_body, templates_raw)
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("Duplicate shared bowl cue negative control did not fail")
     methods = method(raw, "private bool Confirm(") + "\n" + method(raw, "private static bool Click(")
     methods = methods.replace("private bool Confirm(", "internal bool Confirm(")
     start = raw.index("    private bool OfferingEligible(")
@@ -384,6 +418,10 @@ def main():
             parser.error("Unknown mutation(s): " + ", ".join(sorted(unknown)))
         variants += [case for case in available if not selected or case[0] in selected]
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
+    for name, filename, before, after, _ in variants[1:]:
+        if filename not in bound:
+            raise RuntimeError(f"Production binding drift: missing {filename} for {name}")
+        replace_once(bound[filename], before, after)
     for name, filename, before, after, expected in variants:
         build = run / name
         production = build / "production"
