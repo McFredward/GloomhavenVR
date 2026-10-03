@@ -162,21 +162,69 @@ public static partial class MirrorProgram
                 "held original card rotates with the actual rig holder without old-world trailing");
             yield return null;
         }
+        TownServiceMirror.RegisterMotionHand(grabAnchor, left, followsRotation: false);
+        for (float until = Time.unscaledTime + .08f; Time.unscaledTime < until;) yield return null;
+        DeliverMotion(1, CaptureFast());
+        settle = FastSettle(observer, .14f); while (settle.MoveNext()) yield return settle.Current;
+        Vector3 startOffset = receiverHand.InverseTransformPoint(copy.Root.position);
+        Quaternion startRotation = copy.Root.rotation;
+        settle = FastSettle(observer, .21f); while (settle.MoveNext()) yield return settle.Current;
+        source.localPosition += new Vector3(40, 0, 0); source.rotation = Quaternion.AngleAxis(55f, Vector3.up) * startRotation;
+        FastCapture spacedFan = CaptureFast(); DeliverMotion(1, spacedFan); TownServiceMirror.TickRemote(_ => observer);
+        // Evaluate the actual production tween at a deterministic render instant:
+        // software-rendered editor frames can themselves take longer than 250 ms.
+        var remotePeers = (System.Collections.IDictionary)typeof(TownServiceMirror)
+            .GetField("Remote", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null);
+        var remoteModule = ((System.Collections.IDictionary)remotePeers[1]!)[(ushort)11]!;
+        var nativeMotion = (TownServiceMotion)remoteModule.GetType()
+            .GetField("Motion", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(remoteModule)!;
+        float instant = Time.unscaledTime + .11f;
+        nativeMotion.Tick(instant); TownServiceMirror.ApplyRemoteMotion(instant);
+        Vector3 targetOffset = handRoot.InverseTransformPoint(source.position);
+        Vector3 displayedOffset = receiverHand.InverseTransformPoint(copy.Root.position);
+        Check(Vector3.Distance(displayedOffset, startOffset) > .005f && Vector3.Distance(displayedOffset, targetOffset) > .005f,
+            "native upright fan offsets remain between original endpoints at an intermediate frame after a spaced owner sample");
+        Check(Quaternion.Angle(copy.Root.rotation, startRotation) > 1f && Quaternion.Angle(copy.Root.rotation, source.rotation) > 1f,
+            "native upright fan rotation covers the measured owner interval instead of finishing in one fixed rig tick");
+        // A following owner sample arrives while the previous relative tween
+        // and the approved rig are both moving. It must start at what is currently
+        // rendered, not at the old endpoint restored by native binding.
+        float interruptedAt = instant + .025f;
+        nativeMotion.Tick(interruptedAt); TownServiceMirror.ApplyRemoteMotion(interruptedAt);
+        Vector3 beforeReplacement = receiverHand.InverseTransformPoint(copy.Root.position);
+        receiverHand.position += new Vector3(.17f, .03f, -.04f);
+        TownServiceMirror.ApplyRemoteMotion(interruptedAt);
+        Check(Vector3.Distance(beforeReplacement, receiverHand.InverseTransformPoint(copy.Root.position)) < .001f,
+            "an in-progress upright native fan tween rides current rig movement without changing its authored relative offset");
+        TownServiceMotionCodec.TryRead(spacedFan.Motion[0], spacedFan.Motion[0].Length, out TownServiceMotionPacket? replacement);
+        replacement!.Sequence++; replacement.SampleTime += .1f;
+        foreach (TownServiceMotionEntry entry in replacement.Entries)
+            if (entry.Kind == 1) { entry.Pose = (float[])entry.Pose.Clone(); entry.Pose[0] += .2f; targetOffset.x += .2f; }
+        Check(TownServiceMotionCodec.TryRead(TownServiceMotionCodec.Write(replacement), TownServiceMotionCodec.Write(replacement).Length, out replacement),
+            "following sparse fan owner sample still obeys the production strict numeric grammar");
+        TownServiceMirror.ReceiveMotion(1, replacement!); TownServiceMirror.ApplyRemoteMotion(interruptedAt);
+        Check(Vector3.Distance(beforeReplacement, receiverHand.InverseTransformPoint(copy.Root.position)) < .001f,
+            "replacing an in-progress native relative fan tween preserves its current rendered pose instead of jumping to a previous target");
+        nativeMotion.Tick(instant + 1.55f); TownServiceMirror.ApplyRemoteMotion(instant + 1.55f);
+        Check(Vector3.Distance(receiverHand.InverseTransformPoint(copy.Root.position), targetOffset) < .001f,
+            "native upright fan offsets converge to the exact original after measured-interval interpolation");
         TownServiceMirror.Shutdown(); VRHands.Left = VRHands.Right = null; NetAvatarDriver.MotionHandFrames.Clear();
         IEnumerator warmed = HiddenOwnedFanWarmup(); while (warmed.MoveNext()) yield return warmed.Current;
     }
 
     private static IEnumerator HiddenOwnedFanWarmup()
     {
+        const int count = 24;
         GloomhavenVR.WorldUI.TownServiceSync.ResetNetwork();
         Transform shared = Go("Hidden native item fan owner").transform;
         Transform observer = Go("Hidden native item fan observer").transform; observer.position = Vector3.right * 15f;
-        var chip = Go("Closed native chip", shared).AddComponent<GloomhavenVR.Cards.ItemsPile.ItemChip>();
-        CanvasGroup closed = chip.gameObject.AddComponent<CanvasGroup>(); closed.alpha = 0f;
-        Transform face = Source(chip.transform);
-        chip.NativeItemCard = face.gameObject.AddComponent<GloomhavenVR.WorldUI.ItemCardUI>();
-        chip.NativeItemCard.CardID = 700; chip.Item = new GloomhavenVR.Cards.ItemsPile.Item { ID = 700 };
-        chip.InspectionBody = Go("Exact owned card body", chip.transform).transform;
+        Transform handRoot = Go("Exact owner offhand", shared).transform;
+        var hand = new VRHand { Side = HandSide.Left, HasPose = true };
+        hand.Rig.Root = handRoot; hand.Rig.GrabAnchor = Go("Fan grab anchor", handRoot).transform; VRHands.Left = hand;
+        Transform receiverHand = Go("Exact rendered offhand", observer).transform;
+        NetAvatarDriver.MotionHandFrames[2] = new[] { receiverHand, Go("Other rendered hand", observer).transform };
+        var chips = new List<GloomhavenVR.Cards.ItemsPile.ItemChip>();
+        var faces = new List<Transform>(); var opacities = new List<CanvasGroup>();
         GloomhavenVR.WorldUI.TownServicePresentation.Active = false;
         GloomhavenVR.WorldUI.TownServicePresentation.Ritual = null;
         GloomhavenVR.WorldUI.TownServicePresentation.Catalog = null;
@@ -185,39 +233,78 @@ public static partial class MirrorProgram
         GloomhavenVR.WorldUI.TownServiceMerchantHandoff.Session = 700;
         GloomhavenVR.WorldUI.TownServiceMerchantHandoff.StationRoot = shared;
         GloomhavenVR.WorldUI.TownServiceMerchantHandoff.OwnedChips.Clear();
-        GloomhavenVR.WorldUI.TownServiceMerchantHandoff.OwnedChips.Add(chip);
+        for (int i = 0; i < count; i++)
+        {
+            var chip = Go("Closed native chip " + i, handRoot).AddComponent<GloomhavenVR.Cards.ItemsPile.ItemChip>();
+            CanvasGroup closed = chip.gameObject.AddComponent<CanvasGroup>(); closed.alpha = 0f; opacities.Add(closed);
+            Transform face = Source(chip.transform); faces.Add(face); chips.Add(chip);
+            chip.NativeItemCard = face.gameObject.AddComponent<GloomhavenVR.WorldUI.ItemCardUI>();
+            chip.NativeItemCard.CardID = 700 + i; chip.Item = new GloomhavenVR.Cards.ItemsPile.Item { ID = 700 + i };
+            chip.InspectionBody = Go("Exact owned card body " + i, chip.transform).transform;
+            GloomhavenVR.WorldUI.TownServiceMerchantHandoff.OwnedChips.Add(chip);
+        }
         yield return null; Canvas.ForceUpdateCanvases();
         GloomhavenVR.WorldUI.TownServiceSync.UseProductionPublish = true;
         TownServiceMirror.ResolveTemplate = (service, template, address) =>
         { GloomhavenVR.WorldUI.NativeTemplates.Resolve(service, template, address); return true; };
         GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, null);
-        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount >= 2,
+        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount >= count * 2,
             "closed owner item fan publishes complete original fronts with genuine hidden visibility before reveal");
-        ushort module = GloomhavenVR.WorldUI.TownServiceSync.ModuleId(face);
+        var modules = new List<ushort>();
+        foreach (Transform face in faces) modules.Add(GloomhavenVR.WorldUI.TownServiceSync.ModuleId(face));
         FastCapture hidden = CaptureFast();
-        Check(hidden.Artwork.Exists(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame)
-            && frame!.Module == module && frame.ParentAlpha == 0f),
-            "closed owner item fan publishes complete original fronts with genuine hidden visibility before reveal");
+        foreach (ushort module in modules)
+            Check(hidden.Artwork.Exists(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame)
+                && frame!.Module == module && frame.ParentAlpha == 0f),
+                "closed owner item fan publishes complete original fronts with genuine hidden visibility before reveal");
         Receive(2, hidden.Artwork);
-        // Production ResolveFrame owns the publisher mount. Supply the remote rig room
-        // adapter separately, exactly as NetAvatarDriver does in the running game.
         TownServiceMirror.SharedFrameForRemote = _ => observer;
         IEnumerator settle = FastSettle(observer, .14f); while (settle.MoveNext()) yield return settle.Current;
-        TownServiceBinding copy = Remote(2, module)!;
-        Check(copy != null && copy.Root.parent.GetComponent<CanvasGroup>().alpha == 0f,
-            "prewarmed original fan stays hidden and never leaks a closed hand");
-        Sprite front = copy.Root.Find("Filled").GetComponent<Image>().sprite;
-        closed.alpha = 1f;
-        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, null); TownServiceMirror.SharedFrameForRemote = _ => observer;
-        FastCapture reveal = CaptureFast(); DeliverMotion(2, reveal);
-        Check(!reveal.Artwork.Exists(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame) && frame!.Module == module && frame.BaseSequence == 0),
-            "warm reveal does not wait for another full native front baseline");
-        settle = FastSettle(observer); while (settle.MoveNext()) yield return settle.Current;
-        Check(copy.Root.parent.GetComponent<CanvasGroup>().alpha > .99f && ReferenceEquals(front, copy.Root.Find("Filled").GetComponent<Image>().sprite),
-            "opening a prewarmed owner item fan reveals its existing complete front through the independent numeric lane");
+        var copies = new List<TownServiceBinding>(); var fronts = new List<Sprite>();
+        foreach (ushort module in modules)
+        {
+            TownServiceBinding copy = Remote(2, module)!; copies.Add(copy);
+            Check(copy != null && copy.Root.parent.GetComponent<CanvasGroup>().alpha == 0f,
+                "prewarmed original fan stays hidden and never leaks a closed hand");
+            fronts.Add(copy.Root.Find("Filled").GetComponent<Image>().sprite);
+        }
+        foreach (CanvasGroup opacity in opacities) opacity.alpha = 1f;
+        float began = Time.unscaledTime; int events = 0; bool complete = false;
+        while (Time.unscaledTime - began < 1f && !complete)
+        {
+            GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, null); TownServiceMirror.SharedFrameForRemote = _ => observer;
+            FastCapture reveal = CaptureFast(); DeliverMotion(2, reveal); events += reveal.Motion.Count;
+            Check(!reveal.Artwork.Exists(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame)
+                && modules.Contains(frame!.Module) && frame.BaseSequence == 0),
+                "warm reveal does not wait for another full native front baseline");
+            TownServiceMirror.TickRemote(_ => observer);
+            complete = copies.TrueForAll(copy => copy.Root.parent.GetComponent<CanvasGroup>().alpha > .99f);
+            if (!complete) yield return null;
+        }
+        Check(complete, "all twenty-four complete warm native fan fronts reveal within one second of wrist opening");
+        File.WriteAllText(Path.Combine(_output, "warm-fan-cadence.txt"),
+            $"nativeFronts={count} nativeRootModules={count * 2} completeReveal={Time.unscaledTime - began:F3}s events={events} maxEvent=864B\n");
+        for (int i = 0; i < copies.Count; i++)
+            Check(ReferenceEquals(fronts[i], copies[i].Root.Find("Filled").GetComponent<Image>().sprite),
+                "opening a prewarmed owner item fan reveals its existing complete front through the independent numeric lane");
+        // Real publisher provenance must elevate the owned parked face and its
+        // physical body, while closed unheld prewarms remain background work.
+        chips[0].TownOffering = true;
+        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, null);
+        object sources = typeof(TownServiceMirror).GetField("MotionSources", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null);
+        for (float until = Time.unscaledTime + .08f; Time.unscaledTime < until;) yield return null;
+        CaptureFast();
+        int liveOriginals = 0;
+        foreach (System.Collections.DictionaryEntry entry in (System.Collections.IDictionary)sources)
+        {
+            var type = entry.Value!.GetType();
+            if ((bool)type.GetField("Live", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(entry.Value)!) liveOriginals++;
+        }
+        Check(liveOriginals >= 2, "owned merchant parked front and physical body retain hot motion through exact publisher provenance");
         GloomhavenVR.WorldUI.TownServiceSync.UseProductionPublish = false;
         GloomhavenVR.WorldUI.TownServiceMerchantHandoff.OwnedChips.Clear();
         GloomhavenVR.WorldUI.TownServiceMerchantHandoff.Active = false;
         GloomhavenVR.WorldUI.TownServiceSync.ResetNetwork(); TownServiceMirror.Shutdown();
+        VRHands.Left = VRHands.Right = null; NetAvatarDriver.MotionHandFrames.Clear();
     }
 }

@@ -11,7 +11,7 @@ internal static class TownMotionVectors
     internal static TownServiceFrame? CapturedFront;
     internal static void Run(Harness t)
     {
-        Codec(t); MotionBudget(t); Saturation(t);
+        Codec(t); MotionBudget(t); VisibleFanBudget(t); Saturation(t);
     }
     private static float[] Pose(float x = 0f) => new[] { x, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f };
     private static TownServiceMotionPacket Packet(params TownServiceMotionEntry[] entries)
@@ -110,6 +110,50 @@ internal static class TownMotionVectors
         t.True(maxHotGap <= 1f / 15f + .00001f, "live held/press/scroll targets retain rig cadence under dense cold-fan contention");
         t.True(maxFanGap < 3f, "each dense fan affinity renews inside its existing stale lifetime");
         Console.WriteLine($"NPC numeric measured budget: senders=4 hotTargets=3 fanRoots=100 continuouslyDirty=true maxHotGap={maxHotGap:F3}s maxFanGap={maxFanGap:F3}s events={sent} bytes={bytes} maxEvent=864B");
+    }
+
+    private static void VisibleFanBudget(Harness t)
+    {
+        t.Case("Four sender live native targets retain turns through visible fan motion and closed prewarm heartbeats");
+        float maxHot = 0f, maxVisible = 0f, maxCold = 0f;
+        for (int peer = 0; peer < 4; peer++)
+        {
+            var hot = new List<TownServiceMotionPending>(); var visible = new List<TownServiceMotionPending>();
+            var cold = new List<TownServiceMotionPending>(); var last = new Dictionary<ushort, float>();
+            for (ushort id = 1; id <= 3; id++) hot.Add(new TownServiceMotionPending { Entry = new TownServiceMotionEntry
+                { Kind = 1, Module = id, Service = 1, Session = 7, Structure = 1, Hand = 0, Pose = Pose(), Visible = true } });
+            for (ushort id = 4; id < 104; id++) visible.Add(new TownServiceMotionPending { Entry = new TownServiceMotionEntry
+                { Kind = 1, Module = id, Service = 1, Session = 7, Structure = 1, Hand = 3, Pose = Pose(), Visible = true } });
+            for (ushort id = 104; id < 204; id++) cold.Add(new TownServiceMotionPending { Entry = new TownServiceMotionEntry
+                { Kind = 1, Module = id, Service = 1, Session = 7, Structure = 1, Hand = 3, Pose = Pose(), Visible = true,
+                  ParentAlpha = 0f, HasCanvasUpdate = true, HasCanvasFrame = true, CanvasOnHand = true, CanvasPose = Pose(),
+                  CanvasRect = new[] { 100f, 50f, .5f, .5f }, CanvasSettings = new[] { 100f, 0f, 0f, 1f, 0f } } });
+            int hc = 0, vc = 0, cc = 0;
+            for (int tick = 0; tick < 240; tick++)
+            {
+                float now = tick / 15f; var packet = new TownServiceMotionPacket { Sequence = (ulong)tick + 1, SampleTime = now };
+                foreach (var slot in hot) slot.Dirty = true;
+                foreach (var slot in visible) slot.Dirty = true;
+                // Intentionally harsher than settled closed fans: every cold
+                // full-canvas heartbeat is waiting continuously too.
+                foreach (var slot in cold) slot.Dirty = true;
+                TownServiceMotionBudget.Fill(packet, hot, visible, cold, ref hc, ref vc, ref cc, now);
+                t.True(TownServiceMotionCodec.Write(packet).Length <= 864, "three role budgets preserve the same one-event capacity");
+                foreach (TownServiceMotionEntry entry in packet.Entries)
+                {
+                    float gap = now - (last.TryGetValue(entry.Module, out float before) ? before : 0f);
+                    if (entry.Module <= 3) maxHot = Math.Max(maxHot, gap);
+                    else if (entry.Module < 104) maxVisible = Math.Max(maxVisible, gap);
+                    else maxCold = Math.Max(maxCold, gap);
+                    last[entry.Module] = now;
+                }
+            }
+            t.Equal(203, last.Count, "current fan roots and cold baseline recovery both retain bounded turns");
+        }
+        t.True(maxHot <= 1f / 15f + .0001f, "parked own front, held own front and stock face retain a turn every numeric tick");
+        t.True(maxVisible < 1.2f, "one hundred visible upright root affinities no longer wait behind cold fan heartbeats");
+        t.True(maxCold < 7f, "cold full-canvas recovery cannot be starved by constantly changing active fan roots");
+        Console.WriteLine($"NPC three-role measured budget: senders=4 hotTargets=3 visibleRoots=100 coldRoots=100 allContinuouslyDirty=true maxHotGap={maxHot:F3}s maxVisibleGap={maxVisible:F3}s maxColdGap={maxCold:F3}s maxEvent=864B");
     }
 
     private static TownServiceFrame Front(ushort module, bool publicLane = false)

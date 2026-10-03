@@ -1533,6 +1533,9 @@ public static partial class MirrorProgram
                 while (merchantOffering.MoveNext()) yield return merchantOffering.Current;
                 IEnumerator racks = RackClocks(); while (racks.MoveNext()) yield return racks.Current;
                 CatalogLifetime();
+                // Run the real independent numeric capture/playback proof in this
+                // existing Unity process, after legacy state has been checked.
+                IEnumerator fast = MotionFast(); while (fast.MoveNext()) yield return fast.Current;
             }
             else
             {

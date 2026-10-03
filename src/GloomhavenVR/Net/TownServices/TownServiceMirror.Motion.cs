@@ -14,12 +14,13 @@ internal static partial class TownServiceMirror
     {
         internal ulong ReceivedSequence;
         internal float SampleTime, ReceivedAt, DirtySince;
+        internal bool VisibilityTransition;
     }
     private sealed class SourceMotion
     {
         internal TownServiceFrame? Previous;
         internal ulong HandRevision;
-        internal bool Live;
+        internal bool Live, VisibleFan;
         internal readonly Dictionary<TownServiceMotionKey, MotionSlot> Slots = new();
     }
     private sealed class PeerMotion
@@ -31,14 +32,19 @@ internal static partial class TownServiceMirror
     {
         internal TownServiceFrame? Author;
         internal TownServiceFrame? Merged;
+        internal int Owner;
+        internal ulong HandSequence;
+        internal float LastSampleTime = -1f, HandStarted, HandDuration;
+        internal Vector3 HandFrom, CanvasFrom, HandTarget, CanvasTarget;
         internal readonly List<MotionSlot> Slots = new();
     }
     private static readonly Dictionary<LocalModule, SourceMotion> MotionSources = new();
     private static readonly Dictionary<int, PeerMotion> MotionPeers = new();
     private sealed class MotionHandReference { internal VRHand Hand = null!; internal bool FollowsRotation; }
     private static readonly Dictionary<Transform, MotionHandReference> MotionHands = new();
+    private static readonly HashSet<Transform> MotionOfferings = new();
     private static readonly HashSet<LocalModule> MotionSourceRemoval = new();
-    private static readonly List<TownServiceMotionPending> MotionWaiting = new(), MotionLive = new();
+    private static readonly List<TownServiceMotionPending> MotionWaiting = new(), MotionLive = new(), MotionVisibleFan = new();
     private static readonly List<Transform> MotionHandRemoval = new();
     private static float _nextMotionHandCleanup;
     private static readonly List<TownServiceMotionKey> MotionRemoval = new();
@@ -46,7 +52,7 @@ internal static partial class TownServiceMirror
     private static readonly List<RemoteModule> MotionFrameRemoval = new();
     private static float _nextMotionSend;
     private static ulong _motionSequence;
-    private static int _motionCursor, _motionLiveCursor;
+    private static int _motionCursor, _motionLiveCursor, _motionVisibleCursor;
     private static uint _motionCommitSession, _motionCommitRevision;
     private static float _nextMotionCommit;
     private static TownServiceMotionEntry? _motionCue;
@@ -72,6 +78,14 @@ internal static partial class TownServiceMirror
         _motionHandRevision++;
     }
 
+    // The source knows whether an owned item is parked in an NPC palm. Its
+    // address alone cannot distinguish that role from a hidden prewarmed fan.
+    internal static void RegisterMotionOffering(Transform source, bool offering)
+    {
+        if (source == null) return;
+        if (offering ? MotionOfferings.Add(source) : MotionOfferings.Remove(source)) _motionHandRevision++;
+    }
+
     internal static void CaptureMotion(Action<byte[], int, object?> send)
     {
         float now = Time.unscaledTime;
@@ -80,12 +94,15 @@ internal static partial class TownServiceMirror
         if (now >= _nextMotionHandCleanup)
         {
             _nextMotionHandCleanup = now + 5f; MotionHandRemoval.Clear();
-            foreach (var pair in MotionHands) if (pair.Key == null) MotionHandRemoval.Add(pair.Key);
+            foreach (var pair in MotionHands) if (pair.Key == null) MotionHandRemoval.Add(pair.Key!);
             foreach (Transform gone in MotionHandRemoval) MotionHands.Remove(gone);
+            MotionHandRemoval.Clear();
+            foreach (Transform source in MotionOfferings) if (source == null) MotionHandRemoval.Add(source!);
+            foreach (Transform gone in MotionHandRemoval) MotionOfferings.Remove(gone);
         }
         MotionSourceRemoval.Clear();
         foreach (var pair in MotionSources) MotionSourceRemoval.Add(pair.Key);
-        MotionWaiting.Clear(); MotionLive.Clear();
+        MotionWaiting.Clear(); MotionLive.Clear(); MotionVisibleFan.Clear();
         CaptureMotionLane(PrivateLane, 0, now); CaptureMotionLane(PublicLane, 1, now); CaptureMotionLane(StockLane, 2, now);
         foreach (LocalModule gone in MotionSourceRemoval) MotionSources.Remove(gone);
         TownServiceMotionEntry? commit = null;
@@ -101,7 +118,7 @@ internal static partial class TownServiceMirror
             || cue.CueReady != _motionCue.CueReady || cue.CueStrength != _motionCue.CueStrength
             || cue.HasSharedCue != _motionCue.HasSharedCue || cue.SharedCueReady != _motionCue.SharedCueReady
             || cue.SharedCueStrength != _motionCue.SharedCueStrength || cue.SharedGuideOwner != _motionCue.SharedGuideOwner;
-        if (MotionWaiting.Count == 0 && MotionLive.Count == 0 && commit == null && !sendCue) return;
+        if (MotionWaiting.Count == 0 && MotionLive.Count == 0 && MotionVisibleFan.Count == 0 && commit == null && !sendCue) return;
         var packet = new TownServiceMotionPacket { Sequence = ++_motionSequence, SampleTime = now };
         if (packet.Sequence == 0) { _motionSequence = ulong.MaxValue; return; }
         if (commit != null) packet.Entries.Add(commit);
@@ -109,7 +126,8 @@ internal static partial class TownServiceMirror
           _motionCue = cue; _nextMotionCue = now + TownServiceMotionCodec.Heartbeat; }
         // Dirty live controls have their own finite turn. Cold prewarmed fan
         // heartbeats retain bounded progress and cannot delay a press or scroll.
-        TownServiceMotionBudget.Fill(packet, MotionLive, MotionWaiting, ref _motionLiveCursor, ref _motionCursor, now);
+        TownServiceMotionBudget.Fill(packet, MotionLive, MotionVisibleFan, MotionWaiting,
+            ref _motionLiveCursor, ref _motionVisibleCursor, ref _motionCursor, now);
         if (packet.Entries.Count == 0) return;
         byte[] bytesPacket = TownServiceMotionCodec.Write(packet); send(bytesPacket, bytesPacket.Length, packet);
         if (VRLog.WantsDebug) { _motionSent++; _motionSentBytes += bytesPacket.Length; MotionDiagnostics(now); }
@@ -129,7 +147,7 @@ internal static partial class TownServiceMirror
             if (ReferenceEquals(previous, frame) && source.HandRevision == _motionHandRevision)
             {
                 foreach (MotionSlot slot in source.Slots.Values)
-                    if (slot.Dirty || now - slot.SentAt >= TownServiceMotionCodec.Heartbeat) AddMotionWaiting(slot, source.Live);
+                    if (slot.Dirty || now - slot.SentAt >= TownServiceMotionCodec.Heartbeat) AddMotionWaiting(slot, source);
                 continue;
             }
             // Artwork contains the initial complete native state. Fast numbers add
@@ -155,9 +173,12 @@ internal static partial class TownServiceMirror
                   root.Pose[3] = rotation.x; root.Pose[4] = rotation.y; root.Pose[5] = rotation.z; root.Pose[6] = rotation.w; }
                 Canvas? canvas = module.Binding.Root.GetComponentInParent<Canvas>(true);
                 if (root.HasCanvasFrame && canvas != null && ReferenceEquals(MotionHand(canvas.transform, out _), hand))
-                { root.CanvasOnHand = true; root.CanvasPose = ReadPose(canvas.transform, hand.Rig.Root); }
+                { root.CanvasOnHand = true; root.CanvasPose = ReadPose(canvas.transform, hand.Rig.Root);
+                  if (!followsRotation) { Quaternion rotation = Quaternion.Inverse(lane.SharedFrame.rotation) * canvas.transform.rotation;
+                    root.CanvasPose[3] = rotation.x; root.CanvasPose[4] = rotation.y; root.CanvasPose[5] = rotation.z; root.CanvasPose[6] = rotation.w; } }
             }
-            source.Live = LiveMotion(module.Address, root.Hand);
+            source.Live = LiveMotion(module.Address, root.Hand) || MotionOffering(module.Binding.Root);
+            source.VisibleFan = root.Hand is 3 or 4 && root.Visible && root.ParentAlpha > 0f;
             source.Slots.TryGetValue(root.Key, out MotionSlot? priorRoot);
             root.HasCanvasUpdate = priorRoot == null || now - priorRoot.SentAt >= TownServiceMotionCodec.Heartbeat
                 || priorRoot.Entry.HasCanvasFrame != root.HasCanvasFrame || priorRoot.Entry.CanvasOnHand != root.CanvasOnHand
@@ -201,11 +222,18 @@ internal static partial class TownServiceMirror
             source.Previous = frame; source.HandRevision = _motionHandRevision;
             foreach (MotionSlot slot in source.Slots.Values)
                 if (slot.Dirty || now - slot.SentAt >= TownServiceMotionCodec.Heartbeat)
-                    AddMotionWaiting(slot, source.Live);
+                    AddMotionWaiting(slot, source);
         }
     }
-    private static void AddMotionWaiting(MotionSlot slot, bool live) =>
-        (slot.Dirty && live ? MotionLive : MotionWaiting).Add(slot);
+    private static void AddMotionWaiting(MotionSlot slot, SourceMotion source) =>
+        (slot.Dirty && source.Live ? MotionLive : slot.Dirty && (source.VisibleFan || slot.VisibilityTransition) ? MotionVisibleFan : MotionWaiting).Add(slot);
+
+    private static bool MotionOffering(Transform source)
+    {
+        for (Transform? node = source; node != null; node = node.parent)
+            if (MotionOfferings.Contains(node)) return true;
+        return false;
+    }
 
     private static bool LiveMotion(string address, byte hand) => hand is 1 or 2
         || address.StartsWith("ritual.purse.held|", StringComparison.Ordinal)
@@ -248,6 +276,9 @@ internal static partial class TownServiceMirror
         { source.Slots[entry.Key] = new MotionSlot { Entry = entry, DirtySince = Time.unscaledTime }; return; }
         if (SameMotion(slot.Entry, entry))
         { if (entry.Kind == 1 && entry.HasCanvasUpdate) slot.Entry = entry; return; }
+        bool visibilityChanged = entry.Kind == 1
+            && (slot.Entry.Visible != entry.Visible || slot.Entry.ParentAlpha != entry.ParentAlpha);
+        slot.VisibilityTransition = visibilityChanged || slot.Dirty && slot.VisibilityTransition;
         slot.Entry = entry; if (!slot.Dirty) slot.DirtySince = Time.unscaledTime; slot.Dirty = true;
     }
 
@@ -305,6 +336,7 @@ internal static partial class TownServiceMirror
                     || slot.SampleTime < module.LastFrame.SampleTime) continue;
                 if (!MotionRemoteFrames.TryGetValue(module, out RemoteMotion? composed))
                 { composed = new RemoteMotion(); MotionRemoteFrames.Add(module, composed); }
+                composed.Owner = RealPeer(key);
                 composed.Slots.Add(slot);
             }
             foreach (TownServiceMotionKey key in MotionRemoval) peer.Slots.Remove(key);
@@ -331,9 +363,16 @@ internal static partial class TownServiceMirror
                       if (slot.Entry.Kind is 2 or 4) PatchMotionProperty(frame, slot.Entry); }
                     if (root != null) PatchMotionRootFrame(frame, root.Entry);
                     module.Binding.Validate(frame, Assets);
-                    module.Motion.BeforeApply(now); module.Binding.Apply(frame, Assets);
-                    if (root != null) ApplyMotionRoot(module, root.Entry);
-                    module.Motion.AfterApply(now, TownServiceMotionCodec.SendInterval);
+                    float sampleInterval = composed.LastSampleTime >= 0f && frame.SampleTime > composed.LastSampleTime
+                        ? frame.SampleTime - composed.LastSampleTime : TownServiceMotionCodec.SendInterval;
+                    module.Motion.Tick(now);
+                    PrepareHandMotion(module, composed, root, now, sampleInterval);
+                    module.Motion.BeforeApply(now);
+                    module.Binding.Apply(frame, Assets);
+                    if (root != null) ApplyMotionRoot(module, root.Entry, composed, frame, now);
+                    module.Motion.AfterApply(now, sampleInterval, sparseFan: root != null && root.Entry.Hand > 2);
+                    TownServiceDepthOrder.Refresh(module.Host.transform);
+                    composed.LastSampleTime = frame.SampleTime;
                     composed.Author = module.LastFrame; composed.Merged = frame;
                     foreach (MotionSlot slot in composed.Slots) slot.Dirty = false;
                 }
@@ -341,7 +380,9 @@ internal static partial class TownServiceMirror
             }
             // A held root consumes the same approved interpolated rig holder on
             // every render frame, rather than replaying an old shared-world pose.
-            if (root != null && root.Entry.Hand != 0) ApplyMotionRoot(module, root.Entry, continuousHand: true);
+            if (root != null && root.Entry.Hand != 0 && composed.Merged != null)
+            { ApplyMotionRoot(module, root.Entry, composed, composed.Merged!, now, continuousHand: true);
+              TownServiceDepthOrder.Refresh(module.Host.transform); }
         }
         foreach (RemoteModule removed in MotionFrameRemoval) MotionRemoteFrames.Remove(removed);
         MotionDiagnostics(now);
@@ -361,12 +402,31 @@ internal static partial class TownServiceMirror
         frame.CanvasSortingLayer = entry.CanvasSortingLayer; frame.CanvasSortingOrder = entry.CanvasSortingOrder;
     }
 
-    private static void ApplyMotionRoot(RemoteModule module, TownServiceMotionEntry entry, bool continuousHand = false)
+    private static void PrepareHandMotion(RemoteModule module, RemoteMotion motion, MotionSlot? root, float now, float interval)
     {
-        int owner = 0, key = 0;
-        foreach (var pair in Remote)
-            if (pair.Value.TryGetValue(entry.Module, out RemoteModule? candidate) && ReferenceEquals(candidate, module))
-            { key = pair.Key; owner = RealPeer(key); break; }
+        if (root == null) return;
+        if (root.Entry.Hand < 3) { motion.HandSequence = 0; return; }
+        if (motion.HandSequence == root.ReceivedSequence) return;
+        if (!NetAvatarDriver.TryGetTownMotionHand(motion.Owner, (byte)((root.Entry.Hand - 1) & 1), out Transform? hand) || hand == null) return;
+        // The rendered holder may move between events, and the native world tween
+        // restores its previous target before binding. Preserve the actual current
+        // relative interpolation instead of sampling either world transform.
+        float blend = motion.HandDuration > 0f ? Mathf.Clamp01((now - motion.HandStarted) / motion.HandDuration) : 1f;
+        Vector3 target = Position(root.Entry.Pose);
+        Vector3 canvasTarget = root.Entry.HasCanvasFrame ? Position(root.Entry.CanvasPose) : Vector3.zero;
+        motion.HandFrom = motion.HandSequence == 0 ? target : Vector3.LerpUnclamped(motion.HandFrom, motion.HandTarget, blend);
+        motion.CanvasFrom = motion.HandSequence == 0 ? canvasTarget : Vector3.LerpUnclamped(motion.CanvasFrom, motion.CanvasTarget, blend);
+        motion.HandTarget = target; motion.CanvasTarget = canvasTarget;
+        motion.HandDuration = motion.HandSequence == 0 ? 0f : Mathf.Clamp(interval * 1.1f, 1f / 90f, 1.5f);
+        motion.HandSequence = root.ReceivedSequence; motion.HandStarted = now;
+    }
+
+    private static void ApplyMotionRoot(RemoteModule module, TownServiceMotionEntry entry, RemoteMotion motion,
+        TownServiceFrame authored, float now, bool continuousHand = false)
+    {
+        int owner = motion.Owner, key = owner;
+        if (entry.Lane == 1) key = -key;
+        else if (entry.Lane == 2 && !TryStockPeerKey(owner, out key)) return;
         if (owner == 0 || !Remote.TryGetValue(key, out Dictionary<ushort, RemoteModule>? modules)) return;
         Transform? shared = SharedFrameForRemote?.Invoke(owner); if (shared == null) return;
         Transform mount = shared;
@@ -378,17 +438,23 @@ internal static partial class TownServiceMirror
             int index = Array.IndexOf(parent.Binding.Bindings, entry.Binding); if (index < 0) return;
             mount = parent.Binding.Nodes[index];
         }
-        TownServiceFrame authored = TownServiceDelta.Retain(module.LastFrame!);
-        authored.ParentAlpha = entry.ParentAlpha; authored.Visible = entry.Visible; authored.Pose = entry.Pose;
-        if (entry.HasCanvasUpdate)
-        { authored.HasCanvasFrame = entry.HasCanvasFrame; authored.CanvasPose = entry.CanvasPose;
-          authored.CanvasRect = entry.CanvasRect; authored.CanvasSettings = entry.CanvasSettings;
-          authored.CanvasSortingLayer = entry.CanvasSortingLayer; authored.CanvasSortingOrder = entry.CanvasSortingOrder; }
-        if (authored.HasCanvasFrame && module.AddedCanvas != null) ApplyCanvasFrame(module, authored, entry.CanvasOnHand ? mount : shared);
+        float blend = motion.HandDuration > 0f ? Mathf.Clamp01((now - motion.HandStarted) / motion.HandDuration) : 1f;
+        if (authored.HasCanvasFrame && module.AddedCanvas != null)
+        {
+            if (!continuousHand)
+            { ApplyCanvasFrame(module, authored, entry.CanvasOnHand ? mount : shared);
+              if (entry.CanvasOnHand && entry.Hand > 2) module.Host.transform.rotation = shared.rotation * Rotation(entry.CanvasPose); }
+            else if (entry.CanvasOnHand)
+            { module.Host.transform.position = mount.TransformPoint(entry.Hand > 2
+                    ? Vector3.LerpUnclamped(motion.CanvasFrom, Position(entry.CanvasPose), blend) : Position(entry.CanvasPose));
+              if (entry.Hand <= 2) module.Host.transform.rotation = mount.rotation * Rotation(entry.CanvasPose); }
+        }
         Transform root = module.AddedCanvas != null && !authored.HasCanvasFrame ? module.Host.transform : module.Binding.Root;
-        root.position = mount.TransformPoint(Position(entry.Pose));
+        root.position = mount.TransformPoint(continuousHand && entry.Hand > 2
+            ? Vector3.LerpUnclamped(motion.HandFrom, Position(entry.Pose), blend) : Position(entry.Pose));
         if (!continuousHand || entry.Hand <= 2)
             root.rotation = (entry.Hand > 2 ? shared.rotation : mount.rotation) * Rotation(entry.Pose);
+        if (continuousHand) return;
         Vector3 world = Vector3.Scale(mount.lossyScale, Scale(entry.Pose)); Vector3 parentScale = root.parent.lossyScale;
         root.localScale = new Vector3(world.x / parentScale.x, world.y / parentScale.y, world.z / parentScale.z);
         module.Host.GetComponent<CanvasGroup>().alpha = entry.ParentAlpha;
@@ -428,8 +494,8 @@ internal static partial class TownServiceMirror
 
     internal static void ForgetRemoteMotion(int peer) { MotionPeers.Remove(peer); TownServiceSharedCue.Forget(peer); }
     internal static void ResetMotionNetwork()
-    { MotionSources.Clear(); MotionPeers.Clear(); MotionHands.Clear(); MotionWaiting.Clear(); MotionLive.Clear(); MotionRemoteFrames.Clear(); TownServiceSharedCue.Reset();
-      MotionSourceRemoval.Clear(); MotionRemoval.Clear(); _nextMotionSend = 0f; _motionCursor = _motionLiveCursor = 0;
+    { MotionSources.Clear(); MotionPeers.Clear(); MotionHands.Clear(); MotionOfferings.Clear(); MotionWaiting.Clear(); MotionLive.Clear(); MotionVisibleFan.Clear(); MotionRemoteFrames.Clear(); TownServiceSharedCue.Reset();
+      MotionSourceRemoval.Clear(); MotionRemoval.Clear(); _nextMotionSend = 0f; _motionCursor = _motionLiveCursor = _motionVisibleCursor = 0;
       _motionCommitSession = _motionCommitRevision = 0; _nextMotionCommit = 0f;
       _motionCue = null; _nextMotionCue = 0f;
       MotionHandRemoval.Clear(); _nextMotionHandCleanup = 0f;

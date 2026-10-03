@@ -139,7 +139,7 @@ def main():
     if not args.no_negative_controls:
         variants += [
             ("offering-heartbeat", "TownServiceMirror.cs", "module.NextRefresh = now + (NeedsHeartbeat(module) ? .75f", "module.NextRefresh = now + (module.Id == _heartbeatModule ? .75f", "completed unchanged offering renews within its three-second lifetime independently of module allocation"),
-            ("offering-inactive", "TownServiceMirror.Offerings.cs", "|| !intent.Visible ||", "|| false ||", "owner withdrawal closes the shared palm before any asset playback"),
+            ("offering-inactive", "TownServiceMirror.Offerings.cs", "if (visible && age <= OfferingFreshSeconds)", "if (age <= OfferingFreshSeconds)", "owner withdrawal closes the shared palm before any asset playback"),
             ("offering-stale", "TownServiceMirror.Offerings.cs", "age <= OfferingFreshSeconds", "true", "other fresh modules cannot preserve stale offering intent"),
             ("text", "TownServiceBinding.cs", "tmp.text = text[0];", 'tmp.text = "CORRUPTED";', "owner TMP text survives codec and playback"),
             ("mesh", "TownServiceBinding.cs", "mesh.enabled = n[0] != 0;", "mesh.enabled = true;", "handle mesh enabled state follows owner"),
@@ -256,6 +256,8 @@ def main():
                 ("nonowner-author", "TownServiceMirror.cs", "|| InteractionOwner(service) != player", "|| false", "only the elected visitor session can author shared interaction state"),
                 ("ignore-temple-owner", "TownServiceMirror.cs", "int owner = InteractionOwner(2);", "int owner = VisitorSessions.Count > 0 ? 3 : 0;", "disconnect releases only that player's resident leases"),
                 ("missing-art-blink", "TownServiceMirror.cs", "if (!sameOriginal) { module.Host.SetActive(false); module.Motion.Reset(); }", "if (true) { module.Host.SetActive(false); module.Motion.Reset(); }", "a missing next dependency retains the last validated original front instead of blinking grey"),
+                ("public-control-readiness", "TownServiceMirror.PublicVisibility.cs", "if (!PublicPageReady(pair.Key, state, state.To, session, modules)) continue;", "if (Time.unscaledTime < 0f) continue;", "new remote author retains the previous complete cabinet while one real original price is missing"),
+                ("public-off-page-readiness", "TownServiceMirror.PublicVisibility.cs", "if (PublicPagedModules.Contains(id)) continue;", "if (Time.unscaledTime < 0f) continue;", "current public stock commits a populated original cabinet with its category key and crank"),
             ]
     if args.suite == "motion-fast":
         variants = [("production", None, None, None, "")]
@@ -263,8 +265,8 @@ def main():
             variants += [
                 ("closed-fan-art-deferred", "PublisherTick.cs", 'Publish("item." + chip.Item.ID.ToString(System.Globalization.CultureInfo.InvariantCulture), face, prewarm: true);', 'Publish("item." + chip.Item.ID.ToString(System.Globalization.CultureInfo.InvariantCulture), face);', "closed owner item fan publishes complete original fronts with genuine hidden visibility before reveal"),
                 ("numeric-art-backlog", "TownServiceMirror.Motion.cs", "if (slot.Entry.Kind is 2 or 4) PatchMotionProperty(frame, slot.Entry);", "if (slot.Entry.Kind == 250) PatchMotionProperty(frame, slot.Entry);", "composing fast root scroll and hover preserves every simultaneous original property"),
-                ("rig-attachment-cadence", "TownServiceMirror.Motion.cs", "if (root != null && root.Entry.Hand != 0) ApplyMotionRoot(module, root.Entry, continuousHand: true);", "if (root != null && root.Entry.Hand == 250) ApplyMotionRoot(module, root.Entry, continuousHand: true);", "held original root follows the approved smoothed rig between network events"),
-                ("canvas-attachment-cadence", "TownServiceMirror.Motion.cs", "entry.CanvasOnHand ? mount : shared", "shared", "enclosing original canvas follows the same approved smoothed rig between events"),
+                ("rig-attachment-cadence", "TownServiceMirror.Motion.cs", "if (root != null && root.Entry.Hand != 0 && composed.Merged != null)", "if (root != null && root.Entry.Hand == 250 && composed.Merged != null)", "held original root follows the approved smoothed rig between network events"),
+                ("canvas-attachment-cadence", "TownServiceMirror.Motion.cs", "else if (entry.CanvasOnHand)", "else if (!entry.CanvasOnHand)", "enclosing original canvas follows the same approved smoothed rig between events"),
             ]
     if args.suite == "voice-relay":
         variants = [("production", None, None, None, "")]

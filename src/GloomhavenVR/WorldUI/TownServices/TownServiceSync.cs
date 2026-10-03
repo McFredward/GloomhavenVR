@@ -148,6 +148,9 @@ internal sealed partial class TownServiceSync
                 VRHand? hand = chip.Holder ?? (!chip.TownOffering
                     ? VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left : null);
                 TownServiceMirror.RegisterMotionHand(mount, hand, followsRotation: chip.Holder != null);
+                TownServiceMirror.RegisterMotionOffering(mount, chip.TownOffering);
+                TownServiceMirror.RegisterMotionOffering(face, chip.TownOffering);
+                if (body != null) TownServiceMirror.RegisterMotionOffering(body, chip.TownOffering);
                 Publish("item." + chip.Item.ID.ToString(System.Globalization.CultureInfo.InvariantCulture), face, prewarm: true);
                 Publish(TownServiceInspectionBody.Key(chip), body, prewarm: true);
             }

@@ -39,8 +39,9 @@ internal sealed class TownServiceMotion
         _continuousDecisionFacing = address.StartsWith("item.confirm.part.", StringComparison.Ordinal)
             || address.StartsWith("enhance.confirm.part.", StringComparison.Ordinal);
         // A held temple purse and a merchant visitor's original item fan are
-        // public moving props. They use this native mirror, not RemoteAvatar's
-        // rig-pose interpolator. The 100 ms mechanical-control cap previously
+        // public moving props. Their native child animation uses this mirror;
+        // verified hand roots also ride RemoteAvatar's rendered rig holder. The
+        // 100 ms mechanical-control cap previously
         // finished their motion early when town packets arrived less often,
         // leaving a stationary purse/card between successive hand samples.
         _continuousVisitorMotion = address == "ritual.purse.held|"
@@ -72,7 +73,7 @@ internal sealed class TownServiceMotion
         if (_hasTarget) for (int i = 0; i < _nodes.Length; i++)
             if (!_from[i].Same(_to[i])) Write(_nodes[i], _from[i], _to[i], 1f);
     }
-    internal void AfterApply(float now, float sampleInterval)
+    internal void AfterApply(float now, float sampleInterval, bool sparseFan = false)
     {
         _active = false; _hasTarget = true;
         for (int i = 0; i < _nodes.Length; i++)
@@ -91,6 +92,11 @@ internal sealed class TownServiceMotion
         _started = now; _duration = _continuousDecisionFacing || _continuousVisitorMotion
             ? Mathf.Clamp(sampleInterval * 1.1f, 1f / 90f, .25f)
             : Mathf.Clamp(sampleInterval, 1f / 90f, .1f);
+        // A dense upright fan has individual original offsets but rides the rig
+        // each frame. A bounded fair turn can exceed the held-card interval;
+        // covering that measured turn avoids a stationary gap between samples.
+        if (sparseFan && _continuousVisitorMotion)
+            _duration = Mathf.Clamp(sampleInterval * 1.1f, 1f / 90f, 1.5f);
         if (_active) Tick(now);
     }
     private static bool IsVisitorItem(string address)
