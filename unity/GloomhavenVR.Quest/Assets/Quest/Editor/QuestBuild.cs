@@ -25,6 +25,7 @@ namespace GloomhavenVR.Quest.Editor
         {
             public int schema = 1;
             public string target, inputKey, package, profileSha256, unityVersion, buildResult;
+            public string il2CppCompilerConfiguration, additionalIl2CppArgs;
             public string[] scenes;
         }
         static string Required(string key)
@@ -90,7 +91,9 @@ namespace GloomhavenVR.Quest.Editor
             {
                 target = target, inputKey = manifest.inputKey, package = package,
                 profileSha256 = hash, unityVersion = Application.unityVersion,
-                buildResult = report.summary.result.ToString(), scenes = scenes
+                buildResult = report.summary.result.ToString(), scenes = scenes,
+                il2CppCompilerConfiguration = PlayerSettings.GetIl2CppCompilerConfiguration(BuildTargetGroup.Android).ToString(),
+                additionalIl2CppArgs = PlayerSettings.GetAdditionalIl2CppArgs()
             }, true));
             if (report.summary.result != BuildResult.Succeeded)
                 throw new InvalidOperationException("Android build failed: " + report.summary.result + ", errors=" + report.summary.totalErrors);
@@ -107,7 +110,15 @@ namespace GloomhavenVR.Quest.Editor
             PlayerSettings.Android.bundleVersionCode = 1;
             PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android, ScriptingImplementation.IL2CPP);
             if (originalStartup)
+            {
                 PlayerSettings.SetApiCompatibilityLevel(BuildTargetGroup.Android, ApiCompatibilityLevel.NET_4_6);
+                // Large recovered assemblies exhaust the native optimizer's memory.
+                // This menu diagnostic establishes execution, not release performance.
+                PlayerSettings.SetIl2CppCompilerConfiguration(BuildTargetGroup.Android, Il2CppCompilerConfiguration.Debug);
+                // IL2CPP preserves a long left-associated tuning sum as nested calls.
+                // Increase the parser limit without changing the managed expression.
+                PlayerSettings.SetAdditionalIl2CppArgs("--compiler-flags=-fbracket-depth=1024");
+            }
             PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
             PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel29;
             PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevel30;
