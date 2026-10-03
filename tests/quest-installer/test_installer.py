@@ -24,6 +24,7 @@ class FakeAdb:
     """A strict subprocess substitute: unknown commands and global changes fail."""
     def __init__(self, usb=True):
         self.calls = []
+        self.timeouts = []
         self.states = {"USB-QUEST": "device"} if usb else {}
         self.models = {"USB-QUEST": "Quest 3"}
         self.identities = {"USB-QUEST": "HARDWARE-1"}
@@ -42,6 +43,7 @@ class FakeAdb:
 
     def __call__(self, command, **kwargs):
         self.calls.append(command[1:])
+        self.timeouts.append((command[1:], kwargs["timeout"]))
         self.assertions(command, kwargs)
         args = command[1:]
         if self.timeout_command and self.timeout_command in args:
@@ -86,7 +88,8 @@ class FakeAdb:
     @staticmethod
     def assertions(command, kwargs):
         assert isinstance(command, list) and kwargs["shell"] is False
-        assert 0 < kwargs["timeout"] <= 180
+        maximum = 1800 if len(command) > 3 and command[3] == "install" else 180
+        assert 0 < kwargs["timeout"] <= maximum
         assert not any(word in command for word in ("uninstall", "kill-server", "disconnect", "-d"))
 
 
@@ -150,6 +153,35 @@ class InstallerTests(unittest.TestCase):
         self.fake.wireless()
         self.assertEqual(self.run_cli(), 0, self.error)
         self.assertFalse(any("tcpip" in call for call in self.fake.calls))
+
+    def test_large_apk_install_has_bounded_transfer_budget_and_retains_update_flow(self):
+        real_stat = Path.stat
+        # Actual B612 size; an oversized future artifact must still stay bounded.
+        for size in (1_109_713_887, 10 * 1024 * 1024 * 1024):
+            with self.subTest(apk_bytes=size):
+                self.remember()
+                self.fake = FakeAdb(usb=False)
+                self.fake.wireless()
+
+                def source_size(path, *args, **kwargs):
+                    value = real_stat(path, *args, **kwargs)
+                    if path == self.apk:
+                        fields = list(value)
+                        fields[6] = size
+                        return os.stat_result(fields)
+                    return value
+
+                with mock.patch.object(Path, "stat", source_size):
+                    self.assertEqual(self.run_cli("--no-launch"), 0, self.error)
+                installs = [(command, timeout) for command, timeout in self.fake.timeouts if command[2:4] == ["install", "-r"]]
+                self.assertEqual(len(installs), 1)
+                self.assertGreater(installs[0][1], 1000)
+                self.assertLessEqual(installs[0][1], 1800)
+                if size > 2 * 1024 * 1024 * 1024:
+                    self.assertEqual(installs[0][1], 1800)
+                self.assertEqual(installs[0][0], ["-s", "192.168.1.42:5555", "install", "-r", str(self.apk)])
+                self.assertFalse(any("tcpip" in command or "start" in command for command in self.fake.calls))
+                self.assertEqual(self.fake.installed, self.apk.read_bytes())
 
     def test_setup_refreshes_stale_ip_and_accepts_deliberately_changed_usb_hardware(self):
         self.remember("192.168.1.10:5555", "OLD-HARDWARE")

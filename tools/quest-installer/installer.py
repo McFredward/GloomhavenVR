@@ -367,7 +367,11 @@ def main(argv=None, runner=None):
         # Re-read both the receipt and APK immediately before the only app mutation.
         if resolve_source(source.kind, source.path, check_zip=False) != source:
             raise InstallError("The APK or source evidence changed during device setup; retry with the intended build.")
-        adb.run("-s", address, "install", "-r", source.apk, timeout=180, positive=r"^Success\s*$")
+        # Budget one MiB/second plus two minutes for Android package processing.
+        # Retain the small-APK floor and a bounded thirty-minute maximum.
+        transfer_seconds = (source.apk.stat().st_size + 1024 * 1024 - 1) // (1024 * 1024)
+        install_timeout = min(1800, max(180, 120 + transfer_seconds))
+        adb.run("-s", address, "install", "-r", source.apk, timeout=install_timeout, positive=r"^Success\s*$")
         if not args.no_launch:
             adb.run("-s", address, "shell", "am", "start", "-W", "-n", ACTIVITY,
                     timeout=45, positive=r"^Status:\s*ok\s*$")
