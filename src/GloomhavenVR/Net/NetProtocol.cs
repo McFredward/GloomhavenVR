@@ -87,6 +87,9 @@ internal static class NetProtocol
     // additive records; no transaction command is encoded by either record.
     public const byte ExtIdTownCatalogLayout = 94;
     public const byte ExtIdTownVisitorStock = 95;
+    /// <summary>Owner-authored scenario-rule foldout, native row content, geometry,
+    /// hover and scroll state. Additive to the unchanged native-board records52/53.</summary>
+    public const byte ExtIdBoardRules = 96;
     public const byte ExtIdTownRack = 85;
     public const byte ExtIdTownCassette = 86;
     public const byte ExtIdTownResidents = 79;
@@ -553,7 +556,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 609;
+    public const ushort ModBuild = 610;
+
+    // ModBuild 610 — pose-aware actor bars and readable native scenario rules.
+    // Current evaluated native skin/bone envelopes replace the flying-offset floor
+    // and raise-only bar latch, allowing sleeping/flying actors to lower and raise
+    // their bars without baking or scanning geometry on the steady frame path.
+    // Short native rules remain beside the board; long rules open leftward into an
+    // animated readable foldout. Battle goals reserve space clear of the complete
+    // element-caption union. Additive board TLV96 mirrors the owner's native rows,
+    // intermediate geometry, toggle hover and scroll without gameplay callbacks;
+    // existing records52/53 retain their byte layout. Frame609 hardware shows real
+    // 3408-to-2256 eye targets and a modest loaded-frame improvement, not measured
+    // GPU busy or an isolated figure-slider gain. Remaining card-discovery and
+    // native-effect wall-table work are documented separately from these fixes.
 
     // ModBuild 609 — isolated Quest conversion and first hardware diagnostic checkpoint.
     // The local builder snapshots owned PC content, selected mod/tool source and offline
