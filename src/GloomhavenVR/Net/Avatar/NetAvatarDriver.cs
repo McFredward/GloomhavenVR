@@ -806,6 +806,20 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             && avatar.TryGetHeadWorld(out head);
     }
 
+    /// <summary>Use the same interpolated rig hand that already carries remote
+    /// scenario cards. Town props must not chase a separate delayed world pose.</summary>
+    internal static bool TryGetTownMotionHand(int player, byte hand, out Transform? root)
+    {
+        root = null;
+        NetAvatarDriver? driver = _instance;
+        if (hand > 1 || driver == null || !driver._avatars.TryGetValue(player, out RemoteAvatar avatar)
+            || avatar == null || avatar.TimeSinceUpdate > NetProtocol.StaleTimeoutSeconds) return false;
+        Transform holder = hand == 0 ? avatar.LeftHandHolder : avatar.RightHandHolder;
+        if (!holder.gameObject.activeInHierarchy) return false;
+        root = holder;
+        return true;
+    }
+
     internal static bool TryGetTownClothHead(int player, out Vector3 head, out float scale)
     {
         head = Vector3.zero; scale = 1f;
@@ -4062,6 +4076,11 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             case NetProtocol.MsgTownActivity:
                 parsed = TownActivityCodec.ReadPacket(buffer, length, out TownActivityState activity, out TownFaceState pairedFace);
                 if (parsed) { VersionGuard.NotePacket(senderId); RemoteTownPerformance.Observe(senderId, in activity, in pairedFace, false); }
+                break;
+
+            case NetProtocol.MsgTownMotion:
+                parsed = QueueTownMotion(senderId, buffer, length);
+                if (parsed) VersionGuard.NotePacket(senderId);
                 break;
 
             case NetProtocol.MsgTownFace:

@@ -90,6 +90,10 @@ internal static class NetProtocol
     /// <summary>Owner-authored scenario-rule foldout, native row content, geometry,
     /// hover and scroll state. Additive to the unchanged native-board records52/53.</summary>
     public const byte ExtIdBoardRules = 96;
+    /// <summary>Bounded owner-authored numeric town presentation, independent of
+    /// immutable native artwork and fragmented module delivery.</summary>
+    public const byte ExtIdTownMotion = 97;
+    public const byte MsgTownMotion = 26;
     public const byte ExtIdTownRack = 85;
     public const byte ExtIdTownCassette = 86;
     public const byte ExtIdTownResidents = 79;

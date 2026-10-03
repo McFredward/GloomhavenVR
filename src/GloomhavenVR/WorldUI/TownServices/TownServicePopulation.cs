@@ -64,6 +64,7 @@ internal static class TownServicePopulation
         internal bool ObservedActivity;
         internal readonly TownServiceActivityHandover Handover = new();
         internal TownServiceVisitTarget Visit = null!;
+        internal TownServiceOccupationBadge Occupation = null!;
     }
     private static readonly Dictionary<byte, Resident> Residents = new();
     private static readonly List<TownTempleDonationState> TempleDonationStates = new(4);
@@ -121,7 +122,9 @@ internal static class TownServicePopulation
         TownServiceStation? station = TownServiceStation.Create(service, _frame!.transform.position, _frame.transform.localScale.x);
         if (station == null) return null;
         station.SetVisibility(0f);
-        Residents.Add(service, new Resident { Station = station, Visit = new TownServiceVisitTarget(service, station.Root) });
+        Residents.Add(service, new Resident { Station = station,
+            Visit = new TownServiceVisitTarget(service, station.Root),
+            Occupation = new TownServiceOccupationBadge(service, station.Root) });
         return station;
     }
 
@@ -200,7 +203,7 @@ internal static class TownServicePopulation
             {
                 if (Residents.TryGetValue(service, out Resident? locked))
                 {
-                    locked.Visit.Dispose(); locked.Station.Dispose(); Residents.Remove(service);
+                    locked.Occupation.Dispose(); locked.Visit.Dispose(); locked.Station.Dispose(); Residents.Remove(service);
                     NativeTemplates.InvalidateResident(service);
                 }
                 continue;
@@ -448,6 +451,7 @@ internal static class TownServicePopulation
             // watching a remote visit. An enabled client at story commitment does not:
             // its resident visit is deliberately withdrawn with every real offering.
             resident.Visit.Tick((interactive || !enabled) && used && ready && resident.Visibility >= .99f);
+            resident.Occupation.Tick(!StoryComposite.PointOfNoReturn && used && ready && resident.Visibility >= .99f);
             Transform station = resident.Station.Root;
             published.Set(service - 1, new TownResidentPose {
                 Pose = new RigPose { Position = _frame!.transform.InverseTransformPoint(station.position),
@@ -457,7 +461,7 @@ internal static class TownServicePopulation
                 ActorFloorOffset = resident.Station.ActorFloorOffset, FurnitureBottom = resident.Station.FurnitureBottom,
                 Visibility = (byte)Mathf.RoundToInt(resident.Visibility * 255f) });
             if (!used && resident.Visibility <= 0f)
-            { NativeTemplates.InvalidateResident(service); resident.Visit.Dispose(); resident.Station.Dispose(); Residents.Remove(service); }
+            { NativeTemplates.InvalidateResident(service); resident.Occupation.Dispose(); resident.Visit.Dispose(); resident.Station.Dispose(); Residents.Remove(service); }
         }
         if (missing && retry) _retryAt = now + 2f;
         if (IsFaceAuthor) TownServiceLighting.SampleEnvironment(_frame!.transform, ref activities);
@@ -483,7 +487,7 @@ internal static class TownServicePopulation
         TownServiceConfirmationMask.Clear();
         TownServiceSync.Shutdown();
         foreach (Resident resident in Residents.Values)
-        { resident.Visit.Dispose(); resident.Station.Dispose(); }
+        { resident.Occupation.Dispose(); resident.Visit.Dispose(); resident.Station.Dispose(); }
         Residents.Clear();
         if (_frame != null) Object.Destroy(_frame);
         _frame = null; _retryAt = 0f;
