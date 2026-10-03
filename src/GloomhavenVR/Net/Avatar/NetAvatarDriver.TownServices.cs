@@ -13,6 +13,7 @@ internal sealed partial class NetAvatarDriver
     { internal ulong Sequence; internal uint Session; internal byte Service; internal bool VisitorStock; internal byte[] Bytes = null!; }
     private readonly Dictionary<int, Dictionary<uint, TownPacket>> _pendingTown = new();
     private readonly Dictionary<int, List<TownPacket>> _pendingTownVoice = new();
+    private readonly Dictionary<int, List<TownServiceMotionPacket>> _pendingTownMotion = new();
     private readonly byte[] _activityBuffer = new byte[TownActivityCodec.PacketBytes];
     private float _nextFaceSend;
     private void SendTownServices()
@@ -63,6 +64,18 @@ internal sealed partial class NetAvatarDriver
         byte[] copy = new byte[length]; Buffer.BlockCopy(bytes, 0, copy, 0, length); pending[key] = new TownPacket { Sequence = frame.Sequence, Bytes = copy };
         return true;
     }
+    private bool QueueTownMotion(int sender, byte[] bytes, int length)
+    {
+        if (sender <= 0 || !TownServiceMotionCodec.TryRead(bytes, length, out TownServiceMotionPacket? packet)) return false;
+        if (!_pendingTownMotion.TryGetValue(sender, out List<TownServiceMotionPacket>? pending))
+        { if (_pendingTownMotion.Count >= 8) return true;
+          pending = new List<TownServiceMotionPacket>(4); _pendingTownMotion.Add(sender, pending); }
+        // Different packets contain different bindings. Keep a bounded set until
+        // the main-thread pass, then the mirror coalesces by original affinity.
+        if (pending.Exists(before => before.Sequence == packet!.Sequence)) return true;
+        if (pending.Count >= 32) pending.RemoveAt(0);
+        pending.Add(packet!); return true;
+    }
     private void ApplyTownServices()
     {
         foreach (var peer in _pendingTown)
@@ -76,8 +89,14 @@ internal sealed partial class NetAvatarDriver
             foreach (TownPacket packet in peer.Value) TownServiceMirror.Receive(peer.Key, packet.Bytes, packet.Bytes.Length);
             peer.Value.Clear();
         }
+        foreach (var peer in _pendingTownMotion)
+        {
+            peer.Value.Sort((a, b) => a.Sequence.CompareTo(b.Sequence));
+            foreach (TownServiceMotionPacket packet in peer.Value) TownServiceMirror.ReceiveMotion(peer.Key, packet);
+            peer.Value.Clear();
+        }
         if (TownServiceMirror.SharedFrameForRemote != null) TownServiceMirror.TickRemote(TownServiceMirror.SharedFrameForRemote);
     }
-    private void ForgetTownServices(int peer) { _pendingTown.Remove(peer); _pendingTownVoice.Remove(peer); TownServiceGrantSync.ForgetPeer(peer); TownServiceMirror.RemovePeer(peer); RemoteTownResidents.Forget(peer); RemoteTownFaces.Forget(peer); RemoteTownActivities.Forget(peer); }
-    private void ResetTownServices() { _pendingTown.Clear(); _pendingTownVoice.Clear(); TownServiceGrantSync.Reset(); TownServiceMirror.ResetNetwork(); RemoteTownResidents.Reset(); RemoteTownFaces.Reset(); RemoteTownActivities.Reset(); _nextFaceSend = 0f; }
+    private void ForgetTownServices(int peer) { _pendingTown.Remove(peer); _pendingTownVoice.Remove(peer); _pendingTownMotion.Remove(peer); TownServiceGrantSync.ForgetPeer(peer); TownServiceMirror.RemovePeer(peer); RemoteTownResidents.Forget(peer); RemoteTownFaces.Forget(peer); RemoteTownActivities.Forget(peer); }
+    private void ResetTownServices() { _pendingTown.Clear(); _pendingTownVoice.Clear(); _pendingTownMotion.Clear(); TownServiceGrantSync.Reset(); TownServiceMirror.ResetNetwork(); RemoteTownResidents.Reset(); RemoteTownFaces.Reset(); RemoteTownActivities.Reset(); _nextFaceSend = 0f; }
 }

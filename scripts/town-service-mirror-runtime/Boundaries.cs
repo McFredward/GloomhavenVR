@@ -9,6 +9,8 @@ namespace GloomhavenVR.Core
     internal static class VRLog
     {
         internal static readonly List<string> Messages = new();
+        internal static bool WantsDebug => false;
+        internal static void Debug(string channel, string message) { }
         internal static void Info(string channel, string message) { }
         internal static void Note(string channel, string message) => Messages.Add(channel + ": " + message);
         internal static void Warn(string channel, string message) => Messages.Add(channel + ": " + message);
@@ -46,6 +48,16 @@ namespace GloomhavenVR.WorldUI
         }
     }
     internal static class TownServicePopulation { internal static bool IsFaceAuthor = true; }
+    internal static class TownServiceSharedCue
+    {
+        internal static bool LocalReady, PublishedReady;
+        internal static float LocalStrength, PublishedStrength;
+        internal static int PublishedGuideOwner;
+        internal static void ObserveVisitor(int peer, uint session, bool ready, float strength) { }
+        internal static void ObserveShared(int peer, bool ready, float strength, int guideOwner) { }
+        internal static void Forget(int peer) { }
+        internal static void Reset() { LocalReady = PublishedReady = false; LocalStrength = PublishedStrength = 0f; }
+    }
 
     // The converted-window distance ladder has its own production harness. Here
     // only its registration boundary is inert; remote construction remains real.
@@ -66,6 +78,13 @@ namespace GloomhavenVR.Net
         internal const byte ExtIdTownTransaction = 92;
         internal const byte ExtIdTownCatalogLayout = 94, ExtIdTownVisitorStock = 95, ExtIdTownDonationClock = 93;
         internal const float StaleTimeoutSeconds = 3f;
+    }
+    internal static class NetAvatarDriver
+    {
+        internal static readonly Dictionary<int, Transform[]> MotionHandFrames = new();
+        internal static bool TryGetTownMotionHand(int player, byte side, out Transform? root)
+        { root = null; if (side > 1 || !MotionHandFrames.TryGetValue(player, out Transform[]? hands)) return false;
+          root = hands[side]; return root != null && root.gameObject.activeInHierarchy; }
     }
     internal struct TownClothRunnerState { internal Vector2 Left, Right, LeftVelocity, RightVelocity; }
     internal static class TownResidentsCodec

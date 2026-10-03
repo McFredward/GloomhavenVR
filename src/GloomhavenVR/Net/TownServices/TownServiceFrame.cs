@@ -20,7 +20,7 @@ internal sealed class TownServiceFrame
     internal uint PublicClaim;
     internal byte Service;
     internal const ushort ManifestModule = ushort.MaxValue, BundleStream = ushort.MaxValue - 1,
-        VoiceModule = ushort.MaxValue - 2;
+        VoiceModule = ushort.MaxValue - 2, UrgentBundleStream = ushort.MaxValue - 4;
     internal const string VoiceAddress = "town.voice.reaction|v1";
     internal uint Session;
     internal ulong Sequence;

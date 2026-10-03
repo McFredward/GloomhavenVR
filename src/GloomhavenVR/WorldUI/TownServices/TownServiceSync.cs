@@ -8,6 +8,7 @@ using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.WorldUI.MapRoom;
 using UnityEngine;
 using UnityEngine.UI;
+using GloomhavenVR.Hands;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -139,8 +140,14 @@ internal sealed partial class TownServiceSync
                 Transform mount = chip.InspectionMount;
                 Transform face = chip.NativeItemCard.transform;
                 Transform? body = chip.InspectionBody;
-                if (chip.Holder != null || chip.TownOffering)
-                { PriorityRoots.Add(mount); PriorityRoots.Add(face); if (body != null) PriorityRoots.Add(body); }
+                // A newly revealed original item fan is as latency sensitive as
+                // a held card; its complete immutable fronts cannot queue behind
+                // the public cabinet's cold pages. Exact fan/holder provenance
+                // also lets peers ride the already smoothed rig hand each frame.
+                PriorityRoots.Add(mount); PriorityRoots.Add(face); if (body != null) PriorityRoots.Add(body);
+                VRHand? hand = chip.Holder ?? (!chip.TownOffering
+                    ? VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left : null);
+                TownServiceMirror.RegisterMotionHand(mount, hand, followsRotation: chip.Holder != null);
                 Publish("item." + chip.Item.ID.ToString(System.Globalization.CultureInfo.InvariantCulture), face);
                 Publish(TownServiceInspectionBody.Key(chip), body);
             }
@@ -195,7 +202,11 @@ internal sealed partial class TownServiceSync
                     Publish(service == 2 && piece.Token.IsHeld ? "ritual.purse.held" : piece.BodyKey,
                         piece.Body);
                     if (piece.DetailContent != null && piece.DetailSource != null)
-                        Publish(piece.DetailKey, piece.DetailContent, piece.DetailSource, piece.DetailCloneOf);
+                    {
+                        UITooltip? detailTooltip = piece.DetailSource.GetComponent<UITooltip>();
+                        Publish(detailTooltip != null ? NativeTemplates.TooltipKey(detailTooltip) : piece.DetailKey,
+                            piece.DetailContent, piece.DetailSource, piece.DetailCloneOf);
+                    }
                 }
                 // This is a registered native boundary, excluded from the folio inventory
                 // clone. The original hover-price explanation needs its own module.

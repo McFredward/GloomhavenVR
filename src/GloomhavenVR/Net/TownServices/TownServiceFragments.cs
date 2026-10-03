@@ -39,7 +39,7 @@ internal sealed class TownServiceFragments
         _lastActivity[key] = now;
         byte[]? result = assembler.Accept(sender, packet, length, now);
         if (result == null) return null;
-        if (stream == TownServiceFrame.BundleStream)
+        if (stream == TownServiceFrame.BundleStream || stream == TownServiceFrame.UrgentBundleStream)
         {
             if (!TownServiceCodec.TryReadBundle(result, result.Length, out byte[][]? bundle)) return null;
             bool? publicCatalog = null;

@@ -1,0 +1,200 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+
+namespace GloomhavenVR.Net.TownServices;
+
+/// <summary>One rig-cadence numeric packet. It never constructs assets, changes membership or
+/// grants gameplay authority. Every property retains its original module/binding affinity.</summary>
+internal sealed class TownServiceMotionEntry
+{
+    internal byte Kind, Lane, Service, Hand;
+    internal uint Session, PublicClaim, Structure, Binding, Revision;
+    internal ushort Module, ParentModule, Property, Offset;
+    internal float ParentAlpha = 1f, CommitAge;
+    internal bool Visible, HasCanvasFrame, HasCanvasUpdate, CueReady, HasSharedCue, SharedCueReady;
+    internal float CueStrength, SharedCueStrength;
+    internal float[] Pose = Array.Empty<float>(), CanvasPose = Array.Empty<float>(),
+        CanvasRect = Array.Empty<float>(), CanvasSettings = Array.Empty<float>(), Numbers = Array.Empty<float>();
+    internal int CanvasSortingOrder, CanvasSortingLayer, SharedGuideOwner;
+    internal TownServiceMotionKey Key => new(Lane, Module, Kind is 2 or 4 ? Binding : 0, Kind == 5 ? (ushort)31 : Property, Offset);
+}
+
+internal readonly struct TownServiceMotionKey : IEquatable<TownServiceMotionKey>
+{
+    private readonly byte _lane; private readonly ushort _module, _property, _offset; private readonly uint _binding;
+    internal TownServiceMotionKey(byte lane, ushort module, uint binding, ushort property, ushort offset)
+    { _lane = lane; _module = module; _binding = binding; _property = property; _offset = offset; }
+    public bool Equals(TownServiceMotionKey other) => _lane == other._lane && _module == other._module
+        && _binding == other._binding && _property == other._property && _offset == other._offset;
+    public override bool Equals(object? other) => other is TownServiceMotionKey key && Equals(key);
+    public override int GetHashCode() => unchecked(((((_lane * 31 + _module) * 31 + (int)_binding) * 31 + _property) * 31) + _offset);
+}
+
+internal sealed class TownServiceMotionPacket
+{
+    internal ulong Sequence;
+    internal float SampleTime;
+    internal readonly List<TownServiceMotionEntry> Entries = new();
+}
+
+internal static class TownServiceMotionCodec
+{
+    internal const int MaxBytes = 864, MaxEntries = 32;
+    // Independent message rather than an art fragment: a several-second catalog
+    // baseline must never sit in front of a visitor's current hand/hover/scroll.
+    internal const byte MessageType = 26, RecordId = 97;
+    internal const float SendInterval = 1f / 15f, Heartbeat = 1f;
+
+    internal static int EntryBytes(TownServiceMotionEntry entry)
+    { using var stream = new MemoryStream(); using var writer = new BinaryWriter(stream);
+      WriteEntry(writer, entry); return checked((int)stream.Length + 2); }
+
+    internal static byte[] Write(TownServiceMotionPacket packet)
+    {
+        if (packet.Sequence == 0 || !Finite(packet.SampleTime) || packet.SampleTime < 0f
+            || packet.Entries.Count == 0 || packet.Entries.Count > MaxEntries)
+            throw new InvalidDataException("Invalid fast town motion packet.");
+        using var stream = new MemoryStream(); using var writer = new BinaryWriter(stream);
+        writer.Write(0x47565231u); writer.Write((byte)3); writer.Write(MessageType);
+        writer.Write(RecordId); writer.Write((byte)13); writer.Write((byte)0);
+        writer.Write(packet.Sequence); writer.Write(packet.SampleTime);
+        var keys = new HashSet<TownServiceMotionKey>();
+        foreach (TownServiceMotionEntry entry in packet.Entries)
+        {
+            if (!keys.Add(entry.Key)) throw new InvalidDataException("Duplicate fast town motion entry.");
+            using var body = new MemoryStream(); using var part = new BinaryWriter(body);
+            WriteEntry(part, entry); byte[] bytes = body.ToArray();
+            if (bytes.Length > 255) throw new InvalidDataException("Fast town motion entry exceeds its record.");
+            writer.Write(RecordId); writer.Write((byte)bytes.Length); writer.Write(bytes);
+        }
+        if (stream.Length > MaxBytes) throw new InvalidDataException("Fast town motion exceeds one bounded event.");
+        return stream.ToArray();
+    }
+
+    internal static bool TryRead(byte[] bytes, int length, out TownServiceMotionPacket? packet)
+    {
+        packet = null;
+        if (bytes == null || length < 23 || length > bytes.Length || length > MaxBytes
+            || bytes[0] != 0x31 || bytes[1] != 0x52 || bytes[2] != 0x56 || bytes[3] != 0x47
+            || bytes[4] != 3 || bytes[5] != MessageType) return false;
+        try
+        {
+            using var stream = new MemoryStream(bytes, 6, length - 6, false);
+            using var reader = new BinaryReader(stream);
+            var result = new TownServiceMotionPacket(); var keys = new HashSet<TownServiceMotionKey>(); bool clock = false;
+            while (stream.Position < stream.Length)
+            {
+                if (stream.Length - stream.Position < 2) return false;
+                byte id = reader.ReadByte(), count = reader.ReadByte();
+                if (count > stream.Length - stream.Position) return false;
+                long end = stream.Position + count;
+                if (id != RecordId) { stream.Position = end; continue; }
+                if (count == 0) return false;
+                byte kind = reader.ReadByte();
+                if (kind == 0)
+                {
+                    if (clock || result.Entries.Count != 0 || count != 13) return false;
+                    clock = true; result.Sequence = reader.ReadUInt64(); result.SampleTime = reader.ReadSingle();
+                    if (result.Sequence == 0 || !Finite(result.SampleTime) || result.SampleTime < 0f) return false;
+                }
+                else
+                {
+                    if (!clock || result.Entries.Count >= MaxEntries) return false;
+                    TownServiceMotionEntry entry = ReadEntry(reader, kind);
+                    if (!keys.Add(entry.Key)) return false;
+                    result.Entries.Add(entry);
+                }
+                if (stream.Position != end) return false;
+            }
+            if (!clock || result.Entries.Count == 0) return false;
+            packet = result; return true;
+        }
+        catch (Exception error) when (error is IOException or ArgumentException or OverflowException)
+        { return false; }
+    }
+
+    private static void WriteEntry(BinaryWriter w, TownServiceMotionEntry e)
+    {
+        Validate(e); w.Write(e.Kind); w.Write(e.Lane); w.Write(e.Service); w.Write(e.Session);
+        if (e.Kind == 3) { w.Write(e.Revision); w.Write(e.CommitAge); return; }
+        if (e.Kind == 5) { w.Write(e.CueReady); w.Write(e.CueStrength); w.Write(e.HasSharedCue);
+          if (e.HasSharedCue) { w.Write(e.SharedCueReady); w.Write(e.SharedCueStrength); w.Write(e.SharedGuideOwner); } return; }
+        w.Write(e.PublicClaim); w.Write(e.Module); w.Write(e.Structure);
+        if (e.Kind == 1)
+        {
+            w.Write(e.ParentModule); w.Write(e.Binding); w.Write(e.ParentAlpha); w.Write(e.Visible);
+            w.Write(e.Hand); Floats(w, e.Pose); w.Write(e.HasCanvasUpdate);
+            if (e.HasCanvasUpdate) w.Write(e.HasCanvasFrame);
+            if (e.HasCanvasUpdate && e.HasCanvasFrame)
+            { Floats(w, e.CanvasPose); Floats(w, e.CanvasRect); Floats(w, e.CanvasSettings);
+              w.Write(e.CanvasSortingOrder); w.Write(e.CanvasSortingLayer); }
+        }
+        else { w.Write(e.Binding); w.Write(e.Property); if (e.Kind == 4) w.Write(e.Offset);
+          w.Write((byte)e.Numbers.Length); Floats(w, e.Numbers); }
+    }
+
+    private static TownServiceMotionEntry ReadEntry(BinaryReader r, byte kind)
+    {
+        var e = new TownServiceMotionEntry { Kind = kind, Lane = r.ReadByte(), Service = r.ReadByte(), Session = r.ReadUInt32() };
+        if (kind == 3) { e.Revision = r.ReadUInt32(); e.CommitAge = r.ReadSingle(); Validate(e); return e; }
+        if (kind == 5)
+        { e.CueReady = Bool(r); e.CueStrength = r.ReadSingle(); e.HasSharedCue = Bool(r);
+          if (e.HasSharedCue) { e.SharedCueReady = Bool(r); e.SharedCueStrength = r.ReadSingle(); e.SharedGuideOwner = r.ReadInt32(); }
+          Validate(e); return e; }
+        e.PublicClaim = r.ReadUInt32(); e.Module = r.ReadUInt16(); e.Structure = r.ReadUInt32();
+        if (kind == 1)
+        {
+            e.ParentModule = r.ReadUInt16(); e.Binding = r.ReadUInt32(); e.ParentAlpha = r.ReadSingle();
+            e.Visible = Bool(r); e.Hand = r.ReadByte(); e.Pose = Floats(r, 10); e.HasCanvasUpdate = Bool(r);
+            if (e.HasCanvasUpdate) e.HasCanvasFrame = Bool(r);
+            if (e.HasCanvasUpdate && e.HasCanvasFrame)
+            { e.CanvasPose = Floats(r, 10); e.CanvasRect = Floats(r, 4); e.CanvasSettings = Floats(r, 5);
+              e.CanvasSortingOrder = r.ReadInt32(); e.CanvasSortingLayer = r.ReadInt32(); }
+        }
+        else if (kind is 2 or 4)
+        { e.Binding = r.ReadUInt32(); e.Property = r.ReadUInt16(); if (kind == 4) e.Offset = r.ReadUInt16(); int n = r.ReadByte();
+          if (kind == 2 ? !TownServiceFastNumbers.Valid(e.Property, n) : !TownServiceFastNumbers.IsMaterial(e.Property) || n < 1 || n > 40)
+              throw new InvalidDataException("Invalid fast native property.");
+          e.Numbers = Floats(r, n); }
+        else throw new InvalidDataException("Unknown fast town motion kind.");
+        Validate(e); return e;
+    }
+    private static bool Bool(BinaryReader r)
+    { byte v = r.ReadByte(); if (v > 1) throw new InvalidDataException("Invalid motion boolean."); return v != 0; }
+    private static void Floats(BinaryWriter w, float[] values) { foreach (float v in values) w.Write(v); }
+    private static float[] Floats(BinaryReader r, int n)
+    { var values = new float[n]; for (int i = 0; i < n; i++) values[i] = r.ReadSingle(); return values; }
+    private static bool Finite(float v) => !float.IsNaN(v) && !float.IsInfinity(v);
+    private static void CheckFloats(float[] values, int n)
+    { if (values.Length != n) throw new InvalidDataException("Invalid fast motion shape.");
+      foreach (float v in values) if (!Finite(v)) throw new InvalidDataException("Nonfinite fast motion value."); }
+    private static void Validate(TownServiceMotionEntry e)
+    {
+        if (e.Kind < 1 || e.Kind > 5 || e.Lane > 2 || e.Service < 1 || e.Service > 3 || e.Session == 0
+            || e.Lane != 0 && e.Service != 1) throw new InvalidDataException("Invalid fast town motion affinity.");
+        if (e.Kind == 3)
+        { if (e.Lane != 0 || e.Service != 2 || e.Revision == 0 || !Finite(e.CommitAge) || e.CommitAge < 0f || e.CommitAge > 30f)
+              throw new InvalidDataException("Invalid fast donation clock."); return; }
+        if (e.Kind == 5)
+        { if (e.Lane != 0 || e.Service != 3 || !Finite(e.CueStrength) || e.CueStrength < 0f || e.CueStrength > 1f
+              || !Finite(e.SharedCueStrength) || e.SharedCueStrength < 0f || e.SharedCueStrength > 1f
+              || e.HasSharedCue && (e.SharedCueReady ? e.SharedGuideOwner <= 0 : e.SharedGuideOwner != 0))
+              throw new InvalidDataException("Invalid shared mage cue."); return; }
+        if (e.Module >= TownServiceFrame.VoiceModule || e.Structure == 0 || e.Lane != 1 && e.PublicClaim != 0)
+            throw new InvalidDataException("Invalid fast town module identity.");
+        if (e.Kind == 1)
+        {
+            CheckFloats(e.Pose, 10);
+            if (e.Hand > 4 || !Finite(e.ParentAlpha) || e.ParentAlpha < 0f || e.ParentAlpha > 1f)
+                throw new InvalidDataException("Invalid fast root visibility.");
+            if (e.HasCanvasUpdate && e.HasCanvasFrame) { CheckFloats(e.CanvasPose, 10); CheckFloats(e.CanvasRect, 4); CheckFloats(e.CanvasSettings, 5); }
+        }
+        else
+        { if (e.Kind == 2 ? !TownServiceFastNumbers.Valid(e.Property, e.Numbers.Length)
+              : !TownServiceFastNumbers.IsMaterial(e.Property) || e.Numbers.Length != 1
+                || e.Offset > 640 || !TownServiceFastNumbers.MaterialNumber(e.Offset))
+              throw new InvalidDataException("Invalid fast numeric property.");
+          CheckFloats(e.Numbers, e.Numbers.Length); }
+    }
+}

@@ -19,7 +19,9 @@ internal sealed class TownServiceLaneSendQueue
     private TownServiceFrame? _sentManifest;
     private double _nextManifest;
     private readonly ExtrasSendQueue _bundle;
+    private readonly ExtrasSendQueue _urgentBundle;
     private readonly List<TownServiceFrame> _bundleFrames = new();
+    private readonly List<TownServiceFrame> _urgentBundleFrames = new();
     private readonly Dictionary<ushort, byte[]> _bundleBytes = new();
     private readonly HashSet<ushort> _promotedBundle = new();
     private uint _session;
@@ -28,6 +30,10 @@ internal sealed class TownServiceLaneSendQueue
     {
         _seed = seed;
         _bundle = new ExtrasSendQueue((seed & ~65535UL) | TownServiceFrame.BundleStream,
+            TownServiceCodec.MessageType, TownServiceCodec.FragmentType,
+            snapshotLimit: TownServiceFrame.MaxBytes, sequenceStride: 131072,
+            counterMask: TownServiceFragments.StockLaneMarker - 1, fixedMarker: seed & TownServiceFragments.StockLaneMarker);
+        _urgentBundle = new ExtrasSendQueue((seed & ~65535UL) | TownServiceFrame.UrgentBundleStream,
             TownServiceCodec.MessageType, TownServiceCodec.FragmentType,
             snapshotLimit: TownServiceFrame.MaxBytes, sequenceStride: 131072,
             counterMask: TownServiceFragments.StockLaneMarker - 1, fixedMarker: seed & TownServiceFragments.StockLaneMarker);
@@ -108,11 +114,9 @@ internal sealed class TownServiceLaneSendQueue
             return null;
         }
         if (urgent) _priorityActive = null; else _normalActive = null;
-        if (!urgent)
-        {
-            byte[]? batch = TakeBundle(now);
-            if (batch != null || _bundle.HasInFlight || _bundle.HasPending) return batch;
-        }
+        byte[]? batch = TakeBundle(now, urgent);
+        ExtrasSendQueue bundleQueue = urgent ? _urgentBundle : _bundle;
+        if (batch != null || bundleQueue.HasInFlight || bundleQueue.HasPending) return batch;
         for (int i = 0; i < _order.Count; i++)
         {
             int cursor = urgent ? _priorityCursor : _cursor;
@@ -130,32 +134,40 @@ internal sealed class TownServiceLaneSendQueue
         }
         return null;
     }
-    private byte[]? TakeBundle(double now)
+    private byte[]? TakeBundle(double now, bool urgent)
     {
-        if (!_bundle.HasInFlight && !_bundle.HasPending)
+        ExtrasSendQueue bundle = urgent ? _urgentBundle : _bundle;
+        List<TownServiceFrame> frames = urgent ? _urgentBundleFrames : _bundleFrames;
+        if (!bundle.HasInFlight && !bundle.HasPending)
         {
-            var bytes = new List<byte[]>(); _bundleFrames.Clear(); _bundleBytes.Clear(); _promotedBundle.Clear(); int size = 2;
+            var bytes = new List<byte[]>(); frames.Clear();
+            if (!urgent) { _bundleBytes.Clear(); _promotedBundle.Clear(); }
+            int size = 2;
             // Group neighboring native output before compression so repeated TMP styles,
             // material tables and card bodies cost once per bounded snapshot. Never wait
             // for a fuller batch: a lone changed module can leave on this same turn.
             for (int i=0; i<_order.Count && bytes.Count<TownServiceCodec.MaxBundleFrames; i++)
             {
-                if (_cursor>=_order.Count) _cursor=0; ushort id=_order[_cursor++];
-                if(id==TownServiceFrame.ManifestModule||_priority.Contains(id)||id==_priorityActive)continue;
+                int cursor = urgent ? _priorityCursor : _cursor;
+                if (cursor >= _order.Count) cursor = 0; ushort id = _order[cursor++];
+                if (urgent) _priorityCursor = cursor; else _cursor = cursor;
+                if (id == TownServiceFrame.ManifestModule || _priority.Contains(id) != urgent
+                    || id == (urgent ? _normalActive : _priorityActive)) continue;
                 ExtrasSendQueue queue=_queues[id];int length=queue.PendingLength;
                 if(length==0)continue;
-                if(size+2+length>58000){_cursor--;break;}
+                if(size+2+length>58000){if(urgent)_priorityCursor--;else _cursor--;break;}
                 if(!queue.TryTakePending(out byte[]? packet,out object? identity))continue;
                 bytes.Add(packet!);size+=2+length;
-                if(identity is TownServiceFrame frame){_bundleFrames.Add(frame);_bundleBytes[id]=packet!;}
+                if(identity is TownServiceFrame frame){frames.Add(frame);if(!urgent)_bundleBytes[id]=packet!;}
             }
             if(bytes.Count==0)return null;
             byte[] container=TownServiceCodec.WriteBundle(bytes);
-            _bundle.Enqueue(container,container.Length);
+            bundle.Enqueue(container,container.Length);
         }
-        byte[]? page=_bundle.Next(now);
-        if(page!=null&&!_bundle.HasInFlight)
-        { foreach(TownServiceFrame frame in _bundleFrames)TownServiceDelivery.Completed?.Invoke(frame);_bundleFrames.Clear();_bundleBytes.Clear();_promotedBundle.Clear(); }
+        byte[]? page=bundle.Next(now);
+        if(page!=null&&!bundle.HasInFlight)
+        { foreach(TownServiceFrame frame in frames)TownServiceDelivery.Completed?.Invoke(frame);frames.Clear();
+          if(!urgent){_bundleBytes.Clear();_promotedBundle.Clear();} }
         return page;
     }
     private static void Completed(ExtrasSendQueue queue)
@@ -171,7 +183,7 @@ internal sealed class TownServiceLaneSendQueue
     }
     internal void Clear()
     { foreach (var pair in _queues) { _sequences[pair.Key] = pair.Value.Sequence; pair.Value.Clear(); }
-        _bundle.Clear(); _bundleFrames.Clear(); _bundleBytes.Clear(); _promotedBundle.Clear(); _queues.Clear(); _order.Clear(); _priority.Clear(); _cursor = _priorityCursor = _priorityTurns = 0;
+        _bundle.Clear(); _urgentBundle.Clear(); _bundleFrames.Clear(); _urgentBundleFrames.Clear(); _bundleBytes.Clear(); _promotedBundle.Clear(); _queues.Clear(); _order.Clear(); _priority.Clear(); _cursor = _priorityCursor = _priorityTurns = 0;
         _normalActive = _priorityActive = null; _manifestBytes = null; _manifestFrame = _sentManifest = null; _nextManifest = 0; }
     internal static bool SameIdentity(TownServiceFrame a, TownServiceFrame b) => a.VisitorStock == b.VisitorStock && a.PublicCatalog == b.PublicCatalog && a.PublicClaim == b.PublicClaim && a.Session == b.Session
         && a.Service == b.Service && a.Module == b.Module && a.Template == b.Template && a.TemplateAddress == b.TemplateAddress && a.Structure == b.Structure

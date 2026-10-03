@@ -227,7 +227,8 @@ namespace GloomhavenVR.Cards
         {
             internal GloomhavenVR.WorldUI.ItemCardUI? NativeItemCard;
             internal Transform InspectionMount => transform;
-            internal Transform? InspectionBody, Holder;
+            internal Transform? InspectionBody;
+            internal GloomhavenVR.Hands.VRHand? Holder;
             internal bool TownOffering;
             internal Item? Item;
         }

@@ -28,6 +28,11 @@ def sources(root):
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
     stock = base / "Net/TownServices/TownServiceMirror.Stock.cs"
     if stock.exists(): bound[stock.name] = stock.read_text()
+    for fast in ("TownServiceFastNumbers", "TownServiceMotionCodec", "TownServiceMirror.Motion"):
+        path = base / "Net/TownServices" / (fast + ".cs")
+        if path.exists(): bound[path.name] = path.read_text()
+    pad = base / "Hands/Interact/PokeOnlyTarget.cs"
+    if pad.exists(): bound[pad.name] = pad.read_text()
     stock_publisher = base / "WorldUI/TownServices/TownServiceSync.Stock.cs"
     if stock_publisher.exists(): bound[stock_publisher.name] = stock_publisher.read_text()
     face = base / "WorldUI/TownServices/TownServiceCardFace.cs"
@@ -57,7 +62,7 @@ def sources(root):
     wrappers = publisher[publisher.index("    private static readonly TownServiceSync Private"):publisher.index("    private sealed class Published")]
     wrappers = wrappers.replace("internal static void Prepare() => Private.PrepareCore();", "")
     network = next(line for line in publisher.splitlines() if "internal static void ResetNetwork()" in line)
-    bound["PublisherTick.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing GloomhavenVR.Net;\nusing GloomhavenVR.Net.TownServices;\nusing GloomhavenVR.Cards;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceSync {\n" + wrappers + "\n" + network + "\n" + "\n".join(expression(publisher, declaration) for declaration in declarations) + "\n" + "\n".join(method(publisher, signature) for signature in signatures) + "\n}\n"
+    bound["PublisherTick.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing GloomhavenVR.Hands;\nusing GloomhavenVR.Net;\nusing GloomhavenVR.Net.TownServices;\nusing GloomhavenVR.Cards;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceSync {\n" + wrappers + "\n" + network + "\n" + "\n".join(expression(publisher, declaration) for declaration in declarations) + "\n" + "\n".join(method(publisher, signature) for signature in signatures) + "\n}\n"
     publish = method(publisher, "private void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null, bool prewarm = false)").replace("private void Publish(", "private void PublishNative(", 1)
     bound["PublisherNative.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing UnityEngine;\nusing GloomhavenVR.Net.TownServices;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceSync {\n" + publish + "\n}\n"
     catalog = (base / "WorldUI/TownServices/TownServiceCatalog.cs").read_text()
@@ -208,7 +213,6 @@ def main():
                 ("async-cabinet-epoch-spent", "TownServiceCabinetAudio.cs", "else StartPending();", "else _pending = false;", "late-loaded cabinet clip joins its pending owner epoch at the current sound phase"),
                 ("decision-step", "TownServiceMotion.cs", "? Mathf.Clamp(sampleInterval * 1.1f, 1f / 90f, .25f)",
                  "? Mathf.Clamp(sampleInterval, 1f / 90f, .1f)", "palm decision rotates continuously between 5 Hz owner samples"),
-                ("offering-priority", "PublisherTick.cs", "chip.Holder != null || chip.TownOffering", "chip.Holder != null", "floating owned offering has animation publication priority"),
                 ("private-public-collision", "TownServiceMirror.cs", "peer = -peer; _observedPublicClaim", "peer = Math.Abs(peer); _observedPublicClaim", "late public author receives every cold-page physical slot instead of its local pool order"),
                 ("unfrozen-inspection-backing", "LazyNativeTemplates.cs", "Freeze(key, bodyEntry); Entries.Add(key, bodyEntry);", "Entries.Add(key, bodyEntry);", "lazy inspection backing has publication partitions on its first request"),
                 ("inspection-native-gate", "PublisherTick.cs", "if (!active && !inspection && returns.Count == 0)", "if (!active && returns.Count == 0)", "closed native shop publishes all 512 owned faces and original backings exactly once"),

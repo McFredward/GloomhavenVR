@@ -8,12 +8,13 @@ using GloomhavenVR.Hands.Interact;
 namespace GloomhavenVR.Hands.Interact { internal interface IGrabbable { } }
 namespace GloomhavenVR.Hands
 {
+    internal enum HandSide { Left, Right }
     internal enum HapticPreset { HoverTick }
     internal sealed class VRHand
     {
         internal bool HasPose=true, TriggerDown;
         internal float WorldScale=1f;
-        internal string Side="fixture";
+        internal HandSide Side;
         internal readonly Grabber Grabber=new(); internal readonly Ray Ray=new();
         internal readonly UiRay RayUgui=new(); internal readonly HandRig Rig=new();
         internal int Haptics;
@@ -22,8 +23,8 @@ namespace GloomhavenVR.Hands
     internal sealed class Grabber { internal IGrabbable? Held; }
     internal sealed class Ray { internal bool Enabled=true; internal int Claims; internal void SuppressFarClick()=>Claims++; }
     internal sealed class UiRay { internal bool HasHit; }
-    internal sealed class HandRig { internal Transform IndexTip=null!, PalmCenter=null!; }
-    internal static class VRHands { internal static VRHand? Left,Right; }
+    internal sealed class HandRig { internal Transform IndexTip=null!, PalmCenter=null!, Root=null!, GrabAnchor=null!; }
+    internal static class VRHands { internal static VRHand? Left,Right; internal static VRHand? Primary => Right; }
 }
 namespace GloomhavenVR.Cards
 {
