@@ -348,6 +348,12 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             # Raw recovery and immutable original inputs retain their GUIDs/bytes.
             exclude_recovered_package_plugins(project)
             isolate_original_compiler_namespace(project)
+            # Unity also treats asset paths as case-insensitive on Linux. Distinct
+            # bundled/Resources variants need unique physical paths, with every
+            # GUID, callback and original Addressables key retained.
+            command([sys.executable, str(source / "tools/quest-recovery/case_paths.py"),
+                     "--project", str(project)],
+                    output / "logs" / ("startup-case-paths-" + key[:12] + ".log"))
         manifest = project / "Assets/StreamingAssets/Quest/input-manifest.json"
         write_json(manifest, inputs)
         settings = project / "QuestBuilderSettings.json"
