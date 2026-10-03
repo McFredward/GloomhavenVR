@@ -25,12 +25,6 @@ The final reviewed APK SHA-256 starts with `5818e9d22cd47`; the full value is in
 the receipt. It comes from runtime/tool commit `cc041fab`. Earlier APKs without
 explicit runtime shader retention were replaced; use the current file above.
 
-For repeated Windows hardware tests, use
-[the wireless installer](QUEST3-WIRELESS-INSTALL.md): double-click
-`scripts/install-quest-wireless.cmd`. The first run uses an authorized USB Quest
-to discover and remember the WLAN connection; later runs reconnect wirelessly
-and install the current verified builder output or private handoff.
-
 The package is `dev.gloomhavenvr.quest`. Enable the headset's existing developer
 mode/ADB authorization, then install from a PC with Android platform tools:
 
