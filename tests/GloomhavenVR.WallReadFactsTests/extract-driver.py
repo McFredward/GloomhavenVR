@@ -6,8 +6,8 @@ import sys
 source = pathlib.Path(sys.argv[1]).read_text()
 prepare_source = pathlib.Path(sys.argv[4]).read_text() if len(sys.argv) > 4 else pathlib.Path(__file__).parents[2].joinpath('src/GloomhavenVR/Core/WallFade/WallSegmentFade.Prepare.cs').read_text()
 mounted_source = pathlib.Path(sys.argv[3]).read_text() if len(sys.argv) > 3 else pathlib.Path(__file__).parents[2].joinpath('src/GloomhavenVR/Core/WallFade/WallSegmentFade.Mounted.cs').read_text()
-assert '|| IsNativeHexSelectionVisual(r);' in source, 'Native selection ownership must reach the production classifier'
-assert 'bool modExempt = f.Mod && !(f.Mesh != null && f.WallFadeShader);' in source, 'Actual wall shader membership must retain its conservative signature even under UI ownership'
+assert 'f.Mod = IsModPresentation(r, n) || IsNativeHexSelectionVisual(r);' in source, 'Exact presentation ownership must reach the production classifier'
+assert 'private static bool IsModObject(Renderer r) => IsModPresentation(r, r.name);' in source, 'Live adoption must share the exact cold ownership verdict'
 
 
 def member(signature, source=source):
@@ -30,7 +30,55 @@ assert re.search(r'using\s*\(Phase\(CommitPhase.WallCache\)\)\s*\{\s*'
                  r'BeginWallCacheMaterialFacts\(\);\s*try\s*\{\s*CommitWallCache\(\);\s*\}'
                  r'\s*finally\s*\{\s*EndWallCacheMaterialFacts\(\);\s*\}', commit), \
     'Wall material memo must bracket the real synchronous WallCache phase with finally'
+def expression(signature, source=source):
+    assert source.count(signature) == 1, 'Wall expression extraction seam changed: ' + signature
+    start = source.index(signature)
+    return source[start:source.index(';', start) + 1]
+
+
+def ownership_source():
+    root = pathlib.Path(sys.argv[1]).parent if '--ownership-only' in sys.argv else pathlib.Path(__file__).parents[2] / 'src/GloomhavenVR/Core/WallFade'
+    rows = root.joinpath('WallSegmentFade.CommitPhases.cs').read_text()
+    water = root.joinpath('WallSegmentFade.Water.cs').read_text()
+    result = '#nullable enable\nusing System;\nusing System.Collections.Generic;\nusing UnityEngine;\n'
+    result += 'namespace GloomhavenVR.Core;\ninternal static partial class WallSegmentFade\n{\n'
+    for signature in ('    internal static bool IsWallFadeShaderName(',
+                      '    internal static bool IsFoliageShaderName('):
+        result += expression(signature) + '\n'
+    result += 'private sealed partial class FadeDriver\n{\n'
+    for signature in ('        private struct RendererFact',
+                      '        private void ClassifyMaterialsAndName(',
+                      '        private void ClassifySlice('):
+        result += member(signature) + '\n'
+    result += expression('        private static bool IsModObject(') + '\n'
+    for signature in ('        private bool IsWaterShader(', '        private static bool IsWaterNameFamily('):
+        result += member(signature, water) + '\n'
+    result += expression('        private static readonly string[] WaterNameTokens', water) + '\n'
+    for signature in ('        private const ulong FnvOffset', '        private const ulong FnvPrime',
+                      '        private const ulong DeadRendererSigTerm'):
+        result += expression(signature, prepare_source) + '\n'
+    for signature in ('        private static ulong FoldSig(',
+                      '        private void FoldSceneFact(', '        private void FoldNarrowSceneFact(',
+                      '        private void FoldFigureSetFact('):
+        result += member(signature, prepare_source) + '\n'
+    result += expression('        private bool SceneRowWasExemptWhenAlive(', rows) + '\n'
+    result += member('        private void RecordSceneFactRow(', rows) + '\n'
+    for signature in ('        private const byte SigRowExempt', '        private const byte SigRowFigure'):
+        result += expression(signature, rows) + '\n'
+    result += '}\n}\n'
+    return result
+
+
+if '--ownership-only' in sys.argv:
+    text = ownership_source()
+    seam = '\n}\n}\n'
+    pos = text.rindex(seam)
+    text = text[:pos] + member('        private static void BeginFigureMemo()') + '\n' + member('        private static void EndFigureMemo()') + text[pos:]
+    pathlib.Path(sys.argv[2]).write_text(text)
+    sys.exit(0)
+
 text = '''#nullable enable
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 namespace GloomhavenVR.Core;
@@ -50,4 +98,5 @@ for signature in ('        private readonly struct ShaderFadeName',
 text += member('        private static bool IsActuallyDrawing(Renderer r)', mounted_source) + '\n'
 text += member('        private void VerifyPrepareStillValid(TilesOcclusionGenerator gen)', prepare_source) + '\n'
 text += '    }\n}\n'
+pathlib.Path(sys.argv[2]).with_name('OwnershipReads.g.cs').write_text(ownership_source())
 pathlib.Path(sys.argv[2]).write_text(text)

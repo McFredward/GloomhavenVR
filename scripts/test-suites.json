@@ -1308,6 +1308,12 @@
       "weight": 12
     },
     {
+      "id": "card-diagnostic-runtime",
+      "command": ["python3", "scripts/check-card-diagnostic-runtime.py"],
+      "groups": ["local"],
+      "weight": 90
+    },
+    {
       "id": "figure-overlay-runtime",
       "command": ["python3", "scripts/check-figure-overlay-runtime.py"],
       "groups": ["local"],

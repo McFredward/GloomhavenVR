@@ -4,7 +4,9 @@ Implementation was explicitly authorized on 2026-10-03 after the planning-only
 instruction. The maintainer requested a new branch from current `dev` and work
 until a first state can be tested on hardware. The isolated integration branch
 is `feature/quest3-standalone`, starting from `5344a550`, ModBuild 607.
-The concurrent main `dev` checkout and original game references remain untouched.
+Original game references remain untouched. The parallel `dev` Frame608 changes
+through `8146ed02` were merged into the Quest branch before the final checkpoint.
+The combined checkpoint uses ModBuild609, retaining the Frame608 notes and behavior.
 
 The maintainer also explicitly authorized a visibly marked dummy identity for
 builds on this host. The local diagnostic uses name `Quest Local Test (DUMMY)`,
@@ -60,14 +62,10 @@ nor the mandatory eye-tracking feature is present. Validation additionally requi
 the actual Unity/OpenXR/passthrough libraries and checks every native ELF header
 for little-endian AArch64 shared-object code.
 
-The final local APK is 30,847,254 bytes, SHA-256
-`064986fdb1d5023ad07d79a54a84290e7d63f440ecd607e13f5b885fc93d8c20`,
-compiled from runtime/tool commit `7ded8773` and input key
-`d5d66d1462a6358c572bc66d81da9d2ab0d8713caf5fc06c6806e90ee8aa4dd1`.
-It is copied with a public-data-only receipt into the main checkout's ignored
-`.planning/debug/quest3/` for private hardware testing. The builder's default
+The final private APK and exact content/source hashes are recorded in the main
+checkout's ignored `.planning/debug/quest3/handoff.json`. The builder's default
 `.planning/quest3-local/` is also ignored, including its local signing/account data.
-See [hardware steps and limits](QUEST3-HARDWARE-608.md). No headset was attached
+See [hardware steps and limits](QUEST3-HARDWARE-609.md). No headset was attached
 to the build host, so passthrough/tracking/images have not been verified on Quest.
 
 Original core recovery has produced 13 build scenes and original managed plugins.

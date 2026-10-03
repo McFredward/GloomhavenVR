@@ -13,12 +13,13 @@ reporter = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(reporter)
 
 
-def frame(mean="40.00", distance="45.0", visible="7", tag=""):
+def frame(mean="40.00", distance="45.0", visible="7", tag="", height=("5.0", "4.0", "6.0")):
+    h, hmin, hmax = height
     return (f"[Info:GloomhavenVR] [Perf] FRAME 30.0s n=300 | display 24.0Hz budget 41.67ms "
             f"(XRDisplaySubsystem.TryGetDisplayRefreshRate) | frametime mean {mean} p50 38.00 "
             f"p95 55.00 p99 70.00 max 80.00ms | over-budget 100/300 | "
-            f"mod 10.00ms/frame avg, worst 20.00ms (25%) | view height p50 5.0 "
-            f"(4.0..6.0) dist p50 {distance} (44.0..46.0) wu above/from the board plane "
+            f"mod 10.00ms/frame avg, worst 20.00ms (25%) | view height p50 {h} "
+            f"({hmin}..{hmax}) dist p50 {distance} (44.0..46.0) wu above/from the board plane "
             f"| visible p50 {visible} renderer(s) | xr gpu 40.00ms [NOT usable as GPU busy time]{tag}\n")
 
 
@@ -162,6 +163,39 @@ class FrameReportTests(unittest.TestCase):
         self.assertEqual(result["mean_delta_ms"], 5.0)
         self.assertNotIn("figure_state_unverified", result["flags"])
         self.assertIsNone(a["gpu_busy_ms"])
+
+    def test_negative_board_relative_height_recovers_hardware_pose(self):
+        # Build607 window40 is below the board for part of a large motion sweep.
+        # A negative median must preserve the complete bounds, so comparisons
+        # reject movement from its evidence instead of losing the pose entirely.
+        hardware_pose = frame(distance="45.2", height=("-3.9", "-14.5", "11.7"),
+                              tag=figure_tag()).replace("(44.0..46.0)", "(37.3..47.6)")
+        log = start_log() + heartbeat("tracked") + hardware_pose + SPLIT + quality()
+        window = self.parse(log)["windows"][1]
+        self.assertEqual(window["pose"], {
+            "height_p50": -3.9, "height_min": -14.5, "height_max": 11.7,
+            "distance_p50": 45.2, "distance_min": 37.3, "distance_max": 47.6})
+        result = reporter.compare(window, window, same_file=True)
+        self.assertIn("pose_not_stable", result["reject"])
+        self.assertNotIn("pose_unavailable", result["reject"])
+        self.assertIsNone(result["mean_delta_ms"])
+
+    def test_negative_height_keeps_existing_figure_ab_exclusions(self):
+        height = ("-2.0", "-3.9", "-0.7")
+        _, a, b = self.parse(start_log() + tracked_frame(height=height, tag=figure_tag())
+            + tracked_frame(height=height, tag=figure_tag(players=100)))["windows"]
+        self.assertTrue(reporter.compare(a, b, same_file=True)["comparable"])
+        for candidate, reason in (
+            (dict(b, figure_status="preparing"), "figure_not_steady"),
+            (dict(b, figure_status="mixed"), "figure_not_steady"),
+            (dict(b, tracking="untracked"), "hmd_not_tracked"),
+            (dict(b, pose=dict(b["pose"], height_p50=-10.0)), "pose_mismatch"),
+        ):
+            with self.subTest(reason=reason):
+                result = reporter.compare(a, candidate, same_file=True)
+                self.assertFalse(result["comparable"])
+                self.assertIn(reason, result["reject"])
+                self.assertIsNone(result["mean_delta_ms"])
 
     def test_figure_fx_and_cloth_changes_are_confounds(self):
         for tag, reason in ((figure_tag(fx=100), "figure_fx_mismatch"),

@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Quest branch checkpoint, 2026-10-03: `feature/quest3-standalone`, ModBuild 608.**
+**Quest branch checkpoint, 2026-10-03: `feature/quest3-standalone`, ModBuild 609.**
 
 The maintainer explicitly authorized implementation on a new branch from current
 `dev` (`5344a550`, Build607). This isolated branch includes the owned-game local
@@ -8,9 +8,9 @@ builder, asset recovery/audit, generated static Harmony integration, an Android
 OpenXR template and native passthrough composition in Unity's existing XR session.
 A signed ARM64 IL2CPP hardware diagnostic with the original animated BanditGuard
 asset is available privately; it uses the explicitly authorized DUMMY profile.
-The concurrent main `dev` checkout remains untouched. This branch status does not
-change the Frame hardware acceptance or imply that its desktop package is the
-Quest app.
+The latest parallel Frame608 changes are retained in this branch. Quest diagnostic
+evidence does not change Frame hardware acceptance or imply that its desktop
+package is the Quest app.
 
 The checkpoint tests head/controllers, native passthrough, local diagnostic storage,
 embedded identity and disabled Guildmaster/Workshop tooltip presentation. It is
@@ -20,11 +20,49 @@ deferred bundles; standalone lifecycle/content-root and original IL2CPP/platform
 startup remain required. Compilation/signing and source tests are separate from
 unverified Quest images, tracking and performance. See
 [Quest implementation evidence](QUEST3-IMPLEMENTATION.md) and
-[private hardware test procedure](QUEST3-HARDWARE-608.md).
+[private hardware test procedure](QUEST3-HARDWARE-609.md).
 
-The following records the `dev`/Steam Frame baseline this branch started from:
+The following records the preserved `dev`/Steam Frame baseline:
 
-**Updated 2026-10-02: dev 1.1.0 / ModBuild 607, figure measurement boundaries and window materialization toggle.**
+**Updated 2026-10-03: dev 1.1.0 / ModBuild 608, Frame607 hitch analysis and targeted interaction optimizations.**
+
+The new Frame607 hardware capture confirms real figure/FX/cloth application, including
+34.87% fewer admitted body vertices at 0/0. It does not isolate the slider FPS benefit:
+all settled markers are 0/0, other quality intervals have active VR Options, and many
+stationary samples are untracked. Both supplied logs identify607/5344a5504 and describe
+the same run. Loaded interaction frames still reach 200–500 ms, with source-backed
+card capture/census, prop pickup and atomic wall-table work. Actual GPU busy remains
+unavailable; conditional managed heap samples fall repeatedly and do not prove a leak.
+See [Frame607 hitch analysis](../docs/performance/FRAME-607-HITCH-ANALYSIS.md).
+
+Build608 removes false wall invalidation from native-named visual ghost children via
+their exact FigureVisualMirror owner, retaining real native and wall-shader signatures.
+The native HexHighlight root emitter is also identified by its exact same-object
+HexSelect_Control; unrelated descendants keep their conservative world facts.
+Synchronous card diagnostic work is Debug-gated, bounded across frames and genuinely
+deduplicated; blackout keeps native correction/recovery while bypassing repeated
+unprintable inventories and impossible bright/translucent candidates. The offline
+reader now accepts negative head-height medians, recovering eight pose records without
+relaxing measurement exclusions. No render feature, wire layout or asset bank changes.
+First-use mip readback and native/prop work remain targets. The current prewarm feeds
+already-adopted card widgets, not all party hands or complete mip caches; loading-time
+coverage needs the actual native hand skins and must not activate gameplay controllers.
+Hardware cadence for608 and a controlled figure-slider FPS benefit remain unverified.
+
+Final integrated validation on runtime commit `06cdfa01` passes **14/14 source suites,
+103/103 local suites and 286,760 wire/golden assertions**, strict Release with zero
+warnings/errors, five bilingual document pairs and independent suite/log-hash coverage
+verification. The complete local run took 689.2 s with eight jobs. Input source hashes
+remain identical to the validated tree. Against the preserved reviewed607 assembly,
+only the three intended behavior types (card half-tone diagnostics, face blackout and
+wall fade) and eight build-constant-only types change; no type/reference is added or
+removed. Guard exit1 reflects its historical compiled comparison, not a failed gate.
+Real Unity card proofs pass 486 assertions and ten defect controls; wall classifier
+proofs pass 19,479 assertions and 21 controls; original-native local/remote figure
+proofs pass 184 assertions and 18 controls. Evidence and compiled/source/artifact hashes
+are retained in `.planning/debug/frame608-final-validation/`, with the native selector
+asset graph and compact worker proofs in `.planning/debug/frame608-wall-ownership-worker/`.
+No608 hardware performance or full party-hand prewarm outcome is claimed.
 
 Build607 separates player/enemy/figure-FX/cloth measurement windows at the early
 Update seam, retaining OLD settings on completed samples and discarding one mixed
@@ -53,7 +91,7 @@ failed subordinate gate. Proof and source hashes are retained under
 assertions and seven controls, and the MR/switch suite has 576 assertions and
 seven controls. An independent review additionally removed mixed-frame work-counter
 contributions and omitted unfinished native captures at the boundary. Build607
-hardware cadence and appearance remain unverified; no new FPS gain is claimed. See
+hardware now confirms slider application and remaining hitches; no isolated FPS gain is claimed. See
 [Build607 measurements and test procedure](../docs/performance/FRAME-607-MEASUREMENTS.md).
 
 The maintainer approved the Frame605 optimization follow-up and clarified spectator

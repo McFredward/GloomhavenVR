@@ -1,4 +1,4 @@
-# Quest 3 hardware checkpoint — ModBuild 608
+# Quest 3 hardware checkpoint — ModBuild 609
 
 This is a signed Android ARM64 IL2CPP **hardware diagnostic**, built from the
 maintainer's locally owned game. It contains a genuinely recovered animated
@@ -12,7 +12,7 @@ The reviewed handoff is retained in the main checkout's ignored hardware-evidenc
 directory:
 
 ```text
-.planning/debug/quest3/GloomhavenVR-Quest-B608.apk
+.planning/debug/quest3/GloomhavenVR-Quest-B609.apk
 .planning/debug/quest3/handoff.json
 ```
 
@@ -26,7 +26,7 @@ mode/ADB authorization, then install from a PC with Android platform tools:
 
 ```sh
 adb devices
-adb install -r /path/to/GloomhavenVR-Quest-B608.apk
+adb install -r /path/to/GloomhavenVR-Quest-B609.apk
 adb shell am start -n dev.gloomhavenvr.quest/com.unity3d.player.UnityPlayerActivity
 ```
 

@@ -10,7 +10,7 @@ project="$repo_root/tests/GloomhavenVR.WallReadFactsTests/GloomhavenVR.WallReadF
 dotnet run --project "$project" --configuration Release
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
-for mutation in material-no-cache material-retained figure-no-cache figure-retained gate-inverted phase-unbounded material-bypass-ignored figure-bypass-ignored selection-owner-broadened drawing-force-ignored masked-restitution-lost prepared-cross-frame prepared-label-unshared prepare-room-gate-omitted; do
+for mutation in material-no-cache material-retained figure-no-cache figure-retained gate-inverted phase-unbounded material-bypass-ignored figure-bypass-ignored selection-owner-broadened drawing-force-ignored masked-restitution-lost prepared-cross-frame prepared-label-unshared prepare-room-gate-omitted mirror-owner-ignored mirror-cache-ignored mirror-cache-unbounded mirror-wall-signature-unconditional mirror-death-reclassified root-selection-owner-broadened root-selection-owner-ignored; do
     python3 - "$repo_root" "$mutation_dir" "$mutation" <<'PY'
 import pathlib
 import sys
@@ -39,11 +39,25 @@ changes = {
     'prepared-label-unshared': ('if (_standingLabels.TryGetValue(root, out StandingLabel cached)',
                               'if (bool.Parse("false") && _standingLabels.TryGetValue(root, out StandingLabel cached)'),
     'prepare-room-gate-omitted': ('if (gen.m_RoomRenderers.Count != _live.BuiltRoomCount)', 'if (bool.Parse("false"))'),
+    'mirror-owner-ignored': ('renderer.GetComponentInParent<FigureVisualMirror>(true) != null', 'bool.Parse("false")'),
+    'mirror-cache-ignored': ('if (_figureRootMemoActive\n                && VisualMirrorOwnershipMemo.TryGetValue',
+                             'if (bool.Parse("false")\n                && VisualMirrorOwnershipMemo.TryGetValue'),
+    'mirror-cache-unbounded': ('_figureRootMemoActive = false;\n            VisualMirrorOwnershipMemo.Clear();',
+                               '_figureRootMemoActive = false;'),
+    'mirror-wall-signature-unconditional': ('bool modExempt = f.Mod && !(f.Mesh != null && f.WallFadeShader);',
+                                            'bool modExempt = f.Mod;'),
+    'mirror-death-reclassified': ('bool holeExempt = SceneRowWasExemptWhenAlive(i);', 'bool holeExempt = false;'),
+    'root-selection-owner-broadened': ('renderer.GetComponent<HexSelect_Control>() != null', 'renderer.GetComponentInParent<HexSelect_Control>(true) != null'),
+    'root-selection-owner-ignored': ('renderer.GetComponent<HexSelect_Control>() != null', 'bool.Parse("false")'),
 }
-if mutation in ('figure-retained', 'gate-inverted', 'phase-unbounded', 'figure-bypass-ignored'):
+if mutation in ('figure-retained', 'gate-inverted', 'phase-unbounded', 'figure-bypass-ignored', 'mirror-cache-unbounded', 'mirror-wall-signature-unconditional', 'mirror-death-reclassified'):
     source = root / 'src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs'
 extra_sources = {
     'selection-owner-broadened': 'WallSegmentFade.SelectionFacts.cs',
+    'mirror-owner-ignored': 'WallSegmentFade.SelectionFacts.cs',
+    'mirror-cache-ignored': 'WallSegmentFade.SelectionFacts.cs',
+    'root-selection-owner-broadened': 'WallSegmentFade.SelectionFacts.cs',
+    'root-selection-owner-ignored': 'WallSegmentFade.SelectionFacts.cs',
     'drawing-force-ignored': 'WallSegmentFade.Mounted.cs',
     'masked-restitution-lost': 'WallSegmentFade.BudgetMask.cs',
     'prepared-cross-frame': 'WallSegmentFade.PreparedReads.cs',
@@ -81,6 +95,13 @@ PY
         prepared-cross-frame) property=PreparedReadsSource; expected='A cross-frame native regeneration discards prepared hierarchy facts' ;;
         prepared-label-unshared) property=PreparedReadsSource; expected='Repeated unit child keeps one exact immutable diagnostic label' ;;
         prepare-room-gate-omitted) property=PrepareSource; expected='A room reveal during preparation drops all old measured floor derivations before publication' ;;
+        mirror-owner-ignored) property=SelectionFactsSource; expected='An inactive native-named mirror child is excluded from live wall adoption' ;;
+        mirror-cache-ignored) property=SelectionFactsSource; expected='Repeated live adoption lanes query each exact mirror ancestor once per synchronous scope' ;;
+        mirror-cache-unbounded) property=DriverSource; expected='Mirror ownership memo releases every renderer at the scope boundary' ;;
+        mirror-wall-signature-unconditional) property=DriverSource; expected='A mirror mesh with a real wall-fade shader retains its conservative signature' ;;
+        mirror-death-reclassified) property=DriverSource; expected='A dead clone row retains its exact exemption without signature churn' ;;
+        root-selection-owner-broadened) property=SelectionFactsSource; expected='Parent proximity never exempts a foreign selection-root emitter' ;;
+        root-selection-owner-ignored) property=SelectionFactsSource; expected='Exact native root selection emitter is not wall scenery' ;;
     esac
     if [[ "$mutation" == phase-unbounded ]]; then
         if python3 "$repo_root/tests/GloomhavenVR.WallReadFactsTests/extract-driver.py" \

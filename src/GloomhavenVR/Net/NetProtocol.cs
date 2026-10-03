@@ -553,9 +553,9 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 608;
+    public const ushort ModBuild = 609;
 
-    // ModBuild 608 — isolated Quest conversion and first hardware diagnostic checkpoint.
+    // ModBuild 609 — isolated Quest conversion and first hardware diagnostic checkpoint.
     // The local builder snapshots owned PC content, selected mod/tool source and offline
     // Steam identity; signed ARM64 IL2CPP diagnostic APKs use the game's exact Unity
     // editor and one OpenXR session with native passthrough. The probe includes an
@@ -564,6 +564,23 @@ internal static class NetProtocol
     // remains gated by asset recovery, platform/startup adapters and AOT closure.
     // Shared Quest labels are English/German. Desktop presentation and wire layout
     // are unchanged; version-handshake equality continues to require matching builds.
+
+    // ModBuild 608 — remove source-proven interaction hitch amplifiers from the Frame607 run.
+    // Home visual copies retain native child names/layers; exact FigureVisualMirror ownership
+    // now excludes these mod copies from non-wall membership and attachment adoption, so a
+    // grab/release cannot rebuild the wall table solely for its home ghost. Native counterparts
+    // and real wall-shader membership keep their existing conservative signatures and gates.
+    // The native HexHighlight prefab also owns its particle renderer on the HexSelect_Control
+    // root, outside the child-particle arrays. Exact same-object ownership excludes these
+    // root selection emitters; unrelated children beneath a selector are still world facts.
+    // CardHalfTone census work is Debug-only and budgeted across actual frames, with a stable
+    // report signature and bounded heartbeat. FaceBlackout no longer builds an unprintable
+    // recurring full inventory; non-dark/non-opaque candidates bypass coverage probes after
+    // tracked restoration checks. Artwork, native opacity correction and recovery remain.
+    // The offline Frame reader accepts negative table-relative head heights without relaxing
+    // readiness/tracking exclusions. Figure application is proven in607, but its open-options
+    // quality sweep does not establish a controlled figure-only FPS gain. Synchronous first-use
+    // mip captures and native/prop work remain targets; hardware cadence must be remeasured.
 
     // ModBuild 607 — attributable figure-detail hardware measurements and optional window dust.
     // Figure slider/effect/cloth changes close the completed previous interval with its

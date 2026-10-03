@@ -36,7 +36,9 @@ FRAME = re.compile(r"\[Perf\] FRAME ([\d.]+)s n=(\d+).*?display ([\d.]+)Hz budge
 # correctly name it unbracketed engine work/waits. Both have the same numeric field;
 # preserve historical log ingestion without endorsing the old causal label.
 SPLIT = re.compile(r"\[Perf\] SPLIT .*?logic \(Update→LateUpdate\) ([\d.]+).*?render loop \(cull\+submit\) ([\d.]+).*?blocked \((?:waiting on GPU/compositor|unbracketed engine work/waits)\) ([\d.]+)ms")
-POSE = re.compile(r"view height p50 ([\d.]+) \(([-\d.]+)\.\.([-\d.]+)\) dist p50 ([\d.]+) \(([-\d.]+)\.\.([-\d.]+)\)")
+# Board-relative height is signed: a viewpoint below the plane has a negative median.
+# Build607 hardware windows lost their full pose when only this field refused the sign.
+POSE = re.compile(r"view height p50 (-?[\d.]+) \(([-\d.]+)\.\.([-\d.]+)\) dist p50 ([\d.]+) \(([-\d.]+)\.\.([-\d.]+)\)")
 VISIBLE = re.compile(r"visible p50 (\d+) renderer")
 FIGURE_WINDOW = re.compile(
     r"\| figure players=([\d.]+) enemies=([\d.]+) fx=([\d.]+) "

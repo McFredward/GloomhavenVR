@@ -1809,8 +1809,9 @@ internal static partial class WallSegmentFade
             /// <c>Anchor.y</c> IS the <c>anchorY</c> both passes use.</summary>
             public Vector3 Anchor;
             /// <summary>Fixed for a renderer's lifetime, so a census verdict on it can never
-            /// go stale: the mod LAYER and the 'GloomhavenVR.' name prefix are both stamped at
-            /// creation. (<c>enabled</c> is deliberately NOT cached — the game flips it at
+            /// go stale: mod layers/names and the exact FigureVisualMirror owner are stamped at
+            /// creation. Native-named children of a visual clone retain that owner, including
+            /// inactive LODs. (<c>enabled</c> is deliberately NOT cached — the game flips it at
             /// will, and a stale <c>enabled</c> used as a reject would NARROW a candidate set.
             /// Every pass that cares reads it live.)</summary>
             public bool Mod;
@@ -5654,16 +5655,12 @@ internal static partial class WallSegmentFade
 
             string n = r.name;
             f.Name = n; // ModBuild 278 — see RendererFact.Name; the string is already allocated
-            // IsModObject, verbatim: the mod layer OR the repo-convention name prefix (hardware
-            // round 3 — the MR sky backing 'GloomhavenVR.MrBacking' leaked into the near-miss
-            // census through the layer-only test). ModBuild 443 adds FigureGrab's own prefix,
-            // which this test had never known about and which the mod's figure-glow clones are
-            // the only users of in a scene — see VRLayers.ModOwnedNamePrefix and IsModObject.
-            // Exact native published selection decals/particles are also non-wall presentation.
+            // The same exact owner verdict serves cold census and live adoption. CloneVisual
+            // keeps native child names/layers, so those children need their FigureVisualMirror
+            // ancestor rather than a broader figure/name heuristic. Exact native published
+            // selection decals/particles also remain non-wall presentation.
             // Actual wall-shader members retain their conservative scene signature below.
-            f.Mod = r.gameObject.layer == VRLayers.ModLayer
-                || ModVisualOwnership.IsName(n)
-                || IsNativeHexSelectionVisual(r);
+            f.Mod = IsModPresentation(r, n) || IsNativeHexSelectionVisual(r);
             // The authored water name family, consulted — as before — only when the shader
             // family already said no. See WallSegmentFade.Water.cs.
             f.WaterSurface = water || IsWaterNameFamily(n);
@@ -7638,23 +7635,15 @@ internal static partial class WallSegmentFade
 
         /// <summary>Mod-owned visual (hands, cards, panels, MR backing plates…)? Never scenery:
         /// such a renderer must neither be adopted by ANY attachment sweep nor appear in their
-        /// candidate/near-miss diagnostics. Two signals, because not every mod object lives on
+        /// candidate/near-miss diagnostics. Several signals, because not every mod object lives on
         /// the mod layer: hardware round 3 caught the MR sky backing 'GloomhavenVR.MrBacking'
         /// (y[21.3..33.3]) in the stacked-shell NEAR-MISS census — every mod-created object
         /// carries the 'GloomhavenVR.' name prefix (repo convention), so that prefix is the
-        /// second, layer-independent test.</summary>
-        private static bool IsModObject(Renderer r) =>
-            r.gameObject.layer == VRLayers.ModLayer
-            // ModBuild 443 — THE THIRD SIGNAL, and it is the SECOND CONVENTION rather than a
-            // widening. 'GloomhavenVR.' is what CanvasConversion stamps; FigureGrab stamps 'VR'
-            // (VROverlay, VRFigureHighlight, VRFigureGhost, VR_FigureReach, VRGhostDepth) and
-            // this test knew nothing about it, so the mod's own figure-glow clones read as
-            // SCENERY. See VRLayers.ModOwnedNamePrefix for the ModBuild 442 rows that measured
-            // it, for the zero false positives across that session's ~9,000 renderers, and for
-            // the failure direction. Build 530 corrects the old claim that GloomhavenVR.
-            // starts with VR: both independent prefixes must be tested. The build-529 log
-            // actually adopted MR plates as orphaned architecture without this union.
-            || ModVisualOwnership.IsName(r.name);
+        /// second, layer-independent test. Visual clone children instead retain native names
+        /// and layers; their exact FigureVisualMirror ancestry is the ownership proof shared
+        /// with the cold classifier. Native figures and scenery without it stay unchanged.
+        /// </summary>
+        private static bool IsModObject(Renderer r) => IsModPresentation(r, r.name);
 
         /// <summary>
         /// FIGURES ARE NEVER TOUCHED — round-7 ruling, same severity as the Lights rule
@@ -7767,6 +7756,7 @@ internal static partial class WallSegmentFade
 
         private static void BeginFigureMemo()
         {
+            VisualMirrorOwnershipMemo.Clear();
             FigureAncestryMemo.Clear();
             FigureRootMemo.Clear();
             _figureRootMemoActive = PerfConfig.SharedWallReadCacheOn;
@@ -7779,6 +7769,7 @@ internal static partial class WallSegmentFade
         {
             _figureMemoActive = false;
             _figureRootMemoActive = false;
+            VisualMirrorOwnershipMemo.Clear();
             FigureAncestryMemo.Clear(); // never hold transform references across frames
             FigureRootMemo.Clear();
             GameLogicAncestryMemo.Clear();
