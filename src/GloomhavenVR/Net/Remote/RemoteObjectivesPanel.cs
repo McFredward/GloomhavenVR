@@ -459,7 +459,8 @@ internal sealed class RemoteObjectivesPanel
             "UIManager.ScenarioModifierContainer, cloned — the same widget the owner's own board " +
             "docks, so the sentences are the game's localised prose and the mod supplies no text " +
             "in any language. OWNER PRESENTATION: record96 applies the owner's original text/style, " +
-            "foldout geometry, scroll and hover; missing96 keeps the legacy native clone. READ IT LIKE " +
+            "foldout geometry, scroll and hover; missing96 keeps the legacy native clone " +
+            "(ZERO WIRE for rule content). READ IT LIKE " +
             "THIS, and the two zeroes are DIFFERENT. WORKING: rows>0 with source=MirroredWidget on " +
             "a scenario that has special rules, and the drop above equals half the objectives " +
             "height plus 12 mm to the millimetre — that is this section sitting ON the objectives' " +
