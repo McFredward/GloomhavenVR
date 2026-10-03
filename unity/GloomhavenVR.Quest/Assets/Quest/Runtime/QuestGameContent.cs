@@ -19,10 +19,12 @@ namespace GloomhavenVR.Quest
     /// <summary>File-backed original content delivery. No rule or save interpretation.</summary>
     public static class QuestGameContent
     {
-        public static void Validate(QuestGameContentManifest manifest, string inputKey)
+        public static void Validate(QuestGameContentManifest manifest, string inputKey, string expectedArchive = "quest-startup-content.zip")
         {
+            if (expectedArchive != "quest-startup-content.zip" && expectedArchive != "quest-mod-content.zip")
+                throw new InvalidDataException("Content archive scope is unsupported.");
             if (manifest == null || manifest.schema != 1 || manifest.inputKey != inputKey || string.IsNullOrEmpty(inputKey)
-                || manifest.archive != "quest-startup-content.zip" || !HashValid(manifest.archiveSha256) || manifest.files == null || manifest.files.Length == 0)
+                || manifest.archive != expectedArchive || !HashValid(manifest.archiveSha256) || manifest.files == null || manifest.files.Length == 0)
                 throw new InvalidDataException("Startup content provenance is missing or inconsistent.");
             var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (QuestGameContentFile file in manifest.files)
@@ -53,9 +55,9 @@ namespace GloomhavenVR.Quest
             throw new InvalidDataException("Required startup file is not manifested: " + relative);
         }
 
-        public static void Extract(QuestGameContentManifest manifest, string archive, string root)
+        public static void Extract(QuestGameContentManifest manifest, string archive, string root, string expectedArchive = "quest-startup-content.zip")
         {
-            Validate(manifest, manifest.inputKey);
+            Validate(manifest, manifest.inputKey, expectedArchive);
             if (Hash(archive) != manifest.archiveSha256) throw new InvalidDataException("Startup archive SHA-256 does not match the build manifest.");
             Directory.CreateDirectory(root);
             var wanted = new Dictionary<string, QuestGameContentFile>(StringComparer.Ordinal);
