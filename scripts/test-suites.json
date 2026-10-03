@@ -1360,13 +1360,13 @@
     },
     {
       "id": "quest-builder",
-      "command": ["python3", "-m", "unittest", "discover", "-s", "tests/quest-builder", "-p", "test_*.py"],
+      "command": ["python3", "scripts/quest-python-tests.py", "builder"],
       "groups": ["local", "ci"],
       "weight": 1
     },
     {
       "id": "quest-recovery",
-      "command": ["python3", "-m", "unittest", "discover", "-s", "tests/quest-recovery", "-p", "test_*.py"],
+      "command": ["python3", "scripts/quest-python-tests.py", "recovery"],
       "groups": ["local", "ci"],
       "weight": 1
     },
