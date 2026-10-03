@@ -32,9 +32,10 @@ The maintainer's new local-only exception covers **town card pre-drop guides**;
 purse props, purse ghosts and release feedback remain public. Scenario guides
 and concealment rules retain their established behavior.
 
-The complete local gate ran once: 106 of its 112 suites passed immediately.
-Six bounded failures were resumed; four then passed and the remaining two old
-fixture expectations were corrected and passed. The new native donation replay
+The complete local gate ran once: 105 of its 112 suites passed immediately.
+Seven bounded failures were resumed. Four passed on the first targeted resume;
+two remaining fixture expectations and a merchant badge fixture boundary were
+corrected and passed independently. The new native donation replay
 adds 161 Unity assertions and five effective causal controls with imported
 shipped WAVs, original codecs/receivers, actual audio sources, seeded particles,
 light, donor head movement and mouth blend shapes. Complete wire/golden vectors
