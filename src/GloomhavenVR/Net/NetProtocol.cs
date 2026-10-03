@@ -582,8 +582,9 @@ internal static class NetProtocol
     // and speech belong to an actual offered-card owner, never a browsing lease.
     // The priestess follows the accepted donor through the shared blessing clock.
     // Public cabinet clock/layout adoption cannot wait for its next card artwork;
-    // rejected category presses do not steal authorship. Added-canvas child geometry
-    // uses exactly one absolute root pose during both baseline and fast playback.
+    // rejected category presses do not steal authorship. Live native root rect extents,
+    // anchors and pivots survive baseline/fast playback; absolute pose stays on the header.
+    // Detached-root normalization is defensive, not a proven hardware slab diagnosis.
     // Existing scenario card concealment, input and board guides remain unchanged.
     // Unity/native source fixtures and full local gates verify controlled behavior;
     // actual headset presentation and timing require the next matching614 hardware run.

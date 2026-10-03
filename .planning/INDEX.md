@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-03 for Build 613 after the Frame612 hardware report. This directory holds internal
+Updated 2026-10-03 for Build 614 after the paired NPC multiplayer report. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -11,6 +11,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [TOWN-MP-614.md](TOWN-MP-614.md) | Original NPC card/UI assets, fair numeric/cold delivery, public cabinet input, shared focus/audio/blessing and the explicit local card-guide exception |
 | [../docs/performance/FRAME-612-ANALYSIS.md](../docs/performance/FRAME-612-ANALYSIS.md) | Frame612 mesh/camera application, remaining CPU stalls and scoped skinning conflict correction |
 | [../docs/performance/FRAME-609-ANALYSIS.md](../docs/performance/FRAME-609-ANALYSIS.md) | Natural-motion resolution and figure-detail evidence, loaded hitches and confidence limits |
 | [QUEST3-IMPLEMENTATION.md](QUEST3-IMPLEMENTATION.md) | Authorized Quest implementation branch, actual hardware checkpoint evidence and outstanding full-game gates |

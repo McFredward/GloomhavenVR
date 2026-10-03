@@ -24,9 +24,9 @@ ring. These failures are not card concealment: the entire 3D map is public.
 | Public merchant categories and pages | Any visitor, including one without an assigned hero, may operate the same cabinet. Button depression and cassette withdrawal/return share one clock. | Adopt validated layout/clock before artwork readiness. Promote authorship only after an accepted change. Retain the last complete original picture while next dependencies assemble. The integration fixture executes actual category input, drawer state, public publisher, codec and original clone playback. |
 | Original card artwork | Public map item/ability fronts, identical native appearance, no grey fallback substituted for missing assets. | Register every verified native-template alias even when it identifies an already known original. Resolve UIInfoTools serialized sprite provenance instead of machine-specific atlas names/texture formats. Register original model-dependent material/texture dependencies. Descriptors and state are sent, **not bitmap images**. |
 | Item wrist fans and held stock | Native item widgets and physical bodies retain owner geometry and follow the same smoothed avatar hand used by scenario items. | Existing ItemCardUI/CItem provenance remains the source. Attach lifted cabinet mount/face/body to the existing smoothed hand frame. Original hidden fronts prewarm; visibility and numeric changes are independent of immutable artwork. |
-| Cold original dependency delivery | Newly visible fan, purse and confirmation content gets a finite turn without starving original board/presence streams. | Urgent originals use at most one of three global page turns, plus the existing fair stream rotation. Event cap remains 864 bytes and the existing 50 ms scheduler clock. No separate unbounded sender or catch-up burst. |
+| Cold original dependency delivery | Newly visible fan, purse and confirmation content gets a finite turn without starving original board/presence streams. | Cold originals borrow at most six later town turns, at most one of three page turns, and repay them through the original rotation. Continuous numeric deltas cannot keep borrowing. Both original-stream and background-cabinet shares remain bounded. Event cap remains 864 bytes and the existing 50 ms scheduler clock. No separate unbounded sender or catch-up burst. |
 | Dense motion, hover, scrolling and facing | Intermediate native state remains lossless and current; rotating confirmations do not await fragmented artwork. | Additive TLV98 packs unchanged numeric records in the original 15 Hz, 864-byte lane. Dirty slots not actually included retain their pending state. Existing native interpolation remains responsible for visible movement. |
-| Merchant offered card and backing | One native card geometry, identical size/orientation, no doubled local transform. | Added-canvas world pose is applied exactly once; unframed child roots normalize after fast playback as they already do after baseline playback. Framed native canvases retain their own geometry. |
+| Merchant offered card and backing | One native card geometry, identical size/orientation, no doubled local transform. | Live root extents/pivots/anchors now survive frozen-template and numeric playback. Only layout fields accompany root motion; the header owns its world pose. Descendant sizeDelta retains its existing native contract. Detached-root normalization remains a defensive invariant, not a proven explanation of the hardware slab. Original assets and native rounded backing are independently checked; hardware acceptance remains open. |
 | Mage offered card, native regions, hover and menu | Actual owner card/native effect widgets, selected region, native hover/scroll and readable options remain public. | Correct original sprite/template identity and fast root/canvas playback. The existing source publisher includes full card/effect partitions, original region widgets, folio and confirmations; clones retain presentation without gameplay callbacks. |
 | Mage return flight | Released actual card/body remain visible through their native return, even after another visitor claims the NPC. | Existing independent returning face/body modules use the same numeric lane; the returning original's identity survives recycling of the selected-card widget. |
 | Mage inert Buy label | No misleading non-interactive caption below the options. | Omit native buy/sell mode tabs when native selling is unavailable. Functional mode controls remain when the native game actually supports them. |
@@ -64,6 +64,16 @@ exceeds 864 bytes. Independently specified TLV97/99 golden bytes and a fixed
 Python-struct/zlib/CRC TLV98 receive vector guard grammar changes independently
 of the production writer. Reordered, corrupted, truncated and wrong-affinity
 packets fail atomically. Per-property heartbeat recovery remains bounded.
+
+The separate-process native peer fixture checks exact original texels and exact
+observer-native versus playback pixels, opposite lazy-template borrow orders,
+native frame-mask lookup, rounded production CardMesh geometry and live root
+resizes without artwork resend. It passes 45,862 assertions plus seven effective
+causal controls. Original independently packed atlases already differ at 813
+bilinear edge pixels before playback; the observer's own original and replay
+match exactly. The editor shader boundary and small rasterization differences
+in geometry pictures are documented in scripts/town-native-peer-runtime/README.md.
+This does not isolate the hardware grey slab's exact original cause.
 
 Final integrated gate receipts and assertion counts are recorded in STATE.md.
 Automated Unity pictures prove the controlled hierarchy/material/geometry paths;

@@ -285,6 +285,17 @@
       "weight": 35
     },
     {
+      "id": "town-native-peer",
+      "command": [
+        "python3",
+        "scripts/check-town-native-peer.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 65
+    },
+    {
       "id": "town-residents",
       "command": [
         "python3",
