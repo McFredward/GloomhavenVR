@@ -36,6 +36,12 @@ content-path calls use persistent `quest-owned-game`; persistent save paths are
 not redirected. Original protected rules/Photon/Bolt/network-manager code is
 unchanged.
 
+The two original connection identity helpers use the embedded PC owner only when
+BoltConnection is null. Non-null connections still read the original UserToken
+properties, including live changes and original missing-token failure semantics.
+An unexpected token accessor ABI fails conversion rather than substituting a
+local name for another player.
+
 Global Workshop support stays false, so startup never scans or downloads
 Workshop mods. Its original Extras row remains present and disabled with its
 excluded callback removed. The temporary XR presentation disables the exact
@@ -48,7 +54,24 @@ Awake/Start/Update/Stop/OnDestroy lifecycle callbacks are suppressed for this
 menu-only target. Instance is not made ready and procedural APIs are not replaced
 with fabricated results. Campaign geometry needs verified native Android support
 or a separately proven prebake path. Voice/native startup remains a separate
-boundary audit; no Photon or Bolt code is changed.
+boundary audit; no Photon or Bolt code is changed. The current startup target
+guards only the original VoceChatOptions.SwitchStatus opt-in UI before it opens
+the voice connection. Its original switch remains visible, grey and explained by
+a bilingual diagnostic tooltip. VoiceNativeAvailable remains false; original
+voice service/bridge/SDK and genuine game transport bodies are unchanged. A guard
+after GH OnJoinedRoom would be too late: PhotonVoice independently starts its
+native Opus encoder on the SDK joined-room event. The original imported opus_egpv
+encoder is unavailable in this staged Android target; no room/codec success is
+fabricated.
+
+Original SceneController.Start also calls ClearAfterSceneUnloading, then
+ApparanceResourceListLoader.UnloadAll: its final engine RefreshResources enters
+native AssetCacheClear/ApparanceUpdateAsset despite suppressed engine lifecycle.
+The startup adapter replaces only that instance void call with pop. Original
+AssetReference.ReleaseAsset and both collection clears remain unchanged; a full
+loader-type semantic fingerprint is verified against the source with exactly
+that one expected call substitution. This is native-unavailability handling,
+not successful procedural initialization.
 
 Deploy modified GH.Runtime.dll, SM.Consoles.dll and Apparance.Unity.dll in-place,
 preserving their recovered `.meta` GUIDs. Add QuestGame.Compatibility.dll and,
@@ -117,6 +140,11 @@ the temporary presentation disables only their display rendering and MainCamera
 tag while retaining camera objects/controllers/references. Original RenderTexture
 cameras still render, without stereo. One diagnostic camera and AudioListener own
 the headset view. This is not original graphical parity or full mod integration.
+The existing native QuestPassthroughFeature owns the underlay on the same OpenXR
+session. A toggles it after a tracked neutral-to-press edge; tracking loss, pause
+or focus loss require another neutral sample before a toggle. The tracked camera
+clears transparent only while native passthrough is active and otherwise stays
+opaque. State records the actual feature result; failure does not claim MR ready.
 
 The native UIMultiplayerJoinSessionWindow.JoinSession callback calls the unchanged
 FFSNetwork.Manager.JoinSession directly. Its existing privilege check proceeds to
@@ -130,7 +158,7 @@ generated GH.Runtime, actual original config value persistence and reload, logge
 and path APIs. Semantic fingerprints compare all untouched types after output
 serialization and verify seven protected types. ZIP corruption, build mismatch,
 traversal, extra entries, repeated conversion and unknown BepInEx API are negative
-controls. The focused Release run passed 77 assertions, including actual bounded
+controls. The focused Release run passed 94 assertions, including actual bounded
 log persistence/rotation/deduplication and Unicode byte/record caps. These are managed-boundary
 proofs, not an actual Unity menu/device test. Without private owned-game inputs,
 CI explicitly skips those actual-boundary checks and still runs portable content
@@ -142,6 +170,11 @@ current mod's BepInEx API succeeded at
 protected types and 4,868 unrelated types, and emits a source-derived BepInEx
 closure of 55 types/388 methods. That private receipt is generated evidence and
 is not proprietary repository content.
+The subsequent profile/voice/native-menu smoke at
+`/home/claw/quest3-local/startup-adapter-native-menu-proof` also succeeds with
+seven protected types and 4,866 unchanged types. The two newly scoped changed
+types are the native voice opt-in UI and the one-call resource-unload guard;
+voice/procedural/full-game readiness all remain false.
 
 RuntimeCompile compiles all new runtime code against real original Unity2021
 assemblies and root's current QuestProbeInput, with zero warnings. Actual native

@@ -16,6 +16,7 @@ public sealed class StandaloneReport
     public bool FullGameReady { get; set; }
     public bool EosAuthorised { get; set; }
     public bool ProceduralRuntimeAvailable { get; set; }
+    public bool VoiceNativeAvailable { get; set; }
     public string ContentRelativeRoot { get; set; } = "quest-owned-game";
     public List<string> Modifications { get; set; } = new();
     public List<IntegrationIssue> Issues { get; set; } = new();
@@ -139,6 +140,40 @@ internal static class Standalone
         Constant(game, "PlatformUserData", "get_PlatformPlayerID", profile.SteamId, "System.String");
         Constant(game, "PlatformUserData", "get_PlatformAccountID", profile.AccountId, "System.String");
         Constant(game, "PlatformUserData", "get_IsSignedIn", true, "System.Boolean");
+        void ConnectionIdentity(string name, string tokenProperty, string localValue)
+        {
+            MethodDefinition method = Method(game, "PlatformUserData", name, "System.String", "Photon.Bolt.BoltConnection");
+            MethodReference[] calls = method.Body.Instructions.Select(i => i.Operand).OfType<MethodReference>().ToArray();
+            MethodReference[] connections = calls.Where(c => c.DeclaringType.FullName == "Photon.Bolt.BoltConnection" && c.Name == "get_ConnectToken")
+                .GroupBy(c => c.FullName).Select(g => g.First()).ToArray();
+            MethodReference[] tokens = calls.Where(c => c.DeclaringType.FullName == "FFSNet.UserToken" && c.Name == tokenProperty && c.ReturnType.FullName == "System.String")
+                .GroupBy(c => c.FullName).Select(g => g.First()).ToArray();
+            if (connections.Length != 1 || tokens.Length != 1 || !connections[0].HasThis || !tokens[0].HasThis)
+                throw new InvalidDataException("Original connection identity token ABI changed: " + method.FullName);
+            // Retain the original remote token/property boundary. Only null means the
+            // local offline owner; never replace or reinterpret another player's token.
+            Replace(method, il =>
+            {
+                Instruction remote = Instruction.Create(OpCodes.Ldarg, method.Parameters[0]);
+                il.Emit(OpCodes.Ldarg, method.Parameters[0]); il.Emit(OpCodes.Brtrue, remote);
+                il.Emit(OpCodes.Ldstr, localValue); il.Emit(OpCodes.Ret); il.Append(remote);
+                il.Emit(OpCodes.Callvirt, connections[0]); il.Emit(OpCodes.Castclass, tokens[0].DeclaringType);
+                il.Emit(OpCodes.Callvirt, tokens[0]); il.Emit(OpCodes.Ret);
+            });
+        }
+        ConnectionIdentity("GetUserNameForConnection", "get_Username", profile.DisplayName);
+        ConnectionIdentity("GetPlatformIDForConnection", "get_PlatformPlayerID", profile.SteamId);
+        MethodDefinition voiceSwitch = Method(game, "VoiceChat.VoceChatOptions", "SwitchStatus", "System.Void");
+        if (!voiceSwitch.Body.Instructions.Any(i => i.Operand is MethodReference c && c.DeclaringType.FullName == "VoiceChat.BoltVoiceChatService" && c.Name == "get_IsVoiceChatConnected"))
+            throw new InvalidDataException("Original voice UI connection gate changed: " + voiceSwitch.FullName);
+        // The SDK starts the native Opus encoder from its own joined-room callback.
+        // Guard the original opt-in UI before connecting, never fabricate room success
+        // or alter the original Bolt/Photon transport and SDK callbacks.
+        Replace(voiceSwitch, il =>
+        {
+            il.Emit(OpCodes.Ldstr, "[Quest startup] voice chat unavailable in this startup diagnostic: original native Opus encoder is not available on Android; no voice room connection attempted.");
+            il.Emit(OpCodes.Call, game.MainModule.ImportReference(warning)); il.Emit(OpCodes.Ret);
+        });
         // IsSignedIn here means local save owner availability; the original generic user's
         // IsSignedInOnline and SteamClient.IsValid remain false, and EOS status is untouched.
         Noop("PlatformUserData", "StartLoginFlow");
@@ -148,6 +183,15 @@ internal static class Standalone
         // Instance unset, and report the unavailable procedural runtime rather than success.
         foreach (string callback in new[] { "Awake", "Start", "Update", "Stop", "OnDestroy" })
             Replace(Method(apparance, "ApparanceEngine", callback, "System.Void"), il => il.Emit(OpCodes.Ret));
+        MethodDefinition unloadResources = Method(game, "ApparanceResourceListLoader", "UnloadAll", "System.Void");
+        Instruction[] nativeRefresh = unloadResources.Body.Instructions.Where(i => i.OpCode == OpCodes.Callvirt && i.Operand is MethodReference c
+            && c.DeclaringType.FullName == "ApparanceEngine" && c.Name == "RefreshResources" && c.HasThis && c.ReturnType.FullName == "System.Void" && c.Parameters.Count == 0).ToArray();
+        if (nativeRefresh.Length != 1) throw new InvalidDataException("Original startup resource-unload native boundary changed: " + unloadResources.FullName);
+        // Original SceneController startup calls UnloadAll even without a campaign.
+        // Keep real AssetReference releases and both managed collection clears, but
+        // consume the engine instance instead of entering its unavailable native cache.
+        nativeRefresh[0].OpCode = OpCodes.Pop; nativeRefresh[0].Operand = null;
+        changedTypes.Add(unloadResources.DeclaringType.FullName); report.Modifications.Add("menu-only native engine cache-refresh guard: " + unloadResources.FullName);
 
         // Keep the original Workshop row visible while excluding its callback. Global
         // ModdingSupported stays false so startup never scans/downloads Workshop content.
@@ -183,7 +227,8 @@ internal static class Standalone
             new IntegrationIssue("ORIGINAL_MENU_RUNTIME", "Bootstrap -> Intro -> Gloomhaven_unified -> MainMenu", "Original scene execution, initial Android Addressables closure, native services and rendering require actual Unity/device evidence."),
             new IntegrationIssue("MOD_LIFECYCLE", "GloomhavenVR.Plugin", "This platform-only output does not instantiate or certify the mod. Standalone BepInEx lifecycle and XR/content seams are a separate gate."),
             new IntegrationIssue("EOS_CROSSPLAY", "original multiplayer", "No online authentication, sessions, invites or crossplay are claimed; legitimate Android EOS remains required if original transport requires it.") });
-        report.RemainingGates.Add(new IntegrationIssue("PROCEDURAL_NATIVE_UNAVAILABLE", "ApparanceEngine", "Menu-only lifecycle disabled because original engine imports Windows ApparanceEngine. No fake generation readiness; campaign requires verified Android native support or prebaked geometry."));
+        report.RemainingGates.Add(new IntegrationIssue("PROCEDURAL_NATIVE_UNAVAILABLE", "ApparanceEngine", "Menu-only lifecycle and startup unload's native cache-refresh disabled because original engine imports Windows ApparanceEngine. Managed resource release remains original. No fake generation readiness; campaign requires verified Android native support or prebaked geometry."));
+        report.RemainingGates.Add(new IntegrationIssue("VOICE_NATIVE_UNAVAILABLE", "VoiceChat.VoceChatOptions.SwitchStatus", "Original opt-in voice UI is guarded for this startup diagnostic. Native Opus encoder and real voice-room operation remain unavailable/unverified; game transport is unchanged."));
         string scratch = Path.Combine(Path.GetDirectoryName(output)!, ".quest-standalone-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(scratch);
         try

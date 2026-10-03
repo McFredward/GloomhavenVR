@@ -6,5 +6,6 @@
     <Compile Remove="FixtureGame/**/*.cs;FixtureMod/**/*.cs;RuntimeCompile/**/*.cs" />
     <Compile Include="../../unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestGameContent.cs" Link="QuestGameContent.cs" />
     <Compile Include="../../unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestGameStartupLog.cs" Link="QuestGameStartupLog.cs" />
+    <Compile Include="../../unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestGameButtonGate.cs" Link="QuestGameButtonGate.cs" />
   </ItemGroup>
 </Project>

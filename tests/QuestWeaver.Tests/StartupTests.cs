@@ -15,6 +15,12 @@ internal static class StartupTests
         string temp = Path.Combine(Path.GetTempPath(), "quest-startup-tests-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(temp);
         try
         {
+            var button = new QuestGameButtonGate();
+            check(!button.Step(false, true) && !button.Step(true, true), "Unavailable/startup-held diagnostic action was accepted.");
+            check(!button.Step(true, false) && button.Step(true, true) && !button.Step(true, true), "Tracked neutral-to-press action was missed or repeated while held.");
+            check(!button.Step(false, false) && !button.Step(true, true) && !button.Step(true, true), "Tracking resume replayed a held diagnostic action.");
+            check(!button.Step(true, false) && button.Step(true, true), "Fresh press after tracking recovery failed.");
+            button.Reset(); check(!button.Step(true, true) && !button.Step(true, false) && button.Step(true, true), "Lifecycle reset failed to require a fresh neutral sample.");
             string logPath = Path.Combine(temp, "quest-startup.log");
             // Exercise actual file persistence and the previous-run cap, including an
             // unbounded log produced by an older version of the diagnostic adapter.
@@ -80,7 +86,7 @@ internal static class StartupTests
             string gameHash = QuestGameContent.Hash(Path.Combine(managed, "GH.Runtime.dll"));
             string output = Path.Combine(temp, "adapted");
             StandaloneReport report = Standalone.Write(managed, null, profile, output);
-            check(report.StartupAdapterComplete && !report.FullGameReady && !report.ModLifecycleComplete && !report.EosAuthorised, "Platform adapter falsely claimed full-game/mod/EOS readiness.");
+            check(report.StartupAdapterComplete && !report.FullGameReady && !report.ModLifecycleComplete && !report.EosAuthorised && !report.VoiceNativeAvailable, "Platform adapter falsely claimed full-game/mod/EOS/voice readiness.");
             check(report.ProtectedTypesVerified == 7 && report.UnchangedTypesVerified > 4000, "Actual original-game protected and unrelated type invariance is incomplete.");
             check(QuestGameContent.Hash(Path.Combine(managed, "GH.Runtime.dll")) == gameHash, "Original input bytes changed.");
             using (var emitted = AssemblyDefinition.ReadAssembly(Path.Combine(output, "GH.Runtime.dll")))
@@ -89,6 +95,21 @@ internal static class StartupTests
                 check(!options.Body.Instructions.Any(i => i.Operand is MethodReference c && c.Name == "get_ModdingSupported"), "Excluded original Workshop row was removed rather than retained.");
                 MethodDefinition optionCtor = emitted.MainModule.GetType("GLOOM.MainMenu.MenuSuboption").Methods.Single(m => m.IsConstructor);
                 check(optionCtor.Body.Instructions.Any(i => i.OpCode == OpCodes.Ldstr && (string)i.Operand == "GUI_MODDING") && optionCtor.Body.Instructions.Any(i => i.OpCode == OpCodes.Stfld && i.Operand is FieldReference f && f.Name == "onSelected"), "Workshop native callback was not excluded.");
+                MethodDefinition voiceUi = emitted.MainModule.GetType("VoiceChat.VoceChatOptions").Methods.Single(m => m.Name == "SwitchStatus");
+                check(voiceUi.Body.Instructions.Count == 3 && voiceUi.Body.Instructions[0].OpCode == OpCodes.Ldstr && ((string)voiceUi.Body.Instructions[0].Operand).Contains("no voice room connection attempted", StringComparison.Ordinal)
+                    && voiceUi.Body.Instructions[1].Operand is MethodReference log && log.Name == "LogWarning" && voiceUi.Body.Instructions[2].OpCode == OpCodes.Ret,
+                    "Original voice opt-in UI did not fail explicitly before native-room entry.");
+                TypeDefinition loader = emitted.MainModule.GetType("ApparanceResourceListLoader");
+                MethodDefinition unload = loader.Methods.Single(m => m.Name == "UnloadAll");
+                check(!unload.Body.Instructions.Any(i => i.Operand is MethodReference c && c.DeclaringType.FullName == "ApparanceEngine" && c.Name == "RefreshResources")
+                    && unload.Body.Instructions.Any(i => i.Operand is MethodReference c && c.Name == "ReleaseAsset")
+                    && unload.Body.Instructions.Count(i => i.Operand is MethodReference c && c.Name == "Clear") == 2,
+                    "Startup unload still entered native Apparance or lost managed asset/collection cleanup.");
+                using var original = AssemblyDefinition.ReadAssembly(Path.Combine(managed, "GH.Runtime.dll"));
+                TypeDefinition originalLoader = original.MainModule.GetType("ApparanceResourceListLoader");
+                Instruction originalRefresh = originalLoader.Methods.Single(m => m.Name == "UnloadAll").Body.Instructions.Single(i => i.Operand is MethodReference c && c.DeclaringType.FullName == "ApparanceEngine" && c.Name == "RefreshResources");
+                originalRefresh.OpCode = OpCodes.Pop; originalRefresh.Operand = null;
+                check(ProtectedTypes.Fingerprint(loader) == ProtectedTypes.Fingerprint(originalLoader), "Resource loader changed beyond the one scoped native-refresh call.");
             }
             using (var emitted = AssemblyDefinition.ReadAssembly(Path.Combine(output, "SM.Consoles.dll")))
             {
@@ -112,6 +133,33 @@ internal static class StartupTests
                 check((string)userType.GetProperty("PlatformPlayerID")!.GetValue(user)! == "76561198000000000", "Actual original full Steam ID was truncated.");
                 check((string)userType.GetProperty("PlatformAccountID")!.GetValue(user)! == accountId.ToString(), "Actual original account ID differs from source account bits.");
                 check((bool)userType.GetProperty("IsSignedIn")!.GetValue(user)!, "Actual local save-owner readiness was absent.");
+                MethodInfo connectionName = userType.GetMethod("GetUserNameForConnection")!, connectionId = userType.GetMethod("GetPlatformIDForConnection")!;
+                check((string)connectionName.Invoke(user, new object?[] { null })! == "Fixture original owner" && (string)connectionId.Invoke(user, new object?[] { null })! == "76561198000000000",
+                    "Actual null-connection local identity lost embedded name or ID.");
+                Type connectionType = connectionName.GetParameters()[0].ParameterType;
+                object connection = RuntimeHelpers.GetUninitializedObject(connectionType);
+                Type tokenType = game.GetType("FFSNet.UserToken", true)!;
+                object token = Activator.CreateInstance(tokenType, 0, "", "Remote owner", "76561198987654321", "original-version", "", "Steam", true, "remote-account", null)!;
+                FieldInfo tokenField;
+                using (var bolt = AssemblyDefinition.ReadAssembly(connectionType.Assembly.Location))
+                {
+                    MethodDefinition getter = bolt.MainModule.GetType("Photon.Bolt.BoltConnection").Methods.Single(m => m.Name == "get_ConnectToken");
+                    FieldReference field = getter.Body.Instructions.Select(i => i.Operand).OfType<FieldReference>().Single();
+                    check(field.DeclaringType.FullName == connectionType.FullName, "Actual Bolt token accessor fixture shape changed.");
+                    tokenField = connectionType.GetField(field.Name, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!;
+                    tokenField.SetValue(connection, token);
+                }
+                check((string)connectionName.Invoke(user, new[] { connection })! == "Remote owner" && (string)connectionId.Invoke(user, new[] { connection })! == "76561198987654321",
+                    "Actual remote identity was replaced by the local profile.");
+                tokenType.GetProperty("Username")!.SetValue(token, "Different remote"); tokenType.GetProperty("PlatformPlayerID")!.SetValue(token, "other-remote-id");
+                check((string)connectionName.Invoke(user, new[] { connection })! == "Different remote" && (string)connectionId.Invoke(user, new[] { connection })! == "other-remote-id",
+                    "Remote token changes were cached or overwritten.");
+                tokenField.SetValue(connection, null);
+                foreach (MethodInfo api in new[] { connectionName, connectionId })
+                {
+                    try { api.Invoke(user, new[] { connection }); check(false, "Missing remote token was silently replaced by local identity."); }
+                    catch (TargetInvocationException e) { check(e.InnerException is NullReferenceException, "Missing remote token no longer preserved original failure semantics."); }
+                }
                 Type platformType = game.GetType("PlatformLayer", true)!;
                 object platform = RuntimeHelpers.GetUninitializedObject(platformType);
                 check(!(bool)platformType.GetProperty("IsValid")!.GetValue(platform)!, "Offline adapter faked a live Steam session.");
@@ -121,6 +169,28 @@ internal static class StartupTests
                 check((string)platformType.GetProperty("SessionTicket")!.GetValue(platform)! == "", "Offline adapter manufactured a Steam ticket.");
             }
             finally { context.Unload(); }
+            string badIdentityOverrides = Path.Combine(temp, "bad-identity-overrides"), badIdentityOutput = Path.Combine(temp, "bad-identity-output"); Directory.CreateDirectory(badIdentityOverrides);
+            using var mutationResolver = new DefaultAssemblyResolver(); mutationResolver.AddSearchDirectory(managed); mutationResolver.AddSearchDirectory(Path.GetDirectoryName(typeof(object).Assembly.Location)!);
+            using (var altered = AssemblyDefinition.ReadAssembly(Path.Combine(managed, "GH.Runtime.dll"), new ReaderParameters { AssemblyResolver = mutationResolver }))
+            {
+                MethodDefinition identity = altered.MainModule.GetType("PlatformUserData").Methods.Single(m => m.Name == "GetUserNameForConnection");
+                foreach (Instruction instruction in identity.Body.Instructions)
+                    if (instruction.Operand is MethodReference call && call.DeclaringType.FullName == "FFSNet.UserToken" && call.Name == "get_Username")
+                        instruction.Operand = new MethodReference("UnknownIdentityABI", call.ReturnType, call.DeclaringType) { HasThis = call.HasThis };
+                altered.Write(Path.Combine(badIdentityOverrides, "GH.Runtime.dll"));
+            }
+            Reject(() => Standalone.Write(managed, badIdentityOverrides, profile, badIdentityOutput), "Changed original remote-token ABI accepted.");
+            check(!Directory.Exists(badIdentityOutput), "Failed identity adaptation leaked partial output.");
+            string badVoiceOverrides = Path.Combine(temp, "bad-voice-overrides"); Directory.CreateDirectory(badVoiceOverrides);
+            using (var altered = AssemblyDefinition.ReadAssembly(Path.Combine(managed, "GH.Runtime.dll"), new ReaderParameters { AssemblyResolver = mutationResolver }))
+            {
+                MethodDefinition voiceUi = altered.MainModule.GetType("VoiceChat.VoceChatOptions").Methods.Single(m => m.Name == "SwitchStatus");
+                foreach (Instruction instruction in voiceUi.Body.Instructions)
+                    if (instruction.Operand is MethodReference call && call.DeclaringType.FullName == "VoiceChat.BoltVoiceChatService" && call.Name == "get_IsVoiceChatConnected")
+                        instruction.Operand = new MethodReference("UnknownVoiceConnectionABI", call.ReturnType, call.DeclaringType) { HasThis = call.HasThis };
+                altered.Write(Path.Combine(badVoiceOverrides, "GH.Runtime.dll"));
+            }
+            Reject(() => Standalone.Write(managed, badVoiceOverrides, profile, Path.Combine(temp, "bad-voice-output")), "Changed original voice opt-in ABI accepted.");
             string bepPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget/packages/bepinex.baselib/5.4.20/lib/netstandard2.0/BepInEx.dll");
             string fixtureMod = Path.Combine(projectRoot, "tests/QuestWeaver.Tests/FixtureMod/bin", new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name, "net8.0/FixtureMod.dll");
             var bepReport = new StandaloneReport();

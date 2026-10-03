@@ -22,10 +22,11 @@ namespace GloomhavenVR.Quest
         Transform leftMarker, rightMarker;
         LineRenderer aimLine;
         Material markerMaterial;
-        InputAction trigger, leftStick, rightStick;
+        InputAction trigger, leftStick, rightStick, primary;
         readonly QuestProbeLocomotion navigation = new QuestProbeLocomotion();
         readonly List<Canvas> canvases = new List<Canvas>();
         readonly List<Component> excluded = new List<Component>();
+        readonly Dictionary<Component, string> excludedText = new Dictionary<Component, string>();
         readonly List<Camera> originalCameras = new List<Camera>();
         readonly List<AudioListener> originalListeners = new List<AudioListener>();
         readonly HashSet<Camera> reportedCameras = new HashSet<Camera>();
@@ -36,6 +37,10 @@ namespace GloomhavenVR.Quest
         string lastStatus, lastFailure;
         bool statusGerman;
         bool focused = true, paused;
+        readonly QuestGameButtonGate mrButton = new QuestGameButtonGate();
+        bool mrRequested, lastMrActive;
+        string mrError;
+        Text mrStatus;
         float nextScan;
         bool originConfigured;
 
@@ -60,6 +65,7 @@ namespace GloomhavenVR.Quest
             trigger = QuestProbePoseInput.Create("Startup UI trigger", "<XRController>{RightHand}/trigger");
             leftStick = QuestProbePoseInput.Create("Startup move", "<XRController>{LeftHand}/thumbstick");
             rightStick = QuestProbePoseInput.Create("Startup turn/height", "<XRController>{RightHand}/thumbstick");
+            primary = QuestProbePoseInput.Create("Startup mixed reality", "<XRController>{RightHand}/primaryButton");
             var ui = new GameObject("Quest excluded-entry tooltip", typeof(Canvas)); ui.transform.SetParent(transform, false);
             var canvas = ui.GetComponent<Canvas>(); canvas.renderMode = RenderMode.WorldSpace; canvas.worldCamera = view; canvas.sortingOrder = 32760;
             var rect = (RectTransform)ui.transform; rect.sizeDelta = new Vector2(800, 80); rect.localScale = Vector3.one * .001f; rect.position = new Vector3(0, 1.1f, 1.65f);
@@ -73,6 +79,10 @@ namespace GloomhavenVR.Quest
             var statusLabel = new GameObject("Startup status", typeof(RectTransform), typeof(Text)); statusLabel.transform.SetParent(status.transform, false);
             var statusLabelRect = (RectTransform)statusLabel.transform; statusLabelRect.anchorMin = Vector2.zero; statusLabelRect.anchorMax = Vector2.one; statusLabelRect.offsetMin = statusLabelRect.offsetMax = Vector2.zero;
             startupStatus = statusLabel.GetComponent<Text>(); startupStatus.font = tooltip.font; startupStatus.fontSize = 30; startupStatus.alignment = TextAnchor.MiddleCenter; startupStatus.color = Color.white; startupStatus.raycastTarget = false;
+            var mrLabel = new GameObject("Startup mixed-reality status", typeof(RectTransform), typeof(Text)); mrLabel.transform.SetParent(ui.transform, false);
+            var mrRect = (RectTransform)mrLabel.transform; mrRect.anchorMin = mrRect.anchorMax = new Vector2(.5f, 0); mrRect.anchoredPosition = new Vector2(0, -65); mrRect.sizeDelta = new Vector2(1000, 80);
+            mrStatus = mrLabel.GetComponent<Text>(); mrStatus.font = tooltip.font; mrStatus.fontSize = 24; mrStatus.alignment = TextAnchor.MiddleCenter; mrStatus.color = Color.white; mrStatus.raycastTarget = false;
+            RefreshMrStatus();
             RefreshStatus();
             SceneManager.sceneLoaded += SceneLoaded;
             Camera.onPreCull += BeforeCameraRender;
@@ -85,7 +95,8 @@ namespace GloomhavenVR.Quest
             if (valid) { view.transform.localPosition = headPosition; view.transform.localRotation = headRotation; }
             Vector3 aimPosition = Vector3.zero; Quaternion aimRotation = Quaternion.identity;
             bool pointerValid = focused && !paused && valid && aim.TryRead(out aimPosition, out aimRotation);
-            Grip(leftGrip, leftMarker); Grip(rightGrip, rightMarker);
+            Grip(leftGrip, leftMarker); bool rightTracked = Grip(rightGrip, rightMarker);
+            UpdateMixedReality(focused && !paused && valid && rightTracked);
             aimLine.enabled = pointerValid;
             if (pointerValid)
             {
@@ -109,12 +120,41 @@ namespace GloomhavenVR.Quest
             marker.transform.SetParent(origin, false); marker.transform.localScale = new Vector3(.035f, .06f, .035f);
             Destroy(marker.GetComponent<Collider>()); marker.GetComponent<Renderer>().sharedMaterial = markerMaterial; return marker.transform;
         }
-        void Grip(QuestProbePoseInput input, Transform marker)
+        bool Grip(QuestProbePoseInput input, Transform marker)
         {
             Vector3 position = Vector3.zero; Quaternion rotation = Quaternion.identity;
             bool tracked = focused && !paused && input.TryRead(out position, out rotation);
             marker.gameObject.SetActive(tracked);
             if (tracked) { marker.localPosition = position; marker.localRotation = rotation; }
+            return tracked;
+        }
+        void UpdateMixedReality(bool inputValid)
+        {
+            bool pressed = primary.ReadValue<float>() > .5f;
+            if (mrButton.Step(inputValid, pressed))
+            {
+                mrRequested = !mrRequested; mrError = null;
+                if (!QuestPassthroughFeature.SetEnabled(mrRequested) && mrRequested) { mrRequested = false; mrError = "mrFailed"; }
+                Debug.Log("[Quest startup] mixed reality requested=" + mrRequested + " active=" + QuestPassthroughFeature.Active + " available=" + QuestPassthroughFeature.Available);
+                RefreshMrStatus();
+            }
+            bool active = QuestPassthroughFeature.Active;
+            if (active != lastMrActive)
+            {
+                lastMrActive = active;
+                // A native underlay is visible only through transparent clear pixels.
+                // Keep ordinary VR opaque when the native feature is unavailable/stopped.
+                view.clearFlags = CameraClearFlags.SolidColor;
+                view.backgroundColor = active ? Color.clear : new Color(.025f, .035f, .045f, 1);
+                Debug.Log("[Quest startup] tracked-camera passthrough active=" + active);
+                RefreshMrStatus();
+            }
+        }
+        void RefreshMrStatus()
+        {
+            if (mrStatus == null) return;
+            bool german = Application.systemLanguage == SystemLanguage.German;
+            mrStatus.text = QuestText.Get("mr", german) + "\n" + QuestText.Get(mrError ?? (QuestPassthroughFeature.Active ? "mrActive" : "vrActive"), german);
         }
         void LateUpdate()
         {
@@ -122,6 +162,7 @@ namespace GloomhavenVR.Quest
             foreach (Component entry in excluded)
             {
                 if (entry == null) continue;
+                if (entry is Selectable selectable) { selectable.interactable = false; continue; }
                 PropertyInfo property = entry.GetType().GetProperty("IsInteractable");
                 if (property != null && property.CanWrite && (bool)property.GetValue(entry)) property.SetValue(entry, false);
             }
@@ -163,16 +204,21 @@ namespace GloomhavenVR.Quest
             // Bind the exact serialized native Guildmaster entry, not localized text/name heuristics.
             foreach (MonoBehaviour behaviour in Resources.FindObjectsOfTypeAll<MonoBehaviour>())
             {
-                if (behaviour == null || !behaviour.gameObject.scene.IsValid() || behaviour.GetType().FullName != "GLOOM.MainMenu.UIMainOptionsMenu") continue;
-                FieldInfo field = behaviour.GetType().GetField("guildmasterButton", BindingFlags.NonPublic | BindingFlags.Instance);
+                if (behaviour == null || !behaviour.gameObject.scene.IsValid()) continue;
+                bool voice = behaviour.GetType().FullName == "VoiceChat.VoceChatOptions";
+                if (!voice && behaviour.GetType().FullName != "GLOOM.MainMenu.UIMainOptionsMenu") continue;
+                FieldInfo field = behaviour.GetType().GetField(voice ? "_switchChatButton" : "guildmasterButton", BindingFlags.NonPublic | BindingFlags.Instance);
                 object entry = field != null ? field.GetValue(behaviour) : null;
-                object button = entry != null ? entry.GetType().GetProperty("Button").GetValue(entry) : null;
+                object button = voice ? entry : (entry != null ? entry.GetType().GetProperty("Button").GetValue(entry) : null);
                 if (button is Component component && !excluded.Contains(component))
                 {
                     excluded.Add(component);
+                    string key = voice ? "startupVoiceUnavailable" : "excluded"; excludedText[component] = key;
+                    if (component is Selectable selectable) selectable.interactable = false;
                     MethodInfo setTooltip = component.GetType().GetMethod("SetTooltip");
-                    if (setTooltip != null) setTooltip.Invoke(component, new object[] { true, QuestText.Get("excluded", Application.systemLanguage == SystemLanguage.German) });
-                    Debug.Log("[Quest startup] original Guildmaster entry retained and excluded.");
+                    if (setTooltip != null) setTooltip.Invoke(component, new object[] { true, QuestText.Get(key, Application.systemLanguage == SystemLanguage.German) });
+                    Debug.Log(voice ? "[Quest startup] original voice opt-in button retained and excluded for this startup diagnostic; voiceNativeAvailable=false."
+                        : "[Quest startup] original Guildmaster entry retained and excluded.");
                 }
             }
         }
@@ -253,10 +299,20 @@ namespace GloomhavenVR.Quest
             }
             return false;
         }
-        internal void Hover(GameObject hit) { tooltip.text = hit != null && Excluded(hit) ? QuestText.Get("excluded", Application.systemLanguage == SystemLanguage.German) : ""; }
-        void OnApplicationFocus(bool value) { focused = value; if (!value) navigation.Suspend(); }
-        void OnApplicationPause(bool value) { paused = value; if (value) navigation.Suspend(); }
-        void OnDestroy() { SceneManager.sceneLoaded -= SceneLoaded; Camera.onPreCull -= BeforeCameraRender; head.Dispose(); aim.Dispose(); leftGrip.Dispose(); rightGrip.Dispose(); trigger.Dispose(); leftStick.Dispose(); rightStick.Dispose(); if (markerMaterial != null) Destroy(markerMaterial); }
+        internal void Hover(GameObject hit)
+        {
+            string key = null;
+            if (hit != null)
+            {
+                foreach (Component entry in excluded)
+                    if (entry != null && hit.transform.IsChildOf(entry.transform)) { key = excludedText[entry]; break; }
+                if (key == null && Excluded(hit)) key = "excluded";
+            }
+            tooltip.text = key != null ? QuestText.Get(key, Application.systemLanguage == SystemLanguage.German) : "";
+        }
+        void OnApplicationFocus(bool value) { focused = value; if (!value) { navigation.Suspend(); mrButton.Reset(); } }
+        void OnApplicationPause(bool value) { paused = value; if (value) { navigation.Suspend(); mrButton.Reset(); } }
+        void OnDestroy() { SceneManager.sceneLoaded -= SceneLoaded; Camera.onPreCull -= BeforeCameraRender; head.Dispose(); aim.Dispose(); leftGrip.Dispose(); rightGrip.Dispose(); trigger.Dispose(); leftStick.Dispose(); rightStick.Dispose(); primary.Dispose(); if (markerMaterial != null) Destroy(markerMaterial); }
     }
 
     /// <summary>Delivers native Unity pointer events; never calls a game action directly.</summary>
