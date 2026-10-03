@@ -8,3 +8,5 @@
 /UserSettings/
 /ProjectSettings/*.asset
 /ProjectSettings/boot.config
+/Assets/DistanceGenerated/
+/Assets/DistanceGenerated.meta

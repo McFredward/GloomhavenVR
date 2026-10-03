@@ -14,7 +14,7 @@ import UnityPy
 from UnityPy.helpers.MeshHelper import MeshHandler
 
 
-def export_mesh(mesh, target):
+def export_mesh(mesh, target, blend_shapes=False):
     handler = MeshHandler(mesh)
     handler.process()
     triangles = handler.get_triangles()
@@ -24,7 +24,7 @@ def export_mesh(mesh, target):
         def channel(values, width):
             ints(len(values or []), width)
             for row in values or []: floats(tuple(row)[:width])
-        out.write(b'GHFM1')
+        out.write(b'GHFM2' if blend_shapes else b'GHFM1')
         name = mesh.m_Name.encode('utf-8'); ints(len(name)); out.write(name)
         for vector in (mesh.m_LocalAABB.m_Center, mesh.m_LocalAABB.m_Extent): floats((vector.x, vector.y, vector.z))
         channel(handler.m_Vertices, 3); channel(handler.m_Normals, 3)
@@ -43,6 +43,18 @@ def export_mesh(mesh, target):
         ints(len(triangles))
         for sub in triangles:
             flat = [index for triangle in sub for index in triangle]; ints(len(flat)); ints(*flat)
+        if blend_shapes:
+            shapes = mesh.m_Shapes
+            ints(len(shapes.channels))
+            for shape in shapes.channels:
+                encoded = shape.name.encode('utf-8'); ints(len(encoded)); out.write(encoded)
+                ints(shape.frameCount)
+                for frame_index in range(shape.frameIndex, shape.frameIndex + shape.frameCount):
+                    frame = shapes.shapes[frame_index]
+                    floats([shapes.fullWeights[frame_index]]); ints(frame.vertexCount)
+                    for vertex in shapes.vertices[frame.firstVertex:frame.firstVertex + frame.vertexCount]:
+                        ints(vertex.index)
+                        for vector in (vertex.vertex, vertex.normal, vertex.tangent): floats((vector.x, vector.y, vector.z))
     return {'name': mesh.m_Name, 'vertices': len(handler.m_Vertices), 'triangles': sum(map(len, triangles)),
             'submeshes': len(triangles), 'readable': mesh.m_IsReadable,
             'geometry_sha256': hashlib.sha256(target.read_bytes()).hexdigest()}

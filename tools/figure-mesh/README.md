@@ -72,3 +72,56 @@ are never admitted, whether the solver is ON or OFF.
 
 These are source and actual Unity runtime results. Headset appearance and frame-time
 gains require hardware validation; no measured FPS improvement is claimed yet.
+
+## Optional distance and NPC detail banks
+
+`python3 scripts/generate-distance-figure-meshes.py` appends separate distance parts
+and an index without rebuilding the existing 75/45/20 scenario banks. The original
+endpoint-derived banks remain byte-for-byte unchanged. Far bodies use the MIT
+UnityMeshSimplifier SmartLink implementation vendored under `UnityMeshSimplifier/`
+(pinned upstream revision and license are included). It is an offline tool, never
+loaded by the plugin. Its 5% triangle target is a request; boundary constraints can
+retain more geometry. `distance-manifest.json` records actual counts and hashes.
+
+NPC bodies retain their original facial triangles, positions, normals, UVs, weights
+and expression deltas. Only the remaining body is simplified, with its open cut
+boundary fixed, and then rejoined under the original material slots and skeleton.
+The lossless GHFM2 stream contains the original sparse blendshape frames. No native
+bundle, animation, material, bone transform or gameplay controller is modified.
+
+Runtime quality selection uses eye distance divided by the renderer's world-bound
+radius, so world scaling retains the same projected-size policy. Separate entry and
+exit thresholds avoid mesh chatter. Near/held figures obey the saved mesh-detail
+cap; distant figures can use the stronger bank. Missing far records fall back to a
+verified 20% derivative. Off and VR teardown restore owned original mesh slots.
+A foreign replacement is never overwritten. Skinned influence caps also restore the
+original renderer/global quality and respect native quality-level changes.
+
+`python3 scripts/check-figure-distance-runtime.py` compiles the production helpers
+and tests original hero/drake/demon bodies and all three shipped NPC prefabs in real
+Unity, with mutation controls, actual triangle counts and mesh/rig/material restoration.
+Linux preview renders use one common Standard shader for original Windows-only shader
+programs; the original material objects and textures remain identical across tiers.
+The preview runner yields real player frames between swaps: Unity GPU skin buffers
+are prepared once per frame, so capturing multiple incompatible mesh sizes within one
+frame can produce a false blank-body result. Two actual frames at each tier and the
+far-to-original return must each contain visible skinned-body pixels. Native animator
+updates run between those samples; no baked replacement renderer is used.
+Those previews establish geometry comparisons, not headset performance or production
+shader parity. Hardware logs remain the evidence for frame-time improvement.
+
+The append currently contains 415 derivatives in 29 parts (83,005,400 bytes), with
+all existing 1,191 derivatives and their 49 parts unchanged. Representative far
+triangle counts are Berserker 1,189 (old lowest 6,838), Sun demon 1,038 (5,328), and
+far Spitting Drake 2,007 (4,585). Protected NPC faces impose a much higher floor;
+actual shipped renderer triangle counts are:
+
+| NPC | Original | Mid (45 target) | Far (5 target) |
+| --- | --- | --- | --- |
+| Merchant | 136,798 | 82,840 | 55,569 |
+| Priestess | 135,910 | 82,352 | 54,755 |
+| Enchantress | 141,114 | 86,072 | 58,909 |
+
+The far target never means that an NPC reached 5%: its untouched facial surface
+remains. A focused `--only` or `--npc-only` generation requires `--no-package` so
+partial numbered parts cannot overwrite a complete published bank.

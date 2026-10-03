@@ -20,10 +20,10 @@ def validate(folder):
     names, banks = set(), set()
     for entry in entries:
         mesh, bank = entry['mesh'], entry['bank']
-        match = re.fullmatch(r'figure-[0-9a-f]{16}-(20|45|75)', mesh)
-        if not match or not re.fullmatch(r'ghvr-figure-meshes-(20|45|75)-[0-9]{2}\.bundle', bank):
+        match = re.fullmatch(r'figure-[0-9a-f]{16}-(5|20|45|75)', mesh)
+        if not match or not re.fullmatch(r'ghvr-figure-meshes-(5|20|45|75|distance)-[0-9]{2}\.bundle', bank):
             raise ValueError('invalid figure identity or part filename')
-        if f'-{match[1]}-' not in bank or mesh in names:
+        if (not bank.startswith('ghvr-figure-meshes-distance-') and f'-{match[1]}-' not in bank) or mesh in names:
             raise ValueError('duplicate identity or mismatched part tier')
         names.add(mesh)
         banks.add(bank)

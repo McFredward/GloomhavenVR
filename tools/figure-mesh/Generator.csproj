@@ -1,4 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><TargetFramework>netstandard2.1</TargetFramework><LangVersion>latest</LangVersion><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup>
-  <ItemGroup><Compile Include="$(GeneratorSource)/*.cs"/><Compile Include="$(RuntimeSource)/ScenarioFigureMeshBank.cs"/><Compile Include="$(GeneratedBoundaries)"/><Reference Include="$(UnityManaged)/UnityEngine/*.dll"/><Reference Include="$(UnityManaged)/UnityEditor/*.dll"/></ItemGroup>
+  <ItemGroup><Compile Include="$(GeneratorSource)/*.cs"/><Compile Include="$(GeneratorSource)/UnityMeshSimplifier/**/*.cs"/><Compile Include="$(RuntimeSource)/ScenarioFigureMeshBank.cs"/><Compile Include="$(GeneratedBoundaries)"/><Reference Include="$(UnityManaged)/UnityEngine/*.dll"/><Reference Include="$(UnityManaged)/UnityEditor/*.dll"/></ItemGroup>
 </Project>

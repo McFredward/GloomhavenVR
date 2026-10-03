@@ -9,7 +9,8 @@ internal static class NativeFigureMeshStream
     internal static Mesh Read(string path)
     {
         using var reader = new BinaryReader(File.OpenRead(path));
-        if (System.Text.Encoding.ASCII.GetString(reader.ReadBytes(5)) != "GHFM1") throw new InvalidDataException("Native mesh format");
+        string format = System.Text.Encoding.ASCII.GetString(reader.ReadBytes(5));
+        if (format != "GHFM1" && format != "GHFM2") throw new InvalidDataException("Native mesh format");
         var mesh = new Mesh { name = System.Text.Encoding.UTF8.GetString(reader.ReadBytes(reader.ReadInt32())), indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
         Vector3 Vector() => new(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
         Bounds bounds = new() { center = Vector(), extents = Vector() };
@@ -36,6 +37,26 @@ internal static class NativeFigureMeshStream
         for (int sub = 0; sub < mesh.subMeshCount; sub++)
         { var triangles = new int[reader.ReadInt32()]; for (int i = 0; i < triangles.Length; i++) triangles[i] = reader.ReadInt32(); mesh.SetTriangles(triangles, sub, false); }
         mesh.bounds = bounds;
+        if (format == "GHFM2")
+        {
+            int count = reader.ReadInt32();
+            if (count < 0 || count > 128) throw new InvalidDataException("Native expression count bound");
+            for (int shape = 0; shape < count; shape++)
+            {
+                string name = System.Text.Encoding.UTF8.GetString(reader.ReadBytes(reader.ReadInt32()));
+                int frames = reader.ReadInt32();
+                if (frames < 1 || frames > 128) throw new InvalidDataException("Native expression frames bound");
+                for (int frame = 0; frame < frames; frame++)
+                {
+                    float weight = reader.ReadSingle(); int sparse = reader.ReadInt32();
+                    if (sparse < 0 || sparse > mesh.vertexCount) throw new InvalidDataException("Native expression vertices bound");
+                    var dv = new Vector3[mesh.vertexCount]; var dn = new Vector3[mesh.vertexCount]; var dt = new Vector3[mesh.vertexCount];
+                    for (int vertex = 0; vertex < sparse; vertex++)
+                    { int index = reader.ReadInt32(); dv[index] = Vector(); dn[index] = Vector(); dt[index] = Vector(); }
+                    mesh.AddBlendShapeFrame(name, weight, dv, dn, dt);
+                }
+            }
+        }
         if (reader.BaseStream.Position != reader.BaseStream.Length) throw new InvalidDataException("Native mesh trailing data");
         return mesh;
     }
