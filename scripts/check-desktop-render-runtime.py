@@ -80,10 +80,18 @@ internal static bool Measure(ConvertedPanel panel, Graphic graphic, out Vector2 
     start = movie.index('    internal static bool OwnsRenderCamera(')
     owner = movie[start:movie.index(';', start)+1]
     sources['MovieOwner.cs'] = 'using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static class NativeVideoWindow {\n' + owner + '\n}\n'
+    rig = (args.source_root/'src/GloomhavenVR/Rig/VRRigDriver.HeadCamera.cs').read_text()
+    start = rig.index('    private Camera? ResolveScenarioCamera()')
+    end = rig.index('    /// <summary>', start)
+    resolver = rig[start:end].replace('private Camera? ResolveScenarioCamera()', 'internal Camera? ResolveScenarioCamera()', 1)
+    sources['RigScenario.cs'] = ('using UnityEngine; using GloomhavenVR.Core; namespace GloomhavenVR.Rig; '
+        + 'internal sealed class ScenarioCameraResolver { private Camera? _scenarioCam; private int _scenarioCamProbe; '
+        + 'private const int SweepIntervalFrames = 16;\n' + resolver + '\n}\n')
     variants = [
         ('production', '', '', '', ''),
         ('camera-not-disabled', 'Budget.cs', 'if (camera.enabled) camera.enabled = false;', 'if (camera.enabled) camera.enabled = true;', 'unused native and UI cameras leave Unity'),
         ('native-projection-lost', 'Budget.cs', 'return _main;', 'return Camera.main;', 'projection resolver preserves exact original camera identity'),
+        ('scenario-mask-lookup-lost', 'RigScenario.cs', 'int count = NativeCameraRenderBudget.GetProjectionCamerasNonAlloc(out Camera[] all);', 'Camera[] all = Camera.allCameras; int count = all.Length;', 'scenario mask lookup retains the suspended original camera'),
         ('projection-enumeration-lost', 'Budget.cs', 'return count;\n    }\n    private static Camera[] ProjectionCameras', 'return active;\n    }\n    private static Camera[] ProjectionCameras', 'original UI camera recovery retains suspended native identities'),
         ('movie-camera-suspended', 'Budget.cs', 'camera == Rig.VRRigDriver.HeadCamera || WorldUI.NativeVideoWindow.OwnsRenderCamera(camera) ||', 'camera == Rig.VRRigDriver.HeadCamera ||', 'native movie decoder and continuation camera remain enabled'),
         ('cadence-keeps-polling', 'Cadence.cs', 'bool due = interval <= 0f || immediate || changed || now >= state.Next;', 'bool due = true;', 'static panel avoids redundant fit polling'),

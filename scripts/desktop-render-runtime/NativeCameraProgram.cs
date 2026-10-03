@@ -60,6 +60,9 @@ public static class NativeCameraProgram
             Check(!originallyOff.enabled && !NativeCameraRenderBudget.Owns(originallyOff),
                 "a native disabled camera is never claimed or enabled");
             Check(NativeCameraRenderBudget.Main == native, "projection resolver preserves exact original camera identity");
+            native.name = "ScenarioCamera";
+            Check(new GloomhavenVR.Rig.ScenarioCameraResolver().ResolveScenarioCamera() == native,
+                "scenario mask lookup retains the suspended original camera");
             int readers = 0;
             foreach (string assemblyName in new[] { "GH.Runtime", "GH.Runtime.FirstPass", "ThirdParty" })
             {
