@@ -38,6 +38,11 @@ internal static class FrameDefaults
     // This seeds only the new key; all platforms retain the same reversible live control.
     internal const int ScenarioDecorationDensityPercent = 0;
     internal const int ScenarioVegetationDensityPercent = 0;
+    internal const bool SuspendUnusedCameras = true;
+    internal const float UiMaintenanceIntervalSeconds = .05f;
+    internal const bool FigureDistanceLod = true;
+    internal const int TownNpcDetailPercent = 45;
+    internal const int SkinningBoneLimit = 2;
     internal const int ScenarioPlayerFigureDetailPercent = 0;
     internal const int ScenarioEnemyFigureDetailPercent = 0;
     internal const int ScenarioFigureEffectsDensityPercent = 0;

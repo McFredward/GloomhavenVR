@@ -68,6 +68,11 @@ internal static partial class Defaults
     internal const int ScenarioSceneryDensityPercent = 100; // => [Optimize] ScenarioSceneryDensityPercent
     internal const int ScenarioDecorationDensityPercent = 100; // => [Optimize] ScenarioDecorationDensityPercent
     internal const int ScenarioVegetationDensityPercent = 100; // => [Optimize] ScenarioVegetationDensityPercent
+    internal const bool SuspendUnusedCameras = false;
+    internal const float UiMaintenanceIntervalSeconds = 0f;
+    internal const bool FigureDistanceLod = false;
+    internal const int TownNpcDetailPercent = 100;
+    internal const int SkinningBoneLimit = 0;
     internal const int ScenarioPlayerFigureDetailPercent = 100; // => [Optimize] ScenarioPlayerFigureDetailPercent
     internal const int ScenarioEnemyFigureDetailPercent = 100; // => [Optimize] ScenarioEnemyFigureDetailPercent
     internal const int ScenarioFigureEffectsDensityPercent = 100; // => [Optimize] ScenarioFigureEffectsDensityPercent

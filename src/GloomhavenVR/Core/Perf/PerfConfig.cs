@@ -155,6 +155,11 @@ internal static class PerfConfig
     internal static ConfigEntry<int> ScenarioDecorationDensityPercent = null!;
 
     internal static ConfigEntry<int> ScenarioVegetationDensityPercent = null!;
+    internal static ConfigEntry<bool> SuspendUnusedCameras = null!;
+    internal static ConfigEntry<float> UiMaintenanceIntervalSeconds = null!;
+    internal static ConfigEntry<bool> FigureDistanceLod = null!;
+    internal static ConfigEntry<int> TownNpcDetailPercent = null!;
+    internal static ConfigEntry<int> SkinningBoneLimit = null!;
     internal static ConfigEntry<int> ScenarioPlayerFigureDetailPercent = null!;
     internal static ConfigEntry<int> ScenarioEnemyFigureDetailPercent = null!;
     internal static ConfigEntry<int> ScenarioFigureEffectsDensityPercent = null!;
@@ -261,6 +266,17 @@ internal static class PerfConfig
     internal static int ScenarioVegetationDensityPercentValue =>
         ScenarioVegetationDensityPercent == null ? Defaults.ScenarioVegetationDensityPercent
             : Mathf.Clamp(ScenarioVegetationDensityPercent.Value, 0, 100);
+
+    internal static bool UnusedCamerasSuspended => SuspendUnusedCameras == null
+        ? Defaults.SuspendUnusedCameras : SuspendUnusedCameras.Value;
+    internal static float UiMaintenanceInterval => UiMaintenanceIntervalSeconds == null
+        ? 0f : Mathf.Clamp(UiMaintenanceIntervalSeconds.Value, 0f, .2f);
+    internal static bool FigureDistanceLodEnabled => FigureDistanceLod == null
+        ? Defaults.FigureDistanceLod : FigureDistanceLod.Value;
+    internal static int TownNpcMeshDetailPercent => TownNpcDetailPercent == null
+        ? Defaults.TownNpcDetailPercent : Mathf.Clamp(TownNpcDetailPercent.Value, 0, 100);
+    internal static int MaximumSkinningBones => SkinningBoneLimit == null
+        ? Defaults.SkinningBoneLimit : SkinningBoneLimit.Value is 1 or 2 or 4 ? SkinningBoneLimit.Value : 0;
 
     internal static int PlayerFigureDetailPercent =>
         ScenarioPlayerFigureDetailPercent == null ? Defaults.ScenarioPlayerFigureDetailPercent
@@ -421,6 +437,34 @@ internal static class PerfConfig
                 + "Solid wall/floor cores, native obstacles, doors, actors, lights and UI are retained. "
                 + "Works live; fresh standalone Frame defaults to 0%, PC to 100%; saved choices stay.",
                 new AcceptableValueRange<int>(0, 100)));
+        SuspendUnusedCameras = _file.Bind("Optimize", "SuspendUnusedCameras",
+            FrameDefaults.Active ? FrameDefaults.SuspendUnusedCameras : Defaults.SuspendUnusedCameras,
+            "Stop rendering from unused native cameras while preserving their projection and raycasting. "
+            + "Visible flat menus and required preview captures still render. Fresh Frame On, PC Off; works live.");
+        UiMaintenanceIntervalSeconds = _file.Bind("Optimize", "UiMaintenanceIntervalSeconds",
+            FrameDefaults.Active ? FrameDefaults.UiMaintenanceIntervalSeconds : Defaults.UiMaintenanceIntervalSeconds,
+            new ConfigDescription("Seconds between maintenance passes for unchanged converted panels. "
+            + "0 updates every frame. Creation, reveal, grabs and native callbacks remain immediate. "
+            + "Fresh Frame 0.05 s, PC 0; works live.", new AcceptableValueRange<float>(0f, .2f)));
+        FigureDistanceLod = _file.Bind("Optimize", "FigureDistanceLod",
+            FrameDefaults.Active ? FrameDefaults.FigureDistanceLod : Defaults.FigureDistanceLod,
+            "Reduce figure body mesh detail with viewing distance, including immersive map NPCs. "
+            + "Near figures retain the selected mesh-detail cap; distant figures use stronger prepared "
+            + "simplification. Materials, bones, animation and gameplay stay original. Held figures keep "
+            + "their selected near detail. Works live; fresh Frame On, PC Off; saved choices stay.");
+        TownNpcDetailPercent = _file.Bind("Optimize", "TownNpcDetailPercent",
+            FrameDefaults.Active ? FrameDefaults.TownNpcDetailPercent : Defaults.TownNpcDetailPercent,
+            new ConfigDescription("Immersive map NPC body mesh detail. 100% retains the original mesh; "
+            + "lower values use prepared meshes with original materials, skin weights and expressions. "
+            + "Eyes and separately animated faces stay original. Fresh Frame 45%, PC 100%; works live.",
+                new AcceptableValueRange<int>(0, 100)));
+        SkinningBoneLimit = _file.Bind("Optimize", "SkinningBoneLimit",
+            FrameDefaults.Active ? FrameDefaults.SkinningBoneLimit : Defaults.SkinningBoneLimit,
+            new ConfigDescription("Maximum rendered bone influences per vertex on scenario figures and "
+            + "immersive NPC bodies. 0 preserves native quality; 1, 2 or 4 caps skinning work. Lower values "
+            + "can simplify joint deformation. Bones, animation and gameplay remain unchanged. "
+            + "Works live; fresh Frame 2, PC 0; original quality returns when cleared or VR stops.",
+                new AcceptableValueList<int>(0, 1, 2, 4)));
         ScenarioPlayerFigureDetailPercent = _file.Bind("Optimize", "ScenarioPlayerFigureDetailPercent",
             FrameDefaults.Active ? FrameDefaults.ScenarioPlayerFigureDetailPercent : Defaults.ScenarioPlayerFigureDetailPercent,
             new ConfigDescription(

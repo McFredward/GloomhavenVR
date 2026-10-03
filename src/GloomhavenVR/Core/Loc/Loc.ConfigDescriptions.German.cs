@@ -244,6 +244,28 @@ internal static partial class Loc
                 + "eigene Regler. Tragende Wände, Böden, Spielhindernisse, Türen, Figuren, Licht und UI "
                 + "bleiben erhalten. Wirkt sofort; neue Frame-Profile beginnen mit 0%, PC mit 100%; "
                 + "gespeicherte Werte bleiben erhalten.",
+            ["Optimize/SuspendUnusedCameras"] =
+                "Stoppt das Rendering ungenutzter Spielkameras. Ihre Projektion und Laser-Zielprüfung "
+                + "bleiben erhalten. Sichtbare Flat-Menüs und benötigte Vorschauen rendern weiter. "
+                + "Neue Frame-Profile Ein, PC Aus; wirkt sofort.",
+            ["Optimize/UiMaintenanceIntervalSeconds"] =
+                "Sekunden zwischen Wartungsschritten unveränderter VR-Fenster. 0 aktualisiert jeden Frame. "
+                + "Erstellen, Aufdecken, Greifen und Spiel-Callbacks bleiben sofort wirksam. "
+                + "Neue Frame-Profile 0,05 s, PC 0; wirkt sofort.",
+            ["Optimize/FigureDistanceLod"] =
+                "Verringert die Körperdetails mit dem Betrachtungsabstand, auch bei immersiven Map-NPCs. "
+                + "Nahe und hochgehobene Figuren behalten die gewählte Detailgrenze; entfernte Figuren "
+                + "werden stärker vereinfacht. Material, Knochen, Animation und Spielregeln bleiben erhalten. "
+                + "Wirkt sofort; neue Frame-Profile Ein, PC Aus; gespeicherte Werte bleiben.",
+            ["Optimize/TownNpcDetailPercent"] =
+                "Körperdetails immersiver Map-NPCs. 100% erhält das originale Mesh, niedrigere Werte "
+                + "nutzen vorbereitete Meshes mit originalem Material, Knochengewichten und Gesichtsausdrücken. "
+                + "Augen und separat animierte Gesichter bleiben original. Neue Frame-Profile 45%, PC 100%.",
+            ["Optimize/SkinningBoneLimit"] =
+                "Maximale Knocheneinflüsse pro Vertex bei Szenariofiguren und immersiven NPC-Körpern. "
+                + "0 erhält die Spielqualität; 1, 2 oder 4 begrenzen den Skinning-Aufwand. Niedrige Werte "
+                + "können Gelenke vereinfachen. Knochen, Animation und Spielregeln bleiben unverändert. "
+                + "Wirkt sofort; neue Frame-Profile 2, PC 0. Bei 0 oder VR-Ende kehrt die Spielqualität zurück.",
             ["Optimize/ScenarioPlayerFigureDetailPercent"] =
                 "Mesh-Details der Spielfiguren im Szenario. 100% erhält die ursprüngliche automatische "
                 + "Detailwahl; kleinere Werte nutzen vorhandene gröbere Original-Meshes und vorbereitete "
