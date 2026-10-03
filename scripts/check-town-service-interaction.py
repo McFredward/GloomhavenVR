@@ -58,7 +58,8 @@ def sources(root):
     bound["ConfirmationMask.cs"] = bound["ConfirmationMask.cs"].replace("Time.unscaledTime", "MaskClock.Now")
     bound["Composite.cs"] = "using System;\nusing UnityEngine.UI;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class ModalFallback {\n" + method(raw["Composite.cs"], "internal static bool ReleaseForComposite(UIWindow window)") + "\n}\n"
     bound["Grabber.cs"] = "using System;\nusing UnityEngine;\nnamespace GloomhavenVR.Hands.Interact;\ninternal partial class ProximityGrabber {\n" + "\n".join(method(raw["Grabber.cs"], sig) for sig in (
-        "private void BeginGrab(", "public bool ForceGrab(", "private bool HealDeadHeld()", "internal void CancelAll()")) + "\n}\n"
+        "private void BeginGrab(", "public bool ForceGrab(", "private bool HealDeadHeld()", "internal void CancelAll()",
+        "private static bool CanGrabNow(", "private static bool AllowsHandNow(")) + "\n}\n"
     # Bind the held branch of the real Tick as well. Its surrounding election/physics and mode
     # policy are outside this fixture; no release-condition or callback logic is reimplemented.
     tick = method(raw["Grabber.cs"], "internal void Tick()")

@@ -41,7 +41,9 @@ def sources(root):
     start = card.index("    public override bool CanGrab =>")
     gate = card[start:card.index(";", start) + 1]
     grab = (root / "src/GloomhavenVR/Hands/Interact/ProximityGrabber.cs").read_text()
-    force = method(grab, "public bool ForceGrab(")
+    force = "\n".join(method(grab, signature) for signature in (
+        "public bool ForceGrab(", "private static bool CanGrabNow(",
+        "private static bool AllowsHandNow("))
     bound["ActualGrabRoute.cs"] = "using System; using GloomhavenVR.Hands; using GloomhavenVR.Hands.Interact; namespace GloomhavenVR.Cards { public partial class VRCard { " + gate + " } } namespace GloomhavenVR.Hands { public partial class Holder { " + force + " } }"
     ray = (root / "src/GloomhavenVR/Hands/Interact/RayUguiDriver.cs").read_text()
     arbitration = method(ray, "private static bool OfferedAreaClear(").replace(
