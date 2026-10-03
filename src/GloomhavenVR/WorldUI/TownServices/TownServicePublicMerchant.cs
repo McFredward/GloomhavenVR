@@ -56,6 +56,14 @@ internal static class TownServicePublicMerchant
         TakePublicCatalog();
         return true;
     }
+    internal static bool TryTurnPage(TownServiceMerchantDrawer rack, int direction)
+    {
+        if (_catalog == null || !CanClaim || !MapRoomDriver.Active || StoryComposite.PointOfNoReturn) return false;
+        if (!TownServiceMirror.IsPublicAuthor) FollowPublicRack();
+        if (!rack.RequestTurn(direction)) return false;
+        TakePublicCatalog();
+        return true;
+    }
     private static void TakePublicCatalog()
     {
         if (_catalog == null) return;

@@ -27,13 +27,17 @@ def sources(root):
     category = (base / "TownServiceCatalogCategory.cs").read_text()
     claim = "\n".join(block(merchant, signature) for signature in (
         "internal static bool CanClaim", "internal static void Claim()", "private static void FollowPublicRack()",
-        "internal static bool TrySelectCategory(TownServiceMerchantDrawer rack, int category)", "private static void TakePublicCatalog()",
+        "internal static bool TrySelectCategory(TownServiceMerchantDrawer rack, int category)",
+        "internal static bool TryTurnPage(TownServiceMerchantDrawer rack, int direction)", "private static void TakePublicCatalog()",
         "private static void CommitPublicVisibility()"))
     follower = "\n".join(block(drawer, signature) for signature in (
         "internal void Follow(TownRackState state)", "internal bool Select(int category, bool selling)",
         "private bool Begin(int page, int direction = 0)", "internal void Tick(float opacity)"))
     retain_start = drawer.index("    internal bool RetainsPage(int page)")
     follower += drawer[retain_start:drawer.index(";", retain_start)+1]
+    for signature in ("public bool CanGrab =>", "internal bool RequestTurn(int direction) =>"):
+        expression_start = drawer.index("    " + signature)
+        follower += drawer[expression_start:drawer.index(";", expression_start)+1]
     generated = ("using System; using UnityEngine; using GloomhavenVR.Hands; using GloomhavenVR.Net.TownServices; "
         "using GloomhavenVR.WorldUI.MapRoom; namespace GloomhavenVR.WorldUI { "
         "internal static partial class TownServicePublicMerchant {\n" + claim

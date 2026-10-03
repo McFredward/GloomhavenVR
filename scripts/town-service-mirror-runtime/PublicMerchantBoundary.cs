@@ -50,6 +50,7 @@ namespace GloomhavenVR.WorldUI
         private bool _disposed, _laser;
         private Vector3 _cursorStart;
         private float _pull, _lastVisibility = float.NaN;
+        private int _availablePages = 2;
         private readonly Func<bool> _alive = () => true;
         private readonly Action<TownServiceMerchantDrawer> _opening = _ => { };
         private readonly List<Material> _visibilityMaterials = new();

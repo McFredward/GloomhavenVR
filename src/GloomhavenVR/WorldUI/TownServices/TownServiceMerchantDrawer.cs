@@ -196,8 +196,7 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         if (_stickDirection != step) _nextStickTurn = 0f;
         _stickDirection = step;
         if (_turning || Time.unscaledTime < _nextStickTurn) return;
-        TownServicePublicMerchant.Claim();
-        if (RequestTurn(step))
+        if (TownServicePublicMerchant.TryTurnPage(this, step))
         {
             _nextStickTurn = Time.unscaledTime + TownRackState.TurnDuration + .15f;
             UiScrollFocus.NoteScrollDelivered(hand, _housing, nameof(TownServiceMerchantDrawer));

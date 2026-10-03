@@ -108,6 +108,8 @@ public static partial class MirrorProgram
                 catalog.Categories[1].OnPoke(hand);
                 Check(TownServiceMirror.PublicAuthor == 2 && drawer.FixtureFollowingTurn && hand.Haptics == 1,
                     "a stale peer proxy cannot steal public authority when the current owner cassette is still moving");
+                Check(!TownServicePublicMerchant.TryTurnPage(drawer, 1) && TownServiceMirror.PublicAuthor == 2,
+                    "a page request cannot steal public authority when the received cassette is still moving");
                 sampled = true;
             }
             yield return null;
@@ -119,6 +121,12 @@ public static partial class MirrorProgram
         catalog.Categories[1].OnPoke(hand);
         Check(TownServiceMirror.IsPublicAuthor && drawer.FromPage == 0 && drawer.ToPage == 256 && hand.Haptics == 2,
             "a subsequent different peer category press adopts the shared page before beginning its own return animation");
+        for (float until = Time.unscaledTime + TownRackState.TurnDuration + .03f; Time.unscaledTime < until;)
+        { drawer.FixtureTick(); yield return null; }
+        drawer.PageCount = 2;
+        Check(TownServicePublicMerchant.TryTurnPage(drawer, 1) && TownServiceMirror.IsPublicAuthor
+            && drawer.FromPage == 256 && drawer.ToPage == 257,
+            "a peer page request keeps the shared category and starts the exact native page animation");
         NetPlayerActors.Peer = 1;
         TownServiceMirror.CommitPublicVisibility = null;
         TownServiceSync.UseProductionPublish = false; TownServiceSync.ResetNetwork();
