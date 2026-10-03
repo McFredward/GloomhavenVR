@@ -86,6 +86,7 @@ internal static class StartupTests
             string gameHash = QuestGameContent.Hash(Path.Combine(managed, "GH.Runtime.dll"));
             string output = Path.Combine(temp, "adapted");
             StandaloneReport report = Standalone.Write(managed, null, profile, output);
+            RulesBoundaryTests.Run(managed, output, profile, temp, check);
             check(report.StartupAdapterComplete && !report.FullGameReady && !report.ModLifecycleComplete && !report.EosAuthorised && !report.VoiceNativeAvailable, "Platform adapter falsely claimed full-game/mod/EOS/voice readiness.");
             check(report.ProtectedTypesVerified == 7 && report.UnchangedTypesVerified > 4000, "Actual original-game protected and unrelated type invariance is incomplete.");
             check(QuestGameContent.Hash(Path.Combine(managed, "GH.Runtime.dll")) == gameHash, "Original input bytes changed.");

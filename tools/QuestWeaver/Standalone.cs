@@ -215,6 +215,47 @@ internal static class Standalone
 
         using AssemblyDefinition compatibility = CreatePaths(game.MainModule);
         TypeDefinition paths = compatibility.MainModule.Types.Single(t => t.Name == "Paths");
+        // B612 hardware reached native rule loading, then failed while resolving
+        // global hero/item references. Its recent-logcat capture evicted the first
+        // parse failure; that cause is still unproven. Independently, the original
+        // protected rule DLL initializes LazyLoadingConstants from Android's jar
+        // StreamingAssets path and scans it with Directory.GetFiles. Initialize
+        // its existing public IO setting at the original initialization boundary,
+        // after the verified owned files are available. Never rewrite the rule
+        // DLL, suppress validation, change parser decisions, or skip shared rules.
+        using (AssemblyDefinition rules = AssemblyDefinition.ReadAssembly(Input("ScenarioRuleLibrary.dll"), new ReaderParameters { AssemblyResolver = resolver, InMemory = true }))
+        {
+            TypeDefinition lazyPaths = rules.MainModule.GetType("ScenarioRuleLibrary.LazyLoadingConstants")
+                ?? throw new InvalidDataException("Original lazy rule path type is missing.");
+            FieldDefinition[] fields = lazyPaths.Fields.Where(f => f.Name == "RulesetPath" && f.FieldType.FullName == "System.String"
+                && f.IsPublic && f.IsStatic && !f.IsInitOnly && !f.IsLiteral).ToArray();
+            if (fields.Length != 1) throw new InvalidDataException("Original public lazy rule path ABI changed.");
+            MethodDefinition initialisePath = new("InitializeRulebasePath", MethodAttributes.Public | MethodAttributes.Static, compatibility.MainModule.TypeSystem.Void);
+            paths.Methods.Add(initialisePath);
+            MethodReference combine = new("Combine", compatibility.MainModule.TypeSystem.String,
+                new TypeReference("System.IO", "Path", compatibility.MainModule, compatibility.MainModule.TypeSystem.CoreLibrary));
+            combine.Parameters.Add(new ParameterDefinition(compatibility.MainModule.TypeSystem.String));
+            combine.Parameters.Add(new ParameterDefinition(compatibility.MainModule.TypeSystem.String));
+            ILProcessor init = initialisePath.Body.GetILProcessor();
+            init.Emit(OpCodes.Call, paths.Methods.Single(m => m.Name == "get_streamingAssetsPath"));
+            init.Emit(OpCodes.Ldstr, "Rulebase"); init.Emit(OpCodes.Call, combine);
+            init.Emit(OpCodes.Stsfld, compatibility.MainModule.ImportReference(fields[0])); init.Emit(OpCodes.Ret);
+
+            MethodDefinition[] boundaries = Discovery.AllTypes(game.MainModule)
+                .Where(t => t.DeclaringType?.FullName == "SceneController" && t.Name.StartsWith("<InitialiseGloomhavenCoroutine>", StringComparison.Ordinal))
+                .SelectMany(t => t.Methods).Where(m => m.Name == "MoveNext" && m.HasBody && m.ReturnType.FullName == "System.Boolean").ToArray();
+            if (boundaries.Length != 1) throw new InvalidDataException("Original rule initialization coroutine ABI changed.");
+            MethodDefinition boundary = boundaries[0];
+            Instruction[] calls = boundary.Body.Instructions.Where(i => i.OpCode == OpCodes.Call && i.Operand is MethodReference call
+                && call.DeclaringType.FullName == "ScenarioRuleLibrary.ScenarioRuleClient" && call.Name == "Initialise"
+                && !call.HasThis && call.ReturnType.FullName == "System.Void" && call.Parameters.Count == 1
+                && call.Parameters[0].ParameterType.FullName == "System.Boolean").ToArray();
+            if (calls.Length != 1 || Discovery.Protected(boundary.DeclaringType))
+                throw new InvalidDataException("Original rule initialization call boundary changed.");
+            boundary.Body.GetILProcessor().InsertBefore(calls[0], Instruction.Create(OpCodes.Call, game.MainModule.ImportReference(initialisePath)));
+            changedTypes.Add(boundary.DeclaringType.FullName);
+            report.Modifications.Add("verified file-backed lazy rule path before original initialization: " + boundary.FullName);
+        }
         foreach (MethodDefinition method in Discovery.AllTypes(game.MainModule).SelectMany(t => t.Methods).Where(m => m.HasBody && !Discovery.Protected(m.DeclaringType)))
             foreach (Instruction instruction in method.Body.Instructions)
                 if (instruction.Operand is MethodReference call && call.DeclaringType.FullName == "UnityEngine.Application" && call.Name is "get_dataPath" or "get_streamingAssetsPath")
