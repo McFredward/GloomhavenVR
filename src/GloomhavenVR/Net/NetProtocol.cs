@@ -560,7 +560,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 610;
+    public const ushort ModBuild = 611;
+
+    // ModBuild 611 — responsive shared NPC presentation and reliable offer completion.
+    // Additive message26/record97 carries bounded numeric motion independently of
+    // native artwork fragments. Visitor-held originals use the existing interpolated
+    // avatar hand frames; module/session/structure affinity prevents stale artwork
+    // or numeric packets from replacing a newer physical offering. Cold fan fronts
+    // share urgent baseline delivery rather than queueing behind cabinet decoration.
+    // Original asset identity, local-only fingertip topology, dynamic native hints
+    // and independent visitor modules retain the complete public map presentation.
+    // A successful native donation has a durable fast commit clock, independent of
+    // visitor departure; resident activity still authors its animation, VFX and sound.
+    // Native mage cancellation returns its exact card and releases the physical
+    // lease. Merchant/mage show the granted player's existing avatar/name above the
+    // NPC until removal. Temple commits do not create an occupation. The maintainer
+    // explicitly permits one shared mage drop guide (2026-10-03); this visual election
+    // does not remove any eligible visitor's real input or controller feedback.
 
     // ModBuild 610 — pose-aware actor bars and readable native scenario rules.
     // Current evaluated native skin/bone envelopes replace the flying-offset floor

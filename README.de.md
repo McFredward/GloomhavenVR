@@ -175,6 +175,9 @@ die 3D-Karte.
 </tr>
 </table>
 
+Im Multiplayer teilen alle den Warenschrank des Händlers. Bild und Name über dem Händler oder
+der Verzauberin zeigen, wer ihre Hand gerade nutzt; ohne die Karte ist der NPC wieder frei.
+
 Die immersiven Stadt-NPCs sind standardmäßig aktiv. Für die ursprünglichen Fenster schalte sie unter
 **VR Optionen ▸ Umgebung & Ton ▸ Kampagnenkarte** aus. Bei aktiver 2D-Karte ist diese Einstellung ausgeblendet.
 

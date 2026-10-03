@@ -171,6 +171,9 @@ With immersive NPCs enabled, unlocked townsfolk stay at their stands around the 
 </tr>
 </table>
 
+In multiplayer, everyone shares the merchant's cabinet. An avatar and name above the merchant
+or enchantress show who is using their hand; removing the card frees that NPC again.
+
 Immersive town NPCs are on by default. To use the original windows, switch them off under
 **VR Options ▸ World & sound ▸ Campaign map**. This setting is hidden when the original 2D map is on.
 
