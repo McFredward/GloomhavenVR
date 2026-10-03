@@ -27,6 +27,7 @@ def main():
              "tests/GloomhavenVR.WireTests/TownMotionVectors.cs"]
     stamp = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in names}
     stamp["src/GloomhavenVR/Net/TownServices/TownServiceSendQueue.cs"] = hashlib.sha256((root / "src/GloomhavenVR/Net/TownServices/TownServiceSendQueue.cs").read_bytes()).hexdigest()
+    stamp["src/GloomhavenVR/Net/ExtrasSendQueue.cs"] = hashlib.sha256((root / "src/GloomhavenVR/Net/ExtrasSendQueue.cs").read_bytes()).hexdigest()
     (run / "source-hashes.json").write_text(json.dumps(stamp, indent=2) + "\n")
     for variant in (["production", "base-queue"] if args.old_queue else ["production"]):
         case = run / variant; case.mkdir()
@@ -50,7 +51,8 @@ def main():
         lines.append("</ItemGroup></Target></Project>")
         overlay = case / "Focused.targets"; overlay.write_text("\n".join(lines))
         build = [dotnet, "build", str(root / "tests/GloomhavenVR.WireTests/GloomhavenVR.WireTests.csproj"), "-c", "Release", "--nologo", "--verbosity", "quiet", "-p:StartupObject=GloomhavenVR.WireTests.TownMotionProgram",
-                 f"-p:CustomAfterMicrosoftCommonTargets={overlay}", f"-p:OutputPath={case / 'bin'}/"]
+                 f"-p:CustomAfterMicrosoftCommonTargets={overlay}", f"-p:OutputPath={case / 'bin'}/",
+                 f"-p:BaseIntermediateOutputPath={case / 'obj'}/"]
         result = subprocess.run(build, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         (case / "build.log").write_text(result.stdout)
         if result.returncode: print(result.stdout); raise SystemExit("FAIL focused compilation: " + variant)
