@@ -55,7 +55,7 @@ internal static class ScenarioFigureMeshBank
         _indexAttempted = true;
         try
         {
-            string folder = Path.GetDirectoryName(typeof(ScenarioFigureMeshBank).Assembly.Location) ?? string.Empty;
+            string folder = RuntimeDepsLoader.PluginDir;
             string path = Path.Combine(folder, "ghvr-figure-meshes-index.json");
             if (new FileInfo(path).Length > 1024 * 1024) throw new InvalidDataException("unbounded figure index");
             using var input = File.OpenRead(path);
@@ -86,7 +86,7 @@ internal static class ScenarioFigureMeshBank
         if (!Index.TryGetValue(identity, out string filename) || !AttemptedBanks.Add(filename)) return;
         try
         {
-            string folder = Path.GetDirectoryName(typeof(ScenarioFigureMeshBank).Assembly.Location) ?? string.Empty;
+            string folder = RuntimeDepsLoader.PluginDir;
             string path = Path.Combine(folder, filename);
             AssetBundle? bank = null;
             foreach (AssetBundle loaded in AssetBundle.GetAllLoadedAssetBundles())

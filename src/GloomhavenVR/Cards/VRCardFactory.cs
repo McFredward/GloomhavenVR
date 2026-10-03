@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 using GloomhavenVR.Core;
 using UnityEngine;
 
@@ -397,7 +396,7 @@ internal sealed class VRCardFactory
             }
         }
 
-        string pluginDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
+        string pluginDir = RuntimeDepsLoader.PluginDir;
         string bundlePath = Path.Combine(pluginDir, BundleFileName);
         if (!File.Exists(bundlePath))
         {
