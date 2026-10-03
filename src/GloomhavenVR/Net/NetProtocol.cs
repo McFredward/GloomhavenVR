@@ -576,7 +576,7 @@ internal static class NetProtocol
     // no card bitmap is sent. Cold originals get a finite urgent share of the existing
     // presentation scheduler; additive TLV98 packs unchanged TLV97 numbers losslessly
     // within the original event/cadence. TLV99 shares merchant readiness independently
-    // of native service sessions or personal guides. Town pre-drop guides are local
+    // of native service sessions or personal guides. Town card pre-drop guides are local
     // by the maintainer's explicit exception; physical cards, wrist/held purses, native
     // controls, animation, voice and NPC hand poses remain public. Global attention
     // and speech belong to an actual offered-card owner, never a browsing lease.

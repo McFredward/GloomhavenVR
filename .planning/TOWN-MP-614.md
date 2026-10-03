@@ -39,11 +39,11 @@ ring. These failures are not card concealment: the entire 3D map is public.
 
 ## Explicit current exception
 
-On 2026-10-03 the maintainer requested **town pre-drop guides to be local to each
+On 2026-10-03 the maintainer requested **town card pre-drop guides to be local to each
 visitor**. They no longer publish remote guide geometry or elect a guide owner.
 Their haptic/input eligibility remains local. Shared NPC offered-hand poses,
 actually offered cards, native regions/options, confirmations, item fans, actual
-purse props, return flights and audio remain public. Older queued map guide
+purse props and ghost/drop-feedback presentation, return flights and audio remain public. Older queued map guide
 modules are also retired. Scenario board guides and remote scenario concealment
 rules are unchanged. This supersedes the earlier shared mage-guide treatment.
 

@@ -175,6 +175,10 @@ internal sealed partial class TownServiceSync
             TownServiceRitual? ritual = TownServicePresentation.Ritual;
             if (ritual != null)
             {
+                // The explicit local-only exception covers CARD destination guides.
+                // The priestess' purse ghost and its original visual release feedback
+                // still belong to the shared presentation; haptics stay local input.
+                if (service == 2) Publish("ritual.purse", ritual.Zone);
                 Publish(prefix + ".counter", TownServicePresentation.CounterFurniture);
                 TownServiceEnhancementHandoff? handoff = ritual.Handoff;
                 if (handoff != null)

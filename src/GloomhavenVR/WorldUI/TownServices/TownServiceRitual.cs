@@ -421,8 +421,10 @@ internal sealed class TownServiceRitual : IDisposable
                 AddFolio(14, shop.cardInformationText);
                 // Native Campaign disables selling and leaves a non-interactive
                 // "Buy" caption on the worktop. It conveys no action in VR. Keep
-                // the original mode controls only when the native sell tab exists.
-                if (shop.sellButton.gameObject.activeSelf)
+                // the original mode controls only when the native game allows selling.
+                // Read its service predicate: hidden prewarming need not run EnterShop
+                // again, so the prefab tab's activeSelf can still be stale.
+                if (shop.shopService.IsSellAvailable)
                 {
                     AddFolio(15, shop.buyButton);
                     AddFolio(16, shop.sellButton);
