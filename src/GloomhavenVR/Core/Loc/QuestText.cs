@@ -43,6 +43,7 @@ public static class QuestText
             case "startupOriginalLoaded": return german ? "Originalstart geladen" : "Original startup loaded";
             case "startupFailed": return german ? "Spielstart angehalten" : "Game startup stopped";
             case "startupDiagnosticScope": return german ? "Originalmenüs; Kampagne, Mod und Crossplay bleiben unbestätigt." : "Original menus; campaign, mod and crossplay remain unverified.";
+            case "startupVoiceUnavailable": return german ? "Sprachchat ist in dieser Startdiagnose nicht verfügbar." : "Voice chat is unavailable in this startup diagnostic.";
             case "probeAim": return german ? "Zielpose links / rechts" : "Left / right aim pose";
             case "probeBattery": return german ? "Hardware-Prüfungen" : "Hardware checks";
             case "probeMaterials": return german ? "Materialien und Atlas" : "Materials and atlas";
