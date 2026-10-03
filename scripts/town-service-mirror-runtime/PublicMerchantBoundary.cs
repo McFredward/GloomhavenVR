@@ -1,5 +1,8 @@
 using System;
 using UnityEngine;
+using TMPro;
+using System.Collections.Generic;
+using GloomhavenVR.Hands;
 using GloomhavenVR.Net.TownServices;
 
 // The populated mirror test uses production Claim/CommitPublicVisibility/Follow.
@@ -38,15 +41,52 @@ namespace GloomhavenVR.WorldUI
     }
     internal sealed partial class TownServiceMerchantDrawer
     {
-        internal object? _hand;
+        internal VRHand? _hand;
         private readonly Func<bool> _mayClose = () => true;
         private TownServiceCabinetAudio? _followAudio;
         private TownServiceCabinetAudio _audio => _followAudio ??= new TownServiceCabinetAudio(HousingRoot);
         private float _clock, _leadAngle;
         private bool _turning, _swapped;
+        private bool _disposed, _laser;
+        private Vector3 _cursorStart;
+        private float _pull, _lastVisibility = float.NaN;
+        private readonly Func<bool> _alive = () => true;
+        private readonly Action<TownServiceMerchantDrawer> _opening = _ => { };
+        private readonly List<Material> _visibilityMaterials = new();
+        private BoxCollider _pick = null!;
+        private TMP_Text _pageLabel = null!;
+        private CanvasGroup _pageLabelGate = null!;
+        private int _indicatorPage = -1, _indicatorCount;
+        internal int Category => Page % 2048 / 256;
+        internal bool Accessible => !_turning;
         internal float FixtureFollowClock => _clock;
         internal bool FixtureFollowingTurn => _turning;
+        internal void FixturePrepareNavigation()
+        {
+            _pick = Root.gameObject.AddComponent<BoxCollider>();
+            var label = new GameObject("Caption", typeof(RectTransform), typeof(TextMeshProUGUI), typeof(CanvasGroup));
+            label.transform.SetParent(HousingRoot, false);
+            _pageLabel = label.GetComponent<TMP_Text>(); _pageLabelGate = label.GetComponent<CanvasGroup>();
+        }
+        internal void FixtureTick(float alpha = 1f)
+        { Tick(alpha); TurnElapsed = Mathf.Clamp(_clock, 0f, TownRackState.TurnDuration); Moving = _turning || _hand != null; }
         internal void FixtureDisposeFollower() { _followAudio?.Dispose(); _followAudio = null; }
+    }
+    internal sealed partial class TownServiceCatalogCategory
+    {
+        private TownServiceMerchantDrawer _rack = null!;
+        private Func<bool> _available = null!;
+        private int _category;
+        private float _lastPressed = float.NegativeInfinity, _pressed, _lastVisibility = float.NaN;
+        private Vector3 _home;
+        private BoxCollider _shape = null!;
+        private readonly List<Material> _visibilityMaterials = new();
+        internal void FixturePrepareNavigation(TownServiceMerchantDrawer rack, int category)
+        {
+            _rack = rack; _category = category; _home = Root.localPosition;
+            _shape = Root.gameObject.AddComponent<BoxCollider>();
+            _available = () => rack.Accessible && TownServicePublicMerchant.CanClaim;
+        }
     }
 }
 namespace GloomhavenVR.WorldUI.MapRoom

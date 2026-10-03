@@ -43,6 +43,22 @@ internal static class TownServicePublicMerchant
     {
         if (_catalog == null || !CanClaim || !MapRoomDriver.Active || StoryComposite.PointOfNoReturn) return;
         if (!TownServiceMirror.IsPublicAuthor) FollowPublicRack();
+        TakePublicCatalog();
+    }
+    internal static bool TrySelectCategory(TownServiceMerchantDrawer rack, int category)
+    {
+        if (_catalog == null || !CanClaim || !MapRoomDriver.Active || StoryComposite.PointOfNoReturn) return false;
+        if (!TownServiceMirror.IsPublicAuthor) FollowPublicRack();
+        // The incoming clock can make a previously available local proxy busy.
+        // Rejecting that press must not steal authority and rebaseline the public
+        // cabinet without changing its category. Selection is cosmetic only.
+        if (!rack.Select(category, false)) return false;
+        TakePublicCatalog();
+        return true;
+    }
+    private static void TakePublicCatalog()
+    {
+        if (_catalog == null) return;
         TownServiceMirror.ClaimPublicCatalog(); _observingPublic = false; _catalog.SetObserver(false);
     }
     // Artwork completeness gates the atomic picture replacement, not the public

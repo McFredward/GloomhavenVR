@@ -89,8 +89,8 @@ internal sealed class TownServiceCatalogCategory : IPokeable, IDisposable
     public void OnPoke(VRHand hand)
     {
         if (!_available() || Time.unscaledTime - _lastPressed < .3f) return;
-        TownServicePublicMerchant.Claim();
-        if (_rack.Select(_category, false)) { _lastPressed = Time.unscaledTime; hand.SendHaptic(HapticPreset.ClickPulse); }
+        if (TownServicePublicMerchant.TrySelectCategory(_rack, _category))
+        { _lastPressed = Time.unscaledTime; hand.SendHaptic(HapticPreset.ClickPulse); }
     }
     internal static float OccludingDistance(Vector3 origin, Vector3 direction, float maximum)
     {

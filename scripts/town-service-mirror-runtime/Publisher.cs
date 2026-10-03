@@ -45,7 +45,10 @@ namespace GloomhavenVR.WorldUI
         internal sealed class Control { internal string Key = ""; internal TownServiceSurface Surface = new(); }
         internal sealed class Entry
         {
-            internal bool Current = true, Exposed = true; internal bool Warm => Current && Exposed; internal int Page; internal bool Selling;
+            internal bool Current = true, Exposed = true;
+            internal TownServiceMerchantDrawer? NavigationRack;
+            internal bool Warm => Current && (NavigationRack == null ? Exposed : Sample.IsMoving || NavigationRack.RetainsPage(Page));
+            internal int Page; internal bool Selling;
             internal TownServiceToken Sample = new();
             internal int ItemId;
             internal Transform CardRoot = null!; internal Transform MountRoot => PhysicalMount ?? CardRoot.parent; internal CanvasGroup? PageGate => CardRoot.parent.GetComponent<CanvasGroup>();
@@ -69,7 +72,7 @@ namespace GloomhavenVR.WorldUI
     }
     internal sealed partial class TownServiceMerchantDrawer {
         internal sbyte ScrollDirection; internal int PageCount = 1; internal Transform Root = null!, HousingRoot = null!; internal bool Moving,Selling; internal uint TurnEpoch; internal float TurnElapsed,LeadAngle; internal int Page,FromPage,ToPage; }
-    internal sealed class TownServiceCatalogCategory { internal string Key = ""; internal Transform Root = null!; }
+    internal sealed partial class TownServiceCatalogCategory { internal string Key = ""; internal Transform Root = null!; }
     internal sealed class TownServiceMerchantCounter { internal Transform Root = null!; }
     internal sealed class TownServiceEnhancementHandoff {
         internal sealed class ReturnPresentation { internal Transform? Face, Body, StationRoot; internal int CardId; internal uint Session; internal float SessionAge; }
@@ -131,9 +134,10 @@ namespace GloomhavenVR.WorldUI
         private static readonly Part[] OnePart = { new() };
         internal static IReadOnlyList<Part> Parts(string key) => OnePart;
         internal static Transform At(Transform source,string path) => source;
-        internal static bool IsBoundary(Transform source) => false;
+        internal static readonly HashSet<Transform> BoundaryRoots = new();
+        internal static bool IsBoundary(Transform source) => BoundaryRoots.Contains(source);
         internal static void Resolve(byte service,ushort template,string address)
-        { string key=address.Split('|')[0];TownServiceMirror.RegisterTemplate(service,template,Originals[key],address:address); }
+        { string key=address.Split('|')[0];TownServiceMirror.RegisterTemplate(service,template,Originals[key],IsBoundary,address); }
         internal static bool Ready = true;
         internal static UITooltip? Tooltip;
         internal static readonly Dictionary<string, Transform> Originals = new();

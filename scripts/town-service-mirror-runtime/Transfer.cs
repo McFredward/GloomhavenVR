@@ -9,7 +9,7 @@ namespace GloomhavenVR.Hands.Interact { internal interface IGrabbable { } }
 namespace GloomhavenVR.Hands
 {
     internal enum HandSide { Left, Right }
-    internal enum HapticPreset { HoverTick }
+    internal enum HapticPreset { HoverTick, ClickPulse }
     internal sealed class VRHand
     {
         internal bool HasPose=true, TriggerDown;

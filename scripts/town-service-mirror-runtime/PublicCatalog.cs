@@ -14,6 +14,8 @@ public static partial class MirrorProgram
         DecisionFacingMotion();
         IEnumerator cabinet = CabinetFirstPress();
         while (cabinet.MoveNext()) yield return cabinet.Current;
+        IEnumerator navigation = PublicCabinetNavigation();
+        while (navigation.MoveNext()) yield return navigation.Current;
         TownServiceMirror.Shutdown(); Baselines.Clear(); NetPlayerActors.Peer = 1;
         Transform owner = Go("dual lane owner").transform, observer = Go("dual lane observer").transform;
         Transform service = Go("private native service", owner).transform;

@@ -222,6 +222,15 @@ def main():
         variants = [("production", None, None, None, "")]
         if not args.no_negative_controls:
             variants += [
+                ("public-claim-artwork-lock", "PublicMerchantClaim.cs", "if (_catalog == null || TownServiceMirror.PublicRack is not TownRackState state) return;",
+                 "if (_catalog == null || !TownServiceMirror.HasReadyPublicPresentation || TownServiceMirror.PublicRack is not TownRackState state) return;",
+                 "peer physical category button adopts the public page despite missing artwork and a separate merchant transaction"),
+                ("public-category-no-claim", "PublicMerchantClaim.cs", "TownServicePublicMerchant.TrySelectCategory(_rack, _category)",
+                 "Time.unscaledTime < 0f",
+                 "peer physical category button adopts the public page despite missing artwork and a separate merchant transaction"),
+                ("public-declined-claim", "PublicMerchantClaim.cs", "if (!rack.Select(category, false)) return false;\n        TakePublicCatalog();",
+                 "TakePublicCatalog();\n        if (!rack.Select(category, false)) return false;",
+                 "a stale peer proxy cannot steal public authority when the current owner cassette is still moving"),
                 ("foley-mutates-rack", "TownServiceCabinetAudio.cs", "host.transform.SetParent(_anchor.parent, false);", "host.transform.SetParent(_anchor, false);", "first category sound does not change original rack topology"),
                 ("catalog-layout-wire-loss", "TownServiceCodec.cs", "byte[] layout = frame.Rack?.Layout != null ? TownCatalogLayout.Write(frame.Rack.Layout) : Array.Empty<byte>();", "byte[] layout = Array.Empty<byte>();", "full owner cabinet layout survives original public module capture and additive wire records"),
                 ("pending-rack-input-lock", "TownServiceMirror.cs", "if (clock.Waiting && clock.Latest != null)", "if (false && clock.Latest != null)", "missing observer artwork never permanently disables the local public input proxy"),
