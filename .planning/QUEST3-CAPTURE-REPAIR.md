@@ -67,20 +67,31 @@ They use the same
 fixed app directory, 2 MiB per-file bound, verified pull receipts and fixed-path
 read-only fallback. No other save/configuration files are requested.
 
-These three files are optional for older/probe APKs. If neither the bounded direct
-probe nor fallback can access them, the manifest records
-`optionalFilesUnavailable` separately; this does not turn an otherwise complete
-probe collection into a failure. A known-present empty, oversized or failed/
+All seven allowlisted diagnostic files are optional: older/probe APKs do not emit
+the startup files, and a fresh startup APK does not emit the probe's four
+`quest-hardware` files. If neither the bounded direct probe nor fallback can
+access a target, the manifest records `optionalFilesUnavailable` separately;
+this does not turn an otherwise complete collection into a failure or claim
+that unavailable evidence was captured. A known-present empty, oversized or failed/
 inconsistent transfer remains an error. Startup logs alone can provide usable
 capture evidence when the app has already exited and no probe log/PID exists.
 
+Build provenance recognizes the exact `[Quest startup] ModBuild=... input=...`
+banner in logcat, the current startup log and its rotated previous run, alongside
+the existing probe banners. Each source retains at most eight banners and
+requires a complete 64-character input hash. The manifest keeps the source
+filename: a previous-run banner is historical evidence, and a matching local
+receipt input remains separate from the queried installed APK hash.
+
 ## Focused validation
 
-The collector suite passes 37 tests with zero skips, including real portable
+The collector suite passes 41 tests with zero skips, including real portable
 PowerShell Legacy-mode wrapper checks. New controls cover successful stderr
 receipts (including the three captured file sizes), nonzero exits, zero-exit
 transfer errors, missing/empty/partial files, mismatched metadata/receipt sizes,
 and absent success receipts. These checks prove the source repair and failure
 handling; they do not claim a new headset capture has been performed.
-Startup controls cover stderr success, rotated previous-run retention, older APK absence, bounded allowlisted
-fallback, real transfer failure, oversized state and capture after process exit.
+Startup controls cover stderr success, rotated previous-run retention, older APK
+and fresh startup absence, bounded allowlisted fallback, real transfer failure,
+oversized state, capture after process exit and exact/bounded banner provenance
+without treating historical input matches as installed APK evidence.

@@ -12,8 +12,12 @@ import zipfile
 
 import installer
 
-OPTIONAL_APP_FILES = ("quest-startup.log", "quest-startup.previous.log", "quest-startup-state.json")
-APP_FILES = ("quest-hardware.log", "quest-hardware.log.previous", "quest-hardware-storage.json", "quest-hardware-state.json") + OPTIONAL_APP_FILES
+PROBE_APP_FILES = ("quest-hardware.log", "quest-hardware.log.previous", "quest-hardware-storage.json", "quest-hardware-state.json")
+STARTUP_APP_FILES = ("quest-startup.log", "quest-startup.previous.log", "quest-startup-state.json")
+APP_FILES = PROBE_APP_FILES + STARTUP_APP_FILES
+# Each diagnostic target emits its own files; absence is an explicit availability
+# gap, while a known-present file that cannot be transferred remains an error.
+OPTIONAL_APP_FILES = APP_FILES
 REMOTE_FILES = "/sdcard/Android/data/" + installer.PACKAGE + "/files"
 MAX_FILE = 2 * 1024 * 1024
 MAX_LOGCAT = 4 * 1024 * 1024
@@ -150,8 +154,8 @@ class Capture:
             failures.append(error or content[:300])
         reason = "; ".join(failures)
         if name in OPTIONAL_APP_FILES and not known_present:
-            # Probe/older players do not emit original-game startup diagnostics.
-            # Retain availability details without treating absence as a failure.
+            # Probe and original-game players emit different diagnostic files.
+            # Retain unavailable targets without claiming their contents exist.
             self.manifest.setdefault("optionalFilesUnavailable", []).append({"item": name, "reason": reason[:800]})
         else:
             self.failure(name, reason)
@@ -225,10 +229,10 @@ def collect(capture, config_path):
         capture.app_file(name)
     manifest["localProvenance"] = local_provenance(config_path, capture)
     banners = []
-    for name in ("logcat.txt", "quest-hardware.log", "quest-hardware.log.previous"):
+    for name in ("logcat.txt", "quest-hardware.log", "quest-hardware.log.previous", "quest-startup.log", "quest-startup.previous.log"):
         path = capture.directory / name
         if path.is_file():
-            for build, key in re.findall(r"\[GloomhavenVR Quest\]\s+ModBuild=(\d+)\s+input=([0-9a-f]{64})", path.read_text(encoding="utf-8", errors="replace"))[-8:]:
+            for build, key in re.findall(r"\[(?:GloomhavenVR Quest|Quest startup)\]\s+ModBuild=(\d+)\s+input=([0-9a-f]{64})\b", path.read_text(encoding="utf-8", errors="replace"))[-8:]:
                 banners.append({"file": name, "modBuild": int(build), "inputKey": key})
     manifest["observedAppBanners"] = banners
     for row in manifest["localProvenance"]:
@@ -275,7 +279,7 @@ def main(argv=None, runner=None):
                 for path in sorted(directory.iterdir()):
                     zipped.write(path, path.name)
         print("Private Quest capture saved: " + str(archive))
-        print("Collection: " + manifest["status"] + "; " + str(len(manifest["errors"])) + " reported gaps. No upload was made.")
+        print("Collection: " + manifest["status"] + "; " + str(len(manifest["errors"])) + " reported errors; " + str(len(manifest.get("optionalFilesUnavailable", []))) + " optional files unavailable. No upload was made.")
         return 0 if usable else 1
     except (installer.InstallError, OSError, ValueError, TypeError, KeyError, AttributeError, RuntimeError) as error:
         print("Quest log collection stopped: " + str(error), file=sys.stderr)
