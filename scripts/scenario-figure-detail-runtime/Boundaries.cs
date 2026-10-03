@@ -99,6 +99,7 @@ namespace GloomhavenVR.Core
         internal static bool WantsDebug=true;
         internal static readonly List<string> Messages=new();
         internal static void Debug(string scope,string text) => Messages.Add(text);
+        internal static void Info(string scope,string text) => Messages.Add(text);
         internal static void Note(string scope,string text) => Messages.Add(text);
     }
     internal static class PerfMonitor

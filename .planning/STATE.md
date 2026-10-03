@@ -1,5 +1,47 @@
 # State — where the project stands
 
+**Steam Frame hardware analysis and scoped skinning, 2026-10-03: 1.1.0 / ModBuild 613.**
+
+The new run identifies **612 / a606f9530** and enters the scenario directly;
+Gloomhaven_unified initialization is not an active map test. Loaded play averages
+53.20ms versus 61.21ms in Build610 (13.1% observed improvement, not isolated
+per-change savings). Later camera samples show only the two eye passes. Player.log
+contains Debug records filtered from the companion LogOutput sink: 36 admitted
+scenario derivatives halve original body vertices, and the disabled cloth/FX
+budgets are effective. The confirmed NPC-body slider affects only the three
+active map residents, which this scenario capture does not exercise. See the
+[Frame612 analysis](../docs/performance/FRAME-612-ANALYSIS.md) for measurement
+boundaries, remaining CPU spikes and configuration experiments.
+
+The figure budget fought the existing hand guard over global skin weights,
+producing 12830 repairs. Build613 removes global ownership and caps only owned
+actor/NPC renderers, including native Auto slots, while hands retain FourBones.
+Off, shutdown and foreign renderer changes retain exact restoration rules. The
+actual extracted hand guard is exercised in both update orders with a causal
+control. Bounded Debug readbacks now expose requested versus applied NPC and
+distance tiers, far5 counts, body vertices and effective interval/bone settings.
+No mesh assets, bundle layout, wire records or saved defaults change in this fix.
+Headset frame-time gains from the skinning correction remain unmeasured.
+
+Remaining evidence points to 158ms average wall-table commits, zero eligible
+idle-bar skips despite prepared bounds, native Animator work, UI maintenance and
+synchronous Debug inventories. The wall exemption, native bar eligibility and
+animation-cadence proposals are analysis, not implemented fixes. Existing optional
+UI intervals and disabling SceneProfile are useful separate experiments.
+
+Validation covers all **112 local suites, 14 source suites and 294369 wire/golden
+assertions**, strict Release with zero warnings/errors, bundle/surface checks and
+five bilingual document pairs. The original complete local receipt records
+111 passes and one fixture compile failure: its isolated log boundary lacked the
+Debug-tier Info method now used by the production readback. Only that affected
+suite was resumed after the one-line fixture correction (98 assertions and 23
+controls); successful suites were not repeated. Full distance tests include 709
+assertions and five controls; the bounded skinning proof adds 140 assertions and
+three controls. Original failed and resumed receipts remain separate. The final
+compiled612 comparison changes four behavior types and eight inlined build
+constants, with no added/removed types, resources or binary changes. Evidence
+and frozen production hashes live in `.planning/debug/frame613-validation/`.
+
 **Steam Frame CPU/render checkpoint, 2026-10-03: 1.1.0 / ModBuild 612.**
 
 Windows installer follow-up: the PowerShell preflight still accepted only the
