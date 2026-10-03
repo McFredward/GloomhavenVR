@@ -276,8 +276,8 @@ public static partial class MirrorProgram
         for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
         Check(TownServiceMirror.InteractionOwner(1) == 2, "older merchant visitor authors the one shared palm");
         TownServiceMirror.TickRemote(_ => observer);
-        Check(Remote(-5, 10) != null && Remote(2, 10) != null,
-            "observer retains public cabinet and elected shared merchant interaction");
+        Check(Remote(-5, 10) != null && Remote(2, 10) == null,
+            "observer retains public cabinet without reconstructing another visitor's local offering guide");
         Check(Remote(4, 11) != null && Remote(4, 12) != null,
             "non-elected visitor's original held item face and backing remain visible to third player");
         Check(Remote(4, 14) != null,
@@ -290,7 +290,7 @@ public static partial class MirrorProgram
             "merchant interaction authorship transfers to the remaining visitor");
         TownServiceMirror.TickRemote(_ => observer);
         Check(Remote(4, 11) != null && Remote(4, 12) != null && Remote(4, 14) != null
-            && Remote(4, 13) != null && Remote(-5, 10) != null,
+            && Remote(4, 13) == null && Remote(-5, 10) != null,
             "handover keeps the visitor's held original item, open fan and one public cabinet");
         Check(Remote(4, 15) == null && Remote(4, 16) == null,
             "handover never exposes a second private cabinet over public stock");
@@ -307,8 +307,8 @@ public static partial class MirrorProgram
         for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
         TownServiceMirror.TickRemote(_ => late);
         Check(Remote(4, 11) != null && Remote(4, 12) != null && Remote(4, 14) != null
-            && Remote(4, 13) != null && Remote(-5, 10) != null,
-            "late fourth observer reconstructs current cabinet, held item, fan and merchant palm");
+            && Remote(4, 13) == null && Remote(-5, 10) != null,
+            "late fourth observer reconstructs current cabinet, held item and fan without another visitor's local offering guide");
         Check(Remote(4, 15) == null && Remote(4, 16) == null,
             "late observer never reconstructs a duplicate visitor cabinet");
         TownServiceMirror.Shutdown(); NetPlayerActors.Peer = 1;

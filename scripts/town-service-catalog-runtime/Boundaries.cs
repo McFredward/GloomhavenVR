@@ -259,7 +259,22 @@ namespace GloomhavenVR.WorldUI { internal sealed class TownServiceGrounding : Sy
 
 namespace GloomhavenVR.Net.TownServices { internal static class TownServiceFrame { internal const ushort BundleStream=65534; } }
 
-namespace GloomhavenVR.WorldUI {internal static partial class TownServicePublicMerchant {internal static bool ClaimAvailable=true;internal static bool CanClaim=>ClaimAvailable;internal static void Claim(){} }}
+namespace GloomhavenVR.WorldUI
+{
+    // Public authority/clock adoption is covered by the source-bound mirror
+    // fixture. This catalogue fixture crosses that port into the real native
+    // drawer operation; it does not replace category/page mechanical behavior.
+    internal static partial class TownServicePublicMerchant
+    {
+        internal static bool ClaimAvailable = true;
+        internal static bool CanClaim => ClaimAvailable;
+        internal static void Claim() { }
+        internal static bool TrySelectCategory(TownServiceMerchantDrawer rack, int category)
+        { if (!CanClaim || !rack.Select(category, false)) return false; Claim(); return true; }
+        internal static bool TryTurnPage(TownServiceMerchantDrawer rack, int direction)
+        { if (!CanClaim || !rack.RequestTurn(direction)) return false; Claim(); return true; }
+    }
+}
 namespace GloomhavenVR.Net.TownServices
 {
     // Transport lineage/expiry has its own production stock-lane fixture. Here
