@@ -13,7 +13,20 @@ internal sealed class TownServiceFaceAttention
     private readonly List<int> _peers = new(8);
     private int _target = int.MinValue;
     private float _nextChoice;
+    private static int _blessedVisitor;
+    private static float _blessingUntil;
     internal bool Visitor { get; private set; }
+    // This is presentation focus, never a temple interaction lease. Every other
+    // eligible visitor can still give their own purse to the shared bowl.
+    internal static void BlessVisitor(int player, float age)
+    {
+        if (player <= 0 || float.IsNaN(age) || float.IsInfinity(age) || age < 0f
+            || age >= TownServiceActivityMotion.TempleBlessingVisualSeconds) return;
+        _blessedVisitor = player;
+        _blessingUntil = Time.unscaledTime + TownServiceActivityMotion.TempleBlessingVisualSeconds - age;
+    }
+
+    internal static void ResetBlessingFocus() { _blessedVisitor = 0; _blessingUntil = 0f; }
     private static bool Visiting(int player, byte service, int local)
     {
         if (player == local) return TownServicePresentation.Active && TownServicePresentation.Service == service;
@@ -30,7 +43,10 @@ internal sealed class TownServiceFaceAttention
     private static bool Visible(Transform root, Quaternion optical, Vector3 eye, Vector3 point)
     {
         Vector3 delta = (Quaternion.Inverse(optical) * (point - eye)) / Mathf.Max(.01f, root.lossyScale.x);
-        return delta.sqrMagnitude >= .01f && delta.sqrMagnitude <= 36f && delta.z > -.1f;
+        // Use the same fixed 2.4 m reach as the resident face/visitor gate. A
+        // distant still-open native visit must not win this election and then
+        // fail the face's shorter reach while another eligible player is here.
+        return delta.sqrMagnitude >= .01f && delta.sqrMagnitude <= 2.4f * 2.4f && delta.z > -.1f;
     }
     private static bool Unobstructed(Transform root, Vector3 eye, Vector3 point)
     {
@@ -42,7 +58,10 @@ internal sealed class TownServiceFaceAttention
     internal Vector3? Select(byte service, Transform root, Quaternion optical, Vector3 eye)
     {
         int local = Mathf.Max(1, NetPlayerActors.LocalPlayerId());
-        int interactionOwner = TownServiceMirror.InteractionOwner(service);
+        // Merely browsing never occupies a resident. Only an actually offered
+        // card makes merchant/mage attention exclusive to its physical owner.
+        int interactionOwner = service is 1 or 3 ? TownServiceMirror.TransactionOwner(service)
+            : service == 2 && Time.unscaledTime < _blessingUntil ? _blessedVisitor : 0;
         if (interactionOwner != 0)
         {
             _target = interactionOwner;

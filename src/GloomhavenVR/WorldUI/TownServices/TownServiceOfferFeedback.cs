@@ -4,8 +4,8 @@ using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
-/// <summary>Local owner's physical offer intent. Its sampled visual state travels with the
-/// existing town presentation; observers never evaluate their own hands or native permissions.</summary>
+/// <summary>Local owner's physical offer intent and controller feedback. The maintainer's
+/// local-only pre-drop guide exception keeps this personal affordance off observer copies.</summary>
 internal sealed class TownServiceOfferFeedback
 {
     private readonly CanvasGroup? _gate;

@@ -20,6 +20,7 @@ internal static class Program
         TownServiceMirror.TempleTransitionAge=0;
         TownServiceMirror.TempleStates.Clear();TownServiceEnhancementHandoff.HasVisibleCue=false;
         TownServiceMirror.RemoteEnhancementCue=false;
+        TownServiceMirror.MageCardOwner=0;
         TownServiceAvailability.Locked.Clear();
         WorldUIConfig.ImmersiveTownServices.Value=true;MapRoomDriver.Active=true;MapRoomDriver.FrameReady=true;
         StoryComposite.PointOfNoReturn=false;TownServiceVoice.Requests=0;
@@ -90,6 +91,16 @@ internal static class Program
         TownServiceMirror.RemoteEnhancementCue=true; Tick(.7f);
         Check(TownServicePopulation.PublishedActivities.Enchantress.Engaged,
             "a subsequent remote native cue cannot withdraw the offering pose");
+        TownServiceStation.NearVisitor=false;
+        TownServiceSharedCue.RemoteReady=true; Tick(.7f);
+        Check(TownServicePopulation.PublishedActivities.Enchantress.Engaged,
+            "remote readiness authors mage offering without rendering a shared guide");
+        TownServiceSharedCue.RemoteReady=false;TownServiceMirror.MageCardOwner=2;Tick(.7f);
+        Check(TownServicePopulation.PublishedActivities.Enchantress.Engaged,
+            "physically parked remote mage card retains its offered hand through a tracking gap");
+        TownServiceMirror.MageCardOwner=0;Tick(.7f);
+        Check(!TownServicePopulation.PublishedActivities.Enchantress.Engaged,
+            "mage hand withdraws once neither visitor readiness nor a physical card remains");
     }
     private static void TemplePresentation()
     {
@@ -133,6 +144,8 @@ internal static class Program
             TownServicePopulation.PublishedActivities.Clock);
         Check(Vector3.Distance(TownServiceStation.Live[2].LastActivity.Left,donationExpected.Left)<.0001f,
             "live donation plays the replicated blessing before the unavailable cover");
+        Check(TownServiceFaceAttention.BlessedVisitor==10,
+            "accepted native donation focuses the author on the donating player");
 
         Reset();TownServiceStation.NearVisitor=true;
         TownServiceMirror.TempleReceived=true;TownServiceMirror.TempleOwner=10;

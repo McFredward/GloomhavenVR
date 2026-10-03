@@ -23,11 +23,25 @@ namespace GloomhavenVR.WorldUI
 }
 namespace GloomhavenVR.Net.TownServices
 {
-    internal sealed class TownServiceSessionInfo { internal bool Active;internal byte Service;internal float LastSeenTime; }
+    internal sealed class TownServiceSessionInfo { internal bool Active;internal byte Service;internal float LastSeenTime;internal uint Session; }
     internal static class TownServiceMirror
     {
         internal static readonly Dictionary<int,TownServiceSessionInfo> RemoteSessions=new();
-        internal static int InteractionOwner(byte service)=>0;
+        internal static int BrowsingOwner, CardOwner;
+        internal static int InteractionOwner(byte service)=>BrowsingOwner;
+        internal static int TransactionOwner(byte service)=>service is 1 or 3 ? CardOwner : 0;
+    }
+}
+
+namespace GloomhavenVR.Hands
+{
+    internal enum HapticPreset { HoverTick, ClickPulse }
+    internal sealed class VRHand
+    {
+        internal bool HasPose = true;
+        internal int HoverPulses, SnapPulses;
+        internal void SendHaptic(HapticPreset preset)
+        { if (preset == HapticPreset.HoverTick) HoverPulses++; else SnapPulses++; }
     }
 }
 

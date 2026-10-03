@@ -60,6 +60,7 @@ public static class InteractionProgram
         }
 
         var prayer = new TownServiceVoiceSchedule();
+        prayer.At(2).VariantState = 1;
         prayer.Work(2, 5.9f, 0f, 0f, false, true, 0f);
         prayer.Work(2, 6.01f, 0f, 0f, false, true, .11f); prayer.Sample(2, duration, .11f, false);
         Check(prayer.At(2).Cue >= 31 && prayer.At(2).Cue <= 35, "quiet prayer chooses one of five performances at a shared occupation phase");
@@ -93,6 +94,7 @@ public static class InteractionProgram
             "story commitment retires active and queued resident speech");
 
         var ambientPrayer = new TownServiceVoiceSchedule();
+        ambientPrayer.At(2).VariantState = 1;
         ambientPrayer.Work(2, 5.9f, 0f, 0f, false, true, 0f);
         ambientPrayer.Work(2, 6.01f, 0f, 0f, false, true, .11f);
         ambientPrayer.Sample(2, duration, .11f, false);
@@ -102,6 +104,7 @@ public static class InteractionProgram
         ambientPrayer.Sample(2, duration, 64.11f, false);
         Check(ambientPrayer.At(2).Cue == 0 && !ambientPrayer.At(2).Pending,
             "incidental prayer stays quiet on the next short occupation cycle");
+        ambientPrayer.At(2).VariantState = 1;
         ambientPrayer.Work(2, 197.9f, 0f, 0f, false, true, 192f);
         ambientPrayer.Work(2, 198.01f, 0f, 0f, false, true, 192.11f);
         ambientPrayer.Sample(2, duration, 192.11f, false);
@@ -109,6 +112,7 @@ public static class InteractionProgram
             "incidental prayer returns only after its longer quiet interval");
 
         var cast = new TownServiceVoiceSchedule();
+        cast.At(3).VariantState = 1;
         cast.Work(3, 13f, .1f, 0f, false, true, 0f);
         cast.Work(3, 13.03f, .3f, 0f, false, true, .03f); cast.Sample(3, duration, .03f, false);
         ushort firstCast = cast.At(3).Cue;
@@ -118,6 +122,7 @@ public static class InteractionProgram
         cast.Work(3, 61.03f, .3f, 0f, false, true, 50.03f); cast.Sample(3, duration, 50.03f, false);
         Check(cast.At(3).Cue == 0 && !cast.At(3).Pending,
             "repeated visual spells do not repeat incidental speech every cast");
+        cast.At(3).VariantState = 1;
         cast.Work(3, 157f, .1f, 0f, false, true, 151f);
         cast.Work(3, 157.03f, .3f, 0f, false, true, 151.03f); cast.Sample(3, duration, 151.03f, false);
         Check(cast.At(3).Cue >= 41 && cast.At(3).Cue <= 45 && cast.At(3).Cue != firstCast,
@@ -125,6 +130,17 @@ public static class InteractionProgram
         cast.Work(3, 70f, .3f, 0f, false, true, 60f);
         cast.Work(3, 70.03f, .3f, 0f, false, true, 60.03f);
         Check(!cast.At(3).Pending, "discontinuous seek does not replay historical cast");
+        var silentIdle = new TownServiceVoiceSchedule();
+        silentIdle.At(3).VariantState = 2;
+        silentIdle.Work(3, 13f, .1f, 0f, false, true, 0f);
+        silentIdle.Work(3, 13.03f, .3f, 0f, false, true, .03f);
+        silentIdle.Sample(3, duration, .03f, false);
+        Check(silentIdle.At(3).Cue == 0 && !silentIdle.At(3).Pending
+            && silentIdle.At(3).NextAmbientAllowed >= 150f,
+            "optional idle speech sometimes remains silent without rerolling");
+        silentIdle.Request(3, 46, .04f); silentIdle.Sample(3, duration, .04f, false);
+        Check(silentIdle.At(3).Cue >= 46 && silentIdle.At(3).Cue <= 50,
+            "successful native enhancement acknowledgement is not randomly discarded");
 
         var unavailableStock = new TownServiceVoiceSchedule();
         unavailableStock.Request(1, 66, 0f); unavailableStock.Sample(1, duration, 0f, false);
@@ -368,6 +384,31 @@ public static class InteractionProgram
         Check(!HeadEar.Claims.Contains("TownResidents.1") && !HeadEar.Claims.Contains("TownResidents.2")
             && !HeadEar.Claims.Contains("TownResidents.3") && HeadEar.Claims.Contains("ExistingEnvironment"),
             "teardown releases only own listener claim");
+        // Execute the production author, relay validation and actual Unity playback,
+        // rather than asserting only schedule fields or an injected relay callback.
+        _testedService = 1;
+        GloomhavenVR.Net.NetPlayerActors.Local = 1;
+        GloomhavenVR.Net.TownServices.TownServiceMirror.Owner = 7;
+        TownServicePopulation.IsFaceAuthor = true;
+        Refresh();
+        TownServiceVoice.RequestReaction(1, TownVoiceReaction.MerchantOffer);
+        Check(!TownServiceFaceSpeech.Sampler!(1, out _, out _, out _, out _),
+            "physical peer ownership prevents the local spectator from starting merchant speech");
+        Check(!TownServiceVoice.AcceptRelayedStockReaction(TownVoiceReaction.MerchantOffer, 8, 15, 1, .1f),
+            "physical card owner exclusively selects the merchant reaction focus");
+        Check(TownServiceVoice.AcceptRelayedStockReaction(TownVoiceReaction.MerchantOffer, 7, 15, 1, .1f),
+            "physical peer owner can request merchant speech exactly like the host");
+        Check(TownServiceFaceSpeech.Sampler!(1, out ushort ownedCue, out uint ownedGeneration,
+                out float ownedAge, out _) && ownedCue >= 16 && ownedCue <= 20,
+            "peer reaction starts an actual author-selected merchant performance");
+        TownServiceFaceSpeech.Observer!(1, 1, ownedCue, ownedGeneration, ownedAge, head.transform);
+        Check(Source != null && Source.isPlaying && Source.clip != null
+            && Source.clip.name.StartsWith("merchant-offer", StringComparison.Ordinal),
+            "peer merchant reaction reaches the actual shared spatial audio source");
+        GloomhavenVR.Net.TownServices.TownServiceMirror.Owner = 0;
+        Check(TownServiceVoice.AcceptRelayedStockReaction(TownVoiceReaction.MerchantOffer, 8, 15, 1, .1f),
+            "removing the physical card restores another visitor's reaction eligibility");
+        TownServiceVoice.Reset();
         AudioController.Playing.Clear();
         UnityEngine.Object.DestroyImmediate(head); UnityEngine.Object.DestroyImmediate(frame);
         foreach (AudioClip clip in TownServiceAssets.Clips.Values) UnityEngine.Object.DestroyImmediate(clip);

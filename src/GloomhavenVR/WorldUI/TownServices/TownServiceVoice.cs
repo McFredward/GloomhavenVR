@@ -118,6 +118,7 @@ internal static class TownServiceVoice
         if (StoryComposite.PointOfNoReturn) return;
         ushort firstCue = ReactionFirstCue(service, reaction);
         if (firstCue == 0) return;
+        if (!CanReactFor(service, Mathf.Max(1, NetPlayerActors.LocalPlayerId()))) return;
         if (!TownServicePopulation.IsFaceAuthor)
         {
             if (RelayRequest != null) RelayRequest(service, reaction);
@@ -140,6 +141,7 @@ internal static class TownServiceVoice
     internal static bool RequestStockReaction(TownVoiceReaction reaction)
     {
         if (StoryComposite.PointOfNoReturn || !IsStockReaction(reaction)) return false;
+        if (!CanReactFor(1, Mathf.Max(1, NetPlayerActors.LocalPlayerId()))) return false;
         if (!TownServicePopulation.IsFaceAuthor) return StockRelayRequest?.Invoke(reaction) == true;
         Ensure();
         _schedule.Request(1, ReactionFirstCue(1, reaction), Time.unscaledTime);
@@ -165,6 +167,7 @@ internal static class TownServiceVoice
         if (StoryComposite.PointOfNoReturn || !TownServicePopulation.IsFaceAuthor || firstCue == 0 || sourcePeer <= 0
             || sourceSession == 0 || sequence == 0 || !TownServiceVoiceSchedule.Finite(ageSeconds)
             || ageSeconds < 0f || ageSeconds > 3f) return false;
+        if (!CanReactFor(service, sourcePeer)) return false;
         // Private and lifted-stock generations are independent lifetimes. Sharing
         // their replay key could silently discard a valid overlapping pickup.
         ulong key = ((ulong)(uint)sourcePeer << 8) | (stock ? (byte)4 : service);
@@ -177,7 +180,16 @@ internal static class TownServiceVoice
         Relayed[key] = new RelayStamp { Session = sourceSession, Sequence = sequence };
         Ensure();
         _schedule.Request(service, firstCue, Time.unscaledTime);
+        if (VRLog.WantsDebug)
+            VRLog.Debug("TownServices", "Resident reaction accepted: service=" + service + ", visitor="
+                + sourcePeer + ", stock=" + stock + ", reaction=" + reaction + ", age=" + ageSeconds.ToString("F3"));
         return true;
+    }
+
+    private static bool CanReactFor(byte service, int visitor)
+    {
+        int owner = service is 1 or 3 ? TownServiceMirror.TransactionOwner(service) : 0;
+        return owner == 0 || owner == visitor;
     }
 
     private static ushort ReactionFirstCue(byte service, TownVoiceReaction reaction) => reaction switch

@@ -11,5 +11,6 @@
     <Compile Include="$(FixtureDir)/*.cs" />
     <Compile Include="$(ProductionDir)/*.cs" />
     <Reference Include="$(UnityManaged)/UnityEngine/*.dll" />
+    <Reference Include="UnityEngine.UI" HintPath="$(GameManaged)/UnityEngine.UI.dll" />
   </ItemGroup>
 </Project>

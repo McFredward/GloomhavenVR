@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using GloomhavenVR.Core;
 using GloomhavenVR.Net;
 using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.WorldUI.MapRoom;
@@ -268,6 +269,8 @@ internal static class TownServicePopulation
                     // decision is carried in the ordinary occupation stream.
                     if (service == 1 && interactive) engaged |= TownServiceMerchantHandoff.WantsOffering
                         || TownServiceMirror.RemoteMerchantOffering;
+                    if (service == 3 && interactive) engaged |= TownServiceSharedCue.LocalReady
+                        || TownServiceSharedCue.HasReadyVisitor(3) || TownServiceMirror.TransactionOwner(3) != 0;
                     if (!interactive) engaged = false;
                     if (service == 1 && engaged && !resident.Activity.Engaged
                         && !TownServiceActivityMotion.MerchantCanAttend(resident.Activity.WorkClock))
@@ -313,12 +316,15 @@ internal static class TownServicePopulation
                     TownServiceMirror.CollectTempleDonationStates(TempleDonationStates);
                     bool donationCommitted = false;
                     float transitionAge = float.PositiveInfinity;
+                    int blessedVisitor = 0;
                     foreach (TownTempleDonationState state in TempleDonationStates)
                         if (resident.TempleBlessing.Observe(true, state.Peer, state.Session,
                             state.Known, state.Available, state.Revision, state.TransitionAge, state.HasCommitAge))
                         {
                             donationCommitted = true;
-                            transitionAge = Mathf.Min(transitionAge, state.TransitionAge);
+                            if (state.TransitionAge < transitionAge
+                                || state.TransitionAge == transitionAge && (blessedVisitor == 0 || state.Peer < blessedVisitor))
+                            { transitionAge = state.TransitionAge; blessedVisitor = state.Peer; }
                         }
                     if (donationCommitted)
                     {
@@ -329,7 +335,16 @@ internal static class TownServicePopulation
                         resident.TempleUnavailableSpoken = true;
                         resident.TempleBlessingStartedAt = now - transitionAge;
                         resident.TempleBlessingStartedClock = _faceClock - transitionAge;
+                        TownServiceFaceAttention.BlessVisitor(blessedVisitor, transitionAge);
+                        // Face preparation happened before this commit was discovered.
+                        // Replace that target now, so the first blessed frame already
+                        // looks at the donor instead of an unrelated nearby visitor.
+                        resident.Station.PrepareActivityAttention(resident.Activity.Engaged);
                         if (resident.TempleBlessingGeneration != uint.MaxValue) resident.TempleBlessingGeneration++;
+                        if (VRLog.WantsDebug)
+                            VRLog.Debug("TownServices", "Shared blessing accepted: visitor=" + blessedVisitor
+                                + ", epoch=" + _faceEpoch + ", generation=" + resident.TempleBlessingGeneration
+                                + ", age=" + transitionAge.ToString("F3"));
                         if (interactive) TownServiceVoice.RequestReaction(2, TownVoiceReaction.PriestessDonate);
                     }
                     // The private window may already be unavailable when first hydrated. Its
@@ -481,6 +496,7 @@ internal static class TownServicePopulation
     {
         Published = default; PublishedFaces = default; PublishedActivities = default; IsFaceAuthor = false;
         TownServiceSharedCue.Reset();
+        TownServiceFaceAttention.ResetBlessingFocus();
         PerformanceEpoch = 0;
         _faceClock = 0f; _lastRemoteFaceTime = float.NegativeInfinity;
         if (_frame == null && Residents.Count == 0) return;

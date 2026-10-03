@@ -2,36 +2,31 @@ using System.Collections.Generic;
 using GloomhavenVR.Net;
 using GloomhavenVR.Net.TownServices;
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
-/// <summary>One visual approach response for the explicitly shared enchantress guide.
-/// Every visitor still evaluates its own native eligibility and controller haptics.
-/// Only the elected resident author combines those responses for the common picture.</summary>
+/// <summary>Bounded visitor readiness for the shared mage's offered-hand pose. The
+/// maintainer explicitly made pre-drop guides local-only (2026-10-03): they never
+/// elect a visual owner, hide another eligible visitor's guide or paint remote ink.
+/// Historical shared-guide wire fields remain readable for protocol compatibility.</summary>
 internal static class TownServiceSharedCue
 {
     private struct Visitor
     {
         internal uint Session;
         internal bool Ready;
-        internal float Strength, Received;
+        internal float Received;
     }
 
     private static readonly Dictionary<int, Visitor> Visitors = new();
-    private static readonly Dictionary<Transform, Image?> Borders = new();
+    private static readonly Dictionary<int, Visitor> MerchantVisitors = new();
     private const float FreshSeconds = 3f;
     internal static bool LocalReady { get; private set; }
     internal static float LocalStrength { get; private set; }
-    internal static bool PublishedReady { get; private set; }
-    internal static float PublishedStrength { get; private set; }
-    internal static int PublishedGuideOwner { get; private set; }
+    internal static bool PublishedReady => false;
+    internal static float PublishedStrength => 0f;
+    internal static int PublishedGuideOwner => 0;
     private static float _localSampled = float.NegativeInfinity;
-    private static int _sharedAuthor;
-    private static int _sharedGuideOwner;
-    private static bool _sharedReady;
-    private static float _sharedStrength;
-    private static float _sharedReceived = float.NegativeInfinity;
 
     internal static void SetLocal(bool ready, float strength)
     {
@@ -45,103 +40,73 @@ internal static class TownServiceSharedCue
     {
         if (peer <= 0 || session == 0 || float.IsNaN(strength) || float.IsInfinity(strength)) return;
         if (!Visitors.ContainsKey(peer) && Visitors.Count >= 8) return;
-        Visitors[peer] = new Visitor { Session = session, Ready = ready,
-            Strength = ready ? Mathf.Clamp01(strength) : 0f, Received = Time.unscaledTime };
+        Visitors[peer] = new Visitor { Session = session, Ready = ready, Received = Time.unscaledTime };
     }
 
-    internal static void ObserveShared(int peer, bool ready, float strength, int guideOwner)
+    // Merchant readiness uses the numeric motion lifetime, independent of a
+    // private shop visit or lifted-stock module. The receiver validates that
+    // lifetime before this call, including withdrawal and out-of-order packets.
+    internal static void ObserveMerchantVisitor(int peer, uint session, bool ready)
     {
-        if (peer <= 0 || peer != RemoteTownResidents.AuthorPlayer
-            || float.IsNaN(strength) || float.IsInfinity(strength)
-            || ready && guideOwner <= 0 || !ready && guideOwner != 0) return;
-        _sharedAuthor = peer; _sharedReady = ready;
-        _sharedGuideOwner = guideOwner;
-        _sharedStrength = ready ? Mathf.Clamp01(strength) : 0f;
-        _sharedReceived = Time.unscaledTime;
+        if (peer <= 0 || session == 0) return;
+        if (!MerchantVisitors.ContainsKey(peer) && MerchantVisitors.Count >= 8) return;
+        MerchantVisitors[peer] = new Visitor { Session = session, Ready = ready, Received = Time.unscaledTime };
     }
 
-    internal static void Forget(int peer)
-    {
-        Visitors.Remove(peer);
-        if (_sharedAuthor != peer) return;
-        _sharedAuthor = _sharedGuideOwner = 0; _sharedReady = false; _sharedStrength = 0f;
-        _sharedReceived = float.NegativeInfinity;
-    }
-
-    internal static void Tick()
-    {
-        float now = Time.unscaledTime;
-        if (now - _localSampled > FreshSeconds) SetLocal(false, 0f);
-        PublishedReady = false; PublishedStrength = 0f; PublishedGuideOwner = 0;
-        if (!TownServicePopulation.IsFaceAuthor || StoryComposite.PointOfNoReturn) return;
-        // A placed card owns the shared palm. Its owner's existing replacement cue
-        // remains local/native; a different visitor must not paint a second offer.
-        if (TownServiceGrantSync.GrantedOwner(3) != 0) return;
-        PublishedReady = LocalReady;
-        PublishedStrength = LocalStrength;
-        if (LocalReady) PublishedGuideOwner = System.Math.Max(1, NetPlayerActors.LocalPlayerId());
-        foreach (var pair in Visitors)
-        {
-            Visitor visitor = pair.Value;
-            if (!visitor.Ready || now - visitor.Received > FreshSeconds) continue;
-            PublishedReady = true;
-            PublishedStrength = Mathf.Max(PublishedStrength, visitor.Strength);
-            if (PublishedGuideOwner == 0 || pair.Key < PublishedGuideOwner) PublishedGuideOwner = pair.Key;
-        }
-    }
-
-    internal static int GuideOwner
+    internal static bool HasReadyMerchantVisitor
     {
         get
         {
-            int occupied = TownServiceGrantSync.GrantedOwner(3);
-            if (occupied > 0) return occupied;
-            if (TownServicePopulation.IsFaceAuthor && PublishedGuideOwner > 0) return PublishedGuideOwner;
-            if (!TownServicePopulation.IsFaceAuthor && _sharedAuthor == RemoteTownResidents.AuthorPlayer
-                && Time.unscaledTime - _sharedReceived <= FreshSeconds && _sharedReady
-                && _sharedGuideOwner > 0) return _sharedGuideOwner;
-            return TownServiceMirror.InteractionOwner(3);
+            if (StoryComposite.PointOfNoReturn) return false;
+            if (TownServiceMirror.TransactionOwner(1) != 0) return true;
+            foreach (Visitor visitor in MerchantVisitors.Values)
+                if (visitor.Ready && Time.unscaledTime - visitor.Received <= FreshSeconds) return true;
+            return false;
         }
     }
 
-    internal static void PaintLocal(CanvasGroup? gate, Transform? zone)
+    /// <summary>Read the original visitor's readiness without depending on a rendered
+    /// guide. Matching the fresh native visit prevents an old palm affordance from
+    /// extending a hand after that visitor changed service or reopened its session.</summary>
+    internal static bool HasReadyVisitor(byte service)
     {
-        // Never hide an owner's native replacement affordance, or make an ineligible
-        // local drop actionable. This changes only the already elected visible guide.
-        if (gate == null || zone == null || gate.alpha <= .01f
-            || !TownServiceMirror.CanShowLocalCue(3)) return;
-        PaintShared(zone);
+        if (service != 3 || StoryComposite.PointOfNoReturn) return false;
+        float now = Time.unscaledTime;
+        foreach (var pair in Visitors)
+        {
+            Visitor visitor = pair.Value;
+            if (!visitor.Ready || now - visitor.Received > FreshSeconds
+                || !TownServiceMirror.RemoteSessions.TryGetValue(pair.Key, out TownServiceSessionInfo? session)
+                || !session.Active || session.Service != service || session.Session != visitor.Session
+                || now - session.LastSeenTime > NetProtocol.StaleTimeoutSeconds) continue;
+            return true;
+        }
+        return false;
     }
 
+    // Read legacy fields without reinstating their retired shared-guide election.
+    internal static void ObserveShared(int peer, bool ready, float strength, int guideOwner) { }
+    internal static void Forget(int peer) { Visitors.Remove(peer); MerchantVisitors.Remove(peer); }
+    internal static void Tick()
+    {
+        if (Time.unscaledTime - _localSampled > FreshSeconds || StoryComposite.PointOfNoReturn)
+            SetLocal(false, 0f);
+    }
+
+    // Compatibility consumers may still query this while loading an older snapshot.
+    // Only a physical card can occupy the palm; browsing readiness cannot do so.
+    internal static int GuideOwner => TownServiceMirror.TransactionOwner(3);
+    internal static void PaintLocal(CanvasGroup? gate, Transform? zone) { }
     internal static void PaintRemote(CanvasGroup? gate, Transform? zone)
     {
-        if (gate == null || zone == null || gate.alpha <= .01f) return;
-        PaintShared(zone);
-    }
-
-    private static void PaintShared(Transform zone)
-    {
-        if (TownServiceGrantSync.GrantedOwner(3) != 0) return;
-        bool author = TownServicePopulation.IsFaceAuthor;
-        bool ready = author ? PublishedReady : _sharedAuthor == RemoteTownResidents.AuthorPlayer
-            && Time.unscaledTime - _sharedReceived <= FreshSeconds && _sharedReady;
-        if (!ready) return;
-        float strength = author ? PublishedStrength : _sharedStrength;
-        // This is the same ink/scale response used by the existing local offer guide.
-        if (!Borders.TryGetValue(zone, out Image? border))
-        {
-            if (Borders.Count >= 16) Borders.Clear();
-            border = zone.Find("Border")?.GetComponent<Image>();
-            Borders[zone] = border;
-        }
-        TownServiceOfferFeedback.PaintInk(zone, border, strength);
+        if (gate == null) return;
+        gate.alpha = 0f; gate.interactable = gate.blocksRaycasts = false;
     }
 
     internal static void Reset()
     {
-        Visitors.Clear(); Borders.Clear(); LocalReady = PublishedReady = _sharedReady = false;
-        LocalStrength = PublishedStrength = _sharedStrength = 0f;
-        _localSampled = _sharedReceived = float.NegativeInfinity;
-        _sharedAuthor = _sharedGuideOwner = PublishedGuideOwner = 0;
+        Visitors.Clear(); MerchantVisitors.Clear();
+        LocalReady = false; LocalStrength = 0f;
+        _localSampled = float.NegativeInfinity;
     }
 }

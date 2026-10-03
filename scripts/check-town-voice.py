@@ -65,7 +65,13 @@ variants += [
   'non-author stock inspection uses its independent cosmetic source'),
  ('stock-replay-namespace','TownServiceVoice.cs',
   '(stock ? (byte)4 : service)', 'service',
-  'stock replay lifetime is independent of a larger private merchant generation')]
+  'stock replay lifetime is independent of a larger private merchant generation'),
+ ('ambient-never-silent','TownServiceVoiceSchedule.cs',
+  '% 100u >= 45u', '% 100u >= 0u',
+  'optional idle speech sometimes remains silent without rerolling'),
+ ('voice-ignores-physical-owner','TownServiceVoice.cs',
+  'return owner == 0 || owner == visitor;', 'return true;',
+  'physical peer ownership prevents the local spectator from starting merchant speech')]
 if args.no_negative_controls: variants=variants[:1]
 if args.negative_control:
  unknown=set(args.negative_control)-{v[0] for v in variants}

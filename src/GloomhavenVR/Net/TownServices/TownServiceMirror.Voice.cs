@@ -141,8 +141,9 @@ internal static partial class TownServiceMirror
     private static void QueueVoiceReaction(byte service, TownVoiceReaction reaction)
     {
         using var lane = new LaneScope(PrivateLane);
+        int owner = service is 1 or 3 ? TransactionOwner(service) : 0;
         if (!_active || _session == 0 || _service != service || VoiceOutgoing.Count >= 16
-            || !LocalOwnsInteraction(service, _session)
+            || owner != 0 && owner != LocalPeer
             || _voiceOrdinal == uint.MaxValue) return;
         // The same schema is checked before spending transport budget and on receive.
         TownServiceFrame frame = TownServiceVoiceRelayCodec.Create(service, _session, ++_voiceOrdinal,

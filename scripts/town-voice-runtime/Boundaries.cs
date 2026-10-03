@@ -14,10 +14,10 @@ namespace GloomhavenVR.Core {
   internal static void Release(string name) { Claims.Remove(name); }
  }
 }
-namespace GloomhavenVR.Net { internal static class NetProtocol {internal const float StaleTimeoutSeconds=3;} }
+namespace GloomhavenVR.Net { internal static class NetProtocol {internal const float StaleTimeoutSeconds=3;} internal static class NetPlayerActors { internal static int Local=1; internal static int LocalPlayerId()=>Local; } }
 namespace GloomhavenVR.Net.TownServices {
  internal sealed class TownServiceSessionInfo { internal bool Active; internal byte Service; internal float ReceivedTime,SessionAge; }
- internal static class TownServiceMirror { internal static Dictionary<int,TownServiceSessionInfo> RemoteSessions=new(); }
+ internal static class TownServiceMirror { internal static Dictionary<int,TownServiceSessionInfo> RemoteSessions=new(); internal static int Owner; internal static int TransactionOwner(byte service)=>service is 1 or 3 ? Owner : 0; }
 }
 namespace GloomhavenVR.WorldUI {
  internal static class StoryComposite { internal static bool PointOfNoReturn; }

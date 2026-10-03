@@ -24,6 +24,7 @@ def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
     names = ["TownServiceFace.cs", "TownServiceFaceMotion.cs", "TownServiceFaceRig.cs", "TownServiceFaceAttention.cs", "TownServiceFaceSpeech.cs", "TownServiceActivityMotion.cs"]
     names += ["TownServiceMotionClips.cs", "TownServiceMotionClips.Data.cs"]
+    names += ["TownServiceSharedCue.cs", "TownServiceOfferFeedback.cs"]
     bound = {name: (base / name).read_text() for name in names}
     bound["RemoteTownFaces.cs"] = (root / "src/GloomhavenVR/Net/Remote/RemoteTownFaces.cs").read_text()
     bound["TownFaceTypes.cs"] = (root / "src/GloomhavenVR/Net/TownFaceState.cs").read_text().split("/// <summary>Additive80:")[0]
@@ -56,6 +57,12 @@ def mutations():
         ("fixed-work-gaze", "TownServiceFace.cs", "_workFocus != null ? _workFocus.position : _root.TransformPoint(TownServiceActivityMotion.RestFocus(_service))", "_root.TransformPoint(TownServiceActivityMotion.RestFocus(_service))", "work gaze uses current post-activity contact"),
         ("story-prepare-selects-viewer", "TownServiceFace.cs", "if (StoryComposite.PointOfNoReturn)", "if (StoryComposite.PointOfNoReturn && _service == byte.MaxValue)", "point of no return refuses player-facing resident attention"),
         ("story-fallback-selects-viewer", "TownServiceFace.cs", "bool storyLocked = StoryComposite.PointOfNoReturn;", "bool storyLocked = false;", "point of no return keeps unprepared face on neutral work instead of viewer fallback"),
+        ("browsing-occupies-gaze", "TownServiceFaceAttention.cs", "TownServiceMirror.TransactionOwner(service)", "TownServiceMirror.InteractionOwner(service)", "browsing cannot monopolize resident gaze before a physical offer"),
+        ("distant-visit-steals-gaze", "TownServiceFaceAttention.cs", "delta.sqrMagnitude <= 2.4f * 2.4f", "delta.sqrMagnitude <= 36f", "a distant native visit cannot suppress a nearby valid resident gaze"),
+        ("blessing-loses-donor", "TownServiceFaceAttention.cs", "? _blessedVisitor : 0;", "? 0 : 0;", "priestess looks at the currently blessed visitor without taking a lease"),
+        ("remote-guide-visible", "TownServiceSharedCue.cs", "gate.alpha = 0f;", "gate.alpha = 1f;", "pre-drop guide exception leaves observer guide invisible"),
+        ("stale-guide-session", "TownServiceSharedCue.cs", "session.Session != visitor.Session", "false", "ready evidence from a previous native visit cannot extend the mage hand"),
+        ("offer-feedback-misses-hover", "TownServiceOfferFeedback.cs", "if (near && !_near && Time.unscaledTime >= _nextNearPulse)", "if (false && near && !_near && Time.unscaledTime >= _nextNearPulse)", "valid purse approach pulses once before its snap edge"),
     ]
 
 
@@ -68,6 +75,8 @@ def main():
     parser.add_argument("--bundle-only", action="store_true", help="Run only actual-prefab binding checks and their focused negatives")
     parser.add_argument("--bundle", type=Path, help="Optional Linux final-asset bundle for actual prefab binding checks")
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
+    parser.add_argument("--negative-control", action="append", choices=[case[0] for case in mutations()],
+                        help="Run production plus selected relevant controls; partial focused evidence")
     args = parser.parse_args()
     if args.bundle_only and not args.bundle: parser.error("--bundle-only requires --bundle")
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -95,6 +104,8 @@ def main():
                 ("asset-blink-binding", "TownServiceFaceRig.cs", "binding.Shape == shape && binding.Renderer != null", "binding.Shape == shape && shape != 0 && binding.Renderer != null", "runtime weight reaches"),
             ]
         else: variants += mutations()
+    if args.negative_control:
+        variants = [case for case in variants if case[0] == "production" or case[0] in args.negative_control]
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
     for name, filename, before, after, expected in variants:
         build = run / name
@@ -109,7 +120,8 @@ def main():
         assembly = "TownInteraction_" + name.replace("-", "_")
         command = [dotnet, "build", str(project), "--configuration", "Release", "--nologo", "--verbosity", "quiet",
                    f"-p:CaseName={assembly}", f"-p:FixtureDir={fixture}", f"-p:ProductionDir={production}",
-                   f"-p:UnityManaged={args.unity.parent / 'Data/Managed'}"]
+                   f"-p:UnityManaged={args.unity.parent / 'Data/Managed'}",
+                   f"-p:GameManaged={args.source_root / 'ressources/GH_Data/Managed'}"]
         compiled = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         (build / "build.log").write_text(compiled.stdout)
         if compiled.returncode:
@@ -124,7 +136,7 @@ def main():
     (project / "Packages").mkdir()
     (project / "ProjectSettings").mkdir()
     shutil.copyfile(fixture / "Editor/InteractionRunner.cs", project / "Assets/Editor/InteractionRunner.cs")
-    (project / "Packages/manifest.json").write_text('{"dependencies":{"com.unity.modules.assetbundle":"1.0.0","com.unity.modules.animation":"1.0.0","com.unity.modules.physics":"1.0.0"}}\n')
+    (project / "Packages/manifest.json").write_text('{"dependencies":{"com.unity.ugui":"1.0.0","com.unity.modules.assetbundle":"1.0.0","com.unity.modules.animation":"1.0.0","com.unity.modules.physics":"1.0.0"}}\n')
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
     log = run / "unity.log"
     command = ["xvfb-run", "-a", str(args.unity), "-batchmode", "-nographics", "-projectPath", str(project),

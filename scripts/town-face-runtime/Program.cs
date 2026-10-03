@@ -162,6 +162,7 @@ public static class InteractionProgram
         UnityEngine.Object.DestroyImmediate(storyRoot.gameObject);
         StoryComposite.PointOfNoReturn=false;
         TownServicePresentation.Active=false;TownServicePresentation.Service=0;
+        count += ResidentParityChecks.Run(root, rig.EyePosition, camera);
         var face=new TownServiceFace(root,1);VRRigDriver.HeadCamera=camera;camera.transform.position=head.position+new Vector3(4,0,2);
         var remote=new TownFacePose{HeadYaw=-30,Cue=1,Generation=1,SpeechAge=.4f};
         TownServiceFaceSpeech.Curve=(service,cue,age)=>new Vector3(age,0,0);

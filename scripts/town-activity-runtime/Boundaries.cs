@@ -55,6 +55,7 @@ namespace GloomhavenVR.Net.TownServices
         // inject the already elected identity without inventing a second election.
         internal static int Owner { get; set; }
         internal static int InteractionOwner(byte service)=>Owner;
+        internal static int TransactionOwner(byte service)=>service is 1 or 3 ? Owner : 0;
     }
 }
 

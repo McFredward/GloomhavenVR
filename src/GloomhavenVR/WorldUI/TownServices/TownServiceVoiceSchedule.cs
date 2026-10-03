@@ -90,12 +90,12 @@ internal sealed class TownServiceVoiceSchedule
         {
             if (service == 2 && Crossed(e.LastWorkClock, clock, 64f, 6f))
             {
-                QueueVariant(service, 31, 0, now + 3f, clock);
+                QueueAmbient(service, 31, now, clock);
                 e.NextAmbientAllowed = now + 180f;
             }
             if (service == 3 && e.LastCast <= .16f && cast > .16f)
             {
-                QueueVariant(service, 41, 0, now + 3f, clock);
+                QueueAmbient(service, 41, now, clock);
                 e.NextAmbientAllowed = now + 150f;
             }
         }
@@ -180,27 +180,42 @@ internal sealed class TownServiceVoiceSchedule
         e.Priority = priority; e.Deadline = deadline;
     }
 
+    private void QueueAmbient(byte service, ushort firstCue, float now, float entropy)
+    {
+        // An optional idle beat may stay silent. Only the resident author rolls;
+        // observers hear the exact selected cue (or its shared absence). Consume
+        // the normal quiet interval on either result so silence is not rerolled
+        // every frame. Responses to real purchases/donations remain dependable.
+        if (NextRandom(At(service), firstCue, entropy) % 100u >= 45u)
+            QueueVariant(service, firstCue, 0, now + 3f, entropy);
+    }
+
     /// <summary>Choose one of five performances only on the elected author. TLV80
     /// publishes the resulting exact cue. A private xorshift state gives varied
     /// order without touching Unity's gameplay random stream or repeating the
     /// immediately preceding line.</summary>
     private static ushort Pick(Entry e, ushort firstCue, float entropy)
     {
-        // Millisecond quantization is sufficient entropy for presentation and
-        // remains available in the game's .NET Framework profile without an
-        // allocating float-to-byte conversion.
-        uint bits = unchecked((uint)(entropy * 1000f));
-        uint state = e.VariantState;
-        if (state == 0) state = bits ^ ((uint)firstCue * 0x9e3779b9u) ^ 0xa341316cu;
-        state ^= state << 13; state ^= state >> 17; state ^= state << 5;
-        if (state == 0) state = 0x6d2b79f5u;
-        e.VariantState = state;
+        uint state = NextRandom(e, firstCue, entropy);
         uint offset = state % 5u;
         ushort cue = (ushort)(firstCue + offset);
         if (cue == e.LastVariantCue)
             cue = (ushort)(firstCue + (offset + 1u + state % 4u) % 5u);
         e.LastVariantCue = cue;
         return cue;
+    }
+
+    private static uint NextRandom(Entry e, ushort firstCue, float entropy)
+    {
+        // Millisecond quantization keeps this private stream independent of
+        // Unity's gameplay random state and the game's framework profile.
+        uint bits = unchecked((uint)(entropy * 1000f));
+        uint state = e.VariantState;
+        if (state == 0) state = bits ^ ((uint)firstCue * 0x9e3779b9u) ^ 0xa341316cu;
+        state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+        if (state == 0) state = 0x6d2b79f5u;
+        e.VariantState = state;
+        return state;
     }
 
     internal void Sample(byte service, Func<ushort, float> duration, float now, bool narration)

@@ -1,5 +1,13 @@
 using System;
 using System.Collections.Generic;
+namespace GloomhavenVR.Core
+{
+    internal static class VRLog
+    {
+        internal static bool WantsDebug => false;
+        internal static void Debug(string scope, string text) { }
+    }
+}
 namespace UnityEngine
 {
     public class Object { public static void Destroy(Object value) { } }
@@ -192,6 +200,8 @@ namespace GloomhavenVR.Net.TownServices
     internal static class TownServiceMirror
     {
         internal static bool RemoteMerchantOffering;
+        internal static int MageCardOwner;
+        internal static int TransactionOwner(byte service) => service == 3 ? MageCardOwner : 0;
         internal static bool RemoteEnhancementCue;
         internal static bool HasVisibleRemoteEnhancementCue() => RemoteEnhancementCue;
         internal static bool TempleReceived,TempleKnown,TempleAvailable=true;
@@ -319,7 +329,15 @@ namespace GloomhavenVR.WorldUI
     internal static class TownServiceSharedCue
     {
         internal static int Ticks;
+        internal static bool LocalReady, RemoteReady;
+        internal static bool HasReadyVisitor(byte service) => service == 3 && RemoteReady;
         internal static void Tick() => Ticks++;
-        internal static void Reset() => Ticks = 0;
+        internal static void Reset() { Ticks = 0; LocalReady = RemoteReady = false; }
+    }
+    internal static class TownServiceFaceAttention
+    {
+        internal static int BlessedVisitor;
+        internal static void BlessVisitor(int player, float age) => BlessedVisitor = player;
+        internal static void ResetBlessingFocus() => BlessedVisitor = 0;
     }
 }
