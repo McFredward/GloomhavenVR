@@ -569,7 +569,10 @@ internal static class NetProtocol
     // or numeric packets from replacing a newer physical offering. Cold fan fronts
     // prewarm while closed and share urgent baseline delivery rather than queueing
     // behind cabinet decoration. Live controls retain a finite turn independently
-    // of that preload. A public page replaces the last validated cabinet atomically
+    // of that preload; visible wrist fans have a separate fair turn. Native fan
+    // offsets interpolate over measured owner intervals without overwriting the
+    // approved rig motion or restoring an old target midway through a transition.
+    // A public page replaces the last validated cabinet atomically
     // only after its current original faces, holders, prices and mechanics are ready;
     // off-page preload cannot block its reveal or another visitor's category press.
     // Original asset identity, local-only fingertip topology, dynamic native hints
