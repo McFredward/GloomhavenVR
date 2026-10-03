@@ -138,7 +138,11 @@ def main():
     (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
     command = ['xvfb-run', '-a', str(args.unity), '-batchmode', '-force-glcore', '-projectPath', str(project), '-executeMethod', 'PoseRunner.Start',
                '-interactionManifest', str(manifest_path), '-nativeDrakeBundle', str(args.native_drake_bundle.resolve()), '-nativeOtherBundle', str(args.native_other_bundle.resolve()), '-evidenceRoot', str(run), '-logFile', str(run / 'unity.log')]
-    result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=600)
+    # Twenty-seven independent native-skin variants render real animation frames.
+    # With the eight-job integration workload, the 600s wall deadline expired after
+    # production and 24 controls had already passed. Keep a finite deadline while
+    # allowing software-GL/CPU contention; timeout is still a failed proof.
+    result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=900)
     report = Path(manifest['result'])
     if report.is_file(): print(report.read_text(), end='')
     if result.returncode or not report.is_file(): raise SystemExit('FAIL: Unity; see ' + str(run / 'unity.log'))
