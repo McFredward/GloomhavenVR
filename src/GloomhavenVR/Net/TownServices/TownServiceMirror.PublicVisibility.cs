@@ -36,7 +36,7 @@ internal static partial class TownServiceMirror
                     || Array.BinarySearch(session.Modules, pair.Key) < 0
                     || EffectiveRemoteFrame(root)?.Visible != true) continue;
                 TownRackState state = clock.Latest;
-                if (!PublicControlsReady(session, modules)) continue;
+                if (!PublicControlsReady(session, state, modules)) continue;
                 if (peer == _pendingPublicPeer && state.Turn < _pendingPublicTurn) continue;
                 float age = state.Elapsed + Mathf.Max(0f, Time.unscaledTime - clock.ReceivedTime);
                 if (!PublicPageReady(pair.Key, state, state.To, session, modules)) continue;
@@ -48,12 +48,19 @@ internal static partial class TownServiceMirror
         }
     }
 
-    private static bool PublicControlsReady(TownServiceSessionInfo session,
+    private static bool PublicControlsReady(TownServiceSessionInfo session, TownRackState state,
         Dictionary<ushort, RemoteModule> modules)
     {
         if (!Pending.TryGetValue(session.Peer, out var pending)) return false;
         foreach (ushort id in session.Modules)
         {
+            // The root clock names neighbour prewarm membership before its
+            // original packets exist. Current members are validated separately
+            // by PublicPageReady; known off-page members must never gate reveal.
+            bool paged = false;
+            foreach (TownRackMember member in state.Members)
+                if (member.Id == id) { paged = true; break; }
+            if (paged) continue;
             if (!pending.TryGetValue(id, out var received)) return false;
             // A cumulative packet repeats the complete routing/rack header;
             // readiness does not need to allocate and expand its native artwork.
