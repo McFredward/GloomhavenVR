@@ -439,7 +439,8 @@ internal static partial class TownServiceMirror
                 if (destination[i].Peer == pair.Key.Peer && destination[i].Session == pair.Key.Session)
                 {
                     alreadyIncluded = true;
-                    if (unchecked((int)(pair.Value.Revision - destination[i].Revision)) > 0)
+                    if (unchecked((int)(pair.Value.Revision - destination[i].Revision)) > 0
+                        || pair.Value.Revision == destination[i].Revision && !destination[i].HasCommitAge)
                         destination[i] = new TownTempleDonationState(pair.Key.Peer, pair.Key.Session,
                             true, false, pair.Value.Revision, age, hasCommitAge: true);
                     break;

@@ -160,6 +160,10 @@ public static partial class MirrorProgram
         while (purses.MoveNext()) yield return purses.Current;
         IEnumerator retention = RetainValidatedOriginalOnMissingAsset();
         while (retention.MoveNext()) yield return retention.Current;
+        IEnumerator pooled = PooledOriginalCardTopology();
+        while (pooled.MoveNext()) yield return pooled.Current;
+        IEnumerator partitions = SecondaryVisitorOriginalPartitions();
+        while (partitions.MoveNext()) yield return partitions.Current;
     }
 
     private static IEnumerator SecondaryTemplePurses()
