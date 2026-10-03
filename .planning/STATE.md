@@ -10,9 +10,14 @@ cause is unresolved. B614 serializes an early temporary stereo loading view,
 streams APK archives on workers with preserved verification, removes the extra
 main-thread bank hash and records phase/bytes/UTC/frame progress. The collector
 adds bounded app-start history and fixed stat-only delivery metadata.
-[B614 evidence and procedure](QUEST3-HARDWARE-614.md). Focused validation and the
-new signed handoff are in progress; hardware outcomes remain unverified. Work
-stays solely on `feature/quest3-standalone`.
+[B614 evidence and procedure](QUEST3-HARDWARE-614.md). The signed 1,153,837,389-byte
+APK is verified from clean runtime/tool source `8a12aaff`, input `6b07372a…`;
+package and signing identity are retained. Seven focused Quest suites, 14 source
+checks, strict Release and 286,760 protocol assertions pass. Independent compiled,
+actual SDK and exact APK camera/font/shader retention audits pass. The private
+Windows handoff verifies source dependencies and installer selection. Hardware
+outcomes remain unverified; no full unrelated local gate is claimed. Work stays
+solely on `feature/quest3-standalone`.
 
 **Quest real-mod startup candidate, 2026-10-03: isolated feature, ModBuild 613.**
 

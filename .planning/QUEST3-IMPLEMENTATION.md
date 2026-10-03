@@ -5,8 +5,10 @@ verified B613 logo-only capture. The old gate cannot distinguish transfer from
 verification. An early serialized stereo view and managed APK delivery retain
 content checks while keeping the Unity main thread available; phase/byte/state
 and bounded app-start capture evidence are expanded. See
-[614 hardware procedure](QUEST3-HARDWARE-614.md). The signed handoff is being
-prepared; no headset success or playable campaign is established.
+[614 hardware procedure](QUEST3-HARDWARE-614.md). The signed 1,153,837,389-byte APK,
+scoped Quest/source/build/protocol checks, actual SDK and packaged camera/font
+retention are verified. The Windows handoff preserves installer/capture source
+bytes and APK selection. No headset success or playable campaign is established.
 
 Previous isolated implementation: ModBuild613 has a successfully built and signed
 ARM64 IL2CPP startup player after the B612 hardware capture and the maintainer's
