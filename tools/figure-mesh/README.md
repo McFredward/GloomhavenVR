@@ -24,7 +24,8 @@ color, UV coordinate, bone influence and blendshape delta comes from its exact
 original vertex. Bindposes, material slots and original conservative bounds remain.
 Native Cloth meshes, weapons and small ornaments are excluded. Runtime code changes
 only renderer mesh slots and existing native LOD references; bones, animations,
-action/events, colliders, gameplay and global hand skin quality remain untouched.
+action/events and colliders remain untouched. Build 606's base mesh substitution
+does not change skinning quality; the later optional influence cap below is separate.
 
 Representative lowest-tier results:
 

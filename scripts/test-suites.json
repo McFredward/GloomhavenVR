@@ -1407,6 +1407,12 @@
       "weight": 2
     },
     {
+      "id": "figure-distance-runtime",
+      "command": ["python3", "scripts/check-figure-distance-runtime.py"],
+      "groups": ["local"],
+      "weight": 80
+    },
+    {
       "id": "town-palm-render",
       "command": [
         "python3",
