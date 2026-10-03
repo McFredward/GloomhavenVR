@@ -80,11 +80,13 @@ population counts agree. Real native colliders and 320 distinct native textures/
 materials exercise the reach and texture paths. External game loading context and
 hand input are explicit seams; there is no headset image in this fixture.
 
-The production fixture passes **2152 runtime assertions**. Nine effective causal
+The production fixture passes **3212 runtime assertions**. Eleven effective causal
 controls reject an unbounded pump, unsliced textures, a missing persistent scene,
 inactive population leakage, ignored Debug cancellation, a missing lightweight
 roster or stale retained ZOOM roster, missing hover attribution
-and duplicate eligibility callbacks. Source order/mirrors/partial order, the
+and duplicate eligibility callbacks. Two additional controls exercise an actual
+summary fault: unfinished native inventories and completed ZOOM references must
+be cancelled, and later SPLIT summaries must not requeue a stopped pump. Source order/mirrors/partial order, the
 existing census lifecycle/visibility gate and strict Release are also checked.
 The instrument-write source check initially identified a diagnostic fault latch
 read directly in the host update; its pump is now explicitly diagnostic and the

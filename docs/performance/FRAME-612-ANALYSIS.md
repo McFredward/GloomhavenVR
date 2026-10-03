@@ -141,6 +141,15 @@ exactly 2389 force-hidden renderers. Wall restoration never writes their
 that vegetation was made visible again. Heap growth in one moving session also
 does not establish a memory leak.
 
+## Implementation follow-up, 2026-10-04
+
+All five ranked tracks now have source changes in Build615. The historical
+"not implemented" statements above describe the Build612/613 checkpoint; see
+[Build615 implementation and validation boundaries](FRAME-615-IMPLEMENTATION.md).
+No newer headset capture measures the resulting savings. Original unsupported
+cave meshes and the Drake's already authored culling mode remain conservative;
+new counters distinguish actual application from a requested setting.
+
 ## Next hardware comparison
 
 Use Build 613 with the existing complete Build 612 asset set. First repeat normal

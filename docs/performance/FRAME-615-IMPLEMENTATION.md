@@ -9,7 +9,7 @@ proofs establish the stated behavior, not a headset frame-time improvement.
 | --- | --- | --- |
 | Repeated 158ms wall commits, predominantly scene-only invalidation | Exclude proven native actor-only particle terms; share exact static mesh bounds within one synchronous commit | Real walls, water, unknown world FX, room reveals and drift still invalidate; commits remain atomic |
 | Prepared actor bounds but no admitted native rigs | Audit actual native components and the active Animator state, then permit stable idle bar checks | Unknown writers, actions, transitions and unsafe deformation retain immediate evaluation |
-| Animator work survives polygon reduction | Optional native `CullUpdateTransforms` on audited event-free scenario idle states | Native time/continuation continues; actions and held figures restore synchronously; shared map NPC clocks remain unchanged |
+| Animator work survives polygon reduction | Optional native `CullUpdateTransforms` on audited event-free scenario idle states | Native time/continuation continues; authored culling modes stay intact; actions and held figures restore synchronously; shared map NPC clocks remain unchanged |
 | Repeated UI descendant walks | Event-invalidated original component inventories for row depth, hidden windows and mip arrivals | Original visibility, sprites, input and animations are read live; hierarchy/activation changes wake maintenance |
 | Debug inventories introduce their own long frames | Incremental scene, simulation, texture and renderer/uGUI inventories | Soft time and work-item budgets; indivisible engine calls and observation span are explicitly measured |
 | A rare 177ms hand spike lacks attribution | Separate distance, eligibility, hover, pickup/release and ghost-construction scopes | No contact sampling or callback throttling |
@@ -43,7 +43,20 @@ The supplied run already has 4194 instanced material slots. Turning on additiona
 material flags is therefore an experiment, not the primary renderer-saving claim.
 Structural chunks operate only where original readable geometry and exact native
 identity permit reversible replacement. No essential floor/wall is removed, and
-no saving is promised for unsupported cave meshes.
+no saving is promised for unsupported cave meshes. The original Drake already
+uses `CullUpdateTransforms`; the new culling option leaves it unchanged. Eligible
+health-bar verification and transform-culling counters measure separate work.
+
+See [wall and structural proofs](FRAME-615-WALLS.md),
+[native actor admission](FRAME-615-ACTORS.md) and
+[diagnostic inventory boundaries](FRAME-615-DIAGNOSTICS.md) for exact source audits,
+control cases and limits. Stable UI inventories use original subtree lifecycle
+callbacks without a polling observer. Known sprite arrivals remain immediate;
+original hidden/disabled window components and newly pooled images retain their
+native membership. An original widget clone must never inherit subscriptions to
+its source panel. The source-linked UI runtime fixture exercises exact production
+inventory/mip code and depth/veil methods with real Unity hierarchy and images;
+external mip baking and the native window registry are explicit seams.
 
 ## Hardware comparison
 

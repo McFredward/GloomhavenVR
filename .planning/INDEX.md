@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-03 for Build 614 after the paired NPC multiplayer report. This directory holds internal
+Updated 2026-10-04 for Build 615 after the NPC parity integration and Frame CPU/render work. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -12,6 +12,10 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
 | [TOWN-MP-614.md](TOWN-MP-614.md) | Original NPC card/UI assets, fair numeric/cold delivery, public cabinet input, shared focus/audio/blessing and the explicit local card-guide exception |
+| [../docs/performance/FRAME-615-IMPLEMENTATION.md](../docs/performance/FRAME-615-IMPLEMENTATION.md) | All five Frame612 follow-ups, reversible settings, fresh profile defaults and hardware comparison boundaries |
+| [../docs/performance/FRAME-615-WALLS.md](../docs/performance/FRAME-615-WALLS.md) | Actor particle signatures, exact synchronous geometry reads, audited structural chunks and native camera fallbacks |
+| [../docs/performance/FRAME-615-ACTORS.md](../docs/performance/FRAME-615-ACTORS.md) | Actual native component/state audit, stable idle bar admission and conservative transform culling |
+| [../docs/performance/FRAME-615-DIAGNOSTICS.md](../docs/performance/FRAME-615-DIAGNOSTICS.md) | Incremental Debug inventories, capture span limits and unchanged near-grip callback attribution |
 | [../docs/performance/FRAME-612-ANALYSIS.md](../docs/performance/FRAME-612-ANALYSIS.md) | Frame612 mesh/camera application, remaining CPU stalls and scoped skinning conflict correction |
 | [../docs/performance/FRAME-609-ANALYSIS.md](../docs/performance/FRAME-609-ANALYSIS.md) | Natural-motion resolution and figure-detail evidence, loaded hitches and confidence limits |
 | [QUEST3-IMPLEMENTATION.md](QUEST3-IMPLEMENTATION.md) | Authorized Quest implementation branch, actual hardware checkpoint evidence and outstanding full-game gates |

@@ -1,5 +1,30 @@
 # State — where the project stands
 
+**Frame CPU/render implementation checkpoint, 2026-10-04: 1.1.0 / ModBuild 615.**
+
+All five ranked tracks in FRAME-612-ANALYSIS now have integrated source changes:
+actor-only particle signature exemption, exact same-commit wall bounds, native
+bar/state admission and optional event-free transform culling, stable original UI
+inventories, incremental Debug inventories/hand attribution, and optional small
+readable structural chunks. See [the implementation and settings](../docs/performance/FRAME-615-IMPLEMENTATION.md),
+[wall scope](../docs/performance/FRAME-615-WALLS.md),
+[actual actor audit](../docs/performance/FRAME-615-ACTORS.md) and
+[diagnostic lifecycle](../docs/performance/FRAME-615-DIAGNOSTICS.md).
+
+The original Drake already uses CullUpdateTransforms; the new setting preserves
+that authored mode. Cave mesh readability and active effects can prevent chunk
+admission. Effective counters must establish actual application in the next run;
+requested settings and Editor timings do not establish headset improvement.
+Original 2D-map/non-NPC windows, input and NPC/remote clocks retain live semantics.
+All Build614 NPC parity changes remain integrated. No game assets, mesh bundles,
+wire grammar or native gameplay commands change in this DLL-only round.
+
+The final complete integrated gate is pending. Focused worker receipts and the
+strict integrated build are preserved under `.planning/debug/frame615-review/`;
+the next step is final checks, push and generated-cache/worktree cleanup.
+
+---
+
 **NPC multiplayer original presentation, 2026-10-03: 1.1.0 / ModBuild 614.**
 
 Both supplied PCVR logs identify **612 / a606f9530**; the host uses SteamVR and
