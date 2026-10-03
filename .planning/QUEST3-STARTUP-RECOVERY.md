@@ -41,6 +41,13 @@ and readiness limits. `sourceBuilderFingerprint` uses the builder's canonical
 `{files:[{path,size,sha256}]}` format; `sourceFingerprint` retains the original
 recovery receipt's canonical list hash.
 
+The completed v4 stage contains **17,892 declared files / 1,802,443,349 bytes**.
+It has zero unresolved MonoScript identities, zero failing serialized behaviour
+types in closure, and **405 associated native Addressables locations** with
+1,308 serialized value locations explicitly excluded. Only the later-use
+AreaEffectSpriteAtlas sentinel remains unresolved; complete `closureReady`
+therefore stays false. These are source/staging facts, not headset evidence.
+
 ## SDK script identity replacement
 
 `Assets/QuestOriginalStartup/script-bindings.json` records the exact original
@@ -133,5 +140,26 @@ with .NET 8, zero warnings/errors, and reports real original native imports
 without loading game code.
 
 Actual Unity import, SDK remap, Android catalog/player builds and headset
-results are separate integration evidence. This recovery checkpoint makes no
-claim that those later gates have passed.
+results for the full original closure are separate integration evidence.
+
+The real Unity 2021.3.5f1 isolated SDK fixture passed **86 checks / four failure
+controls**, using all 28 original startup UGUI/InputSystem identities against
+actual imported packages. It produced 29 remapped pointers, imported the native
+prefab and ScriptableObjects, preserved all non-script bytes, callback method,
+target and RuntimeOnly state, and executed the retained Button callback on a
+disposable instance. Unknown file ID, missing exact typename, duplicate source
+identity, and an escaping asset path each rejected the complete transaction
+without modifying any fixture asset. Result:
+`/home/claw/quest3-local/recovery/startup-audit/sdk-bindings-fixture-plxbbzs1/fixture-result.json`.
+No Android preference was changed. Reproduce in a private project with:
+
+```sh
+python3 tests/quest-recovery/run_unity_bindings.py \
+  --unity /home/claw/unity-2021.3.5/Editor/Unity \
+  --startup-project /home/claw/quest3-local/recovery/startup-project-v4 \
+  --work-root /home/claw/quest3-local/recovery/startup-audit
+```
+
+This fixture establishes the SDK remap mechanism and fail-closed controls; it
+does not substitute for importing/building the complete original startup
+closure or testing its original code on Quest hardware.
