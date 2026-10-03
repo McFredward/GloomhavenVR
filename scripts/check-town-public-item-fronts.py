@@ -67,8 +67,8 @@ def main():
     variants = [('production', '', '', '', '')]
     if not args.no_negative_controls:
         variants += [
-            ('borrow-order-alias', 'TownServiceTemplateAssets.cs', 'if (template.StartsWith("item.", StringComparison.Ordinal)',
-             'if (false && template.StartsWith("item.", StringComparison.Ordinal)',
+            ('borrow-order-alias', 'TownServiceTemplateAssets.cs', 'bool modelFace = template.StartsWith("item.", StringComparison.Ordinal)',
+             'bool modelFace = false && template.StartsWith("item.", StringComparison.Ordinal)',
              'different borrow orders retain model-aware artwork identity'),
             ('original-coin-refused', 'TownServiceAssets.cs', '|| texture.name == "CoinIcon2_White"', '|| false && texture.name == "CoinIcon2_White"',
              'Ambiguous native town-service texture requires an explicit binding: CoinIcon2_White'),
