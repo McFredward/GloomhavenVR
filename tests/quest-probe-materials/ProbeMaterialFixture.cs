@@ -11,8 +11,33 @@ public static class ProbeMaterialFixture
     static int checks;
     const string Root = QuestProbeMaterialConversion.RecoveredRoot;
     const string FixtureRoot = Root + "/Fixture";
+    const string OriginalBackup = "Assets/FixtureOriginalBody.mat";
     const string AtlasGuid = "ec11ade57207ee6418cda8645eb93dce";
     static string BodyPath => Root + "/NativeDependencies/Material/HM_MO_BanditGuard_MAT 1.mat";
+
+    public static void RetryExisting()
+    {
+        try
+        {
+            Check(Application.unityVersion == "2021.3.5f1", "retry uses exact original editor");
+            string before = File.ReadAllText(QuestProbeMaterialConversion.ReportPath);
+            QuestProbeMaterialConversion.Prepare();
+            AssetDatabase.SaveAssets();
+            Check(File.ReadAllText(QuestProbeMaterialConversion.ReportPath) == before,
+                "fresh editor process retains byte-identical original provenance");
+            var report = JsonUtility.FromJson<QuestProbeMaterialConversion.EvidenceReport>(before);
+            Check(report.materials.Length == 2 && report.materials.All(entry =>
+                entry.sourceShader.StartsWith("Amp_Char_Shader", StringComparison.Ordinal) &&
+                entry.sourceSavedColor.b < .06f && !entry.sourceShaderExposesColor),
+                "persisted converted materials retain original Amp/orange source facts");
+            QuestProbeMaterialConversion.ValidateModel(Resources.Load<GameObject>("quest-original-model"));
+            File.WriteAllText(Environment.GetEnvironmentVariable("GHVR_MATERIAL_FIXTURE_RETRY_OUTPUT"),
+                "{\"schema\":1,\"passed\":true,\"checks\":" + checks + ",\"freshEditorProcess\":true}");
+            Debug.Log("PROBE_MATERIAL_RETRY_PASS checks=" + checks);
+            EditorApplication.Exit(0);
+        }
+        catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }
+    }
 
     public static void Run()
     {
@@ -45,6 +70,7 @@ public static class ProbeMaterialFixture
                     "reviewed Standard activates dormant orange tint");
             }
 
+            Check(AssetDatabase.CopyAsset(BodyPath, OriginalBackup), "private unconverted fixture source retained");
             QuestProbeMaterialConversion.Prepare();
             AssetDatabase.SaveAssets();
             var model = Resources.Load<GameObject>("quest-original-model");
@@ -56,6 +82,7 @@ public static class ProbeMaterialFixture
             Check(report.materials.All(entry => entry.sourceSavedColor.b < .06f && entry.targetTint == Color.white),
                 "report separates original dormant color from target albedo tint");
             Check(report.materials.All(entry => entry.albedoGuid == AtlasGuid), "retained dependency identity in report");
+            RetryProvenance(originals);
             foreach (var material in originals)
             {
                 Check(material.GetColor("_Color") == Color.white, "dormant orange is not activated on Standard");
@@ -101,6 +128,66 @@ public static class ProbeMaterialFixture
         Check(material.GetTextureScale("_BumpMap") == new Vector2(.8f, 1.4f) &&
             material.GetTextureOffset("_BumpMap") == new Vector2(-.1f, .3f), "independent original normal UV retained");
         Check(material.GetColor("_Color") == Color.white, "neutral tint remains neutral on shader without legacy property");
+    }
+
+    static void RetryProvenance(Material[] originals)
+    {
+        string before = File.ReadAllText(QuestProbeMaterialConversion.ReportPath);
+        QuestProbeMaterialConversion.Prepare();
+        AssetDatabase.SaveAssets();
+        Check(File.ReadAllText(QuestProbeMaterialConversion.ReportPath) == before,
+            "second build preparation retains exact original Amp and dormant-orange evidence");
+        foreach (var material in originals)
+        {
+            var capture = QuestProbeMaterialConversion.CaptureOriginal(material);
+            Check(capture.Evidence.sourceShader.StartsWith("Amp_Char_Shader", StringComparison.Ordinal) &&
+                capture.Evidence.sourceSavedColor.b < .06f && !capture.Evidence.sourceShaderExposesColor,
+                "converted capture reports verified original facts, not Standard white");
+        }
+        RejectEvidence(report => report.materials[0].sourceSavedColor = Color.white, false,
+            "damaged original-color evidence cannot silently replace source facts");
+        RejectEvidence(report => report.materials[0].sourceSavedColor = Color.white, true,
+            "recomputed source-color checksum must still match the converted material binding");
+        RejectEvidence(report => report.materials[0].materialGuid = new string('0', 32), true,
+            "identity mismatch fails independently of record checksum");
+        RejectEvidence(report => report.materials[0].albedoGuid = report.materials[0].normalGuid, true,
+            "texture identity mismatch fails independently of record checksum");
+        RejectEvidence(report => report.materials[0].albedoScale = new Vector2(2, 1), true,
+            "source UV mismatch fails independently of record checksum");
+        RejectEvidence(report => report.materials[0].normalOffset = Vector2.one, true,
+            "normal UV mismatch fails independently of record checksum");
+        RejectEvidence(report => report.materials[0].sourceShaderExposesColor = true, true,
+            "original property evidence is verified against retained source shader");
+        RejectEvidence(report => report.materials = new[] { report.materials[0], report.materials[0] }, false,
+            "duplicate source material records fail closed");
+        try
+        {
+            File.Delete(QuestProbeMaterialConversion.ReportPath);
+            Reject(QuestProbeMaterialConversion.Prepare, "already converted input without provenance fails closed");
+        }
+        finally { File.WriteAllText(QuestProbeMaterialConversion.ReportPath, before); }
+        QuestProbeMaterialConversion.Prepare();
+        Check(File.ReadAllText(QuestProbeMaterialConversion.ReportPath) == before,
+            "failed retry controls leave original evidence recoverable and unchanged");
+    }
+
+    static void RejectEvidence(Action<QuestProbeMaterialConversion.EvidenceReport> change, bool checksum, string label)
+    {
+        string before = File.ReadAllText(QuestProbeMaterialConversion.ReportPath);
+        try
+        {
+            var report = JsonUtility.FromJson<QuestProbeMaterialConversion.EvidenceReport>(before);
+            change(report);
+            if (checksum)
+                foreach (var entry in report.materials)
+                    entry.provenanceSha256 = QuestProbeMaterialConversion.Fingerprint(entry);
+            string damaged = JsonUtility.ToJson(report, true);
+            File.WriteAllText(QuestProbeMaterialConversion.ReportPath, damaged);
+            Reject(QuestProbeMaterialConversion.Prepare, label);
+            Check(File.ReadAllText(QuestProbeMaterialConversion.ReportPath) == damaged,
+                "failed preparation does not overwrite mismatched evidence");
+        }
+        finally { File.WriteAllText(QuestProbeMaterialConversion.ReportPath, before); }
     }
 
     static void NegativeControls()
@@ -176,7 +263,7 @@ public static class ProbeMaterialFixture
     static Material Copy(string name)
     {
         string path = FixtureRoot + "/" + name + ".mat";
-        Check(AssetDatabase.CopyAsset(BodyPath, path), "isolated material fixture " + name);
+        Check(AssetDatabase.CopyAsset(OriginalBackup, path), "isolated material fixture " + name);
         return AssetDatabase.LoadAssetAtPath<Material>(path);
     }
     static void EditTexture(Material material, string name, Texture texture, Vector2 scale, Vector2 offset, bool setTexture = true)

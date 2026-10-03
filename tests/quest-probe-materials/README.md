@@ -30,6 +30,14 @@ albedo and normal bindings, drop the target texture/normal keyword, change targe
 tint/UVs, introduce a nonneutral unsupported original modifier and select a desktop
 texture compression format for Android. These must fail closed.
 
+Preparation repeats in the same editor and in a fresh editor process. Converted
+materials may reuse original-source facts only when their identity, exact texture
+bytes/GUIDs, UV transforms, dimensions, import formats, normal strength and retained
+original shader match the prior record. A checksum binds that record to the staged
+material. Missing, duplicate, damaged or mismatching evidence aborts before shader
+mutation; ambiguous old converted projects require fresh staging. This local
+consistency check is not an authenticity or anti-piracy mechanism.
+
 This is editor/import evidence. The probe uses an opaque matte Standard
 approximation and does not reconstruct original packed MRAO, two-sided culling,
 outlines, dissolve or character lighting. A passing fixture proves neither visual

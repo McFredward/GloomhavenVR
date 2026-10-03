@@ -72,6 +72,20 @@ def main():
     result = json.loads(output.read_text())
     if not result.get('passed') or result.get('unityVersion') != '2021.3.5f1':
         raise RuntimeError(f'Invalid fixture evidence: {output}')
+    retry_output = work / 'retry-result.json'
+    retry_log = work / 'retry-unity.log'
+    environment['GHVR_MATERIAL_FIXTURE_RETRY_OUTPUT'] = str(retry_output)
+    retry_command = [str(args.unity.resolve(strict=True)), '-batchmode', '-nographics', '-projectPath', str(project),
+                     '-executeMethod', 'ProbeMaterialFixture.RetryExisting', '-logFile', str(retry_log)]
+    try:
+        retried = subprocess.run(retry_command, env=environment, timeout=600)
+    finally:
+        if hashes(source) != source_hashes or (reviewed_materials and hashes(reviewed_materials) != reviewed_hashes):
+            raise RuntimeError('Read-only original fixture inputs changed during the fresh-process retry.')
+    if retried.returncode or not retry_output.is_file() or not json.loads(retry_output.read_text()).get('passed'):
+        raise RuntimeError(f'Real Unity fresh-process retry failed, exit={retried.returncode}; inspect {retry_log}')
+    result['freshProcessRetry'] = json.loads(retry_output.read_text())
+    result['retryLog'] = str(retry_log)
     result['sourceAssetsUnchanged'] = True
     result['reviewedMaterialsUnchanged'] = reviewed_materials is not None
     result['project'] = str(project)

@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -15,13 +17,19 @@ namespace GloomhavenVR.Quest.Editor
     {
         public const string RecoveredRoot = "Assets/Quest/Recovered";
         public const string ReportPath = "Assets/Quest/Resources/quest-probe-materials.json";
+        const string ProvenanceTag = "GHVRQuestProbeSourceEvidence";
 
         [Serializable] public sealed class MaterialEvidence
         {
             public string materialPath, materialName, sourceShader, sourceTextureProperty;
+            public int provenanceVersion = 1;
+            public string materialGuid, sourceMaterialSha256, sourceShaderPath, sourceShaderGuid, sourceShaderSha256;
+            public string albedoSha256, normalGuid, normalSha256, provenanceSha256;
             public string albedoPath, albedoGuid, albedoAndroidFormat, normalPath, normalAndroidFormat;
             public int albedoWidth, albedoHeight;
-            public Vector2 albedoScale, albedoOffset;
+            public int normalWidth, normalHeight;
+            public Vector2 albedoScale, albedoOffset, normalScale, normalOffset;
+            public float normalStrength;
             public Color sourceSavedColor, targetTint;
             public bool sourceShaderExposesDiffuse, sourceShaderExposesColor, normalMapped;
             public string targetShader = "Standard";
@@ -116,23 +124,32 @@ namespace GloomhavenVR.Quest.Editor
                 if (!Finite(bumpScale)) throw Invalid(path + " has invalid normal strength");
                 var savedColor = Saved(serialized, "m_Colors", "_Color");
                 string albedoPath = AssetDatabase.GetAssetPath(texture);
-                return new Capture
+                string shaderPath = AssetDatabase.GetAssetPath(material.shader);
+                var capture = new Capture
                 {
                     Material = material, Albedo = texture, Normal = normal,
                     NormalScale = normalScale, NormalOffset = normalOffset, BumpScale = bumpScale,
                     Evidence = new MaterialEvidence
                     {
                         materialPath = path, materialName = material.name,
+                        materialGuid = AssetDatabase.AssetPathToGUID(path), sourceMaterialSha256 = FileHash(path),
                         sourceShader = material.shader == null ? "missing" : material.shader.name,
+                        sourceShaderPath = shaderPath, sourceShaderGuid = AssetDatabase.AssetPathToGUID(shaderPath),
+                        sourceShaderSha256 = File.Exists(shaderPath) ? FileHash(shaderPath) : "builtin",
                         sourceShaderExposesDiffuse = material.HasProperty("_Diffuse"),
                         sourceShaderExposesColor = material.HasProperty("_Color"),
                         sourceTextureProperty = "_Diffuse", albedoPath = albedoPath,
                         albedoGuid = AssetDatabase.AssetPathToGUID(albedoPath),
+                        albedoSha256 = FileHash(albedoPath),
                         albedoWidth = texture.width, albedoHeight = texture.height,
                         albedoScale = scale, albedoOffset = offset, albedoAndroidFormat = androidFormat,
                         sourceSavedColor = savedColor == null ? Color.white : savedColor.colorValue,
                         targetTint = Color.white, normalMapped = normal != null,
                         normalPath = AssetDatabase.GetAssetPath(normal), normalAndroidFormat = normalFormat,
+                        normalGuid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(normal)),
+                        normalSha256 = FileHash(AssetDatabase.GetAssetPath(normal)),
+                        normalWidth = normal.width, normalHeight = normal.height,
+                        normalScale = normalScale, normalOffset = normalOffset, normalStrength = bumpScale,
                         approximationNotes = new[]
                         {
                             "Standard opaque matte approximation; original diffuse and imported normal bindings retained.",
@@ -141,7 +158,88 @@ namespace GloomhavenVR.Quest.Editor
                         }
                     }
                 };
+                if (capture.Evidence.sourceShader == "Standard")
+                {
+                    // Retry input is already transformed. Original-source facts must come
+                    // from verified prior evidence, never from Standard's current properties.
+                    capture.Evidence = VerifiedPriorEvidence(capture);
+                    ValidateMapped(capture);
+                }
+                else capture.Evidence.provenanceSha256 = Fingerprint(capture.Evidence);
+                return capture;
             }
+        }
+
+        static MaterialEvidence VerifiedPriorEvidence(Capture current)
+        {
+            if (!File.Exists(ReportPath)) throw Invalid("Already converted material has no original-source evidence; restage the probe project");
+            EvidenceReport report;
+            try { report = JsonUtility.FromJson<EvidenceReport>(File.ReadAllText(ReportPath)); }
+            catch (Exception error) { throw Invalid("Cannot read original-source evidence: " + error.Message); }
+            if (report == null || report.schema != 1 || report.scope != "diagnostic-owned-asset-only" ||
+                report.originalShaderFidelity || report.materials == null || report.materials.Any(entry => entry == null) ||
+                report.materials.GroupBy(entry => entry.materialPath, StringComparer.Ordinal).Any(group => group.Count() != 1) ||
+                report.materials.GroupBy(entry => entry.materialGuid, StringComparer.Ordinal).Any(group => group.Count() != 1))
+                throw Invalid("Original-source evidence has invalid or ambiguous material identity");
+            var actual = current.Evidence;
+            var evidence = report.materials.SingleOrDefault(entry => entry.materialPath == actual.materialPath);
+            if (evidence == null || evidence.provenanceVersion != 1 || !HashShape(evidence.sourceMaterialSha256) ||
+                !HashShape(evidence.provenanceSha256) || evidence.provenanceSha256 != Fingerprint(evidence))
+                throw Invalid("Already converted material has missing or corrupt original-source provenance: " + actual.materialPath);
+            if (evidence.materialGuid != actual.materialGuid || evidence.materialName != actual.materialName ||
+                evidence.sourceTextureProperty != "_Diffuse" || evidence.targetShader != "Standard" ||
+                evidence.targetTint != Color.white || !evidence.normalMapped ||
+                evidence.albedoPath != actual.albedoPath || evidence.albedoGuid != actual.albedoGuid ||
+                evidence.albedoSha256 != actual.albedoSha256 || evidence.albedoWidth != actual.albedoWidth ||
+                evidence.albedoHeight != actual.albedoHeight || evidence.albedoScale != actual.albedoScale ||
+                evidence.albedoOffset != actual.albedoOffset || evidence.albedoAndroidFormat != actual.albedoAndroidFormat ||
+                evidence.normalPath != actual.normalPath || evidence.normalGuid != actual.normalGuid ||
+                evidence.normalSha256 != actual.normalSha256 || evidence.normalWidth != actual.normalWidth ||
+                evidence.normalHeight != actual.normalHeight || evidence.normalScale != actual.normalScale ||
+                evidence.normalOffset != actual.normalOffset || evidence.normalStrength != actual.normalStrength ||
+                evidence.normalAndroidFormat != actual.normalAndroidFormat)
+                throw Invalid("Original-source evidence does not match converted material identity, texture or UV mapping: " + actual.materialPath);
+            RequireRecoveredPath(evidence.sourceShaderPath);
+            var shader = AssetDatabase.LoadAssetAtPath<Shader>(evidence.sourceShaderPath);
+            if (shader == null || shader.name == "Standard" || shader.name != evidence.sourceShader ||
+                AssetDatabase.AssetPathToGUID(evidence.sourceShaderPath) != evidence.sourceShaderGuid ||
+                FileHash(evidence.sourceShaderPath) != evidence.sourceShaderSha256)
+                throw Invalid("Original-source shader evidence no longer resolves: " + actual.materialPath);
+            var sourceProperties = new Material(shader);
+            try
+            {
+                if (sourceProperties.HasProperty("_Diffuse") != evidence.sourceShaderExposesDiffuse ||
+                    sourceProperties.HasProperty("_Color") != evidence.sourceShaderExposesColor)
+                    throw Invalid("Original-source shader property evidence does not match its shader: " + actual.materialPath);
+            }
+            finally { UnityEngine.Object.DestroyImmediate(sourceProperties); }
+            if (current.Material.GetTag(ProvenanceTag, false, "") != evidence.provenanceSha256)
+                throw Invalid("Original-source evidence is not bound to this converted material: " + actual.materialPath);
+            return evidence;
+        }
+
+        // This checksum detects damaged/partially edited local evidence. It is not an
+        // authenticity or anti-piracy mechanism; the public builder creates the record.
+        internal static string Fingerprint(MaterialEvidence evidence)
+        {
+            var copy = JsonUtility.FromJson<MaterialEvidence>(JsonUtility.ToJson(evidence));
+            copy.provenanceSha256 = null;
+            return Hash(Encoding.UTF8.GetBytes(JsonUtility.ToJson(copy)));
+        }
+        static string FileHash(string path)
+        {
+            if (!File.Exists(path)) throw Invalid("Provenance input file is unavailable: " + path);
+            return Hash(File.ReadAllBytes(path));
+        }
+        static string Hash(byte[] bytes)
+        {
+            using (var sha = SHA256.Create())
+                return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant();
+        }
+        static bool HashShape(string value)
+        {
+            return value != null && value.Length == 64 && value.All(character =>
+                character >= '0' && character <= '9' || character >= 'a' && character <= 'f');
         }
 
         public static void Apply(Capture capture)
@@ -175,6 +273,7 @@ namespace GloomhavenVR.Quest.Editor
             material.SetFloat("_ZWrite", 1);
             material.renderQueue = -1;
             material.enableInstancing = true;
+            material.SetOverrideTag(ProvenanceTag, capture.Evidence.provenanceSha256);
             EditorUtility.SetDirty(material);
             ValidateMapped(capture);
         }
@@ -183,6 +282,7 @@ namespace GloomhavenVR.Quest.Editor
         {
             var material = capture.Material;
             if (material == null || material.shader == null || material.shader.name != "Standard" ||
+                material.GetTag(ProvenanceTag, false, "") != capture.Evidence.provenanceSha256 ||
                 material.GetTexture("_MainTex") != capture.Albedo || capture.Albedo == null ||
                 material.GetTextureScale("_MainTex") != capture.Evidence.albedoScale ||
                 material.GetTextureOffset("_MainTex") != capture.Evidence.albedoOffset ||
