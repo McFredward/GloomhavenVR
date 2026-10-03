@@ -8,10 +8,11 @@ or turn its hardware diagnostic into a playable campaign.
 
 ## First installation on Windows
 
-1. Have Android [SDK Platform-Tools](https://developer.android.com/tools/releases/platform-tools)
-   available. Existing ADB installations can be reused; an explicit path is
-   accepted below. Python requires no manual installation: the first run prepares
-   its private runtime and virtual environment beside the script automatically.
+1. Extract the complete checkout or private test package into a writable folder.
+   Python and ADB require no manual installation: the starter prepares its private
+   Python runtime/venv, and missing ADB is downloaded locally as Google's official
+   [SDK Platform-Tools](https://developer.android.com/tools/releases/platform-tools).
+   Existing ADB installations can be reused; an explicit path is accepted below.
 2. Put the PC and Quest on the same Wi-Fi network. Enable the headset's existing
    developer mode, connect it with a USB data cable and allow USB debugging in
    the headset. Keep the headset awake while installing.
@@ -63,6 +64,21 @@ an environment bound to the old path. Repair affects only folders it owns;
 unrecognized existing folders are retained. Both managed directories are ignored
 by Git. `-DryRun` can initialize these Python files first; APK validation then
 runs without contacting ADB or writing Quest connection settings.
+
+## Managed ADB on Windows
+
+If no explicit, remembered, PATH, Android SDK or SideQuest ADB is available,
+the installer downloads the pinned Windows Platform-Tools37.0.1 archive from
+Google into `scripts/.quest-adb/`. The approximately 8 MB archive is checked
+against its exact size and SHA-256 before extraction. The official tools and
+their license files stay inside the managed folder; PATH, Android Studio and
+system-wide tools are not changed. Administrator rights are unnecessary.
+
+Later runs reuse this cache, including its companion DLLs, with integrity checks
+before use. Only owned cache content can be repaired. A failed setup stops before
+any headset command or installation settings write; rerun after fixing the
+connection. `-DryRun` does not download or provision ADB. An explicit `-Adb` path
+is respected, including a clear error if that supplied executable is missing.
 
 ## Each following hardware test
 
@@ -146,9 +162,13 @@ PowerShell wrapper parsing/argument forwarding can be verified on a portable
 PowerShell runtime. The bootstrap suite also exercises actual isolated venvs,
 cache reuse, moved/broken environments, ownership and locking, pinned archive
 validation and a local hash-pinned dependency install with a hash-mismatch control.
+Legacy native argument mode is exercised explicitly: it reproduced the
+maintainer's first Windows5.1 quote-loss error, and the corrected interpreter
+probe and complete setup/reuse pass in that mode. The maintainer's next Windows
+run confirms actual CPython download, venv creation and B609 APK selection.
 Run it with `GHVR_PWSH_PATH` pointing to `pwsh`, or put `pwsh` on PATH; without
-PowerShell these controls are explicitly skipped. Native Windows runtime launch
-and the Windows 5.1 host still need Windows testing.
+PowerShell these controls are explicitly skipped. Managed Windows ADB and the
+headset transport still need the Windows hardware run.
 These checks do not establish an actual wireless connection
 to the maintainer's Quest; that requires the headset test.
 

@@ -400,6 +400,81 @@ class InstallerTests(unittest.TestCase):
                 installer.endpoint(value)
         self.assertEqual(installer.endpoint("quest.local"), "quest.local:5555")
 
+    @contextlib.contextmanager
+    def missing_windows_adb(self):
+        with mock.patch.object(installer.sys, "platform", "win32"), \
+                mock.patch.object(installer.shutil, "which", return_value=None), \
+                mock.patch.dict(os.environ, {"LOCALAPPDATA": str(self.root / "local"),
+                                             "APPDATA": str(self.root / "roaming")}, clear=True):
+            yield
+
+    def test_existing_explicit_or_remembered_adb_avoids_download(self):
+        with self.missing_windows_adb(), mock.patch.object(installer, "managed_windows_adb") as provision:
+            self.assertEqual(installer.adb_path(self.adb), self.adb)
+            self.assertEqual(installer.adb_path(None, self.adb), self.adb)
+            provision.assert_not_called()
+
+    def test_windows_missing_adb_provisions_local_tools(self):
+        with self.missing_windows_adb(), \
+                mock.patch.object(installer, "managed_windows_adb", return_value=self.adb) as provision:
+            self.assertEqual(installer.adb_path(None), self.adb)
+            provision.assert_called_once_with()
+
+    def test_explicit_missing_adb_stops_without_download(self):
+        with self.missing_windows_adb(), mock.patch.object(installer, "managed_windows_adb") as provision:
+            with self.assertRaisesRegex(installer.InstallError, "supplied ADB"):
+                installer.adb_path(self.root / "missing adb.exe")
+            provision.assert_not_called()
+
+    def test_remembered_managed_adb_is_revalidated_before_use(self):
+        checkout = self.root / "checkout"
+        managed = checkout / "scripts/.quest-adb/platform-tools/adb.exe"
+        managed.parent.mkdir(parents=True)
+        managed.write_bytes(b"cached executable requiring integrity validation")
+        with self.missing_windows_adb(), mock.patch.object(installer, "REPO", checkout), \
+                mock.patch.object(installer, "managed_windows_adb", return_value=managed) as provision:
+            self.assertEqual(installer.adb_path(None, managed), managed)
+            provision.assert_called_once_with()
+
+    def test_windows_dry_run_does_not_provision_or_contact_adb(self):
+        with self.missing_windows_adb(), mock.patch.object(installer, "managed_windows_adb") as provision, \
+                contextlib.redirect_stdout(io.StringIO()):
+            code = installer.main(["--handoff", str(self.handoff), "--config", str(self.config),
+                                   "--dry-run"], runner=self.fake)
+            self.assertEqual(code, 0)
+            provision.assert_not_called()
+        self.assertFalse(self.config.exists())
+        self.assertFalse(self.fake.calls)
+
+    def test_invalid_apk_stops_before_automatic_adb_setup(self):
+        self.make_apk(b"changed after handoff")
+        with self.missing_windows_adb(), mock.patch.object(installer, "managed_windows_adb") as provision, \
+                contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            code = installer.main(["--handoff", str(self.handoff), "--config", str(self.config)], runner=self.fake)
+            self.assertEqual(code, 1)
+            provision.assert_not_called()
+        self.assertFalse(self.config.exists())
+        self.assertFalse(self.fake.calls)
+
+    def test_automatic_adb_failure_leaves_device_and_settings_untouched(self):
+        with self.missing_windows_adb(), \
+                mock.patch.object(installer, "managed_windows_adb", side_effect=installer.InstallError("download failed")), \
+                contextlib.redirect_stderr(io.StringIO()) as error, contextlib.redirect_stdout(io.StringIO()):
+            code = installer.main(["--handoff", str(self.handoff), "--config", str(self.config)], runner=self.fake)
+            self.assertEqual(code, 1)
+            self.assertIn("download failed", error.getvalue())
+        self.assertFalse(self.config.exists())
+        self.assertFalse(self.fake.calls)
+
+    def test_automatic_adb_continues_verified_scoped_install_and_remembers_path(self):
+        with self.missing_windows_adb(), \
+                mock.patch.object(installer, "managed_windows_adb", return_value=self.adb), \
+                contextlib.redirect_stdout(io.StringIO()):
+            code = installer.main(["--handoff", str(self.handoff), "--config", str(self.config)], runner=self.fake)
+            self.assertEqual(code, 0)
+        self.assertEqual(json.loads(self.config.read_text())["adb"], str(self.adb))
+        self.assertEqual(self.fake.installed, self.apk.read_bytes())
+
 
 if __name__ == "__main__":
     unittest.main()

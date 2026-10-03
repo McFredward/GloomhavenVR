@@ -5,8 +5,9 @@
     On the first run, connect and authorize the Quest over USB. The installer
     discovers its Wi-Fi address and remembers the device and APK source locally.
     Subsequent runs reconnect wirelessly. A script-local Python runtime and
-    virtual environment are provisioned automatically on Windows. Android
-    platform-tools are required; Unity and the game installation are not needed.
+    virtual environment are provisioned automatically on Windows. Missing ADB
+    is downloaded locally as official Android platform-tools. Unity and the
+    game installation are not needed.
 .EXAMPLE
     .\scripts\install-quest-wireless.ps1
 .EXAMPLE

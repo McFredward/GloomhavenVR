@@ -16,20 +16,30 @@ It remembers the successful local APK source, WLAN endpoint, ADB executable and
 Quest hardware identity. First use or connection recovery can discover Wi-Fi over
 an authorized USB Quest; later runs reconnect wirelessly, verify the latest
 completed builder receipt or private handoff, install with `-r` and launch.
-Signature conflicts stop with app data retained. No APK/ADB downloads, store
-services, global ADB resets or automatic uninstalls occur. An explicit manual APK
+Signature conflicts stop with app data retained. Missing Windows ADB is provisioned
+from Google's pinned official Platform-Tools into `scripts/.quest-adb/`; existing
+external tools remain usable. No APK downloads, store services, global ADB resets
+or automatic uninstalls occur. An explicit manual APK
 path is also supported and remains distinguishable from verified builder output.
 
-All 36 focused installer tests pass, including wrong/offline/unauthorized devices,
+All 44 focused installer tests pass, including wrong/offline/unauthorized devices,
 ambiguous selection, stale addresses, tampered/concurrently changed artifacts,
-receipt containment, exit-zero ADB failures and signature mismatch controls.
+receipt containment, exit-zero ADB failures, signature mismatch controls and
+automatic ADB discovery/provisioning boundaries before headset mutation.
 Dry-runs against the actual B609 handoff and builder output select the reviewed
 `5818e9d22cd47...` APK without ADB activity or settings writes. A portable
 PowerShell7.6.6 runtime verifies option/path forwarding and failure exit codes.
-The bootstrap adds 20 PowerShell controls for actual venv creation/reuse,
+The bootstrap adds 22 PowerShell controls for actual venv creation/reuse,
 path relocation, owned-folder repair, exclusive setup, pinned runtime validation
-and a real local-wheel install/hash rejection. These portable checks exercise
-the provisioning code; native Windows CPython execution remains a Windows check.
+and a real local-wheel install/hash rejection. Explicit Legacy argument controls
+reproduce the maintainer's Windows5.1 quote-loss SyntaxError and pass after the
+single-quoted Python-literal fix. His next Windows run confirms actual runtime
+download, venv creation and selection of the reviewed B609 APK. Managed ADB and
+wireless transport remain Windows/Quest checks.
+The ADB helper adds 20 download/cache controls, including corrupt binaries/DLLs,
+partial downloads, archive escape, foreign content, links/junctions and concurrent
+setup. The original pinned Google archive also passes staged extraction and
+offline cache reuse without executing its Windows binaries on the Linux host.
 The complete feature-branch gate evidence is retained privately in the main
 checkout's `.planning/debug/quest3/wireless-validation/`. Actual Windows/Quest
 wireless transport and installation remain hardware checks. See

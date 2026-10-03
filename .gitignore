@@ -25,6 +25,8 @@ __pycache__/
 /scripts/.quest-python/
 /scripts/.quest-venv/
 /scripts/.quest-bootstrap.lock
+/scripts/.quest-adb/
+/scripts/.quest-adb.lock
 
 # IDE
 .vs/
