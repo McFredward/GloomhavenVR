@@ -3465,7 +3465,7 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
 }
 
 // =================================================================================================
-//  Scenario SPECIAL RULES ("Spezialregeln") — GLOBAL, docked under the objectives
+//  Scenario SPECIAL RULES ("Spezialregeln") — original native content, owner-authored layout
 // =================================================================================================
 
 /// <summary>
@@ -3525,10 +3525,10 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
 /// and it is also the vanilla picture, which outranks a mod-invented "keine besonderen Regeln"
 /// line the user never asked for.
 /// </summary>
-/// <remarks>CLASSIFICATION: GLOBAL — scenario-wide, bit-identical on every client, ZERO wire.
-/// Source: <c>ScenarioManager.CurrentScenarioState.ScenarioModifiers</c> rendered by the game's own
-/// <c>UIManager.ScenarioModifierContainer</c>, which every client builds for itself from its own
-/// copy of the model.</remarks>
+/// <remarks>Original public scenario content comes from the game's ScenarioModifierContainer.
+/// Build610 record96 carries the owner's exact original rows, style, folding, scrolling, hover
+/// and intermediate geometry. A receiver reuses its matching native widgets; no summaries,
+/// gameplay callbacks or private battle-goal text are sent.</remarks>
 internal sealed class ScenarioRulesSurface : TrayMountedPanelSurface
 {
     internal const float RulesBudgetMeters = 0.09f;

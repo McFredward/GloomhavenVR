@@ -64,7 +64,9 @@ internal static class NativeBoardCodec
             Buffer.BlockCopy(payload, offset, buffer, output, count); output += count;
         }
         if (state.RenderElements != null) output = NativeElementRenderCodec.Write(state.RenderElements, buffer, output);
-        return state.Rules == null ? output : NativeBoardRulesCodec.Write(state.Rules, buffer, output);
+        if (state.Rules != null) output = NativeBoardRulesCodec.Write(state.Rules, buffer, output);
+        if (output > MaxSize) throw new ArgumentException("Native board snapshot exceeds transport length.");
+        return output;
     }
 
     internal static bool TryRead(byte[] buffer, int length, out NativeBoardState? state)

@@ -227,9 +227,9 @@ internal sealed class RemoteObjectivesPanel
         // MissionObjectiveContainer this panel already mirrors, filled in the same call
         // (UIManager.InitScenario). So the peers' copy is a live CLONE of the owner's own rules
         // panel, at the owner's column, in the game's own localised prose, for the same reasons and
-        // through the same machinery. Nothing is redrawn, nothing is translated by the mod, and no
-        // wire field exists or is needed: ScenarioModifiers are scenario-global model state that
-        // every client builds this container from for itself (CLASSIFICATION: GLOBAL).
+        // through the same machinery. Build610 record96 overrides the original clone with the
+        // owner's exact native prose, style, hover, folding, scrolling and intermediate geometry.
+        // Missing96 keeps the legacy native model/source path; no gameplay callbacks are cloned.
         //
         // GROW (-1,-1) rather than the objectives' (-1,0): the mount point is this section's
         // TOP-RIGHT CORNER, so its seat needs only the panel ABOVE it and never its own height —
@@ -461,8 +461,8 @@ internal sealed class RemoteObjectivesPanel
             $"tall (objectives source={Source}). SOURCE ANSWERED: the game's own " +
             "UIManager.ScenarioModifierContainer, cloned — the same widget the owner's own board " +
             "docks, so the sentences are the game's localised prose and the mod supplies no text " +
-            "in any language. ZERO WIRE: ScenarioModifiers are scenario-global model state that " +
-            "every client already holds, so there is nothing here for a peer to send. READ IT LIKE " +
+            "in any language. OWNER PRESENTATION: record96 applies the owner's original text/style, " +
+            "foldout geometry, scroll and hover; missing96 keeps the legacy native clone. READ IT LIKE " +
             "THIS, and the two zeroes are DIFFERENT. WORKING: rows>0 with source=MirroredWidget on " +
             "a scenario that has special rules, and the drop above equals half the objectives " +
             "height plus 12 mm to the millimetre — that is this section sitting ON the objectives' " +

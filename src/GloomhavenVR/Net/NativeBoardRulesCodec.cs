@@ -51,7 +51,7 @@ internal static class NativeBoardRulesCodec
         var payload = new byte[data.Length + 3]; payload[0] = compressed ? (byte)1 : (byte)0;
         payload[1] = (byte)raw.Length; payload[2] = (byte)(raw.Length >> 8); Buffer.BlockCopy(data, 0, payload, 3, data.Length);
         int required = payload.Length + ((payload.Length + Chunk - 1) / Chunk) * 6;
-        if (output == null || at < 0 || required > output.Length - at) throw new ArgumentException("Native rules output is too small.");
+        if (output == null || at < 0 || required > Math.Min(output.Length, NativeBoardCodec.MaxSize) - at) throw new ArgumentException("Native rules output is too small.");
         for (int offset = 0; offset < payload.Length; offset += Chunk)
         {
             int count = Math.Min(Chunk, payload.Length - offset); output[at++] = RecordId; output[at++] = (byte)(count + 4);
