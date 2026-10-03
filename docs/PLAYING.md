@@ -60,6 +60,9 @@ transparent by default while covering the scenario. Existing saved settings rema
 The **discard**, **burnt** and **item** piles open as fans. The board also holds **active cards**,
 **Undo**, **Skip**, rest buttons and the decision area.
 
+Long scenario rules open to the left with **Special rules**. Scroll through the text and press
+the button again to fold it away. Short rules remain visible beside the board.
+
 [Watch: cards and control board](../README.md#cards-the-control-board-and-the-table)
 
 ## The scenario board

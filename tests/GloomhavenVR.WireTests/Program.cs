@@ -130,6 +130,7 @@ internal static class Program
             PresentationSaturationVectors.Run(t);
             NativeUseBarVectors.Run(t);
             NativeBoardVectors.Run(t);
+            NativeBoardRulesVectors.Run(t);
             BoardNativeParityVectors.Run(t, repoRoot);
             CardPresentationVectors.Run(t);
             FanExchangeVectors.Run(t);

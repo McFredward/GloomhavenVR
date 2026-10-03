@@ -1,5 +1,42 @@
 # State — where the project stands
 
+**Desktop dev checkpoint, 2026-10-03: 1.1.0 / ModBuild 610.**
+
+The two supplied Frame captures both identify 609/24400128c; normal uses 3408×3408
+per eye and low 2256×2256. Loaded, tracked 0/0 windows average 54.70/51.21 ms.
+Three approximate moving-view comparisons favor low by 2.5–9.8 ms; ordinary VR
+motion is retained as valid workload, while actions/view distributions prevent
+an isolated causal saving. Later original figure application proves 34.92% fewer
+admitted body vertices at 0/0, but figure-only frame timing has mixed signs.
+Remaining loaded work includes 46–73 ms synchronous Debug card discovery,
+32–36 ms first-use class-art scopes and 170 ms wall-table commits. Neither actual
+GPU busy nor a memory leak is established. See
+[Frame609 analysis](../docs/performance/FRAME-609-ANALYSIS.md); immutable inputs,
+extraction and reviewed compiled609 baseline live in
+`.planning/debug/frame609-run-analysis/`.
+
+Build 610 replaces the sleeping/flying bar lifetime maximum and authored flight
+floor with conservative original-skin envelopes on native bones. Preparation
+uses private original fine meshes; evaluated poses raise immediately and lower
+smoothly without a steady mesh bake or hierarchy/renderer inventory. Native
+props/headless/unsupported skins retain their existing anchor fallback. Source
+ownership excludes mod home mirrors and unrelated effect skeletons. Reduced
+figure meshes do not change the anchor; scene and last-bar release clear caches.
+
+The maintainer accepted a leftward foldout for long native scenario rules.
+Short rules remain beside the board; long rules open with a localized button
+into a scrollable native-text viewport. The private battle goal and complete
+element-caption union reserve separate space. Additive board record 96 carries
+owner-authored original rows, wording/styles, geometry, header appearance,
+hover and scroll, including intermediate opening/closing frames. Both rules
+and elements consume one owner-frame clock. Existing 52/53 bytes and privacy
+rules stay unchanged; no game controller/callback runs in remote clones. MR
+backings must use visible, clipped UI bounds rather than full scroll content.
+
+Hardware acceptance of the new poses, foldout and multiplayer animation remains
+pending. The preserved Quest checkpoint below is independent historical work;
+this Frame/board round does not implement or modify that port.
+
 **Quest branch checkpoint, 2026-10-03: `feature/quest3-standalone`, ModBuild 609.**
 
 The maintainer explicitly authorized implementation on a new branch from current

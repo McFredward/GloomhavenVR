@@ -85,6 +85,37 @@ static partial class Program
                 "signature memo never supplies the previous frame's changed native hierarchy");
     }
 
+    private static void TestMrVisualRootIsolation()
+    {
+        var host = new GameObject("RulesHost");
+        var canvas = host.AddComponent<Canvas>();
+        var wrapper = new GameObject("RulesVisualRoot");
+        wrapper.transform.SetParent(host.transform);
+        var rules = new GameObject("OriginalRules");
+        rules.transform.SetParent(wrapper.transform);
+        rules.transform.rect = Rect.MinMaxRect(-300, -180, -100, -80);
+        rules.AddComponent<RawImage>().canvas = canvas;
+        var header = new GameObject("FoldoutHeader");
+        header.transform.SetParent(wrapper.transform);
+        header.transform.rect = Rect.MinMaxRect(-300, -30, -100, 0);
+        header.AddComponent<RawImage>().canvas = canvas;
+        var panel = new ConvertedPanel { HostRect = host.transform, Target = rules.transform };
+        Check(PanelInkBounds.TryMeasure(panel, out var ink, backingGeometry: true)
+            && ink.Graphics == 1 && ink.Rect.yMax == -80,
+            "null MR visual root retains original backing scope");
+        panel.MrVisualRoot = wrapper.transform;
+        Check(PanelInkBounds.TryMeasure(panel, out ink, backingGeometry: true)
+            && ink.Graphics == 2 && ink.Rect.yMax == 0,
+            "MR visual root includes sibling foldout header");
+        Check(PanelInkBounds.TryMeasure(panel, out ink)
+            && ink.Graphics == 1 && ink.Rect.yMax == -80,
+            "MR-only scope never changes ordinary native layout or hit measurement");
+        panel.MrVisualRoot = null;
+        Check(PanelInkBounds.TryMeasure(panel, out ink, backingGeometry: true)
+            && ink.Graphics == 1 && ink.Rect.yMax == -80,
+            "clearing MR visual root restores original backing scope");
+    }
+
     static void Main()
     {
         var host = new GameObject("Host");
@@ -138,6 +169,7 @@ static partial class Program
         TestScopedBoardBacking();
         TestBackingVisibility();
         TestPaintedBacking();
+        TestMrVisualRootIsolation();
         TestBackingDiagnostics();
         TestCaptureBacking();
         TestSampleWatch();

@@ -212,6 +212,7 @@ namespace GloomhavenVR.WorldUI
     internal sealed class ConvertedPanel
     {
         internal UnityEngine.Transform? FitContentRoot => null;
+        internal UnityEngine.RectTransform? MrVisualRoot { get; set; }
         public UnityEngine.RectTransform HostRect = null!;
         public UnityEngine.RectTransform Target = null!;
         public UnityEngine.UI.Graphic? ContentGraphic;

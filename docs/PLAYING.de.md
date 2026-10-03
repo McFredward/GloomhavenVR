@@ -62,6 +62,9 @@ Die Stapel für **abgeworfene Karten**, **verbrannte Karten** und **Gegenstände
 Fächer. Auf dem Brett liegen auch **aktive Karten**, **Rückgängig**, **Überspringen**, Rast-Tasten
 und der Entscheidungsbereich.
 
+Lange Szenarioregeln öffnen sich über **Sonderregeln** nach links. Scrolle durch den Text und
+drücke die Taste erneut zum Einklappen. Kurze Regeln bleiben neben dem Brett sichtbar.
+
 [Video: Karten und Kontrollbrett](../README.de.md#karten-kontrollbrett-und-tisch)
 
 ## Das Szenario-Brett

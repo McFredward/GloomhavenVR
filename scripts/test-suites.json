@@ -1314,6 +1314,18 @@
       "weight": 90
     },
     {
+      "id": "actor-bar-pose-runtime",
+      "command": ["python3", "scripts/check-actor-bar-pose-runtime.py"],
+      "groups": ["local"],
+      "weight": 90
+    },
+    {
+      "id": "board-rules-runtime",
+      "command": ["python3", "scripts/check-board-rules-runtime.py"],
+      "groups": ["local"],
+      "weight": 90
+    },
+    {
       "id": "figure-overlay-runtime",
       "command": ["python3", "scripts/check-figure-overlay-runtime.py"],
       "groups": ["local"],
