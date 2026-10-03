@@ -553,7 +553,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 611;
+    public const ushort ModBuild = 612;
+
+    // ModBuild 612 — isolated original-menu Quest startup diagnostic.
+    // Recovered Bootstrap/Intro/unified/MainMenu scenes retain original callbacks;
+    // owned file-backed content and genuine rebuilt Android Addressables are verified
+    // before original startup. The baked profile uses an offline generic platform.
+    // Windows Apparance lifecycle is excluded only in this menu target; campaign
+    // generation, full mod lifecycle, saves and Android crossplay remain independent gates.
+    // Right-stick height changes only the diagnostic origin. Startup evidence is collected
+    // optionally with Windows ADB receipts accepted on either output stream.
+    // Desktop presentation and the existing wire layout are unchanged.
 
     // ModBuild 611 — expanded Quest hardware diagnostic after the first headset report.
     // Frame610 is reserved on the parallel dev branch; this Quest checkpoint stays isolated.
