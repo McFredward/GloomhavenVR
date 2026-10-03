@@ -81,12 +81,12 @@ namespace GloomhavenVR.Quest
 
         public void Suspend() { ready = false; turnLatched = false; }
 
-        public void Step(Transform origin, Transform head, Vector2 movement, float turn, float deltaTime, bool enabled)
+        public void Step(Transform origin, Transform head, Vector2 movement, float turn, float height, float deltaTime, bool enabled)
         {
             if (!enabled) { Suspend(); return; }
             if (!ready)
             {
-                ready = movement.sqrMagnitude <= .04f && Mathf.Abs(turn) <= .3f;
+                ready = movement.sqrMagnitude <= .04f && Mathf.Abs(turn) <= .3f && Mathf.Abs(height) <= .3f;
                 return; // Require neutral controls after startup, tracking loss or app resume.
             }
             if (movement.sqrMagnitude > .04f)
@@ -100,6 +100,11 @@ namespace GloomhavenVR.Quest
                 origin.position += offset;
                 distance += offset.magnitude;
             }
+            // The maintainer requested vertical inspection after the611 hardware run.
+            // Move the origin in world up; tracked head/controller poses stay untouched.
+            // Height input shares the neutral-on-resume guard and bounded frame delta.
+            if (Mathf.Abs(height) > .3f)
+                origin.position += Vector3.up * (Mathf.Clamp(height, -1, 1) * .5f * Mathf.Clamp(deltaTime, 0, .1f));
             if (Mathf.Abs(turn) <= .3f) turnLatched = false;
             if (!turnLatched && Mathf.Abs(turn) >= .7f)
             {

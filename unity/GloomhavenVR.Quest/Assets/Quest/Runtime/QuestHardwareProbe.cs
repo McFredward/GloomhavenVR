@@ -269,7 +269,8 @@ namespace GloomhavenVR.Quest
             UpdateControllerPose(right);
             bool inputAllowed = headTracked && focused && !paused;
             locomotion.Step(rig, view.transform, left.tracked ? left.stick.ReadValue<Vector2>() : Vector2.zero,
-                right.tracked ? right.stick.ReadValue<Vector2>().x : 0, Time.unscaledDeltaTime,
+                right.tracked ? right.stick.ReadValue<Vector2>().x : 0,
+                right.tracked ? right.stick.ReadValue<Vector2>().y : 0, Time.unscaledDeltaTime,
                 inputAllowed && left.tracked && right.tracked);
             // Origin movement changes world-space aim without changing the tracked local samples.
             UpdateControllerPose(left);

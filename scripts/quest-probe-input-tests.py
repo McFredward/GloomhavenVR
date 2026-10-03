@@ -27,6 +27,8 @@ for name, before, after in (
     ('TrackingDefect', '(state.ReadValue<int>() & 3) != 3', '(state.ReadValue<int>() & 1) != 1'),
     ('PivotDefect', 'origin.RotateAround(head.position, Vector3.up,', 'origin.RotateAround(origin.position, Vector3.up,'),
     ('ResumeDefect', 'ready = false; turnLatched = false;', 'ready = true; turnLatched = false;'),
+    ('HeightDefect', 'origin.position += Vector3.up * (Mathf.Clamp(height, -1, 1)',
+     'origin.position += Vector3.forward * (Mathf.Clamp(height, -1, 1)'),
 ):
     if source.count(before) != 1:
         raise RuntimeError('Defect seam changed: ' + name)

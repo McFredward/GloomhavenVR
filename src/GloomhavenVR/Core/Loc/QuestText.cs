@@ -33,7 +33,7 @@ public static class QuestText
             case "steamId": return german ? "Steam-ID" : "Steam ID";
             case "mrActive": return german ? "Mixed Reality aktiv" : "Mixed reality active";
             case "vrActive": return german ? "VR aktiv" : "VR active";
-            case "navigation": return german ? "Linker Stick: bewegen · Rechter Stick: drehen · Trigger: auswählen" : "Left stick: move · Right stick: turn · Trigger: select";
+            case "navigation": return german ? "Linker Stick: bewegen · Rechter Stick: drehen / Höhe · Trigger: auswählen" : "Left stick: move · Right stick: turn / height · Trigger: select";
             case "probeAim": return german ? "Zielpose links / rechts" : "Left / right aim pose";
             case "probeBattery": return german ? "Hardware-Prüfungen" : "Hardware checks";
             case "probeMaterials": return german ? "Materialien und Atlas" : "Materials and atlas";

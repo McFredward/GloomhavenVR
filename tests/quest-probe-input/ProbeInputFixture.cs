@@ -94,7 +94,9 @@ public static class ProbeInputFixture
         var movement = Activator.CreateInstance(movementType);
         var step = movementType.GetMethod("Step");
         Action<Vector2, float, float, bool> apply = (axis, turn, delta, enabled) =>
-            step.Invoke(movement, new object[] { origin, head, axis, turn, delta, enabled });
+            step.Invoke(movement, new object[] { origin, head, axis, turn, 0f, delta, enabled });
+        Action<float, float, bool> rise = (height, delta, enabled) =>
+            step.Invoke(movement, new object[] { origin, head, Vector2.zero, 0f, height, delta, enabled });
         var localPosition = head.localPosition;
         var localRotation = head.localRotation;
         apply(Vector2.up, 1, .1f, true);
@@ -125,6 +127,20 @@ public static class ProbeInputFixture
         apply(Vector2.zero, 0, .1f, true);
         apply(Vector2.up, 0, .1f, true);
         Check(Vector3.Distance(origin.position, before) > .07f, "neutral enables movement after resume");
+        before = origin.position;
+        rise(.2f, .1f, true);
+        Near(origin.position, before, "vertical deadzone holds origin");
+        rise(1, .1f, true);
+        Near(origin.position, before + Vector3.up * .05f, "vertical input follows world up");
+        rise(-1, 8, true);
+        Near(origin.position, before, "vertical descent and long frame are bounded");
+        Near(head.localPosition, localPosition, "vertical motion preserves tracked local head position");
+        rise(1, .1f, false);
+        rise(1, .1f, true);
+        Near(origin.position, before, "resume-held height remains disarmed");
+        rise(0, .1f, true);
+        rise(-1, .1f, true);
+        Near(origin.position, before - Vector3.up * .05f, "neutral enables descent after resume");
         UnityEngine.Object.DestroyImmediate(origin.gameObject);
     }
     static void RunAll()
@@ -162,7 +178,8 @@ public static class ProbeInputFixture
             Run(typeof(GloomhavenVR.Quest.QuestProbePoseInput), typeof(GloomhavenVR.Quest.QuestProbeLocomotion), device);
             var cases = new Dictionary<string, string> { { "AimDefect", "aim independent from grip" },
                 { "TrackingDefect", "rotation-invalid aim rejected" }, { "PivotDefect", "snap turn pivots about actual head" },
-                { "ResumeDefect", "resume-held sticks remain disarmed" } };
+                { "ResumeDefect", "resume-held sticks remain disarmed" },
+                { "HeightDefect", "vertical input follows world up" } };
             foreach (var defect in cases)
             {
                 string name = defect.Key;
@@ -179,7 +196,7 @@ public static class ProbeInputFixture
                 Check(rejected, "runtime fixture detects " + name);
             }
             InputSystem.RemoveDevice(device);
-            File.WriteAllText(output, "PASS: " + assertions + " real-Unity assertions and four rejected runtime defects.\n");
+            File.WriteAllText(output, "PASS: " + assertions + " real-Unity assertions and five rejected runtime defects.\n");
             EditorApplication.Exit(0);
         }
         catch (Exception error) { Debug.LogException(error); File.WriteAllText(output, "FAIL: " + error + "\n"); EditorApplication.Exit(1); }
