@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>netstandard2.0</TargetFramework><DefineConstants>GHVR_QUEST_STARTUP</DefineConstants><Nullable>disable</Nullable><EnableDefaultCompileItems>false</EnableDefaultCompileItems><NoWarn>$(NoWarn);CS0649</NoWarn><QuestInputSource Condition="'$(QuestInputSource)' == ''">$(RepoRoot)unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestProbeInput.cs</QuestInputSource></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestGame*.cs" />
+    <Compile Include="$(QuestInputSource)" />
+    <Compile Include="../../../src/GloomhavenVR/Core/Loc/QuestText.cs" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)/UnityEngine.CoreModule.dll" />
+    <Reference Include="UnityEngine.UnityWebRequestModule" HintPath="$(GameManaged)/UnityEngine.UnityWebRequestModule.dll" />
+    <Reference Include="Unity.InputSystem" HintPath="$(GameManaged)/Unity.InputSystem.dll" />
+    <Reference Include="UnityEngine.InputModule" HintPath="$(GameManaged)/UnityEngine.InputModule.dll" />
+    <Reference Include="UnityEngine.PhysicsModule" HintPath="$(GameManaged)/UnityEngine.PhysicsModule.dll" />
+    <Reference Include="UnityEngine.XRModule" HintPath="$(GameManaged)/UnityEngine.XRModule.dll" />
+    <Reference Include="UnityEngine.SubsystemsModule" HintPath="$(GameManaged)/UnityEngine.SubsystemsModule.dll" />
+    <Reference Include="UnityEngine.UI" HintPath="$(GameManaged)/UnityEngine.UI.dll" />
+    <Reference Include="UnityEngine.UIModule" HintPath="$(GameManaged)/UnityEngine.UIModule.dll" />
+    <Reference Include="UnityEngine.TextRenderingModule" HintPath="$(GameManaged)/UnityEngine.TextRenderingModule.dll" />
+    <Reference Include="UnityEngine.JSONSerializeModule" HintPath="$(GameManaged)/UnityEngine.JSONSerializeModule.dll" />
+    <Reference Include="Unity.Addressables" HintPath="$(GameManaged)/Unity.Addressables.dll" />
+    <Reference Include="Unity.ResourceManager" HintPath="$(GameManaged)/Unity.ResourceManager.dll" />
+  </ItemGroup>
+</Project>

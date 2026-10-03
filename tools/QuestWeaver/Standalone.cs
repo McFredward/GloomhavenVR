@@ -1,0 +1,248 @@
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text.Json;
+using Mono.Cecil;
+using Mono.Cecil.Cil;
+
+namespace QuestWeaver;
+
+public sealed class StandaloneReport
+{
+    public int Schema { get; set; } = 1;
+    public string Scope { get; set; } = "startup-offline-platform";
+    public bool StartupAdapterComplete { get; set; }
+    public bool ModLifecycleComplete { get; set; }
+    public bool BepInExAdapterGenerated { get; set; }
+    public bool FullGameReady { get; set; }
+    public bool EosAuthorised { get; set; }
+    public bool ProceduralRuntimeAvailable { get; set; }
+    public string ContentRelativeRoot { get; set; } = "quest-owned-game";
+    public List<string> Modifications { get; set; } = new();
+    public List<IntegrationIssue> Issues { get; set; } = new();
+    public List<IntegrationIssue> RemainingGates { get; set; } = new();
+    public Dictionary<string, string> InputAssemblies { get; set; } = new();
+    public Dictionary<string, string> OutputAssemblies { get; set; } = new();
+    public int ProtectedTypesVerified { get; set; }
+    public int UnchangedTypesVerified { get; set; }
+}
+
+internal sealed record OfflineProfile(string DisplayName, string SteamId, string AccountId);
+
+/// <summary>Transforms staged platform seams, never original rules, saves or transports.</summary>
+internal static class Standalone
+{
+    internal static OfflineProfile ReadProfile(string path)
+    {
+        using JsonDocument json = JsonDocument.Parse(File.ReadAllText(path));
+        JsonElement p = json.RootElement;
+        string name = p.GetProperty("displayName").GetString() ?? "";
+        string id = p.GetProperty("steamId").GetString() ?? "";
+        uint account = p.GetProperty("accountId").GetUInt32();
+        bool dummy = p.TryGetProperty("isDummy", out JsonElement d) && d.GetBoolean();
+        if (p.GetProperty("schema").GetInt32() != 1 || p.GetProperty("provider").GetString() != "steam"
+            || string.IsNullOrWhiteSpace(name) || !ulong.TryParse(id, NumberStyles.None, CultureInfo.InvariantCulture, out ulong parsed)
+            || (dummy ? parsed != 0 || account != 0 || !name.Contains("DUMMY", StringComparison.OrdinalIgnoreCase)
+                : parsed <= uint.MaxValue || (uint)parsed != account))
+            throw new InvalidDataException("Offline profile is missing, inconsistent, or an unlabelled dummy.");
+        return new OfflineProfile(name, id, account.ToString(CultureInfo.InvariantCulture));
+    }
+
+    internal static StandaloneReport Write(string managed, string? overrides, string profilePath, string output, string? bepinexPath = null, string? modPath = null)
+    {
+        OfflineProfile profile = ReadProfile(profilePath);
+        managed = Path.GetFullPath(managed); output = Path.GetFullPath(output);
+        if (output == managed || output.StartsWith(managed + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            || overrides != null && (output == Path.GetFullPath(overrides) || output.StartsWith(Path.GetFullPath(overrides) + Path.DirectorySeparatorChar, StringComparison.Ordinal)))
+            throw new ArgumentException("Standalone output must be separate from inputs.");
+        if (Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any()) throw new ArgumentException("Output directory must be empty.");
+        var report = new StandaloneReport();
+        using var resolver = new DefaultAssemblyResolver();
+        if (overrides != null) resolver.AddSearchDirectory(Path.GetFullPath(overrides));
+        resolver.AddSearchDirectory(managed);
+        resolver.AddSearchDirectory(Path.GetDirectoryName(typeof(object).Assembly.Location)!);
+        string Input(string name)
+        {
+            string path = overrides != null && File.Exists(Path.Combine(overrides, name)) ? Path.Combine(overrides, name) : Path.Combine(managed, name);
+            report.InputAssemblies[name] = Hash(path); return path;
+        }
+        using AssemblyDefinition game = AssemblyDefinition.ReadAssembly(Input("GH.Runtime.dll"), new ReaderParameters { AssemblyResolver = resolver, InMemory = true });
+        using AssemblyDefinition platforms = AssemblyDefinition.ReadAssembly(Input("SM.Consoles.dll"), new ReaderParameters { AssemblyResolver = resolver, InMemory = true });
+        using AssemblyDefinition apparance = AssemblyDefinition.ReadAssembly(Input("Apparance.Unity.dll"), new ReaderParameters { AssemblyResolver = resolver, InMemory = true });
+        if (game.MainModule.Resources.Any(r => r.Name == "QuestGame.Standalone.v1")) throw new InvalidDataException("Standalone input was already adapted.");
+        var assemblies = new[] { game, platforms, apparance };
+        var snapshots = assemblies.ToDictionary(a => a, a => Discovery.AllTypes(a.MainModule).ToDictionary(t => t.FullName, ProtectedTypes.Fingerprint));
+        var protectedSnapshots = assemblies.ToDictionary(a => a, ProtectedTypes.Snapshot);
+        var changedTypes = new HashSet<string>(StringComparer.Ordinal);
+        MethodDefinition Method(AssemblyDefinition assembly, string typeName, string name, string returnType, params string[] parameters)
+        {
+            TypeDefinition type = Discovery.AllTypes(assembly.MainModule).SingleOrDefault(t => t.FullName == typeName)
+                ?? throw new InvalidDataException("Required platform type is missing: " + typeName);
+            MethodDefinition? method = type.Methods.SingleOrDefault(m => m.Name == name && m.ReturnType.FullName == returnType
+                && m.Parameters.Select(p => p.ParameterType.FullName).SequenceEqual(parameters));
+            return method ?? throw new InvalidDataException("Required platform ABI changed: " + typeName + "::" + name);
+        }
+        void Replace(MethodDefinition method, Action<ILProcessor> emit)
+        {
+            if (!method.HasBody || Discovery.Protected(method.DeclaringType)) throw new InvalidDataException("Cannot replace protected/abstract platform method: " + method.FullName);
+            method.Body = new MethodBody(method) { InitLocals = true, MaxStackSize = 16 };
+            emit(method.Body.GetILProcessor()); changedTypes.Add(method.DeclaringType.FullName);
+            report.Modifications.Add(method.FullName);
+        }
+        void Constant(AssemblyDefinition a, string type, string method, object? value, string result)
+        {
+            Replace(Method(a, type, method, result), il => { EmitConstant(il, value); il.Emit(OpCodes.Ret); });
+        }
+        void Noop(string type, string method, params string[] parameters) => Replace(Method(game, type, method, "System.Void", parameters), il => il.Emit(OpCodes.Ret));
+
+        MethodDefinition factory = Method(platforms, "Platforms.Utils.PlatformConstructor", "BuildPlatform", "Platforms.IPlatform",
+            "Platforms.IGameProvider", "System.Boolean", "System.Boolean", "System.Boolean", "System.Boolean");
+        if (!factory.Body.Instructions.Any(i => i.OpCode == OpCodes.Newobj && i.Operand is MethodReference c && c.DeclaringType.FullName == "Platforms.Steam.PlatformSteam"))
+            throw new InvalidDataException("Platform factory no longer constructs the expected original Steam implementation.");
+        MethodDefinition ctor = Method(platforms, "Platforms.Generic.PlatformGeneric", ".ctor", "System.Void",
+            "Platforms.IGameProvider", "System.Boolean", "System.Boolean", "System.Boolean", "System.Boolean");
+        Replace(factory, il => { il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Newobj, ctor); il.Emit(OpCodes.Ret); });
+        // Generic platform originally creates users only for desktop keyboards/gamepads.
+        // Preserve its existing local user implementation, with no online sign-in assertion.
+        MethodDefinition buildUsers = Method(platforms, "Platforms.Generic.PlatformInputGeneric", "BuildUnityUsers", "System.Void");
+        FieldDefinition users = buildUsers.DeclaringType.Fields.Single(f => f.Name == "_userManagement" && f.FieldType.FullName == "Platforms.Generic.UserManagementGeneric");
+        MethodDefinition addUser = Method(platforms, "Platforms.Generic.UserManagementGeneric", "AddPlatformUser", "System.Void", "Platforms.IPlatformUserData");
+        MethodDefinition userCtor = Method(platforms, "Platforms.Generic.UserDataGeneric", ".ctor", "System.Void", "System.String", "System.String", "System.Int32", "UnityEngine.InputSystem.Users.InputUser");
+        Replace(buildUsers, il =>
+        {
+            var inputUser = new VariableDefinition(userCtor.Parameters[3].ParameterType); buildUsers.Body.Variables.Add(inputUser);
+            il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, users); il.Emit(OpCodes.Ldstr, profile.DisplayName); il.Emit(OpCodes.Ldstr, profile.AccountId); il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Ldloca, inputUser); il.Emit(OpCodes.Initobj, inputUser.VariableType); il.Emit(OpCodes.Ldloc, inputUser);
+            il.Emit(OpCodes.Newobj, userCtor); il.Emit(OpCodes.Callvirt, addUser); il.Emit(OpCodes.Ret);
+        });
+        MethodDefinition initialize = Method(game, "PlatformLayer", "Initialize", "System.Void", "Platforms.IPlatform");
+        if (!initialize.Body.Instructions.Any(i => i.Operand is MethodReference call && (call.DeclaringType.FullName == "Steamworks.SteamClient" || call.DeclaringType.FullName == "PlatformLayer" && call.Name == "Init")))
+            throw new InvalidDataException("Platform initialization no longer contains the expected desktop service seam.");
+        MethodDefinition setInitialised = Method(game, "PlatformLayer", "set_Initialised", "System.Void", "System.Boolean");
+        Replace(initialize, il => { il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Call, setInitialised); il.Emit(OpCodes.Ret); });
+        Noop("PlatformLayer", "Init", "System.UInt32"); Noop("PlatformLayer", "Update"); Noop("PlatformLayer", "Dispose");
+        Constant(game, "PlatformLayer", "get_IsValid", false, "System.Boolean");
+        Constant(game, "PlatformLayer", "get_SessionTicket", "", "System.String");
+        Constant(game, "PlatformLayer", "get_SteamAppId", 780290, "System.UInt32");
+        // Stored EpicLogin may request this entry point during SaveData initialization.
+        // Keep the save unchanged and explicitly reject authentication on this offline target.
+        MethodDefinition eos = Method(game, "PlatformLayer", "EOSInitialise", "System.Void");
+        MethodReference warning = eos.Body.Instructions.Select(i => i.Operand).OfType<MethodReference>().FirstOrDefault(m => m.DeclaringType.FullName == "UnityEngine.Debug" && m.Name == "LogWarning")
+            ?? Discovery.AllTypes(game.MainModule).SelectMany(t => t.Methods).Where(m => m.HasBody).SelectMany(m => m.Body.Instructions).Select(i => i.Operand).OfType<MethodReference>()
+                .First(m => m.DeclaringType.FullName == "UnityEngine.Debug" && m.Name == "LogWarning" && m.Parameters.Count == 1);
+        Replace(eos, il => { il.Emit(OpCodes.Ldstr, "[Quest startup] EOS unavailable in offline startup target; stored EpicLogin retained. Multiplayer authentication remains unverified."); il.Emit(OpCodes.Call, game.MainModule.ImportReference(warning)); il.Emit(OpCodes.Ret); });
+        Noop("PlatformNetworking", "Initialize", "Platforms.IPlatform");
+        Constant(game, "PlatformNetworking", "get_PlatformInvitesSupported", false, "System.Boolean");
+        Constant(game, "PlatformNetworking", "get_EPICInvitesSupported", false, "System.Boolean");
+        Constant(game, "PlatformModding", "get_ModdingSupported", false, "System.Boolean");
+        Constant(game, "PlatformModding", "get_LevelEditorSupported", false, "System.Boolean");
+        Constant(game, "PlatformUserData", "get_UserName", profile.DisplayName, "System.String");
+        Constant(game, "PlatformUserData", "get_PlatformPlayerID", profile.SteamId, "System.String");
+        Constant(game, "PlatformUserData", "get_PlatformAccountID", profile.AccountId, "System.String");
+        Constant(game, "PlatformUserData", "get_IsSignedIn", true, "System.Boolean");
+        // IsSignedIn here means local save owner availability; the original generic user's
+        // IsSignedInOnline and SteamClient.IsValid remain false, and EOS status is untouched.
+        Noop("PlatformUserData", "StartLoginFlow");
+        Noop("PlatformUserData", "EOSInitialise");
+        // This explicitly menu-only target has no compatible native Apparance engine.
+        // Suppress only its Unity lifecycle entry points; leave generation APIs untouched,
+        // Instance unset, and report the unavailable procedural runtime rather than success.
+        foreach (string callback in new[] { "Awake", "Start", "Update", "Stop", "OnDestroy" })
+            Replace(Method(apparance, "ApparanceEngine", callback, "System.Void"), il => il.Emit(OpCodes.Ret));
+
+        // Keep the original Workshop row visible while excluding its callback. Global
+        // ModdingSupported stays false so startup never scans/downloads Workshop content.
+        MethodDefinition extras = Method(game, "GLOOM.MainMenu.MainOptionExtras", "BuildOptions", "System.Collections.Generic.List`1<GLOOM.MainMenu.MenuSuboption>");
+        Instruction workshopGate = extras.Body.Instructions.Single(i => i.Operand is MethodReference c && c.Name == "get_ModdingSupported");
+        workshopGate.OpCode = OpCodes.Pop; workshopGate.Operand = null;
+        extras.Body.GetILProcessor().InsertAfter(workshopGate, Instruction.Create(OpCodes.Ldc_I4_1));
+        changedTypes.Add(extras.DeclaringType.FullName); report.Modifications.Add("retain excluded original Workshop row: " + extras.FullName);
+        MethodDefinition suboption = Method(game, "GLOOM.MainMenu.MenuSuboption", ".ctor", "System.Void", "System.String", "GLOOM.MainMenu.MenuOptionIcon", "System.Action", "System.Action", "System.Boolean", "System.String");
+        MethodReference equals = new("op_Equality", game.MainModule.TypeSystem.Boolean, game.MainModule.TypeSystem.String);
+        equals.Parameters.Add(new ParameterDefinition(game.MainModule.TypeSystem.String)); equals.Parameters.Add(new ParameterDefinition(game.MainModule.TypeSystem.String));
+        Instruction end = suboption.Body.Instructions.Last();
+        if (end.OpCode != OpCodes.Ret) throw new InvalidDataException("Original menu constructor shape changed.");
+        ILProcessor si = suboption.Body.GetILProcessor();
+        var suffix = new[] { Instruction.Create(OpCodes.Ldarg, suboption.Parameters[0]), Instruction.Create(OpCodes.Ldstr, "GUI_MODDING"), Instruction.Create(OpCodes.Call, equals), Instruction.Create(OpCodes.Brfalse, end),
+            Instruction.Create(OpCodes.Ldarg_0), Instruction.Create(OpCodes.Ldc_I4_0), Instruction.Create(OpCodes.Stfld, suboption.DeclaringType.Fields.Single(f => f.Name == "interactable")),
+            Instruction.Create(OpCodes.Ldarg_0), Instruction.Create(OpCodes.Ldnull), Instruction.Create(OpCodes.Stfld, suboption.DeclaringType.Fields.Single(f => f.Name == "onSelected")),
+            Instruction.Create(OpCodes.Ldarg_0), Instruction.Create(OpCodes.Ldnull), Instruction.Create(OpCodes.Stfld, suboption.DeclaringType.Fields.Single(f => f.Name == "tooltip")) };
+        foreach (Instruction instruction in suffix) si.InsertBefore(end, instruction);
+        changedTypes.Add(suboption.DeclaringType.FullName); report.Modifications.Add("excluded Workshop callback and native row state: " + suboption.FullName);
+
+        using AssemblyDefinition compatibility = CreatePaths(game.MainModule);
+        TypeDefinition paths = compatibility.MainModule.Types.Single(t => t.Name == "Paths");
+        foreach (MethodDefinition method in Discovery.AllTypes(game.MainModule).SelectMany(t => t.Methods).Where(m => m.HasBody && !Discovery.Protected(m.DeclaringType)))
+            foreach (Instruction instruction in method.Body.Instructions)
+                if (instruction.Operand is MethodReference call && call.DeclaringType.FullName == "UnityEngine.Application" && call.Name is "get_dataPath" or "get_streamingAssetsPath")
+                {
+                    instruction.Operand = game.MainModule.ImportReference(paths.Methods.Single(m => m.Name == call.Name));
+                    changedTypes.Add(method.DeclaringType.FullName); report.Modifications.Add("content path: " + method.FullName + "@" + instruction.Offset);
+                }
+        game.MainModule.Resources.Add(new EmbeddedResource("QuestGame.Standalone.v1", ManifestResourceAttributes.Private, System.Text.Encoding.UTF8.GetBytes("startup-offline-platform\n")));
+        report.RemainingGates.AddRange(new[] {
+            new IntegrationIssue("ORIGINAL_MENU_RUNTIME", "Bootstrap -> Intro -> Gloomhaven_unified -> MainMenu", "Original scene execution, initial Android Addressables closure, native services and rendering require actual Unity/device evidence."),
+            new IntegrationIssue("MOD_LIFECYCLE", "GloomhavenVR.Plugin", "This platform-only output does not instantiate or certify the mod. Standalone BepInEx lifecycle and XR/content seams are a separate gate."),
+            new IntegrationIssue("EOS_CROSSPLAY", "original multiplayer", "No online authentication, sessions, invites or crossplay are claimed; legitimate Android EOS remains required if original transport requires it.") });
+        report.RemainingGates.Add(new IntegrationIssue("PROCEDURAL_NATIVE_UNAVAILABLE", "ApparanceEngine", "Menu-only lifecycle disabled because original engine imports Windows ApparanceEngine. No fake generation readiness; campaign requires verified Android native support or prebaked geometry."));
+        string scratch = Path.Combine(Path.GetDirectoryName(output)!, ".quest-standalone-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(scratch);
+        try
+        {
+            if (bepinexPath != null && modPath != null)
+            {
+                report.InputAssemblies["BepInEx.dll"] = Hash(bepinexPath);
+                report.InputAssemblies["lifecycle-mod.dll"] = Hash(modPath);
+                BepInExStandalone.Write(bepinexPath, modPath, Path.Combine(scratch, "BepInEx.dll"), report);
+                report.OutputAssemblies["BepInEx.dll"] = Hash(Path.Combine(scratch, "BepInEx.dll"));
+                report.BepInExAdapterGenerated = true;
+            }
+            foreach (AssemblyDefinition a in assemblies)
+            {
+                string path = Path.Combine(scratch, a.Name.Name + ".dll"); a.Write(path);
+                using var reread = AssemblyDefinition.ReadAssembly(path);
+                report.ProtectedTypesVerified += ProtectedTypes.Verify(protectedSnapshots[a], reread);
+                foreach (TypeDefinition type in Discovery.AllTypes(reread.MainModule))
+                    if (!changedTypes.Contains(type.FullName))
+                    {
+                        if (!snapshots[a].TryGetValue(type.FullName, out string? hash) || hash != ProtectedTypes.Fingerprint(type)) throw new InvalidDataException("Unrelated type changed: " + type.FullName);
+                        report.UnchangedTypesVerified++;
+                    }
+                report.OutputAssemblies[a.Name.Name + ".dll"] = Hash(path);
+            }
+            compatibility.Write(Path.Combine(scratch, "QuestGame.Compatibility.dll"));
+            report.OutputAssemblies["QuestGame.Compatibility.dll"] = Hash(Path.Combine(scratch, "QuestGame.Compatibility.dll"));
+            File.WriteAllText(Path.Combine(scratch, "link.xml"), "<linker><assembly fullname=\"GH.Runtime\" preserve=\"all\"/><assembly fullname=\"SM.Consoles\" preserve=\"all\"/><assembly fullname=\"Apparance.Unity\" preserve=\"all\"/><assembly fullname=\"QuestGame.Compatibility\" preserve=\"all\"/>" + (report.BepInExAdapterGenerated ? "<assembly fullname=\"BepInEx\" preserve=\"all\"/>" : "") + "</linker>\n");
+            if (Directory.Exists(output)) Directory.Delete(output);
+            Directory.Move(scratch, output); report.StartupAdapterComplete = true;
+            return report;
+        }
+        finally { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); }
+    }
+
+    private static AssemblyDefinition CreatePaths(ModuleDefinition game)
+    {
+        var a = AssemblyDefinition.CreateAssembly(new AssemblyNameDefinition("QuestGame.Compatibility", new Version(1, 0, 0, 0)), "QuestGame.Compatibility", ModuleKind.Dll);
+        ModuleDefinition m = a.MainModule;
+        m.Runtime = game.Runtime;
+        var type = new TypeDefinition("QuestGame.Compatibility", "Paths", TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed, m.TypeSystem.Object); m.Types.Add(type);
+        MethodReference persistent = Discovery.AllTypes(game).SelectMany(t => t.Methods).Where(t => t.HasBody).SelectMany(t => t.Body.Instructions).Select(i => i.Operand).OfType<MethodReference>()
+            .First(c => c.DeclaringType.FullName == "UnityEngine.Application" && c.Name == "get_persistentDataPath");
+        var path = new TypeReference("System.IO", "Path", m, m.TypeSystem.CoreLibrary);
+        var combine = new MethodReference("Combine", m.TypeSystem.String, path);
+        combine.Parameters.Add(new ParameterDefinition(m.TypeSystem.String)); combine.Parameters.Add(new ParameterDefinition(m.TypeSystem.String));
+        foreach (string name in new[] { "get_dataPath", "get_streamingAssetsPath" })
+        {
+            var getter = new MethodDefinition(name, MethodAttributes.Public | MethodAttributes.Static, m.TypeSystem.String); type.Methods.Add(getter);
+            ILProcessor il = getter.Body.GetILProcessor(); il.Emit(OpCodes.Call, m.ImportReference(persistent)); il.Emit(OpCodes.Ldstr, "quest-owned-game"); il.Emit(OpCodes.Call, combine);
+            if (name == "get_streamingAssetsPath") { il.Emit(OpCodes.Ldstr, "StreamingAssets"); il.Emit(OpCodes.Call, combine); }
+            il.Emit(OpCodes.Ret);
+        }
+        return a;
+    }
+
+    private static void EmitConstant(ILProcessor il, object? value)
+    {
+        switch (value) { case bool b: il.Emit(b ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0); break; case int i: il.Emit(OpCodes.Ldc_I4, i); break; case string s: il.Emit(OpCodes.Ldstr, s); break; default: il.Emit(OpCodes.Ldnull); break; }
+    }
+    private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+}

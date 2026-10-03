@@ -1,8 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><DefineConstants>$(DefineConstants);GHVR_QUEST_STARTUP</DefineConstants></PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../tools/QuestWeaver/QuestWeaver.csproj" />
     <ProjectReference Include="FixtureMod/FixtureMod.csproj" ReferenceOutputAssembly="false" />
-    <Compile Remove="FixtureGame/**/*.cs;FixtureMod/**/*.cs" />
+    <Compile Remove="FixtureGame/**/*.cs;FixtureMod/**/*.cs;RuntimeCompile/**/*.cs" />
+    <Compile Include="../../unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestGameContent.cs" Link="QuestGameContent.cs" />
   </ItemGroup>
 </Project>

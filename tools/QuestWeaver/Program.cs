@@ -10,7 +10,7 @@ internal static class Program
         {
             if (args.Length == 0 || args[0] is "--help" or "help")
             {
-                Console.WriteLine("QuestWeaver audit|weave --mod DLL --managed DIR --output PATH [--report JSON] [--diagnostic-static-subset]");
+                Console.WriteLine("QuestWeaver audit|weave --mod DLL --managed DIR --output PATH [--report JSON] [--diagnostic-static-subset]\nQuestWeaver standalone --standalone-target startup --managed DIR --profile JSON --output EMPTY_DIR [--overrides WOVEN_DIR] [--report JSON]");
                 return args.Length == 0 ? 64 : 0;
             }
             var options = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -23,10 +23,23 @@ internal static class Program
                 if (!options.TryAdd(args[i], args[++i])) throw new ArgumentException("Repeated option.");
             }
             foreach (string key in options.Keys)
-                if (key is not ("--mod" or "--managed" or "--output" or "--report"))
+                if (key is not ("--mod" or "--managed" or "--output" or "--report" or "--standalone-target" or "--profile" or "--overrides" or "--bepinex"))
                     throw new ArgumentException("Unknown option: " + key);
             string Required(string key) => options.TryGetValue(key, out string? value)
                 ? Path.GetFullPath(value) : throw new ArgumentException("Missing option: " + key);
+            if (args[0] == "standalone")
+            {
+                if (subset || options.GetValueOrDefault("--standalone-target") != "startup") throw new ArgumentException("Standalone supports only explicit --standalone-target startup.");
+                string outputPath = Required("--output");
+                if (options.ContainsKey("--mod") != options.ContainsKey("--bepinex")) throw new ArgumentException("Optional standalone BepInEx adapter requires both --mod and --bepinex.");
+                StandaloneReport standalone = Standalone.Write(Required("--managed"), options.GetValueOrDefault("--overrides"), Required("--profile"), outputPath,
+                    options.ContainsKey("--bepinex") ? Required("--bepinex") : null, options.ContainsKey("--mod") ? Required("--mod") : null);
+                string standaloneReportPath = options.TryGetValue("--report", out string? reportValue) ? Path.GetFullPath(reportValue) : outputPath + ".report.json";
+                WriteJson(standaloneReportPath, standalone);
+                Console.WriteLine($"QuestWeaver: offline startup adapter={standalone.StartupAdapterComplete}; fullGameReady=false; {standalone.UnchangedTypesVerified} unrelated types verified invariant.");
+                return standalone.StartupAdapterComplete && standalone.Issues.Count == 0 ? 0 : 2;
+            }
+            if (options.Keys.Any(k => k is "--standalone-target" or "--profile" or "--overrides" or "--bepinex")) throw new ArgumentException("Startup options require the standalone command.");
             using var model = Discovery.Load(Required("--mod"), Required("--managed"));
             AuditReport report = model.Audit();
             if (args[0] == "audit")
@@ -57,6 +70,9 @@ internal static class Program
     }
 
     internal static void WriteReport(string path, AuditReport report)
+        => WriteJson(path, report);
+
+    internal static void WriteJson<T>(string path, T report)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase }) + "\n");

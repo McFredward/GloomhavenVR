@@ -164,6 +164,7 @@ try
         if (Directory.Exists(nextOutput)) Directory.Delete(nextOutput, true);
     }
     context.Unload();
+    StartupTests.Run(projectRoot, Check);
     Console.WriteLine($"QuestWeaver executable fixture: {assertions} assertions passed.");
 }
 finally { if (Directory.Exists(temp)) Directory.Delete(temp, true); }

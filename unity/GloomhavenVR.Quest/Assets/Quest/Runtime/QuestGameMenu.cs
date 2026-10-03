@@ -1,0 +1,239 @@
+#nullable disable
+#if GHVR_QUEST_STARTUP
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using GloomhavenVR.Core;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
+using UnityEngine.UI;
+using UnityEngine.XR;
+
+namespace GloomhavenVR.Quest
+{
+    /// <summary>Temporary XR presentation of original menu objects and callbacks. Not the VR mod.</summary>
+    public sealed class QuestGameMenu : MonoBehaviour
+    {
+        Transform origin;
+        Camera view;
+        QuestProbePoseInput head, aim, leftGrip, rightGrip;
+        Transform leftMarker, rightMarker;
+        LineRenderer aimLine;
+        Material markerMaterial;
+        InputAction trigger, leftStick, rightStick;
+        readonly QuestProbeLocomotion navigation = new QuestProbeLocomotion();
+        readonly List<Canvas> canvases = new List<Canvas>();
+        readonly List<Component> excluded = new List<Component>();
+        QuestGamePointer pointer;
+        Text tooltip;
+        bool focused = true, paused;
+        float nextScan;
+        bool originConfigured;
+
+        void Awake()
+        {
+            origin = new GameObject("Quest original-menu tracking origin").transform; origin.SetParent(transform, false);
+            view = new GameObject("Quest original-menu head").AddComponent<Camera>(); view.transform.SetParent(origin, false);
+            view.nearClipPlane = .02f; view.farClipPlane = 250; view.tag = "MainCamera";
+            head = new QuestProbePoseInput("Startup head", "<XRHMD>/centerEyePosition", "<XRHMD>/centerEyeRotation", "<XRHMD>/isTracked", "<XRHMD>/trackingState");
+            aim = QuestProbePoseInput.ForController("Startup UI aim", "<XRController>{RightHand}/", true);
+            leftGrip = QuestProbePoseInput.ForController("Startup left grip", "<XRController>{LeftHand}/", false);
+            rightGrip = QuestProbePoseInput.ForController("Startup right grip", "<XRController>{RightHand}/", false);
+            Material source = Resources.Load<Material>("quest-albedo-material");
+            markerMaterial = source != null ? new Material(source) : new Material(Shader.Find("Sprites/Default"));
+            if (markerMaterial.HasProperty("_Color")) markerMaterial.SetColor("_Color", Color.cyan);
+            leftMarker = Marker("Startup left grip marker"); rightMarker = Marker("Startup right grip marker");
+            aimLine = new GameObject("Startup right aim ray").AddComponent<LineRenderer>(); aimLine.transform.SetParent(transform, false);
+            aimLine.sharedMaterial = markerMaterial; aimLine.positionCount = 2; aimLine.startWidth = .0025f; aimLine.endWidth = .001f; aimLine.useWorldSpace = true;
+            trigger = QuestProbePoseInput.Create("Startup UI trigger", "<XRController>{RightHand}/trigger");
+            leftStick = QuestProbePoseInput.Create("Startup move", "<XRController>{LeftHand}/thumbstick");
+            rightStick = QuestProbePoseInput.Create("Startup turn/height", "<XRController>{RightHand}/thumbstick");
+            var ui = new GameObject("Quest excluded-entry tooltip", typeof(Canvas)); ui.transform.SetParent(transform, false);
+            var canvas = ui.GetComponent<Canvas>(); canvas.renderMode = RenderMode.WorldSpace; canvas.worldCamera = view; canvas.sortingOrder = 32760;
+            var rect = (RectTransform)ui.transform; rect.sizeDelta = new Vector2(800, 80); rect.localScale = Vector3.one * .001f; rect.position = new Vector3(0, 1.1f, 1.65f);
+            var label = new GameObject("Tooltip", typeof(RectTransform), typeof(Text)); label.transform.SetParent(ui.transform, false);
+            var labelRect = (RectTransform)label.transform; labelRect.anchorMin = Vector2.zero; labelRect.anchorMax = Vector2.one; labelRect.offsetMin = labelRect.offsetMax = Vector2.zero;
+            tooltip = label.GetComponent<Text>(); tooltip.font = Resources.GetBuiltinResource<Font>("Arial.ttf"); tooltip.fontSize = 28; tooltip.alignment = TextAnchor.MiddleCenter; tooltip.color = Color.white; tooltip.raycastTarget = false;
+            Debug.LogWarning("[Quest startup] presentation=original-menu-diagnostic; original widgets/callbacks retained. Full mod, campaign and visual parity remain unverified.");
+        }
+        void Update()
+        {
+            bool valid = head.TryRead(out Vector3 headPosition, out Quaternion headRotation);
+            if (valid) { view.transform.localPosition = headPosition; view.transform.localRotation = headRotation; }
+            Vector3 aimPosition = Vector3.zero; Quaternion aimRotation = Quaternion.identity;
+            bool pointerValid = focused && !paused && valid && aim.TryRead(out aimPosition, out aimRotation);
+            Grip(leftGrip, leftMarker); Grip(rightGrip, rightMarker);
+            aimLine.enabled = pointerValid;
+            if (pointerValid)
+            {
+                Vector3 start = origin.TransformPoint(aimPosition), direction = origin.TransformDirection(aimRotation * Vector3.forward);
+                var menuPlane = new Plane(Vector3.back, new Vector3(0, 1.4f, 1.85f)); float length = 3;
+                if (menuPlane.Raycast(new Ray(start, direction), out float hit) && hit > 0 && hit < 20) length = hit;
+                aimLine.SetPosition(0, start); aimLine.SetPosition(1, start + direction * length);
+            }
+            if (pointer != null)
+            {
+                pointer.inputValid = pointerValid; pointer.pressed = trigger.ReadValue<float>() > .55f;
+                if (pointerValid) { pointer.ray = new Ray(origin.TransformPoint(aimPosition), origin.TransformDirection(aimRotation * Vector3.forward)); pointer.view = view; }
+            }
+            Vector2 right = rightStick.ReadValue<Vector2>();
+            navigation.Step(origin, view.transform, leftStick.ReadValue<Vector2>(), right.x, right.y, Time.unscaledDeltaTime, focused && !paused && valid);
+            if (Time.unscaledTime >= nextScan) { nextScan = Time.unscaledTime + 1; Scan(); }
+        }
+        Transform Marker(string name)
+        {
+            GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Capsule); marker.name = name;
+            marker.transform.SetParent(origin, false); marker.transform.localScale = new Vector3(.035f, .06f, .035f);
+            Destroy(marker.GetComponent<Collider>()); marker.GetComponent<Renderer>().sharedMaterial = markerMaterial; return marker.transform;
+        }
+        void Grip(QuestProbePoseInput input, Transform marker)
+        {
+            Vector3 position = Vector3.zero; Quaternion rotation = Quaternion.identity;
+            bool tracked = focused && !paused && input.TryRead(out position, out rotation);
+            marker.gameObject.SetActive(tracked);
+            if (tracked) { marker.localPosition = position; marker.localRotation = rotation; }
+        }
+        void LateUpdate()
+        {
+            foreach (Component entry in excluded)
+            {
+                if (entry == null) continue;
+                PropertyInfo property = entry.GetType().GetProperty("IsInteractable");
+                if (property != null && property.CanWrite && (bool)property.GetValue(entry)) property.SetValue(entry, false);
+            }
+        }
+        void Scan()
+        {
+            if (!originConfigured)
+            {
+                var inputs = new List<XRInputSubsystem>(); SubsystemManager.GetInstances(inputs);
+                foreach (XRInputSubsystem input in inputs)
+                    if (input.running)
+                    {
+                        if ((input.GetSupportedTrackingOriginModes() & TrackingOriginModeFlags.Floor) != 0 && input.TrySetTrackingOriginMode(TrackingOriginModeFlags.Floor))
+                            Debug.Log("[Quest startup] original-menu origin=Floor");
+                        else { origin.position = new Vector3(0, 1.6f, 0); Debug.LogWarning("[Quest startup] original-menu origin=Device with initial eye-height offset=1.6m"); }
+                        originConfigured = true; break;
+                    }
+            }
+            EventSystem events = EventSystem.current;
+            if (events != null)
+            {
+                if (pointer == null || pointer.gameObject != events.gameObject) pointer = events.gameObject.GetComponent<QuestGamePointer>() ?? events.gameObject.AddComponent<QuestGamePointer>();
+                pointer.owner = this;
+                foreach (BaseInputModule module in events.GetComponents<BaseInputModule>()) if (module != pointer) module.enabled = false;
+            }
+            foreach (Canvas canvas in Resources.FindObjectsOfTypeAll<Canvas>())
+            {
+                if (!canvas.gameObject.scene.IsValid() || !canvas.gameObject.scene.isLoaded || canvas.transform.IsChildOf(transform) || !canvas.isRootCanvas || canvases.Contains(canvas)) continue;
+                if (canvas.renderMode == RenderMode.WorldSpace) continue;
+                RectTransform rect = (RectTransform)canvas.transform;
+                float width = Mathf.Max(1, rect.rect.width);
+                canvas.renderMode = RenderMode.WorldSpace; canvas.worldCamera = view;
+                rect.position = new Vector3(0, 1.4f, 1.85f); rect.rotation = Quaternion.identity; rect.localScale = Vector3.one * (1.8f / width);
+                var raycaster = canvas.GetComponent<GraphicRaycaster>(); if (raycaster != null) raycaster.ignoreReversedGraphics = false;
+                canvases.Add(canvas);
+                Debug.Log("[Quest startup] original canvas presented=" + canvas.name + " width=" + width + " sorting=" + canvas.sortingOrder);
+            }
+            // Bind the exact serialized native Guildmaster entry, not localized text/name heuristics.
+            foreach (MonoBehaviour behaviour in Resources.FindObjectsOfTypeAll<MonoBehaviour>())
+            {
+                if (behaviour == null || !behaviour.gameObject.scene.IsValid() || behaviour.GetType().FullName != "GLOOM.MainMenu.UIMainOptionsMenu") continue;
+                FieldInfo field = behaviour.GetType().GetField("guildmasterButton", BindingFlags.NonPublic | BindingFlags.Instance);
+                object entry = field != null ? field.GetValue(behaviour) : null;
+                object button = entry != null ? entry.GetType().GetProperty("Button").GetValue(entry) : null;
+                if (button is Component component && !excluded.Contains(component))
+                {
+                    excluded.Add(component);
+                    MethodInfo setTooltip = component.GetType().GetMethod("SetTooltip");
+                    if (setTooltip != null) setTooltip.Invoke(component, new object[] { true, QuestText.Get("excluded", Application.systemLanguage == SystemLanguage.German) });
+                    Debug.Log("[Quest startup] original Guildmaster entry retained and excluded.");
+                }
+            }
+        }
+        internal bool Excluded(GameObject hit)
+        {
+            foreach (Component entry in excluded) if (entry != null && hit.transform.IsChildOf(entry.transform)) return true;
+            foreach (MonoBehaviour row in hit.GetComponentsInParent<MonoBehaviour>())
+            {
+                if (row == null) continue;
+                foreach (FieldInfo field in row.GetType().GetFields(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance))
+                {
+                    if (field.FieldType.FullName != "GLOOM.MainMenu.IMenuSuboption" && field.FieldType.FullName != "GLOOM.MainMenu.MenuSuboption") continue;
+                    object option = field.GetValue(row);
+                    if (option != null && option.GetType().GetProperty("NameLocKey").GetValue(option) as string == "GUI_MODDING") return true;
+                }
+            }
+            return false;
+        }
+        internal void Hover(GameObject hit) { tooltip.text = hit != null && Excluded(hit) ? QuestText.Get("excluded", Application.systemLanguage == SystemLanguage.German) : ""; }
+        void OnApplicationFocus(bool value) { focused = value; if (!value) navigation.Suspend(); }
+        void OnApplicationPause(bool value) { paused = value; if (value) navigation.Suspend(); }
+        void OnDestroy() { head.Dispose(); aim.Dispose(); leftGrip.Dispose(); rightGrip.Dispose(); trigger.Dispose(); leftStick.Dispose(); rightStick.Dispose(); if (markerMaterial != null) Destroy(markerMaterial); }
+    }
+
+    /// <summary>Delivers native Unity pointer events; never calls a game action directly.</summary>
+    public sealed class QuestGamePointer : BaseInputModule
+    {
+        internal QuestGameMenu owner;
+        internal bool inputValid, pressed;
+        internal Ray ray;
+        internal Camera view;
+        PointerEventData data;
+        readonly List<RaycastResult> hits = new List<RaycastResult>();
+        bool previous, neutral;
+        public override bool ShouldActivateModule() { return enabled; }
+        public override void Process()
+        {
+            if (data == null) data = new PointerEventData(eventSystem) { pointerId = -610, button = PointerEventData.InputButton.Left };
+            if (!inputValid || view == null)
+            {
+                Release(false); HandlePointerExitAndEnter(data, null); previous = false; neutral = false; if (owner != null) owner.Hover(null); return;
+            }
+            if (!neutral) { if (!pressed) neutral = true; else return; }
+            // Project the real aim ray onto the fixed menu plane, then let original
+            // GraphicRaycasters determine order, interactability and target objects.
+            var plane = new Plane(Vector3.back, new Vector3(0, 1.4f, 1.85f));
+            GameObject hit = null;
+            if (plane.Raycast(ray, out float distance) && distance > 0 && distance < 20)
+            {
+                data.position = view.WorldToScreenPoint(ray.GetPoint(distance)); hits.Clear(); eventSystem.RaycastAll(data, hits);
+                foreach (RaycastResult result in hits)
+                    if (result.module is GraphicRaycaster) { data.pointerCurrentRaycast = result; hit = result.gameObject; break; }
+            }
+            HandlePointerExitAndEnter(data, hit); if (owner != null) owner.Hover(hit);
+            bool excluded = hit != null && owner != null && owner.Excluded(hit);
+            if (pressed && !previous && hit != null && !excluded)
+            {
+                data.pressPosition = data.position; data.pointerPressRaycast = data.pointerCurrentRaycast;
+                data.pointerPress = ExecuteEvents.ExecuteHierarchy(hit, data, ExecuteEvents.pointerDownHandler) ?? ExecuteEvents.GetEventHandler<IPointerClickHandler>(hit);
+                data.rawPointerPress = hit; data.eligibleForClick = true;
+                data.pointerDrag = ExecuteEvents.GetEventHandler<IDragHandler>(hit);
+                if (data.pointerDrag != null) ExecuteEvents.Execute(data.pointerDrag, data, ExecuteEvents.initializePotentialDrag);
+            }
+            if (pressed && data.pointerDrag != null)
+            {
+                if (!data.dragging && (data.position - data.pressPosition).sqrMagnitude >= eventSystem.pixelDragThreshold * eventSystem.pixelDragThreshold)
+                { ExecuteEvents.Execute(data.pointerDrag, data, ExecuteEvents.beginDragHandler); data.dragging = true; }
+                if (data.dragging) ExecuteEvents.Execute(data.pointerDrag, data, ExecuteEvents.dragHandler);
+            }
+            if (!pressed && previous) Release(!excluded);
+            previous = pressed;
+        }
+        void Release(bool click)
+        {
+            if (data == null) return;
+            if (data.pointerPress != null)
+            {
+                ExecuteEvents.Execute(data.pointerPress, data, ExecuteEvents.pointerUpHandler);
+                GameObject target = ExecuteEvents.GetEventHandler<IPointerClickHandler>(data.pointerEnter);
+                if (click && data.eligibleForClick && !data.dragging && data.pointerPress == target) ExecuteEvents.Execute(data.pointerPress, data, ExecuteEvents.pointerClickHandler);
+            }
+            if (data.dragging && data.pointerDrag != null) ExecuteEvents.Execute(data.pointerDrag, data, ExecuteEvents.endDragHandler);
+            data.pointerPress = data.rawPointerPress = data.pointerDrag = null; data.eligibleForClick = data.dragging = false;
+        }
+        public override void DeactivateModule() { Release(false); if (data != null) HandlePointerExitAndEnter(data, null); base.DeactivateModule(); }
+    }
+}
+#endif
