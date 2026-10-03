@@ -45,6 +45,22 @@ Hardware acceptance of the new poses, foldout and multiplayer animation remains
 pending. The preserved Quest checkpoint below is independent historical work;
 this Frame/board round does not implement or modify that port.
 
+Final integrated validation on runtime commit `c517aa19` passes **14/14 source
+suites, 109/109 complete local suites and 292,488 wire/golden assertions**, strict
+Release with zero warnings/errors, bundle checks, five bilingual document pairs,
+and independent complete suite/log-hash verification. The final local run took
+789.3 s with eight jobs; all 1,782 frozen source/tool inputs remain unchanged.
+The original-native skin proof has 533 assertions and 20 defect controls; the
+native rules proof has 63 assertions, a competing-layout control and a separate
+stale-DLL provenance rejection. These are Unity fixtures, not headset outcomes.
+Against the preserved reviewed609 assembly, 24 intended existing behavior or
+capacity types and five inlined-build-only types change, with ten added helpers
+and no removed type/reference/resource or changed reference/resource. The final
+compiled scope matches its independent preflight review. Guard exit1 reflects
+the older historical compiled baseline, not failed subordinate gates. Evidence
+is retained in `.planning/debug/frame610-final-validation/`; compact analysis and
+worker proofs are in `.planning/debug/frame609-run-analysis/`.
+
 **Quest branch checkpoint, 2026-10-03: `feature/quest3-standalone`, ModBuild 609.**
 
 The maintainer explicitly authorized implementation on a new branch from current
