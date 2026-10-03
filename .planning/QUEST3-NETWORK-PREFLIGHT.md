@@ -37,6 +37,68 @@ policy independently of the installed client. Photon documents that service
 admission depends on its application authentication configuration; default
 client auth is insufficient to infer that policy. [Photon custom authentication](https://doc.photonengine.com/bolt/current/connection-and-authentication/custom-authentication)
 
+## B612 identity and DLC admission proof
+
+Read-only review of the selected original DLLs and the startup adapter frozen at
+`fb59d91d` confirms the following. This note changes no platform label, token,
+admission rule or runtime source. The startup target remains diagnostic with
+`fullGameReady=false`; no Android game-room admission has been demonstrated.
+
+`PlatformLayer.PlatformID` is originally the constant `"Steam"`; selecting
+`PlatformGeneric` does not change that separate getter. The current adapter
+preserves it. Unchanged `NetworkManager.GetUserToken` therefore emits the Steam
+label, baked profile name/full Steam ID, and the baked account ID through
+`PlatformUserData.PlatformNetworkAccountPlayerID => PlatformAccountID`. It keeps
+the original network version, build type, crossplay flag and serialization.
+Separately, `NetworkUtils.PlatformType` and session negotiation remain `PC=1`.
+These are client identity metadata, not proof of a live Steam login.
+
+The actual host admission method is `GHNetworkCallbacks.ConnectRequest`:
+
+| Host setting | Original platform admission condition |
+| --- | --- |
+| Crossplay enabled | The client's crossplay flag must also be enabled; no platform-name whitelist is applied. |
+| Crossplay disabled | `PlatformLayer.MatchesCurrentPlatform` must pass. Original standalone desktop builds recognize `Standalone`, `Steam`, `GoGGalaxy`, and `EpicGamesStore` as the same PC group. An arbitrary `Quest`/`Generic` label is outside that group. |
+
+Version, capacity, password and existing game/save checks still apply. The named
+token/admission bodies contain no required Steam ticket, EOS authorization or
+live account-validity request. Original desktop privilege/user-permission
+callbacks already implement local policy; this is not permission to fabricate
+provider authorization. A later label review, if needed, belongs at the
+`PlatformLayer.PlatformID` metadata getter, leaving protected networking and
+tokens untouched. The existing desktop Photon smoke reached only master/lobby.
+
+The four `PlatformGeneric` constructor flags are `initHydra`,
+`initEntitlements`, `initPros`, and `isDevicePairingIncluded`. The current
+`false,true,false,false` creates an empty `PlatformEntitlementGeneric` ownership
+set. Its refresh only initializes and invokes the callback, satisfying native
+startup without granting DLC or consulting a store. The separate game
+`PlatformDLC.UserInstalledDLC` returns false when Steam is uninitialized;
+`CanPlayDLC` requires that check **and** the ruleset file. Supported entitlement
+names and installed DLC bytes do not establish ownership.
+
+For a later base-only playable target, explicitly keep the local DLC mask at
+`None` and reject every unsupported nonzero/unknown mask. Preserve
+`SaveData.LoadCampaignMode`'s `CanPlayPartyData` check and the original client's
+`GameToken.DLCFlag`/`GetInvalidDLCs` rejection; do not strip DLC flags from PC
+saves or host tokens to make them load. Any later DLC support needs independent
+PC ownership evidence and matching portable content, with unknown ownership
+failing closed and no live store calls on Quest. Shared menu/promotion assets
+and localization can be loaded independently of DLC ownership, so their
+presence is neither a license nor proof of playable DLC.
+
+Member references in the read-only `decompiled/GH.Runtime` tree:
+`PlatformLayer.cs:141,246,392`; `PlatformUserData.cs:106`;
+`FFSNet/NetworkManager.cs:443`; `FFSNet/NetworkUtils.cs:8,26`;
+`GHNetworkCallbacks.cs:210`; `PlatformNetworking.cs:283,406`;
+`PlatformDLC.cs:17,27,61,75,94`; `SaveData.cs:208`;
+`GHClientCallbacks.cs:337`; `SceneController.cs:603,854`.
+Scoped original `SM.Consoles` inspection verifies
+`Platforms.Generic.PlatformGeneric`'s constructor and
+`Platforms.Generic.PlatformEntitlementGeneric`'s empty set/refresh behavior.
+`Script.PlatformLayer.GHEntitlementsProvider` exposes supported PS4/PS5 content,
+not the generic ownership set.
+
 ## Exact local configuration and transport inputs
 
 Recover `Assets/Resources/BoltRuntimeSettings.asset` from the player's original
