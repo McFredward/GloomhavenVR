@@ -8,9 +8,10 @@ or turn its hardware diagnostic into a playable campaign.
 
 ## First installation on Windows
 
-1. Install Python 3.9+ with its launcher and Android
-   [SDK Platform-Tools](https://developer.android.com/tools/releases/platform-tools).
-   Existing ADB installations can be reused; an explicit path is accepted below.
+1. Have Android [SDK Platform-Tools](https://developer.android.com/tools/releases/platform-tools)
+   available. Existing ADB installations can be reused; an explicit path is
+   accepted below. Python requires no manual installation: the first run prepares
+   its private runtime and virtual environment beside the script automatically.
 2. Put the PC and Quest on the same Wi-Fi network. Enable the headset's existing
    developer mode, connect it with a USB data cable and allow USB debugging in
    the headset. Keep the headset awake while installing.
@@ -37,6 +38,31 @@ The process uses Meta's documented
 [USB-to-Wi-Fi ADB procedure](https://developers.meta.com/vr/documentation/native/android/ts-adb/).
 No registered Meta application or app-level Horizon service is needed by this
 installer. Headset developer mode and ADB authorization are still required.
+
+## Managed Python environment
+
+The Windows starter creates `scripts/.quest-venv/` and uses that environment's
+interpreter directly. Activation and execution-policy changes are unnecessary.
+Its base runtime lives in `scripts/.quest-python/`: the pinned CPython3.14.8
+Windows x64 or ARM64 distribution is downloaded from CPython's official NuGet
+package and checked against its pinned SHA-256 before extraction. This is the
+[Python team's documented standalone build distribution](https://docs.python.org/3/using/windows.html#the-nuget-org-packages).
+It does not install a global Python, alter PATH or require administrator rights.
+
+The first provision needs Internet access for the approximately 15 MB runtime;
+successful later runs reuse the local cache. The installer currently uses only
+the Python standard library. `tools/quest-installer/requirements.txt` therefore
+declares no third-party dependencies. If future versions add pinned dependencies,
+the bootstrap installs them into this venv and records the requirements hash
+only after success. It refreshes dependencies when that manifest changes.
+There is no routine pip upgrade or empty-package download.
+
+The bootstrap checks the environment's location and base interpreter before
+reuse, so moving a checkout or extracting a new test folder cannot silently use
+an environment bound to the old path. Repair affects only folders it owns;
+unrecognized existing folders are retained. Both managed directories are ignored
+by Git. `-DryRun` can initialize these Python files first; APK validation then
+runs without contacting ADB or writing Quest connection settings.
 
 ## Each following hardware test
 

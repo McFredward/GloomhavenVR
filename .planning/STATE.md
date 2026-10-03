@@ -8,11 +8,15 @@ on `dev` was reversed without removing their concurrent Frame610 work. Quest
 runtime remains ModBuild609; this tooling update does not create a new game APK.
 
 The Windows double-click entry point is `scripts/install-quest-wireless.cmd`.
+It provisions a private pinned CPython runtime and `.quest-venv` beside the
+script, so Windows users need no Python installation or environment activation.
+The current installer has no third-party Python requirements; future pinned
+requirements are installed into this environment when their manifest changes.
 It remembers the successful local APK source, WLAN endpoint, ADB executable and
 Quest hardware identity. First use or connection recovery can discover Wi-Fi over
 an authorized USB Quest; later runs reconnect wirelessly, verify the latest
 completed builder receipt or private handoff, install with `-r` and launch.
-Signature conflicts stop with app data retained. No APK/tool downloads, store
+Signature conflicts stop with app data retained. No APK/ADB downloads, store
 services, global ADB resets or automatic uninstalls occur. An explicit manual APK
 path is also supported and remains distinguishable from verified builder output.
 
