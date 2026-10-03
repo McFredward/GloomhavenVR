@@ -1,5 +1,66 @@
 # State — where the project stands
 
+**Steam Frame CPU/render checkpoint, 2026-10-03: 1.1.0 / ModBuild 612.**
+
+The latest Frame inputs identify **610 / 3edbcb284**. Loaded CampaignMap and
+ProcGen windows average 56.91ms and 61.21ms respectively; actual GPU busy remains
+unavailable. Four automatic camera passes still run: two eyes plus discarded
+ScenarioCamera/UI Camera passes. See [Frame610 analysis](../docs/performance/FRAME-610-ANALYSIS.md)
+for exclusions, scope limits and the next hardware checks. These inputs do not
+measure Build612 or establish its headset FPS gain.
+
+Optional unused-camera suspension now disables those discarded Camera components
+completely. Original managed main-camera readers, native projection enumeration
+and late scenario-mask discovery retain the actual original Camera identity.
+Native movie decoding and visible flat menu/preview captures remain necessary;
+failed bridge setup retains the previous draw suppression instead of blocking
+input or continuation. Shutdown, capture handoff and disabling the setting restore
+owned cameras. Static panel maintenance and proven stationary idle-loop bar bone
+checks gain configurable intervals; input, gameplay callbacks, root/state changes
+and non-loop actions remain immediate. The Debug card census seeds once and follows
+original widget lifetimes instead of repeatedly scanning the resource heap.
+
+Original native avatar loops are sampled during preparation to obtain a stable,
+state-scoped world-space bar ceiling. Dragon wing beats no longer move the bar;
+sleep/wake and non-loop actions retain dynamic anchoring. Build610's rule mount
+double-applied the canvas scale, making its text effectively invisible. Original
+inline rules are visible again; long rules show a rendered `...`, expand on hover
+or pin on click, and animate private goals/elements down. Unchanged owner-authored
+record96 and its interpolated clock retain remote content and intermediate frames.
+
+Distance LOD and NPC body detail use new immutable mesh parts with original
+materials, skeletons and facial expressions. Far Berserker/Drake/Sun demon meshes
+reduce the former lowest triangle counts by 83%/56%/81%. A renderer-level bone
+influence cap also reaches native NPCs that explicitly forced FourBones. These
+are reversible quality compromises on PC as well as Frame. Fresh Frame keys select
+camera suspension, distance LOD, NPC detail45, two bones, panel interval0.05s and
+idle-bar interval0.1s; saved settings remain intact. **FULL INSTALL REQUIRED:**
+415 additional derivatives in 29 parts are required; the original 1191 derivatives
+and 49 parts remain unchanged. Asset size is not evidence of frame-time savings.
+
+Validation covers all **112 local suites, 14 source suites and 294,369 complete
+wire/golden assertions**, strict Release with zero warnings/errors, bundle/surface
+checks and five bilingual document pairs. The first complete local invocation
+recorded 109 passes and three failures: two isolated fixture dependency boundaries
+and an actor-suite wall deadline. Only those bounded checks were resumed; actual
+actor production inputs are identical across its 27 completed cases. The final
+review's late camera-mask fix has its own 94 native Camera assertions, causal
+control and two affected source suites; the previous 18 camera controls remain
+independent evidence. Original failed receipts are preserved, and no claim is
+made that every final case ran in a single invocation. The native skin proof runs
+1615 assertions plus 26 controls; distance meshes 310 plus three controls; original
+inline rules 229 plus three rendered controls and stale-DLL rejection. The 24 mesh
+renders and owner/peer rule renders are Editor evidence, not headset acceptance.
+
+The independent compiled611 comparison contains 22 intended changed behavior
+types, eight inlined build constants and reference-table order only; eight helpers
+are added. No type is removed and reference/resource sets are unchanged. Final
+source-bound evidence lives in `.planning/debug/frame612-validation/`. The
+[passthrough investigation](../docs/performance/FRAME-PASSTHROUGH.md) distinguishes
+hardware passthrough from application composition: vendor extensions are absent
+in this Proton run, core alpha-blend support remains unqueried, and Steam Link
+chromakey equivalence is not established. No Frame passthrough path is implemented.
+
 **NPC multiplayer checkpoint, 2026-10-03: 1.1.0 / ModBuild 611.**
 
 The supplied host and peer logs both identify Build609; the reviewed video and six
