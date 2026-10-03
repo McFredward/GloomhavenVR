@@ -239,6 +239,7 @@ namespace GloomhavenVR.WorldUI
     internal static class TownServiceMerchantHandoff
     {
         internal static bool Active;
+        internal static bool WantsOffering;
         internal static uint Session;
         internal static float SessionAge;
         internal static Transform? StationRoot, Zone;

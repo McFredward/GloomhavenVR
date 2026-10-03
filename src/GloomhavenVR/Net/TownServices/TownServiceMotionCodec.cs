@@ -46,7 +46,7 @@ internal static class TownServiceMotionCodec
     // bytes without increasing the actual event size or its 15 Hz cadence. The
     // expanded payload is bounded independently; legacy record97 stays unchanged.
     internal const int MaxExpandedBytes = 8192, MaxExpandedEntries = 128;
-    internal const byte PackedRecordId = 98;
+    internal const byte PackedRecordId = 98, VisitorReadyRecordId = 99;
     // Independent message rather than an art fragment: a several-second catalog
     // baseline must never sit in front of a visitor's current hand/hover/scroll.
     internal const byte MessageType = 26, RecordId = 97;
@@ -60,6 +60,7 @@ internal static class TownServiceMotionCodec
         3 => 17,
         4 => 28 + entry.Numbers.Length * 4,
         5 => 15 + (entry.HasSharedCue ? 9 : 0),
+        6 => 10,
         _ => throw new InvalidDataException("Unknown fast motion kind.")
     };
 
@@ -103,7 +104,8 @@ internal static class TownServiceMotionCodec
             using var body = new MemoryStream(); using var part = new BinaryWriter(body);
             WriteEntry(part, entry); byte[] bytes = body.ToArray();
             if (bytes.Length > 255) throw new InvalidDataException("Fast town motion entry exceeds its record.");
-            writer.Write(RecordId); writer.Write((byte)bytes.Length); writer.Write(bytes);
+            writer.Write(entry.Kind == 6 ? VisitorReadyRecordId : RecordId);
+            writer.Write((byte)bytes.Length); writer.Write(bytes);
         }
         if (stream.Length > maxBytes) throw new InvalidDataException("Fast town motion exceeds one bounded event.");
         return stream.ToArray();
@@ -143,9 +145,10 @@ internal static class TownServiceMotionCodec
                     packedAt += readCount;
                     continue;
                 }
-                if (id != RecordId) { stream.Position = end; continue; }
+                if (id != RecordId && id != VisitorReadyRecordId) { stream.Position = end; continue; }
                 if (count == 0) return false;
                 byte kind = reader.ReadByte();
+                if ((id == VisitorReadyRecordId) != (kind == 6)) return false;
                 if (kind == 0)
                 {
                     if (clock || result.Entries.Count != 0 || count != 13) return false;
@@ -179,6 +182,7 @@ internal static class TownServiceMotionCodec
     private static void WriteEntry(BinaryWriter w, TownServiceMotionEntry e)
     {
         Validate(e); w.Write(e.Kind); w.Write(e.Lane); w.Write(e.Service); w.Write(e.Session);
+        if (e.Kind == 6) { w.Write(e.CueReady); return; }
         if (e.Kind == 3) { w.Write(e.Revision); w.Write(e.CommitAge); return; }
         if (e.Kind == 5) { w.Write(e.CueReady); w.Write(e.CueStrength); w.Write(e.HasSharedCue);
           if (e.HasSharedCue) { w.Write(e.SharedCueReady); w.Write(e.SharedCueStrength); w.Write(e.SharedGuideOwner); } return; }
@@ -199,6 +203,7 @@ internal static class TownServiceMotionCodec
     private static TownServiceMotionEntry ReadEntry(BinaryReader r, byte kind)
     {
         var e = new TownServiceMotionEntry { Kind = kind, Lane = r.ReadByte(), Service = r.ReadByte(), Session = r.ReadUInt32() };
+        if (kind == 6) { e.CueReady = Bool(r); Validate(e); return e; }
         if (kind == 3) { e.Revision = r.ReadUInt32(); e.CommitAge = r.ReadSingle(); Validate(e); return e; }
         if (kind == 5)
         { e.CueReady = Bool(r); e.CueStrength = r.ReadSingle(); e.HasSharedCue = Bool(r);
@@ -233,11 +238,13 @@ internal static class TownServiceMotionCodec
       foreach (float v in values) if (!Finite(v)) throw new InvalidDataException("Nonfinite fast motion value."); }
     private static void Validate(TownServiceMotionEntry e)
     {
-        if (e.Kind < 1 || e.Kind > 5 || e.Lane > 2 || e.Service < 1 || e.Service > 3 || e.Session == 0
+        if (e.Kind < 1 || e.Kind > 6 || e.Lane > 2 || e.Service < 1 || e.Service > 3 || e.Session == 0
             || e.Lane != 0 && e.Service != 1) throw new InvalidDataException("Invalid fast town motion affinity.");
         if (e.Kind == 3)
         { if (e.Lane != 0 || e.Service != 2 || e.Revision == 0 || !Finite(e.CommitAge) || e.CommitAge < 0f || e.CommitAge > 30f)
               throw new InvalidDataException("Invalid fast donation clock."); return; }
+        if (e.Kind == 6)
+        { if (e.Lane != 0 || e.Service != 1) throw new InvalidDataException("Invalid merchant visitor readiness."); return; }
         if (e.Kind == 5)
         { if (e.Lane != 0 || e.Service != 3 || !Finite(e.CueStrength) || e.CueStrength < 0f || e.CueStrength > 1f
               || !Finite(e.SharedCueStrength) || e.SharedCueStrength < 0f || e.SharedCueStrength > 1f

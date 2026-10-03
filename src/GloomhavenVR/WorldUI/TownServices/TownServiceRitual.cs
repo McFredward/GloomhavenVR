@@ -419,8 +419,14 @@ internal sealed class TownServiceRitual : IDisposable
                 AddFolio(11, shop.cardHolder);
                 AddFolio(13, shop.CardsDisplay.enhancementPointsText.transform.parent);
                 AddFolio(14, shop.cardInformationText);
-                AddFolio(15, shop.buyButton);
-                AddFolio(16, shop.sellButton);
+                // Native Campaign disables selling and leaves a non-interactive
+                // "Buy" caption on the worktop. It conveys no action in VR. Keep
+                // the original mode controls only when the native sell tab exists.
+                if (shop.sellButton.gameObject.activeSelf)
+                {
+                    AddFolio(15, shop.buyButton);
+                    AddFolio(16, shop.sellButton);
+                }
             }
             using (PerfMonitor.Scope(service == 2 ? "TownTemple.Folio.Purses" : "TownEnhancement.Folio.Pieces"))
                 RefreshPieces();

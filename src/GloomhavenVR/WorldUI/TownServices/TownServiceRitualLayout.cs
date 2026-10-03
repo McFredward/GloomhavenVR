@@ -25,8 +25,8 @@ internal static class TownServiceRitualLayout
         10 => new Placement(new Vector3(.32f, .33f, -.16f), Quaternion.identity, new Vector2(.60f, .55f)),
         13 => new Placement(new Vector3(0f, .032f, .35f), Quaternion.Euler(90f, 0f, 0f), new Vector2(.28f, .065f)),
         14 => new Placement(new Vector3(0f, .033f, .25f), Quaternion.Euler(90f, 0f, 0f), new Vector2(.28f, .085f)),
-        15 => new Placement(new Vector3(.19f, .036f, -.20f), Quaternion.Euler(90f, 0f, 0f), new Vector2(.18f, .055f)),
-        16 => new Placement(new Vector3(.43f, .036f, -.20f), Quaternion.Euler(90f, 0f, 0f), new Vector2(.18f, .055f)),
+        15 => new Placement(new Vector3(.19f, .64f, -.16f), Quaternion.identity, new Vector2(.18f, .055f)),
+        16 => new Placement(new Vector3(.43f, .64f, -.16f), Quaternion.identity, new Vector2(.18f, .055f)),
         _ => throw new ArgumentOutOfRangeException(nameof(section))
     };
 

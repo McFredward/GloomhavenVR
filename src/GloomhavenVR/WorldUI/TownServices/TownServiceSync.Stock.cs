@@ -65,6 +65,12 @@ internal sealed partial class TownServiceSync
         {
             if (!entry.Current || !entry.Sample.IsMoving) continue;
             PriorityRoots.Add(entry.MountRoot); PriorityRoots.Add(entry.CardRoot);
+            // The scenario's approved avatar holder already smooths the tracked
+            // hand. Stock inspection must attach to that same frame rather than
+            // interpolate another sampled world-space copy of the hand movement.
+            TownServiceMirror.RegisterMotionHand(entry.MountRoot, entry.Sample.HoldingHand);
+            TownServiceMirror.RegisterMotionHand(entry.CardRoot, entry.Sample.HoldingHand);
+            if (entry.BodyRoot != null) TownServiceMirror.RegisterMotionHand(entry.BodyRoot, entry.Sample.HoldingHand);
             if (entry.BodyRoot != null) PriorityRoots.Add(entry.BodyRoot);
             if (entry.RowContent != null) PriorityRoots.Add(entry.RowContent);
             // These are the actual lifted originals. The address distinguishes the

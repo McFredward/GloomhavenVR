@@ -16,6 +16,16 @@ internal static class TownMotionVectors
     private static void Packed(Harness t)
     {
         t.Case("Lossless record98 retains the original numeric fields inside one 864-byte event");
+        var ready = new TownServiceMotionEntry { Kind = 6, Service = 1, Session = 7, CueReady = true };
+        byte[] intent = TownServiceMotionCodec.Write(Packet(ready));
+        t.Wire(Hex.Bytes("31 52 56 47 03 1A 61 0D 00 01 00 00 00 00 00 00 00 00 00 00 40 63 08 06 00 01 07 00 00 00 01"),
+            intent, intent.Length, "merchant ready intent has additive metadata only, no guide artwork");
+        t.True(TownServiceMotionCodec.TryRead(intent, intent.Length, out var readyRead)
+            && readyRead!.Entries[0].Kind == 6 && readyRead.Entries[0].CueReady,
+            "the visitor's common offered-hand pose does not require any private guide");
+        byte[] invalidIntent = (byte[])intent.Clone(); invalidIntent[21] = 97;
+        t.True(!TownServiceMotionCodec.TryRead(invalidIntent, invalidIntent.Length, out _),
+            "new visitor intent cannot extend or reinterpret old record97 grammar");
         var packet = Packet();
         for (ushort i = 1; i <= 70; i++) packet.Entries.Add(new TownServiceMotionEntry
             { Kind = 2, Service = 3, Session = 7, Structure = 4, Module = i,

@@ -50,6 +50,9 @@ namespace GloomhavenVR.WorldUI
     internal static class TownServicePopulation { internal static bool IsFaceAuthor = true; }
     internal static class TownServiceSharedCue
     {
+        internal static readonly Dictionary<int, bool> MerchantReady = new();
+        internal static bool HasReadyMerchantVisitor => MerchantReady.ContainsValue(true);
+        internal static void ObserveMerchantVisitor(int peer, uint session, bool ready) => MerchantReady[peer] = ready;
         internal static bool LocalReady, PublishedReady;
         internal static float LocalStrength, PublishedStrength;
         internal static int PublishedGuideOwner;

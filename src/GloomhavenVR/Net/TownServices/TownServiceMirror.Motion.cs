@@ -26,7 +26,7 @@ internal static partial class TownServiceMirror
     private sealed class PeerMotion
     {
         internal readonly Dictionary<TownServiceMotionKey, MotionSlot> Slots = new();
-        internal ulong CueSequence;
+        internal ulong CueSequence, MerchantReadySequence;
     }
     private sealed class RemoteMotion
     {
@@ -57,6 +57,8 @@ internal static partial class TownServiceMirror
     private static float _nextMotionCommit;
     private static TownServiceMotionEntry? _motionCue;
     private static float _nextMotionCue;
+    private static TownServiceMotionEntry? _motionMerchantReady;
+    private static float _nextMotionMerchantReady;
     private static uint _motionLifetime = 1;
     private static ulong _motionHandRevision;
     private static float _motionDiagnosticAt;
@@ -118,12 +120,21 @@ internal static partial class TownServiceMirror
             || cue.CueReady != _motionCue.CueReady || cue.CueStrength != _motionCue.CueStrength
             || cue.HasSharedCue != _motionCue.HasSharedCue || cue.SharedCueReady != _motionCue.SharedCueReady
             || cue.SharedCueStrength != _motionCue.SharedCueStrength || cue.SharedGuideOwner != _motionCue.SharedGuideOwner;
-        if (MotionWaiting.Count == 0 && MotionLive.Count == 0 && MotionVisibleFan.Count == 0 && commit == null && !sendCue) return;
+        // The common NPC pose depends on visitor intent, never on transmitting a
+        // personal pre-drop guide. This numeric affordance survives cold artwork.
+        var merchantReady = new TownServiceMotionEntry { Kind = 6, Service = 1, Session = _motionLifetime,
+            CueReady = TownServiceMerchantHandoff.WantsOffering };
+        bool sendMerchantReady = _motionMerchantReady == null || now >= _nextMotionMerchantReady
+            || merchantReady.Session != _motionMerchantReady.Session || merchantReady.CueReady != _motionMerchantReady.CueReady;
+        if (MotionWaiting.Count == 0 && MotionLive.Count == 0 && MotionVisibleFan.Count == 0
+            && commit == null && !sendCue && !sendMerchantReady) return;
         var packet = new TownServiceMotionPacket { Sequence = ++_motionSequence, SampleTime = now };
         if (packet.Sequence == 0) { _motionSequence = ulong.MaxValue; return; }
         if (commit != null) packet.Entries.Add(commit);
         if (sendCue) { packet.Entries.Add(cue);
           _motionCue = cue; _nextMotionCue = now + TownServiceMotionCodec.Heartbeat; }
+        if (sendMerchantReady) { packet.Entries.Add(merchantReady);
+          _motionMerchantReady = merchantReady; _nextMotionMerchantReady = now + TownServiceMotionCodec.Heartbeat; }
         // Dirty live controls have their own finite turn. Cold prewarmed fan
         // heartbeats retain bounded progress and cannot delay a press or scroll.
         byte[] bytesPacket = TownServiceMotionBudget.FillPacked(packet, MotionLive, MotionVisibleFan, MotionWaiting,
@@ -295,6 +306,13 @@ internal static partial class TownServiceMirror
             { if (packet.Sequence <= state.CueSequence) continue; state.CueSequence = packet.Sequence;
               TownServiceSharedCue.ObserveVisitor(peer, entry.Session, entry.CueReady, entry.CueStrength);
               if (entry.HasSharedCue) TownServiceSharedCue.ObserveShared(peer, entry.SharedCueReady, entry.SharedCueStrength, entry.SharedGuideOwner); continue; }
+            if (entry.Kind == 6)
+            {
+                if (packet.Sequence <= state.MerchantReadySequence) continue;
+                state.MerchantReadySequence = packet.Sequence;
+                TownServiceSharedCue.ObserveMerchantVisitor(peer, entry.Session, entry.CueReady);
+                continue;
+            }
             if (state.Slots.TryGetValue(entry.Key, out MotionSlot? old) && packet.Sequence <= old.ReceivedSequence) continue;
             if (state.Slots.Count >= 3 * TownServiceFrame.MaxModules * 4 && !state.Slots.ContainsKey(entry.Key)) continue;
             // A compact pose preserves the last full canvas update; repeating it at
@@ -501,6 +519,7 @@ internal static partial class TownServiceMirror
       MotionSourceRemoval.Clear(); MotionRemoval.Clear(); _nextMotionSend = 0f; _motionCursor = _motionLiveCursor = _motionVisibleCursor = 0;
       _motionCommitSession = _motionCommitRevision = 0; _nextMotionCommit = 0f;
       _motionCue = null; _nextMotionCue = 0f;
+      _motionMerchantReady = null; _nextMotionMerchantReady = 0f;
       MotionHandRemoval.Clear(); _nextMotionHandCleanup = 0f;
       _motionDiagnosticAt = 0f; _motionSent = _motionSentBytes = _motionReceived = _motionReceivedBytes = 0;
       if (_motionLifetime != uint.MaxValue) _motionLifetime++; }
