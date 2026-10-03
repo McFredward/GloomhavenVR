@@ -72,7 +72,9 @@ function Invoke-QuestPython($Executable, [string[]]$Arguments) {
 }
 
 function Get-QuestPythonInfo($Executable) {
-    $code = 'import importlib.util,json,os,sys;print(json.dumps(dict(prefix=os.path.abspath(sys.prefix),basePrefix=os.path.abspath(sys.base_prefix),baseExecutable=os.path.abspath(sys._base_executable),version=".".join(map(str,sys.version_info[:3])),hasPip=importlib.util.find_spec("pip") is not None)))'
+    # Windows PowerShell 5.1's legacy native argument marshalling consumes
+    # embedded double quotes. Python single-quoted literals survive unchanged.
+    $code = "import importlib.util,json,os,sys;print(json.dumps(dict(prefix=os.path.abspath(sys.prefix),basePrefix=os.path.abspath(sys.base_prefix),baseExecutable=os.path.abspath(sys._base_executable),version='.'.join(map(str,sys.version_info[:3])),hasPip=importlib.util.find_spec('pip') is not None)))"
     return (Invoke-QuestPython $Executable @("-I", "-c", $code) | ConvertFrom-Json)
 }
 
