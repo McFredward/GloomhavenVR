@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><DefineConstants>GHVR_QUEST_STARTUP</DefineConstants><EnableDefaultCompileItems>false</EnableDefaultCompileItems><NoWarn>$(NoWarn);CS0649;CS0067</NoWarn></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="UnityStubs.cs" />
+    <Compile Include="$(RuntimeSource)/QuestGameStartupLog.cs" Link="QuestGameStartupLog.cs" />
+    <Compile Include="$(RuntimeSource)/QuestGameBootstrap.cs" Link="QuestGameBootstrap.cs" />
+  </ItemGroup>
+</Project>

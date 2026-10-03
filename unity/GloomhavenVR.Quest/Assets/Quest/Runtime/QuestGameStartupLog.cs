@@ -4,17 +4,29 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Threading;
 
 namespace GloomhavenVR.Quest
 {
-    /// <summary>Bounded per-run diagnostic evidence, retaining a bounded previous run.</summary>
+    /// <summary>Thread-safe bounded first-cause evidence, retaining a bounded previous run.</summary>
     internal sealed class QuestGameStartupLog
     {
         internal const int MaxBytes = 256 * 1024, MaxRecords = 512;
+        internal const int MaxOriginalErrors = 64;
+        const int LifecycleBytes = MaxBytes / 2, ErrorBytes = MaxBytes - LifecycleBytes;
+        const int LifecycleRecords = MaxRecords - MaxOriginalErrors - 2;
+        // Retain the existing grep token; it now caps only lifecycle records.
+        const string LifecycleLimit = "[Quest startup] diagnostic log limit reached; further records suppressed.\n";
+        const string ErrorLimit = "[Quest startup] original error log limit reached; further distinct causes suppressed.\n";
+        static readonly Encoding Utf8 = new UTF8Encoding(false);
         readonly string path;
+        readonly object sync = new object();
         readonly HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
+        readonly HashSet<string> errorsSeen = new HashSet<string>(StringComparer.Ordinal);
         int bytes, records;
-        bool capped;
+        int errorBytes, originalErrors;
+        bool capped, errorsCapped;
+        internal int OriginalErrors { get { return Volatile.Read(ref originalErrors); } }
         internal QuestGameStartupLog(string path, string stamp)
         {
             this.path = path;
@@ -35,23 +47,57 @@ namespace GloomhavenVR.Quest
                     }
                 }
             }
-            File.WriteAllText(path, "", new UTF8Encoding(false));
+            File.WriteAllText(path, "", Utf8);
             Append("run " + stamp);
         }
         internal void Append(string message, string stack = null)
         {
-            if (capped) return;
-            string key = Clip(message ?? "", 4096);
-            if (!seen.Add(key)) return;
-            string line = DateTime.UtcNow.ToString("O") + " " + key + "\n";
-            if (!string.IsNullOrEmpty(stack)) line += Clip(stack, 8192) + "\n";
-            int length = Encoding.UTF8.GetByteCount(line);
-            const string marker = "[Quest startup] diagnostic log limit reached; further records suppressed.\n";
-            if (records >= MaxRecords - 1 || bytes + length + marker.Length > MaxBytes)
+            lock (sync)
             {
-                File.AppendAllText(path, marker, new UTF8Encoding(false)); bytes += marker.Length; capped = true; return;
+                if (capped) return;
+                string key = Clip(message ?? "", 4096);
+                if (seen.Contains(key)) return;
+                string line = Line(key, stack);
+                int length = Utf8.GetByteCount(line);
+                if (records >= LifecycleRecords || bytes + length + Utf8.GetByteCount(LifecycleLimit) > LifecycleBytes)
+                {
+                    File.AppendAllText(path, LifecycleLimit, Utf8); bytes += Utf8.GetByteCount(LifecycleLimit); capped = true; return;
+                }
+                File.AppendAllText(path, line, Utf8); bytes += length; records++; seen.Add(key);
             }
-            File.AppendAllText(path, line, new UTF8Encoding(false)); bytes += length; records++;
+        }
+
+        internal void AppendOriginalError(string message, string stack)
+        {
+            // B612 recorded one repeated InputSystem exception yet exhausted the
+            // outer 24-error counter. Later loader failures disappeared entirely.
+            // Deduplicate BEFORE spending this reserved error budget. Include the
+            // stack in identity so equal messages from distinct causes survive.
+            // A synchronous, closed-file append under this lock also works during
+            // a blocked main-thread loader; no Unity API or Update flush is needed.
+            lock (sync)
+            {
+                if (errorsCapped) return;
+                string clippedMessage = Clip(message ?? "", 4096), clippedStack = Clip(stack ?? "", 8192);
+                string key = clippedMessage + "\n" + clippedStack;
+                if (errorsSeen.Contains(key)) return;
+                string line = Line(clippedMessage, clippedStack.Length == 0 ? "[stack not supplied by Unity]" : clippedStack);
+                int length = Utf8.GetByteCount(line);
+                if (originalErrors >= MaxOriginalErrors || errorBytes + length + Utf8.GetByteCount(ErrorLimit) > ErrorBytes)
+                {
+                    File.AppendAllText(path, ErrorLimit, Utf8); errorBytes += Utf8.GetByteCount(ErrorLimit); errorsCapped = true; return;
+                }
+                // Publish only successfully persisted causes. If IO fails, leave
+                // the key unspent so a later occurrence can still preserve it.
+                File.AppendAllText(path, line, Utf8); errorBytes += length; errorsSeen.Add(key);
+                Volatile.Write(ref originalErrors, originalErrors + 1);
+            }
+        }
+        static string Line(string message, string stack)
+        {
+            string line = DateTime.UtcNow.ToString("O") + " " + message + "\n";
+            if (!string.IsNullOrEmpty(stack)) line += Clip(stack, 8192) + "\n";
+            return line;
         }
         static string Clip(string value, int length) { return value.Length > length ? value.Substring(0, length) + " [truncated]" : value; }
     }

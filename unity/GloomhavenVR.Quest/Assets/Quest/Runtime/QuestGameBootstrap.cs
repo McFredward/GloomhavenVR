@@ -28,7 +28,6 @@ namespace GloomhavenVR.Quest
         public string FailureDetail { get; private set; }
         string logPath;
         QuestGameStartupLog log;
-        int failures;
         QuestGameAddressables addressables;
         BuildStamp build;
         string lastScene;
@@ -42,7 +41,9 @@ namespace GloomhavenVR.Quest
             logPath = Path.Combine(Application.persistentDataPath, "quest-startup.log");
             try { log = new QuestGameStartupLog(logPath, "Unity=" + Application.unityVersion + " platform=" + Application.platform + " scope=original-startup-diagnostic fullGameReady=false"); }
             catch (Exception e) { Debug.LogWarning("[Quest startup] diagnostic log initialization failed: " + e.Message); }
-            Application.logMessageReceived += CaptureLog;
+            // Original rule loaders can log from workers or block the Unity main
+            // thread. Persist immediately in the thread-safe managed-only sink.
+            Application.logMessageReceivedThreaded += CaptureLog;
             SceneManager.sceneLoaded += SceneLoaded;
             // The first frame must have a tracked view and a visible gate/error status,
             // including manifest/extraction failures before original scenes can load.
@@ -134,7 +135,7 @@ namespace GloomhavenVR.Quest
             QuestGameKeyboard keyboard = GetComponent<QuestGameKeyboard>();
             var state = new StartupState { modBuild = build != null ? build.modBuild : 0, inputKey = build != null ? build.inputKey : null, state = State, failureDetail = FailureDetail,
                 contentReady = ContentReady, addressablesReady = addressables != null && addressables.Ready, originalBootstrapStarted = OriginalBootstrapStarted,
-                modLifecycleAvailable = ModLifecycleAvailable, fullGameReady = false, eosAuthorised = false, originalErrors = Math.Min(failures, 24),
+                modLifecycleAvailable = ModLifecycleAvailable, fullGameReady = false, eosAuthorised = false, originalErrors = log != null ? log.OriginalErrors : 0,
                 passthroughActive = QuestPassthroughFeature.Active,
                 inviteKeyboardBound = keyboard != null && keyboard.Bound, inviteKeyboardVisible = keyboard != null && keyboard.Visible, inviteKeyboardFailure = keyboard != null ? keyboard.Failure : null,
                 loadedScenes = loadedScenes, lastScene = lastScene, focused = focused, paused = paused };
@@ -153,16 +154,16 @@ namespace GloomhavenVR.Quest
         {
             try
             {
-                if (message.StartsWith("[Quest startup]", StringComparison.Ordinal)) { if (log != null) log.Append(message); }
+                if (message != null && message.StartsWith("[Quest startup]", StringComparison.Ordinal)) { if (log != null) log.Append(message, stack); }
                 else if (type == LogType.Exception || type == LogType.Error)
                 {
-                    if (failures < 24) { failures++; if (log != null) log.Append("original " + type + " " + message, stack); }
+                    if (log != null) log.AppendOriginalError("original " + type + " " + message, stack);
                 }
             }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }
-        void OnDestroy() { Application.logMessageReceived -= CaptureLog; SceneManager.sceneLoaded -= SceneLoaded; if (addressables != null) addressables.Dispose(); }
+        void OnDestroy() { Application.logMessageReceivedThreaded -= CaptureLog; SceneManager.sceneLoaded -= SceneLoaded; if (addressables != null) addressables.Dispose(); }
     }
 }
 #endif

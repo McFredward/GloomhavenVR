@@ -1,0 +1,96 @@
+#nullable disable
+using System.Collections;
+
+// Only the event/filesystem integration seam is modeled here. This fixture
+// does not establish Unity scene, XR, IL2CPP or headset rendering behavior.
+namespace UnityEngine
+{
+    public enum LogType { Error, Assert, Warning, Log, Exception }
+    public class MonoBehaviour
+    {
+        protected static void DontDestroyOnLoad(object value) { }
+        public GameObject gameObject = new GameObject();
+        protected T GetComponent<T>() where T : class { return null; }
+    }
+    public class GameObject { public T AddComponent<T>() where T : new() { return new T(); } }
+    public class AsyncOperation { }
+    public static class Time { public static float unscaledTime; }
+    public static class Application
+    {
+        public static string persistentDataPath, streamingAssetsPath;
+        public static string unityVersion = "fixture", platform = "fixture";
+        public static event Action<string, string, LogType> logMessageReceived;
+        public static event Action<string, string, LogType> logMessageReceivedThreaded;
+        public static bool CanStreamedLevelBeLoaded(string name) { return true; }
+        public static void Emit(string message, string stack, LogType type, bool mainThread = true)
+        {
+            logMessageReceivedThreaded?.Invoke(message, stack, type);
+            if (mainThread) logMessageReceived?.Invoke(message, stack, type);
+        }
+    }
+    public static class Debug
+    {
+        public static void Log(string value) { Application.Emit(value, "", LogType.Log); }
+        public static void LogWarning(string value) { Application.Emit(value, "", LogType.Warning); }
+        public static void LogError(string value) { Application.Emit(value, "", LogType.Error); }
+    }
+    public class TextAsset { public string text; }
+    public static class Resources { public static T Load<T>(string name) where T : class { return null; } }
+    public static class JsonUtility
+    {
+        public static T FromJson<T>(string text) { return default(T); }
+        public static string ToJson(object value, bool pretty)
+        {
+            return System.Text.Json.JsonSerializer.Serialize(value, new System.Text.Json.JsonSerializerOptions { IncludeFields = true, WriteIndented = pretty });
+        }
+    }
+}
+namespace UnityEngine.SceneManagement
+{
+    public struct Scene { public string name; }
+    public enum LoadSceneMode { Single, Additive }
+    public static class SceneManager
+    {
+        public static event Action<Scene, LoadSceneMode> sceneLoaded;
+        public static UnityEngine.AsyncOperation LoadSceneAsync(string name, LoadSceneMode mode) { return null; }
+    }
+}
+namespace UnityEngine.Networking
+{
+    public class DownloadHandler { }
+    public class DownloadHandlerFile : DownloadHandler
+    {
+        public bool removeFileOnAbort;
+        public DownloadHandlerFile(string path) { }
+    }
+    public class UnityWebRequest : IDisposable
+    {
+        public enum Result { Success }
+        public DownloadHandler downloadHandler;
+        public string error;
+        public Result result;
+        public static UnityWebRequest Get(string uri) { return new UnityWebRequest(); }
+        public object SendWebRequest() { return null; }
+        public void Dispose() { }
+    }
+}
+namespace GloomhavenVR.Quest
+{
+    public class QuestGameMenu { }
+    public class QuestGameKeyboard { public bool Bound, Visible; public string Failure; }
+    public static class QuestPassthroughFeature { public static bool Active; }
+    public class QuestGameContentManifest { public string archive; public string[] files; }
+    public static class QuestGameContent
+    {
+        public static void Validate(QuestGameContentManifest manifest, string key) { }
+        public static bool IsReady(QuestGameContentManifest manifest, string root) { return true; }
+        public static void Extract(QuestGameContentManifest manifest, string archive, string root) { }
+    }
+    public class QuestGameAddressablesManifest { }
+    public class QuestGameAddressables : IDisposable
+    {
+        public bool Ready; public Exception Failure;
+        public IEnumerator Install(QuestGameAddressablesManifest value, QuestGameContentManifest manifest, string root, string key) { yield break; }
+        public void Dispose() { }
+    }
+}
