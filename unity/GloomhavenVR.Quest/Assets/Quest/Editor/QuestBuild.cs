@@ -117,8 +117,8 @@ namespace GloomhavenVR.Quest.Editor
                 PlayerSettings.SetIl2CppCompilerConfiguration(BuildTargetGroup.Android, Il2CppCompilerConfiguration.Debug);
                 // IL2CPP preserves a long left-associated tuning sum as nested calls.
                 // Increase the parser limit without changing the managed expression.
-                // Unoptimized game code also exceeds ARM64's direct branch range.
-                // LLD inserts range-extension thunks where the NDK's old BFD fails.
+                // The NDK's old BFD reports ARM64 CALL26 relocation overflows here.
+                // LLD links the same objects without changing managed expressions.
                 PlayerSettings.SetAdditionalIl2CppArgs("--compiler-flags=-fbracket-depth=1024 --linker-flags=-fuse-ld=lld");
             }
             PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;

@@ -708,6 +708,10 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                     "GHVR_QUEST_KEYALIAS_PASSWORD": private["password"],
                     "GHVR_QUEST_ANDROID_SDK": tools["androidSdk"],
                     "GHVR_QUEST_ANDROID_NDK": tools["androidNdk"], "GHVR_QUEST_JDK": tools["jdk"]})
+        if args.target == "startup":
+            # Unity 2021.3's Android toolchain otherwise selects old NDK r21 BFD.
+            # Keep the supported linker selection local to this diagnostic process.
+            env["UNITY_IL2CPP_ANDROID_USE_LLD_LINKER"] = "1"
         command([tools["editor"], "-batchmode", "-nographics", "-quit", "-projectPath", str(project),
                  "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuild.Build",
                  "-logFile", str(output / "logs" / ("unity-build-" + key[:12] + ".log"))],
