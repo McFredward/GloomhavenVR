@@ -1017,8 +1017,8 @@ public static partial class MirrorProgram
         Check(calls.Exists(c => c.Key == "merchant.crank" && c.Source == rack.Root)
             && calls.Exists(c => c.Key == "merchant.rack" && c.Source == rack.HousingRoot),
             "crank and revolving rack publish their actual moving roots");
-        Check(calls.Exists(c => c.Key == "merchant.zone" && c.Source == zone.Root),
-            "deliberate purchase zone is published");
+        Check(!calls.Exists(c => c.Key == "merchant.zone" && c.Source == zone.Root),
+            "merchant pre-drop card guide remains local only");
         catalog.Entries[5].Exposed = false;
         calls.Clear(); GloomhavenVR.WorldUI.TownServiceSync.TickPublic(shared, shared, catalog, 801, 0f);
         Check(!calls.Exists(c => c.Key == "item.106"), "unexposed retired stock omits hidden card modules");
@@ -1143,7 +1143,7 @@ public static partial class MirrorProgram
                     && c.CloneOf!(c.Provenance!) == offered.Face), "offered owned card mirrors original face provenance");
                 Check(calls.Exists(c => c.Key == "map.cardbody" && c.Source == offered.Card!.Find("Visual/Backing")),
                     "offered owned card mirrors actual backing");
-                Check(calls.Exists(c => c.Key == "merchant.zone" && c.Source == offered.Zone), "actual palm target is shared");
+                Check(!calls.Exists(c => c.Key == "merchant.zone" && c.Source == offered.Zone), "mage pre-drop card guide remains local while offered face and body stay shared");
             }
             Check(calls.Exists(c => c.Key == piece.Key && c.Source == piece.Content && c.Provenance == piece.Source
                 && c.CloneOf!(piece.Source) == piece.Content), "physical ritual keeps original native inscription provenance");
@@ -1153,8 +1153,10 @@ public static partial class MirrorProgram
                     "the public bowl's ghost purse and the owner's carried real purse remain separate mirrored objects");
             Check(calls.Exists(c => c.Key == piece.DetailKey && c.Source == piece.DetailContent && c.Provenance == piece.DetailSource),
                 "held ritual description mirrors actual owner presentation");
-            Check(calls.Exists(c => c.Key == (service == 2 ? "ritual.purse" : "merchant.zone") && c.Source == ritual.Zone),
-                "the physical offering silhouette or enhancement drop indicator is shared");
+            Check(service == 2
+                ? calls.Exists(c => c.Key == "ritual.purse" && c.Source == ritual.Zone)
+                : !calls.Exists(c => c.Key == "merchant.zone" && c.Source == ritual.Zone),
+                "priestess ghost purse remains public while mage pre-drop card guide is local only");
             Check(service == 2 ? calls.Exists(c => c.Key == "temple.level" && c.Source == inscription.Content)
                 : calls.Exists(c => c.Key == "enchant.holder" && c.Source == holder.Panel.Target),
                 "ritual preserves devotion ledger or original ability hotspots");

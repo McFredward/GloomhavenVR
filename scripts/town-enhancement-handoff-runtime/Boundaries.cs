@@ -117,7 +117,7 @@ namespace GloomhavenVR.Net { public static class NetPlayerActors { public static
 namespace GloomhavenVR.Net.TownServices
 {
     // Reliable leases and the elected resident author are explicit network boundaries.
-    // The shared-cue aggregation and its actual Unity ink painting are production code.
+    // Original visitor readiness and local-only guide painting are production code.
     public static class TownServiceGrantSync { public static bool CanUseImmersive = true; public static int Owner; public static int GrantedOwner(byte service) => service == 3 ? Owner : 0; }
     public static class RemoteTownResidents { public static int AuthorPlayer = 11; }
     public static class TownServiceMirror
@@ -129,6 +129,7 @@ namespace GloomhavenVR.Net.TownServices
         public static int TransactionReleases;
         public static int BrowsingOwner = 11;
         public static int InteractionOwner(byte service) => BrowsingOwner;
+        public static int TransactionOwner(byte service) => TownServiceGrantSync.GrantedOwner(service);
         public static bool CanShowLocalCue(byte service) => ShowCue;
         public static void SetLocalTransactionActive(byte service, bool active)
         { if (service == 3 && !active) TransactionReleases++; }
