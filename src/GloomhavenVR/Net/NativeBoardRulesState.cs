@@ -12,11 +12,14 @@ internal sealed class NativeBoardRulesState
     // host local x/y/z, viewport width/height, content width/height, scroll offset,
     // header width/height, meters/pixel, element mount correction, occupied column height.
     internal float[] Frame = new float[13];
+    internal float[] Header = new float[9]; // original faceRGBA, captionRGBA, caption font size
     internal string Caption = string.Empty;
     internal NativeBoardRuleRow[] Rows = Array.Empty<NativeBoardRuleRow>();
     internal bool Validate()
     {
-        if (Frame == null || Frame.Length != 13 || Rows == null || Rows.Length > RowsMax || Caption == null) return false;
+        if (Header == null || Header.Length != 9 || Frame == null || Frame.Length != 13 || Rows == null || Rows.Length > RowsMax || Caption == null) return false;
+        foreach (float f in Header) if (!UseBarAnimationValue.Finite(f)) return false;
+        if (Header[8] < 0 || Header[8] > 512) return false;
         foreach (float f in Frame) if (!UseBarAnimationValue.Finite(f)) return false;
         if (Frame[3] < 0 || Frame[4] < 0 || Frame[5] < 0 || Frame[6] < 0 || Frame[7] < 0
             || Frame[8] < 0 || Frame[9] < 0 || Frame[10] <= 0 || Frame[10] > .01f || Frame[11] > 0 || Frame[12] < 0) return false;
@@ -31,7 +34,7 @@ internal sealed class NativeBoardRulesState
     }
     internal NativeBoardRulesState Copy()
     {
-        var copy = (NativeBoardRulesState)MemberwiseClone(); copy.Frame = (float[])Frame.Clone();
+        var copy = (NativeBoardRulesState)MemberwiseClone(); copy.Frame = (float[])Frame.Clone(); copy.Header = (float[])Header.Clone();
         copy.Rows = new NativeBoardRuleRow[Rows.Length];
         for (int i = 0; i < Rows.Length; i++) copy.Rows[i] = Rows[i].Copy(); return copy;
     }
@@ -39,6 +42,7 @@ internal sealed class NativeBoardRulesState
     {
         if (Visible != other.Visible || Overflow != other.Overflow || Expanded != other.Expanded || Hover != other.Hover
             || Caption != other.Caption || Rows.Length != other.Rows.Length) return false;
+        for (int i = 0; i < Header.Length; i++) if (Header[i] != other.Header[i]) return false;
         for (int i = 0; i < Frame.Length; i++) if (Frame[i] != other.Frame[i]) return false;
         for (int i = 0; i < Rows.Length; i++) if (!Rows[i].Same(other.Rows[i])) return false; return true;
     }

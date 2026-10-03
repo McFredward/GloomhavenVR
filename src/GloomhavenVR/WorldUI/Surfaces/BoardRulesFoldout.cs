@@ -22,6 +22,8 @@ internal sealed class BoardRulesFoldout : IDisposable
     private readonly CanvasGroup _viewportGroup;
     private readonly Quaternion _originalRotation;
     private readonly Vector3 _originalScale;
+    private readonly Vector2 _originalHostPivot, _originalHostSize;
+    private readonly Vector3 _originalHostPosition, _originalHostScale;
     private readonly bool _owner;
     private readonly RectTransform _originalParent;
     private readonly Vector2 _originalAnchorMin, _originalAnchorMax, _originalPivot, _originalSize;
@@ -34,18 +36,22 @@ internal sealed class BoardRulesFoldout : IDisposable
     private bool _overflow, _expanded, _hover;
     internal float OccupiedMeters => _overflow ? HeaderMeters : _height / Density;
     internal RectTransform Content => _content;
+    internal RectTransform VisualRoot => (RectTransform)_wrapper.transform;
     internal bool Overflow => _overflow;
     internal bool Expanded => _expanded;
 
     internal BoardRulesFoldout(RectTransform host, RectTransform content, bool owner)
     {
-        _host = host; _content = content; _owner = owner; _host.pivot = Vector2.one;
+        _host = host; _content = content; _owner = owner;
+        _originalHostPivot = host.pivot; _originalHostSize = host.sizeDelta; _originalHostPosition = host.localPosition; _originalHostScale = host.localScale;
+        _host.pivot = Vector2.one;
         _originalParent = (RectTransform)content.parent;
         _originalAnchorMin = content.anchorMin; _originalAnchorMax = content.anchorMax;
         _originalPivot = content.pivot; _originalSize = content.sizeDelta; _originalPosition = content.anchoredPosition3D;
         _originalRotation = content.localRotation; _originalScale = content.localScale;
         _wrapper = new GameObject("GloomhavenVR.RulesFoldout", typeof(RectTransform));
         var frame = (RectTransform)_wrapper.transform; frame.SetParent(host, false);
+        frame.anchorMin = frame.anchorMax = frame.pivot = Vector2.one; frame.anchoredPosition = Vector2.zero; frame.sizeDelta = Vector2.zero;
         _viewport = NewRect("Viewport", frame); _viewport.gameObject.AddComponent<RectMask2D>();
         _viewportGroup = _viewport.gameObject.AddComponent<CanvasGroup>();
         var hit = _viewport.gameObject.AddComponent<Image>(); hit.color = Color.clear; hit.raycastTarget = owner;
@@ -60,7 +66,7 @@ internal sealed class BoardRulesFoldout : IDisposable
         var label = NewRect("Caption", _header); _label = label.gameObject.AddComponent<TextMeshProUGUI>();
         NativeButtonSkin.ApplyFont(_label); NativeButtonSkin.MakeLabelDepthHonest(_label); _label.fontSize = 20f; _label.alignment = TextAlignmentOptions.Center;
         _label.raycastTarget = false; label.anchorMin = Vector2.zero; label.anchorMax = Vector2.one; label.sizeDelta = Vector2.zero;
-        var button = _header.gameObject.AddComponent<Button>(); button.targetGraphic = _face; button.interactable = owner; button.transition = Selectable.Transition.None;
+        var button = _header.gameObject.AddComponent<Button>(); button.targetGraphic = _face; button.transition = Selectable.Transition.None; button.interactable = owner;
         if (owner)
         {
             button.onClick.AddListener(Toggle);
@@ -74,8 +80,8 @@ internal sealed class BoardRulesFoldout : IDisposable
         var rect = (RectTransform)new GameObject(name, typeof(RectTransform)).transform; rect.SetParent(parent, false);
         rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(.5f, .5f); return rect;
     }
-    internal void Toggle() { if (_owner && _overflow) _expanded = !_expanded; }
-    internal void SetHover(bool hover) { if (_owner) _hover = hover; }
+    internal void Toggle() { if (_owner && _overflow) { _expanded = !_expanded; _label.text = Loc.BoardRulesCaption + (_expanded ? "  ›" : "  ‹"); } }
+    internal void SetHover(bool hover) { if (_owner) { _hover = hover; _face.color = NativeButtonSkin.ColorFor(hover ? NativeButtonSkin.FaceState.Accent : NativeButtonSkin.FaceState.Idle); } }
     internal void Tick(float compactWidthMeters, float delta)
     {
         if (!_owner || _tickedFrame == Time.frameCount) return;
@@ -117,7 +123,7 @@ internal sealed class BoardRulesFoldout : IDisposable
     {
         _header.gameObject.SetActive(overflow); _header.sizeDelta = new Vector2(compact, HeaderMeters * Density);
         _header.anchoredPosition = new Vector2(-compact * .5f, -HeaderMeters * Density * .5f);
-        _label.text = caption + (_expanded ? "  ‹" : "  ›");
+        _label.text = caption + (_expanded ? "  ›" : "  ‹");
         _face.color = NativeButtonSkin.ColorFor(hover ? NativeButtonSkin.FaceState.Accent : NativeButtonSkin.FaceState.Idle);
         _viewport.anchorMin = _viewport.anchorMax = _viewport.pivot = new Vector2(1f, 1f);
         _viewport.anchoredPosition = new Vector2(overflow ? -compact - GapMeters * Density : 0f, 0f);
@@ -129,13 +135,17 @@ internal sealed class BoardRulesFoldout : IDisposable
         _content.sizeDelta = new Vector2(_width, height);
         Vector3 p = _content.anchoredPosition3D;
         _content.anchoredPosition3D = new Vector3(0f, Mathf.Clamp(p.y, 0f, Mathf.Max(0f, height - _viewport.rect.height)), 0f);
-        _host.sizeDelta = new Vector2(compact, overflow ? HeaderMeters * Density : height);
+        _host.sizeDelta = new Vector2(overflow && shown > .5f ? compact + GapMeters * Density + shown : compact,
+            overflow && shown > .5f ? Mathf.Max(HeaderMeters * Density, _viewport.rect.height) : overflow ? HeaderMeters * Density : height);
     }
     internal Vector3 HostPositionIn(Transform mount) => mount.InverseTransformPoint(_host.position);
     internal void CaptureFrame(NativeBoardRulesState state)
     {
         state.Visible = _host.gameObject.activeInHierarchy; state.Overflow = _overflow; state.Expanded = _expanded; state.Hover = _hover;
         state.Caption = Loc.BoardRulesCaption;
+        Color face = _face.color, caption = _label.color; float[] header = state.Header;
+        header[0] = face.r; header[1] = face.g; header[2] = face.b; header[3] = face.a;
+        header[4] = caption.r; header[5] = caption.g; header[6] = caption.b; header[7] = caption.a; header[8] = _label.fontSize;
         float[] f = state.Frame; Vector3 p = _host.localPosition;
         f[0] = p.x; f[1] = p.y; f[2] = p.z; f[3] = _shownWidth; f[4] = _viewport.rect.height;
         f[5] = _width; f[6] = _height; f[7] = _content.anchoredPosition.y;
@@ -146,6 +156,9 @@ internal sealed class BoardRulesFoldout : IDisposable
         _overflow = state.Overflow; _expanded = state.Expanded; _hover = state.Hover; float[] f = state.Frame;
         _compactWidth = f[8]; _width = f[5]; _height = f[6]; _shownWidth = f[3];
         Present(_compactWidth, _shownWidth, _height, _overflow, _hover, state.Caption);
+        float[] header = state.Header;
+        _face.color = new Color(header[0], header[1], header[2], header[3]);
+        _label.color = new Color(header[4], header[5], header[6], header[7]); _label.fontSize = header[8];
         _viewport.sizeDelta = new Vector2(f[3], f[4]);
         _content.anchoredPosition3D = new Vector3(0f, f[7], 0f);
         _host.localPosition = new Vector3(f[0], f[1], f[2]); _host.localScale = Vector3.one * f[10];
@@ -159,6 +172,7 @@ internal sealed class BoardRulesFoldout : IDisposable
             _content.pivot = _originalPivot; _content.sizeDelta = _originalSize; _content.anchoredPosition3D = _originalPosition;
             _content.localRotation = _originalRotation; _content.localScale = _originalScale;
         }
+        if (_host != null) { _host.pivot = _originalHostPivot; _host.sizeDelta = _originalHostSize; _host.localPosition = _originalHostPosition; _host.localScale = _originalHostScale; }
         if (_wrapper != null) Object.Destroy(_wrapper);
     }
 }

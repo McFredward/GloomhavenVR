@@ -14,7 +14,7 @@ internal sealed class RemoteNativeElements
 {
     private NativeBoardState? _latest;
     private List<NativeBoardState>? _history;
-    private readonly UseBarAnimationPlaybackClock _clock = new();
+    private NativeBoardPresentationClock _boardClock = new();
     private uint _generation;
     private int _stamp = -1;
     private Element[] _elements = Array.Empty<Element>();
@@ -23,8 +23,8 @@ internal sealed class RemoteNativeElements
     private Vector2 _renderSize, _renderParent;
     private bool _hasRenderFrame;
 
-    internal void SetState(NativeBoardState? state, List<NativeBoardState> history)
-    { _latest = state; _history = history; }
+    internal void SetState(NativeBoardState? state, List<NativeBoardState> history, NativeBoardPresentationClock? clock = null)
+    { _latest = state; _history = history; if (clock != null) _boardClock = clock; }
 
     internal void Configure(RemoteWidgetMirror mirror)
     {
@@ -56,26 +56,8 @@ internal sealed class RemoteNativeElements
                 catch { foreach (Element? element in mapped) element?.Destroy(); throw; }
                 _elements = mapped; _stamp = mirror.RebuildStamp;
             }
-            List<NativeBoardState>? history = _history;
-            int first = history?.Count ?? 0;
-            if (history != null)
-                for (int i = history.Count - 1; i >= 0; i--)
-                { if (history[i].Generation != latest.Generation) break; first = i; }
-            if (_generation != latest.Generation)
-            {
-                _generation = latest.Generation;
-                _clock.Reset(history != null && first < history.Count ? history[first].SampleTime : latest.SampleTime, Time.unscaledTime);
-            }
-            float cursor = _clock.Advance(Time.unscaledTime, latest.SampleTime);
-            NativeBoardState from = latest, to = latest;
-            if (history != null)
-                for (int i = first; i < history.Count; i++)
-                {
-                    NativeBoardState frame = history[i];
-                    if (i == first || frame.SampleTime <= cursor) from = to = frame;
-                    if (frame.SampleTime > cursor) { to = frame; break; }
-                }
-            float progress = _clock.Progress(from.SampleTime, to.SampleTime);
+            _boardClock.Select(latest, _history, out NativeBoardState from, out NativeBoardState to, out float progress);
+            _generation = latest.Generation;
             mirror.SetOwnerOffset(new Vector3(0f, Mathf.LerpUnclamped(from.Rules?.Frame[11] ?? 0f,
                 to.Rules?.Frame[11] ?? 0f, progress), 0f));
             // Validate the COMPLETE frame before any clone field is touched.

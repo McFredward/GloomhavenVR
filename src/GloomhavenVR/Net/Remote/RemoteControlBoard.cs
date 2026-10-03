@@ -121,6 +121,7 @@ namespace GloomhavenVR.Net;
 /// says. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
 {
+    private readonly NativeBoardPresentationClock _nativeBoardClock = new();
     // Frame geometry in the same "card real-metre" units as the local board (PlayTray BoardW/H),
     // so scaling by the owner's BoardScale reproduces their board's world size.
     private const float BoardW = 0.64f;
@@ -823,8 +824,8 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     public void Tick(float dt)
     {
         _track?.SetNativeDepthPixels(_owner.NativeInitiativeDepthPixels);
-        _elements?.SetNativeState(_owner.NativeBoardState, _owner.NativeBoardHistory);
-        _objectives?.SetNativeState(_owner.NativeBoardState, _owner.NativeBoardHistory);
+        _elements?.SetNativeState(_owner.NativeBoardState, _owner.NativeBoardHistory, _nativeBoardClock);
+        _objectives?.SetNativeState(_owner.NativeBoardState, _owner.NativeBoardHistory, _nativeBoardClock);
         // The visibility mode is read through the SHARED gate (RemoteBoardGate) rather than off the
         // ConfigEntry directly, because the board is no longer the only thing the setting governs:
         // the transient item / pile-browse fans and the card-flight FX are separate classes with
@@ -3197,7 +3198,8 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // model — see the class note.
         _objectives = new RemoteObjectivesPanel(contentParent, _layout);
         _elements = new RemoteElementStrip(_owner.PlayerId, contentParent, _layout);
-        _elements.SetNativeState(_owner.NativeBoardState, _owner.NativeBoardHistory);
+        _elements.SetNativeState(_owner.NativeBoardState, _owner.NativeBoardHistory, _nativeBoardClock);
+        _objectives.SetNativeState(_owner.NativeBoardState, _owner.NativeBoardHistory, _nativeBoardClock);
         _status = new RemoteStatusReadouts(contentParent, _layout);
         _pickBanner = new RemotePickBanner(contentParent, _layout);
         _boardTooltip = new RemoteBoardTooltip(contentParent, _layout, _owner.BoardTuning);

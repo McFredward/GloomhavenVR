@@ -493,7 +493,7 @@ internal static class PanelInkBounds
                                     IReadOnlyDictionary<CanvasRenderer, float>? backingOriginalAlpha)
     {
         RectTransform? host = panel.HostRect;
-        Transform? target = panel.Target;
+        Transform? target = backingGeometry && panel.MrVisualRoot != null ? panel.MrVisualRoot : panel.Target;
         if (host == null || target == null || !target.gameObject.activeInHierarchy
             || !MrBackingScope.Valid(target, contentRoot))
             return false;

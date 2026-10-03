@@ -20,7 +20,7 @@ internal static class NativeBoardRulesCodec
         {
             using var writer = new BinaryWriter(memory, Utf8, true);
             writer.Write((byte)((state.Visible ? 1 : 0) | (state.Overflow ? 2 : 0) | (state.Expanded ? 4 : 0) | (state.Hover ? 8 : 0)));
-            Floats(writer, state.Frame); String(writer, state.Caption); writer.Write((byte)state.Rows.Length);
+            Floats(writer, state.Frame); Floats(writer, state.Header); String(writer, state.Caption); writer.Write((byte)state.Rows.Length);
             foreach (NativeBoardRuleRow row in state.Rows)
             {
                 writer.Write((byte)row.Render.Nodes.Length);
@@ -78,7 +78,7 @@ internal static class NativeBoardRulesCodec
         }
         if (payload == null || filled != payload.Length || payload[0] > 1) return false;
         int rawSize = payload[1] | payload[2] << 8;
-        if (rawSize < 56 || rawSize > BodyMax) return false;
+        if (rawSize < 92 || rawSize > BodyMax) return false;
         try
         {
             byte[] raw = new byte[rawSize];
@@ -94,7 +94,7 @@ internal static class NativeBoardRulesCodec
             using var memory = new MemoryStream(raw, false); using var reader = new BinaryReader(memory, Utf8);
             byte flags = reader.ReadByte(); if ((flags & ~15) != 0) return false;
             var result = new NativeBoardRulesState { Visible = (flags & 1) != 0, Overflow = (flags & 2) != 0,
-                Expanded = (flags & 4) != 0, Hover = (flags & 8) != 0, Frame = Floats(reader, 13), Caption = String(reader) };
+                Expanded = (flags & 4) != 0, Hover = (flags & 8) != 0, Frame = Floats(reader, 13), Header = Floats(reader, 9), Caption = String(reader) };
             int rows = reader.ReadByte(); if (rows > NativeBoardRulesState.RowsMax) return false;
             result.Rows = new NativeBoardRuleRow[rows];
             for (int r = 0; r < rows; r++)

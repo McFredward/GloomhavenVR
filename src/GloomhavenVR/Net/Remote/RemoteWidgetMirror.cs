@@ -360,13 +360,14 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
     private void SampleMrBacking()
     {
         if (!WorldUI.MrBacking.WantOpaque || _host == null || _pivot == null || _cloneRect == null
-            || !_host.activeInHierarchy || !WorldUI.MrBackingLayout.ReadyForSample(_fitApplied, _mrFrame)
+            || !_host.activeInHierarchy || !WorldUI.MrBackingLayout.ReadyForSample(_fitApplied, _rulesVisualRoot != null ? ((RectTransform)_host.transform).rect : _mrFrame)
             || Time.frameCount < _mrNextSampleFrame)
             return;
         _mrSampleFrame = Time.frameCount;
         _mrNextSampleFrame = Time.frameCount + WorldUI.MrBackingLayout.SampleStrideFrames;
-        _mrInkPanel.Target = _cloneRect;
-        _mrInkPanel.HostRect = _pivot;
+        _mrInkPanel.Target = _rulesVisualRoot != null ? _rulesVisualRoot : _cloneRect;
+        _mrInkPanel.HostRect = _rulesVisualRoot != null ? (RectTransform)_host.transform : _pivot;
+        Rect frame = _rulesVisualRoot != null ? ((RectTransform)_host.transform).rect : _mrFrame;
         Transform? contentRoot = null;
         if (_backingContentRoot != null)
         {
@@ -388,21 +389,21 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
                 return;
             }
         }
-        _mrVisibility.Root = contentRoot ?? _cloneRect;
+        _mrVisibility.Root = _rulesVisualRoot != null ? _rulesVisualRoot : contentRoot ?? _cloneRect;
         _mrBoundsVisible = WorldUI.PanelInkBounds.TryMeasure(_mrInkPanel,
-            out WorldUI.PanelInkBounds.Ink ink, frameOverride: _mrFrame, excludedRoots: _mrExcluded,
+            out WorldUI.PanelInkBounds.Ink ink, frameOverride: frame, excludedRoots: _mrExcluded,
             contentRoot: contentRoot, visibleWitnesses: _mrVisibility.Witnesses, backingGeometry: true) && ink.Valid;
         if (!_mrBoundsVisible)
         {
             _mrBounds = default;
             return;
         }
-        Rect bounds = WorldUI.MrBackingLayout.WindowRect(_mrFrame, ink.Rect,
+        Rect bounds = WorldUI.MrBackingLayout.WindowRect(frame, ink.Rect,
             ink.Plates > 0, ink.PlateBottom, fitScoped: true);
         // Ink is measured in the native-layout pivot's px. The MR plate is parented one level
         // above it, so carry the same measured centre into host coordinates without re-fitting UI.
         Vector3 center = _host.transform.InverseTransformPoint(
-            _pivot.TransformPoint(new Vector3(bounds.center.x, bounds.center.y, 0f)));
+            _mrInkPanel.HostRect.TransformPoint(new Vector3(bounds.center.x, bounds.center.y, 0f)));
         _mrBounds = new Rect(new Vector2(center.x, center.y) - bounds.size * 0.5f, bounds.size);
     }
 
@@ -1396,6 +1397,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
 
     private void DestroyClone()
     {
+        _rulesPresentation = false; _rulesVisualRoot = null; _rulesLayouts.Clear(); // a new clone must earn its initial fit again
         RebuildStamp++; // even a teardown without a rebuild invalidates every CloneOf result
         if (_clone != null)
         {
@@ -1644,10 +1646,30 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
     /// mount origin along <see cref="_grow"/>.
     /// </summary>
     private bool _rulesPresentation;
+    private RectTransform? _rulesVisualRoot;
+    internal void SetRulesVisualRoot(RectTransform? root) { _rulesVisualRoot = root; _mrNextSampleFrame = 0; }
     private Vector3 _ownerOffset;
     internal RectTransform? RulesHost => _host != null ? _host.transform as RectTransform : null;
     internal RectTransform? RulesContent => _cloneRect;
-    internal void SetRulesPresentation(bool enabled) => _rulesPresentation = enabled;
+    private readonly List<Behaviour> _rulesLayouts = new();
+    internal void SetRulesPresentation(bool enabled)
+    {
+        if (_rulesPresentation == enabled) return;
+        _rulesPresentation = enabled;
+        if (enabled && _clone != null)
+        {
+            // Owner geometry has exactly one author, including the canvas rebuild after LateUpdate.
+            foreach (LayoutGroup group in _clone.GetComponentsInChildren<LayoutGroup>(true))
+                if (group.enabled) { _rulesLayouts.Add(group); group.enabled = false; }
+            foreach (ContentSizeFitter fitter in _clone.GetComponentsInChildren<ContentSizeFitter>(true))
+                if (fitter.enabled) { _rulesLayouts.Add(fitter); fitter.enabled = false; }
+        }
+        else
+        {
+            foreach (Behaviour layout in _rulesLayouts) if (layout != null) layout.enabled = true;
+            _rulesLayouts.Clear();
+        }
+    }
     internal void SetOwnerOffset(Vector3 offset)
     {
         if (_host != null) _host.transform.localPosition += offset - _ownerOffset;

@@ -397,9 +397,9 @@ internal sealed class RemoteElementStrip
     private readonly RemoteWidgetMirror _mirror;
     private readonly RemoteNativeElements _native = new();
 
-    internal void SetNativeState(NativeBoardState? state, List<NativeBoardState> history)
+    internal void SetNativeState(NativeBoardState? state, List<NativeBoardState> history, NativeBoardPresentationClock clock)
     {
-        _native.SetState(state, history);
+        _native.SetState(state, history, clock);
     }
 
     /// <summary>Which peer's board this strip is on. Diagnostic only — it is what lets the parity

@@ -1833,7 +1833,17 @@ internal sealed class ElementBoardSurface : TrayMountedPanelSurface
             for (Transform? ancestor = graphic.transform; ancestor != null && ancestor != Panel.HostTransform.parent; ancestor = ancestor.parent)
             { CanvasGroup? group = ancestor.GetComponent<CanvasGroup>(); if (group != null && group.enabled && group.alpha <= 0f) { hidden = true; break; } }
             if (hidden) continue;
-            graphic.rectTransform.GetWorldCorners(_captionCorners);
+            if (graphic is TMP_Text caption)
+            {
+                Bounds bounds = caption.textBounds;
+                if (bounds.size.x <= 0f || bounds.size.y <= 0f) continue;
+                Vector3 center = bounds.center, extents = bounds.extents;
+                _captionCorners[0] = caption.transform.TransformPoint(center + new Vector3(-extents.x, -extents.y, 0f));
+                _captionCorners[1] = caption.transform.TransformPoint(center + new Vector3(-extents.x, extents.y, 0f));
+                _captionCorners[2] = caption.transform.TransformPoint(center + new Vector3(extents.x, extents.y, 0f));
+                _captionCorners[3] = caption.transform.TransformPoint(center + new Vector3(extents.x, -extents.y, 0f));
+            }
+            else graphic.rectTransform.GetWorldCorners(_captionCorners);
             foreach (Vector3 corner in _captionCorners) top = Mathf.Max(top, Mount.InverseTransformPoint(corner).y - SeatCorrectionMeters);
         }
         Transform? objectives = PlayTray.Current?.ObjectivesMount;
@@ -3540,6 +3550,8 @@ internal sealed class ScenarioRulesSurface : TrayMountedPanelSurface
     protected override bool WantConverted => base.WantConverted && ObjectivesSurface.DockedHeightMeters > 0f && RuleRowCount() > 0;
     private float _rowCheckAt;
     private int _rows;
+    private int _loggedRows = -1;
+    private bool _loggedOverflow;
     private int RuleRowCount()
     {
         if (Time.unscaledTime < _rowCheckAt) return _rows;
@@ -3554,12 +3566,19 @@ internal sealed class ScenarioRulesSurface : TrayMountedPanelSurface
         if (Panel == null) return;
         Panel.FitEnabled = false;
         Presentation = new BoardRulesFoldout(Panel.HostRect, Panel.Target, true);
+        Panel.MrVisualRoot = Presentation.VisualRoot;
         PresentationMount = Mount;
     }
     protected override void Place()
     {
         if (Panel == null || Mount == null || Presentation == null) return;
         Presentation.Tick(MountWidth, Time.unscaledDeltaTime);
+        if (_loggedRows != _rows || _loggedOverflow != Presentation.Overflow)
+        {
+            _loggedRows = _rows; _loggedOverflow = Presentation.Overflow;
+            VRLog.Info("WorldUI", $"SCENARIO RULES: {_rows} original row(s), overflow foldout={Presentation.Overflow}; "
+                + $"native glyph density {1000f / BoardRulesFoldout.Density:F4} mm/px, reserved column {Presentation.OccupiedMeters * 1000f:F1} mm.");
+        }
         Vector3 offset = new(0f, -(ObjectivesSurface.DockedHeightMeters * .5f + StackGapMeters), 0f);
         CanvasConversion.PlaceHost(Panel, Mount.TransformPoint(offset), Mount.rotation, Mount.lossyScale.x / BoardRulesFoldout.Density);
         Panel.HostGo.SetActive(Mount.gameObject.activeInHierarchy);
@@ -3574,7 +3593,7 @@ internal sealed class ScenarioRulesSurface : TrayMountedPanelSurface
     }
     protected override void ReleasePanel(ConvertedPanel panel)
     {
-        Presentation?.Dispose(); Presentation = null; PresentationMount = null; DockedDropMeters = 0f;
+        panel.MrVisualRoot = null; Presentation?.Dispose(); Presentation = null; PresentationMount = null; DockedDropMeters = 0f;
         base.ReleasePanel(panel);
     }
 }

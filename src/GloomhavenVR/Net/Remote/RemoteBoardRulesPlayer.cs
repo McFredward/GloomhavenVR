@@ -13,8 +13,8 @@ internal sealed class RemoteBoardRulesPlayer : IDisposable
 {
     private NativeBoardState? _latest;
     private List<NativeBoardState>? _history;
-    private readonly UseBarAnimationPlaybackClock _clock = new();
-    private NativeBoardState? _seed;
+    private NativeBoardPresentationClock _boardClock = new();
+    private bool _hadOwnerState;
     private BoardRulesFoldout? _foldout;
     private NativeElementRenderBinding[] _bindings = Array.Empty<NativeElementRenderBinding>();
     private RemoteElementRenderedHierarchy[] _players = Array.Empty<RemoteElementRenderedHierarchy>();
@@ -22,14 +22,25 @@ internal sealed class RemoteBoardRulesPlayer : IDisposable
     private int _stamp = -1;
     private string? _refusal;
     private readonly NativeBoardRulesState _blend = new();
-    internal void SetState(NativeBoardState? state, List<NativeBoardState> history) { _latest = state; _history = history; }
+    internal bool UsesOwnerState => _latest?.Rules != null;
+    internal void SetState(NativeBoardState? state, List<NativeBoardState> history, NativeBoardPresentationClock? clock = null) { _latest = state; _history = history; if (clock != null) _boardClock = clock; }
     internal void Apply(RemoteWidgetMirror mirror, Transform rulesMount)
     {
         NativeBoardRulesState? latest = _latest?.Rules;
-        if (latest == null) { Dispose(); mirror.SetRulesPresentation(false); return; }
+        if (latest == null)
+        {
+            Dispose(); mirror.SetRulesVisualRoot(null); mirror.SetRulesPresentation(false);
+            if (_hadOwnerState) mirror.Refresh(null); // clear owner-only TMP styling before the legacy source is rebound
+            _hadOwnerState = false; return;
+        }
+        _hadOwnerState = true;
+        _boardClock.Select(_latest!, _history, out NativeBoardState from, out NativeBoardState to, out float progress);
+        NativeBoardRulesState? a = from.Rules, b = to.Rules;
+        if (a == null || b == null || a.Rows.Length != latest.Rows.Length || b.Rows.Length != latest.Rows.Length)
+        { mirror.SetShown(false); return; }
         try
         {
-            if (latest.Rows.Length == 0) { Dispose(); mirror.SetShown(false); return; }
+            if (latest.Rows.Length == 0) { Dispose(); mirror.SetRulesVisualRoot(null); mirror.SetRulesPresentation(false); mirror.SetShown(false); return; }
             ScenarioModifierContainer? source = UIManager.Instance != null ? UIManager.Instance.ScenarioModifierContainer : null;
             if (source == null || mirror.RulesHost == null || mirror.RulesContent == null) return;
             if (_stamp != mirror.RebuildStamp || _foldout == null)
@@ -46,25 +57,15 @@ internal sealed class RemoteBoardRulesPlayer : IDisposable
                     for (int n = 0; n < _texts[i].Length; n++) _texts[i][n] = mirror.CloneOf(_bindings[i].Nodes[n].Source)?.GetComponent<TMP_Text>();
                 }
                 mirror.SetRulesPresentation(true);
-                _foldout = new BoardRulesFoldout(mirror.RulesHost, mirror.RulesContent, false); _stamp = mirror.RebuildStamp;
-                _clock.Reset(_latest!.SampleTime, Time.unscaledTime); _seed = _latest;
+                _foldout = new BoardRulesFoldout(mirror.RulesHost, mirror.RulesContent, false); mirror.SetRulesVisualRoot(_foldout.VisualRoot); _stamp = mirror.RebuildStamp;
+                
             }
-            float cursor = _clock.Advance(Time.unscaledTime, _latest!.SampleTime);
-            NativeBoardState from = _latest, to = _latest;
-            if (_history != null)
-                foreach (NativeBoardState item in _history)
-                {
-                    if (item.Rules == null || item.Rules.Rows.Length != latest.Rows.Length || item.SampleTime < _seed!.SampleTime) continue;
-                    if (item.SampleTime <= cursor) from = to = item;
-                    else { to = item; break; }
-                }
-            float progress = _clock.Progress(from.SampleTime, to.SampleTime);
-            NativeBoardRulesState a = from.Rules!, b = to.Rules!;
             // Validate the entire original hierarchy before writing any row.
             for (int i = 0; i < _players.Length; i++) { _players[i].Validate(a.Rows[i].Render); _players[i].Validate(b.Rows[i].Render); }
             NativeBoardRulesState discrete = progress < 1f ? a : b;
             _blend.Visible = discrete.Visible; _blend.Overflow = discrete.Overflow; _blend.Expanded = discrete.Expanded;
             _blend.Hover = discrete.Hover; _blend.Caption = discrete.Caption;
+            for (int h = 0; h < _blend.Header.Length; h++) _blend.Header[h] = Mathf.LerpUnclamped(a.Header[h], b.Header[h], progress);
             for (int f = 0; f < _blend.Frame.Length; f++) _blend.Frame[f] = Mathf.LerpUnclamped(a.Frame[f], b.Frame[f], progress);
             rulesMount.localPosition = Vector3.zero; _foldout!.Apply(_blend);
             for (int r = 0; r < _players.Length; r++)
@@ -90,5 +91,5 @@ internal sealed class RemoteBoardRulesPlayer : IDisposable
             mirror.SetShown(false); // never publish a partially validated picture
         }
     }
-    public void Dispose() { _foldout?.Dispose(); _foldout = null; _stamp = -1; _bindings = Array.Empty<NativeElementRenderBinding>(); _players = Array.Empty<RemoteElementRenderedHierarchy>(); _texts = Array.Empty<TMP_Text?[]>(); _seed = null; }
+    public void Dispose() { _foldout?.Dispose(); _foldout = null; _stamp = -1; _bindings = Array.Empty<NativeElementRenderBinding>(); _players = Array.Empty<RemoteElementRenderedHierarchy>(); _texts = Array.Empty<TMP_Text?[]>(); }
 }

@@ -272,7 +272,7 @@ internal sealed class RemoteObjectivesPanel
     /// <summary>Per-FRAME: keep the mirrored container in step with the original, so a progress bar
     /// filling or a row ticking off plays out at the source's own rate. No-op on the fallback.</summary>
     private readonly RemoteBoardRulesPlayer _nativeRules = new();
-    internal void SetNativeState(NativeBoardState? state, List<NativeBoardState> history) => _nativeRules.SetState(state, history);
+    internal void SetNativeState(NativeBoardState? state, List<NativeBoardState> history, NativeBoardPresentationClock clock) => _nativeRules.SetState(state, history, clock);
     public void TickLive()
     {
         _mirror.TickLive();
@@ -355,7 +355,7 @@ internal sealed class RemoteObjectivesPanel
         }
         catch { container = null; }
 
-        int rows = CountRuleRows(container);
+        int rows = CountRuleRows(container, _nativeRules.UsesOwnerState);
 
         // Seat BEFORE the fit: the mirror measures itself against its mount, so the mount has to be
         // where this section belongs by the time Refresh runs, or the first fitted frame lands on
@@ -429,7 +429,7 @@ internal sealed class RemoteObjectivesPanel
     /// <c>string.Empty</c> for 15 of the 18 modifier types. Counting the model would therefore
     /// report rules the game deliberately shows nobody.</para>
     /// </summary>
-    private static int CountRuleRows(ScenarioModifierContainer? container)
+    private static int CountRuleRows(ScenarioModifierContainer? container, bool ownerAuthored = false)
     {
         try
         {
@@ -437,8 +437,8 @@ internal sealed class RemoteObjectivesPanel
                 return 0;
             int n = 0;
             foreach (ScenarioModifierUI row in
-                     container.GetComponentsInChildren<ScenarioModifierUI>(includeInactive: false))
-                if (row != null && row.gameObject.activeInHierarchy)
+                     container.GetComponentsInChildren<ScenarioModifierUI>(includeInactive: ownerAuthored))
+                if (row != null && (ownerAuthored || row.gameObject.activeInHierarchy))
                     n++;
             return n;
         }

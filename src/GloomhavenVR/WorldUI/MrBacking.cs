@@ -915,7 +915,7 @@ internal static partial class MrBacking
                 // geometry on the existing cadence, including genuine glyph/artwork overflow.
                 if (visible && Time.frameCount >= entry.NextSampleFrame)
                 {
-                    entry.Visibility.Root = panel.FitContentRoot ?? panel.Target;
+                    entry.Visibility.Root = panel.MrVisualRoot ?? panel.FitContentRoot ?? panel.Target;
                     entry.SampleFrame = Time.frameCount;
                     entry.NextSampleFrame = Time.frameCount + MrBackingLayout.SampleStrideFrames;
                     // Keep the original content boundary and all transient/clip exclusions in

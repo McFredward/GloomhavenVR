@@ -55,6 +55,10 @@ internal sealed class ConvertedPanel
     /// <summary>Optional narrower subtree to measure (e.g. the story window's UICharacterStoryBox).</summary>
     public RectTransform? FitContentRoot;
 
+    /// <summary>Optional presentation wrapper for MR paint only. It includes owned informational
+    /// chrome and original clipping ancestors without changing native target ownership or fit.</summary>
+    public RectTransform? MrVisualRoot;
+
     /// <summary>
     /// True when the target converted with a degenerate (&lt;1 px) rect that Convert
     /// clamped to the 100 px placeholder (zero-size layout containers, e.g. the
