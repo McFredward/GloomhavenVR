@@ -11,7 +11,70 @@ internal static class TownMotionVectors
     internal static TownServiceFrame? CapturedFront;
     internal static void Run(Harness t)
     {
-        Codec(t); MotionBudget(t); VisibleFanBudget(t); Saturation(t);
+        Codec(t); Packed(t); MotionBudget(t); VisibleFanBudget(t); Saturation(t);
+    }
+    private static void Packed(Harness t)
+    {
+        t.Case("Lossless record98 retains the original numeric fields inside one 864-byte event");
+        var packet = Packet();
+        for (ushort i = 1; i <= 70; i++) packet.Entries.Add(new TownServiceMotionEntry
+            { Kind = 2, Service = 3, Session = 7, Structure = 4, Module = i,
+                Binding = 5, Property = TownServiceProperty.Transform,
+                Numbers = new[] { .25f, .5f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f } });
+        byte[]? packed = TownServiceMotionCodec.TryWritePacked(packet);
+        t.True(packed != null && packed.Length <= 864 && packed[21] == 98,
+            "seventy exact native properties share one bounded additive packed event");
+        t.True(TownServiceMotionCodec.TryRead(packed!, packed!.Length, out var read)
+            && read!.Entries.Count == 70 && read.Sequence == 1 && read.SampleTime == 2f,
+            "packed header and complete property census retain owner affinity");
+        for (int i = 0; i < 70; i++)
+        {
+            var entry = read!.Entries[i];
+            t.True(entry.Module == i + 1 && entry.Structure == 4 && entry.Binding == 5
+                && entry.Session == 7 && entry.Service == 3, "packing cannot change a native binding");
+            for (int n = 0; n < 10; n++) t.Equal(packet.Entries[i].Numbers[n], entry.Numbers[n],
+                "lossless original native number survives the packed event");
+        }
+        for (int length = 0; length < packed!.Length; length++)
+            t.True(!TownServiceMotionCodec.TryRead(packed, length, out _), "truncated packed event cannot partially render");
+        foreach (int at in new[] { 8, 17, 23, 24, 26, 28, packed.Length - 1 })
+        {
+            byte[] corrupt = (byte[])packed.Clone(); corrupt[at] ^= 1;
+            t.True(!TownServiceMotionCodec.TryRead(corrupt, corrupt.Length, out _),
+                "clock, extent, offset and checksum corruption fails atomically");
+        }
+        var live = new List<TownServiceMotionPending>(); var fan = new List<TownServiceMotionPending>();
+        var cold = new List<TownServiceMotionPending>();
+        for (ushort id = 1; id <= 160; id++)
+        {
+            var slot = new TownServiceMotionPending { Entry = new TownServiceMotionEntry
+                { Kind = 2, Service = 1, Session = 7, Structure = 2, Module = id,
+                    Binding = 2, Property = TownServiceProperty.Transform,
+                    Numbers = new[] { .2f, .5f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f } } };
+            (id <= 80 ? live : id <= 120 ? fan : cold).Add(slot);
+        }
+        int a = 0, b = 0, c = 0; var latest = new Dictionary<ushort, float>(); float gap = 0f;
+        for (int tick = 0; tick < 75; tick++)
+        {
+            float now = tick / 15f;
+            foreach (var group in new[] { live, fan, cold }) foreach (var slot in group) slot.Dirty = true;
+            var sample = Packet(); sample.SampleTime = now;
+            byte[] encoded = TownServiceMotionBudget.FillPacked(sample, live, fan, cold, ref a, ref b, ref c, now);
+            t.True(encoded.Length <= 864 && TownServiceMotionCodec.TryRead(encoded, encoded.Length, out _),
+                "every saturated packed turn remains one original cadence event");
+            foreach (var group in new[] { live, fan, cold }) foreach (var slot in group)
+            {
+                bool sent = sample.Entries.Contains(slot.Entry);
+                t.True(sent ? !slot.Dirty && slot.SentAt == now : slot.Dirty && slot.SentAt != now,
+                    "compression backpressure never marks an unsent slot delivered");
+                if (!sent) continue;
+                if (latest.TryGetValue(slot.Entry.Module, out float prior)) gap = Math.Max(gap, now - prior);
+                latest[slot.Entry.Module] = now;
+            }
+        }
+        t.Equal(160, latest.Count, "packed fair turns reach every continuously dirty native binding");
+        t.True(gap <= .4f, "all current bindings remain within four tenths under dense representative native contention");
+        Console.WriteLine($"NPC packed measured budget: bindings=160 continuouslyDirty=true maxGap={gap:F3}s maxEvent=864B");
     }
     private static float[] Pose(float x = 0f) => new[] { x, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f };
     private static TownServiceMotionPacket Packet(params TownServiceMotionEntry[] entries)

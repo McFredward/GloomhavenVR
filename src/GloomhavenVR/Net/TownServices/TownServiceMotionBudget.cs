@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace GloomhavenVR.Net.TownServices;
@@ -15,6 +16,63 @@ internal class TownServiceMotionPending
 internal static class TownServiceMotionBudget
 {
     private static readonly List<TownServiceMotionPending> NoVisibleFan = new();
+    private readonly struct Selected
+    {
+        internal readonly TownServiceMotionPending Slot;
+        internal readonly int Group, Next;
+        internal Selected(TownServiceMotionPending slot, int group, int next)
+        { Slot = slot; Group = group; Next = next; }
+    }
+
+    /// <summary>Pack current numeric samples losslessly into the unchanged event budget.
+    /// Fair ordered turns survive compression backpressure: unsent slots retain both
+    /// their dirty flag and their last-send clock. No dropped record is marked sent.</summary>
+    internal static byte[] FillPacked(TownServiceMotionPacket packet, List<TownServiceMotionPending> live,
+        List<TownServiceMotionPending> visibleFan, List<TownServiceMotionPending> ordinary,
+        ref int liveCursor, ref int visibleCursor, ref int ordinaryCursor, float now)
+    {
+        var groups = new[] { live, visibleFan, ordinary };
+        var cursors = new[] { liveCursor, visibleCursor, ordinaryCursor };
+        var visited = new int[3];
+        var selected = new List<Selected>(TownServiceMotionCodec.MaxExpandedEntries);
+        var seen = new HashSet<TownServiceMotionPending>();
+        int initial = packet.Entries.Count, size = 21;
+        foreach (TownServiceMotionEntry entry in packet.Entries) size += TownServiceMotionCodec.EntryBytes(entry);
+        int turn = 0;
+        while (packet.Entries.Count < TownServiceMotionCodec.MaxExpandedEntries
+            && (visited[0] < live.Count || visited[1] < visibleFan.Count || visited[2] < ordinary.Count))
+        {
+            // Two live turns, one visible fan and one recovery turn. The order matters:
+            // fitting a smaller incompressible prefix preserves all three participants.
+            int group = turn++ % 4; group = group < 2 ? 0 : group - 1;
+            List<TownServiceMotionPending> waiting = groups[group];
+            if (visited[group] >= waiting.Count) continue;
+            int index = (cursors[group] + visited[group]++) % waiting.Count;
+            TownServiceMotionPending slot = waiting[index];
+            if (slot.SentAt == now || !seen.Add(slot)) continue;
+            int bytes = TownServiceMotionCodec.EntryBytes(slot.Entry);
+            if (size + bytes > TownServiceMotionCodec.MaxExpandedBytes) break;
+            packet.Entries.Add(slot.Entry); selected.Add(new Selected(slot, group, index + 1)); size += bytes;
+        }
+        byte[]? encoded = packet.Entries.Count == 0 ? null : TownServiceMotionCodec.TryWritePacked(packet);
+        while (encoded == null && selected.Count > 0)
+        {
+            // At most logarithmically many compression probes; real random float
+            // payloads must retain a legacy-sized finite turn too.
+            int keep = Math.Max(0, selected.Count * 3 / 4);
+            selected.RemoveRange(keep, selected.Count - keep);
+            packet.Entries.RemoveRange(initial + keep, packet.Entries.Count - initial - keep);
+            if (packet.Entries.Count > 0) encoded = TownServiceMotionCodec.TryWritePacked(packet);
+        }
+        if (encoded == null) return System.Array.Empty<byte>();
+        foreach (Selected accepted in selected)
+        {
+            accepted.Slot.Dirty = false; accepted.Slot.SentAt = now;
+            cursors[accepted.Group] = accepted.Next;
+        }
+        liveCursor = cursors[0]; visibleCursor = cursors[1]; ordinaryCursor = cursors[2];
+        return encoded;
+    }
     internal static void Fill(TownServiceMotionPacket packet, List<TownServiceMotionPending> live,
         List<TownServiceMotionPending> ordinary, ref int liveCursor, ref int ordinaryCursor, float now)
     {

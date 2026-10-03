@@ -27,6 +27,8 @@ def sources(root):
     names = ["TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta",
              "TownServiceFrame", "TownRackState", "TownCatalogLayout", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMirror.PublicVisibility", "TownServiceMirror.Offerings", "TownServiceMirror.Voice", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
+    bound["PresentationCompression.cs"] = (base / "Net/PresentationCompression.cs").read_text()
+    bound["NetPacket.cs"] = (base / "Net/NetPacket.cs").read_text()
     stock = base / "Net/TownServices/TownServiceMirror.Stock.cs"
     if stock.exists(): bound[stock.name] = stock.read_text()
     for fast in ("TownServiceFastNumbers", "TownServiceMotionCodec", "TownServiceMotionBudget", "TownServiceMirror.Motion"):

@@ -41,6 +41,12 @@ internal sealed class TownServiceMotionPacket
 internal static class TownServiceMotionCodec
 {
     internal const int MaxBytes = 864, MaxEntries = 32;
+    // Build614: the paired hardware run exhausted the numeric lane (oldest dirty
+    // state exceeded six seconds). Lossless packing removes repeated module/header
+    // bytes without increasing the actual event size or its 15 Hz cadence. The
+    // expanded payload is bounded independently; legacy record97 stays unchanged.
+    internal const int MaxExpandedBytes = 8192, MaxExpandedEntries = 128;
+    internal const byte PackedRecordId = 98;
     // Independent message rather than an art fragment: a several-second catalog
     // baseline must never sit in front of a visitor's current hand/hover/scroll.
     internal const byte MessageType = 26, RecordId = 97;
@@ -57,10 +63,34 @@ internal static class TownServiceMotionCodec
         _ => throw new InvalidDataException("Unknown fast motion kind.")
     };
 
-    internal static byte[] Write(TownServiceMotionPacket packet)
+    internal static byte[] Write(TownServiceMotionPacket packet) => WriteRaw(packet, MaxBytes, MaxEntries);
+
+    internal static byte[]? TryWritePacked(TownServiceMotionPacket packet)
+    {
+        byte[] raw = WriteRaw(packet, MaxExpandedBytes, MaxExpandedEntries);
+        if (raw.Length <= MaxBytes && packet.Entries.Count <= MaxEntries) return raw;
+        byte[]? compressed = PresentationCompression.TryCompress(raw, raw.Length);
+        if (compressed == null) return null;
+        const int partBytes = 248;
+        int parts = (compressed.Length + partBytes - 1) / partBytes;
+        if (21 + compressed.Length + parts * 9 > MaxBytes) return null;
+        using var stream = new MemoryStream(); using var writer = new BinaryWriter(stream);
+        writer.Write(raw, 0, 21); // the exact original record97 clock
+        for (int at = 0; at < compressed.Length; at += partBytes)
+        {
+            int count = Math.Min(partBytes, compressed.Length - at);
+            writer.Write(PackedRecordId); writer.Write((byte)(7 + count));
+            writer.Write((byte)1); writer.Write((ushort)raw.Length);
+            writer.Write((ushort)compressed.Length); writer.Write((ushort)at);
+            writer.Write(compressed, at, count);
+        }
+        return stream.ToArray();
+    }
+
+    private static byte[] WriteRaw(TownServiceMotionPacket packet, int maxBytes, int maxEntries)
     {
         if (packet.Sequence == 0 || !Finite(packet.SampleTime) || packet.SampleTime < 0f
-            || packet.Entries.Count == 0 || packet.Entries.Count > MaxEntries)
+            || packet.Entries.Count == 0 || packet.Entries.Count > maxEntries)
             throw new InvalidDataException("Invalid fast town motion packet.");
         using var stream = new MemoryStream(); using var writer = new BinaryWriter(stream);
         writer.Write(0x47565231u); writer.Write((byte)3); writer.Write(MessageType);
@@ -75,14 +105,17 @@ internal static class TownServiceMotionCodec
             if (bytes.Length > 255) throw new InvalidDataException("Fast town motion entry exceeds its record.");
             writer.Write(RecordId); writer.Write((byte)bytes.Length); writer.Write(bytes);
         }
-        if (stream.Length > MaxBytes) throw new InvalidDataException("Fast town motion exceeds one bounded event.");
+        if (stream.Length > maxBytes) throw new InvalidDataException("Fast town motion exceeds one bounded event.");
         return stream.ToArray();
     }
 
-    internal static bool TryRead(byte[] bytes, int length, out TownServiceMotionPacket? packet)
+    internal static bool TryRead(byte[] bytes, int length, out TownServiceMotionPacket? packet) =>
+        TryReadCore(bytes, length, out packet, false);
+
+    private static bool TryReadCore(byte[] bytes, int length, out TownServiceMotionPacket? packet, bool expanded)
     {
         packet = null;
-        if (bytes == null || length < 23 || length > bytes.Length || length > MaxBytes
+        if (bytes == null || length < 23 || length > bytes.Length || length > (expanded ? MaxExpandedBytes : MaxBytes)
             || bytes[0] != 0x31 || bytes[1] != 0x52 || bytes[2] != 0x56 || bytes[3] != 0x47
             || bytes[4] != 3 || bytes[5] != MessageType) return false;
         try
@@ -90,12 +123,26 @@ internal static class TownServiceMotionCodec
             using var stream = new MemoryStream(bytes, 6, length - 6, false);
             using var reader = new BinaryReader(stream);
             var result = new TownServiceMotionPacket(); var keys = new HashSet<TownServiceMotionKey>(); bool clock = false;
+            byte[]? packed = null; int packedAt = 0, originalLength = 0;
             while (stream.Position < stream.Length)
             {
                 if (stream.Length - stream.Position < 2) return false;
                 byte id = reader.ReadByte(), count = reader.ReadByte();
                 if (count > stream.Length - stream.Position) return false;
                 long end = stream.Position + count;
+                if (id == PackedRecordId)
+                {
+                    if (expanded || !clock || result.Entries.Count != 0 || count <= 7 || reader.ReadByte() != 1) return false;
+                    int original = reader.ReadUInt16(), total = reader.ReadUInt16(), at = reader.ReadUInt16();
+                    if (original < PresentationCompression.MinimumInput || original > MaxExpandedBytes
+                        || total < 5 || total > MaxBytes || at != packedAt) return false;
+                    if (packed == null) { packed = new byte[total]; originalLength = original; }
+                    if (packed.Length != total || originalLength != original || packedAt + count - 7 > total) return false;
+                    int readCount = reader.Read(packed, packedAt, count - 7);
+                    if (readCount != count - 7) return false;
+                    packedAt += readCount;
+                    continue;
+                }
                 if (id != RecordId) { stream.Position = end; continue; }
                 if (count == 0) return false;
                 byte kind = reader.ReadByte();
@@ -107,12 +154,20 @@ internal static class TownServiceMotionCodec
                 }
                 else
                 {
-                    if (!clock || result.Entries.Count >= MaxEntries) return false;
+                    if (!clock || packed != null || result.Entries.Count >= (expanded ? MaxExpandedEntries : MaxEntries)) return false;
                     TownServiceMotionEntry entry = ReadEntry(reader, kind);
                     if (!keys.Add(entry.Key)) return false;
                     result.Entries.Add(entry);
                 }
                 if (stream.Position != end) return false;
+            }
+            if (packed != null)
+            {
+                if (packedAt != packed.Length) return false;
+                byte[]? raw = PresentationCompression.Expand(packed, originalLength, MaxExpandedBytes, MessageType);
+                if (raw == null || !TryReadCore(raw, raw.Length, out TownServiceMotionPacket? inner, true)
+                    || inner!.Sequence != result.Sequence || inner.SampleTime != result.SampleTime) return false;
+                packet = inner; return true;
             }
             if (!clock || result.Entries.Count == 0) return false;
             packet = result; return true;

@@ -133,7 +133,10 @@ internal sealed partial class TownServiceSync
         if (inspection)
         {
             if (TownServiceMerchantHandoff.Zone != null) PriorityRoots.Add(TownServiceMerchantHandoff.Zone);
-            Publish("merchant.offering", TownServiceMerchantHandoff.Zone, prewarm: true);
+            // Maintainer ruling, Build614 hardware review: town pre-drop guides are
+            // personal affordances. Publish the offered originals below, never the
+            // visitor's local "place card here" canvas. Scenario board guides keep
+            // their existing independent synchronization.
             foreach (ItemsPile.ItemChip chip in TownServiceMerchantHandoff.OwnedChips)
             {
                 if (chip == null || chip.NativeItemCard == null || chip.Item == null) continue;
@@ -172,13 +175,11 @@ internal sealed partial class TownServiceSync
             TownServiceRitual? ritual = TownServicePresentation.Ritual;
             if (ritual != null)
             {
-                Publish(service == 2 ? "ritual.purse" : "merchant.zone", ritual.Zone);
                 Publish(prefix + ".counter", TownServicePresentation.CounterFurniture);
                 TownServiceEnhancementHandoff? handoff = ritual.Handoff;
                 if (handoff != null)
                 {
                     PriorityRoots.Add(handoff.Zone);
-                    Publish("merchant.zone", handoff.Zone);
                     if (handoff.Card != null && handoff.NativeSource != null && handoff.Face != null)
                     {
                         Transform? body = handoff.Card.transform.Find("Visual/Backing");
@@ -325,7 +326,8 @@ internal sealed partial class TownServiceSync
                 foreach (TownServiceCatalogCategory category in catalog.Categories) Publish(category.Key, category.Root);
                 foreach (TownServiceMerchantCounter extension in catalog.Extensions)
                     Publish("merchant.return", extension.Root);
-                foreach (TownServiceMerchantZone zone in catalog.Zones) Publish("merchant.zone", zone.Root);
+                // Catalog drop guides are also visitor-local; cabinet mechanics and
+                // every visible stock card remain globally authored by this lane.
                 // Mirror the actual counter, not the suppressed flat inventory. These widgets
                 // retain native template provenance but have the owner's physical layout.
                 foreach (TownServiceCatalog.Control control in catalog.Controls)
