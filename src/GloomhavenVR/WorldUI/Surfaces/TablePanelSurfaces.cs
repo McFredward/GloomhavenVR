@@ -3526,9 +3526,11 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
 /// line the user never asked for.
 /// </summary>
 /// <remarks>Original public scenario content comes from the game's ScenarioModifierContainer.
-/// Build610 record96 carries the owner's exact original rows, style, folding, scrolling, hover
-/// and intermediate geometry. A receiver reuses its matching native widgets; no summaries,
-/// gameplay callbacks or private battle-goal text are sent.</remarks>
+/// Record96 carries the owner's exact original rows, style, hover and intermediate geometry.
+/// The maintainer's Build610 hardware correction (2026-10-03) supersedes the leftward header:
+/// original prose remains in place, long prose ends in a native ellipsis preview and expands
+/// vertically on hover or click. The animated occupied height moves the battle goal and element
+/// captions below it; peers consume those same owner frames without gameplay callbacks.</remarks>
 internal sealed class ScenarioRulesSurface : TrayMountedPanelSurface
 {
     internal const float RulesBudgetMeters = 0.09f;
@@ -3577,10 +3579,15 @@ internal sealed class ScenarioRulesSurface : TrayMountedPanelSurface
         {
             _loggedRows = _rows; _loggedOverflow = Presentation.Overflow;
             VRLog.Info("WorldUI", $"SCENARIO RULES: {_rows} original row(s), overflow foldout={Presentation.Overflow}; "
-                + $"native glyph density {1000f / BoardRulesFoldout.Density:F4} mm/px, reserved column {Presentation.OccupiedMeters * 1000f:F1} mm.");
+                + $"native glyph density {1000f / BoardRulesFoldout.Density:F4} mm/px, reserved column {Presentation.OccupiedMeters * 1000f:F1} mm; original inline text preview.");
         }
         Vector3 offset = new(0f, -(ObjectivesSurface.DockedHeightMeters * .5f + StackGapMeters), 0f);
-        CanvasConversion.PlaceHost(Panel, Mount.TransformPoint(offset), Mount.rotation, Mount.lossyScale.x / BoardRulesFoldout.Density);
+        // Density is already metres per native pixel. PlaceHost multiplies its argument by
+        // CanvasScaleMm again and made Build610 owner rules microscopic; remote record96 used
+        // the correct 1/Density. Use the same direct dock placement as the other tray surfaces.
+        Transform host = Panel.HostTransform;
+        host.SetPositionAndRotation(Mount.TransformPoint(offset), Mount.rotation);
+        host.localScale = Vector3.one * (Mount.lossyScale.x / BoardRulesFoldout.Density);
         Panel.HostGo.SetActive(Mount.gameObject.activeInHierarchy);
         Panel.OrderCluster = PlayTray.Current;
         DockedDropMeters = Panel.HostGo.activeInHierarchy ? StackGapMeters + Presentation.OccupiedMeters : 0f;

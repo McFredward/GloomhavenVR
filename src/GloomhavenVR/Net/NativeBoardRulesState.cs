@@ -10,9 +10,9 @@ internal sealed class NativeBoardRulesState
     internal const int RowsMax = 32, TextBytesMax = 24000;
     internal bool Visible, Overflow, Expanded, Hover;
     // host local x/y/z, viewport width/height, content width/height, scroll offset,
-    // header width/height, meters/pixel, element mount correction, occupied column height.
+    // compact column width/preview height, meters/pixel, element mount correction, occupied column height.
     internal float[] Frame = new float[13];
-    internal float[] Header = new float[9]; // original faceRGBA, captionRGBA, caption font size
+    internal float[] Header = new float[9]; // legacy610 header styling; zero for the native inline preview
     internal string Caption = string.Empty;
     internal NativeBoardRuleRow[] Rows = Array.Empty<NativeBoardRuleRow>();
     internal bool Validate()

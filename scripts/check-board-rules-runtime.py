@@ -10,18 +10,23 @@ ROOT=Path(__file__).resolve().parents[1]
 def validate_loaded_dll(expected,loaded):
  if hashlib.sha256(expected.read_bytes()).digest()!=hashlib.sha256(loaded.read_bytes()).digest():
   raise ValueError('Loaded production DLL differs from the private current-source build')
+def production_hashes(root):
+ return {str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest()
+  for f in sorted((root/'src').rglob('*.cs')) if 'obj' not in f.parts and 'bin' not in f.parts}
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--reuse-project',type=Path);p.add_argument('--source-root',type=Path,default=ROOT);p.add_argument('--output-dir',type=Path,default=ROOT/'.planning/debug/board-rules-runtime');p.add_argument('--unity',type=Path,default=Path(os.environ.get('UNITY_PATH','/home/claw/unity-2021.3.5/Editor/Unity')));p.add_argument('--unitypy-python',type=Path,default=Path('/home/claw/unitypy-venv/bin/python'));a=p.parse_args()
  a.output_dir.mkdir(parents=True,exist_ok=True);run=Path(tempfile.mkdtemp(prefix='run-',dir=a.output_dir.resolve()));project=a.reuse_project.resolve() if a.reuse_project else run/'unity';assets=project/'Assets';(assets/'Editor').mkdir(parents=True,exist_ok=True);(assets/'Plugins').mkdir(exist_ok=True);(project/'Packages').mkdir(exist_ok=True);(project/'ProjectSettings').mkdir(exist_ok=True)
  # A stale normal bin/Debug DLL is never evidence: build requested sources in this run's
  # private output/intermediate tree before loading Unity, even when reusing its import cache.
  dotnet=shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
+ source_before=production_hashes(a.source_root)
  build=run/'production';build.mkdir();build_log=run/'build.log'
  items=build/'PrivateItems.targets'
  items.write_text('<Project><Target Name="RemoveExistingOutput" BeforeTargets="CoreCompile"><ItemGroup><Compile Remove="obj/**/*.cs;bin/**/*.cs" /><Compile Remove="'+str(a.source_root/'src/GloomhavenVR/obj')+'/**/*.cs" /><Compile Remove="'+str(a.source_root/'src/GloomhavenVR/bin')+'/**/*.cs" /></ItemGroup></Target></Project>')
  with build_log.open('w') as log:
   result=subprocess.run([dotnet,'build',str(a.source_root/'src/GloomhavenVR/GloomhavenVR.csproj'),'-c','Debug','-v','quiet','-p:BaseIntermediateOutputPath='+str(build/'obj')+'/', '-p:OutputPath='+str(build/'bin')+'/', '-p:UseSharedCompilation=false','-p:CustomAfterMicrosoftCommonTargets='+str(items)],cwd=a.source_root,stdout=log,stderr=subprocess.STDOUT)
  if result.returncode:raise SystemExit('FAIL: current private production build; see '+str(build_log))
+ if production_hashes(a.source_root)!=source_before:raise SystemExit('FAIL: production sources changed during private compilation')
  plugin=build/'bin/GloomhavenVR.dll'
  if not plugin.is_file():raise SystemExit('FAIL: private production DLL missing')
  subprocess.run([str(a.unitypy_python),str(ROOT/'scripts/board-rules-runtime/export-native.py'),str(a.source_root/'ressources/GH_Data'),str(assets/'NativeSource')],check=True)
@@ -61,6 +66,8 @@ def main():
  result=subprocess.run(['xvfb-run','-a',str(a.unity),'-batchmode','-projectPath',str(project),'-executeMethod','RulesRunner.Start','-evidenceRoot',str(run),'-logFile',str(run/'unity.log')],stdout=subprocess.DEVNULL,stderr=subprocess.STDOUT,timeout=420)
  report=run/'results.json'
  if not report.is_file() or result.returncode:raise SystemExit('FAIL: actual Unity run; see '+str(run/'unity.log'))
+ if production_hashes(a.source_root)!=source_before:raise SystemExit('FAIL: production sources changed during native execution')
+ (run/'frozen-production-inputs.json').write_text(json.dumps(source_before,indent=2)+'\n')
  data=json.loads(report.read_text());print(json.dumps(data,indent=2));print('Evidence: '+str(run))
  if not data.get('passed'):raise SystemExit(1)
 if __name__=='__main__':main()
