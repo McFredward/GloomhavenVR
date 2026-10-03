@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**NPC multiplayer checkpoint in progress, 2026-10-03: 1.1.0 / ModBuild 611.**
+**NPC multiplayer checkpoint, 2026-10-03: 1.1.0 / ModBuild 611.**
 
 The supplied host and peer logs both identify Build609; the reviewed video and six
 screenshots belong to that run. They show an empty public cabinet, overlapping
@@ -35,9 +35,32 @@ exception is introduced. Review also found personal item partition descendants,
 released mage return flights and independent temple inscription/purse previews
 crossing the old shared-widget election; these originals must remain visible.
 
-Final integrated validation and headset acceptance are pending in this record.
-Compact input/worker evidence is retained under `.planning/debug/npc611-review/`;
-the Build610 compiled snapshot is preserved there for the final scope comparison.
+Integrated validation passes **111/111 complete local suites, 14/14 source suites
+and 294,369 complete wire/golden assertions**, strict Release with zero warnings
+or errors, original bundle checks, surface checks and five bilingual document
+pairs. The complete local run took 716.1 s with eight jobs. A final existing wire
+vector mistook the new urgent container for completion of the cold catalog; its
+reviewed test-only correction now checks both exact original dependency bytes and
+complete current card reconstruction, then all 20 unchanged background originals.
+Two compiled causal controls reject omitted promotion and corrupted native data.
+Per the maintainer's explicit 2026-10-03 instruction, the already successful local
+and source suites were reused after this bounded test-only correction; independent
+receipt/log-hash verification and 1,802 unchanged frozen inputs support that reuse.
+The affected complete wire executable was rebuilt and rerun on `409913c3`.
+
+Against the preserved reviewed Build610 assembly, 22 intended existing types
+change, alongside five inlined build constants and one decompiler-label-only
+file; nine helpers are added. No type, reference or resource is removed, and no
+reference/resource changes. The historical guard comparison still differs because
+its baseline predates these features; its bundle/surface/build stages passed.
+The original native palm renderer executes 84 assertions and a 15-case yaw/scale
+clearance matrix; the original motion capture/playback proof executes 593 assertions.
+Queue and interpolation timings are controlled fixture measurements, not observed
+LAN latency or headset performance. Hardware acceptance of Build611 remains pending.
+Compact immutable inputs, reviewed frames, source-bound worker proofs and the
+complete parity review are retained under `.planning/debug/npc611-review/`;
+final receipts, unchanged-input proof and the independent compiled comparison
+live in `.planning/debug/npc611-final-validation/`.
 
 **Desktop dev checkpoint, 2026-10-03: 1.1.0 / ModBuild 610.**
 
