@@ -300,6 +300,29 @@ internal sealed class TownServiceBinding : IDisposable
     private static void Put(Dictionary<ushort, TownServiceValue> values, ushort key, float[] numbers, params string[] text)
         => values.Add(key, new TownServiceValue { Numbers = numbers, Text = text });
 
+    /// <summary>The native module root can resize independently of its enclosing canvas.
+    /// Its world pose is authored separately, but ignoring its rect clipped hosted originals
+    /// whenever the owner differed from the frozen prefab. Detached hosts replace the absent
+    /// native parent, so pin that root while retaining the exact visible pivot and extent.</summary>
+    internal void ApplyRootLayout(TownServiceFrame frame, bool detached)
+    {
+        if (frame.Nodes[0].Values.TryGetValue(TownServiceProperty.Transform, out TownServiceValue? value))
+            ApplyRootLayout(value.Numbers, detached);
+    }
+    private void ApplyRootLayout(float[] n, bool detached)
+    {
+        if (n.Length != 18 || Root is not RectTransform rect) return;
+        rect.pivot = new Vector2(n[14], n[15]);
+        if (detached)
+        { rect.anchorMin = rect.anchorMax = rect.pivot; rect.sizeDelta = new Vector2(n[16], n[17]); }
+        else
+        {
+            rect.anchorMin = new Vector2(n[10], n[11]); rect.anchorMax = new Vector2(n[12], n[13]);
+            rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, n[16]);
+            rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, n[17]);
+        }
+    }
+
     internal void Validate(TownServiceFrame frame, TownServiceAssets assets)
     {
         if (frame.Structure != Structure || frame.Nodes.Length != Nodes.Length)
@@ -372,7 +395,7 @@ internal sealed class TownServiceBinding : IDisposable
                 switch (pair.Key)
                 {
                     case TownServiceProperty.Transform:
-                        if (i == 0) break; // module root is positioned through the authored world-frame pose
+                        if (i == 0) { ApplyRootLayout(n, detached: false); break; } // absolute pose stays on its authored header
                         if (node is RectTransform rect)
                         {
                             rect.anchorMin = new Vector2(n[10], n[11]); rect.anchorMax = new Vector2(n[12], n[13]);

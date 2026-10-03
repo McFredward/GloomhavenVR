@@ -210,9 +210,11 @@ internal static partial class TownServiceMirror
                         if ((!TownServiceFastNumbers.IsFast(property.Key) && !TownServiceFastNumbers.IsMaterial(property.Key))
                             || !previous.Nodes[n].Values.TryGetValue(property.Key, out TownServiceValue? before)
                             || SameNumbers(before.Numbers, property.Value.Numbers)) continue;
-                        // The root Transform is authored by its original world-frame
-                        // pose; never apply the native pixel-root transform twice.
-                        if (n == 0 && property.Key == TownServiceProperty.Transform) continue;
+                        // The header is the only world pose author. A native rect root's
+                        // anchor/pivot/extent can still change independently of that pose;
+                        // transfer that layout while the receiver ignores its local pose.
+                        if (n == 0 && property.Key == TownServiceProperty.Transform
+                            && (property.Value.Numbers.Length != 18 || SameRootLayout(before.Numbers, property.Value.Numbers))) continue;
                         if (TownServiceFastNumbers.IsMaterial(property.Key))
                         {
                             if (before.Numbers.Length != property.Value.Numbers.Length) continue;
@@ -228,7 +230,16 @@ internal static partial class TownServiceMirror
                         }
                         TownServiceMotionEntry entry = MotionHeader(frame, laneId, 2);
                         entry.Binding = frame.Nodes[n].Binding; entry.Property = property.Key;
-                        entry.Numbers = property.Value.Numbers; UpdateMotionSlot(source, entry);
+                        entry.Numbers = property.Value.Numbers;
+                        if (n == 0 && property.Key == TownServiceProperty.Transform)
+                        {
+                            // Layout owns only the rect fields. Canonical pose values keep
+                            // equality/backpressure independent of the absolute root lane.
+                            entry.Numbers = (float[])entry.Numbers.Clone();
+                            Array.Clear(entry.Numbers, 0, 10);
+                            entry.Numbers[6] = entry.Numbers[7] = entry.Numbers[8] = entry.Numbers[9] = 1f;
+                        }
+                        UpdateMotionSlot(source, entry);
                     }
             source.Previous = frame; source.HandRevision = _motionHandRevision;
             foreach (MotionSlot slot in source.Slots.Values)
@@ -236,6 +247,13 @@ internal static partial class TownServiceMirror
                     AddMotionWaiting(slot, source);
         }
     }
+    private static bool SameRootLayout(float[] before, float[] after)
+    {
+        if (before.Length != 18 || after.Length != 18) return false;
+        for (int i = 10; i < 18; i++) if (before[i] != after[i]) return false;
+        return true;
+    }
+
     private static void AddMotionWaiting(MotionSlot slot, SourceMotion source) =>
         (slot.Dirty && source.Live ? MotionLive : slot.Dirty && (source.VisibleFan || slot.VisibilityTransition) ? MotionVisibleFan : MotionWaiting).Add(slot);
 
@@ -470,15 +488,15 @@ internal static partial class TownServiceMirror
                     ? Vector3.LerpUnclamped(motion.CanvasFrom, Position(entry.CanvasPose), blend) : Position(entry.CanvasPose));
               if (entry.Hand <= 2) module.Host.transform.rotation = mount.rotation * Rotation(entry.CanvasPose); }
         }
+        module.Binding.ApplyRootLayout(authored, module.AddedCanvas != null && !authored.HasCanvasFrame);
         Transform root = module.AddedCanvas != null && !authored.HasCanvasFrame ? module.Host.transform : module.Binding.Root;
         root.position = mount.TransformPoint(continuousHand && entry.Hand > 2
             ? Vector3.LerpUnclamped(motion.HandFrom, Position(entry.Pose), blend) : Position(entry.Pose));
         if (!continuousHand || entry.Hand <= 2)
             root.rotation = (entry.Hand > 2 ? shared.rotation : mount.rotation) * Rotation(entry.Pose);
-        // Binding's numeric Transform replays the original local pose before this absolute
-        // host pose. Baseline playback already normalizes that detached child; omitting the
-        // same step here applied backing rotation/crop scale twice and separated the plain
-        // item slab from its native readable face (Build612 multiplayer screenshots).
+        // Match baseline detached-root normalization defensively. The original world pose
+        // belongs to the host, while its native child stays in that one frame. Current
+        // producers omit root-local Transform samples; never apply that pose a second time.
         if (module.AddedCanvas != null && !authored.HasCanvasFrame) NormalizeDetachedRoot(module);
         if (continuousHand) return;
         Vector3 world = Vector3.Scale(mount.lossyScale, Scale(entry.Pose)); Vector3 parentScale = root.parent.lossyScale;

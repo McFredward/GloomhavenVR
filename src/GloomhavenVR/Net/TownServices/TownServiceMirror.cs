@@ -1094,6 +1094,7 @@ internal static partial class TownServiceMirror
                     {
                         ApplyCanvasFrame(module, frame, parent);
                     }
+                    module.Binding.ApplyRootLayout(frame, module.AddedCanvas != null && !frame.HasCanvasFrame);
                     Transform poseRoot = module.AddedCanvas != null && !frame.HasCanvasFrame ? module.Host.transform : root;
                     poseRoot.position = mount.TransformPoint(Position(frame.Pose)); poseRoot.rotation = mount.rotation * Rotation(frame.Pose);
                     Vector3 worldScale = Vector3.Scale(mount.lossyScale, Scale(frame.Pose)), parentScale = poseRoot.parent.lossyScale;
