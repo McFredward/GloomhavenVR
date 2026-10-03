@@ -23,15 +23,18 @@ internal sealed class TownServiceAssets
     { _assets.Clear(); _keys.Clear(); _originalKeys.Clear(); _ambiguous.Clear(); _nextScan = 0; Generation++; }
 
     /// <summary>Immutable native-template provenance, installed in deterministic order before
-    /// descriptor discovery. Reusing one original in another window retains its first identity;
-    /// different originals must never alias just because their native names and sizes match.</summary>
+    /// descriptor discovery. Reusing one original retains its first published identity, but
+    /// every verified slot remains a resolvable alias. Borrow order differs between peers;
+    /// omitting a later alias made already-loaded card effects disappear remotely in Build612.
+    /// Different originals must never alias merely because native names and sizes match.</summary>
     internal void RegisterOriginal(string key, Object asset)
     {
         if (asset == null || string.IsNullOrEmpty(key)) throw new ArgumentException("Missing original town-service asset.");
         int id = asset.GetInstanceID();
-        if (_originalKeys.ContainsKey(id)) return;
         if (_assets.TryGetValue(key, out Object? other) && other != null && !ReferenceEquals(other, asset))
             throw new InvalidDataException("Conflicting original town-service provenance: " + key);
+        _assets[key] = asset;
+        if (_originalKeys.ContainsKey(id)) return;
         _originalKeys.Add(id, key); _keys[id] = key; _assets[key] = asset;
     }
 
@@ -97,6 +100,14 @@ internal sealed class TownServiceAssets
         if (_ambiguous.Contains(key)) throw new InvalidDataException("Ambiguous native town-service asset: " + key);
         if (!_assets.TryGetValue(key, out Object? asset) || asset == null)
         {
+            // A shader can be available to the native material factory before Resources'
+            // loaded-object census contains it. Exact native lookup is not a replacement
+            // shader and preserves the subsequent complete property-contract validation.
+            if (typeof(T) == typeof(Shader) && key.StartsWith("shader|", StringComparison.Ordinal))
+            {
+                Shader shader = Shader.Find(key.Substring("shader|".Length));
+                if (shader != null) { Register(key, shader); return (T)(Object)shader; }
+            }
             Scan();
             if (!_assets.TryGetValue(key, out asset) || asset == null)
                 throw new InvalidDataException("Original town-service asset is not loaded: " + key);

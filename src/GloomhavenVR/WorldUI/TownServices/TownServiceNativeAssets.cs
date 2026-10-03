@@ -35,6 +35,8 @@ internal static class TownServiceNativeAssets
     private static readonly HashSet<string> Reported = new(StringComparer.Ordinal);
     private static readonly HashSet<string> ReportedUnavailable = new(StringComparer.Ordinal);
     private static float _nextTick;
+    private static UIInfoTools? _spriteCatalog;
+    private static uint _catalogGeneration;
     private static readonly HashSet<int> ReportedImages = new();
     private const int MaxAttempts = 3;
 
@@ -124,6 +126,7 @@ internal static class TownServiceNativeAssets
     internal static void PrepareRoot(Transform? root)
     {
         if (!MapRoomDriver.Active || root == null) return;
+        RegisterSpriteCatalog();
         foreach (Image image in root.GetComponentsInChildren<Image>(true))
         {
             try { Register(image.sprite); Register(image.overrideSprite); }
@@ -220,6 +223,7 @@ internal static class TownServiceNativeAssets
     {
         if (!MapRoomDriver.Active || Time.unscaledTime < _nextTick) return;
         float now = Time.unscaledTime; _nextTick = now + 0.1f;
+        RegisterSpriteCatalog();
         foreach (Load load in Loads.Values)
         {
             if (!load.Held)
@@ -238,9 +242,13 @@ internal static class TownServiceNativeAssets
                 if (load.Handle.Status != AsyncOperationStatus.Succeeded || load.Handle.Result == null)
                 { Failed(load, "original sprite unavailable"); continue; }
                 if (now < load.RegisterAt) continue;
-                Register(load.Handle.Result);
-                // Re-establish descriptors after a mirror registry reset while our original
-                // asset remains pinned. No last-load-wins GUID primary keys or atlas aliases.
+                // Bind the exact immutable Addressables key, including any subobject suffix.
+                // Packed atlas names/formats are runtime data and differ across clients. All
+                // verified aliases survive different load order; RegisterOriginal keeps the
+                // first identity rather than renaming an already-published native sprite.
+                Sprite original = CardFaceMipBake.OriginalFor(load.Handle.Result);
+                TownServiceMirror.Assets.RegisterOriginal("native-town|addressable-sprite|" + load.Key, original);
+                Register(original);
                 load.RegisterAt = now + 2;
             }
             catch (Exception e) { Failed(load, e.GetType().Name + ": " + e.Message); }
@@ -253,6 +261,14 @@ internal static class TownServiceNativeAssets
         Sprite original = CardFaceMipBake.OriginalFor(sprite);
         TownServiceMirror.Assets.Key(original.texture);
         TownServiceMirror.Assets.Key(original);
+    }
+
+    private static void RegisterSpriteCatalog()
+    {
+        UIInfoTools? catalog = UIInfoTools.Instance;
+        if (catalog == null || _spriteCatalog == catalog && _catalogGeneration == TownServiceMirror.Assets.Generation) return;
+        TownServiceTemplateAssets.RegisterSpriteCatalog(TownServiceMirror.Assets, catalog);
+        _spriteCatalog = catalog; _catalogGeneration = TownServiceMirror.Assets.Generation;
     }
 
     private static void Failed(Load load, string reason)
@@ -291,6 +307,6 @@ internal static class TownServiceNativeAssets
     internal static void Shutdown()
     {
         foreach (Load load in Loads.Values) Release(load);
-        Loads.Clear(); ReportReset(); _nextTick = 0;
+        Loads.Clear(); ReportReset(); _nextTick = 0; _spriteCatalog = null;
     }
 }

@@ -17,6 +17,7 @@ internal static partial class TownServiceMirror
     {
         get
         {
+            if (GloomhavenVR.WorldUI.TownServiceSharedCue.HasReadyMerchantVisitor) return true;
             float now = Time.unscaledTime;
             foreach (var pair in MerchantOfferings)
             {

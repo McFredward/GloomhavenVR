@@ -63,6 +63,7 @@ internal static partial class TownServiceMirror
     /// is visible, or while that visitor has actually parked a card.</summary>
     internal static bool HasVisibleRemoteEnhancementCue()
     {
+        if (TownServiceSharedCue.HasReadyVisitor(3)) return true;
         float now = Time.unscaledTime;
         foreach (var pair in VisitorSessions)
         {
@@ -77,9 +78,6 @@ internal static partial class TownServiceMirror
                 if (parent != null && parent.alpha <= .01f) continue;
                 if (visit.TransactionActive && module.Address.StartsWith("face.", StringComparison.Ordinal))
                     return true;
-                if (module.Address != "merchant.zone|") continue;
-                CanvasGroup? cue = module.Binding.Root.GetComponent<CanvasGroup>();
-                if (cue != null && cue.alpha > .01f) return true;
             }
         }
         return false;
@@ -277,12 +275,9 @@ internal static partial class TownServiceMirror
         return true;
     }
 
-    /// <summary>The maintainer explicitly permits one shared pre-drop enchantress cue
-    /// instead of overlapping each visitor's identical hologram (NPC test 2026-10-03).
-    /// This is only a renderer election: all eligible visitors retain the same physical
-    /// drop collider, hover feedback and reliable first-offer claim.</summary>
-    internal static bool CanShowLocalCue(byte service) => service != 3
-        || TownServiceSharedCue.GuideOwner == LocalPeer;
+    /// <summary>Build614 user exception: each pre-drop map guide is local. Global hand
+    /// readiness remains separate and never elects away a visitor's destination.</summary>
+    internal static bool CanShowLocalCue(byte service) => true;
 
     internal static void SetLocalTransactionActive(byte service, bool active)
     {
@@ -1009,7 +1004,7 @@ internal static partial class TownServiceMirror
             { standing = new Dictionary<ushort, RemoteModule>(); Remote.Add(entry.Key, standing); }
             if (secondaryVisitor) RetainIndependentVisitorOnly(entry.Key, standing, session);
             else if (entry.Key > 0 && session.Service == 1) RetirePrivateMerchantCatalog(standing);
-            if (entry.Key > 0 && session.Service == 3) RetireNonCanonicalMageCue(entry.Key, standing);
+            RetireRemoteMapGuides(standing);
             // Unity destroys child GameObjects when their old module parent is retired.
             // An unchanged child packet must then rebuild its observer clone, not keep
             // a C# module whose native Host has been destroyed. The Build 587 peer
@@ -1026,8 +1021,9 @@ internal static partial class TownServiceMirror
                 // A cumulative delta need not repeat the purse's Mesh property.
                 // Classify that original body only after expansion; a row/image
                 // with the same address is still not a second shared bowl cue.
-                if (received.Service == 3 && received.TemplateAddress == "merchant.zone|"
-                    && entry.Key != TownServiceSharedCue.GuideOwner) continue;
+                // Pre-drop map guides are explicitly local (Build614 user ruling).
+                // Reject older queued guide baselines as well as future captures.
+                if (IsLocalMapGuide(received.TemplateAddress)) continue;
                 if (secondaryVisitor && !IndependentVisitorModule(received, entry.Key, !session.TransactionActive)
                     && !(received.Service == 2 && received.TemplateAddress == "ritual.purse|")) continue;
                 if (entry.Key > 0 && PrivateMerchantCatalogModule(received.Service,
@@ -1157,13 +1153,6 @@ internal static partial class TownServiceMirror
             if (visitor.Value.Active && visitor.Value.Service == 2
                 && visitor.Key != InteractionOwner(2) && Remote.TryGetValue(visitor.Key, out var temple))
                 SetSecondaryTempleInscriptions(visitor.Value, temple);
-        foreach (var visitor in Remote)
-        {
-            if (visitor.Key != TownServiceSharedCue.GuideOwner) continue;
-            foreach (RemoteModule cue in visitor.Value.Values)
-                if (cue.Alive && cue.LastFrame?.Service == 3 && cue.Address == "merchant.zone|")
-                    TownServiceSharedCue.PaintRemote(cue.Host.GetComponent<CanvasGroup>(), cue.Binding.Root);
-        }
         CommitPublicPicture();
     }
 
@@ -1207,7 +1196,7 @@ internal static partial class TownServiceMirror
         {
             // Only the explicitly approved shared guide has a separate visual
             // author. Native controls and a parked card still follow the grant.
-            if (address == "merchant.zone|") return peer > 0 && peer == TownServiceSharedCue.GuideOwner;
+            if (address == "merchant.zone|") return false;
             // A released face/body can still be flying to its owner's ordinary
             // map fan while a different visitor is already using the enchantress.
             return returning && (address.StartsWith("face.", StringComparison.Ordinal)
@@ -1243,14 +1232,16 @@ internal static partial class TownServiceMirror
         foreach (ushort id in SecondaryVisitorRetire) { modules[id].Dispose(); modules.Remove(id); }
     }
 
-    private static void RetireNonCanonicalMageCue(int peer, Dictionary<ushort, RemoteModule> modules)
+    private static void RetireRemoteMapGuides(Dictionary<ushort, RemoteModule> modules)
     {
-        if (peer == TownServiceSharedCue.GuideOwner) return;
         SecondaryVisitorRetire.Clear();
         foreach (var pair in modules)
-            if (pair.Value.Address == "merchant.zone|") SecondaryVisitorRetire.Add(pair.Key);
+            if (IsLocalMapGuide(pair.Value.Address)) SecondaryVisitorRetire.Add(pair.Key);
         foreach (ushort id in SecondaryVisitorRetire) { modules[id].Dispose(); modules.Remove(id); }
     }
+
+    private static bool IsLocalMapGuide(string address) => address == "merchant.zone|"
+        || address == MerchantOfferingAddress;
 
     private static bool PrivateMerchantCatalogModule(byte service, string address, ushort parentModule)
     {

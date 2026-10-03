@@ -182,8 +182,8 @@ internal static class NativeTemplates
     private static void Freeze(string key, Entry entry)
     {
         if (_bank == null || entry.Original == null) throw new InvalidOperationException("Original town template is unavailable: " + key);
-        TownServiceTemplateAssets.Register(TownServiceMirror.Assets, key, entry.Original);
         TownServiceNativeAssets.PrepareRoot(entry.Original);
+        TownServiceTemplateAssets.Register(TownServiceMirror.Assets, key, entry.Original);
         entry.Copy = Object.Instantiate(entry.Original.gameObject, _bank.transform, false);
         Prune(entry.Original, entry.Copy.transform);
         TownServiceNeutralize.Apply(entry.Copy);

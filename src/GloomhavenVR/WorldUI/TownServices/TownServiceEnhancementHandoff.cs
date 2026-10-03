@@ -569,8 +569,9 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         // visitors approach this shared palm (2026-10-03 multiplayer test). Only
         // the elected picture author draws it; this presentation-only exception
         // must never remove another eligible visitor's physical drop or haptics.
-        if (!TownServiceMirror.CanShowLocalCue(3)) _zoneGate.alpha = 0f;
-        TownServiceSharedCue.PaintLocal(_zoneGate, Zone);
+        // Build614 user exception: a pre-drop guide belongs only to this visitor. Global
+        // offered-hand readiness still travels independently; another visitor's readiness
+        // must never hide this player's native destination or haptic feedback.
         if (_labelReady != showCue)
         { _labelReady = showCue; _zoneLabel.text = showCue ? Loc.Mod("town_enchant_card") : string.Empty; }
         if (preview && !showCue)

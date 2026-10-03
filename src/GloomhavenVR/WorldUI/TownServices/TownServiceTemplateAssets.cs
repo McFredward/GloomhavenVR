@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Net.TownServices;
 using TMPro;
@@ -14,6 +15,39 @@ namespace GloomhavenVR.WorldUI;
 /// material can be sampled before its font. No game controller or source material is modified.</summary>
 internal static class TownServiceTemplateAssets
 {
+    /// <summary>The native UIInfoTools serialized field is the sprite identity, not its
+    /// runtime packed atlas/UV descriptor. PCVR peers in Build612 exposed BC1 and BC3 atlas
+    /// wrappers with different names; both still reference the same authored condition icon.
+    /// Read only direct Sprite fields, Sprite arrays and the native nested EffectInfo value.
+    /// No controller, getter, object graph or Addressables request is run here.</summary>
+    internal static void RegisterSpriteCatalog(NativeAssetRegistry assets, object catalog)
+    {
+        Type type = catalog.GetType();
+        if (type.Name != "UIInfoTools") throw new ArgumentException("Expected original UIInfoTools sprite catalogue.");
+        FieldInfo[] fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        Array.Sort(fields, (a, b) => string.CompareOrdinal(a.Name, b.Name));
+        foreach (FieldInfo field in fields)
+        {
+            string key = "native-town|sprite-catalog|UIInfoTools/" + field.Name;
+            if (field.FieldType == typeof(Sprite)) CatalogSprite(assets, key, field.GetValue(catalog) as Sprite);
+            else if (field.FieldType == typeof(Sprite[]) && field.GetValue(catalog) is Sprite[] sprites)
+            {
+                if (sprites.Length > 1024) throw new InvalidOperationException("Native sprite catalogue exceeds bounded presentation capacity.");
+                for (int i = 0; i < sprites.Length; i++) CatalogSprite(assets, key + "/" + i, sprites[i]);
+            }
+            else if (field.FieldType.DeclaringType == type && field.FieldType.Name == "EffectInfo")
+            {
+                object? effect = field.GetValue(catalog);
+                foreach (FieldInfo icon in field.FieldType.GetFields(BindingFlags.Instance | BindingFlags.Public))
+                    if (icon.FieldType == typeof(Sprite)) CatalogSprite(assets, key + "/" + icon.Name, icon.GetValue(effect) as Sprite);
+            }
+        }
+    }
+
+    private static void CatalogSprite(NativeAssetRegistry assets, string key, Sprite? sprite)
+    {
+        if (sprite != null) assets.RegisterOriginal(key, CardFaceMipBake.OriginalFor(sprite));
+    }
     private static readonly string[] Templates =
     {
         "merchant.row", "merchant.tooltip", "merchant", "temple.row", "temple.tooltip", "temple",
@@ -35,14 +69,14 @@ internal static class TownServiceTemplateAssets
     {
         // Lazy model faces can be borrowed in different orders on different clients. Their
         // artwork keeps the model-aware/native resource identities, not the first borrower's.
-        if (template.StartsWith("item.", StringComparison.Ordinal)
+        bool modelFace = template.StartsWith("item.", StringComparison.Ordinal)
             || template.StartsWith("face.", StringComparison.Ordinal)
-            || template.StartsWith("inspectionbody.", StringComparison.Ordinal)) return;
+            || template.StartsWith("inspectionbody.", StringComparison.Ordinal);
         // The order and paths are authored prefab identities, never instance IDs or visit order.
-        Visit(assets, root, "native-town|template|" + template, root);
+        Visit(assets, root, "native-town|template|" + template, root, modelFace);
     }
 
-    private static void Visit(NativeAssetRegistry assets, Transform node, string path, Transform root)
+    private static void Visit(NativeAssetRegistry assets, Transform node, string path, Transform root, bool modelFace)
     {
         foreach (TMP_Text text in node.GetComponents<TMP_Text>())
         {
@@ -59,17 +93,18 @@ internal static class TownServiceTemplateAssets
         }
         foreach (Image image in node.GetComponents<Image>())
         {
-            Sprite(assets, path + "|image", image.sprite);
-            Sprite(assets, path + "|override", image.overrideSprite);
+            if (!modelFace)
+            { Sprite(assets, path + "|image", image.sprite); Sprite(assets, path + "|override", image.overrideSprite); }
             Material(assets, path + "|graphic", image.material);
         }
         foreach (RawImage image in node.GetComponents<RawImage>())
         {
-            Texture(assets, path + "|raw", image.texture);
+            if (!modelFace) Texture(assets, path + "|raw", image.texture);
             Material(assets, path + "|graphic", image.material);
         }
         foreach (Selectable selectable in node.GetComponents<Selectable>())
         {
+            if (modelFace) continue;
             SpriteState state = selectable.spriteState;
             Sprite(assets, path + "|highlight", state.highlightedSprite);
             Sprite(assets, path + "|pressed", state.pressedSprite);
@@ -86,7 +121,7 @@ internal static class TownServiceTemplateAssets
             Transform child = node.GetChild(i);
             // Pooled gameplay rows/cards are separate model-aware originals registered on freeze.
             if (child != root && NativeTemplates.IsBoundary(child)) continue;
-            Visit(assets, child, path + "/" + NativeTemplates.Append(string.Empty, child), root);
+            Visit(assets, child, path + "/" + NativeTemplates.Append(string.Empty, child), root, modelFace);
         }
     }
 
