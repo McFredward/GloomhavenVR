@@ -13,7 +13,21 @@ namespace GloomhavenVR.Quest.Editor
         public int callbackOrder { get { return int.MaxValue; } }
         public void OnPostGenerateGradleAndroidProject(string path)
         {
-            string manifest = Path.Combine(path, "src/main/AndroidManifest.xml");
+            string mainManifest = Path.Combine(path, "src/main/AndroidManifest.xml");
+            if (!File.Exists(mainManifest)) throw new InvalidOperationException("Generated Unity manifest is missing");
+            int removed = 0;
+            foreach (string manifest in Directory.GetFiles(path, "AndroidManifest.xml", SearchOption.AllDirectories))
+            {
+                // XR Management writes requirements into a separate .androidlib manifest.
+                // Gradle merges that file after these callbacks, so clean both source roots.
+                string parent = Path.GetFileName(Path.GetDirectoryName(manifest));
+                if (manifest != mainManifest && !parent.EndsWith(".androidlib", StringComparison.Ordinal)) continue;
+                removed += RemoveUnusedRequirements(manifest);
+            }
+            Debug.Log("[GloomhavenVR Quest] manifest removed unused eye-tracking declarations=" + removed);
+        }
+        static int RemoveUnusedRequirements(string manifest)
+        {
             var document = new XmlDocument();
             document.Load(manifest);
             var root = document.DocumentElement;
@@ -29,7 +43,7 @@ namespace GloomhavenVR.Quest.Editor
                 ++removed;
             }
             document.Save(manifest);
-            Debug.Log("[GloomhavenVR Quest] manifest removed unused eye-tracking declarations=" + removed);
+            return removed;
         }
     }
 }
