@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Mono.Cecil;
+using Mono.Cecil.Cil;
 
 namespace QuestWeaver;
 
@@ -7,6 +8,7 @@ public sealed class PackageApiReport
 {
     public int Schema { get; set; } = 1;
     public bool Complete { get; set; }
+    public string? SdkTarget { get; set; }
     public int CheckedTypeReferences { get; set; }
     public int CheckedMemberReferences { get; set; }
     public int ProtectedTypesVerified { get; set; }
@@ -21,7 +23,7 @@ public sealed class PackageApiReport
 
 public sealed record PackageApiBinding(string Assembly, string OriginalMember, string BoundMember, string[] Callers);
 
-/// <summary>Validate package ABI before IL2CPP; repair only proven covariant getter signatures.</summary>
+/// <summary>Validate player package ABI before IL2CPP; repair only source-proven compatible bindings.</summary>
 internal static class PackageApiBindings
 {
     // These original DLLs are disabled in the generated player in favour of actual
@@ -33,7 +35,7 @@ internal static class PackageApiBindings
         "Unity.XR.Management", "Unity.XR.OpenXR", "Unity.XR.CoreUtils"
     };
 
-    internal static PackageApiReport Write(string managed, string sdk, string output, string? referenceManaged = null)
+    internal static PackageApiReport Write(string managed, string sdk, string output, string? referenceManaged = null, string? sdkTarget = null)
     {
         managed = Path.GetFullPath(managed); sdk = Path.GetFullPath(sdk); output = Path.GetFullPath(output);
         if (!Directory.Exists(managed) || !Directory.Exists(sdk))
@@ -44,7 +46,8 @@ internal static class PackageApiBindings
             || sdk.StartsWith(output + Path.DirectorySeparatorChar, StringComparison.Ordinal)
             || Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any())
             throw new ArgumentException("Package API output must be empty and separate from immutable inputs.");
-        var report = new PackageApiReport();
+        if (sdkTarget is not (null or "Android")) throw new ArgumentException("Only the explicit Android player SDK target is supported.");
+        var report = new PackageApiReport { SdkTarget = sdkTarget };
         using var resolver = new DefaultAssemblyResolver();
         // Target package assemblies must win over the original disabled packages.
         resolver.AddSearchDirectory(sdk);
@@ -67,6 +70,7 @@ internal static class PackageApiBindings
             }
         }
         var inputs = new List<(string Path, AssemblyDefinition Assembly, bool Changed)>();
+        var metadataStreams = new List<MemoryStream>();
         try
         {
             foreach (string path in Directory.EnumerateFiles(managed, "*.dll").Order(StringComparer.Ordinal))
@@ -80,6 +84,18 @@ internal static class PackageApiBindings
                 Dictionary<string, string> protectedSnapshot = ProtectedTypes.Snapshot(assembly);
                 Dictionary<string, string> typeSnapshots = Discovery.AllTypes(module).ToDictionary(t => t.FullName, ProtectedTypes.Fingerprint);
                 var changedTypes = new HashSet<string>(StringComparer.Ordinal);
+                bool changed = TryAndroidDesktopCast(assembly, name, report, changedTypes);
+                if (changed)
+                {
+                    // Re-read emitted metadata so unused original TypeRef rows cannot
+                    // conceal another live use of the unavailable desktop-only type.
+                    var bytes = new MemoryStream(); metadataStreams.Add(bytes);
+                    assembly.Write(bytes); bytes.Position = 0;
+                    AssemblyDefinition rewritten = AssemblyDefinition.ReadAssembly(bytes,
+                        new ReaderParameters { AssemblyResolver = resolver, InMemory = true });
+                    inputs[^1] = (path, rewritten, true);
+                    assembly.Dispose(); assembly = rewritten; module = assembly.MainModule;
+                }
                 foreach (TypeReference type in module.GetTypeReferences().Where(t => IsPackage(t)))
                 {
                     report.CheckedTypeReferences++;
@@ -91,7 +107,6 @@ internal static class PackageApiBindings
                     catch (AssemblyResolutionException)
                     { report.Issues.Add(name + ": unresolved imported package type " + type.FullName); }
                 }
-                bool changed = false;
                 foreach (MemberReference member in module.GetMemberReferences().Where(m => IsPackage(m.DeclaringType)))
                 {
                     report.CheckedMemberReferences++;
@@ -145,7 +160,56 @@ internal static class PackageApiBindings
             report.Complete = true;
             return report;
         }
-        finally { foreach (var input in inputs) input.Assembly.Dispose(); }
+        finally
+        {
+            foreach (var input in inputs) input.Assembly.Dispose();
+            foreach (MemoryStream stream in metadataStreams) stream.Dispose();
+        }
+    }
+
+    static bool TryAndroidDesktopCast(AssemblyDefinition assembly, string filename,
+        PackageApiReport report, HashSet<string> changedTypes)
+    {
+        const string unavailable = "UnityEngine.InputSystem.Switch.SwitchProControllerHID";
+        if (report.SdkTarget != "Android" || filename != "InControl.dll" || assembly.Name.Name != "InControl"
+            || !report.SdkAssemblies.ContainsKey("Unity.InputSystem.dll")) return false;
+        TypeReference? desktop = assembly.MainModule.GetTypeReferences().SingleOrDefault(t =>
+            t.FullName == unavailable && Scope(t) == "Unity.InputSystem");
+        if (desktop == null || desktop.Resolve() != null) return false;
+        TypeDefinition? owner = assembly.MainModule.GetType("InControl.NewUnityInputDevice");
+        MethodDefinition? method = owner?.Methods.SingleOrDefault(m => m.Name == "DetectDeviceStyle");
+        if (method == null || !method.IsPrivate || !method.IsStatic || method.HasGenericParameters
+            || !method.HasBody || method.Body.Variables.Count != 0 || method.Body.ExceptionHandlers.Count != 0
+            || method.ReturnType.FullName != "InControl.InputDeviceStyle" || Scope(method.ReturnType) != "InControl"
+            || method.Parameters.Count != 1 || method.Parameters[0].ParameterType.FullName != "UnityEngine.InputSystem.InputDevice"
+            || Scope(method.Parameters[0].ParameterType) != "Unity.InputSystem") return false;
+        Instruction[] il = method.Body.Instructions.ToArray();
+        Code[] expected = { Code.Ldarg_0, Code.Isinst, Code.Brtrue_S, Code.Ldarg_0, Code.Isinst,
+            Code.Brtrue_S, Code.Ldarg_0, Code.Isinst, Code.Brtrue_S, Code.Br_S,
+            Code.Ldc_I4_2, Code.Ret, Code.Ldc_I4_6, Code.Ret, Code.Ldc_I4_S, Code.Ret, Code.Ldc_I4_0, Code.Ret };
+        if (il.Length != expected.Length || !il.Select(i => i.OpCode.Code).SequenceEqual(expected)
+            || il[1].Operand is not TypeReference xbox || xbox.FullName != "UnityEngine.InputSystem.XInput.XInputController" || Scope(xbox) != "Unity.InputSystem"
+            || il[4].Operand is not TypeReference dualShock || dualShock.FullName != "UnityEngine.InputSystem.DualShock.DualShockGamepad" || Scope(dualShock) != "Unity.InputSystem"
+            || il[7].Operand is not TypeReference candidate || candidate.FullName != unavailable || Scope(candidate) != "Unity.InputSystem"
+            || !ReferenceEquals(il[2].Operand, il[10]) || !ReferenceEquals(il[5].Operand, il[12])
+            || !ReferenceEquals(il[8].Operand, il[14]) || !ReferenceEquals(il[9].Operand, il[16])
+            || il[14].Operand is not sbyte value || value != 21) return false;
+        TypeDefinition? style = assembly.MainModule.GetType("InControl.InputDeviceStyle");
+        bool EnumValue(string field, int value) => style?.IsEnum == true
+            && style.Fields.SingleOrDefault(f => f.Name == field)?.Constant is int actual && actual == value;
+        if (!EnumValue("Unknown", 0) || !EnumValue("XboxOne", 2) || !EnumValue("PlayStation4", 6)
+            || !EnumValue("NintendoSwitch", 21)) return false;
+        // InputSystem1.7 compiles this HID class only for Editor, desktop Win/OSX
+        // and WSA. Android cannot instantiate it. The owned InControl method uses
+        // the cast solely to choose NintendoSwitch instead of its existing Unknown
+        // fallback; remove that impossible test, retaining Xbox/DualShock tests,
+        // original branch targets and every device callback/control mapping.
+        il[6].OpCode = OpCodes.Nop; il[6].Operand = null;
+        il[7].OpCode = OpCodes.Ldnull; il[7].Operand = null;
+        changedTypes.Add(owner!.FullName);
+        report.Rebindings.Add(new PackageApiBinding(filename, "isinst " + unavailable,
+            "ldnull (Android SDK excludes desktop HID; existing Unknown branch)", new[] { method.FullName }));
+        return true;
     }
 
     static bool Valid(MemberReference member, PackageApiReport report)

@@ -10,7 +10,7 @@ internal static class Program
         {
             if (args.Length == 0 || args[0] is "--help" or "help")
             {
-                Console.WriteLine("QuestWeaver audit|weave --mod DLL --managed DIR --output PATH [--report JSON] [--diagnostic-static-subset]\nQuestWeaver standalone --standalone-target startup --managed DIR --profile JSON --output EMPTY_DIR [--overrides WOVEN_DIR] [--report JSON]\nQuestWeaver package-api --managed ACTIVE_DLL_DIR --sdk IMPORTED_PACKAGE_DLL_DIR --output EMPTY_DIR [--reference-managed ORIGINAL_DLL_DIR] [--report JSON]");
+                Console.WriteLine("QuestWeaver audit|weave --mod DLL --managed DIR --output PATH [--report JSON] [--diagnostic-static-subset]\nQuestWeaver standalone --standalone-target startup --managed DIR --profile JSON --output EMPTY_DIR [--overrides WOVEN_DIR] [--report JSON]\nQuestWeaver package-api --managed ACTIVE_DLL_DIR --sdk IMPORTED_PACKAGE_DLL_DIR --output EMPTY_DIR [--reference-managed ORIGINAL_DLL_DIR] [--sdk-target Android] [--report JSON]");
                 return args.Length == 0 ? 64 : 0;
             }
             var options = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -23,24 +23,24 @@ internal static class Program
                 if (!options.TryAdd(args[i], args[++i])) throw new ArgumentException("Repeated option.");
             }
             foreach (string key in options.Keys)
-                if (key is not ("--mod" or "--managed" or "--output" or "--report" or "--standalone-target" or "--profile" or "--overrides" or "--bepinex" or "--sdk" or "--reference-managed"))
+                if (key is not ("--mod" or "--managed" or "--output" or "--report" or "--standalone-target" or "--profile" or "--overrides" or "--bepinex" or "--sdk" or "--reference-managed" or "--sdk-target"))
                     throw new ArgumentException("Unknown option: " + key);
             string Required(string key) => options.TryGetValue(key, out string? value)
                 ? Path.GetFullPath(value) : throw new ArgumentException("Missing option: " + key);
             if (args[0] == "package-api")
             {
-                if (subset || options.Keys.Any(k => k is not ("--managed" or "--sdk" or "--output" or "--report" or "--reference-managed")))
+                if (subset || options.Keys.Any(k => k is not ("--managed" or "--sdk" or "--output" or "--report" or "--reference-managed" or "--sdk-target")))
                     throw new ArgumentException("Package API binding accepts only its explicit input, SDK, output and report options.");
                 string packageOutput = Required("--output");
                 PackageApiReport packageReport = PackageApiBindings.Write(Required("--managed"), Required("--sdk"), packageOutput,
-                    options.ContainsKey("--reference-managed") ? Required("--reference-managed") : null);
+                    options.ContainsKey("--reference-managed") ? Required("--reference-managed") : null, options.GetValueOrDefault("--sdk-target"));
                 string packageReportPath = options.TryGetValue("--report", out string? packageReportValue)
                     ? Path.GetFullPath(packageReportValue) : packageOutput + ".report.json";
                 WriteJson(packageReportPath, packageReport);
                 Console.WriteLine($"QuestWeaver: package ABI complete={packageReport.Complete}; types={packageReport.CheckedTypeReferences}; members={packageReport.CheckedMemberReferences}; rebindings={packageReport.Rebindings.Count}; issues={packageReport.Issues.Count}.");
                 return packageReport.Complete && packageReport.Issues.Count == 0 ? 0 : 2;
             }
-            if (options.Keys.Any(k => k is "--sdk" or "--reference-managed")) throw new ArgumentException("Package SDK options require the package-api command.");
+            if (options.Keys.Any(k => k is "--sdk" or "--reference-managed" or "--sdk-target")) throw new ArgumentException("Package SDK options require the package-api command.");
             if (args[0] == "standalone")
             {
                 if (subset || options.GetValueOrDefault("--standalone-target") != "startup") throw new ArgumentException("Standalone supports only explicit --standalone-target startup.");
