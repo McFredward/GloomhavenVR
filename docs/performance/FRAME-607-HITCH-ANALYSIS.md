@@ -125,6 +125,38 @@ does not establish that those remaining first-use paths are fully prewarmed.
 Matched hardware measurements are required after the source changes before any
 claim that all hitches are resolved.
 
+## Build608 validation and remaining hardware check
+
+The final integrated tree at `06cdfa01` passes 14 source suites, all 103 local
+suites, 286,760 wire/golden assertions, strict Release with zero warnings/errors
+and five bilingual document pairs. Independent report and log-hash verification
+confirms complete coverage. The local run took 689.2 seconds with eight jobs.
+Against the preserved607 compiled snapshot, only CardFace, CardHalfTone and
+WallSegmentFade behavior changes; eight other types change solely through the
+inlined607 →608 build constant. No type or assembly reference is added/removed.
+The guard's nonzero historical compiled-diff status is reviewed change evidence,
+not a failed test. Source hashes do not drift during the final gate.
+
+The exact wall classifier passes 19,479 assertions and 21 deliberate defect
+controls. Actual Unity/native-Drake tests pass 184 assertions and 18 controls,
+including sleeping/flying local/remote pose pixels, native-named mirror children,
+inactive/dead rows, exact root selector emission and conservative foreign/native
+world ownership. Final card diagnostics pass 486 assertions and ten controls.
+Under parallel desktop test load, worst discovery/sample/report scopes are
+0.426/5.792/11.642 ms; these are not Steam Frame measurements or a hard budget.
+Normal diagnostics and repeated unprintable inventories are bypassed in the
+actual tested work paths, not merely omitted from text output.
+
+Full proofs live under `.planning/debug/frame608-final-validation/`; compact
+wall/native topology proofs are in `.planning/debug/frame608-wall-ownership-worker/`.
+Hardware should now recheck figure pickup/release, selection changes and first
+character/fan presentation. For an isolated mesh timing comparison, close VR
+Options after each setting and keep the same tracked view for at least 40 seconds
+before the next change. Do not mix FX/scenery/cloth changes with the figure sweep.
+The next capture must establish whether false wall commits disappear and whether
+remaining expensive card frames are first-use captures, staged diagnostics or
+another scope. No measured headset improvement is claimed before that capture.
+
 ## Next loading-time preparation target
 
 CardArtPrewarm is fed by `CardFace.Adopt` and prepares concrete widgets that have

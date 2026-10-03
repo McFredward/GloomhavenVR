@@ -25,6 +25,21 @@ already-adopted card widgets, not all party hands or complete mip caches; loadin
 coverage needs the actual native hand skins and must not activate gameplay controllers.
 Hardware cadence for608 and a controlled figure-slider FPS benefit remain unverified.
 
+Final integrated validation on runtime commit `06cdfa01` passes **14/14 source suites,
+103/103 local suites and 286,760 wire/golden assertions**, strict Release with zero
+warnings/errors, five bilingual document pairs and independent suite/log-hash coverage
+verification. The complete local run took 689.2 s with eight jobs. Input source hashes
+remain identical to the validated tree. Against the preserved reviewed607 assembly,
+only the three intended behavior types (card half-tone diagnostics, face blackout and
+wall fade) and eight build-constant-only types change; no type/reference is added or
+removed. Guard exit1 reflects its historical compiled comparison, not a failed gate.
+Real Unity card proofs pass 486 assertions and ten defect controls; wall classifier
+proofs pass 19,479 assertions and 21 controls; original-native local/remote figure
+proofs pass 184 assertions and 18 controls. Evidence and compiled/source/artifact hashes
+are retained in `.planning/debug/frame608-final-validation/`, with the native selector
+asset graph and compact worker proofs in `.planning/debug/frame608-wall-ownership-worker/`.
+No608 hardware performance or full party-hand prewarm outcome is claimed.
+
 Build607 separates player/enemy/figure-FX/cloth measurement windows at the early
 Update seam, retaining OLD settings on completed samples and discarding one mixed
 transition frame. Preparation and steady FRAME tags carry revisions; a completed
