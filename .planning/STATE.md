@@ -1,5 +1,46 @@
 # State — where the project stands
 
+**Quest original-startup checkpoint, 2026-10-03: isolated feature, ModBuild 612.**
+
+The maintainer accepted B611 animation, lighting, textures and native button
+handling. Its supplied capture verifies the installed APK hash and contains 14
+72–73 FPS samples from the small diagnostic; this is not campaign performance
+evidence. B612 adds right-stick height and fixes the Windows collector's handling
+of successful ADB receipts on stderr. Startup/current/previous logs and bounded
+state are collected alongside the older probe logs when present.
+
+The privately built B612 Android player uses the original Bootstrap/Intro/unified/MainMenu
+scene closure, the real current mod build/static weave and an offline local
+platform adapter. The full VR mod remains inactive pending its AOT/XR lifecycle
+proof. Actual Unity has remapped 7,665 package script references while preserving
+original callbacks, resolved the export's case-colliding paths without changing
+original GUIDs, and built a native Android catalog with 405 eligible assets,
+762 original-key aliases and 10 labels. Required original native Unity modules
+are derived from the selected player and exact editor. The actual signed ARM64
+IL2CPP build succeeds with diagnostic Debug/O0, a higher parser nesting limit
+and LLVM LLD for the large native library. Its 1,109,713,887-byte APK has SHA256
+`567722d511049f183e35236427d4128ba6ee056398df7c4543b982efc8bf3797`, from frozen
+runtime/tool source `3e4f8edb`, input `430fd5ea2730a2353be04c93d90c49dd7c4ede27ebc1ef6bd94122d9cf4f4fea`.
+The embedded manifest matches the immutable input; package and B611 signing
+identity are retained. Windows installation now budgets this large transfer by
+verified file size, without uninstalling or retrying. Final checks pass 14 source
+suites, all 111 local suites and 286,760 wire/golden assertions, bundle/mesh and
+surface checks; strict Release has zero warnings/errors. The older Build-601
+guard comparison requires review rather than exit zero: the fresh reviewed609
+comparison accepts only build constants, additional Quest texts and branch
+metadata, with unchanged references/resources. The private Windows package's
+actual default dry-run is verified; headset outcomes remain unverified.
+
+The original Photon client reached the live desktop Master/default lobby without
+EOS or additional authentication. Android connection, original room admission
+and PC crossplay remain hardware gates. Original tokens/rules/protected network
+types stay unchanged. Guildmaster/Workshop and voice opt-in are unavailable in
+this startup target; campaign generation, original save round trips, shader
+parity and full mod execution remain separate gates. See
+[the B612 procedure and boundaries](QUEST3-HARDWARE-612.md) and
+[the original-network proof](QUEST3-NETWORK-PREFLIGHT.md).
+Quest work stays on `feature/quest3-standalone`; concurrent `dev` work is untouched.
+
 **Quest hardware response, 2026-10-03: isolated feature, ModBuild 611.**
 
 The first private headset photographs show native passthrough, both controllers

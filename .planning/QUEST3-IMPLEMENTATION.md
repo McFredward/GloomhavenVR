@@ -1,9 +1,22 @@
 # Quest implementation and hardware checkpoints
 
-Current isolated checkpoint: ModBuild611, responding to the first Quest hardware
-report with corrected aim/tint, diagnostic navigation, a larger visual test battery
-and a read-only Windows log collector. See [611 hardware procedure](QUEST3-HARDWARE-611.md).
-This remains a probe; complete original-game startup and the gates below are pending.
+Current isolated implementation: ModBuild612, a successfully built and signed
+real original-scene startup/menu checkpoint after the maintainer accepted B611 animation, lighting,
+textures and button handling. Right-stick height and the Windows capture repair
+are integrated. See [612 hardware procedure](QUEST3-HARDWARE-612.md),
+[startup recovery](QUEST3-STARTUP-RECOVERY.md),
+[runtime boundary](QUEST3-STARTUP-RUNTIME.md) and
+[original network audit](QUEST3-NETWORK-PREFLIGHT.md).
+This remains a guarded startup diagnostic. Campaign generation, full mod
+lifecycle, original save round trips and Android crossplay are independent gates.
+The private 1.1 GB ARM64 IL2CPP APK uses diagnostic Debug/O0 and LLVM LLD;
+the embedded input and B611 signing continuity are verified. The Windows
+installer now budgets transfer time from APK size. All 14 source and 111 local
+suites, 286,760 wire/golden assertions and bundle/mesh/surface checks pass;
+strict Release has zero warnings/errors. The fresh compiled comparison is
+accepted against reviewed609, separately from the expected nonzero historical
+Build-601 guard comparison. Actual Windows package selection is independently
+validated; no B612 headset outcome is claimed.
 
 
 Implementation was explicitly authorized on 2026-10-03 after the planning-only
