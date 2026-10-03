@@ -243,3 +243,61 @@ the native generation requirement separately. Metadata evidence is private
 `startup-audit/apparance-scene-components.json` and
 `apparance-startup-pools.json`; exact SDK decompiles remain private in
 `apparance-source/`. These are source facts, not Android runtime evidence.
+
+## Legacy eye histogram compute source
+
+The real Android Player build crashed in compute variant serialization after
+`buildTarget.platform >= kFirstValidStandaloneTarget` assertions. The selected
+raw closure contains exactly one native ComputeShader dump:
+`Assets/Resources/shaders/EyeHistogram.asset`, GUID
+`14b830dd8a5381e4399cfe161a01662f`, local object ID 7200000, SHA-256
+`18348db1beec6ab43f07ded89f3dcc9815d196d8d87d6527ba6365afd04bd0de`.
+Its compilation platform is zero, source/sourceFile are empty, and the dumped
+native object cannot supply Android shader source. No selected serialized
+asset references its GUID and it is absent from the startup Addressables
+entries. Its actual runtime association is legacy
+`UnityEngine.PostProcessing.EyeAdaptationComponent.Prepare` in the owned
+`GH.Runtime.FirstPass.dll`: Resources.Load("Shaders/EyeHistogram"), kernel
+`KEyeHistogram`, ComputeBuffer(64, 4), `_Histogram`, `_Source`, float4
+`_ScaleOffsetRes`, and ceil(width/16), ceil(height/16), 1 dispatch.
+
+The compatible source is Unity's official PostProcessing **v1** branch at
+commit `933df236f509ed64ae5763ed57af33f2342cd1c2`, rather than the unrelated
+v2/v3 package source. `compute_sources.py` pins SHA-256 for EyeHistogram.compute,
+Common.cginc, EyeAdaptation.cginc and the upstream MIT LICENSE. It verifies the
+transitive private include closure, declaring UnityCG.cginc as the Unity editor
+builtin compiler boundary, and verifies both the recovered native ABI and
+official source ABI. Upstream also includes the unused additive
+`KEyeHistogramClear` kernel; it is recorded explicitly. This establishes source
+compatibility, not original output pixel parity.
+
+After immutable source validation and template overlay, before Unity import:
+
+```sh
+python3 tools/quest-recovery/compute_sources.py \
+  --project /private/generated/project --cache /private/tool-cache
+```
+
+The helper automatically obtains exact official files from the pinned commit,
+verifies every source/license hash before project writes, and restores real
+`.compute` source at the existing Resources path. It preserves the GUID and
+native compute object identity, replacing only the invalid NativeFormatImporter
+with a ComputeShaderImporter. Original asset/meta bytes move outside Assets to
+`QuestStartupEvidence/OriginalComputeShader/`. A receipt records original/runtime
+hashes, source hashes, license, include boundary, exact ABI, preserved Resources
+key and any owned script-path mapping. Unchanged script bindings retain their
+original bytes. Unknown compute objects, new serialized/Addressables references,
+occupied destinations, changed source/runtime identities and ambiguous retry
+evidence reject without writing; partial IO failure restores original bytes.
+`fullGameReady`, `originalPixelParityVerified` and `androidShaderCompiled` remain
+false in this source restoration receipt; an actual compilation requires separate
+evidence.
+
+All 22 focused controls pass, including the actual private raw-object ABI and
+official pinned-cache validation. Portable controls cover unknown native/source
+compute objects, GUID, callbacks, raw-project/symlink rejection, shader/runtime
+hash corruption, unpinned downloads, kernel/buffer/constant-layout/thread-group
+differences, include/ABI mismatch despite matching hashes, addressable/serialized
+references, rollback, idempotence and retry provenance. Neither original owned
+source nor public downloaded shader files are committed. The isolated Android
+shader bundle check is separate from the full original startup Player build.
