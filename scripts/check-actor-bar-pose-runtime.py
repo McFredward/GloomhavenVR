@@ -62,6 +62,7 @@ def main():
     seam += '\n' + method(budget, 'internal ScenarioFigureMeshBank.Record? OriginalRecordFor(Renderer renderer)')
     sources = {
         'ActorBarPose.cs': (source / 'WorldUI/ActorBarPose.cs').read_text(),
+        'NativeActorPoseAudit.cs': (source / 'Core/Perf/NativeActorPoseAudit.cs').read_text(),
         'FigureVisualMirror.cs': (source / 'Board/FigureGrab/FigureVisualMirror.cs').read_text(),
         'ScenarioFigureMeshBank.cs': (source / 'Core/Perf/ScenarioFigureMeshBank.cs').read_text(),
         'ActorBarsReads.cs': 'using UnityEngine; using GloomhavenVR.Board.FigureGrab; using GloomhavenVR.Core;\nnamespace GloomhavenVR.WorldUI { internal static partial class ActorBars {\n' + methods + '\n}}',
@@ -79,7 +80,7 @@ def main():
             ('no-avatar-cycle-binding', 'ActorBarPose.cs', 'Animator sampler = animated.gameObject.AddComponent<Animator>();\n            sampler.avatar = animator.avatar; sampler.enabled = false;', '', 'complete native loop peak known before first flap'),
             ('lifetime-loop-cache', 'ActorBarPose.cs', 'if (!_hasLoop || key != _loopState || scale != _loopScale || rotation != _loopRotation)', 'if (!_hasLoop || scale != _loopScale || rotation != _loopRotation)', 'native sleep state releases prior flight cycle peak immediately'),
             ('skip-unknown-bone-writer', 'ActorBarPose.cs', 'if (component is MonoBehaviour || component is UnityEngine.Animations.IConstraint)', 'if (bool.Parse("false"))', 'unknown procedural bone deformation always gets an immediate safe ceiling'),
-            ('disable-loop-cadence', 'ActorBarPose.cs', 'bool sparse = interval > 0f && _quietRig', 'bool sparse = bool.Parse("false") && _quietRig', 'Frame loop cadence actually suppresses repeated original bone matrix walks'),
+            ('disable-loop-cadence', 'ActorBarPose.cs', 'bool sparse = interval > 0f && SparseEligible', 'bool sparse = bool.Parse("false") && SparseEligible', 'Frame loop cadence actually suppresses repeated original bone matrix walks'),
             ('omit-cycle-envelope', 'ActorBarPose.cs', 'if (haveBounds) relative =', 'if (false && haveBounds) relative =', 'complete native loop peak known before first flap'),
             ('head-offset-smoothing', 'ActorBarsReads.cs', 'adopted.AnchorOffsetWU = adopted.PoseAnchorY - trackY;', 'adopted.AnchorOffsetWU = ActorBarPose.Follow(adopted.AnchorOffsetWU, offset, Time.unscaledDeltaTime);', 'animated head cannot bob world-space cycle anchor'),
             ('ignore-live-pose', 'ActorBarsReads.cs', 'if (TryPoseOffset(adopted.Pose, controller, out float poseOffset))', 'if (TryPoseOffset(null, controller, out float poseOffset))', 'live native skin envelope remains available'),

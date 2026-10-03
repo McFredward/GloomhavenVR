@@ -335,6 +335,7 @@ internal static class ActorBars
     private static int s_barPoseWrites;
     private static int s_barBoneChecks;
     private static int s_barLoopSkips;
+    private static int s_barPoseEligible, s_barPoseUnsafe;
     private static int s_barScaleWrites;
     private static int s_barDepthScans;
 
@@ -556,6 +557,7 @@ internal static class ActorBars
         s_barPoseWrites = 0;
         s_barBoneChecks = 0;
         s_barLoopSkips = 0;
+        s_barPoseEligible = 0; s_barPoseUnsafe = 0;
         s_barScaleWrites = 0;
         s_barDepthScans = 0;
 
@@ -678,7 +680,10 @@ internal static class ActorBars
                 bool samePose = adopted.Pose == previousPose;
                 s_barBoneChecks += adopted.Pose.VerificationCount - (samePose ? previousChecks : 0);
                 s_barLoopSkips += adopted.Pose.SkippedVerificationCount - (samePose ? previousSkips : 0);
+                ScenarioIdleAnimationBudget.Register(adopted.Actor, adopted.Pose);
+                if (adopted.Pose.SparseEligible) s_barPoseEligible++; else s_barPoseUnsafe++;
             }
+            else ScenarioIdleAnimationBudget.Release(adopted.Actor);
             bool haveTrack = TryGetTrackPoint(controller, out Vector3 track);
             Vector3 pos = track + Vector3.up * adopted.AnchorOffsetWU;
 
@@ -826,6 +831,10 @@ internal static class ActorBars
         PerfMonitor.Count("Bars.PoseWrites", s_barPoseWrites);
         PerfMonitor.Count("Bars.PoseChecks", s_barBoneChecks);
         PerfMonitor.Count("Bars.LoopSkips", s_barLoopSkips);
+        // These disjoint population counters classify captured rigs, not shortcut attempts.
+        // Interval, transitions and layered states can still make a safe rig evaluate normally.
+        PerfMonitor.Count("Bars.PoseEligible", s_barPoseEligible);
+        PerfMonitor.Count("Bars.PoseUnsafeRig", s_barPoseUnsafe);
         PerfMonitor.Count("Bars.ScaleWrites", s_barScaleWrites);
         PerfMonitor.Count("Bars.DepthScans", s_barDepthScans);
     }
@@ -2466,6 +2475,9 @@ internal static class ActorBars
                        ActorBehaviour.GetActorBehaviour(controller.m_ObjectToTrack)) != null,
         };
         Owned.Add(controller);
+        PerfMonitor.Register("Bars.PoseEligible"); PerfMonitor.Register("Bars.PoseUnsafeRig");
+        PerfMonitor.Register("Bars.LoopSkips");
+        ScenarioIdleAnimationBudget.Register(Adoptions[controller].Actor, pose);
         LogAnchor("at ADOPT", LabelOf(controller, Adoptions[controller].Actor), anchorOffset, anchorReport);
         LogModifierIconWatchArmed();
 
@@ -2678,6 +2690,7 @@ internal static class ActorBars
             // A bar can be destroyed while an attack is still resolving on it (a lethal hit): close
             // the episode here so its verdict is printed instead of being swallowed with the bar.
             CloseModifierIconEpisode(adopted, controller);
+            ScenarioIdleAnimationBudget.Release(adopted.Actor);
             RestoreBarDepthTest(adopted);
             RestoreBarRaycast(adopted);
             CanvasConversion.Release(adopted.Panel);
@@ -2692,6 +2705,7 @@ internal static class ActorBars
         foreach (KeyValuePair<WorldspacePanelUIController, Adopted> pair in Adoptions)
         {
             CloseModifierIconEpisode(pair.Value, pair.Key);
+            ScenarioIdleAnimationBudget.Release(pair.Value.Actor);
             RestoreBarDepthTest(pair.Value);
             RestoreBarRaycast(pair.Value);
             CanvasConversion.Release(pair.Value.Panel);

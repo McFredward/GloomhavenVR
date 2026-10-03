@@ -76,6 +76,13 @@ internal sealed class ActorBarPose
     private Quaternion _loopRotation;
     private int _cycleReports;
     private bool _quietRig = true;
+    private readonly List<Component> _liveAudit = new(4);
+    private readonly HashSet<AnimationClip> _eventFreeIdleLoops = new();
+    private RuntimeAnimatorController? _preparedController;
+    private string _auditRefusal = "";
+    private readonly Dictionary<int, bool> _stateAudits = new();
+    private bool _stateSafe = true;
+    private bool _hasNoStateBehaviours;
     private float _nextVerification;
     private float _verifiedRelativeTop;
     private int _verifications, _skippedVerifications;
@@ -89,6 +96,25 @@ internal sealed class ActorBarPose
     internal int LoopCount => _loops.Count;
     internal int VerificationCount => _verifications;
     internal int SkippedVerificationCount => _skippedVerifications;
+    internal bool SparseEligible => _root != null && _quietRig && _stateSafe
+        && NativeActorPoseAudit.StillSafe(_liveAudit, _root);
+    internal string AuditRefusal => _auditRefusal;
+    internal Animator? NativeAnimator => _animator;
+    internal GameObject NativeRoot => _root.gameObject;
+
+    internal bool IsEventFreeNativeIdle()
+    {
+        if (!SparseEligible || _animator == null || !_animator.isActiveAndEnabled
+            || _animator.runtimeAnimatorController != _preparedController || _animator.layerCount != 1
+            || _animator.IsInTransition(0) || _animator.GetNextAnimatorStateInfo(0).fullPathHash != 0)
+            return false;
+        AnimatorStateInfo state = _animator.GetCurrentAnimatorStateInfo(0);
+        if (!state.loop || !NativeActorPoseAudit.IsIdleState(state)) return false;
+        if (!StateIsQuiet(state.fullPathHash)) return false;
+        _clips.Clear(); _animator.GetCurrentAnimatorClipInfo(0, _clips);
+        return _clips.Count == 1 && _clips[0].clip != null
+            && _eventFreeIdleLoops.Contains(_clips[0].clip);
+    }
 
     internal static ActorBarPose? Capture(GameObject root, Transform head)
     {
@@ -154,6 +180,7 @@ internal sealed class ActorBarPose
     // existing staggered slow cadence; no hierarchy/LOD discovery or geometry read is involved.
     internal bool PaletteMatches()
     {
+        if (_animator != null && _animator.runtimeAnimatorController != _preparedController) return false;
         foreach (Skin skin in _skins)
         {
             if (!skin.SourceMatches()) return false;
@@ -186,9 +213,11 @@ internal sealed class ActorBarPose
         // coordinates, not a head-relative offset or a lifetime/world-space maximum. Translation,
         // table zoom and a genuine new native animation must not inherit an earlier flight peak.
         if (_animator == null || !_animator.isActiveAndEnabled || _animator.layerCount == 0
+            || _animator.runtimeAnimatorController != _preparedController
             || _animator.IsInTransition(0)) { _hasLoop = false; return TryCurrentTop(out top); }
         AnimatorStateInfo state = _animator.GetCurrentAnimatorStateInfo(0);
         if (!state.loop) { _hasLoop = false; return TryCurrentTop(out top); }
+        _stateSafe = StateIsQuiet(state.fullPathHash);
         _clips.Clear(); _animator.GetCurrentAnimatorClipInfo(0, _clips);
         if (_clips.Count == 0) { _hasLoop = false; return TryCurrentTop(out top); }
         int key = state.fullPathHash;
@@ -215,13 +244,14 @@ internal sealed class ActorBarPose
             if (VRLog.WantsDebug && _cycleReports < 12)
             {
                 _cycleReports++;
-                VRLog.Debug("WorldUI", $"BAR POSE native loop '{_root.name}' state={state.fullPathHash} "
-                    + $"clips={_clips.Count} prepared={haveBounds} sparseEligible={_quietRig}; cycle height fixed until state/scale/rotation changes "
+                VRLog.Info("WorldUI", $"BAR POSE native loop '{_root.name}' state={state.fullPathHash} "
+                    + $"clips={_clips.Count} prepared={haveBounds} sparseEligible={SparseEligible} "
+                    + $"interval={PerfConfig.ActorBarPoseCheckInterval:F3}s refusal='{_auditRefusal}'; cycle height fixed until state/scale/rotation changes "
                     + $"(bounded report {_cycleReports}/12).");
             }
         }
         float interval = PerfConfig.ActorBarPoseCheckInterval;
-        bool sparse = interval > 0f && _quietRig && haveBounds && _animator.layerCount == 1 && _clips.Count == 1;
+        bool sparse = interval > 0f && SparseEligible && haveBounds && _animator.layerCount == 1 && _clips.Count == 1;
         if (sparse && !changed && Time.unscaledTime < _nextVerification)
         {
             // Keep source/topology liveness immediate. Unknown bone writers, humanoid IK and
@@ -252,6 +282,7 @@ internal sealed class ActorBarPose
     {
         Animator animator = _animator!;
         if (animator.runtimeAnimatorController == null) return;
+        _preparedController = animator.runtimeAnimatorController;
         GameObject? host = null;
         try
         {
@@ -261,6 +292,7 @@ internal sealed class ActorBarPose
                 for (Transform? t = bone.Transform; t != null && t != _root; t = t.parent) needed.Add(t);
             for (Transform? t = animator.transform; t != null && t != _root; t = t.parent) needed.Add(t);
             _quietRig = !animator.isHuman;
+            _hasNoStateBehaviours = animator.GetBehaviours<StateMachineBehaviour>().Length == 0;
             foreach (Transform transform in needed)
             {
                 // Only the existing animation graph may deform the sampled skeleton. Unity IK,
@@ -269,8 +301,15 @@ internal sealed class ActorBarPose
                 foreach (Component component in transform.GetComponents<Component>())
                     if (component is MonoBehaviour || component is UnityEngine.Animations.IConstraint)
                     {
-                        if (transform == _root && component.GetType() == typeof(ActorBehaviour)) continue;
-                        _quietRig = false; break;
+                        if (NativeActorPoseAudit.Allows(component, _root))
+                        {
+                            if (NativeActorPoseAudit.NeedsLiveCheck(component)) _liveAudit.Add(component);
+                            continue;
+                        }
+                        _quietRig = false;
+                        if (VRLog.WantsDebug && _auditRefusal.Length < 512)
+                            _auditRefusal += (string.IsNullOrEmpty(_auditRefusal) ? "" : "; ")
+                                + component.GetType().FullName + "@" + transform.name;
                     }
             }
             host = new GameObject("GloomhavenVR.BarLoopSampler") { hideFlags = HideFlags.HideAndDontSave };
@@ -289,6 +328,7 @@ internal sealed class ActorBarPose
             foreach (AnimationClip clip in clips)
             {
                 if (clip == null || !clip.isLooping || _loops.ContainsKey(clip) || _loops.Count >= 48) continue;
+                if (clip.events.Length == 0) _eventFreeIdleLoops.Add(clip);
                 int samples = Mathf.Clamp(Mathf.CeilToInt(clip.length * 90f), 32, 256);
                 if (samples > samplesLeft) break;
                 samplesLeft -= samples;
@@ -323,6 +363,22 @@ internal sealed class ActorBarPose
                 + "); evaluated native-state peak retained.");
         }
         finally { if (host != null) UnityEngine.Object.Destroy(host); }
+    }
+
+    private bool StateIsQuiet(int fullPathHash)
+    {
+        if (_stateAudits.TryGetValue(fullPathHash, out bool safe)) return safe;
+        // Auditing the entire controller rejects every actor because attack/death/timeline
+        // behaviours coexist with its harmless idle state. Only the CURRENT native state
+        // may use the shortcut. Unknown state callbacks keep evaluated checks immediately.
+        StateMachineBehaviour[] behaviours = _animator!.GetBehaviours(fullPathHash, 0);
+        safe = behaviours != null || _hasNoStateBehaviours;
+        if (behaviours != null)
+            foreach (StateMachineBehaviour behaviour in behaviours)
+                if (behaviour == null || !NativeActorPoseAudit.AllowsStateBehaviour(behaviour))
+                { safe = false; break; }
+        if (_stateAudits.Count < 128) _stateAudits.Add(fullPathHash, safe);
+        return safe;
     }
 
     private static Transform CloneTransforms(Transform source, Transform parent,

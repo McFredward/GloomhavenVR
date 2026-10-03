@@ -9,6 +9,37 @@ public class ActorBehaviour : MonoBehaviour
     public static ActorBehaviour? GetActorBehaviour(GameObject root) => root.GetComponent<ActorBehaviour>();
 }
 public class UnknownPoseWriter : MonoBehaviour { }
+// The mathematical regression rig stays stripped. The separate native actor-audit suite
+// references the publisher's real types and original serialized prefab components instead.
+public class IdleSMB : StateMachineBehaviour { }
+public class AnimationOffsetSMB : StateMachineBehaviour { }
+public class ToggleAlternativeIdleFxSMB : StateMachineBehaviour { }
+public class ProgressChoreographerSMB : StateMachineBehaviour { }
+public class CharacterManager : MonoBehaviour { }
+public class ActorEvents : MonoBehaviour { }
+public class UnityGameEditorObject : MonoBehaviour { }
+public class VFXLookup : MonoBehaviour { }
+public class FootstepSound : MonoBehaviour { }
+public class AnimFXTrigger : MonoBehaviour { }
+public interface IDetailDisablerProvider { }
+public class CharacterShadowsDisabler : MonoBehaviour, IDetailDisablerProvider { }
+public class EnemyShadowsDisabler : CharacterShadowsDisabler { }
+public class DetailsDisabler : MonoBehaviour { }
+public class DeathDissolve : MonoBehaviour
+{
+    public bool addVertexAnim;
+    public static readonly List<DeathDissolve> s_DeathDissolvesInProgress = new();
+}
+public class AutomaticLOD : MonoBehaviour
+{
+    public enum SwitchMode { SwitchMesh, SwitchGameObject, UnityLODGroup }
+    public SwitchMode LODSwitchMode => SwitchMode.UnityLODGroup;
+}
+namespace EPOOutline
+{
+    public class Outlinable : MonoBehaviour { }
+    public class TargetStateListener : MonoBehaviour { }
+}
 public class WorldspaceDisplayPanelBase : MonoBehaviour
 {
     public enum PoinToTrack { Base, HeadBone, HeadBoneStatic }
@@ -32,6 +63,7 @@ namespace GloomhavenVR.Core
         internal static int Notes;
         internal static void Note(string area, string text) { Notes++; }
         internal static void Debug(string area, string text) { }
+        internal static void Info(string area, string text) { }
     }
     internal static class PerfMonitor
     {
@@ -64,6 +96,10 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR.Board.FigureGrab
 {
+    internal static class FigureBusy
+    {
+        internal static bool IsIdleClip(string name) => name.IndexOf("idle", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
     internal static class ActorPropBody
     {
         internal static ActorBehaviour? Attached;
