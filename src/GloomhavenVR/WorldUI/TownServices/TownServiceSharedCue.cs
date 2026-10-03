@@ -19,6 +19,7 @@ internal static class TownServiceSharedCue
     }
 
     private static readonly Dictionary<int, Visitor> Visitors = new();
+    private static readonly Dictionary<Transform, Image?> Borders = new();
     private const float FreshSeconds = 3f;
     internal static bool LocalReady { get; private set; }
     internal static float LocalStrength { get; private set; }
@@ -88,29 +89,36 @@ internal static class TownServiceSharedCue
         // local drop actionable. This changes only the already elected visible guide.
         if (gate == null || zone == null || gate.alpha <= .01f
             || !TownServiceMirror.CanShowLocalCue(3)) return;
-        PaintShared(gate, zone);
+        PaintShared(zone);
     }
 
     internal static void PaintRemote(CanvasGroup? gate, Transform? zone)
     {
         if (gate == null || zone == null || gate.alpha <= .01f) return;
-        PaintShared(gate, zone);
+        PaintShared(zone);
     }
 
-    private static void PaintShared(CanvasGroup gate, Transform zone)
+    private static void PaintShared(Transform zone)
     {
+        if (TownServiceGrantSync.GrantedOwner(3) != 0) return;
         bool author = TownServicePopulation.IsFaceAuthor;
         bool ready = author ? PublishedReady : _sharedAuthor == RemoteTownResidents.AuthorPlayer
             && Time.unscaledTime - _sharedReceived <= FreshSeconds && _sharedReady;
         if (!ready) return;
         float strength = author ? PublishedStrength : _sharedStrength;
         // This is the same ink/scale response used by the existing local offer guide.
-        TownServiceOfferFeedback.PaintInk(zone, zone.Find("Border")?.GetComponent<Image>(), strength);
+        if (!Borders.TryGetValue(zone, out Image? border))
+        {
+            if (Borders.Count >= 16) Borders.Clear();
+            border = zone.Find("Border")?.GetComponent<Image>();
+            Borders[zone] = border;
+        }
+        TownServiceOfferFeedback.PaintInk(zone, border, strength);
     }
 
     internal static void Reset()
     {
-        Visitors.Clear(); LocalReady = PublishedReady = _sharedReady = false;
+        Visitors.Clear(); Borders.Clear(); LocalReady = PublishedReady = _sharedReady = false;
         LocalStrength = PublishedStrength = _sharedStrength = 0f;
         _localSampled = _sharedReceived = float.NegativeInfinity; _sharedAuthor = 0;
     }
