@@ -196,7 +196,12 @@ def split_assignments(stmt: str):
         elif c == "=" and depth_p == 0 and depth_b == 0:
             prev = stmt[i - 1] if i else ""
             nxt = stmt[i + 1] if i + 1 < n else ""
-            if nxt == "=" or prev in "=!<>+-*/%&|^":
+            # A compound assignment's target is still a write. Keep its operator
+            # on the target segment for target_root(); comparison operators do
+            # not create targets. Treating += as an ordinary read misclassifies
+            # diagnostic counters, while the RHS and indexed target remain reads.
+            compound = any(stmt[:i + 1].endswith(op) for op in COMPOUND)
+            if nxt == "=" or prev in "=!" or (prev in "<>" and not compound):
                 i += 2 if nxt == "=" else 1
                 continue
             if nxt == ">":
