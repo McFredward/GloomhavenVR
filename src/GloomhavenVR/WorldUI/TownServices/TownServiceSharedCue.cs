@@ -55,6 +55,14 @@ internal static class TownServiceSharedCue
         _sharedReceived = Time.unscaledTime;
     }
 
+    internal static void Forget(int peer)
+    {
+        Visitors.Remove(peer);
+        if (_sharedAuthor != peer) return;
+        _sharedAuthor = 0; _sharedReady = false; _sharedStrength = 0f;
+        _sharedReceived = float.NegativeInfinity;
+    }
+
     internal static void Tick()
     {
         float now = Time.unscaledTime;
