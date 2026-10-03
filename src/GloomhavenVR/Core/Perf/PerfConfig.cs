@@ -155,6 +155,7 @@ internal static class PerfConfig
     internal static ConfigEntry<int> ScenarioDecorationDensityPercent = null!;
 
     internal static ConfigEntry<int> ScenarioVegetationDensityPercent = null!;
+    internal static ConfigEntry<float> ActorBarPoseCheckIntervalSeconds = null!;
     internal static ConfigEntry<bool> SuspendUnusedCameras = null!;
     internal static ConfigEntry<float> UiMaintenanceIntervalSeconds = null!;
     internal static ConfigEntry<bool> FigureDistanceLod = null!;
@@ -267,6 +268,8 @@ internal static class PerfConfig
         ScenarioVegetationDensityPercent == null ? Defaults.ScenarioVegetationDensityPercent
             : Mathf.Clamp(ScenarioVegetationDensityPercent.Value, 0, 100);
 
+    internal static float ActorBarPoseCheckInterval => ActorBarPoseCheckIntervalSeconds == null
+        ? 0f : Mathf.Clamp(ActorBarPoseCheckIntervalSeconds.Value, 0f, .2f);
     internal static bool UnusedCamerasSuspended => SuspendUnusedCameras == null
         ? Defaults.SuspendUnusedCameras : SuspendUnusedCameras.Value;
     internal static float UiMaintenanceInterval => UiMaintenanceIntervalSeconds == null
@@ -437,6 +440,12 @@ internal static class PerfConfig
                 + "Solid wall/floor cores, native obstacles, doors, actors, lights and UI are retained. "
                 + "Works live; fresh standalone Frame defaults to 0%, PC to 100%; saved choices stay.",
                 new AcceptableValueRange<int>(0, 100)));
+        ActorBarPoseCheckIntervalSeconds = _file.Bind("Optimize", "ActorBarPoseCheckIntervalSeconds",
+            FrameDefaults.Active ? FrameDefaults.ActorBarPoseCheckIntervalSeconds : Defaults.ActorBarPoseCheckIntervalSeconds,
+            new ConfigDescription("Seconds between bone-position checks for health bars over steady idle "
+            + "figures. Prepared animation bounds retain the original idle-cycle height. 0 checks every "
+            + "frame. Actor/state changes, non-looping actions and native health callbacks remain immediate. "
+            + "Fresh Frame 0.1 s, PC 0; works live.", new AcceptableValueRange<float>(0f, .2f)));
         SuspendUnusedCameras = _file.Bind("Optimize", "SuspendUnusedCameras",
             FrameDefaults.Active ? FrameDefaults.SuspendUnusedCameras : Defaults.SuspendUnusedCameras,
             "Stop rendering from unused native cameras while preserving their projection and raycasting. "

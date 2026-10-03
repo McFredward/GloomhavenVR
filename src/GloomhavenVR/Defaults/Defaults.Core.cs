@@ -68,6 +68,7 @@ internal static partial class Defaults
     internal const int ScenarioSceneryDensityPercent = 100; // => [Optimize] ScenarioSceneryDensityPercent
     internal const int ScenarioDecorationDensityPercent = 100; // => [Optimize] ScenarioDecorationDensityPercent
     internal const int ScenarioVegetationDensityPercent = 100; // => [Optimize] ScenarioVegetationDensityPercent
+    internal const float ActorBarPoseCheckIntervalSeconds = 0f;
     internal const bool SuspendUnusedCameras = false;
     internal const float UiMaintenanceIntervalSeconds = 0f;
     internal const bool FigureDistanceLod = false;

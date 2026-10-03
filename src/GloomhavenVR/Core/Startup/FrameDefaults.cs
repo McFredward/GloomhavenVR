@@ -38,6 +38,7 @@ internal static class FrameDefaults
     // This seeds only the new key; all platforms retain the same reversible live control.
     internal const int ScenarioDecorationDensityPercent = 0;
     internal const int ScenarioVegetationDensityPercent = 0;
+    internal const float ActorBarPoseCheckIntervalSeconds = .1f;
     internal const bool SuspendUnusedCameras = true;
     internal const float UiMaintenanceIntervalSeconds = .05f;
     internal const bool FigureDistanceLod = true;

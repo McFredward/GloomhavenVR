@@ -702,6 +702,7 @@ internal static partial class Loc
             ["Optimize/ScenarioSceneryDensityPercent"] = Pair("Scenario grass (%)", "Szenario-Gras (%)"),
             ["Optimize/ScenarioDecorationDensityPercent"] = Pair("Scenario decoration (%)", "Szenario-Dekoration (%)"),
             ["Optimize/ScenarioVegetationDensityPercent"] = Pair("Scenario trees and bushes (%)", "Szenario-Bäume und Büsche (%)"),
+            ["Optimize/ActorBarPoseCheckIntervalSeconds"] = Pair("Idle health-bar pose checks (s)", "Lebensbalken-Ruhepose prüfen (s)"),
             ["Optimize/SuspendUnusedCameras"] = Pair("Suspend unused cameras", "Ungenutzte Kameras pausieren"),
             ["Optimize/UiMaintenanceIntervalSeconds"] = Pair("Panel maintenance interval (s)", "Fenster-Wartungsintervall (s)"),
             ["Optimize/FigureDistanceLod"] = Pair("Distance-based figure detail", "Figurendetails nach Abstand"),

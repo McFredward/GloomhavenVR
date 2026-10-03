@@ -244,6 +244,11 @@ internal static partial class Loc
                 + "eigene Regler. Tragende Wände, Böden, Spielhindernisse, Türen, Figuren, Licht und UI "
                 + "bleiben erhalten. Wirkt sofort; neue Frame-Profile beginnen mit 0%, PC mit 100%; "
                 + "gespeicherte Werte bleiben erhalten.",
+            ["Optimize/ActorBarPoseCheckIntervalSeconds"] =
+                "Sekunden zwischen Knochenpositionsprüfungen der Lebensbalken bei unverändert ruhenden "
+                + "Figuren. Vorbereitete Animationsgrenzen erhalten die originale Höhe des Ruhezyklus. "
+                + "0 prüft jeden Frame. Figur-/Zustandswechsel, einzelne Aktionen und Lebensänderungen "
+                + "bleiben sofort wirksam. Neue Frame-Profile 0,1 s, PC 0; wirkt sofort.",
             ["Optimize/SuspendUnusedCameras"] =
                 "Stoppt das Rendering ungenutzter Spielkameras. Ihre Projektion und Laser-Zielprüfung "
                 + "bleiben erhalten. Sichtbare Flat-Menüs und benötigte Vorschauen rendern weiter. "
