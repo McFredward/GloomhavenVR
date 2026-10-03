@@ -345,20 +345,74 @@ internal static class TownServiceTransportVectors
         t.Case("Grabbing a card promotes its in-flight bundle baseline");
         var queue=new TownServiceSendQueue(65536);var receiver=new TownServiceFragments();
         for(ushort id=1;id<=20;id++){var baseline=Frame(id,1,16);byte[] raw=TownServiceCodec.Write(baseline);queue.Enqueue(raw,raw.Length,baseline);}
-        byte[] first=queue.Next(0)!;t.True(receiver.Accept(2,first,first.Length,0)==null,"cold bundle is still in flight");
+        byte[] first=queue.Next(0)!;
+        t.Equal((int)TownServiceFrame.BundleStream,TownServiceFragments.Stream(first,first.Length),"initial catalog uses the background bundle stream");
+        t.True(receiver.Accept(2,first,first.Length,0)==null,"cold bundle is still in flight");
         TownServiceFrame original=Frame(2,1,16), current=Frame(2,2,16);current.Pose[0]=.4f;
         TownServiceFrame moving=TownServiceDelta.Create(original,current);moving.HighPriority=true;
         byte[] bytes=TownServiceCodec.Write(moving);queue.Enqueue(bytes,bytes.Length,moving);
         bool baselineArrived=false,poseArrived=false,bundleArrived=false;
+        TownServiceFrame? receivedBaseline=null,rendered=null;
+        double baselineAt=-1,poseAt=-1,coldAt=-1;
+        int nextTick=1;
         for(int i=1;i<20&&!poseArrived;i++)
+        {
+            nextTick=i+1;
+            byte[]? page=queue.Next(i*.051);if(page==null)continue;
+            byte[]? result=receiver.Accept(2,page,page.Length,i*.051);if(result==null)continue;
+            int stream=TownServiceFragments.Stream(page,page.Length);
+            // Promoted original widgets now use their own compressed bundle stream.
+            // A completed urgent container is not completion of the in-flight cold
+            // catalog: apply its children just as the production receiver does.
+            byte[][] children=TownServiceCodec.TryReadBundle(result,result.Length,out byte[][]? members)?members!:new[]{result};
+            if(stream==TownServiceFrame.BundleStream){bundleArrived=true;coldAt=i*.051;}
+            foreach(byte[] child in children)
+            {
+                if(!TownServiceCodec.TryRead(child,child.Length,out TownServiceFrame? frame)||frame!.Module!=2)continue;
+                t.Equal((int)TownServiceFrame.UrgentBundleStream,stream,"promoted dependency and pose use the independent urgent stream");
+                if(frame.BaseSequence==0)
+                {
+                    byte[] expected=TownServiceCodec.Write(original);
+                    t.Wire(expected,child,child.Length,"promoted dependency is the exact original complete baseline");
+                    receivedBaseline=frame;baselineArrived=true;baselineAt=i*.051;
+                }
+                else
+                {
+                    t.True(baselineArrived,"promoted pose never arrives before its exact original dependency");
+                    rendered=TownServiceDelta.Expand(receivedBaseline,frame);
+                    t.True(rendered!=null,"urgent pose reconstructs against its delivered original baseline");
+                    if(rendered!=null)
+                    {
+                        byte[] expected=TownServiceCodec.Write(current),actual=TownServiceCodec.Write(rendered);
+                        t.Wire(expected,actual,actual.Length,"urgent native card has every original property and the current pose");
+                        poseArrived=true;poseAt=i*.051;
+                    }
+                }
+            }
+        }
+        t.True(baselineArrived&&poseArrived&&!bundleArrived,"urgent card renders with exact baseline before cold bundle completes");
+        var backgroundModules=new HashSet<ushort>();
+        for(int i=nextTick;i<100&&backgroundModules.Count<20;i++)
         {
             byte[]? page=queue.Next(i*.051);if(page==null)continue;
             byte[]? result=receiver.Accept(2,page,page.Length,i*.051);if(result==null)continue;
-            if(TownServiceCodec.TryReadBundle(result,result.Length,out _)){bundleArrived=true;continue;}
-            if(TownServiceCodec.TryRead(result,result.Length,out TownServiceFrame? frame)&&frame!.Module==2)
-            {if(frame.BaseSequence==0)baselineArrived=true;else poseArrived=true;}
+            if(TownServiceFragments.Stream(page,page.Length)!=TownServiceFrame.BundleStream)continue;
+            t.True(TownServiceCodec.TryReadBundle(result,result.Length,out byte[][]? children),"original cold bundle remains valid after urgent promotion");
+            if(children==null)continue;
+            foreach(byte[] child in children)
+            {
+                t.True(TownServiceCodec.TryRead(child,child.Length,out TownServiceFrame? frame),"every original background dependency still decodes");
+                if(frame==null)continue;
+                t.True(frame.Module>=1&&frame.Module<=20,"background bundle retains the original catalog membership");
+                byte[] expected=TownServiceCodec.Write(Frame(frame.Module,1,16));
+                t.Wire(expected,child,child.Length,"urgent promotion leaves each background original byte unchanged");
+                backgroundModules.Add(frame.Module);
+            }
+            if(!bundleArrived)coldAt=i*.051;
+            bundleArrived=true;
         }
-        t.True(baselineArrived&&poseArrived&&!bundleArrived,"urgent card renders with exact baseline before cold bundle completes");
+        t.True(bundleArrived&&backgroundModules.Count==20,"cold catalog still completes without dropping promoted or neighboring originals");
+        Console.WriteLine("TOWN_PROMOTION baseline="+baselineAt.ToString("F3")+" pose="+poseAt.ToString("F3")+" cold="+coldAt.ToString("F3"));
     }
     private static void BundleBounds(Harness t)
     {
