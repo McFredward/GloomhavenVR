@@ -24,8 +24,14 @@ startup, campaign generation/saves, Android crossplay and sustained performance
 remain gates. [B613 procedure and evidence](QUEST3-HARDWARE-613.md).
 The signed 1,153,868,013-byte APK is built and verified from clean runtime/tool
 source `6a62daf2`, input `99fd0fec…`; package/signing identity are retained. The
-final Windows handoff and complete local gate are being validated; no B613
-headset success is claimed. Work remains solely on `feature/quest3-standalone`.
+private Windows handoff, APK integrity/signing and installer selection are
+verified. All seven focused Quest suites and the already-run affected rendering,
+MR, figure/card and VR-options regressions pass, alongside all 14 source checks,
+strict Release (zero warnings/errors) and 286,760 protocol assertions. Following
+the maintainer's question about redundant unrelated tests, validation is scoped
+to these boundaries; the stopped broad run is not claimed as a complete gate.
+No B613 headset success is claimed. Work remains solely on
+`feature/quest3-standalone`.
 
 **Quest original-startup checkpoint, 2026-10-03: isolated feature, ModBuild 612.**
 

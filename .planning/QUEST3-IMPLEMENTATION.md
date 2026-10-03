@@ -2,8 +2,11 @@
 
 Current isolated implementation: ModBuild613 has a successfully built and signed
 ARM64 IL2CPP startup player after the B612 hardware capture and the maintainer's
-request to activate the existing VR mod. Its Windows handoff and final gate are
-being validated; headset behavior remains unverified.
+request to activate the existing VR mod. Its Windows handoff and targeted Quest
+gate are verified; headset behavior remains unverified. Scope includes seven
+Quest suites, affected existing regressions, source/strict-build checks, protocol
+vectors and actual Android artifact validation. The maintainer questioned
+repeated unrelated `dev` checks; no complete 115-suite verdict is claimed here.
 The candidate reuses its real rig/input/UI/keyboard, shares the player-owned XR
 session and supplies an authored Android mod bank with verified local paths.
 It also adds actual Unity-package API compatibility gates, restores the owned

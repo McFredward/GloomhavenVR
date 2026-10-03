@@ -87,7 +87,12 @@ photographs under the main checkout's ignored `.planning/debug/quest3_probleme/`
 | Existing VR options | Open/close VR options; toggle mixed reality | Native passthrough, opaque VR fallback, no duplicate menu/input |
 | Keyboard | If the original menu is reached, use its invite field | Existing mod keyboard, original validation and callbacks |
 | Lifecycle | Open/close the system menu, sleep/wake, relaunch | No XR ownership conflict, passthrough resumes, bounded logs |
-| Network, conditional | Only after a working menu, enter a compatible base-game PC invite with crossplay enabled | Original connection/admission chronology; campaign loading is a separate gate |
+| Network boundary, conditional | If the original invite UI is available, exercise entry and validation | Existing keyboard and original offline-admission diagnostics; authenticated Android EOS is a separate gate |
+
+This startup target still has no authenticated Android EOS runtime. An invite
+can exercise native UI/validation and the offline boundary; it does not establish
+successful multiplayer. The maintainer permits required EOS for the later
+crossplay integration, while store-profile/cloud services remain excluded.
 
 The diagnostic remains Debug/O0 because the recovered startup's large generated
 native translation units require the proven diagnostic compiler settings. Menu
@@ -114,10 +119,32 @@ unchanged. The new Android UnityLinker output independently retains all 2,391
 original rule types and their fields, methods and properties. These checks do
 not prove rule execution on the headset.
 
-Private archive checks and final local-gate results are recorded with the handoff.
-Automated tests establish
+The private Windows archive's CRC/content inventory and installer selection were
+verified outside the checkout. Its 15 installer/capture dependencies match the
+current source bytes; the dry run selects the B613 APK with its expected hash.
+Final focused validation passes all seven Quest suites: builder (70 tests),
+weaver (150 assertions), native passthrough (106 assertions), threaded startup
+logging (38 assertions plus eight defect controls), platform/core lifecycle
+(3,053 assertions plus eleven defect controls), bundle recipe (33 assertions)
+and real content extraction (30 assertions). All 14 source checks, the strict
+Release build with zero warnings/errors, documentation links and the direct
+286,760 wire/golden assertions pass. Automated tests establish
 source contracts and tool output; the next headset run establishes actual
 initialization, pixels, controls and the first Android rule failure.
+
+Validation is scoped to the changed Quest boundaries following the maintainer's
+2026-10-03 question about repeatedly running unrelated `dev` tests. The broad
+local run was intentionally stopped after 79 passing suites; it is not a complete
+115-suite verdict. Its already-passing card bindings, desktop rendering, MR,
+figure-bank and VR-options checks remain evidence for the affected existing
+behavior. Final focused Quest suites, source checks, strict build, compiled scope,
+actual Android outputs and Windows archive selection form this handoff's gate.
+For a scoped repeat, use `scripts/run-test-suites.py --group local --suite ID`
+with the seven Quest IDs above. `scripts/wire-tests.sh` is a wrapper for the
+entire local suite; this handoff builds and executes `GloomhavenVR.WireTests`
+directly for the protocol vectors. The independent compiled review accepts
+exactly two new Quest types, nine changed integration types and seven
+ModBuild-only types against the preserved B612 snapshot, with no removed types.
 
 Campaign scenario generation, original save round trips, full shader parity,
 native network admission/content loading and sustained memory/performance remain
