@@ -157,9 +157,10 @@ namespace GloomhavenVR.Quest
         }
         static Material Material(Color color, bool unlit = false)
         {
-            var shader = Shader.Find(unlit ? "Unlit/Color" : "Standard");
-            if (shader == null) throw new InvalidOperationException("Diagnostic shader missing");
-            return new Material(shader) { color = color };
+            var template = Resources.Load<Material>(unlit ? "quest-ray-material" : "quest-surface-material");
+            if (template == null || template.shader == null)
+                throw new InvalidOperationException("Diagnostic material resource missing");
+            return new Material(template) { color = color };
         }
         void BuildStage()
         {

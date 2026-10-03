@@ -47,6 +47,7 @@ namespace GloomhavenVR.Quest.Editor
             ConfigureNativePlugin();
             ConfigureXr();
             PrepareDiagnosticMaterials();
+            PrepareDiagnosticResources();
             ValidateOwnedModel();
             var manifest = JsonUtility.FromJson<InputManifest>(File.ReadAllText(Required("GHVR_QUEST_MANIFEST_PATH")));
             File.WriteAllText("Assets/Quest/Resources/quest-build.json", JsonUtility.ToJson(new BuildStamp
@@ -207,6 +208,30 @@ namespace GloomhavenVR.Quest.Editor
             if (feature == null) throw new InvalidOperationException("Required OpenXR feature missing: " + id);
             feature.enabled = true;
             EditorUtility.SetDirty(feature);
+        }
+        static void PrepareDiagnosticResources()
+        {
+            // Shader.Find in a runtime-created scene does not establish a build dependency.
+            // Serialized Resources materials retain exactly the diagnostic shaders we use.
+            foreach (var item in new[]
+            {
+                new[] { "quest-ray-material", "Unlit/Color" },
+                new[] { "quest-surface-material", "Standard" }
+            })
+            {
+                string path = "Assets/Quest/Resources/" + item[0] + ".mat";
+                var shader = Shader.Find(item[1]);
+                if (shader == null) throw new InvalidOperationException("Required diagnostic shader unavailable: " + item[1]);
+                var material = AssetDatabase.LoadAssetAtPath<Material>(path);
+                if (material == null)
+                {
+                    material = new Material(shader) { name = item[0] };
+                    AssetDatabase.CreateAsset(material, path);
+                }
+                material.shader = shader;
+                EditorUtility.SetDirty(material);
+            }
+            Debug.Log("[GloomhavenVR Quest] diagnostic shader Resources retained: Unlit/Color, Standard");
         }
         static void PrepareDiagnosticMaterials()
         {
