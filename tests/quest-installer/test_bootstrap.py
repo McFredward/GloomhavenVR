@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -75,6 +76,41 @@ function Get-QuestPythonInfo($Executable) { return @{version='3.14.8';prefix=(Sp
         prefix, base = json.loads(info)
         self.assertEqual(Path(prefix), self.scripts / ".quest-venv")
         self.assertNotEqual(prefix, base)
+        self.assertEqual(self.state()["requirementsSha256"], hashlib.sha256(self.requirements.read_bytes()).hexdigest())
+
+    def test_legacy_native_arguments_preserve_actual_python_probe_literals(self):
+        # Windows PowerShell 5.1 always uses legacy native argument marshalling.
+        # PS 7 exposes the same mode, including on this portable Linux runtime.
+        # The original -c expression lost its embedded double quotes, turning
+        # version=".".join(...) into invalid version=..join(...) and quoting
+        # find_spec("pip") as find_spec(pip). Run the genuine expression rather
+        # than a source check so either lost literal fails before installation.
+        result = self.run_ps("$probePython=" + ps_string(sys.executable) + "\n" + """
+$PSNativeCommandArgumentPassing='Legacy'
+$info=Get-QuestPythonInfo $probePython
+Write-Output ('RESULT:' + ($info | ConvertTo-Json -Compress))
+""")
+        info = json.loads(next(line[7:] for line in result.stdout.splitlines() if line.startswith("RESULT:")))
+        self.assertRegex(info["version"], r"^3\.\d+\.\d+$")
+        self.assertIsInstance(info["hasPip"], bool)
+        self.assertTrue(Path(info["prefix"]).is_absolute())
+        self.assertTrue(Path(info["baseExecutable"]).is_file())
+
+    def test_legacy_native_arguments_support_actual_complete_setup_and_reuse(self):
+        result = self.run_ps("$probePython=" + ps_string(sys.executable) + "\n" + """
+$PSNativeCommandArgumentPassing='Legacy'
+function Get-QuestBasePython($ScriptDirectory) { return $probePython }
+$first=Get-QuestInstallerPython $d $r
+$second=Get-QuestInstallerPython $d $r
+if ($first -ne $second) { throw 'Legacy setup changed interpreter on reuse' }
+$info=Get-QuestPythonInfo $second
+Write-Output ('RESULT:' + ($info | ConvertTo-Json -Compress))
+""")
+        info = json.loads(next(line[7:] for line in result.stdout.splitlines() if line.startswith("RESULT:")))
+        self.assertEqual(Path(info["prefix"]), self.scripts / ".quest-venv")
+        self.assertNotEqual(info["prefix"], info["basePrefix"])
+        self.assertRegex(info["version"], r"^3\.\d+\.\d+$")
+        self.assertIsInstance(info["hasPip"], bool)
         self.assertEqual(self.state()["requirementsSha256"], hashlib.sha256(self.requirements.read_bytes()).hexdigest())
 
     def test_valid_cache_reuse_is_offline_and_does_not_create_or_run_pip(self):
