@@ -49,12 +49,16 @@ namespace GloomhavenVR.Quest.Editor
                 throw new InvalidDataException("Original startup has no exact Addressables association inventory.");
             const string folder = "Assets/Quest/Settings/Addressables";
             Directory.CreateDirectory(folder);
-            var settings = AddressableAssetSettings.Create(folder, "QuestStartup", true, true);
+            Directory.CreateDirectory(AddressableAssetSettingsDefaultObject.kDefaultConfigFolder);
+            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+            var settings = AssetDatabase.LoadAssetAtPath<AddressableAssetSettings>(folder + "/QuestStartup.asset")
+                ?? AddressableAssetSettings.Create(folder, "QuestStartup", true, true);
             AddressableAssetSettingsDefaultObject.Settings = settings;
             settings.BuildRemoteCatalog = false;
             settings.DisableCatalogUpdateOnStartup = true;
-            var group = settings.CreateGroup("Owned original startup", true, false, false, null,
-                typeof(BundledAssetGroupSchema), typeof(ContentUpdateGroupSchema));
+            var group = settings.FindGroup("Owned original startup")
+                ?? settings.CreateGroup("Owned original startup", true, false, false, null,
+                    typeof(BundledAssetGroupSchema), typeof(ContentUpdateGroupSchema));
             settings.DefaultGroup = group;
             var bundled = group.GetSchema<BundledAssetGroupSchema>();
             bundled.BundleMode = BundledAssetGroupSchema.BundlePackingMode.PackTogether;
