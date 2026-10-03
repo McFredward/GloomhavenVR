@@ -50,10 +50,15 @@ internal sealed class TownServiceOfferFeedback
         _gate.alpha = actionable ? 1f : preview ? .38f : 0f;
         // The zone is a preview, not an input surface. Only its ink reacts; its actual
         // accept volume and native button remain untouched.
-        if (_border != null) _border.color = preview && !actionable
+        PaintInk(_zone, _border, _strength, preview && !actionable);
+    }
+
+    internal static void PaintInk(Transform zone, Image? border, float strength, bool preview = false)
+    {
+        if (border != null) border.color = preview
             ? new Color(.69f, .65f, .45f, .40f)
             : Color.Lerp(new Color(.24f, .67f, .34f, .48f),
-                new Color(.43f, 1f, .60f, .85f), _strength);
-        _zone.localScale = Vector3.one * (.001f * (1f + .055f * _strength));
+                new Color(.43f, 1f, .60f, .85f), strength);
+        zone.localScale = Vector3.one * (.001f * (1f + .055f * strength));
     }
 }

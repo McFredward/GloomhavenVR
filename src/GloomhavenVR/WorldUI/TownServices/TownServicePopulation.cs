@@ -473,12 +473,14 @@ internal static class TownServicePopulation
         Published = published;
         faces.Active = published.Active;
         PublishedFaces = faces; activities.Active = published.Active; PublishedActivities = activities;
+        TownServiceSharedCue.Tick();
         TownServiceVisitTarget.TickLaser();
     }
 
     internal static void Reset()
     {
         Published = default; PublishedFaces = default; PublishedActivities = default; IsFaceAuthor = false;
+        TownServiceSharedCue.Reset();
         PerformanceEpoch = 0;
         _faceClock = 0f; _lastRemoteFaceTime = float.NegativeInfinity;
         if (_frame == null && Residents.Count == 0) return;
