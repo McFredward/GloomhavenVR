@@ -76,6 +76,12 @@ namespace GloomhavenVR.Board.FigureGrab
 }
 namespace GloomhavenVR.Core
 {
+    // The actual environment runtime suite verifies pre-write render lease restoration.
+    // This scenery-only lifecycle fixture leaves that unrelated owner absent.
+    internal static class ScenarioEnvironmentBudget
+    {
+        internal static void BeforeNativeRendererWrite(Renderer renderer) { }
+    }
     internal static class SceneryClock { internal static float Now; }
     internal static class SceneryTemplateProofProbe { internal static int Entries; }
     internal static class VRSession { internal static bool IsRunning = true; internal static HarmonyLib.TestHarmony Harmony = new(); }

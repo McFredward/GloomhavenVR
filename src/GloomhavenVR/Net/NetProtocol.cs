@@ -566,8 +566,36 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 614;
+    public const ushort ModBuild = 615;
 
+    // ModBuild 615 — all five remaining CPU/render tracks from FRAME-612-ANALYSIS.
+    // Scene-signature churn ignores only active native actor-owned non-water particle
+    // renderers; detached/unknown effects, wall/water signatures and drift stay live.
+    // Exact MeshRenderer bounds are memoized only within one synchronous wall commit,
+    // cleared in finally; commits remain atomic, not spread over gameplay frames.
+    // Native actor/component and active-state audits admit proven stable idle bar checks.
+    // Optional event-free offscreen transform culling preserves original Animator time,
+    // authored culling modes and continuation; action/locomotion/held paths restore first.
+    // The shipped Drake already uses CullUpdateTransforms: the new option must not be
+    // described as a new saving on that rig. Shared town-resident clocks are untouched.
+    // Original UI hierarchy inventories invalidate on actual structure/activity changes;
+    // stable initiative depth, hidden-window and mip-arrival inventories stop rewalking
+    // every descendant. Known sprites, visibility, input and remote animation stay live.
+    // Debug SCENE/SIM/GFX/TEX and lightweight renderer/uGUI census share a sliced budget,
+    // including persistent scenes and cancellation; summary span, total CPU and atomic
+    // overruns remain distinct. Near-grip distance/eligibility/hover/pickup/ghost scopes
+    // add attribution without delaying any contacts or changing callback ordering.
+    // Optional audited readable masonry chunks keep original objects/colliders and use
+    // small native tile/cell boundaries; native writes or command-buffer cameras revert
+    // to originals before drawing. Unknown/unreadable meshes retain native submissions.
+    // A separate native instancing experiment stays OFF: the capture already has 4194
+    // instanced slots. Fresh Frame defaults select structural chunks, audited idle culling,
+    // panel maintenance0.15s and initiative depth0.10s; saved settings are retained.
+    // New diagnostic budget knobs and render compromises are reversible on PC too.
+    // DLL-only: no meshes/bundles, game data, native gameplay commands or TLVs change.
+    // Source-linked Unity proofs and the complete integrated gate are required; final
+    // headset frame-time improvement and appearance remain to be measured on Build615.
+    //
     // ModBuild 614 — NPC multiplayer native artwork, fair delivery and shared attention.
     // Both hardware endpoints identify Build612: native atlas wrappers differ across
     // OpenXR backends, verified template aliases were not all registered, and dense

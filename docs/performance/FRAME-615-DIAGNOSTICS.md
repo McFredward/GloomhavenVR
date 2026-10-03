@@ -80,7 +80,7 @@ population counts agree. Real native colliders and 320 distinct native textures/
 materials exercise the reach and texture paths. External game loading context and
 hand input are explicit seams; there is no headset image in this fixture.
 
-The production fixture passes **2154 runtime assertions**. Nine effective causal
+The production fixture passes **2152 runtime assertions**. Nine effective causal
 controls reject an unbounded pump, unsliced textures, a missing persistent scene,
 inactive population leakage, ignored Debug cancellation, a missing lightweight
 roster or stale retained ZOOM roster, missing hover attribution

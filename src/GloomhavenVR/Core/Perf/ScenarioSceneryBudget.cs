@@ -220,6 +220,7 @@ internal static class ScenarioSceneryBudget
         {
             if (!record.Owned && !renderer.forceRenderingOff)
             {
+                ScenarioEnvironmentBudget.BeforeNativeRendererWrite(renderer);
                 renderer.forceRenderingOff = true;
                 record.Owned = true;
                 ClaimTreeColliders(record);
@@ -228,7 +229,10 @@ internal static class ScenarioSceneryBudget
         else if (record.Owned)
         {
             if (renderer.forceRenderingOff)
+            {
+                ScenarioEnvironmentBudget.BeforeNativeRendererWrite(renderer);
                 renderer.forceRenderingOff = false;
+            }
             record.Owned = false;
             ReleaseTreeColliders(record);
         }

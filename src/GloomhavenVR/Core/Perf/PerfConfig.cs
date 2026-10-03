@@ -696,6 +696,11 @@ internal static class PerfConfig
                 "Maximum work items per frame for incremental Debug scene inventories. "
                 + "Only diagnostics are scheduled; no render or input cadence changes.",
                 new AcceptableValueRange<int>(8, 512)));
+        void RefreshSceneProfileBudget() => PerfSceneProfile.ConfigureBudget(
+            SceneProfileBudgetMilliseconds.Value, SceneProfileObjectsPerFrame.Value);
+        RefreshSceneProfileBudget();
+        SceneProfileBudgetMilliseconds.SettingChanged += (_, _) => RefreshSceneProfileBudget();
+        SceneProfileObjectsPerFrame.SettingChanged += (_, _) => RefreshSceneProfileBudget();
         // DEFAULT ON since ModBuild 227. It is pure measurement — it changes no pixel — and the
         // question it settles is now live: with all rooms open the head camera spends 6–9 ms per
         // frame over two eye passes on a scene of 8,600 renderers that it culls against a BLANKET

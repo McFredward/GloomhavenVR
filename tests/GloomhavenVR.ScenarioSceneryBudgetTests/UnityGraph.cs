@@ -108,3 +108,13 @@ namespace GloomhavenVR.Board.FigureGrab
         internal static bool OwnsRendererOf(UnityEngine.Transform leaf)=>Held!=null&&leaf.IsChildOf(Held);
     }
 }
+
+namespace GloomhavenVR.Core
+{
+    // Renderer lease coordination belongs to the separate actual environment runtime proof.
+    // This portable classifier seam does not replace any scenery ownership decision.
+    internal static class ScenarioEnvironmentBudget
+    {
+        internal static void BeforeNativeRendererWrite(UnityEngine.Renderer renderer) { }
+    }
+}

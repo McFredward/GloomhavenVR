@@ -1336,8 +1336,26 @@
       "weight": 90
     },
     {
+      "id": "perf-census-runtime",
+      "command": ["python3", "scripts/check-perf-census-runtime.py"],
+      "groups": ["local"],
+      "weight": 50
+    },
+    {
       "id": "ui-inventory-runtime",
       "command": ["python3", "scripts/check-ui-inventory-runtime.py"],
+      "groups": ["local"],
+      "weight": 40
+    },
+    {
+      "id": "native-actor-audit-runtime",
+      "command": ["python3", "scripts/check-native-actor-audit-runtime.py"],
+      "groups": ["local"],
+      "weight": 60
+    },
+    {
+      "id": "structural-instancing-runtime",
+      "command": ["python3", "scripts/check-structural-instancing.py"],
       "groups": ["local"],
       "weight": 40
     },
