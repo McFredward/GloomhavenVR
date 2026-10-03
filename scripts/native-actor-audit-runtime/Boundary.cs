@@ -19,7 +19,12 @@ namespace GloomhavenVR.Core
     internal static class VRLog
     {
         internal static bool WantsDebug => true;
-        internal static void Note(string area, string text) => UnityEngine.Debug.Log(area + ": " + text);
+        internal static int BudgetFailures;
+        internal static void Note(string area, string text)
+        {
+            if (text.StartsWith("Idle animation budget failed", StringComparison.Ordinal)) BudgetFailures++;
+            UnityEngine.Debug.Log(area + ": " + text);
+        }
         internal static void Info(string area, string text) => UnityEngine.Debug.Log(area + ": " + text);
         internal static void Debug(string area, string text) { }
     }

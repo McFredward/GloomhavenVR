@@ -18,9 +18,11 @@ namespace GloomhavenVR.Core;
 internal static class ScenarioIdleAnimationBudget
 {
     private static Driver? _driver;
+    private static bool _faultReported;
     internal static void Install(GameObject host, Func<bool> enabled)
     {
         if (_driver != null) return;
+        _faultReported = false;
         _driver = host.AddComponent<Driver>(); _driver.Enabled = enabled;
         PerfMonitor.Register("Figure.IdleTransformCull"); PerfMonitor.Register("Figure.IdleTracked");
         PerfMonitor.Register("Figure.IdleOriginalAlways"); PerfMonitor.Register("Figure.IdleAuthoredCull");
@@ -43,9 +45,35 @@ internal static class ScenarioIdleAnimationBudget
     internal static void Release(ActorBehaviour? actor)
     { if (actor != null) _driver?.Release(actor); }
     internal static void NativeAction(Animator? animator)
-    { if (animator != null) _driver?.NativeAction(animator); }
+    {
+        try { if (animator != null && _driver != null && _driver.NativeActionsReady) _driver.NativeAction(animator); }
+        catch (Exception error) { FailOpen(error); }
+    }
     internal static void NativeAction(ActorBehaviour? actor)
-    { if (actor != null) _driver?.NativeAction(actor); }
+    {
+        try { if (actor != null && _driver != null && _driver.NativeActionsReady) _driver.NativeAction(actor); }
+        catch (Exception error) { FailOpen(error); }
+    }
+
+    private static void FailOpen(Exception error)
+    {
+        // This helper is called inside a native Harmony prefix as well as Update. Even an
+        // invalid Unity lifetime or foreign callback during restoration must never escape
+        // into the game's action dispatch; disable this optional owner until reinstall.
+        try
+        {
+            if (_driver != null) { _driver.NativeActionsReady = false; _driver.RestoreAllSafely(); }
+        }
+        catch { /* Native continuation takes precedence over optional cleanup. */ }
+        if (_faultReported) return;
+        _faultReported = true;
+        try
+        {
+            VRLog.Note("Perf", "Idle animation budget failed (" + error.GetType().Name
+                + "); optional transform reduction disabled and original modes restored where live.");
+        }
+        catch { /* A disposed logger cannot gate native continuation either. */ }
+    }
     internal static void Shutdown()
     {
         if (_driver == null) return;
@@ -115,8 +143,19 @@ internal static class ScenarioIdleAnimationBudget
         { if (_records.TryGetValue(actor, out Record record)) record.Resume(); }
         internal void RestoreAll()
         { foreach (Record record in _records.Values) record.Restore(); _records.Clear(); }
+        internal void RestoreAllSafely()
+        {
+            foreach (Record record in _records.Values)
+                try { record.Restore(); } catch { /* Continue restoring other live owned actors. */ }
+            _records.Clear();
+        }
         private void OnDestroy() => RestoreAll();
         private void Update()
+        {
+            try { Tick(); }
+            catch (Exception error) { FailOpen(error); }
+        }
+        private void Tick()
         {
             bool enabled = VRSession.IsRunning && NativeActionsReady && Enabled();
             int applied = 0, originalAlways = 0, authoredCull = 0;

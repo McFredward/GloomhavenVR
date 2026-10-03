@@ -61,6 +61,10 @@ on the actual publisher MF.AnimatorPlay and actor locomotion commands restore
 before native action dispatch. Missing action hooks fail open to original
 evaluation. A foreign mode change is retained. Existing actor-bar adoption
 provides the registry; there is no additional scene scan.
+Native prefix entrypoints isolate optional-owner exceptions, disable the owner
+and restore live records without blocking MF/locomotion continuation. A single
+bounded lifecycle report describes a failure. A real Harmony fault injection
+verifies that the actual MF call, state-exit event and subsequent action still run.
 
 The **original Drake body prefab already authors CullUpdateTransforms**. This
 option leaves that authored mode untouched and may provide no further saving

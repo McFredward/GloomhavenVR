@@ -7,6 +7,7 @@ using System.Reflection;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
+using HarmonyLib;
 using GloomhavenVR.Board.FigureGrab;
 using GloomhavenVR.Core;
 using GloomhavenVR.WorldUI;
@@ -23,6 +24,7 @@ public static class InteractionProgram
     { string[] args = Environment.GetCommandLineArgs(); return args[Array.IndexOf(args, key) + 1]; }
     private static void Check(bool condition, string label)
     { Checks++; if (!condition) throw new Exception(label); }
+    private static void InjectOptionalFault() => throw new InvalidOperationException("Injected optional-owner lifetime fault");
     public static IEnumerator Run()
     {
         string evidence = Arg("-evidenceRoot"), name = typeof(InteractionProgram).Assembly.GetName().Name!;
@@ -120,12 +122,15 @@ public static class InteractionProgram
         Check(!NativeActorPoseAudit.Allows(details, root.transform), "unknown detail provider prevents sparse admission");
         Check(!ActorBarPose.Capture(root, head)!.SparseEligible, "unknown provider script also retains conservative bone checks");
         Object.DestroyImmediate(provider);
-        var unknownState = graph.layers[0].stateMachine.states.First(x => x.state.name == "SleepIdle").state
-            .AddStateMachineBehaviour<UnknownStateBoneWriter>();
+        var unknownGraph = AnimatorController.CreateAnimatorControllerAtPath("Assets/" + name + "UnknownState.controller");
+        var unknownIdle = unknownGraph.layers[0].stateMachine.AddState("SleepIdle");
+        unknownIdle.motion = original.runtimeAnimatorController.animationClips.First(c => c.name.Contains("Sleeping_Idle"));
+        unknownIdle.AddStateMachineBehaviour<UnknownStateBoneWriter>();
+        animator.runtimeAnimatorController = unknownGraph;
         animator.Rebind(); animator.Play("SleepIdle", 0, 0.2f); animator.Update(0.001f);
         Check(!ActorBarPose.Capture(root, head)!.IsEventFreeNativeIdle(),
             "unknown current native state callback cancels transform shortcut");
-        Object.DestroyImmediate(unknownState);
+        animator.runtimeAnimatorController = graph;
         animator.Rebind(); animator.Play("SleepIdle", 0, 0.2f); animator.Update(0.001f);
         DeathDissolve dissolve = root.GetComponentInChildren<DeathDissolve>(true);
         DeathDissolve.s_DeathDissolvesInProgress.Add(dissolve);
@@ -223,6 +228,30 @@ public static class InteractionProgram
         }
         File.WriteAllLines(Path.Combine(evidence, name + "-native-event-frames.txt"), nativeEventFrames);
         Check(eventReceipt.Events > 0, "actual native animation event callback remains delivered");
+        Object.DestroyImmediate(eventReceipt);
+
+        // Fault the actual production owner through a temporary Harmony prefix. The real
+        // native MF method must still run and optional mode ownership must be restored.
+        animator.runtimeAnimatorController = graph; animator.Rebind(); animator.Play("SleepIdle", 0, 0.2f); animator.Update(0.001f);
+        ActorBarPose faultPose = ActorBarPose.Capture(root, head)!;
+        ScenarioIdleAnimationBudget.Install(host, () => true);
+        ScenarioIdleAnimationBudget.Register(actor, faultPose);
+        yield return null;
+        Check(animator.cullingMode == AnimatorCullingMode.CullUpdateTransforms, "fault fixture begins with an actual owned reduction");
+        var fault = new Harmony("ghvr.nativeActorAudit.fault");
+        fault.Patch(typeof(ScenarioIdleAnimationBudget.Driver).GetMethod("NativeAction", BindingFlags.NonPublic | BindingFlags.Instance,
+            null, new[] { typeof(Animator) }, null), prefix: new HarmonyMethod(typeof(InteractionProgram), nameof(InjectOptionalFault)));
+        actorEvents.ClearActorEventState();
+        Check(MF.AnimatorPlay(animator, "WakeUp"), "optional owner fault never escapes or blocks native action dispatch");
+        Check(animator.cullingMode == AnimatorCullingMode.AlwaysAnimate && VRLog.BudgetFailures == 1,
+            "optional owner fault restores original mode and reports once");
+        animator.Update(0.001f);
+        Check(actorEvents.ReceivedEvent(ActorEvents.ActorEvent.ProgressChoreographer), "continuation callback survives optional owner fault");
+        Check(MF.AnimatorPlay(animator, "SleepIdle"), "subsequent native dispatch remains available after optional owner fault");
+        animator.Update(0.001f); yield return null;
+        Check(animator.cullingMode == AnimatorCullingMode.AlwaysAnimate && VRLog.BudgetFailures == 1,
+            "failed optional owner remains disabled without repeated diagnostic stream");
+        fault.UnpatchSelf(); ScenarioIdleAnimationBudget.Shutdown();
         Metrics = "publisherScripts=" + componentReceipts.Count + "; bones=" + pose.BoneCount
             + "; sparseSkips=" + pose.SkippedVerificationCount + "; originalClockAndBoneCullVerified=true";
         ActorBarPose.Reset(); VRSession.Harmony.UnpatchSelf();
