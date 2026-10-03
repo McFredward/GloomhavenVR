@@ -198,6 +198,68 @@ class CollectorTests(unittest.TestCase):
         for name, content in self.fake.app_files.items():
             self.assertEqual(len(files[name]), len(content))
         self.assertEqual([row["item"] for row in manifest["errors"]], ["quest-hardware.log.previous"])
+        self.assertEqual({row["item"] for row in manifest["optionalFilesUnavailable"]}, set(collector.OPTIONAL_APP_FILES))
+
+    def test_optional_startup_files_are_captured_from_windows_stderr_receipts(self):
+        self.fake.pull_stream = "stderr"
+        self.fake.app_files["quest-startup.log"] = "Original game startup fixture\n"
+        self.fake.app_files["quest-startup-state.json"] = '{"phase":"menu-loading","fixture":true}\n'
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        for name in collector.OPTIONAL_APP_FILES:
+            self.assertEqual(files[name], self.fake.app_files[name].encode())
+            self.assertEqual(next(row["kind"] for row in manifest["files"] if row["path"] == name), "app-file-pull")
+        self.assertEqual(manifest["status"], "complete")
+        self.assertFalse(manifest.get("optionalFilesUnavailable"))
+
+    def test_old_probe_without_startup_files_remains_complete(self):
+        for name in collector.OPTIONAL_APP_FILES:
+            del self.fake.app_files[name]
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertEqual(manifest["status"], "complete")
+        self.assertEqual(manifest["errors"], [])
+        self.assertFalse(set(collector.OPTIONAL_APP_FILES).intersection(files))
+        self.assertEqual({row["item"] for row in manifest["optionalFilesUnavailable"]}, set(collector.OPTIONAL_APP_FILES))
+
+    def test_startup_file_fallback_is_bounded_and_other_saves_not_requested(self):
+        self.fake.pull_denied = True
+        self.fake.run_as_allowed = True
+        self.fake.app_files["campaign-save.dat"] = "private unrelated save"
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertTrue(set(collector.OPTIONAL_APP_FILES).issubset(files))
+        self.assertNotIn("campaign-save.dat", files)
+        self.assertTrue(all(row["kind"] == "app-file-run-as" for row in manifest["files"] if row["path"] in collector.OPTIONAL_APP_FILES))
+        self.assertFalse(any("campaign-save.dat" in str(call) for call in self.fake.calls))
+
+    def test_known_present_startup_transfer_failure_is_not_hidden_as_optional_absence(self):
+        self.fake.pull_code = 1
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertEqual(manifest["status"], "partial")
+        self.assertTrue(set(collector.OPTIONAL_APP_FILES).issubset(row["item"] for row in manifest["errors"]))
+        self.assertFalse(manifest.get("optionalFilesUnavailable"))
+        self.assertFalse(set(collector.OPTIONAL_APP_FILES).intersection(files))
+
+    def test_optional_startup_file_exceeding_limit_is_not_pulled(self):
+        self.fake.app_files["quest-startup-state.json"] = "x" * (collector.MAX_FILE + 1)
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertNotIn("quest-startup-state.json", files)
+        self.assertTrue(any(row["item"] == "quest-startup-state.json" and "capture limit" in row["reason"] for row in manifest["errors"]))
+        self.assertFalse(any(call[2] == "pull" and call[3].endswith("/quest-startup-state.json") for call in self.fake.calls if len(call) > 3))
+
+    def test_startup_logs_remain_usable_without_pid_or_hardware_logs(self):
+        self.fake.pids = ""
+        self.fake.logcat = ""
+        self.fake.app_files = {"quest-startup.log": "Original bootstrap phase fixture\n",
+                               "quest-startup-state.json": '{"phase":"menu-loading"}\n'}
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertEqual(manifest["status"], "partial")
+        self.assertEqual(manifest["app"]["processIds"], [])
+        self.assertTrue(set(collector.OPTIONAL_APP_FILES).issubset(files))
 
     def test_failed_transfer_does_not_keep_partial_file_even_with_success_text(self):
         self.fake.pull_stream = "stderr"
@@ -372,7 +434,7 @@ class CollectorTests(unittest.TestCase):
         self.fake.oversized = True
         self.assertEqual(self.run_cli(), 0, self.stderr)
         self.assertFalse(any("pull" in call for call in self.fake.calls))
-        self.assertEqual(len(self.capture()[0]["errors"]), 4)
+        self.assertEqual(len(self.capture()[0]["errors"]), len(collector.APP_FILES))
 
     def test_logcat_is_capped_with_explicit_partial_report(self):
         self.fake.logcat = "x" * 4096

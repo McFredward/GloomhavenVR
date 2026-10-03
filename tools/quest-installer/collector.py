@@ -12,7 +12,8 @@ import zipfile
 
 import installer
 
-APP_FILES = ("quest-hardware.log", "quest-hardware.log.previous", "quest-hardware-storage.json", "quest-hardware-state.json")
+OPTIONAL_APP_FILES = ("quest-startup.log", "quest-startup-state.json")
+APP_FILES = ("quest-hardware.log", "quest-hardware.log.previous", "quest-hardware-storage.json", "quest-hardware-state.json") + OPTIONAL_APP_FILES
 REMOTE_FILES = "/sdcard/Android/data/" + installer.PACKAGE + "/files"
 MAX_FILE = 2 * 1024 * 1024
 MAX_LOGCAT = 4 * 1024 * 1024
@@ -105,14 +106,18 @@ class Capture:
                                        "sha256": installer.digest(path)})
 
     def app_file(self, name):
+        if name not in APP_FILES:
+            raise installer.InstallError("App diagnostic filename is not allowlisted")
         target = self.directory / name
         remote = REMOTE_FILES + "/" + name
         failures = []
+        known_present = False
         try:
             size = self.adb.run("-s", self.serial, "shell", "stat", "-c", "%s", remote, timeout=10)
             if not size.isdigit():
                 raise installer.InstallError("Remote file size was not a number")
             expected_size = int(size)
+            known_present = True
             if expected_size == 0:
                 self.failure(name, "remote file is empty")
                 return
@@ -143,7 +148,13 @@ class Capture:
                 self.save(name, content, "app-file-run-as")
                 return
             failures.append(error or content[:300])
-        self.failure(name, "; ".join(failures))
+        reason = "; ".join(failures)
+        if name in OPTIONAL_APP_FILES and not known_present:
+            # Probe/older players do not emit original-game startup diagnostics.
+            # Retain availability details without treating absence as a failure.
+            self.manifest.setdefault("optionalFilesUnavailable", []).append({"item": name, "reason": reason[:800]})
+        else:
+            self.failure(name, reason)
 
 
 def local_provenance(config_path, capture):
