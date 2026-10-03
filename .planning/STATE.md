@@ -1,5 +1,32 @@
 # State — where the project stands
 
+**Quest wireless installer, 2026-10-03: `feature/quest3-standalone`.**
+
+The maintainer clarified that Quest work stays isolated on this feature branch
+while other agents continue on `dev`. The accidental installer-preparation commit
+on `dev` was reversed without removing their concurrent Frame610 work. Quest
+runtime remains ModBuild609; this tooling update does not create a new game APK.
+
+The Windows double-click entry point is `scripts/install-quest-wireless.cmd`.
+It remembers the successful local APK source, WLAN endpoint, ADB executable and
+Quest hardware identity. First use or connection recovery can discover Wi-Fi over
+an authorized USB Quest; later runs reconnect wirelessly, verify the latest
+completed builder receipt or private handoff, install with `-r` and launch.
+Signature conflicts stop with app data retained. No APK/tool downloads, store
+services, global ADB resets or automatic uninstalls occur. An explicit manual APK
+path is also supported and remains distinguishable from verified builder output.
+
+All 36 focused installer tests pass, including wrong/offline/unauthorized devices,
+ambiguous selection, stale addresses, tampered/concurrently changed artifacts,
+receipt containment, exit-zero ADB failures and signature mismatch controls.
+Dry-runs against the actual B609 handoff and builder output select the reviewed
+`5818e9d22cd47...` APK without ADB activity or settings writes. A portable
+PowerShell7.6.6 runtime verifies option/path forwarding and failure exit codes.
+The complete feature-branch gate evidence is retained privately in the main
+checkout's `.planning/debug/quest3/wireless-validation/`. Actual Windows/Quest
+wireless transport and installation remain hardware checks. See
+[the Windows wireless procedure](QUEST3-WIRELESS-INSTALL.md).
+
 **Quest branch checkpoint, 2026-10-03: `feature/quest3-standalone`, ModBuild 609.**
 
 The maintainer explicitly authorized implementation on a new branch from current

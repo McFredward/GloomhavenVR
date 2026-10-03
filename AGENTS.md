@@ -2,6 +2,14 @@
 
 ## Unified development workflow (2026-09-29)
 
+**Quest exception, clarified by the maintainer on 2026-10-03:** keep Quest
+implementation and hardware installer work on `feature/quest3-standalone`, with
+separate worker worktrees from its current checkpoint. The primary agent reviews,
+runs the complete checks and publishes this feature branch for Windows hardware
+testing. Do not merge or push these Quest changes into `dev`, where other agents
+continue Steam Frame work. This explicit instruction supersedes the generic
+integration-branch rules below for the Quest task; all other contracts still apply.
+
 The maintainer requested integration of `feature/immersive-town-services` into
 `dev`. All subsequent NPC, Steam Frame, and other development now integrates and
 pushes to `dev`; create worker worktrees from the current `dev` commit. The NPC
