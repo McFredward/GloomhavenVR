@@ -127,7 +127,7 @@ internal sealed partial class TownServiceSync
             if (body != null) PriorityRoots.Add(body);
             // The window's pooled selected-card widget may already be recycled. The actual
             // flying face and captured identity are the only lifetime-safe provenance here.
-            Publish("face." + returning.CardId.ToString(System.Globalization.CultureInfo.InvariantCulture), face);
+            Publish("face." + returning.CardId.ToString(System.Globalization.CultureInfo.InvariantCulture), face, prewarm: true);
             Publish("map.cardbody", body);
         }
         if (inspection)
@@ -148,8 +148,8 @@ internal sealed partial class TownServiceSync
                 VRHand? hand = chip.Holder ?? (!chip.TownOffering
                     ? VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left : null);
                 TownServiceMirror.RegisterMotionHand(mount, hand, followsRotation: chip.Holder != null);
-                Publish("item." + chip.Item.ID.ToString(System.Globalization.CultureInfo.InvariantCulture), face);
-                Publish(TownServiceInspectionBody.Key(chip), body);
+                Publish("item." + chip.Item.ID.ToString(System.Globalization.CultureInfo.InvariantCulture), face, prewarm: true);
+                Publish(TownServiceInspectionBody.Key(chip), body, prewarm: true);
             }
         }
         if (active)
@@ -221,7 +221,12 @@ internal sealed partial class TownServiceSync
                 }
                 // This is a registered native boundary, excluded from the folio inventory
                 // clone. The original hover-price explanation needs its own module.
-                if (service == 3) Publish("enchant.tooltip", NativeTemplates.Original("enchant.tooltip"));
+                if (service == 3)
+                {
+                    Transform? tooltipRoot = NativeTemplates.Original("enchant.tooltip");
+                    UITooltip? nativeTooltip = tooltipRoot != null ? tooltipRoot.GetComponent<UITooltip>() : null;
+                    Publish(nativeTooltip != null ? NativeTemplates.TooltipKey(nativeTooltip) : "enchant.tooltip", tooltipRoot);
+                }
                 foreach (TownServiceSurface surface in ritual.Surfaces)
                     Publish(surface.Id switch { 10 => "enchant.inventory", 13 => "enchant.capacity",
                         14 => "enchant.information", 15 => "enchant.buy", 16 => "enchant.sell",
@@ -234,12 +239,19 @@ internal sealed partial class TownServiceSync
                 foreach (TownServiceWorkspace.Prop prop in TownServicePresentation.WorkspaceProps) Publish(prop.Key, prop.Root);
 
             if (service != 1 && catalog == null && ritual == null)
-                Publish(prefix + ".tooltip", NativeTemplates.Original(prefix + ".tooltip"));
+            {
+                Transform? tooltipRoot = NativeTemplates.Original(prefix + ".tooltip");
+                UITooltip? nativeTooltip = tooltipRoot != null ? tooltipRoot.GetComponent<UITooltip>() : null;
+                Publish(nativeTooltip != null ? NativeTemplates.TooltipKey(nativeTooltip) : prefix + ".tooltip", tooltipRoot);
+            }
             else if (catalog != null && catalog.PreviewContent != null && catalog.PreviewSource != null)
             {
                 PriorityRoots.Add(catalog.PreviewContent);
-                Publish("merchant.tooltip", catalog.PreviewContent, catalog.PreviewSource, catalog.PreviewCloneOf);
-                PublishCopiedCards(catalog.PreviewSource, catalog.PreviewCloneOf);
+                Transform previewSource = catalog.PreviewSource;
+                UITooltip? previewTooltip = previewSource.GetComponent<UITooltip>();
+                Publish(previewTooltip != null ? NativeTemplates.TooltipKey(previewTooltip) : "merchant.tooltip",
+                    catalog.PreviewContent, previewSource, catalog.PreviewCloneOf);
+                PublishCopiedCards(previewSource, catalog.PreviewCloneOf);
             }
             Publish("item.confirm", NativeTemplates.Original("item.confirm"));
             Publish("enhance.confirm", NativeTemplates.Original("enhance.confirm"));

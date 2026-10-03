@@ -10,17 +10,16 @@ namespace GloomhavenVR.Net.TownServices;
 
 internal static partial class TownServiceMirror
 {
-    private sealed class MotionSlot
+    private sealed class MotionSlot : TownServiceMotionPending
     {
-        internal TownServiceMotionEntry Entry = null!;
-        internal bool Dirty = true;
-        internal float SentAt = float.NegativeInfinity;
         internal ulong ReceivedSequence;
         internal float SampleTime, ReceivedAt, DirtySince;
     }
     private sealed class SourceMotion
     {
         internal TownServiceFrame? Previous;
+        internal ulong HandRevision;
+        internal bool Live;
         internal readonly Dictionary<TownServiceMotionKey, MotionSlot> Slots = new();
     }
     private sealed class PeerMotion
@@ -38,19 +37,22 @@ internal static partial class TownServiceMirror
     private static readonly Dictionary<int, PeerMotion> MotionPeers = new();
     private sealed class MotionHandReference { internal VRHand Hand = null!; internal bool FollowsRotation; }
     private static readonly Dictionary<Transform, MotionHandReference> MotionHands = new();
-    private static readonly List<LocalModule> MotionSourceRemoval = new();
-    private static readonly List<MotionSlot> MotionWaiting = new();
+    private static readonly HashSet<LocalModule> MotionSourceRemoval = new();
+    private static readonly List<TownServiceMotionPending> MotionWaiting = new(), MotionLive = new();
+    private static readonly List<Transform> MotionHandRemoval = new();
+    private static float _nextMotionHandCleanup;
     private static readonly List<TownServiceMotionKey> MotionRemoval = new();
     private static readonly Dictionary<RemoteModule, RemoteMotion> MotionRemoteFrames = new();
     private static readonly List<RemoteModule> MotionFrameRemoval = new();
     private static float _nextMotionSend;
     private static ulong _motionSequence;
-    private static int _motionCursor;
+    private static int _motionCursor, _motionLiveCursor;
     private static uint _motionCommitSession, _motionCommitRevision;
     private static float _nextMotionCommit;
     private static TownServiceMotionEntry? _motionCue;
     private static float _nextMotionCue;
     private static uint _motionLifetime = 1;
+    private static ulong _motionHandRevision;
     private static float _motionDiagnosticAt;
     private static int _motionSent, _motionSentBytes, _motionReceived, _motionReceivedBytes;
     internal static bool FastMotionCaptureEnabled;
@@ -58,17 +60,32 @@ internal static partial class TownServiceMirror
     // Exact publisher provenance only. Physical grabs are also found through the
     // existing GrabAnchor ancestry; there is no observer-local nearest-hand guess.
     internal static void RegisterMotionHand(Transform source, VRHand? hand, bool followsRotation = true)
-    { if (source == null) return; if (hand == null) MotionHands.Remove(source);
-      else MotionHands[source] = new MotionHandReference { Hand = hand, FollowsRotation = followsRotation }; }
+    {
+        if (source == null) return;
+        if (MotionHands.TryGetValue(source, out MotionHandReference? existing))
+        {
+            if (ReferenceEquals(existing.Hand, hand) && existing.FollowsRotation == followsRotation) return;
+            MotionHands.Remove(source); _motionHandRevision++;
+        }
+        if (hand == null) return;
+        MotionHands[source] = new MotionHandReference { Hand = hand, FollowsRotation = followsRotation };
+        _motionHandRevision++;
+    }
 
     internal static void CaptureMotion(Action<byte[], int, object?> send)
     {
         float now = Time.unscaledTime;
         if (now < _nextMotionSend) return;
         _nextMotionSend = now + TownServiceMotionCodec.SendInterval;
+        if (now >= _nextMotionHandCleanup)
+        {
+            _nextMotionHandCleanup = now + 5f; MotionHandRemoval.Clear();
+            foreach (var pair in MotionHands) if (pair.Key == null) MotionHandRemoval.Add(pair.Key);
+            foreach (Transform gone in MotionHandRemoval) MotionHands.Remove(gone);
+        }
         MotionSourceRemoval.Clear();
         foreach (var pair in MotionSources) MotionSourceRemoval.Add(pair.Key);
-        MotionWaiting.Clear();
+        MotionWaiting.Clear(); MotionLive.Clear();
         CaptureMotionLane(PrivateLane, 0, now); CaptureMotionLane(PublicLane, 1, now); CaptureMotionLane(StockLane, 2, now);
         foreach (LocalModule gone in MotionSourceRemoval) MotionSources.Remove(gone);
         TownServiceMotionEntry? commit = null;
@@ -84,24 +101,15 @@ internal static partial class TownServiceMirror
             || cue.CueReady != _motionCue.CueReady || cue.CueStrength != _motionCue.CueStrength
             || cue.HasSharedCue != _motionCue.HasSharedCue || cue.SharedCueReady != _motionCue.SharedCueReady
             || cue.SharedCueStrength != _motionCue.SharedCueStrength || cue.SharedGuideOwner != _motionCue.SharedGuideOwner;
-        if (MotionWaiting.Count == 0 && commit == null && !sendCue) return;
+        if (MotionWaiting.Count == 0 && MotionLive.Count == 0 && commit == null && !sendCue) return;
         var packet = new TownServiceMotionPacket { Sequence = ++_motionSequence, SampleTime = now };
         if (packet.Sequence == 0) { _motionSequence = ulong.MaxValue; return; }
-        int size = 21;
-        if (commit != null) { packet.Entries.Add(commit); size += TownServiceMotionCodec.EntryBytes(commit); }
-        if (sendCue) { packet.Entries.Add(cue); size += TownServiceMotionCodec.EntryBytes(cue);
+        if (commit != null) packet.Entries.Add(commit);
+        if (sendCue) { packet.Entries.Add(cue);
           _motionCue = cue; _nextMotionCue = now + TownServiceMotionCodec.Heartbeat; }
-        // Latest numeric state, never a queue of obsolete poses. Round-robin hot
-        // bindings retain a finite turn even during a four-player catalog preload.
-        int count = MotionWaiting.Count;
-        for (int i = 0; i < count && packet.Entries.Count < TownServiceMotionCodec.MaxEntries; i++)
-        {
-            if (_motionCursor >= count) _motionCursor = 0;
-            MotionSlot slot = MotionWaiting[_motionCursor++];
-            int bytes = TownServiceMotionCodec.EntryBytes(slot.Entry);
-            if (size + bytes > TownServiceMotionCodec.MaxBytes) continue;
-            packet.Entries.Add(slot.Entry); size += bytes; slot.Dirty = false; slot.SentAt = now;
-        }
+        // Dirty live controls have their own finite turn. Cold prewarmed fan
+        // heartbeats retain bounded progress and cannot delay a press or scroll.
+        TownServiceMotionBudget.Fill(packet, MotionLive, MotionWaiting, ref _motionLiveCursor, ref _motionCursor, now);
         if (packet.Entries.Count == 0) return;
         byte[] bytesPacket = TownServiceMotionCodec.Write(packet); send(bytesPacket, bytesPacket.Length, packet);
         if (VRLog.WantsDebug) { _motionSent++; _motionSentBytes += bytesPacket.Length; MotionDiagnostics(now); }
@@ -118,6 +126,12 @@ internal static partial class TownServiceMirror
             if (!MotionSources.TryGetValue(module, out SourceMotion? source))
             { source = new SourceMotion(); MotionSources.Add(module, source); }
             TownServiceFrame? previous = source.Previous;
+            if (ReferenceEquals(previous, frame) && source.HandRevision == _motionHandRevision)
+            {
+                foreach (MotionSlot slot in source.Slots.Values)
+                    if (slot.Dirty || now - slot.SentAt >= TownServiceMotionCodec.Heartbeat) AddMotionWaiting(slot, source.Live);
+                continue;
+            }
             // Artwork contains the initial complete native state. Fast numbers add
             // only bindings which actually change, plus the small live root pose.
             if (previous == null || previous.Structure != frame.Structure || previous.Session != frame.Session
@@ -143,6 +157,7 @@ internal static partial class TownServiceMirror
                 if (root.HasCanvasFrame && canvas != null && ReferenceEquals(MotionHand(canvas.transform, out _), hand))
                 { root.CanvasOnHand = true; root.CanvasPose = ReadPose(canvas.transform, hand.Rig.Root); }
             }
+            source.Live = LiveMotion(module.Address, root.Hand);
             source.Slots.TryGetValue(root.Key, out MotionSlot? priorRoot);
             root.HasCanvasUpdate = priorRoot == null || now - priorRoot.SentAt >= TownServiceMotionCodec.Heartbeat
                 || priorRoot.Entry.HasCanvasFrame != root.HasCanvasFrame || priorRoot.Entry.CanvasOnHand != root.CanvasOnHand
@@ -183,12 +198,26 @@ internal static partial class TownServiceMirror
                         entry.Binding = frame.Nodes[n].Binding; entry.Property = property.Key;
                         entry.Numbers = property.Value.Numbers; UpdateMotionSlot(source, entry);
                     }
-            source.Previous = frame;
+            source.Previous = frame; source.HandRevision = _motionHandRevision;
             foreach (MotionSlot slot in source.Slots.Values)
                 if (slot.Dirty || now - slot.SentAt >= TownServiceMotionCodec.Heartbeat)
-                    MotionWaiting.Add(slot);
+                    AddMotionWaiting(slot, source.Live);
         }
     }
+    private static void AddMotionWaiting(MotionSlot slot, bool live) =>
+        (slot.Dirty && live ? MotionLive : MotionWaiting).Add(slot);
+
+    private static bool LiveMotion(string address, byte hand) => hand is 1 or 2
+        || address.StartsWith("ritual.purse.held|", StringComparison.Ordinal)
+        || address.StartsWith("merchant.heldstock", StringComparison.Ordinal)
+        || address.StartsWith("merchant.category.", StringComparison.Ordinal)
+        || address.StartsWith("merchant.crank|", StringComparison.Ordinal)
+        || address.StartsWith("enchant.", StringComparison.Ordinal)
+        || address.StartsWith("item.confirm", StringComparison.Ordinal)
+        || address.StartsWith("enhance.confirm", StringComparison.Ordinal)
+        || address.StartsWith("face.", StringComparison.Ordinal)
+        || address.StartsWith("map.cardbody", StringComparison.Ordinal);
+
     private static VRHand? MotionHand(Transform source, out bool followsRotation)
     {
         followsRotation = true;
@@ -399,10 +428,11 @@ internal static partial class TownServiceMirror
 
     internal static void ForgetRemoteMotion(int peer) { MotionPeers.Remove(peer); TownServiceSharedCue.Forget(peer); }
     internal static void ResetMotionNetwork()
-    { MotionSources.Clear(); MotionPeers.Clear(); MotionHands.Clear(); MotionWaiting.Clear(); MotionRemoteFrames.Clear(); TownServiceSharedCue.Reset();
-      MotionSourceRemoval.Clear(); MotionRemoval.Clear(); _nextMotionSend = 0f; _motionCursor = 0;
+    { MotionSources.Clear(); MotionPeers.Clear(); MotionHands.Clear(); MotionWaiting.Clear(); MotionLive.Clear(); MotionRemoteFrames.Clear(); TownServiceSharedCue.Reset();
+      MotionSourceRemoval.Clear(); MotionRemoval.Clear(); _nextMotionSend = 0f; _motionCursor = _motionLiveCursor = 0;
       _motionCommitSession = _motionCommitRevision = 0; _nextMotionCommit = 0f;
       _motionCue = null; _nextMotionCue = 0f;
+      MotionHandRemoval.Clear(); _nextMotionHandCleanup = 0f;
       _motionDiagnosticAt = 0f; _motionSent = _motionSentBytes = _motionReceived = _motionReceivedBytes = 0;
       if (_motionLifetime != uint.MaxValue) _motionLifetime++; }
 }

@@ -117,7 +117,7 @@ internal static class TownServiceMotionCodec
             if (!clock || result.Entries.Count == 0) return false;
             packet = result; return true;
         }
-        catch (Exception error) when (error is IOException or ArgumentException or OverflowException)
+        catch (Exception error) when (error is IOException or InvalidDataException or ArgumentException or OverflowException)
         { return false; }
     }
 

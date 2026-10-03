@@ -86,7 +86,8 @@ internal sealed class TownServiceMotion
         // Shared decisions and personal held props cover the actual owner
         // interval, bounded at 250 ms. Keep the existing 100 ms response for
         // rack/crank and other discrete controls. This class remains the only
-        // pose author; no hand attachment or second extrapolator fights it.
+        // author for sampled native child animation. A verified held root and its
+        // enclosing canvas consume the approved rig holder after this tween ticks.
         _started = now; _duration = _continuousDecisionFacing || _continuousVisitorMotion
             ? Mathf.Clamp(sampleInterval * 1.1f, 1f / 90f, .25f)
             : Mathf.Clamp(sampleInterval, 1f / 90f, .1f);

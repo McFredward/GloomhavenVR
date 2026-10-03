@@ -2,6 +2,7 @@
 """Run production town-service capture/codec/playback and render comparisons in Unity 2021.3.5."""
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -24,11 +25,11 @@ def expression(text, signature):
 def sources(root):
     base = root / "src/GloomhavenVR"
     names = ["TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta",
-             "TownServiceFrame", "TownRackState", "TownCatalogLayout", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMirror.Offerings", "TownServiceMirror.Voice", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
+             "TownServiceFrame", "TownRackState", "TownCatalogLayout", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMirror.PublicVisibility", "TownServiceMirror.Offerings", "TownServiceMirror.Voice", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
     stock = base / "Net/TownServices/TownServiceMirror.Stock.cs"
     if stock.exists(): bound[stock.name] = stock.read_text()
-    for fast in ("TownServiceFastNumbers", "TownServiceMotionCodec", "TownServiceMirror.Motion"):
+    for fast in ("TownServiceFastNumbers", "TownServiceMotionCodec", "TownServiceMotionBudget", "TownServiceMirror.Motion"):
         path = base / "Net/TownServices" / (fast + ".cs")
         if path.exists(): bound[path.name] = path.read_text()
     pad = base / "Hands/Interact/PokeOnlyTarget.cs"
@@ -57,12 +58,12 @@ def sources(root):
         "private int CompareRackMembers(TownRackMember a,TownRackMember b)",
         "private void PublishCatalog(TownServiceCatalog catalog, Transform? furniture)",
         "private void TickCatalog(Transform frame, Transform station, TownServiceCatalog catalog, uint session, float age)",
-        "private void PruneSources()", "private void ResetCore()")
+        "private void PruneSources()", "private void ResetCore()", "private bool Visible(SourceEntry entry)", "private bool IsPriority(Transform source)")
     declarations = ("private uint _generation", "private ulong _relocationRevision", "private bool _generationExhausted")
     wrappers = publisher[publisher.index("    private static readonly TownServiceSync Private"):publisher.index("    private sealed class Published")]
     wrappers = wrappers.replace("internal static void Prepare() => Private.PrepareCore();", "")
     network = next(line for line in publisher.splitlines() if "internal static void ResetNetwork()" in line)
-    bound["PublisherTick.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing GloomhavenVR.Hands;\nusing GloomhavenVR.Net;\nusing GloomhavenVR.Net.TownServices;\nusing GloomhavenVR.Cards;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceSync {\n" + wrappers + "\n" + network + "\n" + "\n".join(expression(publisher, declaration) for declaration in declarations) + "\n" + "\n".join(method(publisher, signature) for signature in signatures) + "\n}\n"
+    bound["PublisherTick.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing GloomhavenVR.Hands;\nusing GloomhavenVR.Net;\nusing GloomhavenVR.Net.TownServices;\nusing GloomhavenVR.Cards;\nusing UnityEngine;\nusing UnityEngine.UI;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceSync {\n" + wrappers + "\n" + network + "\n" + "\n".join(expression(publisher, declaration) for declaration in declarations) + "\n" + "\n".join(method(publisher, signature) for signature in signatures) + "\n}\n"
     publish = method(publisher, "private void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null, bool prewarm = false)").replace("private void Publish(", "private void PublishNative(", 1)
     bound["PublisherNative.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing UnityEngine;\nusing GloomhavenVR.Net.TownServices;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceSync {\n" + publish + "\n}\n"
     catalog = (base / "WorldUI/TownServices/TownServiceCatalog.cs").read_text()
@@ -78,6 +79,7 @@ def sources(root):
     bound["TransferCapability.cs"] = hold[:hold.index("\n/// <summary>", hold.index("internal interface IItemCardHold"))].replace("using GloomhavenVR.Rig;\n", "")
     templates = (base / "WorldUI/TownServices/NativeTemplates.cs").read_text()
     bound["NativeTemplatePaths.cs"] = "using System;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class NativeTemplates {\n" + method(templates, "internal static string Append(string path, Transform child)") + "\n}\n"
+    bound["NativeDynamicBoundary.cs"] = "using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class NativeTemplates {\n" + expression(templates, "internal static bool IsDynamic(Transform node)") + "\n}\n"
     definitions = templates[templates.index("    internal sealed class Part"):templates.index("    private static readonly Dictionary<string, Entry>")]
     template_methods = ("private static void EnsureNativeProp(string key)", "private static void Freeze(string key, Entry entry)",
         "private static void Prune(Transform source, Transform copy)", "private static void Partition(Transform root, string path, List<Part> parts)",
@@ -88,7 +90,13 @@ def sources(root):
     town_neutralizer = base / "Net/TownServices/TownServiceNeutralize.cs"
     if town_neutralizer.exists():
         bound[town_neutralizer.name] = town_neutralizer.read_text()
-        return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
+        hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
+        claim_helper = root / "scripts/bind-town-public-claim.py"
+        if claim_helper.exists():
+            spec = importlib.util.spec_from_file_location("town_public_claim_binding", claim_helper)
+            helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
+            extra, extra_hashes = helper.sources(root); bound.update(extra); hashes.update(extra_hashes)
+        return bound, hashes
     neutral = (base / "Net/Remote/RemoteWidgetMirror.cs").read_text()
     scaffold = "using System;\nusing System.Collections.Generic;\nusing UnityEngine;\nusing UnityEngine.UI;\nusing Object = UnityEngine.Object;\nnamespace GloomhavenVR.Net;\ninternal static class RemoteWidgetMirror {\ninternal enum LayoutOwner { Source, CloneAtBoardOwnersWidth }\n"
     scaffold += method(neutral, "internal static void Neutralize(") + "\n"
@@ -99,6 +107,12 @@ def sources(root):
     bound["Neutralize.cs"] = scaffold
     hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
     hashes["RemoteWidgetMirror.cs (full source)"] = hashlib.sha256(neutral.encode()).hexdigest()
+    claim_helper = root / "scripts/bind-town-public-claim.py"
+    if claim_helper.exists():
+        spec = importlib.util.spec_from_file_location("town_public_claim_binding", claim_helper)
+        helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
+        extra, extra_hashes = helper.sources(root)
+        bound.update(extra); hashes.update(extra_hashes)
     return bound, hashes
 
 
@@ -108,7 +122,7 @@ def main():
     parser.add_argument("--source-root", type=Path, default=repo)
     parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-service-mirror")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
-    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock", "catalog-lifetime", "public-catalog", "voice-relay", "shared-interaction", "item-transfer"), default="full")
+    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock", "catalog-lifetime", "public-catalog", "voice-relay", "shared-interaction", "item-transfer", "motion-fast"), default="full")
     parser.add_argument("--no-negative-controls", action="store_true")
     parser.add_argument("--only-mutation", help="Run production plus one selected negative control after a focused fixture fix")
     args = parser.parse_args()
@@ -241,6 +255,16 @@ def main():
                 ("highest-player-wins", "TownServiceMirror.cs", "|| Mathf.Abs(age - oldestAge) <= .05f && pair.Key < owner)", "|| Mathf.Abs(age - oldestAge) <= .05f && pair.Key > owner)", "simultaneous resident claims use the deterministic player-ID tie break"),
                 ("nonowner-author", "TownServiceMirror.cs", "|| InteractionOwner(service) != player", "|| false", "only the elected visitor session can author shared interaction state"),
                 ("ignore-temple-owner", "TownServiceMirror.cs", "int owner = InteractionOwner(2);", "int owner = VisitorSessions.Count > 0 ? 3 : 0;", "disconnect releases only that player's resident leases"),
+                ("missing-art-blink", "TownServiceMirror.cs", "if (!sameOriginal) { module.Host.SetActive(false); module.Motion.Reset(); }", "if (true) { module.Host.SetActive(false); module.Motion.Reset(); }", "a missing next dependency retains the last validated original front instead of blinking grey"),
+            ]
+    if args.suite == "motion-fast":
+        variants = [("production", None, None, None, "")]
+        if not args.no_negative_controls:
+            variants += [
+                ("closed-fan-art-deferred", "PublisherTick.cs", 'Publish("item." + chip.Item.ID.ToString(System.Globalization.CultureInfo.InvariantCulture), face, prewarm: true);', 'Publish("item." + chip.Item.ID.ToString(System.Globalization.CultureInfo.InvariantCulture), face);', "closed owner item fan publishes complete original fronts with genuine hidden visibility before reveal"),
+                ("numeric-art-backlog", "TownServiceMirror.Motion.cs", "if (slot.Entry.Kind is 2 or 4) PatchMotionProperty(frame, slot.Entry);", "if (slot.Entry.Kind == 250) PatchMotionProperty(frame, slot.Entry);", "composing fast root scroll and hover preserves every simultaneous original property"),
+                ("rig-attachment-cadence", "TownServiceMirror.Motion.cs", "if (root != null && root.Entry.Hand != 0) ApplyMotionRoot(module, root.Entry, continuousHand: true);", "if (root != null && root.Entry.Hand == 250) ApplyMotionRoot(module, root.Entry, continuousHand: true);", "held original root follows the approved smoothed rig between network events"),
+                ("canvas-attachment-cadence", "TownServiceMirror.Motion.cs", "entry.CanvasOnHand ? mount : shared", "shared", "enclosing original canvas follows the same approved smoothed rig between events"),
             ]
     if args.suite == "voice-relay":
         variants = [("production", None, None, None, "")]

@@ -8,7 +8,7 @@ using UnityEngine;
 // arguments and removal, while Program.cs validates actual capture/render playback.
 namespace GloomhavenVR.WorldUI
 {
-    internal static class TownServicePublicMerchant
+    internal static partial class TownServicePublicMerchant
     {
         internal static TownServiceCatalog? Catalog;
         internal static Transform? StationRoot;
@@ -131,7 +131,6 @@ namespace GloomhavenVR.WorldUI
         private static readonly Part[] OnePart = { new() };
         internal static IReadOnlyList<Part> Parts(string key) => OnePart;
         internal static Transform At(Transform source,string path) => source;
-        internal static bool IsDynamic(Transform source) => false;
         internal static bool IsBoundary(Transform source) => false;
         internal static void Resolve(byte service,ushort template,string address)
         { string key=address.Split('|')[0];TownServiceMirror.RegisterTemplate(service,template,Originals[key],address:address); }
@@ -166,7 +165,8 @@ namespace GloomhavenVR.WorldUI
         private sealed class Published
         { internal ushort Id; internal bool Seen; internal string Address = "", Identity = ""; internal Transform Source = null!; internal Func<Transform,bool> Exclude = null!; }
         private sealed class SourceEntry
-        { internal TownRackState? RackClock; internal bool Seen,Complete; internal string Key=""; internal Transform Root=null!; internal Transform? CatalogOwner; internal List<Published> Parts = new(); }
+        { internal TownRackState? RackClock; internal Transform? Parent; internal readonly List<CanvasGroup> Groups = new(); internal readonly List<UnityEngine.UI.RectMask2D> Masks = new(); internal bool Seen,Complete; internal string Key=""; internal Transform Root=null!; internal Transform? CatalogOwner; internal List<Published> Parts = new(); }
+        private readonly Vector3[] Corners = new Vector3[4];
         private readonly Dictionary<string, Published> Modules = new();
         private readonly List<TownRackMember> RackMembers = new();
         private readonly Dictionary<Transform, SourceEntry> Sources = new();
@@ -186,11 +186,9 @@ namespace GloomhavenVR.WorldUI
         internal static ushort PublicModuleId(Transform source) => Public.Sources[source].Parts[0].Id;
         internal static int PublicModuleCount => Public.Modules.Count;
         internal static int PublicSourceCount => Public.Sources.Count;
-        private bool Visible(SourceEntry source) => true;
-        private void CollectDynamic(Transform source) { }
+                private void CollectDynamic(Transform source) { }
         private void CollectHeldBoundaries(Transform source,Func<Transform,Transform?> clone,HashSet<Transform> excluded) { }
-        private bool IsPriority(Transform source) => false;
-        internal static int SourceCount => Private.Sources.Count;
+                internal static int SourceCount => Private.Sources.Count;
         private void PrepareCore() { }
         private Transform? ResolveFrame(int peer) => _sharedFrame;
         internal static bool BindModules;
