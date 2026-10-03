@@ -15,6 +15,28 @@ internal static class StartupTests
         string temp = Path.Combine(Path.GetTempPath(), "quest-startup-tests-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(temp);
         try
         {
+            string logPath = Path.Combine(temp, "quest-startup.log");
+            // Exercise actual file persistence and the previous-run cap, including an
+            // unbounded log produced by an older version of the diagnostic adapter.
+            File.WriteAllText(logPath, new string('x', QuestGameStartupLog.MaxBytes * 2));
+            var startupLog = new QuestGameStartupLog(logPath, "fixture build/input");
+            check(new FileInfo(Path.ChangeExtension(logPath, ".previous.log")).Length == QuestGameStartupLog.MaxBytes, "Legacy previous startup log was not bounded.");
+            check(File.ReadAllText(logPath).Contains("run fixture build/input", StringComparison.Ordinal) && new FileInfo(logPath).Length < 256, "Per-run startup log was not truncated/stamped.");
+            startupLog.Append("first gate", "actual exception stack"); startupLog.Append("first gate", "duplicate stack");
+            check(File.ReadAllText(logPath).Split("first gate").Length == 2 && File.ReadAllText(logPath).Contains("actual exception stack", StringComparison.Ordinal), "Startup gate deduplication lost the first exception or repeated records.");
+            startupLog.Append(new string('漢', 20000), new string('界', 20000));
+            check(new FileInfo(logPath).Length < QuestGameStartupLog.MaxBytes && File.ReadAllText(logPath).Contains("[truncated]", StringComparison.Ordinal), "Unicode exception diagnostics were not clipped/bounded.");
+            for (int i = 0; i < QuestGameStartupLog.MaxRecords * 2; i++) startupLog.Append("transition " + i);
+            long cappedSize = new FileInfo(logPath).Length;
+            check(cappedSize <= QuestGameStartupLog.MaxBytes && File.ReadAllText(logPath).Contains("log limit reached", StringComparison.Ordinal), "Startup record limit was not recorded or file exceeded byte bound.");
+            startupLog.Append("after cap");
+            check(new FileInfo(logPath).Length == cappedSize && File.ReadAllText(logPath).Contains("run fixture build/input", StringComparison.Ordinal), "Capped startup log grew or lost boot provenance.");
+            new QuestGameStartupLog(logPath, "next run");
+            check(File.ReadAllText(logPath).Contains("next run", StringComparison.Ordinal) && !File.ReadAllText(logPath).Contains("first gate", StringComparison.Ordinal)
+                && File.ReadAllText(Path.ChangeExtension(logPath, ".previous.log")).Contains("fixture build/input", StringComparison.Ordinal), "Run rotation lost previous boot evidence or appended across runs.");
+            string byteLogPath = Path.Combine(temp, "byte-cap.log"); var byteLog = new QuestGameStartupLog(byteLogPath, "byte-cap");
+            for (int i = 0; i < 100; i++) byteLog.Append(i + new string('漢', 4096), new string('界', 8192));
+            check(new FileInfo(byteLogPath).Length <= QuestGameStartupLog.MaxBytes && File.ReadAllText(byteLogPath).Contains("log limit reached", StringComparison.Ordinal), "Byte cap failed before the record cap for long Unicode exceptions.");
             string archive = Path.Combine(temp, "content.zip"), contentRoot = Path.Combine(temp, "content");
             byte[] payload = Encoding.UTF8.GetBytes("actual-file-payload\n");
             using (var zip = ZipFile.Open(archive, ZipArchiveMode.Create))

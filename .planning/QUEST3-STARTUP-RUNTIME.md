@@ -105,14 +105,33 @@ or private initialization flags are used.
 Bounded quest-startup.log and quest-startup-state.json record provenance,
 scene loads, content/catalog readiness, lifecycle and independent false gates.
 State is written every five seconds/on lifecycle changes; original errors retain
-24 bounded records. There is no per-frame JSON/log stream.
+24 bounded records. Every run truncates the current log, retains at most 256 KiB
+of the previous run in quest-startup.previous.log, and caps the new log at 256 KiB
+or 512 records. Duplicate messages are suppressed; reaching either cap preserves
+the first boot stamp. There is no per-frame JSON/log stream.
+
+A tracked diagnostic view and bilingual startup status exist before content
+validation. A bounded failure gate/detail remains visible if startup fails.
+Original Intro/MainMenu display cameras are source-proven active Both-eye cameras;
+the temporary presentation disables only their display rendering and MainCamera
+tag while retaining camera objects/controllers/references. Original RenderTexture
+cameras still render, without stereo. One diagnostic camera and AudioListener own
+the headset view. This is not original graphical parity or full mod integration.
+
+The native UIMultiplayerJoinSessionWindow.JoinSession callback calls the unchanged
+FFSNetwork.Manager.JoinSession directly. Its existing privilege check proceeds to
+StartClient/BoltLauncher.StartClient and then BoltMatchmaking.JoinSession. This
+path has no campaign or mod-lifecycle prerequisite, and the diagnostic adds no
+second client. Android native dependencies, session-code keyboard entry and actual
+peer connection still require device evidence.
 
 Focused .NET suite executes real original platform getters/initialization from
 generated GH.Runtime, actual original config value persistence and reload, logger
 and path APIs. Semantic fingerprints compare all untouched types after output
 serialization and verify seven protected types. ZIP corruption, build mismatch,
 traversal, extra entries, repeated conversion and unknown BepInEx API are negative
-controls. The focused Release run passed 69 assertions. These are managed-boundary
+controls. The focused Release run passed 77 assertions, including actual bounded
+log persistence/rotation/deduplication and Unicode byte/record caps. These are managed-boundary
 proofs, not an actual Unity menu/device test. Without private owned-game inputs,
 CI explicitly skips those actual-boundary checks and still runs portable content
 and Harmony fixtures; it does not substitute reference stubs for execution.

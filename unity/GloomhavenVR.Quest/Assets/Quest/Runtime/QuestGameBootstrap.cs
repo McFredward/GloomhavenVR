@@ -17,7 +17,7 @@ namespace GloomhavenVR.Quest
         [Serializable] sealed class StartupState
         {
             public int schema = 1, modBuild, originalErrors, loadedScenes;
-            public string inputKey, state, lastScene, scope = "original-startup-diagnostic";
+            public string inputKey, state, failureDetail, lastScene, scope = "original-startup-diagnostic";
             public bool contentReady, addressablesReady, originalBootstrapStarted, modLifecycleAvailable, fullGameReady, eosAuthorised, proceduralRuntimeAvailable, focused, paused;
         }
         public string originalScene = "Bootstrap";
@@ -25,7 +25,9 @@ namespace GloomhavenVR.Quest
         public bool OriginalBootstrapStarted { get; private set; }
         public bool ModLifecycleAvailable { get; private set; }
         public string State { get; private set; } = "pending";
+        public string FailureDetail { get; private set; }
         string logPath;
+        QuestGameStartupLog log;
         int failures;
         QuestGameAddressables addressables;
         BuildStamp build;
@@ -38,8 +40,13 @@ namespace GloomhavenVR.Quest
         {
             DontDestroyOnLoad(gameObject);
             logPath = Path.Combine(Application.persistentDataPath, "quest-startup.log");
+            try { log = new QuestGameStartupLog(logPath, "Unity=" + Application.unityVersion + " platform=" + Application.platform + " scope=original-startup-diagnostic fullGameReady=false"); }
+            catch (Exception e) { Debug.LogWarning("[Quest startup] diagnostic log initialization failed: " + e.Message); }
             Application.logMessageReceived += CaptureLog;
             SceneManager.sceneLoaded += SceneLoaded;
+            // The first frame must have a tracked view and a visible gate/error status,
+            // including manifest/extraction failures before original scenes can load.
+            if (GetComponent<QuestGameMenu>() == null) gameObject.AddComponent<QuestGameMenu>();
             Debug.Log("[Quest startup] scope=original-startup-diagnostic Unity=" + Application.unityVersion + " platform=" + Application.platform + " fullGameReady=false");
         }
 
@@ -83,7 +90,6 @@ namespace GloomhavenVR.Quest
             }
             ContentReady = true;
             Debug.Log("[Quest startup] Owned file-backed content verified at " + root);
-            if (GetComponent<QuestGameMenu>() == null) gameObject.AddComponent<QuestGameMenu>();
             var addressablesAsset = Resources.Load<TextAsset>("quest-startup-addressables");
             if (addressablesAsset == null) { Fail("native-addressables", new InvalidDataException("Native startup Addressables manifest is missing.")); yield break; }
             QuestGameAddressablesManifest addressablesManifest = null;
@@ -114,6 +120,8 @@ namespace GloomhavenVR.Quest
         void Fail(string gate, Exception e)
         {
             State = "failed";
+            FailureDetail = gate + ": " + e.GetType().Name + ": " + e.Message;
+            if (FailureDetail.Length > 500) FailureDetail = FailureDetail.Substring(0, 500) + "…";
             Debug.LogError("[Quest startup] blocked gate=" + gate + " originalBootstrapStarted=" + OriginalBootstrapStarted + " exception=" + e);
             SaveState();
         }
@@ -123,7 +131,7 @@ namespace GloomhavenVR.Quest
         void SaveState()
         {
             if (logPath == null) return;
-            var state = new StartupState { modBuild = build != null ? build.modBuild : 0, inputKey = build != null ? build.inputKey : null, state = State,
+            var state = new StartupState { modBuild = build != null ? build.modBuild : 0, inputKey = build != null ? build.inputKey : null, state = State, failureDetail = FailureDetail,
                 contentReady = ContentReady, addressablesReady = addressables != null && addressables.Ready, originalBootstrapStarted = OriginalBootstrapStarted,
                 modLifecycleAvailable = ModLifecycleAvailable, fullGameReady = false, eosAuthorised = false, originalErrors = Math.Min(failures, 24),
                 loadedScenes = loadedScenes, lastScene = lastScene, focused = focused, paused = paused };
@@ -142,9 +150,11 @@ namespace GloomhavenVR.Quest
         {
             try
             {
-                if (message.StartsWith("[Quest startup]", StringComparison.Ordinal)) File.AppendAllText(logPath, DateTime.UtcNow.ToString("O") + " " + message + "\n");
-                else if ((type == LogType.Exception || type == LogType.Error) && failures++ < 24)
-                    File.AppendAllText(logPath, DateTime.UtcNow.ToString("O") + " original " + type + " " + message + "\n" + stack + "\n");
+                if (message.StartsWith("[Quest startup]", StringComparison.Ordinal)) { if (log != null) log.Append(message); }
+                else if (type == LogType.Exception || type == LogType.Error)
+                {
+                    if (failures < 24) { failures++; if (log != null) log.Append("original " + type + " " + message, stack); }
+                }
             }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }

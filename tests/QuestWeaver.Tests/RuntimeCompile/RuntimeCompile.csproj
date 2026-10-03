@@ -3,8 +3,10 @@
   <ItemGroup>
     <Compile Include="../../../unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestGame*.cs" />
     <Compile Include="$(QuestInputSource)" />
-    <Compile Include="../../../src/GloomhavenVR/Core/Loc/QuestText.cs" />
+    <Compile Include="$(QuestTextSource)" Condition="'$(QuestTextSource)' != ''" />
+    <Compile Include="../../../src/GloomhavenVR/Core/Loc/QuestText.cs" Condition="'$(QuestTextSource)' == ''" />
     <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)/UnityEngine.CoreModule.dll" />
+    <Reference Include="UnityEngine.AudioModule" HintPath="$(GameManaged)/UnityEngine.AudioModule.dll" />
     <Reference Include="UnityEngine.UnityWebRequestModule" HintPath="$(GameManaged)/UnityEngine.UnityWebRequestModule.dll" />
     <Reference Include="Unity.InputSystem" HintPath="$(GameManaged)/Unity.InputSystem.dll" />
     <Reference Include="UnityEngine.InputModule" HintPath="$(GameManaged)/UnityEngine.InputModule.dll" />

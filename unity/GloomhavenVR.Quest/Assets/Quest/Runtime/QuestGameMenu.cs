@@ -7,6 +7,7 @@ using GloomhavenVR.Core;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using UnityEngine.XR;
 
@@ -25,8 +26,15 @@ namespace GloomhavenVR.Quest
         readonly QuestProbeLocomotion navigation = new QuestProbeLocomotion();
         readonly List<Canvas> canvases = new List<Canvas>();
         readonly List<Component> excluded = new List<Component>();
+        readonly List<Camera> originalCameras = new List<Camera>();
+        readonly List<AudioListener> originalListeners = new List<AudioListener>();
+        readonly HashSet<Camera> reportedCameras = new HashSet<Camera>();
         QuestGamePointer pointer;
         Text tooltip;
+        Text startupStatus;
+        QuestGameBootstrap startup;
+        string lastStatus, lastFailure;
+        bool statusGerman;
         bool focused = true, paused;
         float nextScan;
         bool originConfigured;
@@ -35,7 +43,10 @@ namespace GloomhavenVR.Quest
         {
             origin = new GameObject("Quest original-menu tracking origin").transform; origin.SetParent(transform, false);
             view = new GameObject("Quest original-menu head").AddComponent<Camera>(); view.transform.SetParent(origin, false);
+            view.transform.localPosition = new Vector3(0, 1.6f, 0);
             view.nearClipPlane = .02f; view.farClipPlane = 250; view.tag = "MainCamera";
+            view.depth = 100; view.clearFlags = CameraClearFlags.SolidColor; view.backgroundColor = new Color(.025f, .035f, .045f, 1);
+            view.gameObject.AddComponent<AudioListener>();
             head = new QuestProbePoseInput("Startup head", "<XRHMD>/centerEyePosition", "<XRHMD>/centerEyeRotation", "<XRHMD>/isTracked", "<XRHMD>/trackingState");
             aim = QuestProbePoseInput.ForController("Startup UI aim", "<XRController>{RightHand}/", true);
             leftGrip = QuestProbePoseInput.ForController("Startup left grip", "<XRController>{LeftHand}/", false);
@@ -55,11 +66,22 @@ namespace GloomhavenVR.Quest
             var label = new GameObject("Tooltip", typeof(RectTransform), typeof(Text)); label.transform.SetParent(ui.transform, false);
             var labelRect = (RectTransform)label.transform; labelRect.anchorMin = Vector2.zero; labelRect.anchorMax = Vector2.one; labelRect.offsetMin = labelRect.offsetMax = Vector2.zero;
             tooltip = label.GetComponent<Text>(); tooltip.font = Resources.GetBuiltinResource<Font>("Arial.ttf"); tooltip.fontSize = 28; tooltip.alignment = TextAnchor.MiddleCenter; tooltip.color = Color.white; tooltip.raycastTarget = false;
+            startup = GetComponent<QuestGameBootstrap>();
+            var status = new GameObject("Quest original-startup status", typeof(Canvas)); status.transform.SetParent(transform, false);
+            var statusCanvas = status.GetComponent<Canvas>(); statusCanvas.renderMode = RenderMode.WorldSpace; statusCanvas.worldCamera = view; statusCanvas.sortingOrder = 32760;
+            var statusRect = (RectTransform)status.transform; statusRect.sizeDelta = new Vector2(1000, 400); statusRect.localScale = Vector3.one * .001f; statusRect.position = new Vector3(0, 1.5f, 1.7f);
+            var statusLabel = new GameObject("Startup status", typeof(RectTransform), typeof(Text)); statusLabel.transform.SetParent(status.transform, false);
+            var statusLabelRect = (RectTransform)statusLabel.transform; statusLabelRect.anchorMin = Vector2.zero; statusLabelRect.anchorMax = Vector2.one; statusLabelRect.offsetMin = statusLabelRect.offsetMax = Vector2.zero;
+            startupStatus = statusLabel.GetComponent<Text>(); startupStatus.font = tooltip.font; startupStatus.fontSize = 30; startupStatus.alignment = TextAnchor.MiddleCenter; startupStatus.color = Color.white; startupStatus.raycastTarget = false;
+            RefreshStatus();
+            SceneManager.sceneLoaded += SceneLoaded;
+            Camera.onPreCull += BeforeCameraRender;
             Debug.LogWarning("[Quest startup] presentation=original-menu-diagnostic; original widgets/callbacks retained. Full mod, campaign and visual parity remain unverified.");
         }
         void Update()
         {
             bool valid = head.TryRead(out Vector3 headPosition, out Quaternion headRotation);
+            RefreshStatus();
             if (valid) { view.transform.localPosition = headPosition; view.transform.localRotation = headRotation; }
             Vector3 aimPosition = Vector3.zero; Quaternion aimRotation = Quaternion.identity;
             bool pointerValid = focused && !paused && valid && aim.TryRead(out aimPosition, out aimRotation);
@@ -96,6 +118,7 @@ namespace GloomhavenVR.Quest
         }
         void LateUpdate()
         {
+            EnforceViewOwnership();
             foreach (Component entry in excluded)
             {
                 if (entry == null) continue;
@@ -105,6 +128,7 @@ namespace GloomhavenVR.Quest
         }
         void Scan()
         {
+            ScanCameras();
             if (!originConfigured)
             {
                 var inputs = new List<XRInputSubsystem>(); SubsystemManager.GetInstances(inputs);
@@ -152,6 +176,68 @@ namespace GloomhavenVR.Quest
                 }
             }
         }
+        void RefreshStatus()
+        {
+            if (startup == null || startupStatus == null) return;
+            bool visible = !startup.OriginalBootstrapStarted || startup.State == "failed";
+            startupStatus.transform.parent.gameObject.SetActive(visible);
+            if (!visible) return;
+            bool german = Application.systemLanguage == SystemLanguage.German;
+            if (lastStatus == startup.State && lastFailure == startup.FailureDetail && german == statusGerman) return;
+            lastStatus = startup.State; lastFailure = startup.FailureDetail; statusGerman = german;
+            string key;
+            switch (startup.State)
+            {
+                case "checking-content": key = "startupCheckingContent"; break;
+                case "extracting-content": key = "startupExtractingContent"; break;
+                case "initializing-native-addressables": key = "startupAddressables"; break;
+                case "loading-original-bootstrap": key = "startupLoadingOriginal"; break;
+                case "original-bootstrap-loaded": key = "startupOriginalLoaded"; break;
+                case "failed": key = "startupFailed"; break;
+                default: key = "startupPending"; break;
+            }
+            startupStatus.text = QuestText.Get("startupTitle", german) + "\n\n" + QuestText.Get(key, german)
+                + (string.IsNullOrEmpty(lastFailure) ? "" : "\n" + lastFailure) + "\n\n" + QuestText.Get("startupDiagnosticScope", german);
+        }
+        void SceneLoaded(Scene scene, LoadSceneMode mode) { ScanCameras(); }
+        void ScanCameras()
+        {
+            originalCameras.RemoveAll(camera => camera == null); originalListeners.RemoveAll(listener => listener == null);
+            foreach (Camera camera in Resources.FindObjectsOfTypeAll<Camera>())
+            {
+                if (camera == view || !camera.gameObject.scene.IsValid() || !camera.gameObject.scene.isLoaded) continue;
+                if (!originalCameras.Contains(camera)) originalCameras.Add(camera);
+            }
+            foreach (AudioListener listener in Resources.FindObjectsOfTypeAll<AudioListener>())
+                if (!listener.transform.IsChildOf(view.transform) && listener.gameObject.scene.IsValid() && listener.gameObject.scene.isLoaded && !originalListeners.Contains(listener)) originalListeners.Add(listener);
+            EnforceViewOwnership();
+        }
+        void EnforceViewOwnership()
+        {
+            foreach (Camera camera in originalCameras)
+            {
+                if (camera == null) continue;
+                // Preserve native RenderTexture rendering (portraits/movie/UI helpers).
+                // Display cameras retain their GameObjects/scripts and serialized refs,
+                // but only this diagnostic tracked camera may render the headset view.
+                camera.stereoTargetEye = StereoTargetEyeMask.None;
+                if (camera.targetTexture == null && camera.targetDisplay == 0)
+                {
+                    camera.enabled = false;
+                    if (camera.CompareTag("MainCamera")) camera.tag = "Untagged";
+                    if (reportedCameras.Add(camera)) Debug.Log("[Quest startup] original display camera retained with rendering disabled=" + camera.name + "; tracked diagnostic camera owns XR view.");
+                }
+            }
+            foreach (AudioListener listener in originalListeners) if (listener != null) listener.enabled = false;
+        }
+        void BeforeCameraRender(Camera camera)
+        {
+            if (camera != view && camera.targetTexture == null && camera.targetDisplay == 0 && camera.gameObject.scene.IsValid() && camera.gameObject.scene.isLoaded)
+            {
+                camera.enabled = false; camera.stereoTargetEye = StereoTargetEyeMask.None;
+                if (camera.CompareTag("MainCamera")) camera.tag = "Untagged";
+            }
+        }
         internal bool Excluded(GameObject hit)
         {
             foreach (Component entry in excluded) if (entry != null && hit.transform.IsChildOf(entry.transform)) return true;
@@ -170,7 +256,7 @@ namespace GloomhavenVR.Quest
         internal void Hover(GameObject hit) { tooltip.text = hit != null && Excluded(hit) ? QuestText.Get("excluded", Application.systemLanguage == SystemLanguage.German) : ""; }
         void OnApplicationFocus(bool value) { focused = value; if (!value) navigation.Suspend(); }
         void OnApplicationPause(bool value) { paused = value; if (value) navigation.Suspend(); }
-        void OnDestroy() { head.Dispose(); aim.Dispose(); leftGrip.Dispose(); rightGrip.Dispose(); trigger.Dispose(); leftStick.Dispose(); rightStick.Dispose(); if (markerMaterial != null) Destroy(markerMaterial); }
+        void OnDestroy() { SceneManager.sceneLoaded -= SceneLoaded; Camera.onPreCull -= BeforeCameraRender; head.Dispose(); aim.Dispose(); leftGrip.Dispose(); rightGrip.Dispose(); trigger.Dispose(); leftStick.Dispose(); rightStick.Dispose(); if (markerMaterial != null) Destroy(markerMaterial); }
     }
 
     /// <summary>Delivers native Unity pointer events; never calls a game action directly.</summary>
