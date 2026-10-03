@@ -62,7 +62,7 @@ class Capture:
     def __init__(self, adb, serial, directory, manifest):
         self.adb, self.serial, self.directory, self.manifest = adb, serial, directory, manifest
 
-    def read(self, *arguments, limit=MAX_METADATA, timeout=20):
+    def read(self, *arguments, limit=MAX_METADATA, timeout=20, include_stderr=False):
         """Keep partial output on failure; content can legitimately contain 'Error'."""
         command = [self.adb.executable, "-s", self.serial, *map(str, arguments)]
         error = None
@@ -82,6 +82,12 @@ class Capture:
             stderr, error = "", "command timed out"
         except OSError as failure:
             output, stderr, error = "", "", str(failure)
+        if include_stderr:
+            # Windows platform-tools prints successful pull receipts on stderr.
+            # Include that stream only for command status, never in app/log data.
+            output += ("\n" if output and stderr else "") + stderr
+            if not error and re.search(r"^\s*(adb:\s*error:|error:|failed to\b)", output, re.I | re.M):
+                error = "ADB reported a transfer error: " + output.strip()[:500]
         if len(output.encode("utf-8")) > limit:
             output = output.encode("utf-8")[:limit].decode("utf-8", errors="ignore")
             error = (error + "; " if error else "") + "output truncated at " + str(limit) + " bytes"
@@ -106,14 +112,23 @@ class Capture:
             size = self.adb.run("-s", self.serial, "shell", "stat", "-c", "%s", remote, timeout=10)
             if not size.isdigit():
                 raise installer.InstallError("Remote file size was not a number")
-            if int(size) > MAX_FILE:
+            expected_size = int(size)
+            if expected_size == 0:
+                self.failure(name, "remote file is empty")
+                return
+            if expected_size > MAX_FILE:
                 self.failure(name, "remote file exceeds the bounded capture limit")
                 return
-            pulled, pull_error = self.read("pull", remote, target, limit=4096, timeout=30)
-            if pull_error or not re.search(r"\bfile pulled\b", pulled, re.I):
+            pulled, pull_error = self.read("pull", remote, target, limit=4096, timeout=30, include_stderr=True)
+            if pull_error or not re.search(r"\b1 file pulled,\s*0 skipped\b", pulled, re.I):
                 raise installer.InstallError(pull_error or "ADB pull did not confirm success")
             if not target.is_file() or target.stat().st_size > MAX_FILE:
                 raise installer.InstallError("Pulled file was missing or too large")
+            if target.stat().st_size != expected_size:
+                raise installer.InstallError("Pulled file size did not match the remote size probe")
+            reported_size = re.search(r"\((\d+) bytes in\b", pulled)
+            if reported_size and int(reported_size.group(1)) != expected_size:
+                raise installer.InstallError("ADB pull receipt byte count did not match the file")
             self.manifest["files"].append({"path": name, "kind": "app-file-pull", "bytes": target.stat().st_size,
                                            "sha256": installer.digest(target)})
             return

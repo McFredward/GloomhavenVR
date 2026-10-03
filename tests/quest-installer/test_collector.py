@@ -37,6 +37,11 @@ class CaptureAdb:
         self.pids = "1234"
         self.app_files = {name: ("[GloomhavenVR Quest] ModBuild=609 input=" + KEY + "\n" if name.endswith(".log") else '{"diagnostic":true}\n') for name in collector.APP_FILES}
         self.pull_denied = False
+        self.pull_stream = "stdout"
+        self.pull_code = 0
+        self.pull_payload = None
+        self.pull_receipt = None
+        self.pull_create_file = True
         self.run_as_allowed = False
         self.apk_path = "package:/data/app/~~fixture/dev.gloomhavenvr.quest-abc/base.apk"
         self.apk_sha = APK_SHA
@@ -98,8 +103,15 @@ class CaptureAdb:
             elif action[0] == "pull":
                 source, destination = action[1:]
                 assert source.startswith(collector.REMOTE_FILES + "/") and Path(source).name in collector.APP_FILES
-                Path(destination).write_text(self.app_files[Path(source).name])
-                out = source + ": 1 file pulled, 0 skipped."
+                content = self.app_files[Path(source).name].encode() if self.pull_payload is None else self.pull_payload
+                if self.pull_create_file:
+                    Path(destination).write_bytes(content)
+                receipt = self.pull_receipt if self.pull_receipt is not None else source + ": 1 file pulled, 0 skipped. 1.2 MB/s (" + str(len(content)) + " bytes in 0.009s)\n"
+                if self.pull_stream == "stderr":
+                    err = receipt
+                else:
+                    out = receipt
+                code = self.pull_code
             elif action[:2] == ["shell", "sha256sum"]:
                 assert action[2] == self.apk_path.removeprefix("package:")
                 out = self.apk_sha + "  " + action[2]
@@ -166,6 +178,88 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(self.run_cli(), 0, self.stderr)
         self.assertEqual(self.capture()[0]["device"]["transport"], "wifi")
         self.assertEqual(self.config.read_bytes(), old)
+
+    def test_windows_pull_success_receipt_on_stderr_retains_transferred_files(self):
+        self.fake.pull_stream = "stderr"
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertEqual(manifest["status"], "complete")
+        for name, content in self.fake.app_files.items():
+            self.assertEqual(files[name], content.encode())
+        self.assertFalse(any("run-as" in call for call in self.fake.calls))
+        self.assertTrue(all(row["kind"] == "app-file-pull" for row in manifest["files"] if row["path"] in collector.APP_FILES))
+
+    def test_actual_b611_transfer_sizes_with_stderr_receipts_are_retained(self):
+        self.fake.pull_stream = "stderr"
+        self.fake.app_files = {"quest-hardware.log": "x" * 11346, "quest-hardware-state.json": "x" * 10728,
+                               "quest-hardware-storage.json": "x" * 74}
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        for name, content in self.fake.app_files.items():
+            self.assertEqual(len(files[name]), len(content))
+        self.assertEqual([row["item"] for row in manifest["errors"]], ["quest-hardware.log.previous"])
+
+    def test_failed_transfer_does_not_keep_partial_file_even_with_success_text(self):
+        self.fake.pull_stream = "stderr"
+        self.fake.pull_code = 1
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertEqual(manifest["status"], "partial")
+        self.assertTrue(any("exit=1" in row["reason"] for row in manifest["errors"]))
+        self.assertFalse(set(collector.APP_FILES).intersection(files))
+
+    def test_exit_zero_success_text_plus_error_is_rejected(self):
+        self.fake.pull_receipt = "1 file pulled, 0 skipped.\nadb: error: incomplete transfer"
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertTrue(any("transfer error" in row["reason"] for row in manifest["errors"]))
+        self.assertFalse(set(collector.APP_FILES).intersection(files))
+
+    def test_empty_transfer_is_rejected_when_remote_file_is_not_empty(self):
+        self.fake.pull_payload = b""
+        self.fake.pull_stream = "stderr"
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertTrue(any("did not match the remote" in row["reason"] for row in manifest["errors"]))
+        self.assertFalse(set(collector.APP_FILES).intersection(files))
+
+    def test_partial_or_oversized_transfer_is_rejected_against_remote_size(self):
+        for payload in (b"partial", b"x" * 1000):
+            self.fake.pull_payload = payload
+            self.output = self.root / ("capture-size-" + str(len(payload)))
+            self.assertEqual(self.run_cli(), 0, self.stderr)
+            manifest, files = self.capture()
+            self.assertTrue(any("did not match the remote" in row["reason"] for row in manifest["errors"]))
+            self.assertFalse(set(collector.APP_FILES).intersection(files))
+
+    def test_missing_transfer_file_is_rejected_even_with_success_receipt(self):
+        self.fake.pull_create_file = False
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertTrue(any("missing or too large" in row["reason"] for row in manifest["errors"]))
+        self.assertFalse(set(collector.APP_FILES).intersection(files))
+
+    def test_receipt_with_wrong_byte_count_is_rejected(self):
+        self.fake.pull_receipt = "1 file pulled, 0 skipped. 1.2 MB/s (1 bytes in 0.009s)"
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertTrue(any("receipt byte count" in row["reason"] for row in manifest["errors"]))
+        self.assertFalse(set(collector.APP_FILES).intersection(files))
+
+    def test_empty_remote_file_is_reported_without_pull(self):
+        self.fake.app_files["quest-hardware.log"] = ""
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertNotIn("quest-hardware.log", files)
+        self.assertTrue(any("remote file is empty" in row["reason"] for row in manifest["errors"]))
+        self.assertFalse(any(call[2] == "pull" and call[3].endswith("/quest-hardware.log") for call in self.fake.calls if len(call) > 3))
+
+    def test_empty_receipt_does_not_silently_accept_existing_transfer_file(self):
+        self.fake.pull_receipt = ""
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertTrue(any("did not confirm success" in row["reason"] for row in manifest["errors"]))
+        self.assertFalse(set(collector.APP_FILES).intersection(files))
 
     def test_wrong_wifi_identity_fails_without_capturing_other_headset(self):
         self.remember()
