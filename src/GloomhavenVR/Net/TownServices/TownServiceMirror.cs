@@ -774,12 +774,21 @@ internal static partial class TownServiceMirror
       ClearLaneVoiceOutgoing(); ClearLocalModules(); }
 
     /// <summary>Call in the owner's final presentation pass. Immutable packets go to the existing transport.</summary>
-    internal static void Capture(Action<byte[], int> send) => Capture((bytes, length, _) => send(bytes, length));
-    internal static void Capture(Action<byte[], int, object?> send)
+    internal static void Capture(Action<byte[], int> send) => CaptureCore((bytes, length, _) => send(bytes, length), false);
+    internal static void Capture(Action<byte[], int, object?> send) => CaptureCore(send, true);
+    private static void CaptureCore(Action<byte[], int, object?> send, bool fast)
     {
-        using (new LaneScope(PrivateLane)) { CaptureLane(send); CaptureVoice(send); }
-        using (new LaneScope(PublicLane)) CaptureLane(send);
-        using (new LaneScope(StockLane)) { CaptureLane(send); CaptureStockVoice(send); }
+        // A caller without the independent motion subscriber still receives complete
+        // native pictures. Only the production transport can bypass numeric art deltas.
+        FastMotionCaptureEnabled = fast;
+        try
+        {
+            using (new LaneScope(PrivateLane)) { CaptureLane(send); CaptureVoice(send); }
+            using (new LaneScope(PublicLane)) CaptureLane(send);
+            using (new LaneScope(StockLane)) { CaptureLane(send); CaptureStockVoice(send); }
+            if (fast) CaptureMotion(send);
+        }
+        finally { FastMotionCaptureEnabled = false; }
     }
     private static void CaptureLane(Action<byte[], int, object?> send)
     {
@@ -826,6 +835,12 @@ internal static partial class TownServiceMirror
                     {
                         float alpha = ReadRackAlpha(module);
                         if (frame.RackMember.Alpha != alpha) { frame.RackMember = frame.RackMember.Copy(); frame.RackMember.Alpha = alpha; }
+                    }
+                    if (FastMotionCaptureEnabled && module.Last != null && module.Baseline != null
+                        && now < module.NextBaseline && TownServiceFastNumbers.SameArtwork(module.Last, frame))
+                    {
+                        module.Last = TownServiceDelta.Retain(frame);
+                        continue;
                     }
                     bool sameSurface = SamePresentation(module.Last, frame);
                     if (sameSurface
@@ -1122,6 +1137,7 @@ internal static partial class TownServiceMirror
             if (secondaryVisitor && session.Service == 2) SetSecondaryTempleInscriptions(session, pending, standing);
         }
         SuppressRemoteStockDuplicates();
+        ApplyRemoteMotion(now);
     }
 
     private static string DescribeTemplateMismatch(TownServiceFrame frame, TownServiceBinding local)
@@ -1303,7 +1319,7 @@ internal static partial class TownServiceMirror
     internal static void RemovePeer(int peer)
     { MerchantOfferings.Remove(peer); ClearVoicePeer(peer); ClearRemoteModules(peer); Pending.Remove(peer); ReceivedBaselines.Remove(peer); Sessions.Remove(peer); VisitorSessions.Remove(peer);
       ClearRemoteModules(-peer); Pending.Remove(-peer); ReceivedBaselines.Remove(-peer); Sessions.Remove(-peer);
-      RemoveStockPeer(peer); ForgetDonationCommits(peer); }
+      RemoveStockPeer(peer); ForgetDonationCommits(peer); ForgetRemoteMotion(peer); }
     private static void ForgetDonationCommits(int peer)
     {
         int count = DonationCommitOrder.Count;
@@ -1326,6 +1342,7 @@ internal static partial class TownServiceMirror
       foreach (LocalModule module in StockLane.Modules.Values) yield return module; }
     internal static void ResetNetwork()
     {
+        ResetMotionNetwork();
         DonationCommits.Clear(); DonationCommitOrder.Clear();
         if (PrivateLane.TransactionActive)
             TownServiceGrantSync.SetOffer(PrivateLane.Service, PrivateLane.Session, false);
