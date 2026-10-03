@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import secrets
 import shutil
+import struct
 import subprocess
 import sys
 import zipfile
@@ -442,11 +443,21 @@ def validate_apk(apk: Path, report: Path, inputs: dict, tools: dict, output: Pat
         if bad:
             raise BuildError("APK ZIP integrity failed: " + bad)
         names = archive.namelist()
-        for required in ("AndroidManifest.xml", "lib/arm64-v8a/libil2cpp.so", "lib/arm64-v8a/libunity.so"):
+        for required in ("AndroidManifest.xml", "lib/arm64-v8a/libil2cpp.so", "lib/arm64-v8a/libunity.so",
+                         "lib/arm64-v8a/libghvr_quest_passthrough.so", "lib/arm64-v8a/libUnityOpenXR.so",
+                         "lib/arm64-v8a/libopenxr_loader.so"):
             if required not in names:
                 raise BuildError("The APK is not a genuine ARM64 IL2CPP Unity player: missing " + required)
         if any(name.startswith("lib/") and not name.startswith("lib/arm64-v8a/") for name in names if name.endswith(".so")):
             raise BuildError("The initial Quest APK must contain only ARM64 native binaries.")
+        for name in names:
+            if not name.startswith("lib/") or not name.endswith(".so"):
+                continue
+            with archive.open(name) as native:
+                header = native.read(64)
+            if (len(header) < 64 or header[:7] != b"\x7fELF\x02\x01\x01" or
+                    struct.unpack_from("<HHI", header, 16) != (3, 183, 1)):
+                raise BuildError("APK native library is not an ELF64 little-endian AArch64 shared object: " + name)
         if not any(name.endswith("/global-metadata.dat") for name in names):
             raise BuildError("The APK lacks IL2CPP metadata.")
     verify_env = dict(os.environ)
@@ -465,6 +476,10 @@ def validate_apk(apk: Path, report: Path, inputs: dict, tools: dict, output: Pat
     badging = command([tools["aapt"], "dump", "badging", str(apk)], output / "logs/apk-badging.log")
     if not re.search(r"^package: name='" + re.escape(PACKAGE) + r"'", badging, re.MULTILINE):
         raise BuildError("The APK uses an unexpected package name.")
+    if re.search(r"^uses-feature:\s.*\boculus\.software\.eye_tracking\b", badging, re.MULTILINE | re.IGNORECASE):
+        raise BuildError("Quest 3 APK declares mandatory eye tracking, which its hardware does not support.")
+    if re.search(r"^uses-permission(?:-sdk-\d+)?:\s.*\beye_tracking\b", badging, re.MULTILINE | re.IGNORECASE):
+        raise BuildError("Quest 3 APK requests an unused eye-tracking permission.")
     return {"apkSha256": digest(apk), "certificateSha256": cert_hash,
             "package": PACKAGE, "isDiagnostic": inputs["target"] == "probe",
             "isDummy": bool(inputs["profile"].get("isDummy")), "buildReport": metadata}

@@ -28,6 +28,14 @@ def png():
             chunk(b"IDAT", zlib.compress((b"\0" + b"\0" * (16 * 4)) * 16)) + chunk(b"IEND", b""))
 
 
+def arm64_elf_header():
+    header = bytearray(64)
+    header[:7] = b"\x7fELF\x02\x01\x01"
+    struct.pack_into("<HHI", header, 16, 3, 183, 1)
+    struct.pack_into("<H", header, 52, 64)
+    return bytes(header)
+
+
 class Temporary(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -281,11 +289,18 @@ class ApkTests(Temporary):
             "profileSha256": storage.digest(profile), "unityVersion": "2021.3.5f1", "buildResult": "Succeeded"}
         storage.write_json(self.evidence, self.metadata)
 
-    def fixture_apk(self, extra=None):
+    def fixture_apk(self, extra=None, omit=None, malformed=None):
         with zipfile.ZipFile(self.apk, "w") as archive:
             for name in ("AndroidManifest.xml", "lib/arm64-v8a/libil2cpp.so", "lib/arm64-v8a/libunity.so",
+                         "lib/arm64-v8a/libghvr_quest_passthrough.so", "lib/arm64-v8a/libUnityOpenXR.so",
+                         "lib/arm64-v8a/libopenxr_loader.so",
                          "assets/bin/Data/Managed/Metadata/global-metadata.dat"):
-                archive.writestr(name, b"fixture only")
+                if name == omit:
+                    continue
+                data = arm64_elf_header() if name.endswith(".so") else b"fixture only"
+                if malformed and name == "lib/arm64-v8a/libghvr_quest_passthrough.so":
+                    data = malformed
+                archive.writestr(name, data)
             if extra:
                 archive.writestr(extra, b"fixture only")
 
@@ -316,6 +331,43 @@ class ApkTests(Temporary):
         storage.write_json(self.output / "signing/certificate.json", {"sha256": "b" * 64})
         with patch.object(builder, "command", self.tool_output), self.assertRaises(storage.BuildError):
             builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+
+    def test_quest_passthrough_openxr_and_loader_are_mandatory(self):
+        for name in ("libghvr_quest_passthrough.so", "libUnityOpenXR.so", "libopenxr_loader.so"):
+            self.fixture_apk(omit="lib/arm64-v8a/" + name)
+            with self.subTest(name=name), self.assertRaises(storage.BuildError):
+                builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+
+    def test_mislabeled_arm64_libraries_fail_elf_validation(self):
+        valid = arm64_elf_header()
+        bad_class = bytearray(valid)
+        bad_class[4] = 1
+        bad_endian = bytearray(valid)
+        bad_endian[5] = 2
+        wrong_machine = bytearray(valid)
+        struct.pack_into("<H", wrong_machine, 18, 62)  # x86-64 inside an ARM64 path.
+        executable = bytearray(valid)
+        struct.pack_into("<H", executable, 16, 2)
+        for content in (bytes(bad_class), bytes(bad_endian), bytes(wrong_machine), bytes(executable), valid[:32], b"not ELF"):
+            self.fixture_apk(malformed=content)
+            with self.subTest(content=content[:24].hex()), self.assertRaises(storage.BuildError):
+                builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+
+    def test_required_eye_tracking_and_eye_permission_rejected_optional_feature_allowed(self):
+        self.fixture_apk()
+        for line in ("uses-feature: name='oculus.software.eye_tracking'",
+                     "uses-permission: name='com.oculus.permission.EYE_TRACKING'",
+                     "uses-permission-sdk-23: name='com.oculus.permission.EYE_TRACKING'"):
+            def tool_output(argv, *args, **kwargs):
+                result = self.tool_output(argv, *args, **kwargs)
+                return result + ("\n" + line if argv[0] == "fixture-aapt" else "")
+            with self.subTest(line=line), patch.object(builder, "command", tool_output), self.assertRaises(storage.BuildError):
+                builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+        def optional_feature(argv, *args, **kwargs):
+            result = self.tool_output(argv, *args, **kwargs)
+            return result + ("\nuses-feature-not-required: name='oculus.software.eye_tracking'" if argv[0] == "fixture-aapt" else "")
+        with patch.object(builder, "command", optional_feature):
+            self.assertTrue(builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)["isDiagnostic"])
 
     def test_device_ambiguity_does_not_install(self):
         fake_adb = self.root / "adb"

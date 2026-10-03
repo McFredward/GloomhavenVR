@@ -88,3 +88,9 @@ receipt invalidation, native-slice ingress, retained DLL script identity, path
 isolation, APK contracts and installation safety with negative controls. A real
 fixture exporter returning zero with 177 placeholder shaders is still rejected
 as a full game. They do not certify Quest hardware rendering or multiplayer.
+
+APK validation requires the passthrough bridge, Unity OpenXR plugin and OpenXR
+loader alongside IL2CPP and Unity. Every packaged native library must have an
+ELF64 little-endian AArch64 shared-object header, even if its directory claims
+ARM64. A mandatory Oculus eye-tracking feature or unused eye-tracking permission
+blocks the Quest 3 build; an explicitly optional feature does not.
