@@ -113,9 +113,13 @@ namespace GloomhavenVR.Hands
     public static class VRHands { public static VRHand? Left, Right, Primary; }
 }
 namespace GloomhavenVR.Rig { public static class VRRigDriver { public static Camera? HeadCamera; } }
+namespace GloomhavenVR.Net { public static class NetPlayerActors { public static int Peer = 11; public static int LocalPlayerId() => Peer; } }
 namespace GloomhavenVR.Net.TownServices
 {
-    public static class TownServiceGrantSync { public static bool CanUseImmersive = true; }
+    // Reliable leases and the elected resident author are explicit network boundaries.
+    // The shared-cue aggregation and its actual Unity ink painting are production code.
+    public static class TownServiceGrantSync { public static bool CanUseImmersive = true; public static int Owner; public static int GrantedOwner(byte service) => service == 3 ? Owner : 0; }
+    public static class RemoteTownResidents { public static int AuthorPlayer = 11; }
     public static class TownServiceMirror
     {
         public static bool Settled = true;
@@ -123,6 +127,8 @@ namespace GloomhavenVR.Net.TownServices
         public static bool Denied;
         public static bool ShowCue = true;
         public static int TransactionReleases;
+        public static int BrowsingOwner = 11;
+        public static int InteractionOwner(byte service) => BrowsingOwner;
         public static bool CanShowLocalCue(byte service) => ShowCue;
         public static void SetLocalTransactionActive(byte service, bool active)
         { if (service == 3 && !active) TransactionReleases++; }
@@ -191,15 +197,6 @@ namespace GloomhavenVR.WorldUI.MapRoom
 }
 namespace GloomhavenVR.WorldUI
 {
-    // Shared cue author aggregation is a separate production-network boundary.
-    // This handoff fixture proves the visual exception never changes eligibility.
-    internal static class TownServiceSharedCue
-    {
-        internal static bool Ready;
-        internal static float Strength;
-        internal static void SetLocal(bool ready, float strength) { Ready = ready; Strength = strength; }
-        internal static void PaintLocal(CanvasGroup gate, Transform zone) { }
-    }
     public static class TownServicePalmConfirmation
     {
         public static bool Owned; public static int Cancels;
@@ -245,6 +242,7 @@ namespace GloomhavenVR.WorldUI
     }
     public static class TownServicePopulation
     {
+        public static bool IsFaceAuthor = true;
         public static TownServiceStation? Station;
         public static TownServiceStation? MageStation, TempleStation, MerchantStation;
         public static bool Available(byte service) => service == 1 ? MerchantStation != null

@@ -17,6 +17,7 @@ public static class InteractionProgram
     {
         count = 0;
         OfferFeedback();
+        SharedOfferGuide();
         NativeFrame();
         PhysicalCardAura();
         NativePhysicalPoke();
@@ -679,6 +680,107 @@ public static class InteractionProgram
         Check(purseHand.HoverTicks == 1 && purseHand.ClickPulses == 0,
             "priestess approach adds one hover pulse without duplicating the purse token's inside-bowl snap pulse");
         UnityEngine.Object.DestroyImmediate(root);
+    }
+
+    private static void SharedOfferGuide()
+    {
+        var root = new GameObject("Canonical shared guide", typeof(RectTransform), typeof(CanvasGroup));
+        var border = new GameObject("Border", typeof(RectTransform), typeof(Image));
+        border.transform.SetParent(root.transform, false);
+        var duplicate = new GameObject("Noncanonical visitor guide", typeof(RectTransform), typeof(CanvasGroup));
+        var duplicateBorder = new GameObject("Border", typeof(RectTransform), typeof(Image));
+        duplicateBorder.transform.SetParent(duplicate.transform, false);
+        var gate = root.GetComponent<CanvasGroup>();
+        var duplicateGate = duplicate.GetComponent<CanvasGroup>();
+        var ink = border.GetComponent<Image>();
+        var author = GloomhavenVR.Net.TownServices.RemoteTownResidents.AuthorPlayer;
+        var cue = new TownServiceOfferFeedback(gate, root.transform);
+        var otherCue = new TownServiceOfferFeedback(duplicateGate, duplicate.transform);
+        var hand = new VRHand();
+        TownServiceSharedCue.Reset();
+        GloomhavenVR.Net.TownServices.TownServiceGrantSync.Owner = 0;
+        TownServicePopulation.IsFaceAuthor = true;
+        GloomhavenVR.Net.TownServices.TownServiceMirror.ShowCue = true;
+        TownServiceSharedCue.SetLocal(true, .24f);
+        TownServiceSharedCue.ObserveVisitor(22, 900, true, .81f);
+        TownServiceSharedCue.ObserveVisitor(33, 901, false, 1f);
+        TownServiceSharedCue.Tick();
+        Check(TownServiceSharedCue.PublishedReady && Mathf.Abs(TownServiceSharedCue.PublishedStrength - .81f) < 1e-6f,
+            "resident picture author publishes the strongest eligible visitor approach");
+        cue.Paint(true);
+        TownServiceSharedCue.PaintLocal(gate, root.transform);
+        Color expectedInk = Color.Lerp(new Color(.24f, .67f, .34f, .48f), new Color(.43f, 1f, .60f, .85f), .81f);
+        Vector3 expectedScale = Vector3.one * (.001f * (1f + .055f * .81f));
+        Check(ink.color == expectedInk && root.transform.localScale == expectedScale && gate.alpha == 1f,
+            "the author paints the actual common border and scale using production offer ink");
+        // A hidden local drawing still has native eligibility and its own controller feedback.
+        otherCue.Tick(true, hand, .05f, true, .43f);
+        otherCue.Paint(true);
+        GloomhavenVR.Net.TownServices.TownServiceMirror.ShowCue = false;
+        duplicateGate.alpha = 0f;
+        TownServiceSharedCue.PaintLocal(duplicateGate, duplicate.transform);
+        Check(duplicateGate.alpha == 0f && hand.HoverTicks == 1 && hand.ClickPulses == 1,
+            "common guide deduplication leaves the hidden visitor's own approach and snap haptics intact");
+        TownServicePopulation.IsFaceAuthor = false;
+        TownServiceSharedCue.ObserveShared(author, true, TownServiceSharedCue.PublishedStrength, TownServiceSharedCue.PublishedGuideOwner);
+        cue.Paint(true);
+        TownServiceSharedCue.PaintRemote(gate, root.transform);
+        Check(ink.color == expectedInk && root.transform.localScale == expectedScale,
+            "every receiving client paints the same original guide ink and scale");
+        GloomhavenVR.Net.TownServices.TownServiceMirror.ShowCue = true;
+        TownServiceSharedCue.ObserveShared(author + 1, true, .02f, 22);
+        cue.Paint(true); TownServiceSharedCue.PaintLocal(gate, root.transform);
+        Check(ink.color == expectedInk && root.transform.localScale == expectedScale,
+            "a nonauthor peer cannot overwrite the shared guide response");
+        // Receiving owners can still have the previous free-palm sample in flight.
+        // Its response must not overwrite their valid native replacement affordance.
+        GloomhavenVR.Net.TownServices.TownServiceGrantSync.Owner = 22;
+        TownServiceOfferFeedback.PaintInk(root.transform, ink, .33f);
+        Color replacementInk = ink.color; Vector3 replacementScale = root.transform.localScale;
+        TownServiceSharedCue.PaintLocal(gate, root.transform);
+        Check(ink.color == replacementInk && root.transform.localScale == replacementScale,
+            "a leased owner keeps its valid replacement guide unchanged despite a previous shared sample");
+        TownServicePopulation.IsFaceAuthor = true;
+        TownServiceSharedCue.Tick();
+        Check(!TownServiceSharedCue.PublishedReady && TownServiceSharedCue.PublishedStrength == 0f,
+            "a physical parked card stops publishing the free shared palm");
+        GloomhavenVR.Net.TownServices.TownServiceGrantSync.Owner = 0;
+        TownServiceSharedCue.SetLocal(false, 0f);
+        TownServiceSharedCue.ObserveVisitor(22, 900, true, .81f);
+        TownServiceSharedCue.Tick();
+        Check(TownServiceSharedCue.PublishedReady && TownServiceSharedCue.GuideOwner == 22
+            && GloomhavenVR.Net.TownServices.TownServiceMirror.InteractionOwner(3) == 11,
+            "an older native-unready browser cannot hide a second eligible visitor's guide or change private interaction ownership");
+        TownServicePopulation.IsFaceAuthor = false;
+        TownServiceSharedCue.ObserveShared(author, true, .81f, 22);
+        Check(TownServiceSharedCue.GuideOwner == 22,
+            "receiving clients elect the same actually ready guide owner");
+        TownServiceSharedCue.ObserveShared(author, true, .12f, 0);
+        Check(TownServiceSharedCue.GuideOwner == 22,
+            "invalid ready packets without a guide owner cannot clear a valid elected guide");
+        TownServicePopulation.IsFaceAuthor = true;
+        var visitorField = typeof(TownServiceSharedCue).GetField("Visitors", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+        var visitors = (System.Collections.IDictionary)visitorField.GetValue(null)!;
+        object remote = visitors[22]!;
+        remote.GetType().GetField("Received", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(remote, Time.unscaledTime - 4f);
+        visitors[22] = remote;
+        TownServiceSharedCue.SetLocal(false, 0f); TownServiceSharedCue.Tick();
+        Check(!TownServiceSharedCue.PublishedReady && TownServiceSharedCue.PublishedStrength == 0f,
+            "expired visitors and a closed local visit cannot leave a phantom common palm");
+        TownServicePopulation.IsFaceAuthor = false;
+        typeof(TownServiceSharedCue).GetField("_sharedReceived", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.SetValue(null, Time.unscaledTime - 4f);
+        TownServiceOfferFeedback.PaintInk(root.transform, ink, .12f);
+        Color ownInk = ink.color; Vector3 ownScale = root.transform.localScale;
+        TownServiceSharedCue.PaintRemote(gate, root.transform);
+        Check(ink.color == ownInk && root.transform.localScale == ownScale,
+            "an expired common guide response does not repaint a receiving guide");
+        TownServiceSharedCue.Reset();
+        Check(!TownServiceSharedCue.LocalReady && !TownServiceSharedCue.PublishedReady
+            && TownServiceSharedCue.LocalStrength == 0f && TownServiceSharedCue.PublishedStrength == 0f,
+            "scene reset clears all shared guide readiness and strength");
+        TownServicePopulation.IsFaceAuthor = true;
+        GloomhavenVR.Net.TownServices.TownServiceMirror.ShowCue = true;
+        UnityEngine.Object.DestroyImmediate(root); UnityEngine.Object.DestroyImmediate(duplicate);
     }
 
     private static void SwapOffering()

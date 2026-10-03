@@ -32,8 +32,9 @@ def sources(root):
     pose = path.with_name("TownServiceOfferingPose.cs")
     feedback = path.with_name("TownServiceOfferFeedback.cs")
     mask = path.with_name("TownServiceNativeEnhancementCardMask.cs")
+    shared = path.with_name("TownServiceSharedCue.cs")
     bound = {path.name: source, pose.name: pose.read_text(), feedback.name: feedback.read_text(),
-             mask.name: mask.read_text()}
+             mask.name: mask.read_text(), shared.name: shared.read_text()}
     poke = (root / "src/GloomhavenVR/Hands/Interact/PokeInteractor.cs").read_text()
     bound["PokeInteractor.cs"] = poke
     card = (root / "src/GloomhavenVR/Cards/VRCard.cs").read_text()
@@ -161,6 +162,9 @@ def mutations():
         ("native-cancel-reservation", name, "TownServiceMirror.SetLocalTransactionActive(3, false);", "/* leave reservation active */", "native cancellation immediately releases the physical resident reservation"),
         ("native-cancel-replacement", name, "&& ReferenceEquals(owner.Card, offered)\n                    && TownServicePresentation.Active", "&& TownServicePresentation.Active", "a delayed prior cancellation cannot remove or release a replacement offering"),
         ("shared-palm-cue", name, "if (!TownServiceMirror.CanShowLocalCue(3)) _zoneGate.alpha = 0f;", "/* show every visitor's duplicate cue */", "another picture author's common palm cue suppresses only the duplicate local drawing"),
+        ("shared-cue-aggregation", "TownServiceSharedCue.cs", "PublishedStrength = Mathf.Max(PublishedStrength, visitor.Strength);", "PublishedStrength = Mathf.Min(PublishedStrength, visitor.Strength);", "resident picture author publishes the strongest eligible visitor approach"),
+        ("shared-cue-ready-author", "TownServiceSharedCue.cs", "if (PublishedGuideOwner == 0 || pair.Key < PublishedGuideOwner) PublishedGuideOwner = pair.Key;", "PublishedGuideOwner = TownServiceMirror.InteractionOwner(3);", "an older native-unready browser cannot hide a second eligible visitor's guide or change private interaction ownership"),
+        ("shared-cue-lease", "TownServiceSharedCue.cs", "private static void PaintShared(Transform zone)\n    {\n        if (TownServiceGrantSync.GrantedOwner(3) != 0) return;", "private static void PaintShared(Transform zone)\n    {\n        /* paint a stale free-palm response over a leased owner's replacement */", "a leased owner keeps its valid replacement guide unchanged despite a previous shared sample"),
         ("walkaway-window", name, "ModalFallback.CloseFloatedWindow(current._window);", "", "walking away closes empty native service through its existing exit path"),
         ("tiny-offer", name, "card.SetHome(_seat, Vector3.zero, Quaternion.identity, size);", "card.SetHome(_seat, Vector3.zero, Quaternion.identity, .90f);", "offered mage card preserves tracked reading size across independent resident scale"),
         ("reclaim-modal", name, "&& _current.ReclaimReady", "&& _current.Ready", "an existing physical offer remains manually reclaimable while a peer claim changes"),
