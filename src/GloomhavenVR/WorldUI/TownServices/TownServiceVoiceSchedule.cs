@@ -74,7 +74,13 @@ internal sealed class TownServiceVoiceSchedule
         bool newLook = e.LastAttention < .08f || !e.WorkSeeded && !e.FollowerAttentionKnown;
         if (service == 1 && merchantLook >= .08f && newLook
             && now >= e.NextAllowed && e.Cue == 0)
-            QueueVariant(service, TownServiceVoice.GreetingFirstCue(service), 1, now + 5f, now + clock);
+        {
+            // The elected author decides once at this gaze edge. A quiet greeting
+            // consumes the same interval as a spoken one, including range reentry.
+            if (OptionalSpeech(e, 1, now + clock))
+                QueueVariant(service, TownServiceVoice.GreetingFirstCue(service), 1, now + 5f, now + clock);
+            else e.NextAllowed = now + 45f;
+        }
         else if (service == 1 && merchantLook < .08f && e.Pending && e.Priority == 1
             && e.PendingCue >= 1 && e.PendingCue <= 5)
             e.Pending = false; // The visitor left before a blocked greeting could start.
@@ -143,6 +149,11 @@ internal sealed class TownServiceVoiceSchedule
         // guard let two copies of one native callback evade the four-second gate.
         if (e.LastRequestedCue == firstCue && now - e.LastRequestedAt < 4f) return;
         e.LastRequestedCue = firstCue; e.LastRequestedAt = now;
+        // Both local callbacks and relayed visitor events enter this one author
+        // schedule. Inspection may stay quiet; completed purchases and sales must
+        // always acknowledge the real result. Silence still consumes event dedupe.
+        if (service == 1 && (firstCue == 16 || firstCue == 66 || firstCue == 71)
+            && !OptionalSpeech(e, firstCue, now)) return;
         QueueVariant(service, firstCue, 2, now + 6f, now);
     }
 
@@ -186,9 +197,12 @@ internal sealed class TownServiceVoiceSchedule
         // observers hear the exact selected cue (or its shared absence). Consume
         // the normal quiet interval on either result so silence is not rerolled
         // every frame. Responses to real purchases/donations remain dependable.
-        if (NextRandom(At(service), firstCue, entropy) % 100u >= 45u)
+        if (OptionalSpeech(At(service), firstCue, entropy))
             QueueVariant(service, firstCue, 0, now + 3f, entropy);
     }
+
+    private static bool OptionalSpeech(Entry entry, ushort firstCue, float entropy)
+        => NextRandom(entry, firstCue, entropy) % 100u >= 45u;
 
     /// <summary>Choose one of five performances only on the elected author. TLV80
     /// publishes the resulting exact cue. A private xorshift state gives varied

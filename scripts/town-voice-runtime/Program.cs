@@ -30,6 +30,7 @@ public static class InteractionProgram
     {
         Func<ushort, float> duration = cue => cue >= 31 && cue <= 35 ? 2.69f : 2f;
         var schedule = new TownServiceVoiceSchedule();
+        schedule.At(1).VariantState = 1;
         schedule.Work(1, 0f, 0f, .1f, true, true, 0f); schedule.Sample(1, duration, 0f, false);
         Check(schedule.At(1).Cue >= 1 && schedule.At(1).Cue <= 5 && schedule.At(1).Generation == 1,
             "first gaze starts one of five merchant greetings before native shop opens");
@@ -143,10 +144,12 @@ public static class InteractionProgram
             "successful native enhancement acknowledgement is not randomly discarded");
 
         var unavailableStock = new TownServiceVoiceSchedule();
+        unavailableStock.At(1).VariantState = 1;
         unavailableStock.Request(1, 66, 0f); unavailableStock.Sample(1, duration, 0f, false);
         Check(unavailableStock.At(1).Cue >= 66 && unavailableStock.At(1).Cue <= 70,
             "unaffordable stock uses one of five context-specific merchant replies");
         unavailableStock.Sample(1, duration, 2.1f, false);
+        unavailableStock.At(1).VariantState = 1;
         unavailableStock.Request(1, 71, 3.2f); unavailableStock.Sample(1, duration, 3.2f, false);
         Check(unavailableStock.At(1).Cue >= 71 && unavailableStock.At(1).Cue <= 75,
             "sold-out stock uses its separate merchant reply family");
@@ -391,6 +394,8 @@ public static class InteractionProgram
         GloomhavenVR.Net.TownServices.TownServiceMirror.Owner = 7;
         TownServicePopulation.IsFaceAuthor = true;
         Refresh();
+        var authorSchedule = (TownServiceVoiceSchedule)Field("_schedule").GetValue(null)!;
+        authorSchedule.At(1).VariantState = 1;
         TownServiceVoice.RequestReaction(1, TownVoiceReaction.MerchantOffer);
         Check(!TownServiceFaceSpeech.Sampler!(1, out _, out _, out _, out _),
             "physical peer ownership prevents the local spectator from starting merchant speech");
@@ -408,6 +413,27 @@ public static class InteractionProgram
         GloomhavenVR.Net.TownServices.TownServiceMirror.Owner = 0;
         Check(TownServiceVoice.AcceptRelayedStockReaction(TownVoiceReaction.MerchantOffer, 8, 15, 1, .1f),
             "removing the physical card restores another visitor's reaction eligibility");
+        TownServiceVoice.Reset();
+        Refresh();
+        authorSchedule = (TownServiceVoiceSchedule)Field("_schedule").GetValue(null)!;
+        authorSchedule.At(1).VariantState = 2;
+        Check(TownServiceVoice.AcceptRelayedStockReaction(TownVoiceReaction.MerchantOffer, 7, 16, 1, .1f),
+            "quiet peer inspection is accepted as one author-owned event");
+        Check(!TownServiceFaceSpeech.Sampler!(1, out ushort quietCue, out uint quietGeneration,
+                out float quietAge, out _) && quietCue == 0 && quietGeneration == 0,
+            "optional merchant inspection can remain silent on the author");
+        uint quietState = authorSchedule.At(1).VariantState;
+        Check(!TownServiceVoice.AcceptRelayedStockReaction(TownVoiceReaction.MerchantOffer, 7, 16, 1, .1f)
+            && quietState == authorSchedule.At(1).VariantState,
+            "replayed quiet inspection never rerolls its lottery");
+        TownServiceFaceSpeech.Observer!(1, 1, quietCue, quietGeneration, quietAge, head.transform);
+        Check(Source == null || !Source.isPlaying,
+            "follower plays the exact silent author result without another lottery");
+        authorSchedule.At(1).VariantState = 2;
+        TownServiceVoice.RequestReaction(1, TownVoiceReaction.MerchantBuy);
+        Check(TownServiceFaceSpeech.Sampler!(1, out ushort purchaseCue, out _, out _, out _)
+            && purchaseCue >= 21 && purchaseCue <= 25,
+            "completed purchase remains audible regardless of optional silence seed");
         TownServiceVoice.Reset();
         AudioController.Playing.Clear();
         UnityEngine.Object.DestroyImmediate(head); UnityEngine.Object.DestroyImmediate(frame);

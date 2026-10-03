@@ -27,6 +27,7 @@ internal static class PortableSchedule
         // The face's 2.4 m attention can rise while the 1.4 m native shop visit
         // remains false. This is the actual sequence while approaching the stand.
         var approach = new TownServiceVoiceSchedule();
+        approach.At(1).VariantState = 1;
         approach.Visit(1, false, float.PositiveInfinity, 0f);
         approach.Work(1, 10f, 0f, 0f, false, true, 0f);
         Check(!approach.At(1).Pending, "no greeting before merchant looks at a visitor");
@@ -53,12 +54,14 @@ internal static class PortableSchedule
         approach.Work(1, 11.1f, 0f, .1f, true, true, 2.1f);
         Check(!approach.At(1).Pending, "brief range oscillation respects the greeting cooldown");
         approach.Work(1, 12f, 0f, 0f, false, true, 46f);
+        approach.At(1).VariantState = 1;
         approach.Work(1, 12.1f, 0f, .1f, true, true, 46.1f);
         approach.Sample(1, Duration, 46.1f, false);
         Check(approach.At(1).Generation == 2 && approach.At(1).Cue is >= 1 and <= 5,
             "a later distinct look-at may greet again after cooldown");
 
         var handover = new TownServiceVoiceSchedule();
+        handover.At(1).VariantState = 1;
         handover.FollowerAttention(1, .4f, true);
         handover.Work(1, 70f, 0f, .4f, true, true, 70f);
         handover.Sample(1, Duration, 70f, false);
@@ -71,12 +74,14 @@ internal static class PortableSchedule
             "the same author greets a later new gaze edge");
 
         var joinedDuringAbsence = new TownServiceVoiceSchedule();
+        joinedDuringAbsence.At(1).VariantState = 1;
         joinedDuringAbsence.FollowerAttention(1, .4f, false);
         joinedDuringAbsence.Work(1, 1f, 0f, .2f, true, true, 1f);
         Check(joinedDuringAbsence.At(1).PendingCue is >= 1 and <= 5,
             "an author may greet a genuinely new visitor after an unseen interval");
 
         var nativeOnly = new TownServiceVoiceSchedule();
+        nativeOnly.At(1).VariantState = 1;
         nativeOnly.Visit(1, true, 0f, 0f);
         nativeOnly.Work(1, 1f, 0f, 0f, false, true, 0f);
         Check(!nativeOnly.At(1).Pending,
@@ -86,16 +91,19 @@ internal static class PortableSchedule
             "first visible attention sample still greets after native state arrives first");
 
         var interrupted = new TownServiceVoiceSchedule();
+        interrupted.At(1).VariantState = 1;
         interrupted.Work(1, 1f, 0f, .2f, true, true, 0f);
         interrupted.Work(1, 1.1f, 0f, 0f, false, true, .1f);
         Check(!interrupted.At(1).Pending,
             "a visitor who leaves before delayed speech starts retires that greeting");
+        interrupted.At(1).VariantState = 1;
         interrupted.Work(1, 2f, 0f, .2f, true, true, .2f);
         interrupted.Work(1, 2.1f, 0f, .2f, true, false, .3f);
         Check(!interrupted.At(1).Pending,
             "a hidden merchant cannot begin an old greeting later");
 
         var delayed = new TownServiceVoiceSchedule();
+        delayed.At(1).VariantState = 1;
         delayed.Work(1, 1f, 0f, .2f, true, true, 0f);
         delayed.Sample(1, Duration, 0f, true);
         delayed.Work(1, 1.1f, 0f, .3f, true, true, 6f);
@@ -105,6 +113,7 @@ internal static class PortableSchedule
             "a continuing look survives longer narration without a native shop visit");
 
         var trade = new TownServiceVoiceSchedule();
+        trade.At(1).VariantState = 1;
         trade.Work(1, 1f, 0f, .2f, true, true, 0f);
         trade.Request(1, 21, .01f);
         trade.Visit(1, true, 0f, .02f);
@@ -112,6 +121,27 @@ internal static class PortableSchedule
         trade.Sample(1, Duration, .02f, false);
         Check(trade.At(1).Cue is >= 21 and <= 25 && trade.At(1).Generation == 1,
             "transaction speech outranks an unplayed gaze greeting");
+
+        var quiet = new TownServiceVoiceSchedule();
+        quiet.At(1).VariantState = 2;
+        quiet.Work(1, 2f, 0f, .2f, true, true, 0f);
+        quiet.Sample(1, Duration, 0f, false);
+        Check(quiet.At(1).Cue == 0 && !quiet.At(1).Pending && quiet.At(1).NextAllowed == 45f,
+            "optional merchant greeting can stay quiet for its normal interval");
+        uint quietState = quiet.At(1).VariantState;
+        quiet.Work(1, 2.1f, 0f, 0f, false, true, .1f);
+        quiet.Work(1, 2.2f, 0f, .2f, true, true, .2f);
+        Check(quiet.At(1).VariantState == quietState && !quiet.At(1).Pending,
+            "quiet merchant greeting cannot reroll on brief reentry");
+        quiet.At(1).VariantState = 2;
+        quiet.Request(1, 16, 1f); quiet.Sample(1, Duration, 1f, false);
+        quietState = quiet.At(1).VariantState;
+        quiet.Request(1, 16, 1.1f);
+        Check(quiet.At(1).Cue == 0 && !quiet.At(1).Pending && quiet.At(1).VariantState == quietState,
+            "quiet merchant inspection consumes event deduplication");
+        quiet.Request(1, 21, 1.2f); quiet.Sample(1, Duration, 1.2f, false);
+        Check(quiet.At(1).Cue is >= 21 and <= 25,
+            "completed purchase never uses the optional speech lottery");
 
         var otherResident = new TownServiceVoiceSchedule();
         otherResident.Visit(2, true, 0f, 0f);
