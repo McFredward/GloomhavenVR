@@ -41,24 +41,26 @@ try {
         @{ Name = "python3"; Prefix = @() }
     )
     foreach ($candidate in $candidates) {
-        $found = Get-Command $candidate.Name -CommandType Application -ErrorAction SilentlyContinue
-        if (-not $found) { continue }
-        # Store aliases can open a GUI instead of running an installed interpreter.
-        if ($found.Source -match '[\\/]WindowsApps[\\/]') { continue }
-        $prefix = $candidate.Prefix
-        try {
-            $versionText = & $found.Source @prefix --version
-            if ($LASTEXITCODE -ne 0) { continue }
-            if ($versionText -match '^Python (\d+)\.(\d+)') {
-                $major = [int]$Matches[1]
-                $minor = [int]$Matches[2]
-                if ($major -gt 3 -or ($major -eq 3 -and $minor -ge 9)) {
-                    $pythonExecutable = $found.Source
-                    $pythonPrefix = $prefix
-                    break
+        $commands = @(Get-Command $candidate.Name -CommandType Application -ErrorAction SilentlyContinue)
+        foreach ($found in $commands) {
+            # Store aliases can open a GUI instead of running an installed interpreter.
+            if ($found.Source -match '[\\/]WindowsApps[\\/]') { continue }
+            $prefix = $candidate.Prefix
+            try {
+                $versionText = & $found.Source @prefix --version
+                if ($LASTEXITCODE -ne 0) { continue }
+                if ($versionText -match '^Python (\d+)\.(\d+)') {
+                    $major = [int]$Matches[1]
+                    $minor = [int]$Matches[2]
+                    if ($major -gt 3 -or ($major -eq 3 -and $minor -ge 9)) {
+                        $pythonExecutable = $found.Source
+                        $pythonPrefix = $prefix
+                        break
+                    }
                 }
-            }
-        } catch { continue }
+            } catch { continue }
+        }
+        if ($pythonExecutable) { break }
     }
     if (-not $pythonExecutable) {
         throw "Python 3.9+ was not found. Install Python with its launcher or add an installed Python to PATH."
