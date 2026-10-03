@@ -32,6 +32,11 @@ static class Program
   var remote=Face(); remote.Held=true;var output=remote.Graphics[0].material;
   for(int frame=0;frame<90;frame++){output.Paint=frame/90f;CardHalfTone.Observe(remote);Check(ReferenceEquals(output,remote.Graphics[0].material),"Owner-driven remote burn output must retain its material");}
   remote.Held=false;CardHalfTone.Observe(remote);Check(remote.Graphics[0].material.Paint==0,"Recovered stripped clones may be normalized again");
+  Check(CardHalfTone.CensusObservationCalls==542 && ReferenceEquals(CardHalfTone.CensusObservedFace,remote),
+    "Production Observe must forward every original and clone face to its explicit census boundary");
+  CardHalfTone.Observe(null);
+  Check(CardHalfTone.CensusObservationCalls==542,
+    "Null Observe must not enter the census boundary or a material write route");
   Console.WriteLine($"Burn material ownership: {assertions} runtime assertions passed.");
  }
 }

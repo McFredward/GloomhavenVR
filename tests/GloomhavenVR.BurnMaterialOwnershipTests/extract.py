@@ -15,5 +15,8 @@ def method(name):
 body = '\n'.join(method(n) for n in ['void Observe(', 'bool IsModOwnedCopy(', 'void NormalizeCardFx('])
 assert 'g.material = rest;' in body
 assert body.index('if (IsModOwnedCopy(face))') < body.index('NormalizeCardFx(face);')
+# Scene-lifetime discovery is outside this material fixture. Keep the production
+# Observe dependency intact and bind it to the explicit recording-only boundary.
+assert body.count('RegisterCensusFace(face);') == 1
 dest.write_text('using UnityEngine; using UnityEngine.UI; using GloomhavenVR.Core; namespace GloomhavenVR.Cards; partial class CardHalfTone {\n'+body+'\n}')
 print('Burn material ownership: 2 production write-route bindings passed.')
