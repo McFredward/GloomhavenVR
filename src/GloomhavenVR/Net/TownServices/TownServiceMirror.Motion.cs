@@ -126,10 +126,10 @@ internal static partial class TownServiceMirror
           _motionCue = cue; _nextMotionCue = now + TownServiceMotionCodec.Heartbeat; }
         // Dirty live controls have their own finite turn. Cold prewarmed fan
         // heartbeats retain bounded progress and cannot delay a press or scroll.
-        TownServiceMotionBudget.Fill(packet, MotionLive, MotionVisibleFan, MotionWaiting,
+        byte[] bytesPacket = TownServiceMotionBudget.FillPacked(packet, MotionLive, MotionVisibleFan, MotionWaiting,
             ref _motionLiveCursor, ref _motionVisibleCursor, ref _motionCursor, now);
-        if (packet.Entries.Count == 0) return;
-        byte[] bytesPacket = TownServiceMotionCodec.Write(packet); send(bytesPacket, bytesPacket.Length, packet);
+        if (bytesPacket.Length == 0) return;
+        send(bytesPacket, bytesPacket.Length, packet);
         if (VRLog.WantsDebug) { _motionSent++; _motionSentBytes += bytesPacket.Length; MotionDiagnostics(now); }
     }
 
