@@ -1138,10 +1138,15 @@ internal static partial class TownServiceMirror
             }
             if (reorder) OrderOriginalSiblings(standing);
             if (!secondaryVisitor && !stockVisitor) TickRackClocks(entry.Key, standing, now);
-            if (secondaryVisitor && session.Service == 2) SetSecondaryTempleInscriptions(session, pending, standing);
         }
-        SuppressRemoteStockDuplicates();
         ApplyRemoteMotion(now);
+        // Public visibility follows the latest validated numeric picture, not
+        // the slower immutable-art baseline retained for dependency recovery.
+        SuppressRemoteStockDuplicates();
+        foreach (var visitor in VisitorSessions)
+            if (visitor.Value.Active && visitor.Value.Service == 2
+                && visitor.Key != InteractionOwner(2) && Remote.TryGetValue(visitor.Key, out var temple))
+                SetSecondaryTempleInscriptions(visitor.Value, temple);
         foreach (var visitor in Remote)
         {
             if (visitor.Key != TownServiceSharedCue.GuideOwner) continue;

@@ -72,12 +72,16 @@ internal static partial class TownServiceMirror
             || session.Service != 1 || Time.unscaledTime - session.LastSeenTime > NetProtocol.StaleTimeoutSeconds
             || !Pending.TryGetValue(key, out Dictionary<ushort, TownServiceFrame>? frames)) return false;
         StockMountIds.Clear();
-        foreach (TownServiceFrame frame in frames.Values)
+        foreach (TownServiceFrame pending in frames.Values)
+        {
+            TownServiceFrame frame = EffectiveStockFrame(key, pending);
             if (frame.Session == session.Session && frame.Visible && frame.TemplateAddress == "merchant.heldstock|"
                 && Array.BinarySearch(session.Modules, frame.Module) >= 0) StockMountIds.Add(frame.Module);
+        }
         bool found = false;
-        foreach (TownServiceFrame frame in frames.Values)
+        foreach (TownServiceFrame pending in frames.Values)
         {
+            TownServiceFrame frame = EffectiveStockFrame(key, pending);
             if (frame.Session != session.Session || !frame.Visible || Array.BinarySearch(session.Modules, frame.Module) < 0
                 || !TryStockItemId(frame.TemplateAddress, out int id)) continue;
             // Parts of a large original card may have another item part as parent.
@@ -87,14 +91,25 @@ internal static partial class TownServiceMirror
             {
                 if (StockMountIds.Contains(parent))
                 { if (wanted == 0) { StockHeldIds.Add(id); found = true; } else if (id == wanted) found = true; break; }
-                if (!frames.TryGetValue(parent, out TownServiceFrame? ancestor)
-                    || ancestor.Session != session.Session || !ancestor.Visible
+                if (!frames.TryGetValue(parent, out TownServiceFrame? ancestor)) break;
+                ancestor = EffectiveStockFrame(key, ancestor);
+                if (ancestor.Session != session.Session || !ancestor.Visible
                     || Array.BinarySearch(session.Modules, ancestor.Module) < 0
                     || ancestor.ParentModule == parent) break;
                 parent = ancestor.ParentModule;
             }
         }
         return found;
+    }
+
+    private static TownServiceFrame EffectiveStockFrame(int key, TownServiceFrame pending)
+    {
+        if (Remote.TryGetValue(key, out var modules) && modules.TryGetValue(pending.Module, out var module)
+            && module.Alive && EffectiveRemoteFrame(module) is TownServiceFrame applied
+            && applied.Session == pending.Session && applied.Structure == pending.Structure
+            && applied.TemplateAddress == pending.TemplateAddress && applied.SampleTime >= pending.SampleTime)
+            return applied;
+        return pending;
     }
 
     // A pickup cue belongs to an actual visible original lifted stock sample,
@@ -110,12 +125,12 @@ internal static partial class TownServiceMirror
     }
 
     private static void SetSecondaryTempleInscriptions(TownServiceSessionInfo session,
-        Dictionary<ushort, TownServiceFrame> pending, Dictionary<ushort, RemoteModule> modules)
+        Dictionary<ushort, RemoteModule> modules)
     {
         bool visiblePurse = false;
         foreach (RemoteModule body in modules.Values)
         {
-            TownServiceFrame? frame = body.LastFrame;
+            TownServiceFrame? frame = EffectiveRemoteFrame(body);
             if (frame == null || !body.Alive) continue;
             if (frame.Session == session.Session && (frame.TemplateAddress == "ritual.purse.held|"
                     || frame.TemplateAddress == "ritual.purse|" && PhysicalPurse(frame.Nodes))
@@ -129,7 +144,7 @@ internal static partial class TownServiceMirror
             // The palm-gated purse preview is a real owner's fan, already public
             // before pickup. Election of another visitor's shared book/bowl must
             // not hide either this original purse or its original inscriptions.
-            bool shown = visiblePurse && module.LastFrame.Visible;
+            bool shown = visiblePurse && EffectiveRemoteFrame(module)!.Visible;
             if (module.Host.activeSelf != shown) module.Host.SetActive(shown);
         }
     }
@@ -152,15 +167,16 @@ internal static partial class TownServiceMirror
         DuplicatePublicMounts.Clear();
         foreach (RemoteModule item in modules.Values)
         {
-            TownServiceFrame? frame = item.LastFrame;
+            TownServiceFrame? frame = EffectiveRemoteFrame(item);
             if (frame == null || !TryStockItemId(item.Address, out int id) || !StockHeldIds.Contains(id)) continue;
             ushort parent = frame.ParentModule;
             for (int steps = 0; steps < modules.Count; steps++)
             {
-                if (!modules.TryGetValue(parent, out RemoteModule? ancestor) || ancestor.LastFrame == null) break;
+                if (!modules.TryGetValue(parent, out RemoteModule? ancestor)
+                    || EffectiveRemoteFrame(ancestor) is not TownServiceFrame ancestorFrame) break;
                 if (ancestor.Address == "merchant.cardmount|") { DuplicatePublicMounts.Add(parent); break; }
-                if (ancestor.LastFrame.ParentModule == parent) break;
-                parent = ancestor.LastFrame.ParentModule;
+                if (ancestorFrame.ParentModule == parent) break;
+                parent = ancestorFrame.ParentModule;
             }
         }
         foreach (var pair in modules)
@@ -178,8 +194,9 @@ internal static partial class TownServiceMirror
                 // Restore only our own mask; a warm off-page native slot must stay
                 // hidden rather than acquiring a second, invented page author.
                 module.StockMasked = false;
-                bool shown = module.LastFrame.Visible;
-                TownRackStamp? stamp = module.LastFrame.RackMember;
+                TownServiceFrame current = EffectiveRemoteFrame(module)!;
+                bool shown = current.Visible;
+                TownRackStamp? stamp = current.RackMember;
                 if (stamp != null && !stamp.Detached)
                     shown &= module.Host.GetComponent<CanvasGroup>().alpha > .01f;
                 if (module.Host.activeSelf != shown) module.Host.SetActive(shown);
