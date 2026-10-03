@@ -25,8 +25,10 @@ internal static class TownServiceSharedCue
     internal static float LocalStrength { get; private set; }
     internal static bool PublishedReady { get; private set; }
     internal static float PublishedStrength { get; private set; }
+    internal static int PublishedGuideOwner { get; private set; }
     private static float _localSampled = float.NegativeInfinity;
     private static int _sharedAuthor;
+    private static int _sharedGuideOwner;
     private static bool _sharedReady;
     private static float _sharedStrength;
     private static float _sharedReceived = float.NegativeInfinity;
@@ -47,11 +49,13 @@ internal static class TownServiceSharedCue
             Strength = ready ? Mathf.Clamp01(strength) : 0f, Received = Time.unscaledTime };
     }
 
-    internal static void ObserveShared(int peer, bool ready, float strength)
+    internal static void ObserveShared(int peer, bool ready, float strength, int guideOwner)
     {
         if (peer <= 0 || peer != RemoteTownResidents.AuthorPlayer
-            || float.IsNaN(strength) || float.IsInfinity(strength)) return;
+            || float.IsNaN(strength) || float.IsInfinity(strength)
+            || ready && guideOwner <= 0 || !ready && guideOwner != 0) return;
         _sharedAuthor = peer; _sharedReady = ready;
+        _sharedGuideOwner = guideOwner;
         _sharedStrength = ready ? Mathf.Clamp01(strength) : 0f;
         _sharedReceived = Time.unscaledTime;
     }
@@ -60,7 +64,7 @@ internal static class TownServiceSharedCue
     {
         Visitors.Remove(peer);
         if (_sharedAuthor != peer) return;
-        _sharedAuthor = 0; _sharedReady = false; _sharedStrength = 0f;
+        _sharedAuthor = _sharedGuideOwner = 0; _sharedReady = false; _sharedStrength = 0f;
         _sharedReceived = float.NegativeInfinity;
     }
 
@@ -68,18 +72,35 @@ internal static class TownServiceSharedCue
     {
         float now = Time.unscaledTime;
         if (now - _localSampled > FreshSeconds) SetLocal(false, 0f);
-        PublishedReady = false; PublishedStrength = 0f;
+        PublishedReady = false; PublishedStrength = 0f; PublishedGuideOwner = 0;
         if (!TownServicePopulation.IsFaceAuthor || StoryComposite.PointOfNoReturn) return;
         // A placed card owns the shared palm. Its owner's existing replacement cue
         // remains local/native; a different visitor must not paint a second offer.
         if (TownServiceGrantSync.GrantedOwner(3) != 0) return;
         PublishedReady = LocalReady;
         PublishedStrength = LocalStrength;
-        foreach (Visitor visitor in Visitors.Values)
+        if (LocalReady) PublishedGuideOwner = System.Math.Max(1, NetPlayerActors.LocalPlayerId());
+        foreach (var pair in Visitors)
         {
+            Visitor visitor = pair.Value;
             if (!visitor.Ready || now - visitor.Received > FreshSeconds) continue;
             PublishedReady = true;
             PublishedStrength = Mathf.Max(PublishedStrength, visitor.Strength);
+            if (PublishedGuideOwner == 0 || pair.Key < PublishedGuideOwner) PublishedGuideOwner = pair.Key;
+        }
+    }
+
+    internal static int GuideOwner
+    {
+        get
+        {
+            int occupied = TownServiceGrantSync.GrantedOwner(3);
+            if (occupied > 0) return occupied;
+            if (TownServicePopulation.IsFaceAuthor && PublishedGuideOwner > 0) return PublishedGuideOwner;
+            if (!TownServicePopulation.IsFaceAuthor && _sharedAuthor == RemoteTownResidents.AuthorPlayer
+                && Time.unscaledTime - _sharedReceived <= FreshSeconds && _sharedReady
+                && _sharedGuideOwner > 0) return _sharedGuideOwner;
+            return TownServiceMirror.InteractionOwner(3);
         }
     }
 
@@ -120,6 +141,7 @@ internal static class TownServiceSharedCue
     {
         Visitors.Clear(); Borders.Clear(); LocalReady = PublishedReady = _sharedReady = false;
         LocalStrength = PublishedStrength = _sharedStrength = 0f;
-        _localSampled = _sharedReceived = float.NegativeInfinity; _sharedAuthor = 0;
+        _localSampled = _sharedReceived = float.NegativeInfinity;
+        _sharedAuthor = _sharedGuideOwner = PublishedGuideOwner = 0;
     }
 }
