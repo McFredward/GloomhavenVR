@@ -33,6 +33,14 @@ and elements consume one owner-frame clock. Existing 52/53 bytes and privacy
 rules stay unchanged; no game controller/callback runs in remote clones. MR
 backings must use visible, clipped UI bounds rather than full scroll content.
 
+Full-wire integration caught the old shared test-buffer capacity and a genuine
+large-board transport limit: a complete U16 board could wait 43 seconds behind
+other maximum streams and outlive its former 32-second assembly deadline. Only
+boards whose validated encoded size exceeds the legacy 40KiB budget scale that
+deadline, bounded below 52 seconds. Compressed small boards retain 32 seconds.
+Datagram bytes, scheduler fairness, bandwidth and other stream deadlines stay
+unchanged. This is a synthetic transport proof, not a reported hardware stall.
+
 Hardware acceptance of the new poses, foldout and multiplayer animation remains
 pending. The preserved Quest checkpoint below is independent historical work;
 this Frame/board round does not implement or modify that port.

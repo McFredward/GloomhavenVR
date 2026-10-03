@@ -566,7 +566,10 @@ internal static class NetProtocol
     // animated readable foldout. Battle goals reserve space clear of the complete
     // element-caption union. Additive board TLV96 mirrors the owner's native rows,
     // intermediate geometry, toggle hover and scroll without gameplay callbacks;
-    // existing records52/53 retain their byte layout. Frame609 hardware shows real
+    // existing records52/53 retain their byte layout. Encoded boards beyond the
+    // legacy 40KiB capacity scale only their bounded reassembly deadline; stream
+    // scheduling, bandwidth and all older stream deadlines remain unchanged.
+    // Frame609 hardware shows real
     // 3408-to-2256 eye targets and a modest loaded-frame improvement, not measured
     // GPU busy or an isolated figure-slider gain. Remaining card-discovery and
     // native-effect wall-table work are documented separately from these fixes.
