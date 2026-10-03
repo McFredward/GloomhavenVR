@@ -36,6 +36,7 @@ internal static partial class TownServiceMirror
                     || Array.BinarySearch(session.Modules, pair.Key) < 0
                     || EffectiveRemoteFrame(root)?.Visible != true) continue;
                 TownRackState state = clock.Latest;
+                if (!PublicControlsReady(session, modules)) continue;
                 if (peer == _pendingPublicPeer && state.Turn < _pendingPublicTurn) continue;
                 float age = state.Elapsed + Mathf.Max(0f, Time.unscaledTime - clock.ReceivedTime);
                 if (!PublicPageReady(pair.Key, state, state.To, session, modules)) continue;
@@ -45,6 +46,27 @@ internal static partial class TownServiceMirror
             }
             return false;
         }
+    }
+
+    private static bool PublicControlsReady(TownServiceSessionInfo session,
+        Dictionary<ushort, RemoteModule> modules)
+    {
+        if (!Pending.TryGetValue(session.Peer, out var pending)) return false;
+        foreach (ushort id in session.Modules)
+        {
+            if (!pending.TryGetValue(id, out var received)) return false;
+            // A cumulative packet repeats the complete routing/rack header;
+            // readiness does not need to allocate and expand its native artwork.
+            TownServiceFrame frame = received;
+            if (frame.Session != session.Session || frame.PublicClaim != session.PublicClaim) return false;
+            // Neighbour pages are intentional preload, not current dependencies.
+            // Every visible unpaged original (category keys, crank, indicator and
+            // cabinet) is nevertheless part of the atomic public picture.
+            if (frame.RackMember != null || !frame.Visible) continue;
+            if (!modules.TryGetValue(id, out var module) || !module.Alive || module.Sequence < frame.Sequence
+                || module.Session != session.Session || module.LastFrame?.PublicClaim != session.PublicClaim) return false;
+        }
+        return true;
     }
 
     private static bool PublicPageReady(ushort rack, TownRackState state, ushort page,
