@@ -42,6 +42,38 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             if (sameOffer) owner.Return();
         };
     }
+    internal static Action? GuardNativeCancellation(Action? original)
+    {
+        TownServiceEnhancementHandoff? owner = _current;
+        if (owner == null || !HasCurrentOffering) return original;
+        VRCard? offered = owner.Card;
+        uint session = TownServicePresentation.Session;
+        bool completed = false;
+        return () =>
+        {
+            if (completed) return;
+            completed = true;
+            // The native enhancement cancel callback clears its own pending flag at
+            // Hidden, including ordinary X/escape. The previous palm adapter left
+            // the card and its host reservation parked after that cancellation. A
+            // subsequent service refresh could then keep the empty rune inventory
+            // and reject every new offering. Run the exact original cleanup first;
+            // never manufacture a game flag or cancel a replacement card/session.
+            try { original?.Invoke(); }
+            finally
+            {
+                if (ReferenceEquals(_current, owner) && !owner._disposed
+                    && ReferenceEquals(owner.Card, offered)
+                    && TownServicePresentation.Active && TownServicePresentation.Service == 3
+                    && TownServicePresentation.Session == session)
+                {
+                    if (VRLog.WantsDebug)
+                        VRLog.Debug("WorldUI", "TOWN ENHANCEMENT native cancellation returned its exact offering: session=" + session + ".");
+                    owner.Return();
+                }
+            }
+        };
+    }
     internal static bool TryPhysicalCardHeight(out float height)
     {
         VRCard? card = _current != null && !_current._disposed ? _current.Card : null;
@@ -224,6 +256,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             || !TownServiceGrantSync.CanUseImmersive
             || !TownServicePopulation.Available(3))
         {
+            TownServiceSharedCue.SetLocal(false, 0f);
             _headInside = _cardInside = _pendingApproach = _magePreferredInside = _abilityFanFocused = false;
             _approachCard = null;
             return;
@@ -238,7 +271,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         TownServiceStation? mageStation = TownServicePopulation.Acquire(3);
         Transform? approachRoot = mageStation?.Root;
         if (palm == null || approachRoot == null)
-        { _headInside = _cardInside = _pendingApproach = _magePreferredInside = _abilityFanFocused = false; return; }
+        { TownServiceSharedCue.SetLocal(false, 0f); _headInside = _cardInside = _pendingApproach = _magePreferredInside = _abilityFanFocused = false; return; }
         Camera? head = VRRigDriver.HeadCamera;
         bool abilityFanFocused = RefreshAbilityFanFocus();
         // Leaving is the same native destination exit as its former X, including selection
@@ -250,7 +283,10 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             ModalFallback.CloseFloatedWindow(current._window);
         }
         if (head == null || !NearVisitor(approachRoot, head.transform.position, 2.6f))
+        {
             _headInside = false;
+            TownServiceSharedCue.SetLocal(false, 0f);
+        }
         // The face solver attends visitors within 2.4 m of the resident. The old
         // 1.4/1.8 m gate was measured from her moving palm, so Build 582 showed an
         // attentive enchantress with neither native visit nor palm target in the
@@ -525,9 +561,16 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             && Core.Events.VRModeStateMachine.CurrentMode != Core.Events.VRMode.ModalUI;
         Vector3 local = held != null ? _seat.InverseTransformPoint(held.transform.position) : Vector3.zero;
         float distance = held != null ? local.magnitude : float.MaxValue;
-        _feedback.Tick(showCue && held != null, holder, distance,
+        float strength = _feedback.Tick(showCue && held != null, holder, distance,
             held != null && TownServiceOfferingPose.Contains(_seat, held.transform.position), .43f);
+        TownServiceSharedCue.SetLocal(showCue && Card == null, strength);
         _feedback.Paint(showCue, preview);
+        // The maintainer explicitly permits one common drop cue when several
+        // visitors approach this shared palm (2026-10-03 multiplayer test). Only
+        // the elected picture author draws it; this presentation-only exception
+        // must never remove another eligible visitor's physical drop or haptics.
+        if (!TownServiceMirror.CanShowLocalCue(3)) _zoneGate.alpha = 0f;
+        TownServiceSharedCue.PaintLocal(_zoneGate, Zone);
         if (_labelReady != showCue)
         { _labelReady = showCue; _zoneLabel.text = showCue ? Loc.Mod("town_enchant_card") : string.Empty; }
         if (preview && !showCue)
@@ -821,6 +864,10 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         VRCard? card = Card;
         Card = null; NativeSource = null; NativeSlot = null; _model = null;
         _claimPending = _confirmationSeen = false;
+        // A callback can retire the card between two presentation ticks. Publish
+        // the physical removal and release its coordinator reservation now, rather
+        // than retaining an occupied NPC until the next bulk manifest is sampled.
+        TownServiceMirror.SetLocalTransactionActive(3, false);
         if (card != null) card.Grabbed -= OnGrabbed;
         return card;
     }
@@ -847,6 +894,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
 
     private void Return()
     {
+        TownServiceSharedCue.SetLocal(false, 0f);
         CancelConfirmation();
         ReturnPresentation? presentation = Card != null && _model != null
             ? new ReturnPresentation(Card, _model.ID, _station) : null;
@@ -888,6 +936,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     public void Dispose()
     {
         if (_disposed) return;
+        TownServiceSharedCue.SetLocal(false, 0f);
         Return(); _disposed = true;
         if (ReferenceEquals(_current, this)) _current = null;
         if (_seat != null) UnityEngine.Object.Destroy(_seat.gameObject);
@@ -901,6 +950,9 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
 internal static class TownServiceEnhancementGrantGuard
 {
     [HarmonyPriority(Priority.Last)]
-    internal static void Prefix(ref Action onActionConfirmed) =>
+    internal static void Prefix(ref Action onActionConfirmed, ref Action? onCancelled)
+    {
         onActionConfirmed = TownServiceEnhancementHandoff.GuardNativeConfirmation(onActionConfirmed);
+        onCancelled = TownServiceEnhancementHandoff.GuardNativeCancellation(onCancelled);
+    }
 }

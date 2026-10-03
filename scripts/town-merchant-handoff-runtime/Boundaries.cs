@@ -260,6 +260,9 @@ namespace GloomhavenVR.Net.TownServices {
  internal static class TownServiceGrantSync { internal static bool CanUseImmersive = true; }
  internal static class TownServiceMirror {
   internal static bool GrantSettled = true;
+  internal static int TransactionReleases;
+  internal static void SetLocalTransactionActive(byte service, bool active)
+  { if (service == 1 && !active) TransactionReleases++; }
   internal static bool CanLocalBeginTransaction(byte service) => true;
   internal static bool LocalTransactionDenied(byte service) => false;
   internal static bool LocalTransactionSettled(byte service) => GrantSettled;

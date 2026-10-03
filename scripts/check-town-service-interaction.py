@@ -149,6 +149,7 @@ def mutations():
     # Every mutant compiles and must reach the specified runtime assertion. A compile error,
     # unrelated exception or changed source binding cannot count as a rejected negative control.
     return [
+        ("palm-book-clearance", "PalmConfirmation.cs", "Service == 3 ? 1.26f : 1.17f", "1.17f", "complete enhancement decision stays above the raised book throughout the visitor yaw sweep and map scales"),
         ("purse-return-before-payment", "Token.cs", "_physical.SetParent(_mat, true);", "_physical.SetParent(_homeParent, true);", "accepted purse waits at actual bowl instead of returning to moving hand before native payment"),
         ("purse-restart-completion", "Token.cs", "if (_settlementDecided) return;", "", "confirmed purse sinks and fades once at bowl without restarting on duplicate completion"),
         ("paid-purse-never-returns", "Token.cs", "_physical.SetParent(_homeParent, false);", "_physical.SetParent(_mat, false);", "paid purse restores the inspectable fan prop only after its completed bowl sink"),
@@ -248,6 +249,19 @@ def main():
     elif not args.no_negative_controls:
         variants += mutations()
     print(f"Binding production from {args.source_root.resolve()}; evidence: {run}", flush=True)
+    # The enchantress uses the exact same original open-book mesh as this read-only
+    # export, at .32 m instead of the temple's .30 m. Verify the yaw-swept native
+    # decision against its actual normalized envelope rather than a table mock.
+    native_python = Path(os.environ.get("UNITYPY_PYTHON", str(Path.home() / "unitypy-venv/bin/python")))
+    native_book = run / "native-book.obj"
+    subprocess.run([str(native_python), str(repo / "scripts/town-ritual-layout-runtime/export-native-book.py"),
+        str(args.source_root), str(native_book)], check=True)
+    native_bundle = args.source_root / "ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_library.asset.bundle"
+    (run / "native-book-reference.json").write_text(json.dumps({
+        "bundle_sha256": hashlib.sha256(native_bundle.read_bytes()).hexdigest(),
+        "obj_sha256": hashlib.sha256(native_book.read_bytes()).hexdigest(),
+        "mesh": "CR_ST_Shelf_Book_07", "fitted_size_metres": .32,
+        "bottom_station_metres": .957}, indent=2) + "\n")
     for name, filename, before, after, expected in variants:
         build = run / name
         production = build / "production"
@@ -280,7 +294,8 @@ def main():
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
     log = run / "unity.log"
     command = [str(args.unity), "-batchmode", "-nographics", "-projectPath", str(project),
-               "-executeMethod", "InteractionRunner.Start", "-interactionManifest", str(manifest_path), "-logFile", str(log)]
+               "-executeMethod", "InteractionRunner.Start", "-interactionManifest", str(manifest_path),
+               "-nativeBookObj", str(native_book), "-logFile", str(log)]
     completed = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=240)
     result = Path(manifest["result"])
     if result.exists():

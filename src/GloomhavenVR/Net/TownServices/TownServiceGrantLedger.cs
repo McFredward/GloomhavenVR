@@ -35,6 +35,15 @@ internal sealed class TownServiceGrantLedger
         Entry entry = _entries[service];
         return entry.Expires > now ? entry.Player : 0;
     }
+    internal bool TryOwner(byte service, float now, out int player, out uint session)
+    {
+        player = 0; session = 0;
+        if (service < 1 || service > 3) return false;
+        Entry entry = _entries[service];
+        if (entry.Player <= 0 || entry.Expires <= now) return false;
+        player = entry.Player; session = entry.Session;
+        return true;
+    }
     internal void Release(byte service, int player, uint session, uint nonce)
     {
         if (service < 1 || service > 3) return;

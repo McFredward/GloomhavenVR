@@ -61,7 +61,7 @@ internal static class TownServiceMerchantHandoff
     // A visitor's proximity is not a transaction. Other town services may keep their
     // own local fan and native destination until a card actually occupies this palm.
     internal static bool HasParkedOffer => _offeredChip != null || _offeredStock != null
-        || _pending != null || _tradeItem != null || OwnsPendingDecision;
+        || _pending != null;
     internal static bool CanReclaim(TownServiceToken token) => Active && _near && ReferenceEquals(token, _offeredStock)
         && OwnsPendingDecision;
     internal static bool IsParkedStock(TownServiceToken token) => ReferenceEquals(token, _offeredStock);
@@ -602,17 +602,21 @@ internal static class TownServiceMerchantHandoff
         _ourConfirmation = null; _pending = null; _tradeItem = null;
         _decisionConfirmed = _decisionCancelled = false;
         DetachTradeListener();
-        ReleaseOffering();
+        ReleaseOffering(preserveReservation: true);
         UIItemConfirmationBox? confirmation = Singleton<UIItemConfirmationBox>.Instance;
         if (callback != null && confirmation != null && confirmation.IsActive
             && ReferenceEquals(confirmation._onConfirmedCallback, callback)) confirmation.OnCancel();
     }
 
-    private static void ReleaseOffering()
+    private static void ReleaseOffering(bool preserveReservation = false)
     {
         ItemsPile.ItemChip? chip = _offeredChip; _offeredChip = null;
         TownServiceToken? stock = _offeredStock; _offeredStock = null;
         _offering = null;
+        // Occupation follows the actual card, not a native fade or the delayed
+        // inventory result after a purchase. An atomic replacement keeps this
+        // visitor's reservation; all terminal returns release it on this stack.
+        if (!preserveReservation) TownServiceMirror.SetLocalTransactionActive(1, false);
         if (chip != null)
         {
             chip.TownOffering = false; chip.TownOfferingReclaimed = null;

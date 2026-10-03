@@ -308,6 +308,7 @@ def sources(root):
 
 def mutations():
     return [
+        ("temple-commit-release", "RitualTransactions.cs", "TownServiceMirror.SetLocalTransactionActive(2, false);\n        if (!committed)", "/* retain priestess reservation */\n        if (!committed)", "successful donation retires its short native commit reservation before the shared blessing finishes"),
         ("temple-approach-hysteresis", "TempleApproach.cs", "TownServiceOfferingPose.VisitorWithin(station.Root, 1.4f)", "TownServiceOfferingPose.VisitorWithin(station.Root, _approachInside ? 1.65f : 1.4f)", "return from larger attention radius creates a fresh priestess approach"),
         ("merchant-approach-latch", "TempleApproach.cs", "if (foreign) _approachInside = false;", "if (foreign) _approachInside = true;", "blocked foreign service cannot preserve a stale temple latch"),
         ("temple-approach-foreign-intent", "TempleApproach.cs",

@@ -87,6 +87,8 @@ def sources(root):
 
 def mutations():
     return [
+        ("physical-occupation", "TownServiceMerchantHandoff.cs", "|| _pending != null;", "|| _pending != null || _tradeItem != null || OwnsPendingDecision;", "merchant occupation ends at physical card removal while the original cancel fade is pending"),
+        ("immediate-reservation-release", "TownServiceMerchantHandoff.cs", "if (!preserveReservation) TownServiceMirror.SetLocalTransactionActive(1, false);", "/* retain removed card reservation */", "first merchant cancel releases the physical reservation on the same input stack"),
         ("inspection-tapped-item", "ActualItemLifecycle.cs", "chip.State == ItemChip.Visual.Spent && _inspectionRelease == null", "chip.State == ItemChip.Visual.Spent", "merchant inspection keeps a native spent item upright on first reveal"),
         ("purchase-placeholder", "ItemsPile.Merchant.cs", "chip.BeginInspectionEmerge(Vector3.zero, chip.transform.localPosition.x >= 0f ? 1f : -1f);", "chip.BeginEmerge(Vector3.zero, 0f, chip.transform.localPosition.x >= 0f ? 1f : -1f);", "purchased item never exposes a brown backing while original art is pending"),
         ("offering-flat", "TownServiceOfferingPose.cs", "facing * Quaternion.Euler(0f, 1.5f * Mathf.Sin(age * .9f), 0f)", "palm.rotation * Quaternion.Euler(90f, 0f, 0f)", "offering overlay is upright over the palm"),

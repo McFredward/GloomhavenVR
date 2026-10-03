@@ -701,6 +701,10 @@ internal sealed class TownServiceRitual : IDisposable
         if (pending.Completed) return;
         pending.Completed = true;
         _nativeTempleDonationActive = false;
+        // This short reservation serializes original native commits only. The
+        // priestess is never occupied by a visitor: release at callback completion
+        // so a different eligible character can donate during the blessing effect.
+        TownServiceMirror.SetLocalTransactionActive(2, false);
         if (!committed) _submittedOfferings.Remove(pending.Offering);
         // This edge is the guarded original callback, not a change in affordability,
         // character selection or an observer's aggregate bowl state.

@@ -48,14 +48,16 @@ internal static class TownServicePalmConfirmation
             Transform? station = Seat.parent;
             float scale = Mathf.Max(.0001f, Mathf.Abs(Seat.lossyScale.x));
             Vector3 position = _palm != null ? _palm.position : Seat.position - Vector3.up * (.17f * scale);
-            // Both authored counters top out at .955 m. The lowest button edge is .20 m
-            // below this frame, so 1.17 m leaves at least 15 mm of visible table clearance.
-            // This keeps controls directly under the palm, rather than pushing a deep stack
-            // 80 cm toward the visitor merely to escape the furniture's front face.
+            // Controls extend .20 m beneath this frame and sweep in X/Z as the
+            // visitor turns. Clearing only the .955 m worktop left the enchantress
+            // decision intersecting her raised book at particular head yaws. Keep
+            // that entire yaw sweep above the book, with no pitch or local-reader
+            // placement. Native control geometry and the owner's eased pose are
+            // subsequently copied unchanged by the multiplayer mirror.
             if (station != null)
             {
                 Vector3 local = station.InverseTransformPoint(position);
-                local.y = Mathf.Max(local.y, 1.17f);
+                local.y = Mathf.Max(local.y, Service == 3 ? 1.26f : 1.17f);
                 position = station.TransformPoint(local);
             }
             // The offering seat follows the visitor's head each render frame. Copying its

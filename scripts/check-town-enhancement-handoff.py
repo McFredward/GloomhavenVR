@@ -156,6 +156,11 @@ def check_laser_bridge(root):
 def mutations():
     name = "TownServiceEnhancementHandoff.cs"
     return [
+        ("native-cancel-release", name, "owner.Return();\n                }", "/* retain old offering */\n                }", "original native cancellation runs once and retires the exact parked card and selection"),
+        ("native-cancel-callback", name, "try { original?.Invoke(); }", "try { /* omit native cancellation */ }", "original native cancellation runs once and retires the exact parked card and selection"),
+        ("native-cancel-reservation", name, "TownServiceMirror.SetLocalTransactionActive(3, false);", "/* leave reservation active */", "native cancellation immediately releases the physical resident reservation"),
+        ("native-cancel-replacement", name, "&& ReferenceEquals(owner.Card, offered)\n                    && TownServicePresentation.Active", "&& TownServicePresentation.Active", "a delayed prior cancellation cannot remove or release a replacement offering"),
+        ("shared-palm-cue", name, "if (!TownServiceMirror.CanShowLocalCue(3)) _zoneGate.alpha = 0f;", "/* show every visitor's duplicate cue */", "another picture author's common palm cue suppresses only the duplicate local drawing"),
         ("walkaway-window", name, "ModalFallback.CloseFloatedWindow(current._window);", "", "walking away closes empty native service through its existing exit path"),
         ("tiny-offer", name, "card.SetHome(_seat, Vector3.zero, Quaternion.identity, size);", "card.SetHome(_seat, Vector3.zero, Quaternion.identity, .90f);", "offered mage card preserves tracked reading size across independent resident scale"),
         ("reclaim-modal", name, "&& _current.ReclaimReady", "&& _current.Ready", "an existing physical offer remains manually reclaimable while a peer claim changes"),

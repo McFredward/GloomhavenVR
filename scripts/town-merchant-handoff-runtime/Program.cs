@@ -265,8 +265,13 @@ public static class InteractionProgram
       "lost native prompt is restored once without losing the sale card");
   int cancelRequests=TownServiceMerchantTransaction.Requests;
   Singleton<UIItemConfirmationBox>.Instance.DeferCancelCallback=true;
+  int reservationReleases = GloomhavenVR.Net.TownServices.TownServiceMirror.TransactionReleases;
   Singleton<UIItemConfirmationBox>.Instance.cancelButton.onClick.Invoke();
   Check(!ownedReplacement.TownOffering,"first cancel click starts the owned card's return flight before native fade completes");
+  Check(!TownServiceMerchantHandoff.HasParkedOffer,
+      "merchant occupation ends at physical card removal while the original cancel fade is pending");
+  Check(GloomhavenVR.Net.TownServices.TownServiceMirror.TransactionReleases == reservationReleases + 1,
+      "first merchant cancel releases the physical reservation on the same input stack");
   TownServiceMerchantHandoff.Tick();
   Check(TownServiceMerchantTransaction.Requests==cancelRequests,"closed native cancel never retries while its fade callback is pending");
   Singleton<UIItemConfirmationBox>.Instance.CompleteCancel();

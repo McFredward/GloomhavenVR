@@ -27,9 +27,15 @@ public class Singleton<T> { public static T? Instance; }
 public class UIEnhancementConfirmationBox : MonoBehaviour
 {
     public int Hides;
+    private Action? _cancelled;
     public void Hide() { Hides++; GetComponent<UIWindow>().IsOpen = false; }
+    // Exact native Show/Hide boundary: the real game stores onCancelled in its
+    // Hidden-transition listener. The production Harmony prefix is invoked by
+    // the fixture's native rune handler, not imitated by this controller stub.
+    public void CompleteHide() => _cancelled?.Invoke();
     public void ShowConfirmation(string title, string information, Sprite icon, string name,
-        Action onConfirm, string confirmLabel, string cancelLabel, Action onCancel) { }
+        Action onConfirm, string confirmLabel, string cancelLabel, Action onCancel)
+    { _cancelled = onCancel; GetComponent<UIWindow>().IsOpen = true; }
 }
 public class UIItemConfirmationBox : MonoBehaviour { public bool IsActive; }
 public class UIWindow : MonoBehaviour { public bool IsOpen = true; }
@@ -115,6 +121,11 @@ namespace GloomhavenVR.Net.TownServices
         public static bool Settled = true;
         public static bool CanBegin = true;
         public static bool Denied;
+        public static bool ShowCue = true;
+        public static int TransactionReleases;
+        public static bool CanShowLocalCue(byte service) => ShowCue;
+        public static void SetLocalTransactionActive(byte service, bool active)
+        { if (service == 3 && !active) TransactionReleases++; }
         public static bool CanLocalBeginTransaction(byte service) => service == 3 && CanBegin;
         public static bool LocalTransactionSettled(byte service) => service == 3 && Settled;
         public static bool LocalTransactionDenied(byte service) => service == 3 && Denied;
@@ -180,6 +191,15 @@ namespace GloomhavenVR.WorldUI.MapRoom
 }
 namespace GloomhavenVR.WorldUI
 {
+    // Shared cue author aggregation is a separate production-network boundary.
+    // This handoff fixture proves the visual exception never changes eligibility.
+    internal static class TownServiceSharedCue
+    {
+        internal static bool Ready;
+        internal static float Strength;
+        internal static void SetLocal(bool ready, float strength) { Ready = ready; Strength = strength; }
+        internal static void PaintLocal(CanvasGroup gate, Transform zone) { }
+    }
     public static class TownServicePalmConfirmation
     {
         public static bool Owned; public static int Cancels;

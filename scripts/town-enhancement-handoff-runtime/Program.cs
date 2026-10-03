@@ -27,6 +27,7 @@ public static class InteractionProgram
         foreach (float scale in new[] { .05f, 1f, 2f, 198.12f })
         for (int scenario = 0; scenario < 22; scenario++) RunCase(scale, scenario);
         SwapOffering();
+        CancellationLifecycle();
         return count;
     }
 
@@ -529,7 +530,8 @@ public static class InteractionProgram
             int inactiveConfirm = 0;
             TownServicePresentation.Active = false;
             Action inactiveNative = () => inactiveConfirm++;
-            TownServiceEnhancementGrantGuard.Prefix(ref inactiveNative);
+            Action? inactiveCancel = null;
+            TownServiceEnhancementGrantGuard.Prefix(ref inactiveNative, ref inactiveCancel);
             inactiveNative();
             Check(inactiveConfirm == 1 && claim.Card == card,
                 "an inactive immersive service leaves the original confirmation callback untouched");
@@ -552,7 +554,8 @@ public static class InteractionProgram
             int priorClears = shop.Clears;
             int committed = 0;
             Action nativeConfirm = () => committed++;
-            TownServiceEnhancementGrantGuard.Prefix(ref nativeConfirm);
+            Action? nativeCancel = null;
+            TownServiceEnhancementGrantGuard.Prefix(ref nativeConfirm, ref nativeCancel);
             nativeConfirm();
             Check(claim.Card == null && CardsDriver.LastReturned == card
                 && shop.selectedCard == null && shop.Clears == priorClears + 1
@@ -566,7 +569,8 @@ public static class InteractionProgram
         int ordinaryConfirm = 0;
         TownServicePresentation.Active = false;
         Action fallbackConfirm = () => ordinaryConfirm++;
-        TownServiceEnhancementGrantGuard.Prefix(ref fallbackConfirm);
+        Action? fallbackCancel = null;
+        TownServiceEnhancementGrantGuard.Prefix(ref fallbackConfirm, ref fallbackCancel);
         fallbackConfirm();
         Check(ordinaryConfirm == 1, "flat or inactive service confirmation keeps its original callback");
         TownServicePresentation.Active = true;
@@ -731,6 +735,114 @@ public static class InteractionProgram
                 "displaced card retires only after its canonical return completes");
         }
         CardsDriver.Complete();
+        UnityEngine.Object.DestroyImmediate(root);
+    }
+
+    private static void CancellationLifecycle()
+    {
+        var root = new GameObject("Cancellation fixture");
+        var native = new GameObject("Native", typeof(UIWindow), typeof(UINewEnhancementWindow));
+        native.transform.SetParent(root.transform, false);
+        var shop = native.GetComponent<UINewEnhancementWindow>();
+        var station = new GameObject("Resident").transform; station.SetParent(root.transform, false);
+        new GameObject("ActivityOfferingPalm").transform.SetParent(station, false);
+        var fan = new GameObject("Fan").transform; fan.SetParent(root.transform, false); CardsDriver.FanRoot = fan;
+        VRCard Make(int id)
+        {
+            var card = new GameObject("Card " + id, typeof(VRCard)).GetComponent<VRCard>();
+            card.transform.SetParent(fan, false); card.Owner = shop.character; card.Model.ID = id;
+            var slot = new GameObject("Slot", typeof(RectTransform), typeof(Button), typeof(UIEnhanceCardSlot))
+                .GetComponent<UIEnhanceCardSlot>();
+            slot.transform.SetParent(native.transform, false); slot.Selectable = slot.GetComponent<Button>();
+            slot.AbilityCard = new GameObject("Original", typeof(AbilityCardUI)).GetComponent<AbilityCardUI>();
+            slot.AbilityCard.transform.SetParent(slot.transform, false); slot.AbilityCard.AbilityCard = card.Model;
+            slot.Selected = () => shop.selectedCard = slot.AbilityCard;
+            shop.CardsDisplay.slotsPool.Add(slot);
+            return card;
+        }
+        VRCard first = Make(711), second = Make(712);
+        CardsDriver.OffScenarioFanCards = new[] { first, second };
+        CardsDriver.Returned = 0; CardsDriver.LastReturned = null; CardsDriver.Completed = null;
+        VRHands.Left = VRHands.Right = VRHands.Primary = null;
+        VRRigDriver.HeadCamera = null;
+        var eventSystem = new GameObject("Native decision events", typeof(EventSystem));
+        eventSystem.transform.SetParent(root.transform, false);
+        var prompt = new GameObject("Native rune prompt", typeof(UIWindow), typeof(UIEnhancementConfirmationBox));
+        prompt.transform.SetParent(root.transform, false);
+        var box = prompt.GetComponent<UIEnhancementConfirmationBox>();
+        prompt.GetComponent<UIWindow>().IsOpen = false;
+        Singleton<UIEnhancementConfirmationBox>.Instance = box;
+        var rune = new GameObject("Native selected effect", typeof(RectTransform), typeof(Button)).GetComponent<Button>();
+        rune.transform.SetParent(native.transform, false);
+        var cancelButton = new GameObject("Native cancel", typeof(RectTransform), typeof(Button)).GetComponent<Button>();
+        cancelButton.transform.SetParent(prompt.transform, false); cancelButton.onClick.AddListener(box.Hide);
+        int nativeCancels = 0;
+        using (var handoff = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
+        {
+            handoff.Tick(); first.transform.position = handoff.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(first), "cancellation fixture starts with an actual accepted native offering");
+            rune.onClick.AddListener(() =>
+            {
+                shop._isConfirmationBoxOpened = true;
+                Action confirm = () => throw new Exception("cancel must never invoke the original purchase callback");
+                Action? cancel = () => { nativeCancels++; shop._isConfirmationBoxOpened = false; };
+                TownServiceEnhancementGrantGuard.Prefix(ref confirm, ref cancel);
+                box.ShowConfirmation("Native effect", "Native cost", null!, "Effect", confirm, "Buy", "Cancel", cancel!);
+            });
+            var pointer = new PointerEventData(eventSystem.GetComponent<EventSystem>()) { button = PointerEventData.InputButton.Left };
+            ExecuteEvents.Execute(rune.gameObject, pointer, ExecuteEvents.pointerClickHandler);
+            handoff.Tick();
+            Check(shop._isConfirmationBoxOpened && ReferenceEquals(handoff.Card, first),
+                "original effect press enters the native confirmation while retaining the physical offered card");
+            int releases = GloomhavenVR.Net.TownServices.TownServiceMirror.TransactionReleases;
+            ExecuteEvents.Execute(cancelButton.gameObject, pointer, ExecuteEvents.pointerClickHandler);
+            Check(nativeCancels == 0 && ReferenceEquals(handoff.Card, first),
+                "native cancel starts its own transition before its original Hidden cleanup runs");
+            box.CompleteHide(); box.CompleteHide();
+            Check(nativeCancels == 1 && !shop._isConfirmationBoxOpened && handoff.Card == null
+                && shop.selectedCard == null && CardsDriver.Returned == 1,
+                "original native cancellation runs once and retires the exact parked card and selection");
+            Check(GloomhavenVR.Net.TownServices.TownServiceMirror.TransactionReleases == releases + 1,
+                "native cancellation immediately releases the physical resident reservation");
+            CardsDriver.Complete();
+            second.transform.position = handoff.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(second),
+                "another owned card can be accepted immediately after original cancellation without reopening the service");
+            Action? stale = TownServiceEnhancementHandoff.GuardNativeCancellation(() => nativeCancels++);
+            first.transform.position = handoff.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(first), "replacement card takes the current native selection");
+            releases = GloomhavenVR.Net.TownServices.TownServiceMirror.TransactionReleases;
+            stale!();
+            Check(ReferenceEquals(handoff.Card, first)
+                && GloomhavenVR.Net.TownServices.TownServiceMirror.TransactionReleases == releases,
+                "a delayed prior cancellation cannot remove or release a replacement offering");
+            Action? wrongSession = TownServiceEnhancementHandoff.GuardNativeCancellation(null);
+            uint session = TownServicePresentation.Session;
+            TownServicePresentation.Session++;
+            wrongSession!();
+            Check(ReferenceEquals(handoff.Card, first), "a delayed cancellation never affects a different native visit");
+            TownServicePresentation.Session = session;
+            Action? failing = TownServiceEnhancementHandoff.GuardNativeCancellation(() => throw new InvalidOperationException("native test failure"));
+            bool threw = false;
+            try { failing!(); } catch (InvalidOperationException) { threw = true; }
+            Check(threw && handoff.Card == null,
+                "native cancellation exceptions remain visible while physical reservation cleanup is guaranteed");
+            CardsDriver.Complete();
+            GloomhavenVR.Net.TownServices.TownServiceMirror.ShowCue = false;
+            handoff.Tick();
+            Check(handoff.Zone.GetComponent<CanvasGroup>().alpha == 0f,
+                "another picture author's common palm cue suppresses only the duplicate local drawing");
+            first.transform.position = handoff.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(first),
+                "shared single-cue presentation does not disable an eligible visitor's physical handoff");
+            GloomhavenVR.Net.TownServices.TownServiceMirror.ShowCue = true;
+        }
+        CardsDriver.Complete(); CardsDriver.OffScenarioFanActive = false;
+        _ = TownServiceEnhancementHandoff.Returning; CardsDriver.OffScenarioFanActive = true;
+        Action original = () => nativeCancels++;
+        Check(ReferenceEquals(TownServiceEnhancementHandoff.GuardNativeCancellation(original), original),
+            "an ordinary flat cancellation retains its exact original native callback");
+        Singleton<UIEnhancementConfirmationBox>.Instance = null;
         UnityEngine.Object.DestroyImmediate(root);
     }
     private static void RunCase(float scale, int scenario)

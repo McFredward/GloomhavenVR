@@ -121,11 +121,24 @@ internal static class TownServiceGrantSync
 
     internal static int GrantedOwner(byte service)
     {
-        if (!Online || service < 1 || service > 3) return 0;
+        // Temple grants are a brief original-callback commit mutex, never an NPC
+        // occupation. They must not hide another visitor's purse, bowl or cue.
+        if (!Online || service != 1 && service != 3) return 0;
         if (Host) return Ledger.Owner(service, Time.unscaledTime);
         VisibleGrant grant = Visible[service];
         return grant.LastSeen > 0f && Time.unscaledTime - grant.LastSeen < VisibleSeconds
             ? grant.Player : 0;
+    }
+    internal static bool TryGrantedOwner(byte service, out int player, out uint session)
+    {
+        player = 0; session = 0;
+        if (!Online || service != 1 && service != 3) return false;
+        if (Host) return Ledger.TryOwner(service, Time.unscaledTime, out player, out session);
+        VisibleGrant grant = Visible[service];
+        if (grant.Player <= 0 || grant.Session == 0 || grant.LastSeen <= 0f
+            || Time.unscaledTime - grant.LastSeen >= VisibleSeconds) return false;
+        player = grant.Player; session = grant.Session;
+        return true;
     }
 
     internal static void Tick(INetTransport transport, float now)

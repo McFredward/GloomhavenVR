@@ -121,6 +121,8 @@ internal static class DonationProof
             Check(TownServiceVoice.Donations-voiceBefore==commits,"resident speaks only after each guarded native donation callback");
             Check(TownServiceMirror.Commits-revisionBefore==commits,
                 "shared blessing revision advances only after each native donation callback, never on availability changes");
+            if (commits > 0) Check(!TownServiceMirror.TransactionActive,
+                "successful donation retires its short native commit reservation before the shared blessing finishes");
             if(scenario==9)Check(!accepted&&selections==0,
                 "another player's same-priestess claim blocks this purse before it can be parked");
             Object.DestroyImmediate(prompt);Object.DestroyImmediate(root);Object.DestroyImmediate(events);

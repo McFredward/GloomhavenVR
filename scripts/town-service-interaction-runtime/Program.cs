@@ -1018,6 +1018,28 @@ public static class InteractionProgram
 
     private static void EnhancementDecisionLayout()
     {
+        string[] args = Environment.GetCommandLineArgs();
+        int at = Array.IndexOf(args, "-nativeBookObj");
+        Check(at >= 0, "confirmation clearance requires the actual original decoration mesh");
+        bool any = false;
+        Bounds nativeBook = default;
+        foreach (string line in System.IO.File.ReadLines(args[at + 1]))
+        {
+            if (!line.StartsWith("v ", StringComparison.Ordinal)) continue;
+            string[] fields = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            float N(int i) => float.Parse(fields[i], System.Globalization.CultureInfo.InvariantCulture);
+            Vector3 vertex = Quaternion.Euler(-90f, 0f, 0f) * new Vector3(-N(1), N(2), N(3));
+            if (!any) { nativeBook = new Bounds(vertex, Vector3.zero); any = true; }
+            else nativeBook.Encapsulate(vertex);
+        }
+        Check(any && nativeBook.size.sqrMagnitude > 0f, "original book export has a nonempty geometry envelope");
+        float fit = .32f / Mathf.Max(nativeBook.size.x, Mathf.Max(nativeBook.size.y, nativeBook.size.z));
+        float top = .957f + nativeBook.size.y * fit;
+        Check(top > .998f && top < 1f,
+            "same original enchantress book fit puts its top above the former confirmation button edge");
+        foreach (float scale in new[] { .05f, 1f, 198.12f })
+        foreach (float yaw in new[] { -80f, -35f, 0f, 35f, 80f })
+        {
         var native=Probe.Go("NativeRuneDecision");native.AddComponent<UIWindow>();native.AddComponent<CanvasGroup>();
         var box=native.AddComponent<UIEnhancementConfirmationBox>();
         box.titleText=Probe.Go("Title",native.transform).AddComponent<TMPro.TMP_Text>();
@@ -1030,21 +1052,30 @@ public static class InteractionProgram
         foreach(Component c in new Component[]{box.titleText,box.informationText,box.enhancementIcon,box.enhancementName,box.confirmButton,box.cancelButton})
             ((RectTransform)c.transform).sizeDelta=new Vector2(400f,80f);
         var station=Probe.Go("RuneResident").transform;
+        station.localScale = Vector3.one * scale;
         var palm=Probe.Go("ActivityOfferingPalm",station).transform;palm.localPosition=new Vector3(-.18f,1.17f,.23f);
         var seat=Probe.Go("RunePalm",station).transform;seat.localPosition=palm.localPosition+Vector3.up*.17f;
+        seat.localRotation = Quaternion.Euler(0f, yaw, 0f);
         TownServicePalmConfirmation.Begin(box,seat);TownServicePalmConfirmation.Tick();
         var entry=new List<TownServicePalmConfirmation.Entry>(TownServicePalmConfirmation.Active)[0];
         Check(entry.Surfaces.Count==6,"enhancement decision retains all six original content groups");
         foreach(var surface in entry.Surfaces)
         {
             Vector3 relative=seat.InverseTransformPoint(surface.Panel.HostGo.transform.position);
-            Check(Mathf.Abs(relative.x)<.24f && relative.z<-.10f && relative.z>-.15f && relative.y<-.17f,
+            Check(Mathf.Abs(relative.x)<.24f && relative.z<-.10f && relative.z>-.15f && relative.y<-.10f,
                 "all original enhancement confirmation content stays together below the palm");
+            var corners = new Vector3[4]; surface.Panel.HostRect.GetWorldCorners(corners);
+            float minimum = float.MaxValue;
+            foreach (Vector3 corner in corners)
+                minimum = Mathf.Min(minimum, station.InverseTransformPoint(corner).y);
+            Check(minimum >= top + .02f,
+                "complete enhancement decision stays above the raised book throughout the visitor yaw sweep and map scales");
         }
         TownServicePalmConfirmation.CancelOwned(box.GetComponent<UIWindow>());
         TownServicePalmConfirmation.CancelOwned(box.GetComponent<UIWindow>());
         Check(box.Cancels==1,"enhancement withdrawal cancels only the live decision once");
         Clean();
+        }
     }
 
     public static int Run()
