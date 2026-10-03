@@ -22,6 +22,88 @@ REMOTE_FILES = "/sdcard/Android/data/" + installer.PACKAGE + "/files"
 MAX_FILE = 2 * 1024 * 1024
 MAX_LOGCAT = 4 * 1024 * 1024
 MAX_METADATA = 128 * 1024
+# B613's 3000 global lines covered roughly two seconds of OS traffic and
+# missed Unity startup. Query the retained ring separately with fixed tags,
+# then retain only the selected app's context, including terminated processes.
+MAX_HISTORY = 4 * 1024 * 1024
+MAX_HISTORY_LINES = 8000
+MAX_HISTORY_PIDS = 8
+HISTORY_TAGS = ("Unity:V", "AndroidRuntime:E", "ActivityManager:I")
+DELIVERY_FILES = ("quest-mod-content.zip.download", "quest-mod-resources/StreamingAssets/gloomhavenvr.bundle")
+THREADTIME = re.compile(r"^\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+(\d+)\s+\d+\s+[VDIWEF]\s+([^:]+):\s?(.*)$")
+APP_LOG_PREFIXES = ("[Quest startup]", "[GloomhavenVR Quest]", "[GloomhavenVR]")
+
+
+def app_history(output, current_pids):
+    """Select owned Unity/crash context from a bounded, tagged threadtime dump."""
+    package = re.escape(installer.PACKAGE)
+    start = re.compile(r"\bStart proc (\d+):" + package + r"(?=[/\s]|$)")
+    any_start = re.compile(r"\bStart proc (\d+):([^/\s]+)")
+    crash = re.compile(r"^Process:\s*" + package + r",\s*PID:\s*(\d+)\b")
+    records, observed, sources = [], [], {}
+    for line in output.splitlines():
+        parsed = THREADTIME.fullmatch(line)
+        if parsed is None:
+            continue
+        pid, tag, message = parsed.groups()
+        tag = tag.strip()
+        identified = None
+        source = None
+        if tag == "ActivityManager":
+            found = start.search(message)
+            if found:
+                identified, source = found.group(1), "package-process-start"
+        elif tag == "AndroidRuntime":
+            found = crash.match(message)
+            if found:
+                identified, source = found.group(1), "package-crash"
+        elif tag == "Unity" and message.startswith(APP_LOG_PREFIXES):
+            identified, source = pid, "owned-log-prefix"
+        process_start = any_start.search(message) if tag == "ActivityManager" else None
+        records.append((line, pid, tag, identified, process_start))
+        if identified:
+            # Repeated banners must not consume the bounded process history.
+            if identified in observed:
+                observed.remove(identified)
+            observed.append(identified)
+            sources[identified] = source
+    for pid in current_pids:
+        if pid in observed:
+            observed.remove(pid)
+        observed.append(pid)
+        sources[pid] = "current-process-query"
+    selected = observed[-MAX_HISTORY_PIDS:]
+    wanted = set(selected)
+    active = set(wanted)
+    lines = []
+    for line, pid, tag, identified, process_start in records:
+        if process_start and process_start.group(1) in wanted:
+            started_pid = process_start.group(1)
+            if process_start.group(2) == installer.PACKAGE:
+                active.add(started_pid)
+            else:
+                # A retained OS event can prove that a PID was reused by another
+                # app. Do not carry our earlier process identity into its logs.
+                active.discard(started_pid)
+        if identified in wanted and tag in ("Unity", "AndroidRuntime"):
+            active.add(identified)
+        if (tag in ("Unity", "AndroidRuntime") and pid in active) or (tag == "ActivityManager" and identified in wanted):
+            lines.append(line)
+    truncated = len(lines) > MAX_HISTORY_LINES
+    if truncated:
+        # Keep first initialization AND final events rather than dropping the
+        # beginning again after a noisy app-specific stream reaches its cap.
+        early = MAX_HISTORY_LINES // 2
+        late = MAX_HISTORY_LINES - early - 1
+        lines = lines[:early] + ["[Quest capture] App history middle omitted at bounded line limit."] + (lines[-late:] if late else [])
+    content = "\n".join(lines) + ("\n" if lines else "")
+    bytes_truncated = len(content.encode("utf-8")) > MAX_HISTORY
+    if bytes_truncated:
+        content = content.encode("utf-8")[:MAX_HISTORY].decode("utf-8", errors="ignore")
+    details = {"processIds": selected, "processSources": {pid: sources[pid] for pid in selected},
+               "retainedLines": len(content.splitlines()), "middleOmitted": truncated, "bytesTruncated": bytes_truncated,
+               "note": "Retained logcat ring only; evicted startup events cannot be recovered. Selected app processes can be historical."}
+    return content, details
 
 
 def choose_capture_device(adb, args, config):
@@ -199,6 +281,15 @@ def collect(capture, config_path):
         capture.save("logcat.txt", output, "recent-main-crash-logcat")
     if error:
         capture.failure("logcat", error)
+    history, history_error = capture.read("shell", "logcat", "-d", "-s", "-b", "main", "-b", "crash", "-v", "threadtime",
+                                          *HISTORY_TAGS, limit=MAX_HISTORY, timeout=30)
+    current_pids = manifest["app"]["processIds"] if not pid_error and re.fullmatch(r"\s*\d+(?:\s+\d+)*\s*", pids) else []
+    selected_history, history_details = app_history(history, current_pids)
+    manifest["logcatHistory"] = history_details
+    if selected_history:
+        capture.save("app-logcat-history.txt", selected_history, "owned-app-logcat-history")
+    if history_error:
+        capture.failure("app-logcat-history", history_error)
     package, error = capture.read("shell", "dumpsys", "package", installer.PACKAGE)
     capture.save("package.txt", package, "installed-package-query")
     if error:
@@ -227,9 +318,21 @@ def collect(capture, config_path):
         manifest["app"]["installedApks"].append(info)
     for name in APP_FILES:
         capture.app_file(name)
+    # Stat only these two fixed delivery paths. No archive, bundle, save or
+    # profile content is transferred, and absence remains optional for old apps.
+    manifest["startupDelivery"] = []
+    for relative in DELIVERY_FILES:
+        text, error = capture.read("shell", "stat", "-c", "%s", REMOTE_FILES + "/" + relative, limit=256, timeout=10)
+        size = text.strip()
+        row = {"path": relative, "available": False}
+        if not error and re.fullmatch(r"\d{1,19}", size) and int(size) <= 9223372036854775807:
+            row.update(available=True, bytes=int(size))
+        else:
+            row["reason"] = (error or "Optional size query returned no usable byte count.")[:256]
+        manifest["startupDelivery"].append(row)
     manifest["localProvenance"] = local_provenance(config_path, capture)
     banners = []
-    for name in ("logcat.txt", "quest-hardware.log", "quest-hardware.log.previous", "quest-startup.log", "quest-startup.previous.log"):
+    for name in ("logcat.txt", "app-logcat-history.txt", "quest-hardware.log", "quest-hardware.log.previous", "quest-startup.log", "quest-startup.previous.log"):
         path = capture.directory / name
         if path.is_file():
             for build, key in re.findall(r"\[(?:GloomhavenVR Quest|Quest startup)\]\s+ModBuild=(\d+)\s+input=([0-9a-f]{64})\b", path.read_text(encoding="utf-8", errors="replace"))[-8:]:
@@ -267,10 +370,12 @@ def main(argv=None, runner=None):
             adb = installer.Adb(executable, directory / "adb-commands.log", runner)
             serial, hardware, transport = choose_capture_device(adb, args, config)
             manifest = {"schema": 1, "capturedUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "device": {"adbSerial": serial, "hardwareSerial": hardware, "transport": transport},
-                        "limits": {"appFileBytes": MAX_FILE, "logcatBytes": MAX_LOGCAT, "logcatLines": 3000}, "files": [], "errors": []}
+                        "limits": {"appFileBytes": MAX_FILE, "logcatBytes": MAX_LOGCAT, "logcatLines": 3000,
+                                   "appHistoryBytes": MAX_HISTORY, "appHistoryLines": MAX_HISTORY_LINES, "appHistoryProcesses": MAX_HISTORY_PIDS,
+                                   "startupDeliveryPaths": len(DELIVERY_FILES)}, "files": [], "errors": []}
             capture = Capture(adb, serial, directory, manifest)
             collect(capture, config_path)
-            usable = any(row["bytes"] and row["kind"] in ("recent-main-crash-logcat", "app-file-pull", "app-file-run-as") for row in manifest["files"])
+            usable = any(row["bytes"] and row["kind"] in ("recent-main-crash-logcat", "owned-app-logcat-history", "app-file-pull", "app-file-run-as") for row in manifest["files"])
             manifest["status"] = "partial" if manifest["errors"] else "complete"
             if not usable:
                 manifest["status"] = "no-readable-logs"

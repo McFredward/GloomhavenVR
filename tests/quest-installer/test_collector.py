@@ -34,6 +34,10 @@ class CaptureAdb:
         self.logcat = "01-01 12:00:00 100 200 E Unity: Error fixture\n[GloomhavenVR Quest] ModBuild=609 input=" + KEY + "\n"
         self.logcat_error = False
         self.logcat_timeout = False
+        self.history = ""
+        self.history_error = False
+        self.history_timeout = False
+        self.delivery_sizes = {}
         self.pids = "1234"
         self.app_files = {name: ("[GloomhavenVR Quest] ModBuild=609 input=" + KEY + "\n" if name.endswith(".log") else '{"diagnostic":true}\n') for name in collector.APP_FILES}
         self.pull_denied = False
@@ -79,10 +83,17 @@ class CaptureAdb:
             elif action == ["shell", "pidof", collector.installer.PACKAGE]:
                 out, code = self.pids, 0 if self.pids else 1
             elif action[:2] == ["shell", "logcat"]:
-                assert "-d" in action and "3000" in action and "threadtime" in action
-                if self.logcat_timeout:
-                    raise subprocess.TimeoutExpired(command, options["timeout"], output=self.logcat.encode())
-                out, code, err = self.logcat, 1 if self.logcat_error else 0, "fixture interrupted logcat" if self.logcat_error else ""
+                assert "-d" in action and "threadtime" in action
+                if "-s" in action:
+                    assert "-t" not in action and tuple(action[-len(collector.HISTORY_TAGS):]) == collector.HISTORY_TAGS
+                    if self.history_timeout:
+                        raise subprocess.TimeoutExpired(command, options["timeout"], output=self.history.encode())
+                    out, code, err = self.history, 1 if self.history_error else 0, "fixture interrupted history" if self.history_error else ""
+                else:
+                    assert "3000" in action
+                    if self.logcat_timeout:
+                        raise subprocess.TimeoutExpired(command, options["timeout"], output=self.logcat.encode())
+                    out, code, err = self.logcat, 1 if self.logcat_error else 0, "fixture interrupted logcat" if self.logcat_error else ""
             elif action == ["shell", "dumpsys", "package", collector.installer.PACKAGE]:
                 if self.fail_metadata:
                     raise OSError("fixture metadata unavailable")
@@ -91,7 +102,13 @@ class CaptureAdb:
                 out = self.apk_path
             elif action[:4] == ["shell", "stat", "-c", "%s"]:
                 path = action[4]
-                if path.startswith(collector.REMOTE_FILES):
+                relative = path.removeprefix(collector.REMOTE_FILES + "/")
+                if relative in collector.DELIVERY_FILES:
+                    if relative in self.delivery_sizes:
+                        out = str(self.delivery_sizes[relative])
+                    else:
+                        out, code = "stat: No such file or directory", 1
+                elif path.startswith(collector.REMOTE_FILES):
                     name = Path(path).name
                     if self.pull_denied or name not in self.app_files:
                         out, code = "stat: Permission denied", 1
@@ -440,6 +457,162 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(manifest["errors"], [])
         self.assertEqual({row["item"] for row in manifest["optionalFilesUnavailable"]}, set(collector.APP_FILES))
         self.assertIn("logcat.txt", files)
+
+    @staticmethod
+    def history_line(pid, message, tag="Unity"):
+        return "10-03 21:00:00.123 " + str(pid) + " 200 I " + tag + ": " + message + "\n"
+
+    def test_retained_app_launch_survives_global_tail_and_terminated_pid(self):
+        self.fake.pids = ""
+        self.fake.app_files = {}
+        self.fake.logcat = "Latest unrelated OS traffic only\n"
+        self.fake.history = (self.history_line(1281, "Start proc 4567:" + collector.installer.PACKAGE + "/u0a123 for next-top-activity", "ActivityManager")
+                             + self.history_line(4567, "Initialize engine before bootstrap")
+                             + self.history_line(4567, "[Quest startup] ModBuild=613 input=" + KEY)
+                             + self.history_line(9999, "Other Unity app private fixture")
+                             + self.history_line(4567, "Archive delivery interrupted"))
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        history = files["app-logcat-history.txt"].decode()
+        self.assertIn("Initialize engine before bootstrap", history)
+        self.assertIn("Archive delivery interrupted", history)
+        self.assertNotIn("Other Unity app", history)
+        self.assertNotIn("ModBuild=613", files["logcat.txt"].decode())
+        self.assertEqual(manifest["app"]["processIds"], [])
+        self.assertEqual(manifest["logcatHistory"]["processIds"], ["4567"])
+        self.assertEqual(manifest["observedAppBanners"], [{"file": "app-logcat-history.txt", "modBuild": 613, "inputKey": KEY}])
+        self.assertIn("can be historical", manifest["provenanceNote"])
+
+    def test_package_start_identifies_early_unmarked_unity_without_banner(self):
+        self.fake.pids, self.fake.logcat, self.fake.app_files = "", "", {}
+        self.fake.history = (self.history_line(1281, "Start proc 9876:" + collector.installer.PACKAGE + "/u0a100", "ActivityManager")
+                             + self.history_line(9876, "Early native player initialization failed"))
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertIn(b"Early native player initialization failed", files["app-logcat-history.txt"])
+        self.assertEqual(manifest["logcatHistory"]["processSources"], {"9876": "package-process-start"})
+        self.assertEqual(manifest["observedAppBanners"], [])
+
+    def test_package_crash_identifies_context_after_process_exit(self):
+        self.fake.pids, self.fake.logcat, self.fake.app_files = "", "", {}
+        self.fake.history = (self.history_line(4567, "FATAL EXCEPTION: UnityMain", "AndroidRuntime")
+                             + self.history_line(4567, "Process: " + collector.installer.PACKAGE + ", PID: 4567", "AndroidRuntime")
+                             + self.history_line(4567, "Original exception call stack", "AndroidRuntime"))
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertIn(b"FATAL EXCEPTION", files["app-logcat-history.txt"])
+        self.assertIn(b"Original exception call stack", files["app-logcat-history.txt"])
+        self.assertEqual(manifest["logcatHistory"]["processSources"], {"4567": "package-crash"})
+
+    def test_live_pid_retains_unmarked_context_without_collecting_other_unity_apps(self):
+        self.fake.logcat, self.fake.app_files = "", {}
+        self.fake.history = self.history_line(1234, "Original player exception") + self.history_line(5678, "Unrelated Unity app")
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertIn(b"Original player exception", files["app-logcat-history.txt"])
+        self.assertNotIn(b"Unrelated Unity app", files["app-logcat-history.txt"])
+        self.assertEqual(manifest["logcatHistory"]["processSources"], {"1234": "current-process-query"})
+
+    def test_similar_package_and_embedded_prefix_do_not_identify_our_process(self):
+        self.fake.pids, self.fake.logcat, self.fake.app_files = "", "", {}
+        self.fake.history = (self.history_line(1281, "Start proc 7890:" + collector.installer.PACKAGE + ".other/u0a100", "ActivityManager")
+                             + self.history_line(7890, "Message quoting [Quest startup] for another app")
+                             + self.history_line(7890, "Process: " + collector.installer.PACKAGE + ".other, PID: 7890", "AndroidRuntime"))
+        self.assertEqual(self.run_cli(), 1, self.stderr)
+        manifest, files = self.capture()
+        self.assertEqual(manifest["logcatHistory"]["processIds"], [])
+        self.assertNotIn("app-logcat-history.txt", files)
+        self.assertEqual(manifest["status"], "no-readable-logs")
+
+    def test_known_pid_reuse_does_not_retain_later_other_app_context(self):
+        self.fake.pids, self.fake.logcat, self.fake.app_files = "", "", {}
+        self.fake.history = (self.history_line(1281, "Start proc 4567:" + collector.installer.PACKAGE + "/u0a100", "ActivityManager")
+                             + self.history_line(4567, "Owned initialization")
+                             + self.history_line(1281, "Start proc 4567:other.unity.app/u0a101", "ActivityManager")
+                             + self.history_line(4567, "Later unrelated private initialization"))
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        history = self.capture()[1]["app-logcat-history.txt"]
+        self.assertIn(b"Owned initialization", history)
+        self.assertNotIn(b"other.unity.app", history)
+        self.assertNotIn(b"Later unrelated", history)
+
+    def test_malformed_process_query_does_not_select_a_pid_from_error_text(self):
+        self.fake.pids, self.fake.logcat, self.fake.app_files = "failed query 1234", "", {}
+        self.fake.history = self.history_line(1234, "Unidentified Unity app")
+        self.assertEqual(self.run_cli(), 1, self.stderr)
+        manifest, files = self.capture()
+        self.assertEqual(manifest["logcatHistory"]["processIds"], [])
+        self.assertNotIn("app-logcat-history.txt", files)
+
+    def test_history_line_cap_retains_beginning_and_final_app_event(self):
+        self.fake.pids, self.fake.logcat, self.fake.app_files = "", "", {}
+        self.fake.history = self.history_line(4567, "[Quest startup] initial launch") + "".join(self.history_line(4567, "routine " + str(i)) for i in range(20)) + self.history_line(4567, "Final app failure")
+        with mock.patch.object(collector, "MAX_HISTORY_LINES", 6):
+            self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        history = files["app-logcat-history.txt"].decode()
+        self.assertEqual(len(history.splitlines()), 6)
+        self.assertTrue(manifest["logcatHistory"]["middleOmitted"])
+        self.assertIn("initial launch", history)
+        self.assertIn("Final app failure", history)
+        self.assertNotIn("routine 10", history)
+
+    def test_history_byte_cap_is_utf8_bounded_and_reports_raw_truncation(self):
+        self.fake.pids, self.fake.logcat, self.fake.app_files = "", "", {}
+        self.fake.history = self.history_line(4567, "[Quest startup] first launch") + self.history_line(4567, "多" * 1000)
+        with mock.patch.object(collector, "MAX_HISTORY", 256):
+            self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertLessEqual(len(files["app-logcat-history.txt"]), 256)
+        files["app-logcat-history.txt"].decode("utf-8", errors="strict")
+        self.assertTrue(any(row["item"] == "app-logcat-history" and "truncated" in row["reason"] for row in manifest["errors"]))
+        self.assertEqual(manifest["status"], "partial")
+
+    def test_historical_process_selection_is_bounded(self):
+        self.fake.pids, self.fake.logcat, self.fake.app_files = "", "", {}
+        self.fake.history = "".join(self.history_line(pid, "[Quest startup] launch " + str(pid)) for pid in range(100, 120))
+        with mock.patch.object(collector, "MAX_HISTORY_PIDS", 2):
+            self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertEqual(manifest["logcatHistory"]["processIds"], ["118", "119"])
+        self.assertEqual(len(manifest["logcatHistory"]["processSources"]), 2)
+        self.assertNotIn(b"launch 100", files["app-logcat-history.txt"])
+
+    def test_interrupted_history_keeps_partial_owned_launch(self):
+        self.fake.pids, self.fake.logcat, self.fake.app_files = "", "", {}
+        self.fake.history = self.history_line(4567, "[Quest startup] first launch")
+        self.fake.history_timeout = True
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertIn(b"first launch", files["app-logcat-history.txt"])
+        self.assertTrue(any(row["item"] == "app-logcat-history" and "timed out" in row["reason"] for row in manifest["errors"]))
+
+    def test_startup_delivery_is_fixed_stat_metadata_never_asset_transfer(self):
+        self.fake.delivery_sizes = {collector.DELIVERY_FILES[0]: 0, collector.DELIVERY_FILES[1]: 75432109}
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertEqual(manifest["startupDelivery"], [{"path": collector.DELIVERY_FILES[0], "available": True, "bytes": 0},
+                                                      {"path": collector.DELIVERY_FILES[1], "available": True, "bytes": 75432109}])
+        queried = [call[6] for call in self.fake.calls if call[2:6] == ["shell", "stat", "-c", "%s"] and call[6].removeprefix(collector.REMOTE_FILES + "/") in collector.DELIVERY_FILES]
+        self.assertEqual(queried, [collector.REMOTE_FILES + "/" + path for path in collector.DELIVERY_FILES])
+        self.assertFalse(any("gloomhavenvr.bundle" in name or ".zip.download" in name for name in files))
+        self.assertTrue(all(Path(call[3]).name in collector.APP_FILES for call in self.fake.calls if len(call) > 3 and call[2] == "pull"))
+        self.assertFalse(any("quest-owned-game" in " ".join(call) or "/profile" in " ".join(call) or "/save" in " ".join(call) for call in self.fake.calls))
+
+    def test_unavailable_or_malformed_delivery_sizes_are_optional_for_older_apps(self):
+        self.fake.delivery_sizes = {collector.DELIVERY_FILES[1]: "123 unexpected asset contents"}
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertEqual(manifest["errors"], [])
+        self.assertEqual(manifest["status"], "complete")
+        self.assertTrue(all(not row["available"] and "bytes" not in row for row in manifest["startupDelivery"]))
+        self.assertNotIn("unexpected asset contents", json.dumps(manifest))
+
+    def test_delivery_metadata_alone_is_not_a_readable_log(self):
+        self.fake.pids, self.fake.logcat, self.fake.app_files = "", "", {}
+        self.fake.delivery_sizes = {name: 100 for name in collector.DELIVERY_FILES}
+        self.assertEqual(self.run_cli(), 1, self.stderr)
+        self.assertEqual(self.capture()[0]["status"], "no-readable-logs")
 
     def test_run_as_fixed_allowlist_fallback_preserves_app_logs(self):
         self.fake.pull_denied = True
