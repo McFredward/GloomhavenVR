@@ -78,12 +78,16 @@ def bindings(mr,m,mirror):
     assert 'Panels[i].Layout.Reset();' in mr and 'e.Layout.Reset();' in mr
     assert 'if (!WorldUI.MrBacking.WantOpaque' in mirror
     assert '_mrNextSampleFrame = Time.frameCount + WorldUI.MrBackingLayout.SampleStrideFrames;' in mirror
-    assert 'out WorldUI.PanelInkBounds.Ink ink, frameOverride: _mrFrame, excludedRoots: _mrExcluded,' in mirror
-    assert 'WorldUI.MrBackingLayout.WindowRect(_mrFrame, ink.Rect,' in mirror
+    assert '_mrInkPanel.Target = _rulesVisualRoot != null ? _rulesVisualRoot : _cloneRect;' in mirror
+    assert '_mrInkPanel.HostRect = _rulesVisualRoot != null ? (RectTransform)_host.transform : _pivot;' in mirror
+    assert 'Rect frame = _rulesVisualRoot != null ? ((RectTransform)_host.transform).rect : _mrFrame;' in mirror
+    assert '_mrVisibility.Root = _rulesVisualRoot != null ? _rulesVisualRoot : contentRoot ?? _cloneRect;' in mirror
+    assert 'out WorldUI.PanelInkBounds.Ink ink, frameOverride: frame, excludedRoots: _mrExcluded,' in mirror
+    assert 'WorldUI.MrBackingLayout.WindowRect(frame, ink.Rect,' in mirror
     assert 'WorldUI.TransientFamilies.Self(srcNodes[i])' in mirror
     assert 'WorldUI.TransientFamilies.IsDeclaredEffectQuad(srcNodes[i], _source)' in mirror
     assert 'BackingCenter => _mrBounds.center;' in mirror
-    assert 'WorldUI.MrBackingLayout.ReadyForSample(_fitApplied, _mrFrame)' in mirror
+    assert 'WorldUI.MrBackingLayout.ReadyForSample(_fitApplied, _rulesVisualRoot != null ? ((RectTransform)_host.transform).rect : _mrFrame)' in mirror
     assert '_mrFrame = default;' in mirror and '_mrBounds = default;' in mirror
     assert '_mrInkPanel.Target = null!;' in mirror and '_mrSampleFrame = -1;' in mirror
 bindings(mr,m,mirror)
@@ -119,7 +123,12 @@ assert 'visibleWitnesses: _mrVisibility.Witnesses, backingGeometry: true)' in m
 assert 'bool holdMrPicture = _mrInkValid && WindowMaterialise.IsAnimating(_panel);' in m
 assert 'if (!holdMrPicture)' in m
 assert 'internal static float GetMrBackingAlpha(ConvertedPanel panel)' in m
-print('MR backing integration bindings: 52 assertions and three negative controls passed.')
+needle='_mrInkPanel.Target = _rulesVisualRoot != null ? _rulesVisualRoot : _cloneRect;'
+assert mirror.count(needle)==1
+try:bindings(mr,m,mirror.replace(needle,'_mrInkPanel.Target = _cloneRect;'))
+except AssertionError:pass
+else:raise AssertionError('MR foldout binding mutation escaped')
+print('MR backing integration bindings: 56 assertions and four negative controls passed.')
 PY
 dotnet run --project "$project" --configuration Release --property:AccessorSource="$mutation_dir/accessor.fixture"
 for mutation in host margin plate confirm sample snap hidden starve ready owed scope scope-siblings scope-ancestor; do
