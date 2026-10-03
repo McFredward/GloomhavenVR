@@ -683,7 +683,8 @@ internal sealed partial class VRRigDriver : MonoBehaviour
                 teardownReason = "rig root destroyed externally";
             else if (_anchor == null)
                 teardownReason = "anchor camera destroyed";
-            else if (!_anchor.isActiveAndEnabled && (_kind == RigKind.Menu || _kind == RigKind.Map))
+            else if (!_anchor.isActiveAndEnabled && (!_anchor.gameObject.activeInHierarchy || !NativeCameraRenderBudget.Owns(_anchor))
+                && (_kind == RigKind.Menu || _kind == RigKind.Map))
                 teardownReason = $"anchor camera '{_anchor.name}' disabled/deactivated";
             else if (sceneRecheck && _kind == RigKind.Menu)
             {
@@ -975,7 +976,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     /// </summary>
     private static Camera? ResolveMenuCamera()
     {
-        Camera? cam = Camera.main;
+        Camera? cam = NativeCameraRenderBudget.Main;
         if (cam != null)
             return cam;
 

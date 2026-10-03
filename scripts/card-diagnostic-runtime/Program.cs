@@ -10,6 +10,8 @@ using Object = UnityEngine.Object;
 
 public static class DiagnosticProgram
 {
+    private static HarmonyLib.Harmony? lifetime;
+    public static void Cleanup() { lifetime?.UnpatchSelf(); lifetime = null; }
     public static int Checks;
     public static string Metrics = "";
     private static readonly List<GameObject> Roots = new();
@@ -56,6 +58,7 @@ public static class DiagnosticProgram
             Check(CardArtGuard.Samples == samples, "many card offers cannot multiply one frame census work");
             Check(++frames < 350, "bounded census completes despite many card offers");
         }
+        Check(CardDiagnosticProbe.HeapQueries == 1, "interactive diagnostics never query the native resource heap again");
     }
     private static RectTransform FaceRoot(string name)
     {
@@ -160,7 +163,22 @@ public static class DiagnosticProgram
     {
         Checks = 0; CardHalfTone.Clear(); VRLog.Lines.Clear(); VRLog.WantsDebug = false;
         var faces = new List<FullAbilityCard>();
-        for (int i = 0; i < 227; i++) faces.Add(Face(i));
+        faces.Add(Face(0));
+        CardHalfTone.SeedCensusRegistry();
+        Check(CardHalfTone.Population == 1, "startup discovery seeds pre-existing native scene cards");
+        lifetime = new HarmonyLib.Harmony("ghvr.card-census." + typeof(DiagnosticProgram).Assembly.GetName().Name);
+        lifetime.PatchAll(typeof(GloomhavenVR.Cards.Patches.FullAbilityCard_OnEnable_CensusLifetime));
+        lifetime.PatchAll(typeof(GloomhavenVR.Cards.Patches.FullAbilityCard_Init_CensusLifetime));
+        lifetime.PatchAll(typeof(GloomhavenVR.Cards.Patches.FullAbilityCard_OnDestroy_CensusLifetime));
+        for (int i = 1; i < 227; i++) faces.Add(Face(i));
+        Check(CardHalfTone.Population == 227, "original Unity OnEnable registers newly created active cards");
+        var parked = Root("inactive future pool"); parked.SetActive(false);
+        var initialized = parked.AddComponent<FullAbilityCard>(); initialized.Init();
+        Check(CardHalfTone.Population == 228, "original Init registers a never-enabled inactive future pool card");
+        parked.SetActive(true);
+        Check(CardHalfTone.Population == 228, "native enable after Init never duplicates a pooled registry entry");
+        Object.DestroyImmediate(parked);
+        Check(CardHalfTone.Population == 227, "original OnDestroy releases inactive card registry references");
         for (int i = 0; i < 100; i++) CardHalfTone.Tick();
         Check(PerfMonitor.Calls.Count == 0 && CardArtGuard.Samples == 0 && VRLog.Lines.Count == 0,
             "normal logging never discovers or samples a census");
@@ -204,10 +222,11 @@ public static class DiagnosticProgram
         Check(CardHalfTone.DiagnosticRefs, "in-flight diagnostic retains only its current scene references");
         CardHalfTone.Reset();
         Check(!CardHalfTone.DiagnosticRefs && CardHalfTone.Sampled == 0, "production scene Reset releases every diagnostic scene reference");
+        Check(CardHalfTone.Population == 226, "scene diagnostic Reset retains still-live pooled cards without a new heap discovery");
         Blackout();
         foreach (var pair in PerfMonitor.WorstMs) Metrics += pair.Key + " worst=" + pair.Value.ToString("F3") + "ms; ";
         foreach (GameObject go in Roots) if (go != null) Object.DestroyImmediate(go);
         foreach (Object asset in Assets) if (asset != null) Object.DestroyImmediate(asset);
-        Roots.Clear(); Assets.Clear();
+        Roots.Clear(); Assets.Clear(); Cleanup();
     }
 }

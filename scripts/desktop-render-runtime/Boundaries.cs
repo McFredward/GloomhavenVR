@@ -6,12 +6,15 @@ namespace GloomhavenVR.Hands.Interact { }
 namespace TMPro { }
 namespace GloomhavenVR.Core
 {
+    internal static class VRLayers { internal const int GameUiLayerMask = 1 << 5; }
     internal static class PerfFrameSplit { }
-    internal static class VRSession { internal static bool IsRunning; }
+    internal static class VRSession { internal static bool IsRunning; internal static HarmonyLib.Harmony? Harmony; }
+    internal static class PerfConfig { internal static bool UnusedCamerasSuspended; }
     internal static class VRLog
     {
         internal static void Info(string category, string message) { }
-        internal static void Warn(string category, string message) { }
+        internal static void Warn(string category, string message) => Debug.LogWarning(message);
+        internal static void Note(string category, string message) { }
     }
     internal static class VRCameraPolicy
     {

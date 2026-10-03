@@ -1,4 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><TargetFramework>netstandard2.1</TargetFramework><LangVersion>latest</LangVersion><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><AssemblyName>$(CaseName)</AssemblyName><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup>
-  <ItemGroup><Compile Include="$(FixtureDir)/*.cs"/><Compile Include="$(ProductionDir)/*.cs"/><Reference Include="$(UnityManaged)/UnityEngine/*.dll" Private="false"/><Reference Include="UnityEngine.UI" HintPath="$(UnityUi)" Private="false"/></ItemGroup>
+  <PropertyGroup><TargetFramework>netstandard2.1</TargetFramework><LangVersion>latest</LangVersion><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><AssemblyName>$(CaseName)</AssemblyName><EnableDefaultCompileItems>false</EnableDefaultCompileItems><CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies></PropertyGroup>
+  <ItemGroup><Compile Include="$(FixtureDir)/*.cs"/><Compile Include="$(ProductionDir)/*.cs"/><Reference Include="$(UnityManaged)/UnityEngine/*.dll" Private="false"/><Reference Include="UnityEngine.UI" HintPath="$(UnityUi)" Private="false"/><PackageReference Include="HarmonyX" Version="2.7.0"/></ItemGroup>
 </Project>

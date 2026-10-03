@@ -258,6 +258,7 @@ internal sealed partial class FlatScreen
 
         _scrubActive = true;
         SyncScrubDrawSkip();
+        NativeCameraRenderBudget.Apply(_scrubbed, PerfConfig.UnusedCamerasSuspended);
     }
 
     // ---- stop PAYING for the scrubbed render (unconditional) ---------------------------------
@@ -283,15 +284,16 @@ internal sealed partial class FlatScreen
     /// the only thing lost is pixels in a texture with no reader. The switch was removed once that
     /// was settled; do not reintroduce one.</para>
     ///
-    /// <para>WHY CULLING RATHER THAN DISABLING: <c>cam.enabled = false</c> looks obvious and is
-    /// wrong here. <see cref="Camera.main"/> only returns ENABLED cameras tagged MainCamera, the
+    /// <para>LEGACY FALLBACK, RETAINED WITH THE STRONGER BUDGET OFF: <c>cam.enabled = false</c> looks obvious and is
+    /// breaks unbridged native readers. <see cref="Camera.main"/> only returns ENABLED cameras tagged MainCamera, the
     /// scenario camera carries that tag, and both game code and ~20 mod fallbacks resolve through
     /// Camera.main — disabling it would NRE them. Zeroing the culling mask for the duration of the
     /// camera's own render keeps the camera enabled, keeps Camera.main, keeps pixel dimensions and
     /// screen-space projection, still clears, and still runs any image effects; it just draws
     /// nothing. Everything else in the process — including the rig's per-frame
     /// <c>anchor.cullingMask</c> follow, which runs in Update/LateUpdate, before rendering — reads
-    /// the untouched value.</para>
+    /// the untouched value. Build612 optionally suspends the discarded cameras after the
+    /// managed projection bridge is prepared; failed bridge setup keeps this fallback.</para>
     ///
     /// <para>Restore is belt-and-braces and load-bearing: the mask is zeroed in
     /// <see cref="OnScrubPreCull"/> and put back in <see cref="OnScrubPostRender"/>, i.e. within
@@ -382,6 +384,7 @@ internal sealed partial class FlatScreen
     /// </summary>
     private void ReleaseDesktopScrub(string reason)
     {
+        NativeCameraRenderBudget.Restore(); // Camera identity must be live before native capture.
         if (!_scrubActive && _scrubbed.Count == 0 && _scrubRt == null)
             return;
         bool wasActive = _scrubActive;

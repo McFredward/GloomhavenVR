@@ -60,6 +60,7 @@ public static class DiagnosticRunner
     {
         foreach (var go in UnityEngine.Object.FindObjectsOfType<GameObject>(true))
             if (go != null && !existing.Contains(go.GetInstanceID())) UnityEngine.Object.DestroyImmediate(go);
+        if (program != null) program.GetMethod("Cleanup").Invoke(null, null);
         output.Flush(); steps = null; program = null; current++;
     }
 }

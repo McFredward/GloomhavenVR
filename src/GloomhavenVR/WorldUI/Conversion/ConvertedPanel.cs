@@ -11,6 +11,7 @@ namespace GloomhavenVR.WorldUI;
 /// </summary>
 internal sealed class ConvertedPanel
 {
+    internal PanelMaintenanceCadence.State FitMaintenance;
     // What was moved.
     public RectTransform Target = null!;
 

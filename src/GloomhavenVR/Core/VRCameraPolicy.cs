@@ -120,6 +120,7 @@ internal static class VRCameraPolicy
     /// <summary>Restore every surviving camera to its original stereo behavior (VR off / hot reload).</summary>
     internal static void RestoreAll()
     {
+        NativeCameraRenderBudget.Restore();
         int restored = 0;
         foreach (KeyValuePair<Camera, StereoTargetEyeMask> pair in Originals)
         {

@@ -983,8 +983,12 @@ internal static partial class CanvasConversion
 
             TickGuardBudget(panel);
 
-            using (PerfMonitor.Scope("CanvasConversion.Fit"))
-                TickFit(panel); // test #14 item 1: content fit + growth re-fit (throttled)
+            if (PanelMaintenanceCadence.Due(ref panel.FitMaintenance, panel.Target,
+                Time.unscaledTime, PerfConfig.UiMaintenanceInterval,
+                panel.RevealPending || panel.RenderHidden || panel.OwnerRenderHidden
+                    || panel.GuardHostMoving || panel.GuardHostHeld, panel.RenderHidden))
+                using (PerfMonitor.Scope("CanvasConversion.Fit"))
+                    TickFit(panel); // Native input and reveal gates above remain per-frame.
 
             // (The per-host depth-compose stamp that used to run here is gone. Converted panels
             // occlude each other by DRAW ORDER now — TickPanelOrder, run last in the WorldUI

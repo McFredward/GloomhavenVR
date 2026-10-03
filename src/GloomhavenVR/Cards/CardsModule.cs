@@ -29,6 +29,10 @@ internal sealed class CardsModule : IVRModule
     public void Init()
     {
         CardsConfig.Bind();
+        VRSession.Harmony?.PatchAll(typeof(FullAbilityCard_OnEnable_CensusLifetime));
+        VRSession.Harmony?.PatchAll(typeof(FullAbilityCard_Init_CensusLifetime));
+        VRSession.Harmony?.PatchAll(typeof(FullAbilityCard_OnDestroy_CensusLifetime));
+        CardHalfTone.SeedCensusRegistry(); // startup/loading work, never recurring fan-open work
 
         if (!VRSession.IsRunning && !Plugin.DevMode.Value)
         {

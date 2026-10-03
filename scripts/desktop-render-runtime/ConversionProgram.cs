@@ -37,6 +37,14 @@ public static class ConversionMeasureProgram
         var panel = new ConvertedPanel { Target = target, HostRect = host };
         try
         {
+            var cadence = new PanelMaintenanceCadence.State();
+            Check(PanelMaintenanceCadence.Due(ref cadence, target, 0f, .05f, false, false), "first native panel fit runs immediately");
+            Check(!PanelMaintenanceCadence.Due(ref cadence, target, .001f, .05f, false, false), "static panel avoids redundant fit polling");
+            Check(PanelMaintenanceCadence.Due(ref cadence, target, .002f, .05f, true, false), "reveal or manual motion bypasses static cadence immediately");
+            target.sizeDelta += Vector2.one;
+            Check(PanelMaintenanceCadence.Due(ref cadence, target, .003f, .05f, false, false), "native root geometry change bypasses cadence in the same frame");
+            Check(PanelMaintenanceCadence.Due(ref cadence, target, .1f, .05f, false, false), "descendant-only content still receives bounded periodic fitting");
+            Check(PanelMaintenanceCadence.Due(ref cadence, target, .101f, 0f, false, false), "zero interval retains original per-frame maintenance");
             CanvasConversion.BeginContentQuery();
             Check(CanvasConversion.Find(panel, image.rectTransform) == inner,
                 "nearest active mask wins for the first nested item");

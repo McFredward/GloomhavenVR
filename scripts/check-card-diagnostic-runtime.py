@@ -18,7 +18,9 @@ def sources(root):
     face = (base / 'CardFace.cs').read_text()
     # Whole production diagnostic region, including native UI sampling, shader diff and verdict.
     # Only surrounding gameplay dependencies are boundaries; no rewritten scheduler/blackout model.
-    prefix = half[half.index('    private const string Scope'):half.index('    /// <summary>True once the "what this fixed"')]
+    prefix = half[half.index('    private static readonly HashSet<FullAbilityCard> CensusRegistry'):half.index('    /// <summary>True once the "what this fixed"')]
+    assert prefix.count('Resources.FindObjectsOfTypeAll<FullAbilityCard>()') == 1
+    prefix = prefix.replace('Resources.FindObjectsOfTypeAll<FullAbilityCard>()', 'CardDiagnosticProbe.FindAllCards()')
     census = half[half.index('    private struct Bucket'):half.rfind('\n}')]
     reset = half[half.index('    internal static void Reset()'):half.index('    // ------------------------------------------------------------------- the gate')]
     blackout = face[face.index('    private static class FaceBlackout'):face.index('    /// <summary>\n    /// (Re)compute the face-to-host')]
@@ -32,10 +34,14 @@ def sources(root):
     ):
         if blackout.count(before) != 1: raise SystemExit('Production work-counter binding drift: ' + before)
         blackout = blackout.replace(before, after, 1)
+    patches = (root / 'src/GloomhavenVR/Cards/Patches/CardArtPatches.cs').read_text()
+    lifetime = patches[patches.index('[HarmonyPatch(typeof(FullAbilityCard), \"OnEnable\")]'):]
+    assert 'RegisterCensusFace(face);' in half[half.index('internal static void Observe('):half.index('internal static void Observe(') + 350]
     return {
+        'Lifetime.cs': 'using HarmonyLib;\nnamespace GloomhavenVR.Cards.Patches;\n' + lifetime,
         'Census.cs': 'using System.Collections.Generic;\nusing Stopwatch = System.Diagnostics.Stopwatch;\nusing GloomhavenVR.Core;\nusing UnityEngine;\nusing UnityEngine.UI;\nnamespace GloomhavenVR.Cards { internal static partial class CardHalfTone {\n' + prefix + reset + census + '\n} }\n',
         'Blackout.cs': 'using System.Collections.Generic;\nusing GloomhavenVR.Core;\nusing UnityEngine;\nusing UnityEngine.UI;\nnamespace GloomhavenVR.Cards { internal static partial class CardFace {\n' + blackout + '\n} }\n',
-    }, {'CardHalfTone.cs': half, 'CardFace.cs': face}
+    }, {'CardHalfTone.cs': half, 'CardFace.cs': face, 'CardArtPatches.cs': patches}
 
 
 def main():
@@ -56,6 +62,8 @@ def main():
     variants = [('production', '', '', '', '')]
     if not args.no_negative_controls:
         variants += [
+            ('missing-enable-registration', 'Lifetime.cs', 'internal static class FullAbilityCard_OnEnable_CensusLifetime\n{\n    private static void Postfix(FullAbilityCard __instance) => CardHalfTone.RegisterCensusFace(__instance);\n}', 'internal static class FullAbilityCard_OnEnable_CensusLifetime\n{\n    private static void Postfix(FullAbilityCard __instance) { }\n}', 'original Unity OnEnable registers newly created active cards'),
+            ('recurring-resource-discovery', 'Census.cs', 'CensusRegistry.RemoveWhere(face => face == null || !face.gameObject.scene.IsValid());', 'SeedCensusRegistry(); CensusRegistry.RemoveWhere(face => face == null || !face.gameObject.scene.IsValid());', 'interactive diagnostics never query the native resource heap again'),
             ('normal-census', 'Census.cs', 'if (!VRLog.WantsDebug)', 'if (!VRLog.WantsDebug && Time.frameCount < 0)', 'normal logging never discovers or samples a census'),
             ('same-frame-census', 'Census.cs', 'if (s_censusFrame == Time.frameCount)', 'if (s_censusFrame == Time.frameCount && Time.frameCount < 0)', 'many card offers cannot multiply one frame census work'),
             ('whole-scene-census', 'Census.cs', 'private const int CensusFacesPerFrame = 8;', 'private const int CensusFacesPerFrame = 100000;', 'census samples at most eight faces per actual frame'),
@@ -101,12 +109,17 @@ def main():
     for entry in manifest['cases']:
         destination = project / 'Assets/Plugins' / Path(entry['dll']).name
         shutil.copyfile(entry['dll'], destination)
+        for dependency in Path(entry['dll']).parent.glob('*.dll'):
+            if dependency.name != Path(entry['dll']).name:
+                shutil.copyfile(dependency, project / 'Assets/Plugins' / dependency.name)
         entry['dll'] = str(destination)
     manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
     shutil.copyfile(fixture / 'Editor/DiagnosticRunner.cs', project / 'Assets/Editor/DiagnosticRunner.cs')
     (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.ugui":"1.0.0"}}\n')
     (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
     result = subprocess.run(['xvfb-run', '-a', str(args.unity), '-batchmode', '-projectPath', str(project), '-executeMethod', 'DiagnosticRunner.Start', '-interactionManifest', str(manifest_path), '-logFile', str(run / 'unity.log')], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=360)
+    for cache in ('Library', 'Temp'):
+        shutil.rmtree(project/cache, ignore_errors=True)
     report = Path(manifest['result'])
     if report.is_file(): print(report.read_text(), end='')
     if result.returncode or not report.is_file(): raise SystemExit('FAIL: Unity run; see ' + str(run / 'unity.log'))

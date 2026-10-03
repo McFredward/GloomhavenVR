@@ -451,7 +451,7 @@ internal static partial class CanvasConversion
     /// </summary>
     private static Camera? FindGameUiCamera(Camera head)
     {
-        int count = Core.VRCameraPolicy.GetAllCamerasNonAlloc(out Camera[] cams);
+        int count = Core.NativeCameraRenderBudget.GetProjectionCamerasNonAlloc(out Camera[] cams);
         Camera? byMask = null;
         for (int i = 0; i < count; i++)
         {

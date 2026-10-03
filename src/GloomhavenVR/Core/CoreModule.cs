@@ -62,6 +62,8 @@ internal sealed class CoreModule : IVRModule
         // flat-screen session is the reference reading the VR one has to be judged against, and its
         // two behaviour dials gate themselves on VRSession.IsRunning rather than on this call site,
         // so a session that never reached VR stays the vanilla game.
+        // Bind the native projection bridge during bootstrap, before interactive scene work.
+        NativeCameraRenderBudget.Prepare();
         AutoLod.Install(_hostGo);
         ScenarioSceneryBudget.Install(_hostGo);
         ScenarioGenerationDetail.Install();
@@ -118,6 +120,7 @@ internal sealed class CoreModule : IVRModule
 
     public void Shutdown()
     {
+        NativeCameraRenderBudget.Shutdown();
         Loc.Dispose(); // detach the engine localization event (hot-reload teardown)
         ExceptionTraces.Shutdown(); // puts the game's own StackTraceLogType.None straight back
         PerfMonitor.Shutdown(); // drop the sampling host + every step record before the GO dies

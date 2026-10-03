@@ -10,6 +10,12 @@ public sealed class FullAbilityCard : MonoBehaviour
 {
     public FullAbilityCardAction? topActionButton, bottomActionButton;
     public bool Adopted;
+    // Native widget bodies are boundaries; Unity executes these actual lifetime callbacks
+    // and the exact production Harmony patches observe them without changing their bodies.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    public void Init() { }
+    private void OnEnable() { }
+    private void OnDestroy() { }
 }
 public sealed class FullAbilityCardAction : MonoBehaviour
 {
@@ -61,7 +67,8 @@ namespace GloomhavenVR.Cards
     internal static class BurnLookPolicy { internal static void Reset() { } }
     internal static class CardDiagnosticProbe
     {
-        internal static int GeometryWalks, FootprintProbes, InventoryEntries;
+        internal static int GeometryWalks, FootprintProbes, InventoryEntries, HeapQueries;
+        internal static FullAbilityCard[] FindAllCards() { HeapQueries++; return Resources.FindObjectsOfTypeAll<FullAbilityCard>(); }
         internal static void Clear() { GeometryWalks = 0; FootprintProbes = 0; InventoryEntries = 0; }
     }
     internal static partial class CardHalfTone
@@ -78,6 +85,7 @@ namespace GloomhavenVR.Cards
         internal static void Tick() => MaybeCensus();
         internal static bool Busy => s_censusFaces != null;
         internal static bool DiagnosticRefs => s_censusFaces != null || s_diffClone != null || s_diffReference != null;
+        internal static int Population => CensusRegistry.Count;
         internal static int Completed => s_censuses;
         internal static int Sampled => s_censusIndex;
         internal static void Due() => s_nextCensus = 0;

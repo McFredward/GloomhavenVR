@@ -242,10 +242,26 @@ namespace GloomhavenVR.Cards;
 /// </summary>
 internal static class CardHalfTone
 {
+    // Build612: Frame609/610 repeatedly paid a synchronous native resource discovery in
+    // interactive frames. Seed once at module startup, then use actual original OnEnable,
+    // Init and OnDestroy lifetimes, plus the existing inert-clone observation pump. Census
+    // reporting may snapshot this set; it never rediscovers the Unity resource heap.
+    private static readonly HashSet<FullAbilityCard> CensusRegistry = new();
+    internal static void SeedCensusRegistry()
+    {
+        CensusRegistry.Clear();
+        foreach (FullAbilityCard face in Resources.FindObjectsOfTypeAll<FullAbilityCard>())
+            RegisterCensusFace(face);
+    }
+    internal static void RegisterCensusFace(FullAbilityCard? face)
+    {
+        if (face != null && face.gameObject.scene.IsValid()) CensusRegistry.Add(face);
+    }
+    internal static void ForgetCensusFace(FullAbilityCard face) => CensusRegistry.Remove(face);
     private const string Scope = "Cards";
 
-    /// <summary>Seconds between two censuses. The sweep is a whole-scene component scan, so it is
-    /// cadenced hard; it only runs at all while the mod is pumping card faces (it is driven from
+    /// <summary>Seconds between two censuses. The sweep snapshots registered scene lifetimes
+    /// without another Unity resource-heap scan; it only runs at all while the mod is pumping card faces (it is driven from
     /// <see cref="CardFace.Offer"/>), which is exactly when the comparison means anything.</summary>
     private const float CensusIntervalSeconds = 10f;
 
@@ -298,6 +314,7 @@ internal static class CardHalfTone
     {
         if (face == null)
             return;
+        RegisterCensusFace(face);
         try
         {
             if (IsModOwnedCopy(face))
@@ -1133,7 +1150,9 @@ internal static class CardHalfTone
     {
         try
         {
-            s_censusFaces = Resources.FindObjectsOfTypeAll<FullAbilityCard>();
+            CensusRegistry.RemoveWhere(face => face == null || !face.gameObject.scene.IsValid());
+            s_censusFaces = new FullAbilityCard[CensusRegistry.Count];
+            CensusRegistry.CopyTo(s_censusFaces);
         }
         catch (System.Exception ex)
         {
