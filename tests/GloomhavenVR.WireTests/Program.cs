@@ -41,6 +41,7 @@ internal static class Program
             PresentationCompressionVectors.Run(t);
             TownServiceTransportVectors.Run(t);
             TownVisitorStockTransportVectors.Run(t);
+            TownMotionVectors.Run(t);
             TownResidentsVectors.Run(t);
             TownFaceVectors.Run(t);
             TownActivityVectors.Run(t);

@@ -567,14 +567,20 @@ internal static class NetProtocol
     // native artwork fragments. Visitor-held originals use the existing interpolated
     // avatar hand frames; module/session/structure affinity prevents stale artwork
     // or numeric packets from replacing a newer physical offering. Cold fan fronts
-    // share urgent baseline delivery rather than queueing behind cabinet decoration.
+    // prewarm while closed and share urgent baseline delivery rather than queueing
+    // behind cabinet decoration. Live controls retain a finite turn independently
+    // of that preload. A public page replaces the last validated cabinet atomically
+    // only after its current original faces, holders, prices and mechanics are ready;
+    // off-page preload cannot block its reveal or another visitor's category press.
     // Original asset identity, local-only fingertip topology, dynamic native hints
     // and independent visitor modules retain the complete public map presentation.
     // A successful native donation has a durable fast commit clock, independent of
     // visitor departure; resident activity still authors its animation, VFX and sound.
     // Native mage cancellation returns its exact card and releases the physical
     // lease. Merchant/mage show the granted player's existing avatar/name above the
-    // NPC until removal. Temple commits do not create an occupation. The maintainer
+    // NPC until removal; a delayed obsolete grant cannot resurrect a local tag.
+    // Mage decisions clear the original raised book over the owner's complete yaw
+    // sweep. Temple commits do not create an occupation. The maintainer
     // explicitly permits one shared mage drop guide (2026-10-03); this visual election
     // does not remove any eligible visitor's real input or controller feedback.
 

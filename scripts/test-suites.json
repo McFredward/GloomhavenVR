@@ -1401,6 +1401,12 @@
       "weight": 2
     },
     {
+      "id": "town-grant-lifecycle",
+      "command": ["python3", "scripts/check-town-grant-lifecycle.py"],
+      "groups": ["local", "ci"],
+      "weight": 2
+    },
+    {
       "id": "town-palm-render",
       "command": [
         "python3",

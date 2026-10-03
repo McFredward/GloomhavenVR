@@ -34,6 +34,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <StartupObject>GloomhavenVR.WireTests.Program</StartupObject>
     <TargetFramework>net8.0</TargetFramework>
     <AssemblyName>GloomhavenVR.WireTests</AssemblyName>
     <RootNamespace>GloomhavenVR.WireTests</RootNamespace>
@@ -280,6 +281,10 @@
     <Compile Include="TownFaceVectors.cs" />
     <Compile Include="TownActivityVectors.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceFrame.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceMotionCodec.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceMotionBudget.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceFastNumbers.cs" />
+    <Compile Include="TownMotionVectors.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownRackState.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownCatalogLayout.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownCassetteMotion.cs" />
