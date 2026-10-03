@@ -18,6 +18,8 @@ internal static class StationLifecycle
             SkyAlternative.PlacedRoomRoot=new Transform{position=new Vector3(0,4,0)};
             var station=TownServiceStation.Create(service,Vector3.zero,1)!;
             Check(station!=null,"station created");
+            var detail=TownNpcDistanceDetail.Last!;
+            Check(detail.Root==station!.Root.Find("Actor"),"distance detail boundary receives only the original actor root");
             station!.RefreshEnvironment(false);
             station.Root.position=new Vector3(9,100,7); // Incoming author's deliberately different floor.
             station.SetGrounding(-.04f,-.06f);
@@ -43,6 +45,7 @@ internal static class StationLifecycle
             Near(TownServiceLighting.Last.Scale,3,"light range receives actual remote scale");
             station.RefreshEnvironment(false);Check(TownServiceLighting.Last.Refreshes==refreshes+1,"steady follower does not rescan lighting");
             Check(TownServiceDecor.Last!.Ticks>=8,"followers still advance asynchronous decoration");
+            Check(detail.Ticks==TownServiceDecor.Last.Ticks,"authors and followers tick the isolated mesh-quality dependency without changing placement");
             var originalRenderer=station.Root.gameObject.Renderers[0];
             var laterCard=new Renderer();station.Root.gameObject.Renderers=new[]{originalRenderer,laterCard};
             station.SetVisibility(.5f);
@@ -63,6 +66,7 @@ internal static class StationLifecycle
             Check(TownServiceFace.Ticks==faceTicks,"failed facial presentation stops retrying without blocking native station");
             TownServiceFace.Throw=false;
             station.Dispose();Check(TownServiceLighting.Last.Disposed&&TownServiceDecor.Last.Disposed,"owned decoration and lighting released");
+            Check(detail.Disposed,"station releases its isolated mesh-quality dependency");
         }
         // Legacy bundles must never switch geometry while approaching an NPC.
         var high=new Renderer();var low=new Renderer();var eyes=new Renderer();
@@ -77,13 +81,33 @@ internal static class StationLifecycle
         method.Invoke(null,new object?[]{null});
         method.Invoke(null,new object?[]{new Transform()});
         int created=TownServiceLighting.Creates;
+        int detailCreated=TownNpcDistanceDetail.Creates;
         TownServiceAssets.HasAnchor=false;
         bool rejected=false;
         try {TownServiceStation.Create(1,Vector3.zero,1);}catch(InvalidOperationException){rejected=true;}
         Check(rejected,"invalid prefab anchor rejected");
         Check(TownServiceLighting.Creates==created,"invalid anchor does not acquire lighting/decor resources");
+        Check(TownNpcDistanceDetail.Creates==detailCreated,"invalid anchor does not acquire mesh-quality resources");
         TownServiceAssets.HasAnchor=true;
         Console.WriteLine($"Town station lifecycle: {_assertions} production assertions passed");
+    }
+}
+
+namespace GloomhavenVR.Core
+{
+    // This placement/lifecycle fixture doubles optional geometry quality, like lighting
+    // and decoration below. Its real skinned implementation is compiled and rendered by
+    // check-figure-distance-runtime.py; no mesh-selection behavior is claimed here.
+    internal sealed class TownNpcDistanceDetail : IDisposable
+    {
+        internal static TownNpcDistanceDetail? Last;
+        internal static int Creates;
+        internal readonly Transform Root;
+        internal int Ticks;
+        internal bool Disposed;
+        internal TownNpcDistanceDetail(Transform root) { Root=root; Last=this; Creates++; }
+        internal void Tick() => Ticks++;
+        public void Dispose() => Disposed=true;
     }
 }
 
@@ -136,7 +160,14 @@ namespace UnityEngine
 {
     public class Object
     {
-        public static GameObject Instantiate(GameObject prefab) {var clone=new GameObject();clone.transform.HasAnchor=prefab.transform.HasAnchor;clone.transform.HasActor=prefab.transform.HasActor;return clone;}
+        public static GameObject Instantiate(GameObject prefab)
+        {
+            var clone=new GameObject();clone.transform.HasAnchor=prefab.transform.HasAnchor;clone.transform.HasActor=prefab.transform.HasActor;
+            // Native Find returns the same child identity each time. Keep that identity
+            // so resource admission can be checked against the actual actor child.
+            if(clone.transform.HasActor)clone.transform.Add("Actor",new Transform());
+            return clone;
+        }
         public static void Destroy(Object obj){}
     }
     public class GameObject : Object

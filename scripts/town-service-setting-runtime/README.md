@@ -22,6 +22,12 @@ The lifecycle cases additionally execute the real station constructor,
 - invalid interaction anchors are rejected before lighting/decor acquisition;
 - owned lighting and decoration are released during disposal.
 
+The optional distance-mesh helper is an isolated dependency double in this
+placement/lifecycle fixture. It verifies actor-root admission, author/follower
+ticks, release and rejection before resource acquisition. Actual mesh selection,
+skinning and visible original NPC renders are covered by
+`check-figure-distance-runtime.py`, which compiles the real helper.
+
 Thirteen compiled mutations recreate tracking-floor use, the unsafe outer station
 ring, ignored relief, stale handover placement, stale peer light range, late card property-block corruption,
 resource acquisition before anchor validation, retained follower grounding after
