@@ -1026,7 +1026,9 @@ public static partial class MirrorProgram
         catalog.Entries.RemoveRange(2, 5);
         GloomhavenVR.WorldUI.TownServiceSync.Calls.Clear();
         GloomhavenVR.WorldUI.TownServiceSync.TickPublic(shared, shared, catalog, 801, 0f);
-        Check(GloomhavenVR.WorldUI.TownServiceSync.PublicModuleCount == 12 && GloomhavenVR.WorldUI.TownServiceSync.PublicSourceCount == 12,
+        // Two mounts/fronts/bodies/price rows plus the return, crank and rack.
+        // The visitor's card destination guide is deliberately not public (Build614).
+        Check(GloomhavenVR.WorldUI.TownServiceSync.PublicModuleCount == 11 && GloomhavenVR.WorldUI.TownServiceSync.PublicSourceCount == 11,
             "publisher stock shrink retires old cards and price modules");
         var physical = new GloomhavenVR.WorldUI.TownServiceToken { IsPhysical = true,
             Source = Go("duplicate-physical-source").AddComponent<GloomhavenVR.WorldUI.ItemCardUI>().transform,

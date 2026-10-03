@@ -274,6 +274,17 @@
       "weight": 80
     },
     {
+      "id": "town-donation-replay",
+      "command": [
+        "python3",
+        "scripts/check-town-donation-replay.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
       "id": "town-residents",
       "command": [
         "python3",
