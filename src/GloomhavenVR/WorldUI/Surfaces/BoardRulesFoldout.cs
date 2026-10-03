@@ -173,7 +173,9 @@ internal sealed class BoardRulesFoldout : IDisposable
             _content.localRotation = _originalRotation; _content.localScale = _originalScale;
         }
         if (_host != null) { _host.pivot = _originalHostPivot; _host.sizeDelta = _originalHostSize; _host.localPosition = _originalHostPosition; _host.localScale = _originalHostScale; }
-        if (_wrapper != null) Object.Destroy(_wrapper);
+        // Destroy is deferred until frame end. Retired owned chrome must stop painting immediately
+        // when a native row change binds a replacement in this same rendered frame.
+        if (_wrapper != null) { _wrapper.SetActive(false); Object.Destroy(_wrapper); }
     }
 }
 internal sealed class BoardRulesHover : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler

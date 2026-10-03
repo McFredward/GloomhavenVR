@@ -337,13 +337,10 @@ internal sealed class RemoteObjectivesPanel
     /// Mirror the peer-visible SPECIAL RULES — the game's own
     /// <c>UIManager.ScenarioModifierContainer</c> — under the objectives.
     ///
-    /// <para><b>MIRROR OR NOTHING, deliberately, and it is the 1:1 answer rather than a gap in the
-    /// work.</b> The objectives above keep a mod-drawn fallback because their previous mod-drawn
-    /// version was already shipped and rejected in that shape, so it survives as the ladder's last
-    /// rung. The rules have no such history and must not acquire one: the LOCAL board
-    /// (<c>ScenarioRulesSurface</c>) converts the real widget or draws nothing at all, so a peer
-    /// board that fell back to mod-drawn rows would be showing team-mates a picture the owner
-    /// himself never sees. Absent on both sides beats different on each.</para>
+    /// <para>Both objectives and rules use original native widgets only. Owner record96 supplies
+    /// the rules' current text, style and foldout geometry; absent96 retains the original legacy
+    /// clone path. Missing artwork or clone failures are rendering defects, never permission to
+    /// substitute rebuilt text or omit a visible owner widget.</para>
     /// </summary>
     private void RefreshRules()
     {
