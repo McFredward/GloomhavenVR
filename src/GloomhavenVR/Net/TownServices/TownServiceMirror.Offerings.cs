@@ -24,15 +24,36 @@ internal static partial class TownServiceMirror
                 if (InteractionOwner(1) != pair.Key
                     || !Sessions.TryGetValue(pair.Key, out TownServiceSessionInfo? session)
                     || !session.Active || session.Service != 1 || session.Session != intent.Session
-                    || !intent.Visible || Array.BinarySearch(session.Modules, intent.Module) < 0
+                    || Array.BinarySearch(session.Modules, intent.Module) < 0
                     || now - session.LastSeenTime > OfferingFreshSeconds) continue;
                 // Both sample times come from this same owner. Refreshing unrelated
                 // inventory modules must not keep an old palm request alive forever.
                 float age = now - session.ReceivedTime + session.SampleTime - intent.SampleTime;
-                if (age <= OfferingFreshSeconds) return true;
+                bool visible = intent.Visible;
+                if (TryMerchantOfferingMotion(pair.Key, intent, now, out bool movedVisible, out float movedAge))
+                { visible = movedVisible; age = movedAge; }
+                if (visible && age <= OfferingFreshSeconds) return true;
             }
             return false;
         }
+    }
+
+    private static bool TryMerchantOfferingMotion(int peer, TownServiceFrame intent, float now,
+        out bool visible, out float age)
+    {
+        visible = false; age = 0f;
+        // The immutable original address/membership identifies this exact owner's
+        // request even while its template assets are still initializing. A numeric
+        // heartbeat refreshes only that request; unrelated inventory traffic cannot
+        // keep the offered palm alive. Explicit withdrawal wins immediately.
+        var key = new TownServiceMotionKey(1, 0, intent.Module, 0, 0, 0);
+        if (!MotionPeers.TryGetValue(peer, out PeerMotion? source)
+            || !source.Slots.TryGetValue(key, out MotionSlot? slot)
+            || slot.Entry.Session != intent.Session || slot.Entry.Service != intent.Service
+            || slot.Entry.Structure != intent.Structure || slot.Entry.PublicClaim != 0
+            || slot.SampleTime < intent.SampleTime || now - slot.ReceivedAt > OfferingFreshSeconds) return false;
+        visible = slot.Entry.Visible; age = Mathf.Max(0f, now - slot.ReceivedAt);
+        return true;
     }
 
     private static void ObserveMerchantOffering(int peer, TownServiceFrame frame)

@@ -838,13 +838,16 @@ internal static partial class TownServiceMirror
                         if (frame.RackMember.Alpha != alpha) { frame.RackMember = frame.RackMember.Copy(); frame.RackMember.Alpha = alpha; }
                     }
                     if (FastMotionCaptureEnabled && module.Last != null && module.Baseline != null
-                        && now < module.NextBaseline && TownServiceFastNumbers.SameArtwork(module.Last, frame))
+                        && now < module.NextBaseline && module.WasPriority == module.HighPriority
+                        && (!NeedsHeartbeat(module) || now < module.NextRefresh)
+                        && TownServiceFastNumbers.SameArtwork(module.Last, frame))
                     {
+                        frame.Sequence = module.Last.Sequence;
                         module.Last = TownServiceDelta.Retain(frame);
                         continue;
                     }
                     bool sameSurface = SamePresentation(module.Last, frame);
-                    if (sameSurface
+                    if (sameSurface && module.WasPriority == module.HighPriority
                         && (now < module.NextRefresh || module.Last != null && module.LastSent < module.Last.Sequence)) continue;
                     frame.Sequence = NextSequence();
                     TownServiceFrame emitted;
