@@ -41,21 +41,68 @@ public static class InteractionProgram
     {
         SkinQuality original = skin.quality; SkinWeights native = QualitySettings.skinWeights;
         QualitySettings.skinWeights=SkinWeights.FourBones;
+        var guard = new OriginalHandsSkinningGuard();
+        var hand = new GameObject("Original four-bone hand").AddComponent<SkinnedMeshRenderer>();
+        hand.quality = SkinQuality.Bone4;
+        var unrelated = new GameObject("Unowned native skin").AddComponent<SkinnedMeshRenderer>();
+        unrelated.quality = SkinQuality.Auto;
+        skin.quality=SkinQuality.Bone4;
         var record=new FigureSkinningBudget.Record { Renderer=skin };
         PerfConfig.MaximumSkinningBones=2; FigureSkinningBudget.Tick();record.Apply();
-        Check(QualitySettings.skinWeights==SkinWeights.TwoBones,"global skinning influence cap applies");
+        guard.EnforceGlobalSkinWeights();
+        Check(QualitySettings.skinWeights==SkinWeights.FourBones,"actor budget leaves native global skinning untouched");
         Check(skin.quality==SkinQuality.Bone2,"explicit original FourBones renderer is capped");
+        int repairs=VRLog.HandRepairs;
+        // Execute the original production hand guard in both actor/hand update orders.
+        // This rejects the two global writers that ran continuously in hardware Build612.
+        for(int frame=0;frame<120;frame++)
+        {
+            if((frame&1)==0)guard.EnforceGlobalSkinWeights();
+            FigureSkinningBudget.Tick();record.Apply();
+            if((frame&1)!=0)guard.EnforceGlobalSkinWeights();
+            Check(QualitySettings.skinWeights==SkinWeights.FourBones&&hand.quality==SkinQuality.Bone4&&skin.quality==SkinQuality.Bone2,
+                "four-bone hands and two-bone actor coexist in both update orders");
+        }
+        Check(VRLog.HandRepairs==repairs,"ordinary actor updates never trigger another hand repair");
+        Check(unrelated.quality==SkinQuality.Auto,"unowned native skins retain their original slots");
         Mesh source=skin.sharedMesh; Transform[] bones=skin.bones; Material[] materials=skin.sharedMaterials;
         PerfConfig.MaximumSkinningBones=1; FigureSkinningBudget.Tick();record.Apply();
-        Check(skin.quality==SkinQuality.Bone1&&QualitySettings.skinWeights==SkinWeights.OneBone,"single influence optional cap works");
+        Check(skin.quality==SkinQuality.Bone1&&QualitySettings.skinWeights==SkinWeights.FourBones,"single influence optional body cap preserves hands");
         Check(skin.sharedMesh==source&&skin.bones.Length==bones.Length&&skin.sharedMaterials.Length==materials.Length,"skinning never swaps geometry or rig");
         PerfConfig.MaximumSkinningBones=0; FigureSkinningBudget.Tick();record.Apply();
-        Check(skin.quality==original&&QualitySettings.skinWeights==SkinWeights.FourBones,"off restores exact renderer and global quality");
+        Check(skin.quality==SkinQuality.Bone4&&QualitySettings.skinWeights==SkinWeights.FourBones,"off restores exact renderer and preserves global quality");
         PerfConfig.MaximumSkinningBones=2; FigureSkinningBudget.Tick();record.Apply(); VRSession.IsRunning=false;
         FigureSkinningBudget.Tick();record.Apply();
-        Check(skin.quality==original&&QualitySettings.skinWeights==SkinWeights.FourBones,"VR stop restores exact skinning quality");
+        Check(skin.quality==SkinQuality.Bone4&&QualitySettings.skinWeights==SkinWeights.FourBones,"VR stop restores exact skinning quality");
         VRSession.IsRunning=true;PerfConfig.MaximumSkinningBones=2;record.Apply();skin.quality=SkinQuality.Bone1;record.Apply(true);
         Check(skin.quality==SkinQuality.Bone1,"foreign native influence writer is never overwritten by restoration");
+
+        skin.quality=SkinQuality.Auto;record=new FigureSkinningBudget.Record { Renderer=skin };
+        record.Apply();Check(skin.quality==SkinQuality.Bone2,"original Auto actor is capped without changing the global");
+        PerfConfig.MaximumSkinningBones=0;record.Apply();Check(skin.quality==SkinQuality.Auto,"Off restores original Auto exactly");
+        PerfConfig.MaximumSkinningBones=2;record.Apply();VRSession.IsRunning=false;record.Apply();
+        Check(skin.quality==SkinQuality.Auto,"VR stop restores original Auto exactly");VRSession.IsRunning=true;
+        record.Apply();skin.quality=SkinQuality.Bone1;record.Apply();
+        Check(skin.quality==SkinQuality.Bone1,"a stricter live native renderer setting wins");
+        PerfConfig.MaximumSkinningBones=0;record.Apply();Check(skin.quality==SkinQuality.Bone1,"Off retains the updated native renderer setting");
+
+        skin.quality=SkinQuality.Auto;record=new FigureSkinningBudget.Record { Renderer=skin };
+        PerfConfig.MaximumSkinningBones=2;record.Apply();
+        QualitySettings.skinWeights=SkinWeights.OneBone;FigureSkinningBudget.Tick();
+        Check(QualitySettings.skinWeights==SkinWeights.OneBone,"actor lifecycle never overrides a native global quality change");
+        repairs=VRLog.HandRepairs;guard.EnforceGlobalSkinWeights();
+        Check(QualitySettings.skinWeights==SkinWeights.FourBones&&VRLog.HandRepairs==repairs+1,
+            "original hand guard repairs a genuine native quality change once");
+        FigureSkinningBudget.Tick();record.Apply();guard.EnforceGlobalSkinWeights();
+        Check(VRLog.HandRepairs==repairs+1&&skin.quality==SkinQuality.Bone2,"body cap stays local after a native quality change");
+        QualitySettings.skinWeights=SkinWeights.TwoBones;FigureSkinningBudget.Restore();record.Apply(true);
+        Check(QualitySettings.skinWeights==SkinWeights.TwoBones&&skin.quality==SkinQuality.Auto,
+            "teardown restores Auto without restoring over a foreign global value");
+        record.Apply(true);Check(skin.quality==SkinQuality.Auto,"renderer restoration is idempotent");
+        QualitySettings.skinWeights=SkinWeights.FourBones;PerfConfig.MaximumSkinningBones=4;record.Apply();
+        Check(skin.quality==SkinQuality.Bone4&&QualitySettings.skinWeights==SkinWeights.FourBones,"optional four-bone body limit stays local");
+        record.Apply(true);
+        UnityEngine.Object.DestroyImmediate(hand.gameObject);UnityEngine.Object.DestroyImmediate(unrelated.gameObject);
         skin.quality=original;PerfConfig.MaximumSkinningBones=0;QualitySettings.skinWeights=native;
     }
     [DataContract] private sealed class Sources { [DataMember] public Source[] meshes=Array.Empty<Source>(); }
@@ -194,6 +241,11 @@ public static class InteractionProgram
     }
     public static int Run()
     {
+        if(Array.IndexOf(Environment.GetCommandLineArgs(),"-figureSkinningOnly")>=0)
+        {
+            var actor=new GameObject("Native Unity renderer skinning proof").AddComponent<SkinnedMeshRenderer>();
+            Skinning(actor);UnityEngine.Object.DestroyImmediate(actor.gameObject);return _checks;
+        }
         _output=Arg("-figureRenders");Directory.CreateDirectory(_output);Policy();NativeBodies();Npcs();_preview=Preview();return _checks;
     }
 }

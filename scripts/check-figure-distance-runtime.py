@@ -16,13 +16,15 @@ def main():
     parser.add_argument('--source-root', type=Path, default=ROOT)
     parser.add_argument('--output-dir', type=Path)
     parser.add_argument('--native-dir', type=Path)
+    parser.add_argument('--skinning-only', action='store_true',
+                        help='Run the bounded original hand/body skinning proof without meshes or previews.')
     parser.add_argument('--case', action='append')
     args = parser.parse_args(); root = args.source_root.resolve()
     out = args.output_dir or root / '.planning/debug/figure-distance-runtime'
     out.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=out.resolve()))
     native = args.native_dir or run / 'native'
-    if args.native_dir is None:
+    if args.native_dir is None and not args.skinning_only:
         subprocess.run([str(Path.home() / 'unitypy-venv/bin/python'), str(root / 'tools/figure-mesh/export-native.py'),
                         '--source-root', str(root), '--output-dir', str(native), '--only',
                         'hero_berserker_assets_all', 'npc_spittingdrake_assets_all', 'npc_sundemon_assets_all'], check=True)
@@ -33,11 +35,28 @@ def main():
     end = station.index('    internal static TownServiceStation? Create(', start)
     native_detail = station[start:end].replace('private static void', 'internal static void', 1)
     source['StationDetail.cs'] = 'using System; using UnityEngine; namespace GloomhavenVR.Core { internal static class StationDetail {\n' + native_detail + '} }\n'
+    hands = (root / 'src/GloomhavenVR/Hands/HandsDriver.cs').read_text()
+    start = hands.index('    private void EnforceGlobalSkinWeights()')
+    end = hands.index('    // ISOLATED', start)
+    hand_guard = hands[start:end].replace('private void', 'internal void', 1)
+    source['OriginalHandsSkinningGuard.cs'] = (
+        'using UnityEngine; namespace GloomhavenVR.Core { internal sealed class OriginalHandsSkinningGuard {\n'
+        'private readonly GameObject _handsRoot = new GameObject("Original hand guard boundary");\n'
+        'private readonly HandSide _left = new HandSide();\n'
+        'private sealed class HandSide { internal float WorldScale = 1f; }\n' + hand_guard + '} }\n')
     source['NativeFigureMeshStream.cs'] = (root / 'tools/figure-mesh/NativeFigureMeshStream.cs').read_text()
     variants = [('production', '', '', '', ''),
                 ('skip-npc-reduction', 'TownNpcDistanceDetail.cs', 'mesh.Apply(wanted);', 'mesh.Apply(100);', 'NPC mid actually reduces original 100k body'),
                 ('keep-explicit-four-bones', 'FigureSkinningBudget.cs', 'Renderer.quality = _applied;', 'Renderer.quality = live;', 'explicit original FourBones renderer is capped'),
+                ('global-hand-fight', 'FigureSkinningBudget.cs', 'internal static void Tick() { }',
+                 'internal static void Tick() { if (VRSession.IsRunning && PerfConfig.MaximumSkinningBones > 0) QualitySettings.skinWeights = (SkinWeights)PerfConfig.MaximumSkinningBones; }',
+                 'four-bone hands and two-bone actor coexist in both update orders'),
+                ('uncapped-auto', 'FigureSkinningBudget.cs', '_original == SkinQuality.Auto ? (SkinQuality)limit',
+                 '_original == SkinQuality.Auto ? SkinQuality.Auto', 'original Auto actor is capped without changing the global'),
                 ('far-only-old-tier', 'ScenarioFigureMeshBank.cs', 'detail < 0 ? 5 :', 'detail < 0 ? 20 :', 'far materially reduces already simplified native body')]
+    if args.skinning_only:
+        variants = [v for v in variants if v[0] in
+                    ('production', 'keep-explicit-four-bones', 'global-hand-fight', 'uncapped-auto')]
     if args.case:
         unknown = set(args.case) - {v[0] for v in variants}
         if unknown: parser.error('Unknown cases: ' + ', '.join(sorted(unknown)))
@@ -60,7 +79,7 @@ def main():
         (build / 'build.log').write_text(result.stdout + result.stderr)
         if result.returncode: raise SystemExit(result.stdout + result.stderr + '\nCompile failures never pass as negative controls')
         dll = build / 'bin/Release/netstandard2.1' / (assembly + '.dll')
-        for bank in (root / 'prebuilt').glob('ghvr-figure-meshes-*'):
+        for bank in (() if args.skinning_only else (root / 'prebuilt').glob('ghvr-figure-meshes-*')):
             if bank.suffix in ('.bundle', '.json'): (dll.parent / bank.name).symlink_to(bank.resolve())
         manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected})
     (run / 'source-hashes.json').write_text(json.dumps({path: hashlib.sha256(text.encode()).hexdigest() for path, text in source.items()}, indent=2) + '\n')
@@ -72,6 +91,7 @@ def main():
     command = [str(unity), '-batchmode', '-force-glcore', '-projectPath', str(project), '-executeMethod', 'InteractionRunner.Start',
                '-interactionManifest', str(manifest_path), '-figureNativeDir', str(native.resolve()), '-townOriginalBundle', str(root / 'prebuilt/ghvr-town.bundle'),
                '-figureRenders', str(run / 'renders'), '-logFile', str(run / 'unity.log')]
+    if args.skinning_only: command.append('-figureSkinningOnly')
     if not os.environ.get('DISPLAY'): command = ['xvfb-run', '-a', '-s', '-screen 0 640x480x24'] + command
     result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=600)
     report = Path(manifest['result'])
