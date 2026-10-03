@@ -22,6 +22,16 @@ unverified Quest images, tracking and performance. See
 [Quest implementation evidence](QUEST3-IMPLEMENTATION.md) and
 [private hardware test procedure](QUEST3-HARDWARE-609.md).
 
+Final integrated validation on runtime/tool commit `cc041fab` passes **14/14 source
+suites, 107/107 complete local suites and 286,760 wire/golden assertions**, strict
+Release with zero warnings/errors, bundle/figure-bank checks and independent
+suite/log-hash verification. Relative to reviewed Frame608, eight existing compiled
+types change only in the build constant; QuestText is the only added type, with no
+removed type/reference/resource. The private signed ARM64 APK is built and validated
+with explicit SDK/NDK/JDK selection and retained runtime shaders. Hardware remains
+unverified. Evidence is in `.planning/debug/quest3/validation/`; original game payload,
+APK, accounts and signing keys are excluded from Git.
+
 The following records the preserved `dev`/Steam Frame baseline:
 
 **Updated 2026-10-03: dev 1.1.0 / ModBuild 608, Frame607 hitch analysis and targeted interaction optimizations.**

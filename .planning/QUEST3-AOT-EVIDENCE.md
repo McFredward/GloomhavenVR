@@ -28,6 +28,15 @@ activate. A target outside the compiled closure fails explicitly; it is never si
 left without its hook. Direct registrations use the actual `Harmony.Patch` argument
 positions, including arbitrarily named hooks, rather than naming conventions.
 
+After merging parallel Frame608 work, a freshly built strict Release ModBuild609
+was converted with the unchanged weaver. Its DLL SHA-256 is
+`aa2d448e32018646c565ba9713baabab4fd01bbd60c6cafb2ec578f939f59e50`.
+The actual serialized/re-read result still integrates 311 candidate bindings and
+233 original methods, verifies seven protected types and reports zero hook issues.
+The 15 independent runtime/AOT concerns remain. This is a real selected-mod update
+check, not an IL2CPP game-startup proof. Outputs and the report remain private under
+`/home/claw/quest3-local/weaver-609-final` and `weaver-609-final.json`.
+
 Generated wrappers call patch bodies directly. They preserve typed per-class state,
 by-reference arguments/results, private field injection, original skip, priority and
 registration ordering, exception suppression and propagation. Exact installed HarmonyX

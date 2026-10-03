@@ -7,6 +7,10 @@ is `feature/quest3-standalone`, starting from `5344a550`, ModBuild 607.
 Original game references remain untouched. The parallel `dev` Frame608 changes
 through `8146ed02` were merged into the Quest branch before the final checkpoint.
 The combined checkpoint uses ModBuild609, retaining the Frame608 notes and behavior.
+Worker worktrees and the primary Quest branch were used for isolation. Following
+the repository's integration workflow, the reviewed combined tree was fast-forwarded
+locally to `dev`; only `origin/dev` is a push destination. No worker branch, original
+game payload or APK is published.
 
 The maintainer also explicitly authorized a visibly marked dummy identity for
 builds on this host. The local diagnostic uses name `Quest Local Test (DUMMY)`,
@@ -68,6 +72,17 @@ checkout's ignored `.planning/debug/quest3/handoff.json`. The builder's default
 See [hardware steps and limits](QUEST3-HARDWARE-609.md). No headset was attached
 to the build host, so passthrough/tracking/images have not been verified on Quest.
 
+The reviewed final file is 30,861,781 bytes, APK SHA-256
+`5818e9d22cd47ed8fb79bde1c41dab815cb0a53faedc49da4075b9e5c1bddd6b`,
+from runtime/tool commit `cc041fab` and input key
+`58cd43841e856021966270f5c09ce9d46ef80f486472c60ff6addbd4e3c2991d`.
+The player now retains explicit Resources materials for Standard and Unlit/Color;
+the latter had only been requested dynamically. Actual shader compilation and
+both serialized native shader payload names were verified in the final APK.
+Specific native mesh/collider types needed by runtime CreatePrimitive are also
+preserved in the diagnostic linker file. Earlier local APKs remain private
+historical evidence and are not the reviewed handoff.
+
 Original core recovery has produced 13 build scenes and original managed plugins.
 All build-scene script identities resolve. The complete export remains unready:
 compiled shader placeholders, deferred bundles, unsupported serialized layouts and
@@ -79,6 +94,28 @@ Its evidence, supported semantics and remaining IL2CPP/runtime risks are recorde
 [AOT evidence](QUEST3-AOT-EVIDENCE.md). Asset recovery details are recorded in
 [recovery evidence](QUEST3-RECOVERY-EVIDENCE.md). Assembly integration is not a
 successful original-game startup, save round trip or multiplayer connection.
+
+## Final repository validation
+
+The final `dev` runtime/tool tree at `cc041fab` passes **14/14 source suites,
+107/107 complete local suites and 286,760 wire/golden assertions**, all three
+main bundle formats and the 49-part figure bank. Strict Release has zero warnings
+and errors; the five existing bilingual document pairs and seven Quest developer
+documents' local links were checked. Suite coverage and recorded log hashes were
+verified independently. The complete local run took 993.3 seconds with eight jobs.
+
+Compared with the preserved reviewed Frame608 compiled snapshot, exactly eight
+existing types differ only in the inlined 608 -> 609 build constant, plus the new
+QuestText type. No existing type, assembly reference or embedded resource changes.
+The guard's exit1 describes comparison with its much older `98fba1a8d` baseline;
+all subordinate gates pass. Current validation, comparison and hashes are retained
+privately under `.planning/debug/quest3/validation/`.
+
+An earlier run failed `town-service-mirror` with a cast exception under unchanged
+bound source. Coordinated focused/full production probes and the final complete
+gate passed. Its original cause remains unproven; no speculative production fix
+or relaxed assertion was introduced. This passing checkpoint does not establish
+Quest images, original campaign startup, saves or multiplayer acceptance.
 
 ## Remaining complete-port gates
 

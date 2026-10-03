@@ -21,6 +21,10 @@ target, visibly marked dummy profile, signing certificate and actual Android
 build result. Private signing material stays in the external builder output;
 neither the APK nor this handoff contains the private key/password.
 
+The final reviewed APK SHA-256 starts with `5818e9d22cd47`; the full value is in
+the receipt. It comes from runtime/tool commit `cc041fab`. Earlier APKs without
+explicit runtime shader retention were replaced; use the current file above.
+
 The package is `dev.gloomhavenvr.quest`. Enable the headset's existing developer
 mode/ADB authorization, then install from a PC with Android platform tools:
 
