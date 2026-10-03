@@ -565,10 +565,6 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             held != null && TownServiceOfferingPose.Contains(_seat, held.transform.position), .43f);
         TownServiceSharedCue.SetLocal(showCue && Card == null, strength);
         _feedback.Paint(showCue, preview);
-        // The maintainer explicitly permits one common drop cue when several
-        // visitors approach this shared palm (2026-10-03 multiplayer test). Only
-        // the elected picture author draws it; this presentation-only exception
-        // must never remove another eligible visitor's physical drop or haptics.
         // Build614 user exception: a pre-drop guide belongs only to this visitor. Global
         // offered-hand readiness still travels independently; another visitor's readiness
         // must never hide this player's native destination or haptic feedback.

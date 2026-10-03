@@ -156,6 +156,10 @@ internal static class NativeTemplates
     internal static Transform? Original(string key) => Entries.TryGetValue(key, out Entry? entry) && entry.Original != null ? entry.Original : null;
     private static void BindOriginalBackdrops()
     {
+        // Catalogue sprite identities precede mutable/pool-dependent template slots,
+        // including network registry resets while the native bank survives.
+        if (UIInfoTools.Instance != null)
+            TownServiceTemplateAssets.RegisterSpriteCatalog(TownServiceMirror.Assets, UIInfoTools.Instance);
         TownServiceBackdropAssets.Register(TownServiceMirror.Assets, Original);
         TownServiceTemplateAssets.Register(TownServiceMirror.Assets, FrozenOriginal);
         // Lazy cards can be borrowed after the immutable static bank was built.
