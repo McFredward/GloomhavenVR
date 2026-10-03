@@ -13,7 +13,7 @@ namespace GloomhavenVR.Quest
     [DefaultExecutionOrder(10000)]
     public sealed class QuestGameScope : MonoBehaviour
     {
-        sealed class Entry { internal Component button; internal string key, tooltipText; internal bool workshop; internal object model; internal UITextTooltipTarget tooltip; }
+        sealed class Entry { internal Component button; internal string key, tooltipText; internal bool workshop; internal object model; internal Component tooltip; }
         readonly List<Entry> entries = new List<Entry>();
         readonly HashSet<string> reported = new HashSet<string>(StringComparer.Ordinal);
         float nextScan;
@@ -103,9 +103,19 @@ namespace GloomhavenVR.Quest
                 // Voice's original ExtendedButton has no menu SetTooltip API.
                 // Reuse the game's tooltip event handlers and rendering instead
                 // of introducing another pointer or diagnostic tooltip canvas.
-                if (entry.tooltip == null) entry.tooltip = entry.button.GetComponent<UITextTooltipTarget>() ?? entry.button.gameObject.AddComponent<UITextTooltipTarget>();
-                entry.tooltip.TooltipEnabled = true;
-                entry.tooltip.SetText(text, true);
+                // GH.Runtime is explicitly referenced by the recovered player,
+                // rather than a compile-time dependency of this Unity script.
+                // Resolve only its exact original component, with checked ABI.
+                Type nativeType = Type.GetType("UITextTooltipTarget, GH.Runtime", true);
+                if (!typeof(MonoBehaviour).IsAssignableFrom(nativeType)) throw new InvalidOperationException("Original tooltip component ABI is missing.");
+                PropertyInfo enabled = nativeType.GetProperty("TooltipEnabled", BindingFlags.Public | BindingFlags.Instance);
+                MethodInfo setText = nativeType.GetMethod("SetText", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(string), typeof(bool), typeof(string) }, null);
+                if (enabled == null || enabled.PropertyType != typeof(bool) || !enabled.CanWrite || setText == null || setText.ReturnType != typeof(void))
+                    throw new InvalidOperationException("Original tooltip text/enabled ABI is missing.");
+                if (entry.tooltip == null) entry.tooltip = entry.button.GetComponent(nativeType) ?? entry.button.gameObject.AddComponent(nativeType);
+                if (entry.tooltip == null) throw new InvalidOperationException("Unity refused the original tooltip component.");
+                enabled.SetValue(entry.tooltip, true);
+                setText.Invoke(entry.tooltip, new object[] { text, true, null });
             }
             else throw new InvalidOperationException("Original excluded entry has no native tooltip method.");
             entry.tooltipText = text;
