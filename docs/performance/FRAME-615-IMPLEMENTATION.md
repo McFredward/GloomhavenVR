@@ -58,6 +58,23 @@ its source panel. The source-linked UI runtime fixture exercises exact productio
 inventory/mip code and depth/veil methods with real Unity hierarchy and images;
 external mip baking and the native window registry are explicit seams.
 
+## Integrated validation
+
+Final coverage includes all 118 local suites, 14 source gates and 307473 wire/golden
+assertions. Two fixture-binding failures were corrected and verified against exact
+final production sources; the affected diagnostic suite also passed after restoring
+its existing log lookup tokens. Only affected checks were resumed. Original failures
+and the explicit coverage ledger remain in `.planning/debug/frame615-review/`.
+The diagnostic checker separately passes twenty compound-write/read-escape controls.
+Bundle/surface checks and five bilingual documentation pairs pass. Strict Release
+has zero warnings and errors.
+
+The compiled comparison uses immutable final Build614, not an older shared worker
+baseline: 24 intended behavior types, eight exact build-constant consumers and eleven
+new intended helper/patch types; no type is removed. References and resources are
+identical. No mesh bundle is generated or added by Build615. These checks establish
+the stated implementation boundaries; they do not measure headset performance.
+
 ## Hardware comparison
 
 Use matching Build615 peers for multiplayer. On Frame, retain both log sinks and

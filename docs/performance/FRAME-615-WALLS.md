@@ -115,8 +115,8 @@ The GL shader fixture is an explicit API surrogate, not original game shading.
   draws. All 22 causal controls passed; only failed bounded cases were resumed.
 - Native instancing whole-driver production: 23 assertions and four controls;
   separate original compiled-shader provenance is retained.
-- Release source build: zero warnings/errors. The primary agent runs the final
-  complete integration gate; focused worker checks do not replace it.
+- Strict Release: zero warnings/errors. The final integrated gate also passes;
+  see [the complete validation record](FRAME-615-IMPLEMENTATION.md#integrated-validation).
 
 Small receipts, failed-run explanations, native producer source/hash, original
 bundle/shader provenance and final results are preserved in the main checkout's

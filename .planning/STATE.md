@@ -19,9 +19,19 @@ Original 2D-map/non-NPC windows, input and NPC/remote clocks retain live semanti
 All Build614 NPC parity changes remain integrated. No game assets, mesh bundles,
 wire grammar or native gameplay commands change in this DLL-only round.
 
-The final complete integrated gate is pending. Focused worker receipts and the
-strict integrated build are preserved under `.planning/debug/frame615-review/`;
-the next step is final checks, push and generated-cache/worktree cleanup.
+Final integrated coverage passes all 118 local suites, 14 source gates and
+307473 wire/golden assertions. The full local run had two fixture-binding
+failures; both affected suites passed with exact final-tree production hashes
+after including the new grab-eligibility helpers. Diagnostic marker wording was
+rechecked only in its affected census suite. Original failures are preserved;
+unrelated successful suites were not repeated. The diagnostic source checker now
+recognizes compound writes, with twenty actual field-read/escape controls.
+Bundle and config/patch/log surfaces pass, strict Release has zero warnings/errors,
+and all five bilingual document pairs agree. The independent compiled comparison
+against immutable Build614 has 24 intended behavior types, eight exact inlined
+build-constant consumers and eleven intended new types; no type is removed and
+reference/resource sets are identical. Final receipts, bound source hashes and
+the resumed-coverage ledger live under `.planning/debug/frame615-review/`.
 
 ---
 
