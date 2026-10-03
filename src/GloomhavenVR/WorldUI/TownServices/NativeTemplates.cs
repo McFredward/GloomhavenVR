@@ -196,7 +196,7 @@ internal static class NativeTemplates
         for (int i = source.childCount - 1; i >= 0; i--)
         {
             Transform child = source.GetChild(i), duplicate = copy.GetChild(i);
-            if (IsBoundary(child) || child.GetComponent<TMP_SubMeshUI>() != null || child.GetComponent<TMP_SubMesh>() != null)
+            if (IsBoundary(child) || TownServiceBinding.GeneratedTextMesh(child))
                 Object.DestroyImmediate(duplicate.gameObject);
             else Prune(child, duplicate);
         }

@@ -128,7 +128,19 @@ internal sealed class TownServiceBinding : IDisposable
         for (int i = 0; i < order.Count; i++) { nodes[i + 1] = originalNodes[order[i]]; keys[i + 1] = originalKeys[order[i]]; }
     }
 
-    internal static bool GeneratedTextMesh(Transform child) => child.GetComponent<TMP_SubMeshUI>() != null || child.GetComponent<TMP_SubMesh>() != null;
+    internal static bool GeneratedTextMesh(Transform child) => child.GetComponent<TMP_SubMeshUI>() != null
+        || child.GetComponent<TMP_SubMesh>() != null || InvisibleLocalInputPad(child);
+
+    private static bool InvisibleLocalInputPad(Transform child)
+    {
+        // Ability-card pooling can retain the two fingertip-only hit areas from a
+        // preceding use. They have no visible content and cannot be part of the
+        // native presentation topology: another peer may borrow an untouched card.
+        // Check the real marker and transparent leaf, never a coincident object name.
+        if (child.childCount != 0 || child.GetComponent<GloomhavenVR.Hands.Interact.PokeOnlyTarget>() == null) return false;
+        Image? image = child.GetComponent<Image>();
+        return image != null && image.sprite == null && image.color.a == 0f;
+    }
 
     internal TownServiceNode[] Read(TownServiceAssets assets)
     {
