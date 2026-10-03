@@ -34,6 +34,18 @@ public static class PalmRenderProgram
         label.rectTransform.sizeDelta = new Vector2(.5f, .09f); label.transform.localPosition = position;
         label.transform.localRotation = Quaternion.Euler(0, 180, 0);
     }
+    private static string Typography(TextMeshPro label)
+    {
+        label.ForceMeshUpdate();
+        Vector2 ink = label.GetRenderedValues(false);
+        var face = label.font.faceInfo;
+        string Number(float value) => value.ToString("R", CultureInfo.InvariantCulture);
+        return "{\"font\":\"" + label.font.name + "\",\"font_size\":" + Number(label.fontSize)
+            + ",\"orthographic\":" + (label.isOrthographic ? "true" : "false")
+            + ",\"rendered_width_metres\":" + Number(ink.x) + ",\"rendered_height_metres\":" + Number(ink.y)
+            + ",\"face_point_size\":" + face.pointSize + ",\"face_scale\":" + Number(face.scale)
+            + ",\"face_cap_line\":" + Number(face.capLine) + "}";
+    }
     private static Mesh Book()
     {
         var vertices = new List<Vector3>(); var triangles = new List<int>();
@@ -57,6 +69,13 @@ public static class PalmRenderProgram
         var settings = Resources.Load<TMP_Settings>("TMP Settings");
         Check(settings != null, "Imported TMP essentials supply actual typography defaults");
         typeof(TMP_Settings).GetField("s_Instance", BindingFlags.Static | BindingFlags.NonPublic).SetValue(null, settings);
+        // The game's resources.assets TMP Settings points to LiberationSans SDF
+        // (point size 86, scale 1, cap 59.1875). TMP essentials carries the same
+        // calibrated family at 86/1/cap 59. Keep the local TTF only for captions;
+        // compare the real production OwnerTag with both font families below.
+        var gameCalibratedFont = TMP_Settings.defaultFontAsset;
+        Check(gameCalibratedFont != null && gameCalibratedFont.faceInfo.pointSize == 86,
+            "Identity typography uses the native default font calibration, not the fixture caption font");
         var font = TMP_FontAsset.CreateFontAsset(Resources.Load<Font>("FixtureFont"));
         Check(font != null, "Imported local fixture font builds a real TMP glyph atlas");
         typeof(TMP_Settings).GetField("m_defaultFontAsset", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(settings, font);
@@ -90,6 +109,7 @@ public static class PalmRenderProgram
         foreach (Component component in new[] { box.titleText, box.informationText, box.confirmButton, box.cancelButton, box.enhancementIcon, box.enhancementName })
             ((RectTransform)component.transform).sizeDelta = new Vector2(400, 80);
         float minimumControls = float.MaxValue;
+        string fixtureTypography = "", nativeTypography = "";
         using (var badge = new TownServiceOccupationBadge(3, station))
         {
             TownServiceGrantSync.Owner = 0; badge.Tick(true);
@@ -98,6 +118,12 @@ public static class PalmRenderProgram
             Transform tag = station.Find("OwnerTag[22]");
             Check(tag != null && tag.gameObject.activeSelf, "Physical mage lease creates a required identity even with cosmetic name tags off");
             Check(tag.Find("Avatar").GetComponent<Renderer>().sharedMaterial.mainTexture == avatar && tag.Find("Name").GetComponent<TextMeshPro>().text == "Guest 22", "Production OwnerTag uses avatar and name from the same native player identity");
+            var ownerLabel = tag.Find("Name").GetComponent<TextMeshPro>();
+            fixtureTypography = Typography(ownerLabel);
+            ownerLabel.font = gameCalibratedFont;
+            nativeTypography = Typography(ownerLabel);
+            Check(ownerLabel.fontSize == .05f && ownerLabel.GetRenderedValues(false).y > 0f,
+                "Existing OwnerTag maximum controls the native-calibrated rendered size independently of caption font");
             Check(Vector3.Distance(tag.position, head.position + Vector3.up * .24f) < 1e-6f, "Owner identity tracks actual actor head plus authored clearance");
             foreach (float yaw in new[] { -80f, 0f, 80f })
             {
@@ -122,5 +148,8 @@ public static class PalmRenderProgram
         using (var merchant = new TownServiceOccupationBadge(1, station))
         { TownServiceGrantSync.Owner = 44; merchant.Tick(true); Check(station.Find("OwnerTag[44]") != null, "Merchant physical lease uses the same required native owner identity"); merchant.Tick(false); Check(!station.Find("OwnerTag[44]").gameObject.activeSelf, "Merchant release hides occupation immediately"); }
         File.WriteAllText(Path.Combine(Argument("-renderOutput"), "result.json"), "{\"assertions\":" + _checks + ",\"book_top_metres\":" + bookTop.ToString(CultureInfo.InvariantCulture) + ",\"minimum_control_clearance_metres\":" + (minimumControls - bookTop).ToString(CultureInfo.InvariantCulture) + ",\"boundaries\":\"native callback/lease/player avatar fixtures; production geometry/OwnerTag/badge/TMP and original book mesh\"}\n");
+        File.WriteAllText(Path.Combine(Argument("-renderOutput"), "identity-typography.json"),
+            "{\"fixture_caption_font\":" + fixtureTypography + ",\"native_calibrated_default_font\":" + nativeTypography
+            + ",\"scope\":\"actual production OwnerTag with TMP essentials LiberationSans calibration; native game atlas and headset perception remain outside this fixture\"}\n");
     }
 }

@@ -126,8 +126,7 @@ internal static class TownServiceGrantSync
         if (!Online || service != 1 && service != 3) return 0;
         if (Host) return Ledger.Owner(service, Time.unscaledTime);
         VisibleGrant grant = Visible[service];
-        return grant.LastSeen > 0f && Time.unscaledTime - grant.LastSeen < VisibleSeconds
-            ? grant.Player : 0;
+        return VisibleOfferCurrent(service, in grant) ? grant.Player : 0;
     }
     internal static bool TryGrantedOwner(byte service, out int player, out uint session)
     {
@@ -135,10 +134,21 @@ internal static class TownServiceGrantSync
         if (!Online || service != 1 && service != 3) return false;
         if (Host) return Ledger.TryOwner(service, Time.unscaledTime, out player, out session);
         VisibleGrant grant = Visible[service];
-        if (grant.Player <= 0 || grant.Session == 0 || grant.LastSeen <= 0f
-            || Time.unscaledTime - grant.LastSeen >= VisibleSeconds) return false;
+        if (!VisibleOfferCurrent(service, in grant)) return false;
         player = grant.Player; session = grant.Session;
         return true;
+    }
+
+    private static bool VisibleOfferCurrent(byte service, in VisibleGrant grant)
+    {
+        if (grant.Player <= 0 || grant.Session == 0 || grant.LastSeen <= 0f
+            || Time.unscaledTime - grant.LastSeen >= VisibleSeconds) return false;
+        if (grant.Player != LocalPlayer) return true;
+        Offer own = Offers[service];
+        // A host response already in flight can arrive after this client's physical
+        // return. It may remain useful reliable history, but it cannot resurrect
+        // that removed card's local identity or overwrite a replacement offer.
+        return own.Active && own.Session == grant.Session && own.Nonce == grant.Nonce;
     }
 
     internal static void Tick(INetTransport transport, float now)
@@ -268,6 +278,10 @@ internal static class TownServiceGrantSync
     private static void Release(byte service, in Offer offer)
     {
         if (!Online || LocalPlayer <= 0) return;
+        VisibleGrant visible = Visible[service];
+        if (visible.Player == LocalPlayer && visible.Session == offer.Session
+            && visible.Nonce == offer.Nonce)
+            Visible[service] = default;
         if (Host)
         {
             Ledger.Release(service, LocalPlayer, offer.Session, offer.Nonce);
