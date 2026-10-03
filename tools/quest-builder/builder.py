@@ -490,13 +490,13 @@ def isolate_original_compiler_namespace(project: Path) -> None:
     Auto Reference only controls C# compiler references. The recovered plugin's
     platform availability, GUID and original runtime dependencies are retained.
     """
-    matches = list((project / "Assets").rglob("GH.Runtime.FirstPass.dll.meta"))
+    matches = list((project / "Assets").rglob("GH.Runtime.dll.meta"))
     if len(matches) != 1:
-        raise BuildError("Original startup needs one recovered FirstPass plugin importer.")
+        raise BuildError("Original startup needs one recovered GH.Runtime plugin importer.")
     metadata = matches[0].read_text(encoding="utf-8")
     metadata, count = re.subn(r"(?m)^([ \t]*isExplicitlyReferenced:)[ \t]*[01][ \t]*$", r"\1 1", metadata)
     if count != 1:
-        raise BuildError("The recovered FirstPass plugin has no unique compiler-reference setting.")
+        raise BuildError("The recovered GH.Runtime plugin has no unique compiler-reference setting.")
     matches[0].write_text(metadata, encoding="utf-8")
 
 

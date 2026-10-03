@@ -184,7 +184,7 @@ namespace GloomhavenVR.Quest.Editor
 
         static void Copy(Func<Stream> source, ZipArchive archive, string name)
         {
-            var entry = archive.CreateEntry(name, CompressionLevel.Optimal);
+            var entry = archive.CreateEntry(name, System.IO.Compression.CompressionLevel.Optimal);
             entry.LastWriteTime = new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero);
             using (Stream input = source())
             using (Stream output = entry.Open()) input.CopyTo(output, 65536);

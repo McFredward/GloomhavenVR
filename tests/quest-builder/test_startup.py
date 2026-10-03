@@ -194,7 +194,7 @@ class RestoredBepInExTests(unittest.TestCase):
     def test_global_debug_wrapper_is_hidden_from_package_compilers_only(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            plugin = root / "Assets/Plugins/GH.Runtime.FirstPass.dll"
+            plugin = root / "Assets/Plugins/GH.Runtime.dll"
             plugin.parent.mkdir(parents=True)
             plugin.write_bytes(b"original wrapper fixture")
             meta = Path(str(plugin) + ".meta")
