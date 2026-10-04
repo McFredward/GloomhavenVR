@@ -66,7 +66,12 @@ public static class QuestScriptOrderFixture
                 entries = new[] { Entry(authored, -10100, "1", false), Entry(zero, 0, "2", false),
                     Entry(late, 32001, "3", false), Entry(package, -51, "4", true) },
                 excluded = new[] { new QuestOriginalScriptOrders.Excluded { assemblyName = "Outside", fullName = "Outside.Component",
-                    executionOrder = 24000, sourcePathIds = new[] { "5" }, reason = "assembly-outside-startup-closure" } }
+                    executionOrder = 24000, sourcePathIds = new[] { "5" }, reason = "assembly-outside-startup-closure" },
+                    new QuestOriginalScriptOrders.Excluded { assemblyName = "OriginalOrderFixture", fullName = "OriginalOrderFixture.Utility",
+                        executionOrder = -1010, sourcePathIds = new[] { "7" }, reason = "original-static-utility",
+                        typeAttributes = (int)(System.Reflection.TypeAttributes.Abstract | System.Reflection.TypeAttributes.Sealed),
+                        baseAssemblyName = "mscorlib", baseNamespace = "System", baseName = "Object",
+                        pluginPath = "Assets/Plugins/OriginalOrderFixture.dll", originalAssemblySha256 = new string('d', 64) } }
             };
             Directory.CreateDirectory("Assets/QuestOriginalStartup");
             Write(input);
@@ -76,7 +81,7 @@ public static class QuestScriptOrderFixture
             Check(MonoImporter.GetExecutionOrder(late) == 32001, "Original 32001 order was clamped.");
             Check(MonoImporter.GetExecutionOrder(package) == -51, "Mapped package order lost.");
             var receipt = JsonUtility.FromJson<QuestOriginalScriptOrders.Receipt>(File.ReadAllText(QuestOriginalScriptOrders.ReceiptPath));
-            Check(receipt.allMappedOrdersVerified && receipt.restored.Length == 4 && receipt.excluded.Length == 1, "Receipt coverage differs.");
+            Check(receipt.allMappedOrdersVerified && receipt.restored.Length == 4 && receipt.excluded.Length == 2, "Receipt coverage differs.");
             Check(receipt.sourceSha256 == input.sourceSha256 && receipt.inputSha256.Length == 64, "Input provenance missing.");
             Check(receipt.restored.Single(r => r.fullName.EndsWith("ExplicitZero")).previousOrder == 120, "Prior zero-target order evidence missing.");
             Check(receipt.restored.Single(r => r.fullName == "UnityEngine.UI.Button").actualPath.StartsWith("Packages/"), "SDK package target did not retain actual import identity.");
@@ -91,6 +96,12 @@ public static class QuestScriptOrderFixture
             Reject(input, i => i.excluded[0].referenced = true);
             Reject(input, i => i.excluded[0].reason = "speculative-skip");
             Reject(input, i => i.sourceSha256 = "not-a-source-hash");
+            Reject(input, i => i.excluded[1].typeAttributes = 0);
+            Reject(input, i => i.excluded[1].baseName = "MonoBehaviour");
+            Reject(input, i => i.excluded[1].fullName = "OriginalOrderFixture.Authored");
+            Reject(input, i => i.excluded[1].referenced = true);
+            Reject(input, i => i.excluded[1].typeAttributes |= (int)System.Reflection.TypeAttributes.Interface);
+            Reject(input, i => i.excluded[1].baseAssemblyName = "Unproven.Core");
 
             var unavailable = Clone(input);
             unavailable.entries = unavailable.entries.Concat(new[] { new QuestOriginalScriptOrders.Entry {

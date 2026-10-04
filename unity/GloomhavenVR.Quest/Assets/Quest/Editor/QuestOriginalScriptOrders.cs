@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using UnityEditor;
@@ -31,6 +32,8 @@ namespace GloomhavenVR.Quest.Editor
             public int executionOrder;
             public string[] sourcePathIds;
             public bool referenced;
+            public int typeAttributes;
+            public string baseAssemblyName, baseNamespace, baseName, pluginPath, originalAssemblySha256;
         }
 
         [Serializable] public sealed class Input
@@ -79,9 +82,11 @@ namespace GloomhavenVR.Quest.Editor
             foreach (var excluded in input.excluded)
             {
                 if (excluded == null || excluded.referenced ||
-                    (excluded.reason != "assembly-outside-startup-closure" && excluded.reason != "no-original-top-level-type"))
+                    (excluded.reason != "assembly-outside-startup-closure" && excluded.reason != "no-original-top-level-type" &&
+                     excluded.reason != "original-static-utility"))
                     throw new InvalidOperationException("Original script order exclusion has no supported source evidence.");
                 ValidateIdentity(excluded.assemblyName, excluded.fullName, excluded.sourcePathIds, identities, sourceIds);
+                if (excluded.reason == "original-static-utility") ValidateStaticUtility(excluded);
                 exclusions.Add(excluded);
             }
 
@@ -195,6 +200,25 @@ namespace GloomhavenVR.Quest.Editor
             return !string.IsNullOrEmpty(path) && path.StartsWith("Assets/", StringComparison.Ordinal) &&
                 path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) && path.IndexOf('\\') < 0 &&
                 !path.Split('/').Any(part => part.Length == 0 || part == "." || part == "..");
+        }
+
+        private static void ValidateStaticUtility(Excluded excluded)
+        {
+            const int staticFlags = (int)(TypeAttributes.Abstract | TypeAttributes.Sealed);
+            if ((excluded.typeAttributes & staticFlags) != staticFlags ||
+                (excluded.typeAttributes & (int)TypeAttributes.Interface) != 0 || excluded.baseNamespace != "System" ||
+                excluded.baseName != "Object" || (excluded.baseAssemblyName != "mscorlib" &&
+                excluded.baseAssemblyName != "System.Runtime" && excluded.baseAssemblyName != "System.Private.CoreLib") ||
+                !IsPluginPath(excluded.pluginPath) || !IsHex(excluded.originalAssemblySha256, 64))
+                throw new InvalidOperationException("Original static utility exclusion lacks source type evidence: " + excluded.fullName);
+            Assembly assembly = AppDomain.CurrentDomain.GetAssemblies().SingleOrDefault(a => a.GetName().Name == excluded.assemblyName);
+            if (assembly == null) assembly = Assembly.Load(excluded.assemblyName);
+            Type type = assembly.GetType(excluded.fullName, false);
+            // Static utility metadata can retain an authored order in its DLL importer,
+            // but cannot own Unity lifecycle callbacks or an imported runtime MonoScript.
+            if (type == null || !type.IsAbstract || !type.IsSealed || type.IsInterface || type.BaseType != typeof(object) ||
+                typeof(MonoBehaviour).IsAssignableFrom(type) || typeof(ScriptableObject).IsAssignableFrom(type))
+                throw new InvalidOperationException("Imported type does not confirm the original static utility exclusion: " + excluded.fullName);
         }
 
         private static bool IsHex(string value, int length)

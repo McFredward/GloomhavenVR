@@ -19,9 +19,20 @@ Invoke either method with the actual Editor's `-batchmode -nographics -buildTarg
 Android -projectPath <private-project> -executeMethod <method> -logFile <private-log>`.
 The methods exit with an explicit success/failure code and write JSON check receipts.
 The positive suite covers exact early/late/package orders, explicit zero replacing
-a nonzero value, the original order 32001, provenance, and ten invalid mappings
+a nonzero value, the original order 32001, provenance, and invalid mappings
 that must leave both existing orders and the prior receipt intact. Missing
 unreferenced default-order types are recorded explicitly rather than synthesized.
+Static utility exclusions require both original metadata and exact imported-type
+evidence; malformed flags, base references, actual types and referenced exclusions
+must fail before changes.
+
+`QuestScriptOrderInventory.Run` performs a read-only census of every expected
+type against the actual imported script set and loaded assembly metadata. Copy it
+into `Assets/Editor` in a private clone of a prepared project's DLLs, Packages and
+ProjectSettings, retaining the input manifest and private marker. Its JSON report
+separates missing referenced/nonzero targets from non-Unity types that cannot
+participate in Unity lifecycle ordering. It does not instantiate game types or
+invoke static methods.
 
 These checks establish importer semantics and fail-closed mapping behavior; the
 actual prepared-game receipt and headset startup remain separate evidence.
