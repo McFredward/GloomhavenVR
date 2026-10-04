@@ -63,7 +63,7 @@ whole measured 65–99 ms stat-panel step.
 ## Verification
 
 The real Unity 2021.3.5 play-mode overlay fixture loads the shipped SpittingDrake
-rig and original sleeping/flying clips. Final focused production passed **718
+rig and original sleeping/flying clips. Final focused production passed **719
 assertions**, including genuine rendered pose/cutout/depth checks, local/remote
 cache reuse, current sleep/fly phase and material mask refresh, changed mesh/shader
 fallback, immediate action release, and cleanup of a never-activated twin.

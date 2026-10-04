@@ -198,8 +198,12 @@ public static class InteractionProgram
         int preparationAwakes=NativeCallbackProbe.Awakes, preparationEnters=NativeStateProbe.Enters;
         FigureInteractionPreparation.Begin();
         for(int tick=0;tick<1000&&!FigureInteractionPreparation.IsReady;tick++)FigureInteractionPreparation.Tick();
-        Check(FigureInteractionPreparation.IsReady&&FigureInteractionPreparation.PreparedCount==1,
-            "loading preparation completes one inert original actor visual");
+        Check(FigureInteractionPreparation.IsReady,
+            "loading preparation completes finite original actor work");
+        // The skip-inactive-tint defect now affects the entirely inactive prepared ghost
+        // before the later dormant-child probe: no original surface survives construction.
+        Check(FigureInteractionPreparation.PreparedCount==1,
+            "inactive native surface is tinted before it can activate (prepared actor visual exists)");
         Check(FigureInteractionPreparation.CompletedCount==FigureInteractionPreparation.TotalCount,
             "preparation progress drains with finite original resource work");
         Check(NativeCallbackProbe.Awakes==preparationAwakes&&NativeStateProbe.Enters==preparationEnters,
