@@ -46,9 +46,17 @@ def _catalog_roots(canonical_startup, full_manifest):
     for row in old["entries"]:
         if row["status"] != "associated":
             continue
+        # Historical startup maps predate native exporter instrumentation.
+        # Container/type aliases alone cannot distinguish a Resources object
+        # from a byte-identical object in a different original CAB. Only maps
+        # carrying that actual native identity can witness an additional root.
+        if not row.get("originalCollection") or not row.get("originalPathId"):
+            continue
         incoming = [target for target in by_location.get(row["entryIndex"], [])
                     if target["resourceTypeName"] == row["resourceTypeName"] and
-                    target["originalAssetPath"].casefold() == row["originalAssetPath"].casefold()]
+                    target["originalAssetPath"].casefold() == row["originalAssetPath"].casefold() and
+                    target["originalCollection"] == row["originalCollection"] and
+                    target["originalPathId"] == row["originalPathId"]]
         if len(incoming) == 1:
             roots.append((incoming[0]["recoveredGuid"], row["recoveredGuid"],
                           "original-typed-catalog-location:" + str(row["entryIndex"])))
@@ -124,6 +132,7 @@ def stage(source, game_data, output, tmp_archive, *, canonical_project=None,
         elif original.is_dir():
             shutil.copytree(original, target)
     rows = canonical.apply(output, rows, guid_proof)
+    write_json(output / "QuestRecovery/original-asset-identities.json", {"schema": 1, "identities": rows})
     original_objects = identities_module.object_index(rows)
     layout_report = layouts.restore(game_data, output, original_objects, unitypy)
     manifest = catalogs.associate(catalog_path, output, rows, owners, types)
