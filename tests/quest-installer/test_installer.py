@@ -35,6 +35,7 @@ class FakeAdb:
         self.on_connect = None
         self.timeout_command = None
         self.package_output = None
+        self.package_returncode = 0
 
     def wireless(self, address="192.168.1.42:5555", hardware="HARDWARE-1", model="Quest 3"):
         self.connections[address] = True
@@ -79,6 +80,7 @@ class FakeAdb:
                 self.installed = Path(action[2]).read_bytes()
                 raw = self.install_output
             elif action == ["shell", "dumpsys", "package", installer.PACKAGE]:
+                code = self.package_returncode
                 identity = installer.apk_identity(Path(next(call[4] for call in reversed(self.calls) if call[2:4] == ["install", "-r"])))
                 raw = self.package_output if self.package_output is not None else (
                     "versionCode=" + str(identity["modBuild"]) + " minSdk=29\nversionName=0.1.0.B"
@@ -466,13 +468,41 @@ class InstallerTests(unittest.TestCase):
     def test_wrong_installed_build_or_input_does_not_launch_or_save_success(self):
         self.apk = self.stamped_apk("GloomhavenVR-Quest-B618.apk", 618)
         self.write(self.handoff, {**self.metadata, "apk": self.apk.name, "apkSha256": installer.digest(self.apk)})
-        for package in ("versionCode=616\nversionName=0.1.0", "versionCode=618\nversionName=0.1.0.B618.bbbbbbbbbbbb", ""):
+        for package in ("versionCode=616\nversionName=0.1.0", "versionCode=618\nversionName=0.1.0.B618.bbbbbbbbbbbb", "", "Error: Can't find package: " + installer.PACKAGE):
             self.fake = FakeAdb()
             self.fake.package_output = package
             self.assertEqual(self.run_cli(), 1)
             self.assertFalse(any("start" in call for call in self.fake.calls))
             self.assertFalse(self.config.exists())
             self.assertFalse((self.config.parent / "wireless-last-install.json").exists())
+
+    def test_package_diagnostic_error_field_does_not_reject_confirmed_installation(self):
+        self.apk = self.stamped_apk("GloomhavenVR-Quest-B618.apk", 618)
+        self.write(self.handoff, {**self.metadata, "apk": self.apk.name, "apkSha256": installer.digest(self.apk)})
+        self.fake.package_output = (
+            "Packages:\n  Package [" + installer.PACKAGE + "]:\n"
+            "    versionCode=618 minSdk=29 targetSdk=30\n"
+            "    versionName=0.1.0.B618.aaaaaaaaaaaa\n"
+            "Dexopt state:\n  [" + installer.PACKAGE + "]\n"
+            "    path: /data/app/fixture/base.apk\n"
+            "      arm64: [status=run-from-apk] [reason=unknown] [primary-abi]\n"
+            "        [location is error]\n")
+        self.assertEqual(self.run_cli(), 0, self.error)
+        self.assertIn("Confirmed installed build: B618", self.output)
+        self.assertTrue(any("start" in call for call in self.fake.calls))
+        receipt = json.loads((self.config.parent / "wireless-last-install.json").read_text())
+        self.assertEqual(receipt["installedVersionCode"], 618)
+        self.assertTrue(receipt["launched"])
+
+    def test_package_query_nonzero_exit_still_rejects_matching_build(self):
+        self.apk = self.stamped_apk("GloomhavenVR-Quest-B618.apk", 618)
+        self.write(self.handoff, {**self.metadata, "apk": self.apk.name, "apkSha256": installer.digest(self.apk)})
+        self.fake.package_returncode = 1
+        self.assertEqual(self.run_cli(), 1)
+        self.assertIn("ADB failed:", self.error)
+        self.assertFalse(any("start" in call for call in self.fake.calls))
+        self.assertFalse(self.config.exists())
+        self.assertFalse((self.config.parent / "wireless-last-install.json").exists())
 
     def test_handoff_cannot_claim_different_embedded_build(self):
         self.apk = self.stamped_apk("build.apk", 618)

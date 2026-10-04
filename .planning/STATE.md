@@ -13,6 +13,22 @@ archives now select embedded build stamps and confirm installed Android identity
 See [618 evidence and hardware procedure](QUEST3-HARDWARE-618.md). Hardware results,
 shipping startup performance and full campaign/crossplay remain open.
 
+The signed ARM64 IL2CPP candidate succeeds from clean native source `71ed954f`,
+input `97e403505791…`, APK SHA `ee288e822a1b…`. Thirteen focused Quest suites,
+affected reruns, all fourteen source checks, strict Release and 286,760 direct
+unchanged protocol/golden assertions pass; no unrelated full local gate is claimed.
+Independent final SDK/CIL/AOT/resource audits and all eighteen original GLES
+shader programs (thirty-six stage sections) pass. The supplied Windows installer
+log confirms B618 installation, then exposes a false rejection of Dexopt's
+`[location is error]` diagnostic field. The installer now checks command exit and
+exact package stamps for that structured query; 155 installer tests pass with
+23 Windows-only skips. A small installer-only archive avoids another APK download.
+The replacement full Windows archive includes that fix; the native APK is unchanged.
+Twelve obsolete Quest worker/project roots are removed after evidence and matching
+native-symbol retention, reclaiming approximately 96.8 GB during that cleanup.
+Only the current APK, complete Windows archive and handoff receipt remain in the
+download directory. Startup visuals and latency still require the next headset run.
+
 **Quest B617 preparation follow-up, 2026-10-04: isolated feature.**
 
 The exact B616 capture verifies APK/input and a running real VR rig after

@@ -458,7 +458,10 @@ def main(argv=None, runner=None):
         # hash/read of the headset's APK before every hardware test.
         installed_version = None
         if source.mod_build and source.mod_build >= 618:
-            package_info = adb.run("-s", address, "shell", "dumpsys", "package", PACKAGE, timeout=30)
+            # Dumpsys fields such as Dexopt's "[location is error]" are data,
+            # not command failures. Require a successful exit and exact stamps.
+            package_info = adb.run("-s", address, "shell", "dumpsys", "package", PACKAGE,
+                                   timeout=30, check_text=False)
             versions = re.findall(r"\bversionCode=(\d+)\b", package_info)
             names = re.findall(r"\bversionName=([^\s]+)", package_info)
             expected_name = "0.1.0.B" + str(source.mod_build) + "." + source.input_key[:12]
