@@ -206,3 +206,10 @@ namespace GloomhavenVR.Quest
         public static bool SetEnabled(bool requested) => Active = requested;
     }
 }
+namespace GloomhavenVR.WorldUI
+{
+    internal static class FlatScreen
+    {
+        internal static bool OwnsVideoCapture(UnityEngine.Camera camera) => false;
+    }
+}
