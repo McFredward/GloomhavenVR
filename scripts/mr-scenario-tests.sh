@@ -17,14 +17,16 @@ layers=(r/'src/GloomhavenVR/Core/VRLayers.cs').read_text()
 # their old inline location. Executable wall facts test its actual verdicts.
 mod_assignment=re.search(r'f\.Mod\s*=([^;]+);', wall)
 assert mod_assignment is not None
-assert 'IsModPresentation(r, n)' in mod_assignment.group(1)
-assert 'IsNativeHexSelectionVisual(r)' in mod_assignment.group(1)
+assert 'f.ModPresentation' in mod_assignment.group(1)
+assert 'f.ModPresentation = IsModPresentation(r, n);' in wall
+assert 'IsNativeNonWallPresentation(r)' in mod_assignment.group(1)
+assert 'bool owned = IsNativeHexSelectionVisual(renderer);' in ownership
 predicate=re.search(r'private static bool IsModPresentation\([^;]+?=>([^;]+);', ownership)
 assert predicate is not None
 assert 'renderer.gameObject.layer == VRLayers.ModLayer' in predicate.group(1)
 assert '|| ModVisualOwnership.IsName(name)' in predicate.group(1)
 assert '|| IsFigureVisualMirrorRenderer(renderer)' in predicate.group(1)
-assert 'private static bool IsModObject(Renderer r) => IsModPresentation(r, r.name);' in wall
+assert 'private static bool IsModObject(Renderer r) => IsModPresentation(r, r.name) || IsNativeNonWallPresentation(r);' in wall
 assert 'internal const string ModOwnedNamePrefix = "VR";' in layers
 assert 'internal const string ModOwnedQualifiedPrefix = "GloomhavenVR.";' in layers
 region=mr[mr.index('private static void RegionMembershipPass('):mr.index('private enum RegionVerdict')]
