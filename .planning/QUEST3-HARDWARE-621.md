@@ -33,8 +33,15 @@ periodic work remains a possible contributor; do not claim it has been excluded.
 ## Scoped changes and limits
 
 B621 retains current shared mod source and central standalone gating. The movie
-adapter moves to the completed owned camera-capture boundary immediately
-before the shared eye-copy/display path, with bounded Debug pixel evidence.
+adapter finishes the owned camera-capture output immediately before the shared
+eye-copy/display path, with bounded Debug pixel evidence. Near-plane movies draw
+once at consumption. Far-plane movies retain their native camera depth draw and
+snapshot the completed last actual camera sharing the owned target; final
+sampling restores those completed pixels without redrawing far depth after the
+engine discards its depth attachment. Later native foreground and separate UI
+contributions remain covered by the real GPU fixture. The snapshot adds a scoped
+color target and copies while a camera-plane movie is active; shipping GPU cost
+remains a hardware measurement.
 Native camera modes, target identity, movie URL selection, callbacks, playback
 speed and audio remain native. Preserve authored alpha, foreground depth, aspect,
 mips and native camera/consumer lifetimes. Desktop GPU success cannot establish
@@ -50,6 +57,11 @@ introduced. Frame evidence retains the latest 24 spikes in a bounded ring:
 `spikeCursor` is the next write slot, and populated timestamps can be sorted for
 chronological analysis. Startup spikes no longer crowd out late menu evidence.
 Normal logging does not enable frame sampling or expensive pixel readbacks.
+Debug movie evidence takes at most two sets of 16×8-pixel observations per bound
+movie. Async readback is used where supported; otherwise a bounded synchronous
+fallback records actual pixels. `readbackElapsedMs` includes GPU/callback latency
+for async requests and must not be interpreted as main-thread CPU work. Initial
+one-off synchronous evidence is separate from sustained late-menu hitches.
 The production scene collector passes 136 real Unity assertions and four defect
 controls, plus 99 managed scope assertions, 17 controls and 17 actual original
 SDK checks. With 126 live components and 4,127 loaded components including genuine
