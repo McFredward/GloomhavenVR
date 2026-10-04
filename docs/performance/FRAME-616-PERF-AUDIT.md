@@ -10,7 +10,7 @@ in the supplied `steam_frame` directory.
 
 Immutable input copies, hashes, the original repository parser and a reproducible
 supplemental extraction are retained under
-`.planning/debug/frame616-log-audit/`. Line references below use LogOutput unless
+`.planning/debug/frame616-review/log-audit/`. Line references below use LogOutput unless
 explicitly labelled Player. The extraction never combines sinks or window p95 values.
 
 ## Loaded gameplay comparison

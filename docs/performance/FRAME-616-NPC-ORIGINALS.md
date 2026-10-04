@@ -54,6 +54,6 @@ silently overwritten. When off, the original service-window path remains active.
 - Strict plugin and offline generator builds: **zero warnings and zero errors**.
 
 Source hashes, retained-part hashes, original failed and resumed receipts are under
-`.planning/debug/frame616-npc-originals/`. A green Unity check proves original
+`.planning/debug/frame616-review/npc-originals/`. A green Unity check proves original
 geometry retention; the next headset test establishes the final appearance and
 performance. The main integrator runs the complete required gate after merging.
