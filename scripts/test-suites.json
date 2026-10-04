@@ -1425,6 +1425,12 @@
       "weight": 2
     },
     {
+      "id": "quest-game-scope",
+      "command": ["python3", "scripts/quest-game-scope-tests.py"],
+      "groups": ["local", "ci"],
+      "weight": 2
+    },
+    {
       "id": "quest-menu-sampling",
       "command": ["python3", "scripts/quest-menu-sampling-tests.py"],
       "groups": ["local"],

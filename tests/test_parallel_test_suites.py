@@ -220,12 +220,17 @@ class ParallelSuitesTests(unittest.TestCase):
         quest609_shared = {'quest-builder', 'quest-recovery', 'quest-native', 'quest-weaver', 'quest-installer'}
         quest612_shared = {'quest-network'}
         quest613_shared = {'quest-startup-log', 'quest-platform', 'quest-mod-bundles', 'quest-mod-content', 'quest-startup-loading', 'quest-startup-video', 'quest-script-order-staging'}
-        self.assertEqual(local, LOCAL_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-service-lighting", "town-residents", "town-face", "town-activity", "town-voice", "town-native-audio", "town-native-veil"} | physical_town | frame600 | frame601_local | town602_local | frame603_shared | frame603_local | frame604_local | frame605_local | frame606_local | frame606_shared | frame607_shared | quest609_shared | quest612_shared | quest613_shared | frame608_local | quest611_local)
-        self.assertEqual(ci, CI_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-residents", "town-service-lighting", "town-activity-portable", "town-native-audio", "town-native-veil"} | frame600 | frame603_shared | frame606_shared | frame607_shared | quest609_shared | quest612_shared | quest613_shared)
+        quest618_shared = {'quest-startup-media', 'quest-post-effect-sources', 'quest-addressables',
+                           'quest-content-delivery', 'quest-menu-presentation', 'quest-loading-view'}
+        quest618_local = {'quest-platform-bridge'}
+        quest619_shared = {'quest-game-scope'}
+        quest619_local = {'quest-menu-sampling'}
+        self.assertEqual(local, LOCAL_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-service-lighting", "town-residents", "town-face", "town-activity", "town-voice", "town-native-audio", "town-native-veil"} | physical_town | frame600 | frame601_local | town602_local | frame603_shared | frame603_local | frame604_local | frame605_local | frame606_local | frame606_shared | frame607_shared | quest609_shared | quest612_shared | quest613_shared | frame608_local | quest611_local | quest618_shared | quest619_shared | quest619_local | quest618_local)
+        self.assertEqual(ci, CI_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-residents", "town-service-lighting", "town-activity-portable", "town-native-audio", "town-native-veil"} | frame600 | frame603_shared | frame606_shared | frame607_shared | quest609_shared | quest612_shared | quest613_shared | quest618_shared | quest619_shared)
         self.assertEqual({s['id'] for s in runner.selected_suites(suites, 'source', (0, 1))}, SOURCE_INVENTORY)
-        self.assertEqual(len(local), 118)
-        self.assertEqual(len(ci), 86)
-        self.assertEqual(local-ci, {'presentation-send', 'town-face', 'town-activity', 'town-voice'} | physical_town | frame601_local | town602_local | frame603_local | frame604_local | frame605_local | frame606_local | frame608_local | quest611_local)
+        self.assertEqual(len(local), 127)
+        self.assertEqual(len(ci), 93)
+        self.assertEqual(local-ci, {'presentation-send', 'town-face', 'town-activity', 'town-voice'} | physical_town | frame601_local | town602_local | frame603_local | frame604_local | frame605_local | frame606_local | frame608_local | quest611_local | quest619_local | quest618_local)
         self.assertEqual(ci-local, {'self-update-dialog', 'banner-pose', 'quest-seat', 'town-activity-portable'})
         self.assertEqual(len(runner.selected_suites(suites, 'source', (0, 1))), 14)
         partition = [s['id'] for i in range(4) for s in runner.selected_suites(suites, 'ci', (i, 4))]
