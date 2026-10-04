@@ -1,8 +1,51 @@
 # State — where the project stands
 
+**Build617 Frame hardware review, 2026-10-04. Documentation only; no new binary.**
+
+Both supplied sinks identify 617 / e1da52eaa and agree on all 22 frame summaries.
+The run enters a scenario directly at 3408 per eye; no 3D-map visit or new
+screenshots are established. All 12 fully loaded/worn windows average 51.37 ms
+(4687 frames / 240.4 s), versus the earlier616 comparison's 49.35 ms. There is no
+demonstrated overall improvement. Initial preparation, mixed windows and the
+user-presence-loss tail remain outside ordinary-play comparison; later summon/
+burn gameplay is included. Natural VR motion does not invalidate the practical
+comparison, but prevents attributing the small difference to one optimization.
+
+Preparation succeeds in 38.82 s: four class skins, 271/271 collected sprites,
+29/29 unused backings, no failure. Three real figure pickups reuse parked original
+ghosts. Nine fan receipts report no readiness wait, but first construction still
+costs 118.78 ms and a later rebuild 122.33 ms. Native ConsumeElement/InfuseElement
+serialized art arrays remain outside the prep collector and existing test shape;
+new portraits/native stat conversion still cost up to 126.19 ms. No cache eviction,
+preparation failure or memory leak is established.
+
+The completed wall budgets contain 21 commits in 67 fully post-hide/worn judged
+cycles: 20 scene-signature changes and one safety ceiling. Thirteen emitted heavy
+rescans cost 133.23–209.93 ms. Exact native waypoint/action FX ownership is the
+next dependency-closure target, with shared exclusions across signatures and
+collectors rather than name heuristics or removing the ceiling. Draw delivery
+has 72 correct intermediate HIGH/left-eye samples; endpoint/block-clear sampling
+has a coverage gap and hardware popping remains open. Native Choreographer.Update
+now has positive 207.26 ms evidence on a 382.03 ms frame. Most measured spikes
+have no GC, and larger unassigned frames still lack a trustworthy GPU-busy split.
+
+See [the combined result and next implementation order](../docs/performance/FRAME-618-ANALYSIS.md),
+[pacing and actual applied budgets](../docs/performance/FRAME-618-PERF-AUDIT.md),
+[resource/preparation closure](../docs/performance/FRAME-618-COLD-PREPARATION.md) and
+[native wall evidence](../docs/performance/FRAME-618-WALL-EVIDENCE.md).
+Immutable input hashes and reproducible scripts are retained in
+`.planning/debug/frame618-review/`. Only engineering Markdown changes; the
+validated617 source, resources, wire and defaults remain identical. Extraction,
+sink equality, hashes, documentation links and i18n are checked without repeating
+the already-passed unchanged runtime suites. Own audit worktrees are retired after
+integration/push; hardware evidence and other active worktrees are preserved.
+
+---
+
 **Scenario interaction preparation and bounded hitch attribution, 2026-10-04: 1.1.0 / ModBuild 617.**
 
-Build 616 is the hardware baseline; no 617 headset result exists yet. On every VR
+Build 616 was the pre-implementation hardware baseline; the later617 result is
+recorded above. On every VR
 platform, the existing scenario spinner now covers one original resource job per
 frame after native loading, alternating card and figure/stat work: all party
 class/card sprites, up to 64 ordinary backings, reusable original figure ghosts and already-authored stat

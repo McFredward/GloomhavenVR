@@ -1,6 +1,8 @@
 # Planning index
 
-Updated 2026-10-04 for the actual Build616 Frame recheck, unchanged steady hitches and the still-open native wall transition. This directory holds internal
+Updated 2026-10-04 for the actual Build617 Frame capture, successful resource
+preparation, remaining ordinary wall/native/UI hitches and the still-open native
+wall transition. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -11,6 +13,10 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [../docs/performance/FRAME-618-ANALYSIS.md](../docs/performance/FRAME-618-ANALYSIS.md) | Build617 result, completed preparation, recurring native path/FX wall invalidations and next implementation order; no new binary |
+| [../docs/performance/FRAME-618-PERF-AUDIT.md](../docs/performance/FRAME-618-PERF-AUDIT.md) | Twelve loaded/worn windows, completed inventories, applied actor budgets, GC/native attribution and actual camera/config evidence |
+| [../docs/performance/FRAME-618-COLD-PREPARATION.md](../docs/performance/FRAME-618-COLD-PREPARATION.md) | Actual ghost reuse, remaining native card-widget arrays and test-shape gap, cold stat/portrait/fan work |
+| [../docs/performance/FRAME-618-WALL-EVIDENCE.md](../docs/performance/FRAME-618-WALL-EVIDENCE.md) | HIGH native pre-render delivery, endpoint coverage gap, native waypoint ownership and recurring scene-signature publication costs |
 | [../docs/performance/FRAME-617-IMPLEMENTATION.md](../docs/performance/FRAME-617-IMPLEMENTATION.md) | Build617 preparation, bounded hitch diagnostics, wall proof boundaries and validation |
 | [../docs/performance/FRAME-617-CARDS.md](../docs/performance/FRAME-617-CARDS.md) | Original party sprite/pin caches, inert backings and fail-open cancellation |
 | [../docs/performance/FRAME-617-FIGURE-PREPARATION.md](../docs/performance/FRAME-617-FIGURE-PREPARATION.md) | Original local/remote ghost preparation, current-pose validation and shared stat resources |
