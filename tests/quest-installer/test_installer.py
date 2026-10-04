@@ -427,6 +427,32 @@ class InstallerTests(unittest.TestCase):
         args = installer.parser().parse_args(["--apk", str(old)])
         self.assertEqual(installer.select_source(args, {}).apk, old)
 
+    def test_unavailable_obsolete_automatic_candidates_do_not_block_current_handoff(self):
+        repo = self.root / "repository"
+        directory = repo / ".planning/debug/quest3"
+        directory.mkdir(parents=True)
+        new = self.stamped_apk("latest.apk", 618)
+        target = directory / new.name
+        target.write_bytes(new.read_bytes())
+        self.write(directory / "handoff.json", {**self.metadata, "apk": target.name, "apkSha256": installer.digest(target)})
+        old = directory / "GloomhavenVR-Quest-B616.apk"
+        old.write_bytes(b"interrupted old ZIP download")
+        output = repo / ".planning/quest3-local"
+        self.write(output / "latest-build.json", {"schema": 1, "apk": "deleted.apk", "receipt": "receipts/deleted.json"})
+        self.remember()
+        self.handoff.unlink()
+        args = installer.parser().parse_args(["--config", str(self.config)])
+        with mock.patch.object(installer, "REPO", repo), contextlib.redirect_stdout(io.StringIO()) as console:
+            result = installer.select_source(args, json.loads(self.config.read_text()))
+        self.assertEqual((result.apk, result.mod_build), (target, 618))
+        self.assertIn("Ignored 3 unavailable", console.getvalue())
+        args = installer.parser().parse_args(["--apk", str(old)])
+        with self.assertRaises(zipfile.BadZipFile):
+            installer.select_source(args, {})
+        args = installer.parser().parse_args(["--handoff", str(self.handoff)])
+        with self.assertRaises(OSError):
+            installer.select_source(args, {})
+
     def test_confirmed_android_build_and_input_are_saved_before_success(self):
         self.apk = self.stamped_apk("GloomhavenVR-Quest-B618.apk", 618)
         self.write(self.handoff, {**self.metadata, "apk": self.apk.name, "apkSha256": installer.digest(self.apk)})

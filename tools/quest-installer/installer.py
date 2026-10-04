@@ -190,30 +190,43 @@ def select_source(args, config):
         if kind in ("handoff", "apk"):
             directories.add(path.parent)
     known = {(kind, path.resolve()) for kind, path in candidates}
+    ignored = []
     for directory in sorted(directories):
         if directory.is_dir():
             for apk in sorted(directory.glob("GloomhavenVR-Quest-*.apk")):
-                if ("apk", apk.resolve()) not in known and apk_identity(apk):
-                    candidates.append(("apk", apk))
+                if ("apk", apk.resolve()) not in known:
+                    try:
+                        if apk_identity(apk):
+                            candidates.append(("apk", apk))
+                    except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError, zipfile.BadZipFile) as error:
+                        ignored.append(apk.name + ": " + str(error)[:160])
     # Inspect small embedded manifests first; hash/CRC only the selected APK.
     ranked = []
     for index, (kind, path) in enumerate(candidates):
-        if kind == "handoff":
-            value = read_json(path)
-            apk = path.parent / value["apk"]
-        elif kind == "output-root":
-            # Builder evidence has additional content-addressed path checks.
-            source = resolve_source(kind, path)
-            ranked.append((source.mod_build or 0, -index, source))
-            continue
-        else:
-            apk = path
-        if apk.is_file():
+        try:
+            if kind == "handoff":
+                value = read_json(path)
+                apk = path.parent / value["apk"]
+                parent = path.parent.resolve()
+            elif kind == "output-root":
+                # Do not hash all old output-root artifacts just to rank them.
+                # The winning source still receives full builder receipt checks.
+                value = read_json(path / "latest-build.json")
+                apk = path / value["apk"]
+                parent = path.resolve()
+            else:
+                apk, parent = path, path.parent.resolve()
+            if parent not in apk.resolve().parents:
+                raise InstallError("Automatic APK candidate escapes its source directory.")
             identity = apk_identity(apk)
             ranked.append((identity.get("modBuild", 0), -index, (kind, path)))
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError, zipfile.BadZipFile) as error:
+            ignored.append(path.name + ": " + str(error)[:160])
+    if ignored:
+        print("Ignored " + str(len(ignored)) + " unavailable automatic build candidate(s): " + "; ".join(ignored[:3]))
     if ranked:
         chosen = max(ranked, key=lambda row: row[:2])[2]
-        return chosen if isinstance(chosen, Source) else resolve_source(*chosen)
+        return resolve_source(*chosen)
     raise InstallError("No local Quest build found. Supply --handoff, --output-root or --apk.")
 
 
