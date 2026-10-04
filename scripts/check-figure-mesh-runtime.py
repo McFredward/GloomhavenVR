@@ -43,6 +43,8 @@ namespace GloomhavenVR.Board.FigureGrab
 {
  internal static class FigureOverlay
  {
+  internal static UnityEngine.Mesh? SourceMesh(UnityEngine.Renderer r) => r is UnityEngine.SkinnedMeshRenderer s
+   ? s.sharedMesh : r.TryGetComponent(out UnityEngine.MeshFilter f) ? f.sharedMesh : null;
   internal static void CopyBlendShapeWeights(UnityEngine.SkinnedMeshRenderer a,UnityEngine.SkinnedMeshRenderer b)
   { for(int i=0;i<a.sharedMesh.blendShapeCount;i++)b.SetBlendShapeWeight(i,a.GetBlendShapeWeight(i)); }
   internal static void MatchCloneWorldScale(UnityEngine.Transform a,UnityEngine.Transform parent,UnityEngine.Transform source)

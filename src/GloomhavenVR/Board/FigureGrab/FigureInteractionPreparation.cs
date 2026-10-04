@@ -55,6 +55,10 @@ internal static class FigureInteractionPreparation
             ActorBehaviour actor = _pending[_completed++];
             GameObject? source = FigureGhosts.GhostSource(actor);
             if (actor == null || actor.Actor == null || source == null) return;
+            // Loading is presentation work, never an input lock. A first pickup can have
+            // already created its live ghost while this actor was still in the pending queue.
+            if (HeldFigures.Owns(actor) || NetHeldFigures.Owns(actor)
+                || (Entries.TryGetValue(actor, out Entry active) && active.InUse)) return;
             using var timing = VRLog.WantsDebug ? PerfMonitor.Scope("FigurePreparation.Ghost") : default;
             Material? material = null;
             GameObject? ghost = null;
@@ -170,6 +174,14 @@ internal static class FigureInteractionPreparation
         _parking = null; _pending = Array.Empty<ActorBehaviour>();
         _completed = _failures = _hits = _misses = _invalidations = 0;
         _begun = false;
+        StatPanelSurface.ResetInteractionPreparation();
+    }
+
+    /// <summary>Stop loading work at a fail-open timeout without retiring any live hold or
+    /// reusable parked visual. Full Reset is reserved for scene/load/VR teardown.</summary>
+    internal static void CancelPreparation()
+    {
+        _pending = Array.Empty<ActorBehaviour>(); _completed = 0; _begun = false;
         StatPanelSurface.ResetInteractionPreparation();
     }
 }

@@ -65,7 +65,7 @@ def main():
             ('drop-native-alpha', 'FigureVisualMirror.cs', 'block.SetFloat(UseMask, 1f);', 'block.SetFloat(UseMask, 0f);', 'native alpha silhouette prevents rectangular'),
             ('drop-native-uv', 'FigureVisualMirror.cs', 'new Vector4(scale.x, scale.y, offset.x, offset.y)', 'new Vector4(1, 1, 0, 0)', 'native mask texture scale and offset'),
             ('freeze-ghost-phase', 'FigureVisualMirror.cs', 'pair.Copy.localRotation = pair.Source.localRotation;', '// frozen pose injected', 'evaluated animation phase remains exact'),
-            ('revive-native-force-off', 'FigureVisualMirror.cs', 'pair.Copy.forceRenderingOff = pair.Source.forceRenderingOff;', 'pair.Copy.forceRenderingOff = false;', 'source cosmetic/LOD forceRenderingOff'),
+            ('revive-native-force-off', 'FigureVisualMirror.cs', 'pair.Copy.forceRenderingOff = pair.Source.forceRenderingOff;\n            }\n            if (!_home)', 'pair.Copy.forceRenderingOff = false;\n            }\n            if (!_home)', 'source cosmetic/LOD forceRenderingOff'),
             ('default-flying-pose', 'FigureVisualMirror.cs', 'pair.Copy.localRotation = pair.Source.localRotation;', 'pair.Copy.localRotation = Quaternion.identity;', 'sleeping ghost snapshot pixels'),
             ('native-controller-restart', 'FigureVisualMirror.cs', 'mirror.CaptureAnimatorPoses(source);', 'mirror.CaptureAnimatorPoses(source); root.AddComponent<Animator>();', 'ghost never owns native Animator'),
             ('highlight-force-off', 'FigureHighlight.cs', 'if (requireEnabled && (!r.enabled || r.forceRenderingOff))', 'if (requireEnabled && !r.enabled)', 'highlight admission respects source forceRenderingOff'),
@@ -91,6 +91,9 @@ def main():
             ('skip-inactive-material-release', 'FigureInteractionPreparation.cs', 'owner.Release();', '{ }', 'reset releases owned material of a prepared ghost that never activated'),
             ('skip-prepared-current-mask', 'FigureVisualMirror.cs', 'FigureOverlayMasks.Apply(pair.Source, pair.Copy, _materialScratch);', '// stale same-material mask injected', 'prepared acquire refreshes current blend weights and same-material native mask UVs'),
             ('reuse-changed-shader', 'FigureVisualMirror.cs', ' != slot.Shaders[i]', ' != (_materialScratch[i] != null ? _materialScratch[i].shader : null)', 'same material with changed shader invalidates prepared surface classification'),
+            ('replace-immediate-held-ghost', 'FigureInteractionPreparation.cs', 'if (HeldFigures.Owns(actor) || NetHeldFigures.Owns(actor)\n                || (Entries.TryGetValue(actor, out Entry active) && active.InUse)) return;', 'if (bool.Parse("false")) return;', 'pending preparation preserves an immediate live local pickup ghost'),
+            ('cancel-destroys-active-ghost', 'FigureInteractionPreparation.cs', '_pending = Array.Empty<ActorBehaviour>(); _completed = 0; _begun = false;', 'Reset();', 'preparation timeout cancellation preserves an active hold and immediate input'),
+            ('reuse-changed-lod', 'FigureVisualMirror.cs', 'if (table[i].screenRelativeTransitionHeight != lod.Table[i].screenRelativeTransitionHeight', 'if (bool.Parse("false")', 'changed native LOD transition invalidates prepared renderer table'),
         ]
     if args.case:
         missing=set(args.case)-{v[0] for v in variants}

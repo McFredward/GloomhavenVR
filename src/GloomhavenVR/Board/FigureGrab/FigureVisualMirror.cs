@@ -52,7 +52,8 @@ internal sealed class FigureVisualMirror : MonoBehaviour
     private readonly List<Material> _readyMaterials = new(4);
     private bool _home;
     private GameObject? _preparedSource;
-    private readonly List<(Transform Node, Transform? Parent, int Children, Renderer[] Renderers)> _preparedNodes = new();
+    private readonly List<(Transform Node, Transform? Parent, int Children, Renderer[] Renderers, LODGroup[] Groups)> _preparedNodes = new();
+    private readonly List<(LODGroup Group, LOD[] Table, bool Enabled, Vector3 Centre, float Size, LODFadeMode Fade, bool Animate)> _preparedLods = new();
     private readonly struct PreparedSlot
     {
         internal PreparedSlot(Renderer renderer)
@@ -64,8 +65,12 @@ internal sealed class FigureVisualMirror : MonoBehaviour
             Sprite = renderer is SpriteRenderer sprite ? sprite.sprite : null;
             SkinnedMeshRenderer? skin = renderer as SkinnedMeshRenderer;
             RootBone = skin?.rootBone; Bones = skin != null ? skin.bones : System.Array.Empty<Transform>();
-            Materials = renderer.sharedMaterials; Shaders = new Shader?[Materials.Length];
-            for (int i = 0; i < Materials.Length; i++) Shaders[i] = Materials[i] != null ? Materials[i].shader : null;
+            Materials = renderer.sharedMaterials; Shaders = new Shader?[Materials.Length]; Queues = new int[Materials.Length];
+            for (int i = 0; i < Materials.Length; i++)
+            {
+                Shaders[i] = Materials[i] != null ? Materials[i].shader : null;
+                Queues[i] = Materials[i] != null ? Materials[i].renderQueue : -1;
+            }
         }
         internal readonly Renderer Renderer;
         internal readonly Mesh? Mesh;
@@ -75,9 +80,11 @@ internal sealed class FigureVisualMirror : MonoBehaviour
         internal readonly Transform[] Bones;
         internal readonly Material[] Materials;
         internal readonly Shader?[] Shaders;
+        internal readonly int[] Queues;
     }
     private readonly List<PreparedSlot> _preparedSlots = new();
     private readonly List<Renderer> _slotScratch = new(2);
+    private readonly List<LODGroup> _groupScratch = new(1);
     private readonly List<Material> _materialScratch = new(4);
     private readonly List<(Transform Source, Transform Copy)> _homeRing = new();
     internal AnimatorPose[] InitialAnimatorPoses { get; private set; } = System.Array.Empty<AnimatorPose>();
@@ -150,7 +157,7 @@ internal sealed class FigureVisualMirror : MonoBehaviour
     internal void SealPreparedSource(GameObject source)
     {
         _preparedSource = source;
-        _preparedNodes.Clear(); _preparedSlots.Clear();
+        _preparedNodes.Clear(); _preparedSlots.Clear(); _preparedLods.Clear();
         CapturePreparedNode(source.transform, source.transform);
     }
 
@@ -159,7 +166,12 @@ internal sealed class FigureVisualMirror : MonoBehaviour
         if (node != root && ModOwned(node, root)) return;
         node.GetComponents(_slotScratch);
         Renderer[] renderers = _slotScratch.ToArray();
-        _preparedNodes.Add((node, node == root ? null : node.parent, NativeChildCount(node), renderers));
+        node.GetComponents(_groupScratch);
+        LODGroup[] groups = _groupScratch.ToArray();
+        _preparedNodes.Add((node, node == root ? null : node.parent, NativeChildCount(node), renderers, groups));
+        foreach (LODGroup group in groups)
+            _preparedLods.Add((group, group.GetLODs(), group.enabled, group.localReferencePoint,
+                group.size, group.fadeMode, group.animateCrossFading));
         foreach (Renderer renderer in renderers)
             _preparedSlots.Add(new PreparedSlot(renderer));
         for (int i = 0; i < node.childCount; i++) CapturePreparedNode(node.GetChild(i), root);
@@ -183,6 +195,9 @@ internal sealed class FigureVisualMirror : MonoBehaviour
             node.Node.GetComponents(_slotScratch);
             if (_slotScratch.Count != node.Renderers.Length) return false;
             for (int i = 0; i < _slotScratch.Count; i++) if (_slotScratch[i] != node.Renderers[i]) return false;
+            node.Node.GetComponents(_groupScratch);
+            if (_groupScratch.Count != node.Groups.Length) return false;
+            for (int i = 0; i < _groupScratch.Count; i++) if (_groupScratch[i] != node.Groups[i]) return false;
         }
         foreach (var slot in _preparedSlots)
         {
@@ -194,13 +209,30 @@ internal sealed class FigureVisualMirror : MonoBehaviour
             if (_materialScratch.Count != slot.Materials.Length) return false;
             for (int i = 0; i < _materialScratch.Count; i++)
                 if (_materialScratch[i] != slot.Materials[i]
-                    || (_materialScratch[i] != null ? _materialScratch[i].shader : null) != slot.Shaders[i]) return false;
+                    || (_materialScratch[i] != null ? _materialScratch[i].shader : null) != slot.Shaders[i]
+                    || (_materialScratch[i] != null ? _materialScratch[i].renderQueue : -1) != slot.Queues[i]) return false;
             if (slot.Renderer is SkinnedMeshRenderer skin)
             {
                 if (skin.rootBone != slot.RootBone) return false;
                 Transform[] bones = skin.bones;
                 if (bones.Length != slot.Bones.Length) return false;
                 for (int i = 0; i < bones.Length; i++) if (bones[i] != slot.Bones[i]) return false;
+            }
+        }
+        foreach (var lod in _preparedLods)
+        {
+            if (lod.Group == null || lod.Group.enabled != lod.Enabled || lod.Group.localReferencePoint != lod.Centre
+                || lod.Group.size != lod.Size || lod.Group.fadeMode != lod.Fade
+                || lod.Group.animateCrossFading != lod.Animate) return false;
+            LOD[] table = lod.Group.GetLODs();
+            if (table.Length != lod.Table.Length) return false;
+            for (int i = 0; i < table.Length; i++)
+            {
+                if (table[i].screenRelativeTransitionHeight != lod.Table[i].screenRelativeTransitionHeight
+                    || table[i].fadeTransitionWidth != lod.Table[i].fadeTransitionWidth
+                    || table[i].renderers.Length != lod.Table[i].renderers.Length) return false;
+                for (int j = 0; j < table[i].renderers.Length; j++)
+                    if (table[i].renderers[j] != lod.Table[i].renderers[j]) return false;
             }
         }
         return true;

@@ -69,6 +69,8 @@ namespace GloomhavenVR.Board.FigureGrab
     internal static class ActorPropBody { internal static bool IsHeld(ActorBehaviour actor) => false; }
     internal static class FigureOverlay
     {
+        internal static Mesh? SourceMesh(Renderer renderer) => renderer is SkinnedMeshRenderer skin
+            ? skin.sharedMesh : renderer.TryGetComponent(out MeshFilter filter) ? filter.sharedMesh : null;
         internal static void CopyBlendShapeWeights(SkinnedMeshRenderer source, SkinnedMeshRenderer copy)
         { for (int i = 0; i < source.sharedMesh.blendShapeCount; i++) copy.SetBlendShapeWeight(i, source.GetBlendShapeWeight(i)); }
         internal static void MatchCloneWorldScale(Transform target, Transform parent, Transform source)

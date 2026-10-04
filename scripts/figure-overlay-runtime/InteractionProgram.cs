@@ -180,6 +180,21 @@ public static class InteractionProgram
         // local and remote holds. Prepare in a DIFFERENT state to catch stale loader poses.
         animator.Play("Base Layer.Flying",0,.11f);animator.Update(0);
         shape.sharedMaterial=original;
+        var currentLod=source.AddComponent<LODGroup>();currentLod.enabled=false;
+        Renderer lodBody=source.GetComponentsInChildren<SkinnedMeshRenderer>().First(r=>r.sharedMesh.vertexCount>1000);
+        currentLod.SetLODs(new[]{new LOD(.23f,new[]{lodBody})});
+        FigureInteractionPreparation.Begin();HeldFigures.Actors.Add(actor);
+        FigureGhosts.NotifyHeld(actor,Vector3.zero,Quaternion.identity);
+        GameObject immediateWhileLoading=FigureGhosts.GhostFor(actor)!;
+        FigureInteractionPreparation.Tick();
+        Check(FigureInteractionPreparation.IsReady&&FigureGhosts.GhostFor(actor)==immediateWhileLoading
+            &&immediateWhileLoading.activeSelf,
+            "pending preparation preserves an immediate live local pickup ghost");
+        FigureInteractionPreparation.CancelPreparation();
+        Check(FigureInteractionPreparation.IsReady&&FigureGhosts.GhostFor(actor)==immediateWhileLoading
+            &&immediateWhileLoading.activeSelf,
+            "preparation timeout cancellation preserves an active hold and immediate input");
+        HeldFigures.Actors.Clear();FigureGhosts.ReleaseIfUnheld(actor);FigureInteractionPreparation.Reset();yield return null;
         int preparationAwakes=NativeCallbackProbe.Awakes, preparationEnters=NativeStateProbe.Enters;
         FigureInteractionPreparation.Begin();
         for(int tick=0;tick<1000&&!FigureInteractionPreparation.IsReady;tick++)FigureInteractionPreparation.Tick();
@@ -225,12 +240,17 @@ public static class InteractionProgram
             "pooled remote acquire refreshes current native state and phase");
         Check(remotePrepared.transform.position==Vector3.one,
             "pooled acquire uses current authoritative home pose");
-        Shader sourceShader=original.shader;original.shader=plain.shader;
+        Shader sourceShader=original.shader;int sourceQueue=original.renderQueue;
+        original.shader=plain.shader;original.renderQueue=sourceQueue; // isolate shader identity from queue identity
         Check(!preparedMirror.MatchesPreparedSource(source),
             "same material with changed shader invalidates prepared surface classification");
-        original.shader=sourceShader;
+        original.shader=sourceShader;original.renderQueue=sourceQueue;
         Check(preparedMirror.MatchesPreparedSource(source),
             "original shader restoration preserves the exact prepared identity receipt");
+        currentLod.SetLODs(new[]{new LOD(.47f,new[]{lodBody})});
+        Check(!preparedMirror.MatchesPreparedSource(source),
+            "changed native LOD transition invalidates prepared renderer table");
+        currentLod.SetLODs(new[]{new LOD(.23f,new[]{lodBody})});
         NetHeldFigures.Actors.Clear();FigureGhosts.ReleaseIfUnheld(actor);
         Renderer replaced=source.GetComponentsInChildren<SkinnedMeshRenderer>().First(r=>r.sharedMesh.vertexCount>1000);
         var replacementSkin=(SkinnedMeshRenderer)replaced;
