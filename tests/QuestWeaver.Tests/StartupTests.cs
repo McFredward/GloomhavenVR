@@ -15,6 +15,7 @@ internal static class StartupTests
         string temp = Path.Combine(Path.GetTempPath(), "quest-startup-tests-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(temp);
         try
         {
+            CachedPathTests.Run(temp, check);
             var button = new QuestGameButtonGate();
             check(!button.Step(false, true) && !button.Step(true, true), "Unavailable/startup-held diagnostic action was accepted.");
             check(!button.Step(true, false) && button.Step(true, true) && !button.Step(true, true), "Tracked neutral-to-press action was missed or repeated while held.");
@@ -87,6 +88,7 @@ internal static class StartupTests
             string output = Path.Combine(temp, "adapted");
             StandaloneReport report = Standalone.Write(managed, null, profile, output);
             RulesBoundaryTests.Run(managed, output, profile, temp, check);
+            CachedPathTests.RunOriginal(managed, output, temp, check);
             check(report.StartupAdapterComplete && !report.FullGameReady && !report.ModLifecycleComplete && !report.EosAuthorised && !report.VoiceNativeAvailable, "Platform adapter falsely claimed full-game/mod/EOS/voice readiness.");
             check(report.ProtectedTypesVerified == 7 && report.UnchangedTypesVerified > 4000, "Actual original-game protected and unrelated type invariance is incomplete.");
             check(QuestGameContent.Hash(Path.Combine(managed, "GH.Runtime.dll")) == gameHash, "Original input bytes changed.");

@@ -213,7 +213,7 @@ internal static class Standalone
         foreach (Instruction instruction in suffix) si.InsertBefore(end, instruction);
         changedTypes.Add(suboption.DeclaringType.FullName); report.Modifications.Add("excluded Workshop callback and native row state: " + suboption.FullName);
 
-        using AssemblyDefinition compatibility = CreatePaths(game.MainModule);
+        using AssemblyDefinition compatibility = PathsCompatibility.Create(game.MainModule);
         TypeDefinition paths = compatibility.MainModule.Types.Single(t => t.Name == "Paths");
         // B612 hardware reached native rule loading, then failed while resolving
         // global hero/item references. Its recent-logcat capture evicted the first
@@ -256,13 +256,8 @@ internal static class Standalone
             changedTypes.Add(boundary.DeclaringType.FullName);
             report.Modifications.Add("verified file-backed lazy rule path before original initialization: " + boundary.FullName);
         }
-        foreach (MethodDefinition method in Discovery.AllTypes(game.MainModule).SelectMany(t => t.Methods).Where(m => m.HasBody && !Discovery.Protected(m.DeclaringType)))
-            foreach (Instruction instruction in method.Body.Instructions)
-                if (instruction.Operand is MethodReference call && call.DeclaringType.FullName == "UnityEngine.Application" && call.Name is "get_dataPath" or "get_streamingAssetsPath")
-                {
-                    instruction.Operand = game.MainModule.ImportReference(paths.Methods.Single(m => m.Name == call.Name));
-                    changedTypes.Add(method.DeclaringType.FullName); report.Modifications.Add("content path: " + method.FullName + "@" + instruction.Offset);
-                }
+        PathsCompatibility.RebindCalls(game.MainModule, paths, changedTypes, report.Modifications);
+        PathsCompatibility.BindErrorScreenshot(game.MainModule, paths, changedTypes, report.Modifications);
         game.MainModule.Resources.Add(new EmbeddedResource("QuestGame.Standalone.v1", ManifestResourceAttributes.Private, System.Text.Encoding.UTF8.GetBytes("startup-offline-platform\n")));
         report.RemainingGates.AddRange(new[] {
             new IntegrationIssue("ORIGINAL_MENU_RUNTIME", "Bootstrap -> Intro -> Gloomhaven_unified -> MainMenu", "Original scene execution, initial Android Addressables closure, native services and rendering require actual Unity/device evidence."),
@@ -303,27 +298,6 @@ internal static class Standalone
             return report;
         }
         finally { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); }
-    }
-
-    private static AssemblyDefinition CreatePaths(ModuleDefinition game)
-    {
-        var a = AssemblyDefinition.CreateAssembly(new AssemblyNameDefinition("QuestGame.Compatibility", new Version(1, 0, 0, 0)), "QuestGame.Compatibility", ModuleKind.Dll);
-        ModuleDefinition m = a.MainModule;
-        m.Runtime = game.Runtime;
-        var type = new TypeDefinition("QuestGame.Compatibility", "Paths", TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed, m.TypeSystem.Object); m.Types.Add(type);
-        MethodReference persistent = Discovery.AllTypes(game).SelectMany(t => t.Methods).Where(t => t.HasBody).SelectMany(t => t.Body.Instructions).Select(i => i.Operand).OfType<MethodReference>()
-            .First(c => c.DeclaringType.FullName == "UnityEngine.Application" && c.Name == "get_persistentDataPath");
-        var path = new TypeReference("System.IO", "Path", m, m.TypeSystem.CoreLibrary);
-        var combine = new MethodReference("Combine", m.TypeSystem.String, path);
-        combine.Parameters.Add(new ParameterDefinition(m.TypeSystem.String)); combine.Parameters.Add(new ParameterDefinition(m.TypeSystem.String));
-        foreach (string name in new[] { "get_dataPath", "get_streamingAssetsPath" })
-        {
-            var getter = new MethodDefinition(name, MethodAttributes.Public | MethodAttributes.Static, m.TypeSystem.String); type.Methods.Add(getter);
-            ILProcessor il = getter.Body.GetILProcessor(); il.Emit(OpCodes.Call, m.ImportReference(persistent)); il.Emit(OpCodes.Ldstr, "quest-owned-game"); il.Emit(OpCodes.Call, combine);
-            if (name == "get_streamingAssetsPath") { il.Emit(OpCodes.Ldstr, "StreamingAssets"); il.Emit(OpCodes.Call, combine); }
-            il.Emit(OpCodes.Ret);
-        }
-        return a;
     }
 
     private static void EmitConstant(ILProcessor il, object? value)
