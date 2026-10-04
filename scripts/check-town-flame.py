@@ -38,6 +38,9 @@ for bundle,name in [('pcg_materials_assets_cr_st_candleflame.bundle','CandleAnim
     # Binding prunes only verified invisible input pads; compile the exact shipped marker.
     pad = args.source_root / 'src/GloomhavenVR/Hands/Interact/PokeOnlyTarget.cs'
     sources[pad.name] = pad.read_text()
+    # Resolve bundled shader dependencies through the shipped loader, including
+    # its cold-load retry path, rather than a Shader.Find-only fixture adapter.
+    sources['BundleShaders.cs'] = (args.source_root / 'src/GloomhavenVR/Core/BundleShaders.cs').read_text()
     variants = [('production', None, '', '', ''),
         ('clock-pooling', 'TownServiceMaterial.cs', 'canonical.Numbers[n + 1] = 0f;', 'canonical.Numbers[n + 1] = clock;', 'pooled flame clock is canonical and immutable'),
         ('no-intermediate-clock', 'TownServiceFlameClock.cs', 'now + _ownerOffset - _sample', '0f', 'flame advances between owner packets'),

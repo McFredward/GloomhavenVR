@@ -9,7 +9,9 @@ namespace GloomhavenVR.Core
     internal static class VRLog
     {
         internal static readonly List<string> Messages = new();
+        internal static void Info(string channel, string message) => Messages.Add(channel + ": " + message);
         internal static void Note(string channel, string message) => Messages.Add(channel + ": " + message);
+        internal static void Error(string channel, string message) => Messages.Add(channel + ": " + message);
     }
 }
 namespace GloomhavenVR.Rig

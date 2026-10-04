@@ -20,6 +20,23 @@ def method(source, signature):
     return source[start:end]
 
 
+def expression_method(source, signature):
+    start = source.index("    " + signature)
+    return source[start:source.index(";", start) + 1]
+
+
+def purse_visitor_sources(mirror):
+    tick = method(mirror, "internal static void TickRemote(")
+    start = tick.index("if (secondaryVisitor && !IndependentVisitorModule(received,")
+    end = tick.index(") continue;", start) + len(") continue;")
+    received = tick[start:end]
+    frame = expression_method(mirror, "private static bool IndependentVisitorModule(TownServiceFrame frame,")
+    physical = method(mirror, "private static bool PhysicalPurse(")
+    address = method(mirror, "private static bool IndependentVisitorModule(byte service,")
+    retained = method(mirror, "private static void RetainIndependentVisitorOnly(")
+    return tick, received, frame, physical, address, retained
+
+
 def replace_once(source, before, after):
     if source.count(before) != 1:
         raise RuntimeError(f"Production binding drift: expected one occurrence of {before!r}, got {source.count(before)}")
@@ -194,21 +211,28 @@ def inspect_purse_contract(source, offering, sync, mirror, templates):
     # A cumulative delta can omit Mesh, so the ordinary purse address is admitted
     # provisionally and classified only after expansion. That must not admit a
     # second shared bowl guide/image with the same address.
+    tick, received, frame, physical, address, retained = purse_visitor_sources(mirror)
     independent_purse = (
-        "if (secondaryVisitor) RetainIndependentVisitorOnly(entry.Key, standing, session);",
-        "if (secondaryVisitor && !IndependentVisitorModule(received, entry.Key, !session.TransactionActive)\n"
-        '                    && !(received.Service == 2 && received.TemplateAddress == "ritual.purse|")) continue;',
-        "TownServiceFrame? expanded = TownServiceDelta.Expand(baseline, received);",
-        "TownServiceFrame frame = expanded;\n"
-        "                if (secondaryVisitor && !IndependentVisitorModule(frame, entry.Key, !session.TransactionActive)) continue;",
-        '|| frame.Service == 2 && frame.TemplateAddress == "ritual.purse|" && PhysicalPurse(frame.Nodes);',
-        "if (node.Values.ContainsKey(TownServiceProperty.Mesh)) return true;",
-        'if (service == 2)\n            return address.StartsWith("ritual.purse.held|", StringComparison.Ordinal)\n'
-        '                || address.StartsWith("temple.row|", StringComparison.Ordinal);',
-        "IndependentVisitorModule(pair.Value.LastFrame, peer, !session.TransactionActive)",
-        "IndependentVisitorModule(session.Service, pair.Value.Address, TownServiceFrame.ManifestModule, peer, !session.TransactionActive)",
+        (tick, "if (secondaryVisitor) RetainIndependentVisitorOnly(entry.Key, standing, session);"),
+        (received, '&& !(received.Service == 2 && received.TemplateAddress == "ritual.purse|")) continue;'),
+        (frame, '|| frame.Service == 2 && frame.TemplateAddress == "ritual.purse|" && PhysicalPurse(frame.Nodes);'),
+        (physical, "if (node.Values.ContainsKey(TownServiceProperty.Mesh)) return true;"),
+        (address, 'if (service == 2)\n            return address.StartsWith("ritual.purse.held|", StringComparison.Ordinal)\n'
+         '                || address.StartsWith("temple.row|", StringComparison.Ordinal);'),
+        (retained, "IndependentVisitorModule(pair.Value.LastFrame, peer, !session.TransactionActive)"),
+        (retained, "IndependentVisitorModule(session.Service, pair.Value.Address, TownServiceFrame.ManifestModule, peer, !session.TransactionActive)"),
     )
-    if any(entry not in mirror for entry in independent_purse):
+    # Other production gates may sit between expansion and classification. Require
+    # the actual scopes and causal order, not unrelated statements' adjacency.
+    ordered = (
+        received,
+        "TownServiceFrame? expanded = TownServiceDelta.Expand(baseline, received);",
+        "TownServiceFrame frame = expanded;",
+        "if (secondaryVisitor && !IndependentVisitorModule(frame, entry.Key, !session.TransactionActive)) continue;",
+    )
+    positions = [tick.find(entry) for entry in ordered]
+    if any(entry not in scope for scope, entry in independent_purse) \
+            or any(position < 0 for position in positions) or positions != sorted(positions):
         missing.append("secondary temple visitor loses their independent held purse")
     if 'key == "ritual.purse" || key == "ritual.purse.held"' not in templates:
         missing.append("remote held purse has no inert original template")
@@ -337,11 +361,37 @@ def sources(root):
     approach += method(offering_raw, "private static bool WantsMerchantFanAtCounter(")
     approach += method(offering_raw, "internal static bool WantsPurseFocus")
     approach_source = "using UnityEngine;using VRHand=FakeHand;namespace GloomhavenVR.WorldUI { internal static class BoundTempleApproach { private static bool _approachInside,_purseFocus;private static float _approachAt;" + approach + "} }"
-    return {"RitualTransactions.cs": text, "RitualGuard.cs": guard, "TempleExit.cs": exit_source, "TempleApproach.cs": approach_source}, {"TownServiceRitual.cs": hashlib.sha256(raw.encode()).hexdigest(), "TownServiceRitualConfirmationGuard.cs": hashlib.sha256(guard_raw.encode()).hexdigest(), "TownServiceTempleOffering.cs": hashlib.sha256(offering_raw.encode()).hexdigest()}
+    _, received, frame, physical, address, _ = purse_visitor_sources(mirror_raw)
+    # Preserve the exact received-frame predicate and production classifiers. Only
+    # their surrounding loop/session objects are adapted to explicit parameters.
+    received = received.replace("secondaryVisitor", "true").replace("entry.Key", "peer").replace(
+        "!session.TransactionActive", "returning").replace("continue;", "return false;")
+    visitor_source = ("using System;using GloomhavenVR.Net.TownServices;internal static class BoundTemplePurseVisitor {"
+        + "internal static bool AdmitsReceived(TownServiceFrame received,int peer,bool returning) {"
+        + received + "return true;}\n" + (frame + physical + address).replace("private static", "internal static") + "}")
+    bound = {"RitualTransactions.cs": text, "RitualGuard.cs": guard, "TempleExit.cs": exit_source,
+             "TempleApproach.cs": approach_source, "TemplePurseVisitor.cs": visitor_source}
+    hashes = {"TownServiceRitual.cs": hashlib.sha256(raw.encode()).hexdigest(),
+              "TownServiceRitualConfirmationGuard.cs": hashlib.sha256(guard_raw.encode()).hexdigest(),
+              "TownServiceTempleOffering.cs": hashlib.sha256(offering_raw.encode()).hexdigest(),
+              "Net/TownServices/TownServiceMirror.cs": hashlib.sha256(mirror_raw.encode()).hexdigest(),
+              "TownServiceSync.cs": hashlib.sha256(sync_raw.encode()).hexdigest(),
+              "NativeTemplates.cs": hashlib.sha256(templates_raw.encode()).hexdigest()}
+    for name in ("TownServiceFrame.cs", "TownServiceDelta.cs", "TownRackState.cs", "TownCatalogLayout.cs"):
+        native = (root / "src/GloomhavenVR/Net/TownServices" / name).read_text()
+        bound[name] = native
+        hashes["Net/TownServices/" + name] = hashlib.sha256(native.encode()).hexdigest()
+    return bound, hashes
 
 
 def mutations():
     return [
+        ("purse-visitor-root-lease", "TemplePurseVisitor.cs", '|| address.StartsWith("temple.row|", StringComparison.Ordinal);', '|| false;', "another visitor retains the original labelled wrist purse root"),
+        ("purse-visitor-held-lease", "TemplePurseVisitor.cs", 'return address.StartsWith("ritual.purse.held|", StringComparison.Ordinal)', 'return false', "another visitor retains the original held purse body"),
+        ("purse-visitor-sparse-received", "TemplePurseVisitor.cs", '&& !(received.Service == 2 && received.TemplateAddress == "ritual.purse|"))', '&& true)', "cumulative purse delta reaches expansion without repeating its native mesh"),
+        # Removing the Mesh fence first misclassifies the unexpanded sparse frame;
+        # that same fence rejects image-only modules after expansion.
+        ("purse-visitor-image-leak", "TemplePurseVisitor.cs", '|| frame.Service == 2 && frame.TemplateAddress == "ritual.purse|" && PhysicalPurse(frame.Nodes);', '|| frame.Service == 2 && frame.TemplateAddress == "ritual.purse|";', "cumulative purse delta reaches expansion without repeating its native mesh"),
         ("temple-commit-release", "RitualTransactions.cs", "TownServiceMirror.SetLocalTransactionActive(2, false);\n        if (!committed)", "/* retain priestess reservation */\n        if (!committed)", "successful donation retires its short native commit reservation before the shared blessing finishes"),
         ("temple-approach-hysteresis", "TempleApproach.cs", "TownServiceOfferingPose.VisitorWithin(station.Root, 1.4f)", "TownServiceOfferingPose.VisitorWithin(station.Root, _approachInside ? 1.65f : 1.4f)", "return from larger attention radius creates a fresh priestess approach"),
         ("merchant-approach-latch", "TempleApproach.cs", "if (foreign) _approachInside = false;", "if (foreign) _approachInside = true;", "blocked foreign service cannot preserve a stale temple latch"),
