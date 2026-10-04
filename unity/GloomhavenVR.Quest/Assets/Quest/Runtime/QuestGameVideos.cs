@@ -40,6 +40,9 @@ namespace GloomhavenVR.Quest
             public long ExpectedSize;
             public bool Prepared, Started, Frame;
             public int Errors;
+            public float BoundAt;
+            public int StateSamples, SourceChanges;
+            public string LastObservedUrl;
         }
         readonly Dictionary<string, string> paths = new Dictionary<string, string>(StringComparer.Ordinal);
         readonly List<BoundPlayer> players = new List<BoundPlayer>();
@@ -128,14 +131,23 @@ namespace GloomhavenVR.Quest
                 // rendering target, audio routing and completion callbacks intact.
                 selected.clip = null;
                 selected.source = VideoSource.Url;
-                selected.url = new Uri(paths[clip.guid]).AbsoluteUri;
+                // B618 confirms the tmcd-free Intro's expected bytes, but its
+                // file:// route fails in Unity's Android extractor. The working
+                // menu player does not establish that route's compatibility:
+                // BackgroundView replaces its URL with a raw Movies/Ambient
+                // path. Match that original absolute-path route. Native Play,
+                // Prepare and the authored four-second Intro stay untouched.
+                // This addresses the path hypothesis without transcoding media.
+                selected.url = paths[clip.guid];
                 var record = new BoundPlayer { Player = selected, Path = paths[clip.guid], ExpectedSize = clip.size,
+                    BoundAt = Time.realtimeSinceStartup, LastObservedUrl = selected.url,
                     Context = scene.name + "/" + binding.playerPath + " source=" + clip.name + " delivery=" + (clip.delivery ?? "original-legacy") };
                 players.Add(record);
                 selected.prepareCompleted += Prepared;
                 selected.started += Started;
                 selected.errorReceived += Error;
                 Debug.Log("[Quest startup] original movie URL bound " + record.Context);
+                if (GloomhavenVR.Core.QuestStandalonePlatform.DebugLogging) SampleState(record, "bound-before-native-start");
             }
         }
 
@@ -150,12 +162,15 @@ namespace GloomhavenVR.Quest
         {
             var bound = Find(player); if (bound == null || bound.Prepared) return;
             bound.Prepared = true;
-            Debug.Log("[Quest startup] original movie prepared " + bound.Context + " dimensions=" + player.width + "x" + player.height);
+            Debug.Log("[Quest startup] original movie prepared " + bound.Context + " dimensions=" + player.width + "x" + player.height
+                + " " + SourceFacts(bound));
+            if (GloomhavenVR.Core.QuestStandalonePlatform.DebugLogging) SampleState(bound, "native-prepared");
         }
         void Started(VideoPlayer player)
         {
             var bound = Find(player); if (bound == null || bound.Started) return;
-            bound.Started = true; Debug.Log("[Quest startup] original movie started " + bound.Context);
+            bound.Started = true; Debug.Log("[Quest startup] original movie started " + bound.Context + " " + SourceFacts(bound));
+            if (GloomhavenVR.Core.QuestStandalonePlatform.DebugLogging) SampleState(bound, "native-started");
         }
         void Error(VideoPlayer player, string error)
         {
@@ -165,7 +180,53 @@ namespace GloomhavenVR.Quest
             catch (IOException) { fileState = "stat=io-failed"; }
             catch (UnauthorizedAccessException) { fileState = "stat=access-denied"; }
             Debug.LogError("[Quest startup] original movie failed " + bound.Context + " " + fileState
-                + " expectedBytes=" + bound.ExpectedSize + " detail=" + error);
+                + " expectedBytes=" + bound.ExpectedSize + " " + SourceFacts(bound) + " detail=" + error);
+            if (GloomhavenVR.Core.QuestStandalonePlatform.DebugLogging) SampleState(bound, "native-open-failed");
+        }
+
+        static string SourceFacts(BoundPlayer bound)
+        {
+            // Native owners may replace the URL after binding. Report the media
+            // actually opened, rather than retaining a stale trailer attribution.
+            string url = bound.Player.url ?? string.Empty;
+            string absolute = url;
+            string kind = "raw-path";
+            if (url.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+            {
+                Uri uri;
+                if (!Uri.TryCreate(url, UriKind.Absolute, out uri) || !uri.IsFile)
+                    return "actualUrlKind=invalid-file-uri actualUrl=" + url;
+                absolute = uri.LocalPath; kind = "file-uri";
+            }
+            else if (!System.IO.Path.IsPathRooted(url))
+                return "actualUrlKind=other actualUrl=" + url;
+            string state;
+            try { state = File.Exists(absolute) ? "actualExists=true actualBytes=" + new FileInfo(absolute).Length : "actualExists=false"; }
+            catch (IOException) { state = "actualStat=io-failed"; }
+            catch (UnauthorizedAccessException) { state = "actualStat=access-denied"; }
+            return "actualUrlKind=" + kind + " matchesBoundSource=" + string.Equals(absolute, bound.Path, StringComparison.Ordinal)
+                + " " + state + " actualUrl=" + url;
+        }
+
+        static string TextureFacts(Texture texture)
+        {
+            return texture != null ? texture.name + " " + texture.width + "x" + texture.height : "none";
+        }
+        static void SampleState(BoundPlayer bound, string reason)
+        {
+            var player = bound.Player;
+            var camera = player.targetCamera;
+            var target = player.targetTexture;
+            Debug.Log("[Quest startup] original movie state " + bound.Context + " reason=" + reason
+                + " active=" + player.isActiveAndEnabled + " hierarchy=" + player.gameObject.activeInHierarchy
+                + " prepared=" + player.isPrepared + " playing=" + player.isPlaying + " paused=" + player.isPaused
+                + " frame=" + player.frame + " time=" + player.time + " speed=" + player.playbackSpeed
+                + " renderMode=" + player.renderMode + " decodedTexture=" + TextureFacts(player.texture)
+                + " targetTexture=" + TextureFacts(target) + " targetCreated=" + (target != null && target.IsCreated())
+                + " targetCamera=" + (camera != null ? camera.name + " active=" + camera.isActiveAndEnabled
+                    + " mask=" + camera.cullingMask + " target=" + TextureFacts(camera.targetTexture) : "none")
+                + " cameraAlpha=" + player.targetCameraAlpha + " audio=" + player.audioOutputMode
+                + " tracks=" + player.controlledAudioTrackCount + " " + SourceFacts(bound));
         }
         public void Observe()
         {
@@ -173,9 +234,26 @@ namespace GloomhavenVR.Quest
             foreach (var bound in players)
             {
                 var player = bound.Player;
-                if (player == null || bound.Frame || player.frame < 0 || player.texture == null) continue;
+                if (player == null) continue;
+                if (GloomhavenVR.Core.QuestStandalonePlatform.DebugLogging)
+                {
+                    // Cheap gates precede native target sampling, file stats and
+                    // formatting. Per player: three timed snapshots and at most
+                    // four original-owner URL changes; no frame-driven stream.
+                    float age = Time.realtimeSinceStartup - bound.BoundAt;
+                    float next = bound.StateSamples == 0 ? 2f : bound.StateSamples == 1 ? 10f : 30f;
+                    if (bound.StateSamples < 3 && age >= next)
+                    { bound.StateSamples++; SampleState(bound, "observed-after-native-start"); }
+                    string url = player.url;
+                    if (bound.SourceChanges < 4 && url != bound.LastObservedUrl)
+                    {
+                        bound.LastObservedUrl = url; bound.SourceChanges++;
+                        SampleState(bound, "native-source-changed");
+                    }
+                }
+                if (bound.Frame || player.frame < 0 || player.texture == null) continue;
                 bound.Frame = true;
-                Debug.Log("[Quest startup] original movie decoded frame " + bound.Context + " frame=" + player.frame);
+                Debug.Log("[Quest startup] original movie decoded frame " + bound.Context + " frame=" + player.frame + " " + SourceFacts(bound));
             }
         }
         public void Dispose()

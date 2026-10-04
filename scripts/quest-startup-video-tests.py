@@ -20,12 +20,13 @@ def main():
     args = parser.parse_args()
     sources = {name: (args.runtime_source / name).read_text() for name in ("QuestGameVideos.cs", "QuestGameContent.cs", "QuestContentHash.cs")}
     mutations = (
-        ("wrong-owned-url", "QuestGameVideos.cs", "new Uri(paths[clip.guid]).AbsoluteUri", 'new Uri("/unowned/wrong.mp4").AbsoluteUri', "exact-owned-url"),
+        ("wrong-owned-url", "QuestGameVideos.cs", "selected.url = paths[clip.guid];", 'selected.url = "/unowned/wrong.mp4";', "exact-owned-url"),
+        ("file-uri-route-restored", "QuestGameVideos.cs", "selected.url = paths[clip.guid];", "selected.url = new Uri(paths[clip.guid]).AbsoluteUri;", "exact-owned-url"),
         ("skip-inactive-player", "QuestGameVideos.cs", "GetComponentsInChildren<VideoPlayer>(true)", "GetComponentsInChildren<VideoPlayer>(false)", "Required original movie player is missing"),
         ("ignore-hierarchy", "QuestGameVideos.cs", " || HierarchyPath(player.transform) != binding.playerPath", "", "exact-hierarchy"),
         ("ignore-source-hash-membership", "QuestGameVideos.cs", " || file.sha256 != clip.sha256", "", "invalid-manifest"),
         ("conflicting-mapping-allowed", "QuestGameVideos.cs", "if (!bindings.Add(binding.scene + \"/\" + binding.playerPath))", "if (!bindings.Add(binding.scene + \"/\" + binding.playerPath) && binding.scene.Length == 0)", "duplicate-player-mapping"),
-        ("native-play-replaced", "QuestGameVideos.cs", "selected.url = new Uri(paths[clip.guid]).AbsoluteUri;", "selected.url = new Uri(paths[clip.guid]).AbsoluteUri;\n                selected.Play();", "native-lifecycle-no-play"),
+        ("native-play-replaced", "QuestGameVideos.cs", "selected.url = paths[clip.guid];", "selected.url = paths[clip.guid];\n                selected.Play();", "native-lifecycle-no-play"),
         ("native-flag-changed", "QuestGameVideos.cs", "selected.clip = null;", "selected.clip = null;\n                selected.playOnAwake = true;", "native-video-flags"),
         ("unbounded-prepared", "QuestGameVideos.cs", "bound == null || bound.Prepared", "bound == null", "bounded-prepared"),
         ("unbounded-errors", "QuestGameVideos.cs", "bound.Errors++ >= 2", "bound.Errors++ >= 200", "bounded-errors"),
@@ -34,6 +35,10 @@ def main():
         ("worker-unity-api", "QuestGameContent.cs", "public static bool IsReady(QuestGameContentManifest manifest, string root, Action<QuestGameContentProgress> progress = null)\n        {", "public static bool IsReady(QuestGameContentManifest manifest, string root, Action<QuestGameContentProgress> progress = null)\n        {\n            UnityEngine.Debug.Log(\"forbidden worker Unity call\");", "worker-api"),
         ("unchecked-delivery-provenance", "QuestGameVideos.cs", "ValidateProvenance(clip);", "/* unvalidated provenance */", "invalid-derived-provenance"),
         ("derived-claims-original-hash", "QuestGameVideos.cs", "clip.originalSha256 != clip.sha256", "clip.originalSha256.Length == 64", "invalid-derived-provenance"),
+        ("stale-bound-source-attribution", "QuestGameVideos.cs", "string url = bound.Player.url ?? string.Empty;", "string url = bound.Path;", "actual-opened-media-"),
+        ("unbounded-timed-state", "QuestGameVideos.cs", "bound.StateSamples < 3", "bound.StateSamples < 300", "bounded-timed-state"),
+        ("unbounded-native-source-changes", "QuestGameVideos.cs", "bound.SourceChanges < 4", "bound.SourceChanges < 400", "bounded-native-source-changes"),
+        ("normal-level-native-state-stream", "QuestGameVideos.cs", "if (GloomhavenVR.Core.QuestStandalonePlatform.DebugLogging)\n                {", "if (true)\n                {", "normal-level-no-native-state-stream"),
     )
     cases = [("production", sources, ""), ("commented-defects-are-inert", dict(sources, **{
         "QuestGameVideos.cs": "/* selected.Play(); selected.playOnAwake = true; */\n" + sources["QuestGameVideos.cs"]}), "")]

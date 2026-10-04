@@ -127,8 +127,8 @@ internal static class Program
         Check(c.Player.Writes.Count == 0, "scene-match");
         c.Router.BindScene(c.Scene);
         Check(c.Player.clip == null && c.Player.source == VideoSource.Url, "file-backed-source");
-        string expected = new Uri(Path.GetFullPath(Path.Combine(c.Root, c.Movies.clips[0].path))).AbsoluteUri;
-        Check(c.Player.url == expected && c.Player.url.Contains("%23"), "exact-owned-url");
+        string expected = Path.GetFullPath(Path.Combine(c.Root, c.Movies.clips[0].path));
+        Check(c.Player.url == expected && c.Player.url.Contains(" #1") && !c.Player.url.StartsWith("file:"), "exact-owned-url");
         Check(c.Player.Writes.SequenceEqual(new[] { "clip", "source", "url" }), "only-source-properties");
         Check(!c.Player.gameObject.activeSelf && !c.Player.gameObject.transform.parent.gameObject.activeSelf, "inactive-player-before-start");
         Check(c.Player.PlayCalls == 0 && c.Player.PrepareCalls == 0 && c.Player.StopCalls == 0, "native-lifecycle-no-play");
@@ -179,7 +179,7 @@ internal static class Program
             clip.originalSize = clip.size + (derived ? 452 : 0);
             Check(Task.Run(() => QuestGameContent.IsReady(c.Content, c.Root)).GetAwaiter().GetResult(), "derived-content-worker-verification");
             c.Install(); c.Router.BindScene(c.Scene);
-            Check(c.Player.url == new Uri(Path.Combine(c.Root, clip.path)).AbsoluteUri, "derived-exact-content-url");
+            Check(c.Player.url == Path.Combine(c.Root, clip.path), "derived-exact-content-url");
             Check(c.Player.PlayCalls == 0 && c.Player.PrepareCalls == 0 && c.Player.StopCalls == 0, "derived-native-lifecycle");
             Check(c.Player.Writes.SequenceEqual(new[] { "clip", "source", "url" }), "derived-only-source-properties");
             c.Player.EmitError("native codec failure");
@@ -253,12 +253,59 @@ internal static class Program
             Check(newPlayer.PreparedSubscribers == 0 && c.Player.PreparedSubscribers == 0, "recreated-scene-unhooks-both");
         }
     }
+    static void ActualSourcesAndBoundedDiagnostics()
+    {
+        Fixture.Logs.Clear(); Time.realtimeSinceStartup = 100;
+        using (var c = new Case())
+        {
+            c.Install(); c.Router.BindScene(c.Scene);
+            string boundUrl = c.Player.url;
+            Check(Fixture.Logs.Count(x => x.Contains("reason=bound-before-native-start")) == 1, "initial-target-snapshot");
+            Check(Fixture.Logs.Any(x => x.Contains("active=False hierarchy=False") && x.Contains("targetCamera=FixtureVideoCamera")
+                && x.Contains("targetTexture=FixtureVideoTarget 1920x1080") && x.Contains("actualUrlKind=raw-path")
+                && x.Contains("matchesBoundSource=True")), "actual-native-targets-and-source");
+            for (int i = 0; i < 1000; i++) c.Router.Observe();
+            Check(Fixture.Logs.Count(x => x.Contains("original movie state")) == 1, "no-frame-driven-state-stream");
+            for (int i = 0; i < 1000; i++) { Time.realtimeSinceStartup += 1; c.Router.Observe(); }
+            Check(Fixture.Logs.Count(x => x.Contains("reason=observed-after-native-start")) == 3, "bounded-timed-state");
+            string ambient = Path.Combine(c.Root, "StreamingAssets", "Movies", "Ambient", "OriginalScene.mov");
+            Directory.CreateDirectory(Path.GetDirectoryName(ambient)!); File.WriteAllBytes(ambient, new byte[91]);
+            c.Player.url = ambient; c.Player.EmitPrepared(); c.Player.EmitStarted();
+            c.Player.frame = 23; c.Player.texture = new Texture(); c.Router.Observe();
+            foreach (string token in new[] { "original movie prepared", "original movie started", "original movie decoded frame" })
+                Check(Fixture.Logs.Any(x => x.Contains(token) && x.Contains("actualUrl=" + ambient)
+                    && x.Contains("matchesBoundSource=False") && x.Contains("actualBytes=91")), "actual-opened-media-" + token);
+            Check(c.Player.url == ambient && c.Player.PlayCalls == 0 && c.Player.StopCalls == 0, "native-source-change-never-rewritten");
+            c.Player.url = new Uri(ambient).AbsoluteUri; c.Router.Observe();
+            Check(Fixture.Logs.Any(x => x.Contains("reason=native-source-changed") && x.Contains("actualUrlKind=file-uri")
+                && x.Contains("actualExists=true actualBytes=91")), "observe-native-file-uri-without-rewriting");
+            c.Player.url = boundUrl; c.Router.Observe();
+            c.Player.url = "https://example.invalid/original-native-source"; c.Router.Observe();
+            Check(Fixture.Logs.Any(x => x.Contains("actualUrlKind=other actualUrl=https://example.invalid")), "non-file-native-source-safe-evidence");
+            for (int i = 0; i < 1000; i++) { c.Player.url = ambient + i; c.Router.Observe(); }
+            Check(Fixture.Logs.Count(x => x.Contains("reason=native-source-changed")) == 4, "bounded-native-source-changes");
+            Check(c.Player.Writes.Count == 1007 && c.Player.PrepareCalls == 0, "evidence-does-not-write-video-settings");
+        }
+        Fixture.Logs.Clear();
+        GloomhavenVR.Core.QuestStandalonePlatform.DebugLogging = false;
+        using (var c = new Case())
+        {
+            c.Install(); c.Router.BindScene(c.Scene);
+            c.Player.EmitPrepared(); c.Player.EmitStarted(); c.Player.EmitError("retained normal failure");
+            c.Player.texture = new Texture(); c.Player.frame = 1;
+            for (int i = 0; i < 1000; i++) { Time.realtimeSinceStartup++; c.Player.url = "/missing-ambient/" + i; c.Router.Observe(); }
+            Check(!Fixture.Logs.Any(x => x.Contains("original movie state")), "normal-level-no-native-state-stream");
+            Check(Fixture.Logs.Any(x => x.Contains("original movie prepared")) && Fixture.Logs.Any(x => x.Contains("original movie failed"))
+                && Fixture.Logs.Any(x => x.Contains("original movie decoded frame")), "normal-level-keeps-lifecycle-failure-context");
+        }
+        GloomhavenVR.Core.QuestStandalonePlatform.DebugLogging = true;
+    }
     static int Main(string[] args)
     {
         try
         {
             files = Path.GetFullPath(args[0]); Directory.CreateDirectory(files);
-            InvalidManifests(); Fixture.Logs.Clear(); BindingAndNativeLifecycle(); MissingAndAmbiguousPlayers(); DeliveryProvenance();
+            InvalidManifests(); Fixture.Logs.Clear(); BindingAndNativeLifecycle(); MissingAndAmbiguousPlayers(); DeliveryProvenance(); ActualSourcesAndBoundedDiagnostics();
             Check(Fixture.WorkerApiCalls == 0, "worker-api");
             Console.WriteLine($"PASS Quest startup videos: {assertions} assertions; actual movie/content source, Unity video/scene seams; no codec/stereo proof");
             return 0;

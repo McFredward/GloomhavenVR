@@ -16,8 +16,16 @@ internal static class Fixture
 }
 namespace UnityEngine
 {
-    public class Object { }
-    public class Texture : Object { }
+    public class Object { public string name = "Fixture"; }
+    public class Texture : Object { public int width = 1920, height = 1080; }
+    public class RenderTexture : Texture { public bool IsCreated() { Fixture.RequireMain("RenderTexture.IsCreated"); return true; } }
+    public class Camera : Object
+    {
+        public bool isActiveAndEnabled = true;
+        public int cullingMask = 32;
+        public RenderTexture targetTexture = new() { name = "FixtureCameraTarget" };
+    }
+    public static class Time { public static float realtimeSinceStartup; }
     public class Transform
     {
         internal readonly GameObject Owner;
@@ -32,9 +40,10 @@ namespace UnityEngine
         internal Video.VideoPlayer Player;
         readonly string objectName;
         public bool activeSelf = true;
+        public bool activeInHierarchy { get { Fixture.RequireMain("GameObject.activeInHierarchy"); return activeSelf && (objectTransform.Parent == null || objectTransform.Parent.Owner.activeInHierarchy); } }
         readonly Transform objectTransform;
         public GameObject(string name) { Fixture.RequireMain("GameObject constructor"); objectName = name; objectTransform = new(this); }
-        public string name { get { Fixture.RequireMain("GameObject.name"); return objectName; } }
+        public new string name { get { Fixture.RequireMain("GameObject.name"); return objectName; } }
         public Transform transform { get { Fixture.RequireMain("GameObject.transform"); return objectTransform; } }
         public GameObject Add(string name, bool active = true)
         {
@@ -90,7 +99,12 @@ namespace UnityEngine.Video
         public string url { get { Fixture.RequireMain("VideoPlayer.url"); return originalUrl; } set { Fixture.RequireMain("VideoPlayer.url"); Writes.Add("url"); originalUrl = value; } }
         public bool playOnAwake = false, isLooping = true, waitForFirstFrame = false, skipOnDrop = false;
         public string renderMode = "CameraNearPlane", audioOutputMode = "AudioSource", timeReference = "ExternalTime";
-        public readonly object targetTexture = new(), targetCamera = new(), targetMaterialRenderer = new(), targetAudioSource = new();
+        public readonly UnityEngine.RenderTexture targetTexture = new() { name = "FixtureVideoTarget" };
+        public readonly UnityEngine.Camera targetCamera = new() { name = "FixtureVideoCamera" };
+        public readonly object targetMaterialRenderer = new(), targetAudioSource = new();
+        public bool isPrepared, isPlaying, isPaused;
+        public bool isActiveAndEnabled => gameObject.activeInHierarchy;
+        public float targetCameraAlpha = 1f;
         public string targetMaterialProperty = "_OriginalMovie", aspectRatio = "FitHorizontally";
         public double time = 12.75;
         public float playbackSpeed = 0.75f;
@@ -117,4 +131,8 @@ namespace UnityEngine.Video
         public int ErrorSubscribers => errors?.GetInvocationList().Length ?? 0;
         public int CompletedSubscribers => loop?.GetInvocationList().Length ?? 0;
     }
+}
+namespace GloomhavenVR.Core
+{
+    internal static class QuestStandalonePlatform { internal static bool DebugLogging = true; }
 }
