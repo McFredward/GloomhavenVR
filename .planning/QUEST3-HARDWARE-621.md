@@ -106,5 +106,25 @@ attribute the grey image to a material that might be culled.
    and whether preparation appears unnecessarily. Compare first/warm timings.
 
 New bounded pixel observations and recent spike samples are diagnostics, not
-claims that the headset defects are fixed. Build/package verification and measured
-cleanup receipts will be recorded after the signed native candidate completes.
+claims that the headset defects are fixed.
+
+## Native candidate validation
+
+The signed ARM64 IL2CPP build succeeds from clean native source
+`a06d33a1d24fb29872c3ad44e4f9901d74df3082`, input
+`bd857629028ea7647c46445e65e66dbcd3294b3b5d05c2749f64ea1d73f7e523`.
+APK SHA-256 is
+`b983d610e5a810fb4337b427f613996ba200da6398f51404f5bba3ddff7d375e`.
+Android version code is 621; incremental GC remains enabled. All 957 current mod
+C# source files are included automatically. The real native build verifies both
+camera-video GLES stages and the retained 18 original post-effect programs with
+36 stages. Original movie provenance, audio and sprite imports remain checked.
+
+Nineteen final focused Quest suites, fourteen source checks, strict Release with
+zero errors/warnings and 286,760 direct unchanged protocol/golden assertions pass.
+The loading fixture initially lacked stubs for the new read-only video seams;
+its corrected rerun passes, with the initial failed receipt retained. No unrelated
+complete local wrapper gate is claimed. The compiled-boundary, archive/installer
+and measured cleanup receipts are retained under the main checkout's ignored
+`quest3-validation/B621/` and `quest3-validation/cache-archive-B621/` directories.
+Native and desktop GPU checks do not establish the next headset outcome.
