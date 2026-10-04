@@ -20,21 +20,24 @@ namespace GloomhavenVR.Quest.Editor
 
         private sealed class Expected
         {
-            public readonly string name, guid, sha256;
+            public readonly string name, guid, sha256, upgradeSha256;
             public readonly int passes;
-            public Expected(string name, string guid, string sha256, int passes)
+            public Expected(string name, string guid, string sha256, string upgradeSha256, int passes)
             {
-                this.name = name; this.guid = guid; this.sha256 = sha256; this.passes = passes;
+                this.name = name; this.guid = guid; this.sha256 = sha256; this.upgradeSha256 = upgradeSha256; this.passes = passes;
             }
         }
 
         private static readonly Expected[] Assets = {
             new Expected("Hidden/BlendForBloom", "30881e480b10c1b46a3d99ec13496f5e",
-                "84f4f797c3f77fca2797806b388d50bdbac7492118212ded78370a6d9d636ae5", 11),
+                "84f4f797c3f77fca2797806b388d50bdbac7492118212ded78370a6d9d636ae5",
+                "d22461e93e8d3bd6801fe12a8ea8a12632d870fd54afc4d34dca839337838abf", 11),
             new Expected("Hidden/BrightPassFilter2", "93f40d5ea0c0a7945a5782e2dcd23833",
-                "26e81ea437fbb5ffb45cb8fc4556bdb2ab6c1c50d5396af5c2c8bc1562b8e424", 2),
+                "26e81ea437fbb5ffb45cb8fc4556bdb2ab6c1c50d5396af5c2c8bc1562b8e424",
+                "8a19269566f8fd692a44eb607c44f114abbc0a555d11c06995de22e2112e8dc1", 2),
             new Expected("Hidden/BlurAndFlares", "29d4384c2ae952c4597a9d894d381163",
-                "63283e8f5e60b6a7c2771b175c1c82fe62813648306ccf185c56379f75b196eb", 5)
+                "63283e8f5e60b6a7c2771b175c1c82fe62813648306ccf185c56379f75b196eb",
+                "343d875aed4f5f221ce7d5e33df24ffc90459d9533448d7ba9edca80fa40d390", 5)
         };
 
         [Serializable] public sealed class SourceAsset
@@ -63,6 +66,8 @@ namespace GloomhavenVR.Quest.Editor
         [Serializable] public sealed class ValidatedAsset
         {
             public string name, assetPath, guid, sourceSha256, metaSha256;
+            public string importedSourceSha256;
+            public bool unityObjectToClipPosUpgradeApplied;
             public int importedSubshaderCount, importedPassCount;
             public bool shaderHasError;
             public CompilerMessage[] messages;
@@ -107,7 +112,16 @@ namespace GloomhavenVR.Quest.Editor
                     rows[0].passCount != expected.passes)
                     throw new InvalidOperationException("Legacy post-effect source identity differs: " + expected.name);
                 var row = rows[0];
-                RequireHash(path, expected.sha256);
+                // Unity may rewrite the official old vertex helper at import. The
+                // only accepted alternate is the complete, independently audited
+                // automatic upgrade (2/1/4 expression replacements plus its header).
+                // All pass code, states and properties remain fingerprint-protected.
+                SafePath(path);
+                string importedSha256;
+                using (var stream = File.OpenRead(path))
+                using (var digest = SHA256.Create()) importedSha256 = Hex(digest.ComputeHash(stream));
+                if (importedSha256 != expected.sha256 && importedSha256 != expected.upgradeSha256)
+                    throw new InvalidOperationException("Post-effect source differs from official source/Unity API upgrade: " + expected.name);
                 RequireHash(path + ".meta", row.metaSha256);
                 if (AssetDatabase.AssetPathToGUID(path) != expected.guid || AssetDatabase.GUIDToAssetPath(expected.guid) != path)
                     throw new InvalidOperationException("Imported post-effect GUID differs: " + expected.name);
@@ -154,7 +168,9 @@ namespace GloomhavenVR.Quest.Editor
                 RejectErrors(shader, expected.name);
                 results.Add(new ValidatedAsset {
                     name = expected.name, assetPath = path, guid = expected.guid, sourceSha256 = expected.sha256,
-                    metaSha256 = row.metaSha256, importedSubshaderCount = data.SubshaderCount,
+                    metaSha256 = row.metaSha256, importedSourceSha256 = importedSha256,
+                    unityObjectToClipPosUpgradeApplied = importedSha256 == expected.upgradeSha256,
+                    importedSubshaderCount = data.SubshaderCount,
                     importedPassCount = subshader.PassCount, shaderHasError = false,
                     messages = Messages(ShaderUtil.GetShaderMessages(shader)), glesStages = stages.ToArray()
                 });

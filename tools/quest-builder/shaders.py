@@ -39,6 +39,7 @@ SHADERS = {
     "BlendForBloom": {
         "sourceSha256": "84f4f797c3f77fca2797806b388d50bdbac7492118212ded78370a6d9d636ae5",
         "sourceBytes": 4770,
+        "importUpgradeSha256": "d22461e93e8d3bd6801fe12a8ea8a12632d870fd54afc4d34dca839337838abf", "objectToClipPosReplacements": 2,
         "dummySha256": "0d91348b5dd5f9fb8c34ba658b1c1a6e7e85aef2f379e2af212b2a6c8aeee7c1",
         "guid": "30881e480b10c1b46a3d99ec13496f5e",
         "recipeSha256": "263f263605bc9ce88c366f33e895b696b32faf4aa812979f41e508e23fe48653",
@@ -51,6 +52,7 @@ SHADERS = {
     "BrightPassFilter2": {
         "sourceSha256": "26e81ea437fbb5ffb45cb8fc4556bdb2ab6c1c50d5396af5c2c8bc1562b8e424",
         "sourceBytes": 1063,
+        "importUpgradeSha256": "8a19269566f8fd692a44eb607c44f114abbc0a555d11c06995de22e2112e8dc1", "objectToClipPosReplacements": 1,
         "dummySha256": "a367285593319cbab3e51ecae6578e3594e36d7cc05bbb75ca784bafe68365a3",
         "guid": "93f40d5ea0c0a7945a5782e2dcd23833",
         "recipeSha256": "feba6bb83a31a7dc0f7388eb0aa7c9af897f76f1c17b1b5750f2e1710ebe854a",
@@ -60,6 +62,7 @@ SHADERS = {
     "BlurAndFlares": {
         "sourceSha256": "63283e8f5e60b6a7c2771b175c1c82fe62813648306ccf185c56379f75b196eb",
         "sourceBytes": 5171,
+        "importUpgradeSha256": "343d875aed4f5f221ce7d5e33df24ffc90459d9533448d7ba9edca80fa40d390", "objectToClipPosReplacements": 4,
         "dummySha256": "d7cb8a5b5f34cf885f827ed8e6161d94e71c44f643fe0e57863751df69d616e6",
         "guid": "29d4384c2ae952c4597a9d894d381163",
         "recipeSha256": "4c6e89d84f8d16d060162186390ead698e0e528c805dfd1e4de75359a457cb17",
@@ -292,6 +295,8 @@ def _entry(name, spec, metadata):
             "guid": spec["guid"], "metaSha256": hashlib.sha256(metadata).hexdigest(),
             "originalDummySha256": spec["dummySha256"], "sourceSha256": spec["sourceSha256"],
             "sourceBytes": spec["sourceBytes"], "sourcePackagePath": PACKAGE_PREFIX + name + ".shader",
+            "importUpgrade": {"kind": "UnityObjectToClipPos", "sha256": spec["importUpgradeSha256"],
+                              "replacements": spec["objectToClipPosReplacements"]},
             "canonicalRecipeSha256": spec["recipeSha256"], "originalPathId": spec["originalPathId"],
             "passCount": len(spec["fragments"]), "passFragments": spec["fragments"],
             "properties": spec["properties"], "nativeUniforms": spec["uniforms"],
@@ -310,7 +315,14 @@ def restore_post_effects(project, cache):
     for name, spec in SHADERS.items():
         target = _safe_path(project / ("Assets/Shader/Hidden_" + name + ".shader"))
         metadata_path = _safe_path(Path(str(target) + ".meta"))
-        _require(target, spec["sourceSha256"] if restored else spec["dummySha256"])
+        if restored:
+            # Unity upgrades this exact legacy vertex expression at first import.
+            # Accept only its independently audited full-file fingerprint, never
+            # arbitrary edits or the mere presence of an upgrader comment.
+            if not target.is_file() or _sha(target) not in (spec["sourceSha256"], spec["importUpgradeSha256"]):
+                raise BuildError("Restored legacy shader differs from official source/Unity upgrade: " + name)
+        else:
+            _require(target, spec["dummySha256"])
         if not metadata_path.is_file():
             raise BuildError("Missing original shader metadata: " + name)
         metadata = metadata_path.read_bytes()
