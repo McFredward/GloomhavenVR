@@ -242,6 +242,10 @@ internal sealed partial class FlatScreenStereo
         if (mat == null)
             return;
 
+        // The Quest decoder adapter must finish the owned source capture BEFORE
+        // these shared eye blits. Desktop takes the original path unchanged.
+        QuestStandalonePlatform.PrepareFlatScreenVideoSample();
+
         if (_videoShift && _shiftBlitFrame != Time.frameCount
             && _leftRt != null && _rtRight != null && _rtLeftShifted != null)
         {
@@ -354,6 +358,7 @@ internal sealed partial class FlatScreenStereo
             target = _leftRt;
         if (target != null && !ReferenceEquals(mat.mainTexture, target))
             mat.mainTexture = target;
+        QuestStandalonePlatform.ObserveFlatScreenVideoSample();
     }
 
     /// <summary>

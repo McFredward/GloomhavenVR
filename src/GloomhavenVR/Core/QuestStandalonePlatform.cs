@@ -38,6 +38,36 @@ public static class QuestStandalonePlatform
     public static bool IsFlatScreenVideoTarget(Camera camera) =>
         Enabled && WorldUI.FlatScreen.OwnsVideoCapture(camera);
 
+    /// <summary>Quest output adapters prepare a completed capture before the shared eye sampler.</summary>
+    public static event Action? FlatScreenVideoSampling;
+    public static event Action? FlatScreenVideoSampled;
+
+    internal static void PrepareFlatScreenVideoSample()
+    {
+        if (Enabled) FlatScreenVideoSampling?.Invoke();
+    }
+
+    internal static void ObserveFlatScreenVideoSample()
+    {
+        if (Enabled) FlatScreenVideoSampled?.Invoke();
+    }
+
+    public static void PrepareFlatScreenVideoSample(Camera rendering)
+    {
+        if (Enabled && rendering != null && rendering == HeadCamera)
+            PrepareFlatScreenVideoSample();
+    }
+
+    /// <summary>The actual display material currently consuming an owned capture.</summary>
+    public static Material? FlatScreenVideoConsumer(Camera camera) =>
+        Enabled ? WorldUI.FlatScreen.VideoConsumer(camera) : null;
+
+    public static Camera? FlatScreenVideoFinalCamera(Camera camera) =>
+        Enabled ? WorldUI.FlatScreen.FinalVideoCamera(camera) : null;
+
+    public static Texture? FlatScreenVideoGlassCapture(Camera camera) =>
+        Enabled ? WorldUI.FlatScreen.VideoGlassCapture(camera) : null;
+
     /// <summary>
     /// The player-owned preparation scene contains only a neutral camera anchor,
     /// not an original menu composite. Never capture that empty anchor into the

@@ -6,6 +6,8 @@ using System.Collections;
 // classes are compiled unchanged; this does not simulate rendering/native OpenXR.
 namespace UnityEngine
 {
+    public class Material { }
+    public class Texture { }
     public enum RuntimePlatform { WindowsPlayer, Android }
     public enum HideFlags { HideAndDontSave }
     public static class Application
@@ -197,5 +199,8 @@ namespace GloomhavenVR.WorldUI
     {
         internal static UnityEngine.Camera OwnedCamera;
         internal static bool OwnsVideoCapture(UnityEngine.Camera camera) => camera != null && camera == OwnedCamera;
+        internal static UnityEngine.Material VideoConsumer(UnityEngine.Camera camera) => null;
+        internal static UnityEngine.Camera FinalVideoCamera(UnityEngine.Camera camera) => camera;
+        internal static UnityEngine.Texture VideoGlassCapture(UnityEngine.Camera camera) => null;
     }
 }

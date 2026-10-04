@@ -27,6 +27,15 @@ internal static class Program
         Check(!QuestStandalonePlatform.Enabled && !QuestStandalonePlatform.ModRunning && !QuestStandalonePlatform.RigReady, "desktop-gate: unconfigured desktop unexpectedly enabled standalone");
         GloomhavenVR.WorldUI.FlatScreen.OwnedCamera = new Camera();
         Check(!QuestStandalonePlatform.IsFlatScreenVideoTarget(GloomhavenVR.WorldUI.FlatScreen.OwnedCamera), "desktop-video: configured capture must not enable Quest output");
+        int videoPrepared = 0, videoSampled = 0;
+        Action prepareVideo = () => videoPrepared++;
+        Action sampledVideo = () => videoSampled++;
+        QuestStandalonePlatform.FlatScreenVideoSampling += prepareVideo;
+        QuestStandalonePlatform.FlatScreenVideoSampled += sampledVideo;
+        QuestStandalonePlatform.PrepareFlatScreenVideoSample();
+        QuestStandalonePlatform.ObserveFlatScreenVideoSample();
+        Check(videoPrepared == 0 && videoSampled == 0,
+            "desktop-video: standalone sampling callbacks must not run on desktop");
         Reject(() => QuestStandalonePlatform.Configure(directory, _ => true, () => true, () => true), "desktop-gate: desktop accepted standalone configuration");
         Color desktop = QuestStandalonePlatform.MixedRealityClearColor(new Color(.1f, .9f, .2f, .25f));
         Check(desktop.r == .1f && desktop.g == .9f && desktop.b == .2f && desktop.a == 1, "desktop-key: existing chroma key RGB/opaque alpha changed");
@@ -90,6 +99,14 @@ internal static class Program
         VRRigDriver.HeadCamera = new Camera(); Check(QuestStandalonePlatform.RigReady, "rig-ready: real mod head camera did not publish rig availability");
         Check(ReferenceEquals(QuestStandalonePlatform.HeadCamera, VRRigDriver.HeadCamera) && QuestStandalonePlatform.PresentationLayer == 27,
             "delivery-head: temporary delivery UI must use the running original mod camera and layer");
+        QuestStandalonePlatform.PrepareFlatScreenVideoSample(new Camera());
+        Check(videoPrepared == 0, "video-head: unrelated camera must not trigger final capture composition");
+        QuestStandalonePlatform.PrepareFlatScreenVideoSample(VRRigDriver.HeadCamera);
+        QuestStandalonePlatform.ObserveFlatScreenVideoSample();
+        Check(videoPrepared == 1 && videoSampled == 1,
+            "video-head: original head consumer must run preparation and observation boundaries");
+        QuestStandalonePlatform.FlatScreenVideoSampling -= prepareVideo;
+        QuestStandalonePlatform.FlatScreenVideoSampled -= sampledVideo;
         Check(!QuestStandalonePlatform.DebugLogging, "presentation-debug: detailed startup census must remain disabled without Debug logging");
         VRLog.WantsDebug = true;
         Check(QuestStandalonePlatform.DebugLogging, "presentation-debug: Debug startup census did not follow the actual logging gate");
