@@ -487,6 +487,29 @@ internal static class CardFaceMipBake
         ReplacementFor(OriginalFor(sprite));
     }
 
+    /// <summary>Warm a fresh, unassigned SpriteAtlas.GetSprites clone. The heavy atlas
+    /// copy/readback and region texture retain their existing shared cache owners. The
+    /// temporary clone/replacement pair has no live consumer and must not accumulate
+    /// per-source entries on repeated scenario preparation. Caller destroys its clone;
+    /// this API must never be used on original Image art or a local/remote live face.</summary>
+    internal static void WarmTemporarySprite(Sprite temporaryOriginal)
+    {
+        try { WarmSprite(temporaryOriginal); }
+        finally
+        {
+            int source = temporaryOriginal.GetInstanceID();
+            if (s_replacementBySource.TryGetValue(source, out Sprite? replacement))
+            {
+                s_replacementBySource.Remove(source);
+                if (replacement != null)
+                {
+                    s_originalByReplacement.Remove(replacement.GetInstanceID());
+                    Object.Destroy(replacement);
+                }
+            }
+        }
+    }
+
     /// <summary>Pivot in normalized rect space, as Sprite.Create wants it.</summary>
     private static Vector2 NormalizedPivot(Sprite source) => new(
         source.rect.width > 0f ? source.pivot.x / source.rect.width : 0.5f,

@@ -29,15 +29,20 @@ internal static class ScenarioCardPreparation
     private const int MaxResources = 2048;
     private static readonly Queue<Sprite> Sprites = new();
     private static readonly Queue<ReferenceToSprite> References = new();
+    private static readonly Queue<Component> NativeElementWidgets = new();
     private static readonly HashSet<int> SeenSprites = new();
     private static readonly HashSet<ReferenceToSprite> StartedReferences = new();
     private static readonly HashSet<ReferenceToSprite> SeenReferences = new();
     private static readonly HashSet<AbilityCardUISkin> SeenSkins = new();
+    private static readonly HashSet<int> SeenElementWidgets = new();
+    private static readonly HashSet<Sprite> OwnedAtlasSprites = new();
     private static readonly Dictionary<Type, FieldInfo[]> SpriteFields = new();
     private static VRCardFactory? s_factory;
     private static bool s_started;
     private static bool s_collected;
     private static bool s_sharedCollected;
+    private static int s_elementWidgetKindsCollected;
+    private static bool s_areaAtlasCollected;
     private static float s_deadline;
     private static int s_tickFrame = -1;
 
@@ -49,6 +54,21 @@ internal static class ScenarioCardPreparation
     internal static int BackingsPrepared => s_factory?.PreparedBlankCount ?? 0;
     internal static int BackingsTarget { get; private set; }
     internal static int Failures { get; private set; }
+    internal static int ElementWidgetsCollected { get; private set; }
+    internal static int AreaSpritesCollected { get; private set; }
+
+    /// <summary>Other original scenario resources (for example authored actor portraits)
+    /// borrow this preparation pass and its existing shared pin owner. Calls outside a
+    /// running pass are inert; no second addressable handle/cache lifecycle is created.</summary>
+    internal static void IncludeOriginalReference(ReferenceToSprite? reference)
+    {
+        if (s_started && !IsReady) AddReference(reference);
+    }
+
+    internal static void IncludeOriginalSprite(Sprite? sprite)
+    {
+        if (s_started && !IsReady) AddSprite(sprite);
+    }
 
     internal static void Begin()
     {
@@ -62,20 +82,27 @@ internal static class ScenarioCardPreparation
     {
         s_factory?.ClearPreparedBlanks();
         s_factory = null;
+        ReleaseOwnedAtlasSprites();
         Sprites.Clear();
         References.Clear();
+        NativeElementWidgets.Clear();
         SeenSprites.Clear();
         SeenReferences.Clear();
         StartedReferences.Clear();
         SeenSkins.Clear();
+        SeenElementWidgets.Clear();
         s_started = false;
         s_collected = false;
         s_sharedCollected = false;
+        s_elementWidgetKindsCollected = 0;
+        s_areaAtlasCollected = false;
         IsReady = true;
         SpritesPrepared = 0;
         BackingsTarget = 0;
         Failures = 0;
         Classes = 0;
+        ElementWidgetsCollected = 0;
+        AreaSpritesCollected = 0;
         s_tickFrame = -1;
     }
 
@@ -85,11 +112,14 @@ internal static class ScenarioCardPreparation
     /// Scene/VR teardown still uses Reset to release unused reservations.</summary>
     internal static void CancelPreparation()
     {
+        ReleaseOwnedAtlasSprites();
         Sprites.Clear();
         References.Clear();
+        NativeElementWidgets.Clear();
         SeenReferences.Clear();
         StartedReferences.Clear();
         SeenSkins.Clear();
+        SeenElementWidgets.Clear();
         s_started = false;
         IsReady = true;
     }
@@ -133,7 +163,12 @@ internal static class ScenarioCardPreparation
             if (Sprites.Count > 0)
             {
                 Sprite sprite = Sprites.Dequeue();
-                CardFaceMipBake.WarmSprite(sprite);
+                if (OwnedAtlasSprites.Remove(sprite))
+                {
+                    try { CardFaceMipBake.WarmTemporarySprite(sprite); }
+                    finally { UnityEngine.Object.Destroy(sprite); }
+                }
+                else CardFaceMipBake.WarmSprite(sprite);
                 SpritesPrepared++;
                 PerfMonitor.Count("Cards.PreparedSprites");
                 return;
@@ -141,6 +176,38 @@ internal static class ScenarioCardPreparation
             if (References.Count > 0)
             {
                 PrepareReference();
+                return;
+            }
+            // Build617 prepared UIInfoTools.darkConfig but ConsumeDark stayed cold:
+            // native ConsumeElement/InfuseElement use their OWN serialized Sprite[]
+            // fields, including hidden highlight arrays. Read already-loaded original
+            // instances and inactive prefab templates once per type, then inspect one
+            // borrowed owner per Tick. Resources discovery does not activate an owner,
+            // invoke Awake/Init/Show, instantiate a hand, or assign native Images.
+            // This must precede unrelated shared UI chrome in the finite mip cache.
+            if (s_elementWidgetKindsCollected < 2)
+            {
+                CollectNativeElementWidgets(s_elementWidgetKindsCollected++);
+                return;
+            }
+            if (NativeElementWidgets.Count > 0)
+            {
+                Component widget = NativeElementWidgets.Dequeue();
+                if (widget != null)
+                {
+                    CollectSpriteFields(widget, includeReferences: false);
+                    ElementWidgetsCollected++;
+                }
+                return;
+            }
+            if (!s_areaAtlasCollected)
+            {
+                // Native ProcessAreaEffect calls this original atlas's GetSprite for
+                // Grey/Red/Dot. It is outside UIInfoTools' direct Sprite fields. Atlas
+                // GetSprites returns owned clones; retain only the shared heavy bake
+                // data and dispose temporary sprite metadata after each warm job.
+                CollectAreaAtlas();
+                s_areaAtlasCollected = true;
                 return;
             }
             if (!s_sharedCollected)
@@ -203,8 +270,61 @@ internal static class ScenarioCardPreparation
         }
     }
 
+    private static void CollectNativeElementWidgets(int kind)
+    {
+        using var scope = PerfMonitor.Scope("Cards.PrepareElementWidgets");
+        // CreateLayout.CreateConsume/CreateInfuse reads these exact authored assets.
+        // Loading a prefab reference does not instantiate it or run its MonoBehaviours.
+        // This includes arrays which a currently visible hand has never used yet.
+        AssetBundleManager? manager = AssetBundleManager.Instance;
+        GameObject? prefab = manager != null
+            ? manager.LoadAssetFromBundle<GameObject>("misc_gui", kind == 0 ? "ConsumeButton" : "InfuseElement", "gui") : null;
+        if (prefab != null)
+        {
+            Component[] templates = kind == 0 ? prefab.GetComponentsInChildren<ConsumeElement>(true)
+                : prefab.GetComponentsInChildren<InfuseElement>(true);
+            foreach (Component widget in templates) AddElementWidget(widget);
+        }
+        // Typed discovery also includes inactive objects and loaded prefab components.
+        // FindObjectsOfType omits those original templates and recreates the cold miss.
+        Component[] widgets = kind == 0
+            ? UnityEngine.Resources.FindObjectsOfTypeAll<ConsumeElement>()
+            : UnityEngine.Resources.FindObjectsOfTypeAll<InfuseElement>();
+        foreach (Component widget in widgets) AddElementWidget(widget);
+    }
+
+    private static void AddElementWidget(Component? widget)
+    {
+        if (widget == null || SeenElementWidgets.Count >= MaxResources || !SeenElementWidgets.Add(widget.GetInstanceID())) return;
+        NativeElementWidgets.Enqueue(widget);
+    }
+
+    private static void CollectAreaAtlas()
+    {
+        var atlas = UIInfoTools.Instance != null ? UIInfoTools.Instance.AreaEffectSpriteAtlas : null;
+        if (atlas == null) return;
+        int capacity = Math.Min(atlas.spriteCount, MaxResources - SeenSprites.Count);
+        if (capacity <= 0) return;
+        var sprites = new Sprite[capacity];
+        atlas.GetSprites(sprites);
+        foreach (Sprite sprite in sprites)
+        {
+            if (sprite == null) continue;
+            OwnedAtlasSprites.Add(sprite);
+            AddSprite(sprite);
+            AreaSpritesCollected++;
+        }
+    }
+
+    private static void ReleaseOwnedAtlasSprites()
+    {
+        foreach (Sprite sprite in OwnedAtlasSprites)
+            if (sprite != null) UnityEngine.Object.Destroy(sprite);
+        OwnedAtlasSprites.Clear();
+    }
+
     /// <summary>Read serialized native sprite fields only. Reflection also includes private
-    /// shared action/XP icon arrays. No getters, object hierarchy discovery, or lifecycle call
+    /// shared action/XP and native element-widget icon arrays. No getters, hierarchy walk, or lifecycle call
     /// is used. Element/condition configs are the native card-icon sources, not fabricated art.</summary>
     private static void CollectSpriteFields(object owner, bool includeReferences)
     {
@@ -228,11 +348,15 @@ internal static class ScenarioCardPreparation
             {
                 foreach (Sprite entry in sprites) AddSprite(entry);
             }
-            else if (includeReferences && value is ReferenceToSprite reference
-                && SeenReferences.Count < MaxResources && SeenReferences.Add(reference)) References.Enqueue(reference);
+            else if (includeReferences && value is ReferenceToSprite reference) AddReference(reference);
             else if (value is ElementConfigUI element) CollectSpriteFields(element, includeReferences: false);
             else if (value is UIInfoTools.EffectInfo info) CollectSpriteFields(info, includeReferences: false);
         }
+    }
+
+    private static void AddReference(ReferenceToSprite? reference)
+    {
+        if (reference != null && SeenReferences.Count < MaxResources && SeenReferences.Add(reference)) References.Enqueue(reference);
     }
 
     private static void AddSprite(Sprite? sprite)
@@ -256,8 +380,10 @@ internal static class ScenarioCardPreparation
     {
         if (unavailable) Failures++;
         IsReady = true;
+        ReleaseOwnedAtlasSprites();
         References.Clear();
+        NativeElementWidgets.Clear();
         if (VRLog.WantsDebug)
-            VRLog.Debug("Cards", $"SCENARIO CARD PREPARATION ready: classes={Classes}, sprites={SpritesPrepared}/{SpritesTotal}, backings={BackingsPrepared}/{BackingsTarget}, failures={Failures}, unavailable={unavailable}; original widget state and shared card caches retained.");
+            VRLog.Debug("Cards", $"SCENARIO CARD PREPARATION ready: classes={Classes}, sprites={SpritesPrepared}/{SpritesTotal}, backings={BackingsPrepared}/{BackingsTarget}, failures={Failures}, unavailable={unavailable}; elementWidgets={ElementWidgetsCollected}, areaSprites={AreaSpritesCollected}; original widget state and shared card caches retained.");
     }
 }

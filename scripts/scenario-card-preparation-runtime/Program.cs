@@ -17,6 +17,7 @@ public static class DiagnosticProgram
 {
     public static int Checks;
     public static string Metrics = "";
+    public static UnityEngine.U2D.SpriteAtlas? OriginalAreaAtlas;
     private static readonly List<Object> Assets = new();
     private static readonly List<Sprite> ExpectedArt = new();
     private static VRCardFactory? factory;
@@ -79,6 +80,7 @@ public static class DiagnosticProgram
     {
         CardsDriver.NativeSceneLoadInProgress = false;
         var tools = new GameObject("native-tools").AddComponent<UIInfoTools>(); UIInfoTools.Instance = tools;
+        tools.AreaEffectSpriteAtlas = OriginalAreaAtlas ?? throw new Exception("actual packed native area SpriteAtlas required");
         ScenarioManager.Scenario = new FixtureScenario();
         for (int i = 0; i < 3; i++)
         {
@@ -101,14 +103,105 @@ public static class DiagnosticProgram
         Image nativeImage = new GameObject("original-native-image", typeof(RectTransform)).AddComponent<Image>();
         Sprite original = tools.Skins["class-2"].defaultTopActionRegularSprite!;
         nativeImage.sprite = original;
+        var consumeRoot = new GameObject("inactive-original-consume-template"); consumeRoot.SetActive(false);
+        var consume = consumeRoot.AddComponent<ConsumeElement>();
+        Sprite consumeArt = Art("native-private-ConsumeAir", 16), consumeHighlight = Art("native-private-ConsumeDark-highlight", 17);
+        consume.Install(consumeArt, consumeHighlight, nativeImage);
+        var infuseRoot = new GameObject("inactive-original-infuse-template"); infuseRoot.SetActive(false);
+        var infuse = infuseRoot.AddComponent<InfuseElement>();
+        Sprite infuseArt = Art("native-private-CreateEarth-Highlight", 18);
+        infuse.Install(infuseArt, nativeImage);
+        // A second original owner shares art. Both owner references are visited but
+        // the original sprite cache deduplicates them; no native state is initialized.
+        var secondConsumeRoot = new GameObject("inactive-pooled-consume-widget"); secondConsumeRoot.SetActive(false);
+        var secondConsume = secondConsumeRoot.AddComponent<ConsumeElement>();
+        secondConsume.Install(consumeArt, consumeHighlight, nativeImage);
+        var prefabAssets = new Dictionary<string, GameObject>();
+        AssetBundleManager.Instance = new AssetBundleManager
+        {
+            LoadOriginal = name =>
+            {
+                if (prefabAssets.TryGetValue(name, out GameObject existing)) return existing;
+                // The exact native asset reference has never been loaded before. The
+                // manager returns its inactive original template, never an instance.
+                var prefab = new GameObject("original-prefab-" + name); prefab.SetActive(false);
+                if (name == "ConsumeButton")
+                    prefab.AddComponent<ConsumeElement>().Install(Art("original-prefab-consume", 20), Art("original-prefab-consume-highlight", 21), nativeImage);
+                else prefab.AddComponent<InfuseElement>().Install(Art("original-prefab-infuse", 22), nativeImage);
+                prefabAssets[name] = prefab; return prefab;
+            }
+        };
+        int consumeAwakes = ConsumeElement.Awakes, infuseAwakes = InfuseElement.Awakes;
+        Sprite borrowedPortrait = Art("already-authored-original-portrait", 23);
+        ReferenceToSprite borrowedReference = Reference("original-portrait-reference", 24);
+        int beforeBridge = ScenarioCardPreparation.SpritesTotal;
+        ScenarioCardPreparation.IncludeOriginalSprite(borrowedPortrait);
+        ScenarioCardPreparation.IncludeOriginalReference(borrowedReference);
+        Check(ScenarioCardPreparation.SpritesTotal == beforeBridge && ScenarioCardPreparation.ReferencesPending == 0,
+            "original resource bridge is inert outside a running loading pass");
         factory = new VRCardFactory();
+        CardsConfig.FaceMipBake.Value = false;
         ScenarioCardPreparation.Begin(); yield return Complete();
+        Check(((System.Collections.IDictionary)typeof(CardFaceMipBake).GetField("s_replacementBySource", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!).Count == 0
+            && (int)typeof(CardFaceMipBake).GetField("s_bakeCount", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)! == 0,
+            "disabled mip preparation creates no GPU bake or per-source sprite metadata and preserves original art");
+        ScenarioCardPreparation.Reset(); CardsConfig.FaceMipBake.Value = true;
+        ScenarioCardPreparation.Begin();
+        ScenarioCardPreparation.IncludeOriginalSprite(null); ScenarioCardPreparation.IncludeOriginalReference(null);
+        for (int duplicate = 0; duplicate < 4; duplicate++)
+        {
+            ScenarioCardPreparation.IncludeOriginalSprite(borrowedPortrait);
+            ScenarioCardPreparation.IncludeOriginalReference(borrowedReference);
+            ScenarioCardPreparation.IncludeOriginalReference(new ReferenceToSprite(borrowedPortrait));
+        }
+        Check(ScenarioCardPreparation.SpritesTotal == 1 && ScenarioCardPreparation.ReferencesPending == 5,
+            "original resource bridge deduplicates sprites and reference identity without dropping valid special sprites");
+        yield return Complete();
         Check(ScenarioCardPreparation.Classes == 4, "all scenario classes and transferred ability skins are prepared without focus");
         Check(tools.Focus == "first" && nativeImage.sprite == original && VRCard.NativeAdoptions == 0,
             "preparation never selects a character activates native widgets or assigns original artwork");
+        Check(ScenarioCardPreparation.ElementWidgetsCollected == 5,
+            "loading visits existing inactive native consume and infuse widget owners including shared templates");
+        Check(prefabAssets.Count == 2 && AssetBundleManager.Instance.Reads.SequenceEqual(new[] { "ConsumeButton", "InfuseElement", "ConsumeButton", "InfuseElement" })
+            && prefabAssets.Values.All(prefab => !prefab.activeSelf),
+            "exact original prefab reference reads prepare unseen native element owners without instantiation");
+        Check(!consumeRoot.activeSelf && !infuseRoot.activeSelf && !secondConsumeRoot.activeSelf
+            && ConsumeElement.Awakes == consumeAwakes && InfuseElement.Awakes == infuseAwakes
+            && ConsumeElement.Starts == 0 && InfuseElement.Starts == 0
+            && ConsumeElement.Initializations == 0 && InfuseElement.Initializations == 0
+            && ReferenceEquals(consume.ReadElementSprites()[0], consumeArt)
+            && ReferenceEquals(consume.ReadHighlightSprites()[0], consumeHighlight)
+            && ReferenceEquals(infuse.ReadElementSprites()[0], infuseArt) && nativeImage.sprite == original,
+            "native private element arrays and inactive lifecycle remain untouched by original art preparation");
+        var originalReplacements = (System.Collections.IDictionary)typeof(CardFaceMipBake).GetField("s_replacementBySource", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+        Check(originalReplacements.Contains(consumeArt.GetInstanceID()) && originalReplacements.Contains(consumeHighlight.GetInstanceID())
+            && originalReplacements.Contains(infuseArt.GetInstanceID()),
+            "actual native private consume infuse and highlight arrays have no cold local or remote sprite miss");
+        Check(ScenarioCardPreparation.AreaSpritesCollected == 3,
+            "original area atlas regions are prepared before ordinary native layout asks for Grey Red and Dot");
+        var expectedSourceIds = new HashSet<int>(ExpectedArt.Select(sprite => sprite.GetInstanceID()));
+        Check(originalReplacements.Keys.Cast<int>().All(expectedSourceIds.Contains),
+            "temporary native atlas clones retain no per-source replacement metadata or live cache ownership");
+        Check(!Resources.FindObjectsOfTypeAll<Sprite>().Any(sprite => sprite.name == "Grey(Clone)" || sprite.name == "Red(Clone)" || sprite.name == "Dot(Clone)"),
+            "owned temporary atlas clones are destroyed after loading without destroying borrowed original art");
+        int atlasBakes = (int)typeof(CardFaceMipBake).GetField("s_bakeCount", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+        int regionBakes = (int)typeof(CardFaceMipBake).GetField("s_spriteBakeCount", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+        foreach (string name in new[] { "Grey", "Red", "Dot" })
+        {
+            Sprite nativeArea = tools.AreaEffectSpriteAtlas.GetSprite(name); Assets.Add(nativeArea);
+            Sprite preparedArea = CardFaceMipBake.ReplacementFor(nativeArea)
+                ?? throw new Exception("native area sprites retain valid original region geometry");
+            Check((int)typeof(CardFaceMipBake).GetField("s_bakeCount", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)! == atlasBakes
+                && (int)typeof(CardFaceMipBake).GetField("s_spriteBakeCount", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)! == regionBakes,
+                "fresh ordinary native area clones share prepared heavy atlas and region caches without GPU bake");
+            Check(preparedArea.texture.mipmapCount > 1 && preparedArea.rect == nativeArea.rect
+                && preparedArea.pivot == nativeArea.pivot && preparedArea.border == nativeArea.border
+                && Read(nativeArea.texture).Zip(Read(preparedArea.texture), (a, b) => Math.Abs(a.r - b.r) + Math.Abs(a.g - b.g) + Math.Abs(a.b - b.b) + Math.Abs(a.a - b.a)).Max() <= 4,
+                "real packed native atlas sprites preserve original pixels and geometry for local and remote faces");
+        }
         Check(ScenarioCardPreparation.BackingsTarget == 21 && factory.PreparedBlankCount == 21 && factory.All.Count == 0,
             "reserved wrappers remain absent from live hand driver inventories");
-        Check(ScenarioCardPreparation.Failures == 0 && Addressables.Requests == 16,
+        Check(ScenarioCardPreparation.Failures == 0 && Addressables.Requests == 17,
             "every original skin addressable loads once by GUID before ordinary focus changes");
         foreach (AbilityCardUISkin skin in tools.Skins.Values)
             Check(!skin.TitleSprite!.SpriteReference!.NativeOperationTouched,
@@ -216,7 +309,7 @@ public static class DiagnosticProgram
         Expire(); yield return null; ScenarioCardPreparation.Tick();
         Check(ScenarioCardPreparation.IsReady && ScenarioCardPreparation.Failures == 1,
             "missing native prerequisites cannot trap the player behind a loading spinner");
-        Metrics = $"classes=4, original sprites={ExpectedArt.Count}, GUID requests={Addressables.Requests}, backing reservations=21, real GPU pixel comparisons={ExpectedArt.Count - 2}; no native focus/Show/Awake/Image preparation writes";
+        Metrics = $"classes=4, original sprites={ExpectedArt.Count}, original inactive element owners=5, private array art=6, actual packed area sprites=3, GUID requests={Addressables.Requests}, backing reservations=21, real GPU pixel comparisons={ExpectedArt.Count + 1}; no native focus/Show/Awake/Image preparation writes";
     }
     public static void Cleanup()
     {

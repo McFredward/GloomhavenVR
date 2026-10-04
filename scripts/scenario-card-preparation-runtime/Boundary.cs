@@ -79,10 +79,53 @@ public sealed class AbilityCardUISkin
     public SpriteMemoryManagement.ReferenceToSprite? TopActionHighlightSprite;
 }
 public sealed class ElementConfigUI : ScriptableObject { public Sprite? useIcon; }
+public sealed class AssetBundleManager
+{
+    public static AssetBundleManager? Instance;
+    public Func<string, GameObject>? LoadOriginal;
+    public readonly List<string> Reads = new();
+    public T LoadAssetFromBundle<T>(string bundle, string name, string folder) where T : UnityEngine.Object
+    {
+        if (bundle != "misc_gui" || folder != "gui" || (name != "ConsumeButton" && name != "InfuseElement"))
+            throw new Exception("only exact original native element prefab references may be borrowed");
+        Reads.Add(name);
+        return (T)(UnityEngine.Object)LoadOriginal!(name);
+    }
+}
+// Actual native serialized owner shapes (GH.Runtime.dll, ConsumeElement/InfuseElement).
+// Their private arrays are NOT UIInfoTools element configuration fields. Inactive
+// templates retain an unassigned state until the native Init path runs normally.
+public sealed class ConsumeElement : MonoBehaviour
+{
+    [SerializeField] private Sprite[] elementSprites = Array.Empty<Sprite>();
+    [SerializeField] private Sprite[] highlightElementSprites = Array.Empty<Sprite>();
+    [SerializeField] private UnityEngine.UI.Image? elementImage;
+    public static int Awakes, Starts, Initializations;
+    private void Awake() => Awakes++;
+    private void Start() => Starts++;
+    public void Init() { Initializations++; if (elementImage != null) elementImage.sprite = elementSprites[0]; }
+    public void Install(Sprite image, Sprite highlight, UnityEngine.UI.Image target)
+    { elementSprites = new[] { image }; highlightElementSprites = new[] { highlight }; elementImage = target; }
+    public Sprite[] ReadElementSprites() => elementSprites;
+    public Sprite[] ReadHighlightSprites() => highlightElementSprites;
+}
+public sealed class InfuseElement : MonoBehaviour
+{
+    [SerializeField] private Sprite[] elementSprites = Array.Empty<Sprite>();
+    [SerializeField] private UnityEngine.UI.Image? elementImage;
+    public static int Awakes, Starts, Initializations;
+    private void Awake() => Awakes++;
+    private void Start() => Starts++;
+    public void Init() { Initializations++; if (elementImage != null) elementImage.sprite = elementSprites[0]; }
+    public void Install(Sprite image, UnityEngine.UI.Image target)
+    { elementSprites = new[] { image }; elementImage = target; }
+    public Sprite[] ReadElementSprites() => elementSprites;
+}
 public sealed class UIInfoTools : MonoBehaviour
 {
     [Serializable] public struct EffectInfo { public Sprite Icon; }
     public static UIInfoTools? Instance;
+    public UnityEngine.U2D.SpriteAtlas? AreaEffectSpriteAtlas;
     public string Focus = "first";
     public Sprite? AugmentIcon;
     public ElementConfigUI? darkConfig;

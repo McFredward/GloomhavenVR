@@ -37,13 +37,25 @@ def main():
     variants = [
         ('production', '', '', '', ''),
         ('first-character-only', 'ScenarioCardPreparation.cs', 'foreach (CPlayerActor player in players)', 'foreach (CPlayerActor player in players.GetRange(0, 1))', 'all scenario classes and transferred ability skins are prepared without focus'),
-        ('skip-cold-cache', 'ScenarioCardPreparation.cs', 'CardFaceMipBake.WarmSprite(sprite);', '// omitted shared mip preparation', 'ordinary local and remote fronts have no cold sprite miss after preparation'),
+        ('skip-cold-cache', 'ScenarioCardPreparation.cs', 'CardFaceMipBake.WarmSprite(sprite);', '// omitted shared mip preparation', 'actual native private consume infuse and highlight arrays have no cold local or remote sprite miss'),
         ('skip-element-icons', 'ScenarioCardPreparation.cs', 'else if (value is ElementConfigUI element)', 'else if (value is ElementConfigUI element && Time.frameCount < 0)', 'ordinary local and remote fronts have no cold sprite miss after preparation'),
+        ('skip-native-element-arrays', 'ScenarioCardPreparation.cs', 'CollectSpriteFields(widget, includeReferences: false);', '// omit original native widget arrays', 'actual native private consume infuse and highlight arrays have no cold local or remote sprite miss'),
+        ('active-only-element-discovery', 'ScenarioCardPreparation.cs', 'UnityEngine.Resources.FindObjectsOfTypeAll<ConsumeElement>()', 'UnityEngine.Object.FindObjectsOfType<ConsumeElement>()', 'loading visits existing inactive native consume and infuse widget owners including shared templates'),
+        ('skip-infuse-element-discovery', 'ScenarioCardPreparation.cs', 'UnityEngine.Resources.FindObjectsOfTypeAll<InfuseElement>()', 'System.Array.Empty<InfuseElement>()', 'loading visits existing inactive native consume and infuse widget owners including shared templates'),
+        ('skip-native-element-prefab-reference', 'ScenarioCardPreparation.cs', 'AssetBundleManager? manager = AssetBundleManager.Instance;', 'AssetBundleManager? manager = null;', 'loading visits existing inactive native consume and infuse widget owners including shared templates'),
+        ('initialize-native-element-widget', 'ScenarioCardPreparation.cs', 'CollectSpriteFields(widget, includeReferences: false);', 'CollectSpriteFields(widget, includeReferences: false); if (widget is ConsumeElement consume) consume.Init();', 'preparation never selects a character activates native widgets or assigns original artwork'),
+        ('skip-borrowed-original-sprite', 'ScenarioCardPreparation.cs', 'if (s_started && !IsReady) AddSprite(sprite);', '// omit borrowed original sprite', 'original resource bridge deduplicates sprites and reference identity without dropping valid special sprites'),
+        ('unbounded-original-resource-bridge', 'ScenarioCardPreparation.cs', 'if (s_started && !IsReady) AddReference(reference);', 'AddReference(reference);', 'original resource bridge is inert outside a running loading pass'),
+        ('skip-native-area-atlas', 'ScenarioCardPreparation.cs', 'CollectAreaAtlas();', '// omit original native area atlas', 'original area atlas regions are prepared before ordinary native layout asks for Grey Red and Dot'),
+        ('skip-temporary-atlas-warm', 'ScenarioCardPreparation.cs', 'try { CardFaceMipBake.WarmTemporarySprite(sprite); }', 'try { /* omit native area region warm */ }', 'fresh ordinary native area clones share prepared heavy atlas and region caches without GPU bake'),
+        ('retain-temporary-atlas-metadata', 'CardFaceMipBake.cs', 's_replacementBySource.Remove(source);', '// retain temporary per-source metadata', 'temporary native atlas clones retain no per-source replacement metadata or live cache ownership'),
+        ('retain-temporary-atlas-clones', 'ScenarioCardPreparation.cs', 'finally { UnityEngine.Object.Destroy(sprite); }', 'finally { /* leak original atlas clone */ }', 'owned temporary atlas clones are destroyed after loading without destroying borrowed original art'),
+        ('ignore-temporary-mip-toggle', 'CardFaceMipBake.cs', 'try { WarmSprite(temporaryOriginal); }', 'try { ReplacementFor(temporaryOriginal); }', 'disabled mip preparation creates no GPU bake or per-source sprite metadata and preserves original art'),
         ('modify-native-images', 'ScenarioCardPreparation.cs', 'CardFaceMipBake.WarmSprite(sprite);', 'CardFaceMipBake.WarmSprite(sprite); foreach (var img in UnityEngine.Object.FindObjectsOfType<UnityEngine.UI.Image>()) CardFaceMipBake.Rescan(img);', 'preparation never selects a character activates native widgets or assigns original artwork'),
         ('live-reservations', 'VRCardFactory.cs', '_prepared.Add(BuildBlank());', 'VRCard added = BuildBlank(); _prepared.Add(added); _all.Add(added);', 'reserved wrappers remain absent from live hand driver inventories'),
         ('skip-backing-reuse', 'VRCardFactory.cs', 'while (_prepared.Count > 0)', 'while (_prepared.Count > 0 && Time.frameCount < 0)', 'first ordinary card consumes a prebuilt backing without rebuilding or fabricating native content'),
         ('reset-live-faces', 'ScenarioCardPreparation.cs', 's_factory?.ClearPreparedBlanks();', 's_factory?.Clear();', 'reset releases only unused backings retaining native and remote active art plus shared pins'),
-        ('release-shared-pins', 'ScenarioCardPreparation.cs', 's_factory?.ClearPreparedBlanks();', 's_factory?.ClearPreparedBlanks(); CardArtPin.ReleaseAll("incorrect preparation reset");', 'reset releases only unused backings retaining native and remote active art plus shared pins'),
+        ('release-shared-pins', 'ScenarioCardPreparation.cs', 's_factory?.ClearPreparedBlanks();', 's_factory?.ClearPreparedBlanks(); CardArtPin.ReleaseAll("incorrect preparation reset");', 'every original skin addressable loads once by GUID before ordinary focus changes'),
         ('no-pending-bound', 'ScenarioCardPreparation.cs', 'pending && Time.realtimeSinceStartup < s_deadline', 'pending', 'bounded preparation reaches readiness'),
         ('same-frame-repeat', 'ScenarioCardPreparation.cs', 'if (s_tickFrame == Time.frameCount) return;', 'if (s_tickFrame == Time.frameCount && Time.frameCount < 0) return;', 'repeated same-frame loader offers cannot multiply preparation work'),
         ('cancel-clears-reserves', 'ScenarioCardPreparation.cs', 'internal static void CancelPreparation()\n    {', 'internal static void CancelPreparation()\n    {\n        s_factory?.ClearPreparedBlanks();', 'cancellation keeps completed reserves shared artwork and native live cards without restarting gameplay'),
@@ -82,6 +94,38 @@ def main():
     # The existing runner owns actual Unity frame progression, with nested preparation
     # enumerators supported here just as Unity's real coroutine pump supports them.
     runner = (ROOT/'scripts/card-diagnostic-runtime/Editor/DiagnosticRunner.cs').read_text()
+    runner = runner.replace('private static IEnumerator steps;', 'private static UnityEngine.U2D.SpriteAtlas originalAreaAtlas; private static IEnumerator steps;')
+    runner = runner.replace('EditorApplication.update += Tick;', '''originalAreaAtlas = new UnityEngine.U2D.SpriteAtlas();
+        AssetDatabase.CreateAsset(originalAreaAtlas, "Assets/OriginalArea.spriteatlas");
+        var settings = UnityEditor.U2D.SpriteAtlasExtensions.GetPackingSettings(originalAreaAtlas);
+        settings.enableRotation = false; settings.enableTightPacking = false;
+        UnityEditor.U2D.SpriteAtlasExtensions.SetPackingSettings(originalAreaAtlas, settings);
+        var textureSettings = UnityEditor.U2D.SpriteAtlasExtensions.GetTextureSettings(originalAreaAtlas);
+        textureSettings.generateMipMaps = false; textureSettings.readable = true;
+        UnityEditor.U2D.SpriteAtlasExtensions.SetTextureSettings(originalAreaAtlas, textureSettings);
+        var originalSprites = new List<UnityEngine.Object>();
+        foreach (string name in new[] { "Grey", "Red", "Dot" })
+        {
+            var texture = new Texture2D(16, 32, TextureFormat.RGBA32, false);
+            var pixels = new Color32[512];
+            for (int i = 0; i < pixels.Length; i++) pixels[i] = new Color32((byte)(35 + i % 170), (byte)(30 + (i / 16) * 5), 75, 255);
+            texture.SetPixels32(pixels); texture.Apply(false, false);
+            string path = "Assets/" + name + ".png"; File.WriteAllBytes(path, texture.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(texture); AssetDatabase.ImportAsset(path);
+            var importer = (TextureImporter)AssetImporter.GetAtPath(path);
+            importer.textureType = TextureImporterType.Sprite; importer.mipmapEnabled = false;
+            importer.spritePixelsPerUnit = 64; importer.isReadable = true; importer.textureCompression = TextureImporterCompression.Uncompressed;
+            importer.SaveAndReimport(); originalSprites.Add(AssetDatabase.LoadAssetAtPath<Sprite>(path));
+        }
+        UnityEditor.U2D.SpriteAtlasExtensions.Add(originalAreaAtlas, originalSprites.ToArray());
+        UnityEditor.U2D.SpriteAtlasUtility.PackAtlases(new[] { originalAreaAtlas }, EditorUserBuildSettings.activeBuildTarget);
+        EditorApplication.update += Tick;''')
+    runner = runner.replace('steps = (IEnumerator)program.GetMethod("Run").Invoke(null, null);', 'program.GetField("OriginalAreaAtlas").SetValue(null, originalAreaAtlas); steps = (IEnumerator)program.GetMethod("Run").Invoke(null, null);')
+    # A deliberate leak control must fail in its own case without leaving its native
+    # SpriteAtlas clones alive for later variants. Borrowed imported atlas art is kept.
+    runner = runner.replace('private static HashSet<int> existing;', 'private static HashSet<int> existing; private static HashSet<int> existingSprites;')
+    runner = runner.replace('existing = new HashSet<int>();', 'existing = new HashSet<int>(); existingSprites = new HashSet<int>(); foreach (Sprite sprite in Resources.FindObjectsOfTypeAll<Sprite>()) existingSprites.Add(sprite.GetInstanceID());')
+    runner = runner.replace('output.Flush(); steps = null;', 'foreach (Sprite sprite in Resources.FindObjectsOfTypeAll<Sprite>()) if (sprite != null && !existingSprites.Contains(sprite.GetInstanceID())) UnityEngine.Object.DestroyImmediate(sprite); output.Flush(); steps = null;')
     runner = runner.replace('private static IEnumerator steps;', 'private static IEnumerator steps; private static Stack<IEnumerator> nested = new Stack<IEnumerator>();')
     runner = runner.replace('if (steps.MoveNext()) return;', '''if (nested.Count == 0) nested.Push(steps);
             while (nested.Count > 0)
