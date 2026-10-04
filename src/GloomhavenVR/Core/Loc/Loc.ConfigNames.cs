@@ -392,6 +392,11 @@ internal static partial class Loc
             // 2026-08 naming pass: the board family on the "Objekt: Wirkung" colon pattern.
             ["Cards/TrayYaw"] = Pair("Board: yaw (°)", "Brett: Drehung (°)"),
             ["Cards/TrayScale"] = Pair("Board: size", "Brett: Größe"),
+            ["Cards/WristBoardEnabled"] = Pair("Wrist-mounted control board", "Steuerbrett am Handgelenk"),
+            ["Cards/WristBoardHand"] = Pair("Wrist board: hand", "Handgelenk-Brett: Hand"),
+            ["Cards/WristBoardOffsetMeters"] = Pair("Wrist board: offset (m)", "Handgelenk-Brett: Versatz (m)"),
+            ["Cards/WristBoardAnglesDegrees"] = Pair("Wrist board: angles (°)", "Handgelenk-Brett: Winkel (°)"),
+            ["Cards/WristBoardScale"] = Pair("Wrist board: size", "Handgelenk-Brett: Größe"),
             ["Cards/TrayFollow"] = Pair("Board: follows you", "Brett: folgt dir"),
             ["Cards/BoardMoveMode"] = Pair("Board: movement", "Brett: Bewegung"),
             ["Cards/TrayPitch"] = Pair("Board pitch (grab, °)", "Brett-Neigung (Griff, °)"),

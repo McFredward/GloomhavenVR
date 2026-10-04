@@ -191,6 +191,7 @@ internal sealed class RemoteBoardFurniture
     /// style, like the local board's own handle. NOTE the local handle also carries a 62 %-wide
     /// trigger BoxCollider — the remote copy is the BAR ONLY, no zone, no <c>PanelGrabHandle</c>.</summary>
     private static readonly Vector3 HandleMount = new(0f, -BoardH * 0.5f - 0.030f, 0.004f);
+    private Transform? _handleVisual;
 
     // THE WHOLE TURN-FLOW CLUSTER MIRROR IS GONE FROM THIS FILE (2026-08-25). Five constants stood
     // here — the column anchor, the 0.7 dock shrink, the proud lift and the [RoundButtons] group
@@ -1272,6 +1273,7 @@ internal sealed class RemoteBoardFurniture
         // per board rebuild — and a board rebuilds on every tuning revision — for a cause already
         // named elsewhere.
         var handle = new GameObject("HandleBar").transform;
+        _handleVisual = handle;
         handle.SetParent(_root, worldPositionStays: false);
         handle.localPosition = HandleMount;
         GrabBarVisual.Build(handle, "Bar", GrabBarStyles.For(_style),
@@ -1889,6 +1891,7 @@ internal sealed class RemoteBoardFurniture
         // that translation, made once, at the one seam where it belongs — see ApplyFollowPinState,
         // which now has the owner's name and the owner's argument sense.
         ApplyFollowPinState(!owner.TrayPinned);
+        ApplyWristControlVisibility(owner);
 
         // ---- item-use USE cap -----------------------------------------------------------------
         // SYNCED: the USE cap is its own wire bit (it exists on the owner's board only while a
@@ -2035,6 +2038,14 @@ internal sealed class RemoteBoardFurniture
     /// while pinned; the cell of the keycap atlas the cap's face samples.</summary>
     private static Cards.CapRole FollowPinRole(bool follow)
         => follow ? Cards.CapRole.FixedFollow : Cards.CapRole.FixedPinned;
+
+    internal void ApplyWristControlVisibility(RemoteAvatar owner)
+    {
+        // Same atomic owner sample as original board motion; never this viewer's settings.
+        _pin.SetShown(!owner.WristBoard, animate: false);
+        SetShown(_pinEngraving, !owner.WristBoard);
+        if (_handleVisual != null) SetShown(_handleVisual, !owner.WristBoard);
+    }
 
     /// <summary>
     /// Apply the owner's tray anchor mode to the inert FOLLOW/PIN cap — the accent, the word, the

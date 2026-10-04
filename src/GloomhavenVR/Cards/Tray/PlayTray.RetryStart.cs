@@ -27,6 +27,7 @@ internal sealed partial class PlayTray
 
     private bool TryRestoreRetryStart()
     {
+        if (WantsWrist || WristControlsHidden) { TickWristAnchor(); return false; }
         if (!RetryBindingReady() || _root == null || (_handle != null && _handle.IsGrabbed))
             return false;
         if (!VRRigDriver.TryTakeRetryBoard(out VRRigDriver.RetryBoardPose pose))

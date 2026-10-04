@@ -952,6 +952,10 @@ internal static partial class Loc
         // that ARE dials, and the player pressing it has just lost their board.
         ["vr_o_boardrecall"] = Pair("Board: bring it back to me", "Brett: zu mir zurückholen"),
         ["vr_o_trayscale"] = Pair("Board: size", "Brett: Größe"),
+        ["vr_o_wristboard"] = Pair("Wrist-mounted control board", "Steuerbrett am Handgelenk"),
+        ["wristboard_nonmain"] = Pair("Non-main hand", "Nebenhand"),
+        ["wristboard_left"] = Pair("Left", "Links"),
+        ["wristboard_right"] = Pair("Right", "Rechts"),
         ["vr_o_trayfollow"] = Pair("Board: follows you", "Brett: folgt dir"),
         // Item 12: the control-board movement scheme row + its three dropdown choices. The
         // choice labels are what the preset row shows INSTEAD of the raw enum members

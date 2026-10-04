@@ -130,6 +130,10 @@ internal static class NetProtocol
     /// <summary>Board pose on the rig stream: flags byte0 absent, or flags1 + RigPose20 + scale4.
     /// Shares the head/hand packet cadence; the extras board record remains for legacy fallback.</summary>
     public const byte ExtIdBoardRigPose = 70;
+    /// <summary>Owner wrist attachment on the same lightweight rig sample as board pose.
+    /// One byte (0/1); absent means ordinary follow/fixed. No wrist offsets or viewer
+    /// settings are needed: the original board pose/scale is already authoritative.</summary>
+    public const byte ExtIdBoardWrist = 100;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>

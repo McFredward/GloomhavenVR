@@ -1249,6 +1249,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // same nominal rate and receiver easing. Includes follow, fixed, grabs and scaling;
         // no inferred attachment to the head can distort the owner's actual board pose.
         state.HasBoardPose = true;
+        state.WristBoard = PlayTray.Current?.WristControlsHidden == true;
         Transform? board = PlayTray.Current?.Root;
         state.HasBoard = board != null;
         if (board != null)

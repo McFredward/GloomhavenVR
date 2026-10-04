@@ -206,6 +206,11 @@ internal static partial class VROptionsTab
         //      "Begrenzt mit Neigung" scheme (BoardMoveMode.LimitedPitch, whose own enum doc names
         //      BoardPitchMin/Max as the window it clamps to). All six per-board keys, so the pair
         //      folds on every board; the variant filter then shows the selected board's.
+        ["Cards/TrayFollow"] = new("Cards", "WristBoardEnabled", Off),
+        ["Cards/WristBoardHand"] = new("Cards", "WristBoardEnabled", On),
+        ["Cards/WristBoardOffsetMeters"] = new("Cards", "WristBoardEnabled", On),
+        ["Cards/WristBoardAnglesDegrees"] = new("Cards", "WristBoardEnabled", On),
+        ["Cards/WristBoardScale"] = new("Cards", "WristBoardEnabled", On),
         ["Cards/BoardPitchMin_Oak"] = new("Cards", "BoardMoveMode", Named("LimitedPitch")),
         ["Cards/BoardPitchMin_Steel"] = new("Cards", "BoardMoveMode", Named("LimitedPitch")),
         ["Cards/BoardPitchMin_Bronze"] = new("Cards", "BoardMoveMode", Named("LimitedPitch")),

@@ -112,6 +112,7 @@ internal sealed partial class PlayTray
     internal bool TickLostWatchdog(out string why)
     {
         why = string.Empty;
+        if (WantsWrist || WristControlsHidden) return false;
         // The size/anchor diagnostic runs BEFORE every early-out below, including the gripped one:
         // the state it exists to prove is exactly the state a gripped board is in.
         if (_root != null && _wantVisible)

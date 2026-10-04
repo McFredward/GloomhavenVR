@@ -876,6 +876,7 @@ internal static partial class VROptionsTab
                         CuratedEntry.Press("vr_o_boardrecall", Cards.CardsDriver.RequestBoardRecall),
                         new("Cards", "Board", "control_board"),
                         new("Cards", "TrayScale", "vr_o_trayscale"),
+                        new("Cards", "WristBoardEnabled", "vr_o_wristboard"),
                         new("Cards", "TrayFollow", "vr_o_trayfollow"),
                         // "Finger-Druck: Zusatz-Hitbox …(px)" ([Cards] PokePadPixels, ModBuild 403)
                         // STOOD HERE and is GONE from the curated page — 2026-09-05 ruling (b),
@@ -1415,6 +1416,8 @@ internal static partial class VROptionsTab
          && string.Equals(item.Key, "KeyColor", StringComparison.Ordinal))
         || (string.Equals(item.Section, "Cards", StringComparison.Ordinal)
             && string.Equals(item.Key, "BoardMoveMode", StringComparison.Ordinal))
+        || (string.Equals(item.Section, "Cards", StringComparison.Ordinal)
+            && string.Equals(item.Key, "WristBoardHand", StringComparison.Ordinal))
         || (string.Equals(item.Section, "Net", StringComparison.Ordinal)
             && string.Equals(item.Key, "MaskId", StringComparison.Ordinal))
         || (string.Equals(item.Section, "Sky", StringComparison.Ordinal)
@@ -1488,6 +1491,14 @@ internal static partial class VROptionsTab
         // the enum as the index map).
         if (string.Equals(item.Section, "Cards", StringComparison.Ordinal))
         {
+            if (string.Equals(item.Key, "WristBoardHand", StringComparison.Ordinal))
+            {
+                string[] hands = { Loc.Mod("wristboard_nonmain"), Loc.Mod("wristboard_left"), Loc.Mod("wristboard_right") };
+                BuildPresetRow(parent, item, caption, hintKey, hands,
+                    (int)Cards.CardsConfig.WristBoardHand.Value,
+                    index => Cards.CardsConfig.WristBoardHand.Value = (Cards.WristBoardHand)index);
+                return true;
+            }
             string[] modeNames =
             {
                 Loc.Mod("boardmove_free"),

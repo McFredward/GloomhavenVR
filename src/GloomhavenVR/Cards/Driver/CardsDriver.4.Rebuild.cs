@@ -539,6 +539,7 @@ internal sealed partial class CardsDriver
         // TryCapturePose therefore snapshots the frame as well — see the block above
         // PlayTray.CaptureSwitchFrame — and RestorePose re-establishes it below.
         _hasSwitchPose = _tray.TryCapturePose(out _switchPos, out _switchRot, out _switchScale);
+        _tray.PrepareWristRebuild();
         _tray.Destroy();
         _dockAnimSuppressed = true; // issue 2: the rebuilt board re-populates its cards silently (no storm)
         _dirty = true;

@@ -524,6 +524,11 @@ internal static partial class VROptionsTab
                         new BoardRef("Cards", "Board", perBoard: false),
                         new BoardRef("Cards", "TrayScale", perBoard: false),
                         new BoardRef("Cards", "TrayFollow", perBoard: false),
+                        new BoardRef("Cards", "WristBoardEnabled", perBoard: false),
+                        new BoardRef("Cards", "WristBoardHand", perBoard: false),
+                        new BoardRef("Cards", "WristBoardOffsetMeters", perBoard: false),
+                        new BoardRef("Cards", "WristBoardAnglesDegrees", perBoard: false),
+                        new BoardRef("Cards", "WristBoardScale", perBoard: false),
                         // The fingertip pad around the board's small default-action buttons
                         // (ModBuild 403). Listed here by hand since the 2026-09-05 ruling (b) took
                         // it off the curated Brett & Karten page — a hitbox padding in authored

@@ -580,6 +580,7 @@ internal sealed partial class PlayTray
     /// </summary>
     internal void ReapplyOrientation()
     {
+        if (WantsWrist || WristControlsHidden) { TickWristAnchor(); return; }
         if (_root == null)
             return;
         CancelBoardReFace(); // an explicit settings edit owns the pose from this point
@@ -951,6 +952,25 @@ internal sealed partial class PlayTray
     /// </summary>
     internal void RestorePose(Vector3 position, Quaternion rotation, Vector3 localScale)
     {
+        if (WantsWrist || _wristReturnRebuild)
+        {
+            if (_root != null)
+            {
+                _root.SetPositionAndRotation(position, rotation);
+                _root.localScale = localScale;
+                _placed = true;
+                if (_wristReturnRebuild && !WantsWrist)
+                {
+                    _wristReturnRebuild = false;
+                    _wristReturning = true;
+                    BeginWristBlend();
+                    RefreshWristControls();
+                }
+                TickWristAnchor();
+            }
+            DiscardCapturedPose();
+            return;
+        }
         if (_root == null)
             return;
         CancelBoardReFace();
@@ -1048,6 +1068,7 @@ internal sealed partial class PlayTray
     /// </summary>
     internal void PersistPoseToConfig()
     {
+        if (WantsWrist || WristControlsHidden) return;
         if (_root == null)
             return;
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;

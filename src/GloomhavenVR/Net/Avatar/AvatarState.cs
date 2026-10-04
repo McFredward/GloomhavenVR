@@ -33,6 +33,7 @@ internal struct AvatarState
     public bool HasBoard;
     public RigPose BoardPose;
     public float BoardScale;
+    public bool WristBoard;
 
     public bool HeadValid;
     public RigPose Head;

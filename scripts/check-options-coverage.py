@@ -935,6 +935,18 @@ def main():
             f"member names, but it now has a localizing row (or is no longer offered). Delete the "
             f"line — the list may only shrink, and a stale entry hides the next real one.")
 
+    # Explicit 2026-10-04 user request: wrist-board angles and offsets belong in
+    # Advanced. Hand/size are the same attachment tuning, not an everyday setting.
+    # This finite exception is separate from the frozen unreviewed orphan backlog:
+    # require each real Advanced BoardRef and keep the ordinary toggle in its topic.
+    wrist_advanced = {("Cards", key) for key in (
+        "WristBoardHand", "WristBoardOffsetMeters", "WristBoardAnglesDegrees", "WristBoardScale")}
+    with open(os.path.join(OPTIONS, "VROptionsTab.7.TopicTrees.cs"), encoding="utf-8") as fh:
+        advanced_board = strip_comments(fh.read())
+    for section, key in wrist_advanced:
+        if f'new BoardRef("{section}", "{key}", perBoard: false)' not in advanced_board:
+            failures.append(f"Requested Advanced wrist-board tuning is not reachable: [{section}] {key}")
+
     # ---- 4. a split family -------------------------------------------------------------------
     curated_pairs = {(s, k) for _c, _ck, _s2, _sk, s, k, _cap in curated}
     families = {}
@@ -944,7 +956,7 @@ def main():
     for (section, word), members in sorted(families.items()):
         siblings = {k for (s, k) in keys if s == section and leading_word(k) == word}
         for sibling in sorted(siblings - members):
-            if (section, sibling) in KNOWN_ORPHANS:
+            if (section, sibling) in KNOWN_ORPHANS or (section, sibling) in wrist_advanced:
                 continue
             orphans.append((section, word, sibling))
     if "--bless" in sys.argv:

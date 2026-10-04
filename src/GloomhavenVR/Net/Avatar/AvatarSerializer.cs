@@ -42,8 +42,9 @@ internal static unsafe class AvatarSerializer
 {
     /// <summary>Upper bound on an encoded rig packet: header 12 + head 20 + 2 hands (20+5) +
     /// held-figure block (4+20) + hand-style byte + held-card pose (20) = 127, rounded up to
-    /// 159 including held-face/actor/map TLVs, plus 27 for the atomic board pose.</summary>
-    public const int MaxSize = 186;
+    /// 159 including held-face/actor/map TLVs, plus 27 for the atomic board pose
+    /// and 3 for optional wrist control visibility.</summary>
+    public const int MaxSize = 189;
 
     private const float QuatScale = 32767f;
 
@@ -134,6 +135,14 @@ internal static unsafe class AvatarSerializer
                 WritePose(buffer, ref i, in state.BoardPose);
                 WriteF32(buffer, ref i, state.BoardScale);
             }
+        }
+        // Normal-mode packets remain byte-identical. Absence clears this optional
+        // state on the next atomic board sample, including a removed/rebuilt board.
+        if (state.HasBoardPose && state.WristBoard)
+        {
+            buffer[i++] = NetProtocol.ExtIdBoardWrist;
+            buffer[i++] = 1;
+            buffer[i++] = 1;
         }
         return i;
     }
@@ -235,12 +244,12 @@ internal static unsafe class AvatarSerializer
             state.HasHeldCard = true;
             ReadPose(buffer, ref i, out state.HeldCardPose);
         }
-        bool face = false, actor = false;
+        bool face = false, actor = false, wrist = false;
         while (i < length)
         {
             byte id = buffer[i++];
             bool known = id == NetProtocol.ExtIdHeldCardFace || id == NetProtocol.ExtIdHeldFaceActor || id == NetProtocol.ExtIdHeldMapCard
-                || id == NetProtocol.ExtIdBoardRigPose;
+                || id == NetProtocol.ExtIdBoardRigPose || id == NetProtocol.ExtIdBoardWrist;
             if (i == length) { if (known) return false; break; }
             int size = buffer[i++];
             // Older v3 permits opaque future suffixes. Only our known atomic records impose
@@ -287,8 +296,15 @@ internal static unsafe class AvatarSerializer
                         || !Finite(state.BoardScale) || state.BoardScale <= 0f) return false;
                 }
             }
+            if (id == NetProtocol.ExtIdBoardWrist)
+            {
+                if (wrist || size != 1 || buffer[i] > 1) return false;
+                wrist = true;
+                state.WristBoard = buffer[i++] == 1;
+            }
             i = next;
         }
+        if (wrist && !state.HasBoardPose) return false;
         if (state.HasHeldMapCard && state.HeldFaceActorId != 0) return false;
         state.HasHeldCardFace = heldCard && face && actor;
         return true;

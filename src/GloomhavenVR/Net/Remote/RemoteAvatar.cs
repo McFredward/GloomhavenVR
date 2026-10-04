@@ -1356,6 +1356,7 @@ internal sealed class RemoteAvatar
     /// is deliberate: FOLLOW is the un-accented default look every previous build already drew.
     /// </summary>
     public bool TrayPinned { get; private set; }
+    public bool WristBoard => _boardPose.WristBoard;
 
     /// <summary>Index of the card the sender is SINGLING OUT in their hand fan, or -1. A position,
     /// never an identity (extension record 6); -1 both when nothing is lifted and when the sender
