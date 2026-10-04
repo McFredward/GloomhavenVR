@@ -46,6 +46,8 @@ def main():
         ('release-shared-pins', 'ScenarioCardPreparation.cs', 's_factory?.ClearPreparedBlanks();', 's_factory?.ClearPreparedBlanks(); CardArtPin.ReleaseAll("incorrect preparation reset");', 'reset releases only unused backings retaining native and remote active art plus shared pins'),
         ('no-pending-bound', 'ScenarioCardPreparation.cs', 'pending && Time.realtimeSinceStartup < s_deadline', 'pending', 'bounded preparation reaches readiness'),
         ('same-frame-repeat', 'ScenarioCardPreparation.cs', 'if (s_tickFrame == Time.frameCount) return;', 'if (s_tickFrame == Time.frameCount && Time.frameCount < 0) return;', 'repeated same-frame loader offers cannot multiply preparation work'),
+        ('cancel-clears-reserves', 'ScenarioCardPreparation.cs', 'internal static void CancelPreparation()\n    {', 'internal static void CancelPreparation()\n    {\n        s_factory?.ClearPreparedBlanks();', 'cancellation keeps completed reserves shared artwork and native live cards without restarting gameplay'),
+        ('cancel-releases-pins', 'ScenarioCardPreparation.cs', 'internal static void CancelPreparation()\n    {', 'internal static void CancelPreparation()\n    {\n        CardArtPin.ReleaseAll("incorrect job cancellation");', 'cancellation keeps completed reserves shared artwork and native live cards without restarting gameplay'),
     ]
     if args.case:
         requested = set(args.case)

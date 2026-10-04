@@ -154,6 +154,37 @@ public static class DiagnosticProgram
         Check(Addressables.Requests == artCount && tools.Focus == "class-2" && factory.All.Count == 2,
             "repeated scenario preparation and class switch reuse pins without changing native focus or live cards");
         Check(ScenarioCardPreparation.BackingsTarget == 19, "already live card wrappers are not duplicated during preparation");
+        // A timeout/fault can occur while the spinner is shown and ordinary input is live.
+        // Cancel only the job; a successfully built reservation remains immediately usable.
+        Addressables.AutoComplete = false;
+        Addressables.Art["cancel-pending"] = original;
+        tools.Skins["class-0"].TopActionHighlightSprite = new ReferenceToSprite("cancel-pending");
+        ScenarioCardPreparation.Begin(); yield return null; ScenarioCardPreparation.Tick();
+        for (int n = 0; !Addressables.Loads.ContainsKey("cancel-pending"); n++)
+        {
+            Check(n < 50, "cancellation pending original reference is started within the loading budget");
+            yield return null; ScenarioCardPreparation.Tick();
+        }
+        factory.PrepareOneBlank();
+        int beforeCancelBuilds = VRCard.Builds;
+        int beforeCancelReleases = Addressables.Releases;
+        Check(!ScenarioCardPreparation.IsReady && ScenarioCardPreparation.ReferencesPending > 0,
+            "cancellation exercise starts with real unfinished preparation");
+        ScenarioCardPreparation.CancelPreparation();
+        Check(ScenarioCardPreparation.IsReady && ScenarioCardPreparation.ReferencesPending == 0
+            && factory.PreparedBlankCount == 1 && factory.All.Count == 2 && adopted.GameCard == widget
+            && ScenarioCardPreparation.Classes == 4 && nativeImage.sprite == original
+            && Addressables.Releases == beforeCancelReleases && CardFaceMipBake.ReplacementFor(original) != null,
+            "cancellation keeps completed reserves shared artwork and native live cards without restarting gameplay");
+        yield return null; ScenarioCardPreparation.Tick();
+        Check(VRCard.Builds == beforeCancelBuilds && factory.PreparedBlankCount == 1,
+            "canceled preparation cannot resume pending work on another frame");
+        AbilityCardUI afterCancel = new GameObject("native-widget-after-cancel").AddComponent<AbilityCardUI>();
+        VRCard afterCancelCard = factory.GetOrCreate(afterCancel);
+        Check(VRCard.Builds == beforeCancelBuilds && factory.PreparedBlankCount == 0
+            && afterCancelCard.GameCard == afterCancel && afterCancelCard.HasAdoptedFace,
+            "ordinary input immediately consumes a completed reserve after cancellation");
+        Addressables.Loads["cancel-pending"].Done = true;
         ScenarioCardPreparation.Reset();
         // Async completion is observed from our handle, not by restarting native loaders.
         Addressables.AutoComplete = false;
