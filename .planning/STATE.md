@@ -1,5 +1,36 @@
 # State — where the project stands
 
+**Build 621 integration in progress, 2026-10-04: 1.1.0.**
+
+The supplied Gaming PC logs identify Build620 and have no mod Debug rows. Their
+zero-decoration counts prove execution, not the photographed leaves' removal.
+The wall report names actual split-frame emitters incorrectly owned by Wall5.
+Immutable inputs and hashes are retained in `.planning/debug/frame621/inputs/`.
+
+The integrated change admits 276 exact small original mesh identities across the
+complete original PCG catalogue, with owned decorative collision and reversible
+budgets. Large corpse/cross/coffin/skeleton assemblies, structural cores, actors,
+live animation controllers, lights and unknown collision remain protected.
+Original torch/candle attachments inherit the retained native frame's protection,
+including restitution from a previous pooled wall fade; nearby wall torches keep
+their historical animation.
+
+Wrist placement is opt-in and uses the existing full board, actual compensated
+tracked wrist and original docks. Advanced exposes hand, metre offsets, degree
+angles and size. Normal follow/fixed placement survives rig/style changes and
+restores on exit; the entire cap/bar is inactive while attached. Grip-bar carry
+and pinch tutorial tasks are omitted only while unavailable. Existing fast record70
+carries owner pose/scale; additive v3 record100 carries hidden controls. Observers
+use the owner's result and original interpolation, never their own wrist config.
+
+Focused worker proofs and the root tutorial/patch-scanner controls are recorded.
+The complete final integrated gate, strict build and compiled review are pending;
+no Build621 hardware or FPS outcome is claimed. The unrelated original cult-chain
+null-material reports are not claimed fixed. See
+[implementation and evidence limits](../docs/performance/FRAME-621-IMPLEMENTATION.md).
+
+---
+
 **PC graphics/loading follow-up complete, 2026-10-04: 1.1.0 / ModBuild 620.**
 
 The immutable supplied baseline is Gaming PC Build619/`6e36062e3`, not a new

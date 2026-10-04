@@ -56,7 +56,8 @@ usual rig path; the board remains attached to the current tracked wrist.
 The entire follow/fixed cap, engraving and grab handle are hidden while attached
 and during its return. Their colliders are inactive, so an invisible handle cannot
 compete with tracked anchoring. The settings gear, playable card slots and other
-original controls remain on the same board root.
+original controls remain on the same board root. The settings-aware VR controls
+lesson omits carry/resize tasks while the bar is absent; card tasks remain available.
 
 ## Multiplayer parity
 

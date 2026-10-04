@@ -72,7 +72,10 @@ collider restoration, live controller changes, actual arch attachment and sticky
 fade restitution, original board lifecycle, options and owner/observer state.
 The integration ledger records the complete final local attempt, source gates,
 wire goldens, strict build, surfaces and compiled review. Isolated fixture failures
-retain their original evidence and resume only their affected scope.
+retain their original evidence and resume only their affected scope. The patch
+inventory scanner also distinguishes C# literals, interpolation and comments from
+actual brackets: an authored clone-suffix literal exposed its prior false syntax
+failure. Nine focused lexer regressions preserve the unchanged patch membership.
 
 Automated evidence does not prove the final headset appearance. The next hardware
 checks are 0/low/100% small clutter with large decor retained; adjacent wall fade
