@@ -195,9 +195,9 @@ namespace GloomhavenVR.Quest
                     if (processed - reported >= 1048576) { Report(progress, phase, relative ?? Path.GetFileName(path), processed, total); reported = processed; }
                 }
                 string digest = sha.Finish();
+                if (processed != reported || processed == 0) Report(progress, phase, relative ?? Path.GetFileName(path), processed, total);
                 if (processed != total || !before.Equals(QuestContentHash.Identity(path)))
                     throw new InvalidDataException("Content changed while it was being hashed: " + path);
-                if (processed != reported || processed == 0) Report(progress, phase, relative ?? Path.GetFileName(path), processed, total);
                 return digest;
             }
         }

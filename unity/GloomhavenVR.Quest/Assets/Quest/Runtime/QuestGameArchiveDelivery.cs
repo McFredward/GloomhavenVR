@@ -27,19 +27,27 @@ namespace GloomhavenVR.Quest
             {
                 QuestGameContentFile file = manifest.files[i];
                 string target = Target(root, file.path);
-                if (File.Exists(target) && new FileInfo(target).Length == file.size
-                    && Hash(target, tracker.Stream(i + 1), "checking-files", file.path) == file.sha256)
+                bool matches = false;
+                QuestContentHash.FileIdentity before = default;
+                if (File.Exists(target) && new FileInfo(target).Length == file.size)
                 {
-                    verified.Add(file.path, QuestContentHash.Identity(target));
+                    before = QuestContentHash.Identity(target);
+                    matches = Hash(target, tracker.Stream(i + 1), "checking-files", file.path) == file.sha256;
+                    if (!before.Equals(QuestContentHash.Identity(target)))
+                        throw new InvalidDataException("Content changed during its verification: " + file.path);
+                }
+                if (matches)
+                {
+                    verified.Add(file.path, before);
                     ++result.VerifiedFiles; result.VerifiedBytes = checked(result.VerifiedBytes + file.size);
                 }
                 else { needed.Add(file.path); neededBytes = checked(neededBytes + file.size); }
             }
             if (needed.Count == 0)
             {
-                CheckVerified(manifest, root, verified);
                 result.ReusedContent = true;
                 tracker.Plan(0); tracker.Complete();
+                CheckVerified(manifest, root, verified);
                 return result;
             }
 
@@ -52,10 +60,11 @@ namespace GloomhavenVR.Quest
             if (File.Exists(archivePath))
             {
                 long size = new FileInfo(archivePath).Length;
+                QuestContentHash.FileIdentity before = QuestContentHash.Identity(archivePath);
                 if (size >= 22 && size <= QuestGameArchiveDelivery.MaximumArchiveBytes(manifest)
                     && Hash(archivePath, tracker.Stream(0), "verifying-archive", expectedArchive) == manifest.archiveSha256)
                 {
-                    archive = new QuestGameArchiveDelivery.VerifiedArchive(manifest, archivePath);
+                    archive = new QuestGameArchiveDelivery.VerifiedArchive(manifest, archivePath, before);
                     result.ReusedArchive = true;
                 }
             }
@@ -69,9 +78,9 @@ namespace GloomhavenVR.Quest
             else tracker.Plan(neededBytes);
 
             ExtractDelivered(manifest, archive, root, needed, verified, tracker, result);
+            tracker.Complete();
             CheckVerified(manifest, root, verified);
             archive.Check(manifest);
-            tracker.Complete();
             return result;
         }
 
@@ -312,9 +321,12 @@ namespace GloomhavenVR.Quest
             readonly string input, hash;
             readonly QuestContentHash.FileIdentity identity;
             internal VerifiedArchive(QuestGameContentManifest manifest, string path)
+                : this(manifest, path, QuestContentHash.Identity(path)) { }
+            internal VerifiedArchive(QuestGameContentManifest manifest, string path, QuestContentHash.FileIdentity before)
             {
                 Path = System.IO.Path.GetFullPath(path); input = manifest.inputKey; hash = manifest.archiveSha256;
-                identity = QuestContentHash.Identity(Path); Length = identity.Size;
+                identity = before; Length = identity.Size;
+                Check(manifest);
             }
             internal void Check(QuestGameContentManifest manifest)
             {
