@@ -2122,6 +2122,7 @@ internal static partial class WallSegmentFade
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
             ClearWallDrawTrace();
+            ClearCeilingCommitTrace();
             // Scenario scenes are additive; walls/volumes stream in — rescan promptly. Old
             // renderers die with their scene, so blocks need no explicit clearing here.
             _nextRescan = 0f;
@@ -5851,6 +5852,7 @@ internal static partial class WallSegmentFade
         {
             BeginCommitPhases();
             WallCommitGeometryReads.Begin(PerfConfig.SharedWallReadCacheOn);
+            bool completed = false;
             try
             {
                 // Figures first (round 7): nothing below may keep or re-take an actor renderer.
@@ -5981,15 +5983,19 @@ internal static partial class WallSegmentFade
                 // phase reads the room registry AND every segment's FINAL decision AABB.
                 using (Phase(CommitPhase.BoardVolume))
                     CommitBoardVolume();
+                completed = true;
             }
             finally
             {
                 // In a finally so a throwing phase still leaves the window arithmetic consistent
                 // — a diagnostic that lies after an exception is worse than none.
-                _cycleGeometryNativeReads += WallCommitGeometryReads.NativeReads;
-                _cycleGeometryReusedReads += WallCommitGeometryReads.ReusedReads;
+                long nativeReads = WallCommitGeometryReads.NativeReads;
+                long reusedReads = WallCommitGeometryReads.ReusedReads;
+                _cycleGeometryNativeReads += nativeReads;
+                _cycleGeometryReusedReads += reusedReads;
                 WallCommitGeometryReads.End();
                 EndCommitPhases();
+                NoteCeilingCommitTrace(nativeReads, reusedReads, completed);
             }
         }
 

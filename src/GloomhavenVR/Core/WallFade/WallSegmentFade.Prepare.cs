@@ -1245,6 +1245,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private bool CommitWouldChangeNothing(TilesOcclusionGenerator gen, float now)
         {
+            _cycleForcedByCeiling = false;
             if (!_committedSigValid || _live.Segments.Count == 0)
             {
                 _noSkipNoTable++;
@@ -1417,13 +1418,14 @@ internal static partial class WallSegmentFade
             }
             if (_skipRun >= MaxSkippedCyclesInARow)
             {
+                _cycleForcedByCeiling = true;
                 _noSkipCeiling++;
                 _lastNoSkipDetail =
                     $"THE STALENESS CEILING: {_skipRun} cycle(s) had been skipped in a row "
                     + $"({now - _lastCommitAt:F1}s of table age) and the fail-safe forced one "
-                    + "commit. This is the ONE term that can still produce a periodic stall — "
-                    + "if this count is the only non-zero refusal, the signature is complete "
-                    + "and the ceiling is what the next round should raise or remove";
+                    + "commit. Unchanged signatures do not prove full native collector closure: "
+                    + "enabled writes, cached material eligibility, hierarchy and attachment "
+                    + "geometry may change outside those signatures. The guard remains in force";
                 return false;
             }
             if (!SegmentBoundsStillWhereTheCommitLeftThem(out int probed, out string driftWhy))

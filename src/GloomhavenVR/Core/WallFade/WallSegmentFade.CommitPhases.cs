@@ -168,6 +168,48 @@ internal static partial class WallSegmentFade
         /// entries on purpose, but a future phase might not be), so the WORST-cycle figure is
         /// taken from this and not from a single scope's duration.</summary>
         private readonly float[] _phaseCycleMillis = new float[CommitPhaseCount];
+        private bool _cycleForcedByCeiling;
+        private int _ceilingCommitReports;
+        private const int CeilingCommitReportLimit = 8;
+
+        private void ClearCeilingCommitTrace()
+        {
+            _cycleForcedByCeiling = false;
+            _ceilingCommitReports = 0;
+        }
+
+        /// <summary>Attribute the unavoidable maintenance stall using the existing phase
+        /// accumulator, not another stopwatch or per-phase logging. The collector's native
+        /// safety backstop remains active until its full dependency closure can be proven.</summary>
+        private void NoteCeilingCommitTrace(long nativeReads, long reusedReads, bool completed)
+        {
+            if (!_cycleForcedByCeiling || !VRLog.Wants(VRLogLevel.Debug)
+                || _ceilingCommitReports >= CeilingCommitReportLimit) return;
+            _ceilingCommitReports++;
+            var report = new System.Text.StringBuilder("CEILING COMMIT: ");
+            report.Append(_ceilingCommitReports).Append('/').Append(CeilingCommitReportLimit)
+                .Append(" completed=").Append(completed).Append(" skipped=").Append(_skipRun)
+                .Append(" nativeBounds=").Append(nativeReads).Append(" reusedBounds=").Append(reusedReads);
+            float total = 0f, named = 0f;
+            for (int i = 0; i < CommitPhaseCount; i++) total += _phaseCycleMillis[i];
+            report.Append(" phaseTotal=").Append(total.ToString("F3")).Append("ms top=[");
+            int a = -1, b = -1, c = -1, d = -1;
+            for (int rank = 0; rank < 4; rank++)
+            {
+                int best = -1;
+                for (int i = 0; i < CommitPhaseCount; i++)
+                    if (i != a && i != b && i != c && i != d
+                        && (best < 0 || _phaseCycleMillis[i] > _phaseCycleMillis[best])) best = i;
+                if (best < 0) break;
+                if (rank > 0) report.Append("; ");
+                report.Append(CommitPhaseScopeNames[best]).Append('=').Append(_phaseCycleMillis[best].ToString("F3")).Append("ms");
+                named += _phaseCycleMillis[best];
+                if (rank == 0) a = best; else if (rank == 1) b = best; else if (rank == 2) c = best; else d = best;
+            }
+            report.Append("] remainder=").Append(Mathf.Max(0f, total - named).ToString("F3"))
+                .Append("ms; maintenance reuse is not enabled without complete native closure.");
+            VRLog.Debug(Name, report.ToString());
+        }
 
         /// <summary>Clear the per-cycle accumulators at the top of one commit. Called by
         /// <c>RescanCore</c> before its first phase.</summary>
