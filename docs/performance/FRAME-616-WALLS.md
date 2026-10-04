@@ -2,7 +2,9 @@
 
 ## Hardware evidence and cause
 
-The supplied Steam Frame capture is Build 615, commit `64db88dc9`. In
+The supplied Steam Frame capture is Build 615, commit `64db88dc9`. This document's
+Player.log references count physical LF lines (`rg -n`); the normalized parser
+in the hardware audit counts two additional embedded line separators. In
 `Player.log`, line 14842 identifies `CV_Floor_Basic_M (VR simple environment)`
 with shader `GloomhavenVR/ScenarioSimpleEnvironment` and `_WallFade_On=1` inside
 the wall-fade path. The simple shader does not implement that native channel.
@@ -77,8 +79,8 @@ invalid-callback-name mutation through the captured engine warning.
 The complete focused suite passes **342 production runtime assertions and 27
 causal negative controls**. Strict Release compilation passes with zero
 warnings/errors. Receipts, source hashes, native bundle provenance and failed
-development runs are retained under the gitignored worker path
-`.planning/debug/frame616-walls/`, with final receipt `run-jvkwyejq`.
+development runs are retained under
+`.planning/debug/frame616-review/walls/`, with final receipt `run-jvkwyejq`.
 
 The pixel test uses a documented GL surrogate of the native above-foundation
 occlusion-map branch. It does not execute the game's original Windows shader

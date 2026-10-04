@@ -78,6 +78,27 @@ the logs supply no application GPU busy measurement. A next capture should verif
 native wall appearance and use the repaired completed inventories to identify the
 remaining work. Automated checks do not certify headset smoothness or visual quality.
 
-Integration receipts, immutable Build615 compiled baseline and original hardware
-inputs live under `.planning/debug/frame616-review/`. The final validation counts
-are recorded in `.planning/STATE.md` after the integrated gate completes.
+## Integrated validation
+
+The complete attempt covers 118 local suites and fourteen source gates. It passed
+115 local suites immediately. Three bounded follow-ups retain the successful
+unrelated checks: native town-mirror production plus its publication diagnostic,
+the cabinet direction negative control at its intended marker, and the census
+roster control at the newly exercised earlier graphics boundary. No wait, retry or
+weakened runtime completeness predicate was added. The original mirror failure
+captured a native InvalidCastException; its cause remains unestablished. A passing
+resume is not proof of a repaired game/runtime error. Original failed receipts
+remain available.
+
+Golden vectors pass 307473 assertions. Bundle/index and config/patch/log surfaces
+pass; strict Release has zero warnings/errors and all five bilingual document
+pairs agree. Against immutable Build615, compiled changes comprise ten intended
+behavior types and eight exact build-constant consumers, with
+TownNpcSkinningQuality added and TownNpcDistanceDetail removed. Assembly
+references and resources are unchanged. This comparison separates actual new
+behavior from the older refactor baseline's historical differences.
+
+Integration receipts, the bounded-resume coverage ledger, immutable Build615
+compiled baseline and original hardware inputs live under
+`.planning/debug/frame616-review/`. Hardware appearance and smoothness remain
+unverified on Build616.

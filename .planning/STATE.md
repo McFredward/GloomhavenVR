@@ -34,9 +34,23 @@ per-frame normal-level stream. Attached camera handlers also stop invalid automa
 Unity message-signature errors, retaining their explicit event subscriptions.
 Hardware must verify appearance and completed census.
 
-Focused native and options/packaging controls pass. Integrated validation is in
-progress; final counts and immutable615 compiled scope will be recorded here
-before pushing. Receipts are under `.planning/debug/frame616-review/`.
+Integrated coverage contains all 118 local suites, 14 source gates and 307473
+wire/golden assertions. The full attempt passed 115 local suites immediately;
+three bounded resumes provide the remaining evidence. The native mirror's
+publication failure captured an original InvalidCastException; its cause remains
+unestablished, and passing resumed production is not a runtime fix claim. Added
+failure-only diagnostics retain the immediate completeness requirement. The
+cabinet direction control passes at its intended failure marker on its bounded
+resume; the roster control now targets the earlier equivalent graphics-boundary
+assertion. Original failures are retained, without rerunning unrelated green
+checks. Bundle/index and config/patch/log surfaces pass; strict Release has zero
+warnings/errors and the five bilingual document pairs agree. The compiled
+comparison against immutable Build615 has ten intended behavior types, eight
+exact build-constant consumers, TownNpcSkinningQuality added and
+TownNpcDistanceDetail removed. References and resources are identical. Receipts,
+source hashes and the independent coverage ledger are under
+`.planning/debug/frame616-review/`. Hardware appearance, completed inventories
+and residual hitch causes still require the next capture.
 
 ---
 

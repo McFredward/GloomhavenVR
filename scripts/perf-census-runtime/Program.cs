@@ -103,8 +103,10 @@ public static class InteractionProgram
             for(int i=0;i<12;i++)PerfSceneProfile.Tick(persistent.scene);
             Check(Pending(),"graphics boundary starts from a live partially visited census");
             PerfMonitor.MarkChange("fixture real graphics setting");
-            Check(!Pending()&&PerfFrameSplit.Roster==null,
+            Check(!Pending(),
                 "graphics changes still cancel incremental inventories");
+            Check(PerfFrameSplit.Roster==null,
+                "graphics changes drop the completed Zoom roster");
             // Resampling cooldown intentionally remains. Reset only the cadence seam, not the
             // production request/pump; every cancellation case must drop live Unity references.
             foreach(string reason in new[]{"debug","config","loading","scene"})

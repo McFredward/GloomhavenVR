@@ -27,7 +27,7 @@ CONTROLS = (
     ("queue-after-profile-fault", "ScopeMethods.cs", "if (_sceneProfileFaulted)", "if (false)", "profile summary fault cannot schedule a new census"),
     ("unsliced-textures", "PerfTextureCensus.cs", "yield return null;\n            Surf s = Surfaces[i];", "Surf s = Surfaces[i];", "texture native population is sliced per surface"),
     ("missing-lightweight-roster", "PerfSceneProfile.Incremental.cs", "bool full = PerfConfig.SceneProfileOn;", "bool full = PerfConfig.SceneProfileOn; if (!full) return;", "SceneProfile off still schedules lightweight census"),
-    ("retain-zoom-roster", "PerfSceneProfile.Incremental.cs", "PerfFrameSplit.ClearCensusRoster();", "// negative control: retain old epoch roster", "Debug off drops completed Zoom roster and pending census"),
+    ("retain-zoom-roster", "PerfSceneProfile.Incremental.cs", "PerfFrameSplit.ClearCensusRoster();", "// negative control: retain old epoch roster", "graphics changes drop the completed Zoom roster"),
     ("unbounded-pump", "PerfSceneProfile.Incremental.cs", "i < _objectsPerFrame", "i < 10000000", "object-count budget limits a native traversal slice"),
     ("missing-persistent-scene", "PerfSceneProfile.Incremental.cs", ": _persistentScene;", ": default;", "persistent scene renderer participates"),
     ("count-inactive", "PerfSceneProfile.Incremental.cs", "if (!node.gameObject.activeInHierarchy) continue;", "if (false) continue;", "active renderer population agrees with original Unity census"),
