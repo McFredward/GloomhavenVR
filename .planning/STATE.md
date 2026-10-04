@@ -1,5 +1,22 @@
 # State — where the project stands
 
+**Quest B622 follows verified B621 hardware defects, 2026-10-04: isolated feature.**
+
+The exact B621 capture confirms nonuniform Intro decoder/capture/consumer pixels
+but continued invisible headset imagery. The actual legacy screen shader expects
+an XR texture array while the mod supplies Tex2D captures. Quest now selects a
+centrally gated world shader with explicit 2D left/right inputs, GPU eye routing
+and persistent-material transition resets. Real two-eye GPU and actual Android
+mono/instancing/multiview banks cover the defect. Hardware scope discovery costs
+81–94 ms alongside approximately one-second GC-free spikes. The candidate phases
+seven exact native-owner queries while preserving inactive/persistent discovery
+and known-owner enforcement. Local whole-cycle regression is retained honestly;
+per-tick cost and Android improvement remain distinct evidence. Original hidden
+UI alpha does suppress the actual blur draw, so no guessed visibility workaround
+is applied. Audio, keyboard and confirmed hint/options behavior are preserved.
+Final native build/packaging evidence is pending; visible B622 results remain
+unverified. See [B622 hardware procedure](QUEST3-HARDWARE-622.md).
+
 **Quest B621 hardware candidate ready, 2026-10-04: isolated feature.**
 
 The exact B620 capture verifies installed APK/input and native movie decoding.

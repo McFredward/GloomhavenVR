@@ -1461,6 +1461,12 @@
       "weight": 30
     },
     {
+      "id": "quest-scope-discovery",
+      "command": ["python3", "scripts/quest-scope-discovery-tests.py"],
+      "groups": ["local"],
+      "weight": 30
+    },
+    {
       "id": "quest-menu-sampling",
       "command": ["python3", "scripts/quest-menu-sampling-tests.py"],
       "groups": ["local"],

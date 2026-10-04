@@ -55,6 +55,9 @@ def main():
     for relative in paths:
         assert hashlib.sha256((source_root / relative).read_bytes()).hexdigest() == hashes[relative]
     (run / "source-hashes.json").write_text(json.dumps(hashes, indent=2) + "\n")
+    # Keep source, actual banks and receipts; completed compiler caches are rebuildable.
+    for cache in ("Library", "Temp"):
+        shutil.rmtree(project / cache, ignore_errors=True)
     print("PASS Quest world-screen GLES: 3 actual banks, 6 stages, 18 defect controls")
 
 

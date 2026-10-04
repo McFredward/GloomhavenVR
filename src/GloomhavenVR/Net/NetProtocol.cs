@@ -564,6 +564,7 @@ internal static class NetProtocol
     // B621 scope discovery costs ~94ms on hardware over 14,338 scene behaviours,
     // alongside ~1-second GC-free frame spikes. Query only the seven exact original
     // scope types natively, retaining inactive/pooled/persistent/live hidden owners.
+    // Stagger their one-second deadlines; retain per-frame known-owner enforcement.
     // Validate actual GLES mono/instanced/multiview banks and rendered eye pixels.
     // These checks establish source behavior, not a visible headset improvement.
 

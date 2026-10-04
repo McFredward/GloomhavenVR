@@ -228,11 +228,11 @@ class ParallelSuitesTests(unittest.TestCase):
         quest620_local = {'quest-video-output'}
         quest620_shared = {'quest-options', 'quest-keyboard-input'}
         quest621_local = {'quest-scene-discovery'}
-        quest622_local = {'quest-world-screen-shaders'}
+        quest622_local = {'quest-world-screen-shaders', 'quest-scope-discovery'}
         self.assertEqual(local, LOCAL_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-service-lighting", "town-residents", "town-face", "town-activity", "town-voice", "town-native-audio", "town-native-veil"} | physical_town | frame600 | frame601_local | town602_local | frame603_shared | frame603_local | frame604_local | frame605_local | frame606_local | frame606_shared | frame607_shared | quest609_shared | quest612_shared | quest613_shared | frame608_local | quest611_local | quest618_shared | quest619_shared | quest619_local | quest618_local | quest620_shared | quest620_local | quest621_local | quest622_local)
         self.assertEqual(ci, CI_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-residents", "town-service-lighting", "town-activity-portable", "town-native-audio", "town-native-veil"} | frame600 | frame603_shared | frame606_shared | frame607_shared | quest609_shared | quest612_shared | quest613_shared | quest618_shared | quest619_shared | quest620_shared)
         self.assertEqual({s['id'] for s in runner.selected_suites(suites, 'source', (0, 1))}, SOURCE_INVENTORY)
-        self.assertEqual(len(local), 132)
+        self.assertEqual(len(local), 133)
         self.assertEqual(len(ci), 95)
         self.assertEqual(local-ci, {'presentation-send', 'town-face', 'town-activity', 'town-voice'} | physical_town | frame601_local | town602_local | frame603_local | frame604_local | frame605_local | frame606_local | frame608_local | quest611_local | quest619_local | quest618_local | quest620_local | quest621_local | quest622_local)
         self.assertEqual(ci-local, {'self-update-dialog', 'banner-pose', 'quest-seat', 'town-activity-portable'})
