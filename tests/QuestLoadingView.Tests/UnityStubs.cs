@@ -77,7 +77,14 @@ namespace UnityEngine
         public float depth;
         public Texture targetTexture;
     }
-    public class Material : Object { }
+    // Read-only compilation seam for the platform's separately GPU-tested screen helpers.
+    public class Shader : Object { public string name; public bool isSupported = true; }
+    public class Material : Object
+    {
+        public Shader shader = new();
+        public void SetTexture(string property, Texture texture) { }
+        public void SetFloat(string property, float value) { }
+    }
     public class Texture : Object { }
     public class Texture2D : Texture { public int width = 1024, height = 179; }
     public class Font : Object { }
