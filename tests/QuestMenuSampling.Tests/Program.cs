@@ -3,6 +3,7 @@ using System.IO;
 using System.Reflection;
 using GloomhavenVR.Core;
 using GloomhavenVR.WorldUI;
+using GloomhavenVR.Quest.Editor;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Sprites;
@@ -96,6 +97,53 @@ public static class InteractionProgram
             UnityEngine.Object.DestroyImmediate(original);
         }
     }
+    private static void ImportedGate()
+    {
+        QuestSpriteGeometryValidation.ValidateStartupAssets();
+        string path = QuestSpriteGeometryValidation.InputPath, original = File.ReadAllText(path);
+        var receipt = JsonUtility.FromJson<QuestSpriteGeometryValidation.SourceReceipt>(original);
+        receipt.assets[0].restoredAtlasRect.width += 1;
+        bool rejected = false;
+        try
+        {
+            File.WriteAllText(path, JsonUtility.ToJson(receipt));
+            try { QuestSpriteGeometryValidation.ValidateStartupAssets(); }
+            catch (InvalidOperationException error) { rejected = error.Message.Contains("geometry differs"); }
+        }
+        finally { File.WriteAllText(path, original); }
+        Check(rejected, "native imported geometry gate rejects altered receipt");
+    }
+    private static double ArtVariance(Color[] pixels)
+    {
+        double sum = 0, square = 0; int count = 0;
+        for (int y = 192; y < 320; y++) for (int x = 128; x < 384; x++)
+        { float value = pixels[y * 512 + x].r; sum += value; square += value * value; count++; }
+        return square / count - Math.Pow(sum / count, 2);
+    }
+    private static void PromotionPixels(Sprite art, Camera camera, RenderTexture target)
+    {
+        var canvas = new GameObject("native-promotion-canvas", typeof(RectTransform), typeof(Canvas)).GetComponent<Canvas>();
+        canvas.gameObject.layer = 30; canvas.renderMode = RenderMode.WorldSpace; canvas.worldCamera = camera;
+        canvas.transform.position = new Vector3(0, 0, 1); canvas.transform.localScale = Vector3.one / 480;
+        var background = Image(art, new Vector2(480, 234), new Vector2(.5f, .5f), false);
+        background.sprite = null; background.color = new Color(.65f, .5f, .3f, 1);
+        background.transform.SetParent(canvas.transform, false); background.gameObject.layer = 30;
+        var image = Image(art, new Vector2(480, 234), new Vector2(.5f, .5f), false);
+        image.transform.SetParent(canvas.transform, false); image.gameObject.layer = 30;
+        var original = AssetDatabase.LoadAssetAtPath<Material>("Assets/Material/Narrative dissolve material.mat");
+        Check(original != null && original.shader != null, "native DLC promotion material imports");
+        var material = new Material(original!); image.material = material;
+        camera.targetTexture = target; camera.cullingMask = 1 << 30; camera.backgroundColor = Color.black;
+        Canvas.ForceUpdateCanvases(); camera.Render();
+        double originalVariance = ArtVariance(Pixels(target));
+        material.renderQueue = 3000; image.SetMaterialDirty();
+        Canvas.ForceUpdateCanvases(); camera.Render();
+        double transparentQueueVariance = ArtVariance(Pixels(target));
+        Debug.Log("DLC original material queue pixel diagnostic: sprite=" + art.name + " originalQueue=" + original!.renderQueue
+            + " originalVariance=" + originalVariance + " transparentQueueVariance=" + transparentQueueVariance);
+        Check(transparentQueueVariance > .004, "owned DLC art rasterizes with an ordered native UI queue");
+        UnityEngine.Object.DestroyImmediate(canvas.gameObject); UnityEngine.Object.DestroyImmediate(material);
+    }
     public static int Run()
     {
         checks = 0;
@@ -144,6 +192,7 @@ public static class InteractionProgram
         string ownedBase = "Assets/Sprite/LoadingBase.asset";
         if (File.Exists(ownedBase))
         {
+            ImportedGate();
             Sprite nativeBase = AssetDatabase.LoadAssetAtPath<Sprite>(ownedBase);
             Sprite overlay = AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Sprite/LoadingOverlay.asset");
             Check(nativeBase != null && overlay != null, "owned spinner assets import");
@@ -160,6 +209,8 @@ public static class InteractionProgram
                 Vector4 uv = DataUtility.GetOuterUV(art!);
                 Check(uv.z > uv.x && uv.w > uv.y, "owned DLC image native outer UV is nondegenerate");
                 Debug.Log("DLC native sprite proof: " + name + " rect=" + art!.rect + " crop=" + art.textureRect + " UV=" + uv);
+                go.SetActive(false);
+                PromotionPixels(art, camera, quest);
             }
         }
         foreach (RenderTexture rt in new[] { desktop, quest, smallDesktop, smallQuest })

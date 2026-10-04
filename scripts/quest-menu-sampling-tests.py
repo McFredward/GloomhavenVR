@@ -41,7 +41,8 @@ def main():
     loading = (ROOT / "src/GloomhavenVR/WorldUI/LoadingIndicator.cs").read_text()
     layer = loading[loading.index("    private sealed class LayerArt\n"):loading.index("    /// <summary>\n    /// True only during an actual", loading.index("    private sealed class LayerArt\n"))]
     sources = {"Sampling.cs": (sharp / "QuestScreenSampling.cs").read_text(),
-               "Geometry.cs": (sharp / "LoadingIconGeometry.cs").read_text()}
+               "Geometry.cs": (sharp / "LoadingIconGeometry.cs").read_text(),
+               "EditorValidation.cs": (ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestSpriteGeometryValidation.cs").read_text()}
     factory = method((flat / "FlatScreenStereo.2.Compositor.cs").read_text(), "    internal static RenderTexture CreateColorRt(")
     sources["Factory.cs"] = "using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static class FlatScreenStereo\n{\n" + factory + "}\n"
     sources["Loading.cs"] = ("using UnityEngine;\nusing UnityEngine.UI;\nnamespace GloomhavenVR.WorldUI;\n"
@@ -65,6 +66,7 @@ def main():
         ("spinner-pivot-lost", "Loading.cs", "vertices[i] += new Vector3(x, y, 0f);", "vertices[i] += Vector3.zero;", "converted spinner quad preserves original trim scale and pivot")]
     if args.owned_project:
         variants.append(("native-trim-padding-discarded", "Geometry.cs", "Vector4 padding = DataUtility.GetPadding(sprite);", "Vector4 padding = Vector4.zero;", "native Image trim and preserveAspect drawing bounds"))
+        variants.append(("native-import-size-gate-removed", "EditorValidation.cs", "Close(rect.width, entry.restoredAtlasRect.width, entry.asset);", "/* injected: imported width not validated */", "native imported geometry gate rejects altered receipt"))
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     fixture = ROOT / "tests/QuestMenuSampling.Tests"
     manifest = {"result": str(run / "results.txt"), "cases": []}
@@ -87,6 +89,13 @@ def main():
             raise SystemExit(result.stdout + result.stderr + "\nCompilation failure is not a passing negative control.")
         manifest["cases"].append({"name": name, "dll": str(case / "bin/Release/netstandard2.1" / (assembly + ".dll")), "expected": expected})
     project = run / "unity"; editor = project / "Assets/Editor"; editor.mkdir(parents=True)
+    # Native JsonUtility requires Unity to register nested receipt types during
+    # plugin import; loading an otherwise unregistered assembly by reflection
+    # alone silently omits arrays of those custom types.
+    for case in manifest["cases"]:
+        imported = editor / Path(case["dll"]).name
+        shutil.copyfile(case["dll"], imported)
+        case["dll"] = str(imported)
     (project / "Packages").mkdir(); (project / "ProjectSettings").mkdir()
     shutil.copyfile(ROOT / "scripts/desktop-render-runtime/Editor/InteractionRunner.cs", editor / "InteractionRunner.cs")
     (project / "Packages/manifest.json").write_text('{"dependencies":{"com.unity.ugui":"1.0.0"}}\n')
@@ -95,6 +104,7 @@ def main():
     if args.owned_project:
         source = args.owned_project.resolve(strict=True)
         (project / "Assets/Sprite").mkdir(); (project / "Assets/Texture2D").mkdir()
+        (project / "Assets/Material").mkdir(); (project / "Assets/Shader").mkdir()
         names = [p.name for p in (source / "Assets/Sprite").glob("Loading*.asset")]
         names.extend(["DLC_Promo_JawsOfTheLion.asset", "DLC_Promo_SoloScenarios_0.asset"])
         wanted = set()
@@ -104,11 +114,20 @@ def main():
             for original in (path, Path(str(path) + ".meta")):
                 target = project / "Assets/Sprite" / original.name
                 shutil.copyfile(original, target); owned[str(original)] = hashlib.sha256(original.read_bytes()).hexdigest()
-        for meta in (source / "Assets/Texture2D").glob("*.meta"):
+        for relative in ("Material/Narrative dissolve material.mat", "Shader/UI_Dissolve mask.shader"):
+            original = source / "Assets" / relative
+            if original.suffix == ".mat":
+                wanted.update(re.findall(r"m_Texture: \{fileID: 2800000, guid: ([a-f0-9]{32}),", original.read_text()))
+            for path in (original, Path(str(original) + ".meta")):
+                shutil.copyfile(path, project / "Assets" / Path(relative).parent / path.name)
+                owned[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+        for meta in (source / "Assets").rglob("*.meta"):
             guid = re.findall(r"^guid: ([a-f0-9]{32})$", meta.read_text(), re.M)
             if guid and guid[0] in wanted:
                 for original in (meta, Path(str(meta)[:-5])):
-                    shutil.copyfile(original, project / "Assets/Texture2D" / original.name)
+                    target = project / original.relative_to(source)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(original, target)
                     owned[str(original)] = hashlib.sha256(original.read_bytes()).hexdigest()
                 wanted.remove(guid[0])
         assert not wanted, "owned sprite texture closure missing: " + str(wanted)
