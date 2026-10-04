@@ -373,8 +373,12 @@ public static partial class MirrorProgram
         }
         GloomhavenVR.WorldUI.TownServicePresentation.CounterFurniture = null;
         GloomhavenVR.WorldUI.TownServicePresentation.Ritual = null;
+        GloomhavenVR.WorldUI.TownServicePresentation.Active = false;
+        GloomhavenVR.WorldUI.TownServicePresentation.Service = 0;
+        GloomhavenVR.WorldUI.TownServicePresentation.Session = 0;
         GloomhavenVR.WorldUI.TownServiceSync.BindModules = false;
         TownServiceMirror.Shutdown();
+        TownServiceMirror.SharedFrameForRemote = null;
     }
     private static readonly List<GameObject> Objects = new();
     private static readonly List<Object> Assets = new();
@@ -984,6 +988,9 @@ public static partial class MirrorProgram
         // Sink/provenance mapping are fixtures; production Tick chooses every published input.
         TownServiceMirror.ResetNetwork();
         GloomhavenVR.WorldUI.TownServiceSync.ResetNetwork();
+        GloomhavenVR.WorldUI.TownServicePresentation.Active = true;
+        GloomhavenVR.WorldUI.TownServicePresentation.Service = 1;
+        GloomhavenVR.WorldUI.TownServicePresentation.Session = 1200;
         var shared = Go("publisher-frame").transform;
         var window = Go("suppressed-native-merchant").AddComponent<GloomhavenVR.WorldUI.PublisherWindow>();
         var catalog = new GloomhavenVR.WorldUI.TownServiceCatalog();
@@ -1496,8 +1503,15 @@ public static partial class MirrorProgram
             TownServiceMirror.BeginSession(1, 101, shared, source);
             TownServiceMirror.RegisterModule(10, 1, source);
             List<byte[]> baseline = Capture(); Check(baseline.Count == 2, "first capture emits module and manifest");
-            Receive(1, baseline); TownServiceMirror.InteractionOwner(1);
-            for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+            // Sender preparation can consume an entire cold editor frame. Deliver
+            // on a fresh receiver frame so its real stale timeout starts on arrival.
+            yield return null;
+            Receive(1, baseline);
+            // The original claim settles on Unity's unscaled clock. Wait for that
+            // protocol condition within a fixed bound rather than a near-threshold
+            // frame delay, then perform the same single playback tick and assertion.
+            for (float until = Time.unscaledTime + .5f;
+                TownServiceMirror.InteractionOwner(1) != 1 && Time.unscaledTime < until;) yield return null;
             TownServiceMirror.TickRemote(_ => observer);
             var copy = Remote(1); Check(copy != null, "owner packet creates inert observer module");
             Inert(copy!, awakes, enables);

@@ -78,33 +78,44 @@ public static partial class MirrorProgram
             Check(Remote(-3,1)==null,"second visitor cannot replace the active shared rack owner");
             TownServiceMirror.RemovePeer(3);
             for(float wait=Time.unscaledTime+.08f;Time.unscaledTime<wait;)yield return null;TownServiceMirror.TickRemote(_=>observer);
-            Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(-2,1)!.Root.rotation,Quaternion.Euler(0,15,0))<.1f,"missing one dependency keeps the complete outgoing page at rest");
+            float pendingAge=TownServiceMirror.PublicRack!.Elapsed;
+            Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(-2,1)!.Root.rotation,
+                Quaternion.Euler(0,15+360*TownRackState.Progress(pendingAge),0))<.1f,
+                "missing one dependency preserves the owner's current intermediate rack pose");
+            Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(-2,1)!.Root.rotation,Quaternion.Euler(0,15,0))>15f,
+                "clock reconstructs the full revolution after coalesced owner poses");
+            for(ushort id=3;id<98;id++)Check(RemoteGate(-2,id).alpha==(id<51?1f:0f),
+                "outgoing page remains whole before the opaque halfway point");
+            Vector3 corner = new Vector3(.07f,.08f,0);
+            Vector3 rackCorner = rack.InverseTransformPoint(cards[6].TransformPoint(corner));
+            Check(Vector3.Distance(Remote(-2,6)!.Root.TransformPoint(corner),Remote(-2,1)!.Root.TransformPoint(rackCorner))/scale<.001f,
+                "native card corners inherit the rotating rack at every world scale");
+            // Keep the real original price absent past the owner's replacement
+            // boundary. The old page must close on time and the incomplete new page
+            // must remain one dependency group, while the mechanism keeps moving.
+            while(TownServiceMirror.PublicRack!.Elapsed<.46f)
+            {TownServiceMirror.TickRemote(_=>observer);yield return null;}
+            TownServiceMirror.TickRemote(_=>observer);
+            pendingAge=TownServiceMirror.PublicRack!.Elapsed;
+            Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(-2,1)!.Root.rotation,
+                Quaternion.Euler(0,15+360*TownRackState.Progress(pendingAge),0))<.1f,
+                "missing target original cannot pause motion at the owner's page boundary");
+            Check(Remote(-2,98)==null,"withheld original price remains a real absent dependency");
+            for(ushort id=3;id<98;id++)Check(RemoteGate(-2,id).alpha==0f,
+                "owner replacement boundary hides the obsolete page and every incomplete target fragment");
+            Check(Remote(-2,4)!.Root.GetComponent<MeshRenderer>().forceRenderingOff
+                &&Remote(-2,52)!.Root.GetComponent<MeshRenderer>().forceRenderingOff,
+                "original physical bodies share the incomplete page gate");
             Receive(2,new[]{withheld});TownServiceMirror.TickRemote(_=>observer);
-            Check(TownServiceMirror.PublicRack!.Elapsed >= .17f,
+            Check(TownServiceMirror.PublicRack!.Elapsed >= .46f,
                 "late cabinet dependencies seek the current owner age without restarting the revolution");
-            float started=Time.unscaledTime;bool sawQuarter=false,sawBack=false;
-            while(Time.unscaledTime-started<.96f)
-            {
-                TownServiceMirror.TickRemote(_=>observer);
-                float elapsed=Time.unscaledTime-started;
-                if(!sawQuarter&&elapsed>.20f)
-                {
-                    sawQuarter=true;
-                    Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(-2,1)!.Root.rotation,Quaternion.Euler(0,15,0))>15f,"clock reconstructs the full revolution after coalesced owner poses");
-                    Check(RemoteGate(-2,3).alpha==1f&&RemoteGate(-2,51).alpha==0f,"outgoing page remains whole before the opaque halfway point");
-                    Vector3 corner = new Vector3(.07f,.08f,0);
-                    Vector3 rackCorner = rack.InverseTransformPoint(cards[6].TransformPoint(corner));
-                    Check(Vector3.Distance(Remote(-2,6)!.Root.TransformPoint(corner),Remote(-2,1)!.Root.TransformPoint(rackCorner))/scale<.001f,
-                        "native card corners inherit the rotating rack at every world scale");
-                }
-                if(!sawBack&&elapsed>.46f)
-                {
-                    sawBack=true;
-                    for(ushort id=3;id<=98;id++)Check(RemoteGate(-2,id).alpha==(id<51?0f:1f),"all forty-eight face body price modules switch atomically");
-                    Check(!Remote(-2,52)!.Root.GetComponent<MeshRenderer>().forceRenderingOff,"incoming physical body appears with its face");
-                }
-                yield return null;
-            }
+            for(ushort id=3;id<=98;id++)Check(RemoteGate(-2,id).alpha==(id<51?0f:1f),
+                "all forty-eight face body price modules switch atomically");
+            Check(!Remote(-2,52)!.Root.GetComponent<MeshRenderer>().forceRenderingOff,
+                "incoming physical body appears with its face");
+            float started=Time.unscaledTime;
+            while(Time.unscaledTime-started<.50f)
+            {TownServiceMirror.TickRemote(_=>observer);yield return null;}
             // Owner end clock may be delayed, but the explicit one-shot never repeats.
             Check(Quaternion.Angle(Quaternion.Inverse(observer.rotation)*Remote(-2,1)!.Root.rotation,Quaternion.Euler(0,15,0))<.1f,"full revolution finishes at the exact authored rest pose at every rig scale");
             // Finish the owner clock, then verify a subsequent manual crank pull remains authored.

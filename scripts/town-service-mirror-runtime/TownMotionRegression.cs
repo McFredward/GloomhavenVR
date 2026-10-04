@@ -282,8 +282,25 @@ public static partial class MirrorProgram
             TownServiceMirror.BeginSession(2, 772, shared, shared);
             TownServiceMirror.RegisterModule(17, 7, source, address: "ritual.purse|");
             TownServiceMirror.RegisterMotionHand(preview, hand, followsRotation: false);
-            FastCapture baseline = CaptureFast(); Receive(1, baseline.Artwork); DeliverMotion(1, baseline);
-            IEnumerator settle = FastSettle(observer, .12f); while (settle.MoveNext()) yield return settle.Current;
+            FastCapture baseline = CaptureFast();
+            // Full-suite catalog setup may spend seconds in this sender frame.
+            // Model actual arrival on a fresh receiver clock before its stale and
+            // interaction-claim windows begin; keep the original cold snapshot.
+            yield return null;
+            Receive(1, baseline.Artwork); DeliverMotion(1, baseline);
+            // The real send queue completes fully delivered original snapshots.
+            // Its production callback starts their heartbeat at actual completion,
+            // rather than leaving this warm body indefinitely queued at cold time.
+            foreach(byte[] bytes in baseline.Artwork)
+            {
+                TownServiceCodec.TryRead(bytes,bytes.Length,out TownServiceFrame? delivered);
+                TownServiceDelivery.Completed?.Invoke(delivered!);
+            }
+            for(float until=Time.unscaledTime+.5f;
+                TownServiceMirror.InteractionOwner(2)!=1&&Time.unscaledTime<until;)
+            {TownServiceMirror.TickRemote(_=>observer);yield return null;}
+            TownServiceMirror.TickRemote(_=>observer);
+            IEnumerator settle;
             TownServiceBinding copy = Remote(1, 17)!;
             Check(copy != null && copy.Root.parent.GetComponent<CanvasGroup>().alpha == 0f,
                 "closed original purse is prewarmed without exposing a hidden wrist");
