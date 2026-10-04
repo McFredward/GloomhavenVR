@@ -241,7 +241,7 @@ internal sealed class TownServiceTempleOffering : IDisposable
         _gate.alpha = _visibility;
         _gate.interactable = shown && _visibility >= .99f;
         foreach (TownServiceRitual.Piece piece in _ritual.Pieces)
-            piece.SetVisibility(piece.Token.IsHeld ? 1f : _visibility);
+            piece.SetVisibility(TownServicePursePresentation.Visibility(piece.Token, _visibility));
     }
 
     private bool ExitIfAway()

@@ -14,9 +14,10 @@ import subprocess
 import tempfile
 
 
-def method(source, signature):
-    start = source.index("    " + signature)
-    end = source.index("\n    }", start) + len("\n    }")
+def method(source, signature, indent="    "):
+    start = source.index(indent + signature)
+    closing = "\n" + indent + "}"
+    end = source.index(closing, start) + len(closing)
     return source[start:end]
 
 
@@ -31,6 +32,7 @@ def sources(root):
     paths = {
         "Token.cs": "WorldUI/TownServices/TownServiceToken.cs",
         "TempleBowl.cs": "WorldUI/TownServices/TownServiceTempleBowl.cs",
+        "PursePresentation.cs": "WorldUI/TownServices/TownServicePursePresentation.cs",
         "PalmConfirmation.cs": "WorldUI/TownServices/TownServicePalmConfirmation.cs",
         "Surface.cs": "WorldUI/TownServices/TownServiceSurface.cs",
         "OfferingPose.cs": "WorldUI/TownServices/TownServiceOfferingPose.cs",
@@ -53,6 +55,29 @@ def sources(root):
     bound = {name: raw[name] for name in ("Token.cs", "OfferingPose.cs", "Presentation.cs", "Handoff.cs", "WindowMask.cs", "NativeListVeil.cs", "ConfirmationMask.cs", "PalmConfirmation.cs", "Surface.cs")}
     bound['TempleBowl.cs'] = raw['TempleBowl.cs']
     bound['NativePurse.cs'] = purse_fixture
+    # The transport adapter retains the real registration/ancestor lookup methods;
+    # the purse selector and the real Piece opacity method are production-bound.
+    bound['PursePresentation.cs'] = raw['PursePresentation.cs'].replace('TownServiceMirror.RegisterMotionHand', 'PurseMotionBindings.RegisterMotionHand')
+    motion = (base / 'Net/TownServices/TownServiceMirror.Motion.cs').read_text()
+    bound['PurseMotionBindings.cs'] = ('using System; using System.Collections.Generic; using GloomhavenVR.Hands; using UnityEngine; '
+        'namespace GloomhavenVR.Hands { internal static class VRHands { internal static VRHand? Left, Right; } } '
+        'namespace GloomhavenVR.WorldUI { internal static class PurseMotionBindings { '
+        'private sealed class MotionHandReference { internal VRHand Hand = null!; internal bool FollowsRotation; } '
+        'private static readonly Dictionary<Transform, MotionHandReference> MotionHands = new(); private static ulong _motionHandRevision; '
+        'internal static void Clear() { MotionHands.Clear(); VRHands.Left = VRHands.Right = null; }\n'
+        + method(motion, 'internal static void RegisterMotionHand(Transform source, VRHand? hand, bool followsRotation = true)') + '\n'
+        + method(motion, 'private static VRHand? MotionHand(Transform source, out bool followsRotation)').replace('private static VRHand?', 'internal static VRHand?', 1) + '\n} }\n')
+    hashes['Net/TownServices/TownServiceMirror.Motion.cs'] = hashlib.sha256(motion.encode()).hexdigest()
+    sync = (base / 'WorldUI/TownServices/TownServiceSync.cs').read_text()
+    offering = (base / 'WorldUI/TownServices/TownServiceTempleOffering.cs').read_text()
+    for caller, text in (
+        ('TownServicePursePresentation.RegisterMotion(piece.Token, piece.Root, piece.Body, previewHand);', sync),
+        ('piece.SetVisibility(TownServicePursePresentation.Visibility(piece.Token, _visibility));', offering),
+    ):
+        if text.count(caller) != 1:
+            raise RuntimeError('Purse transition selector is not called by its production owner: ' + caller)
+    hashes['WorldUI/TownServices/TownServiceSync.cs'] = hashlib.sha256(sync.encode()).hexdigest()
+    hashes['WorldUI/TownServices/TownServiceTempleOffering.cs'] = hashlib.sha256(offering.encode()).hexdigest()
     hashes['scripts/town-purse-runtime/NativePurse.cs'] = hashlib.sha256(purse_fixture.encode()).hexdigest()
     # Native audio suppression has its own integration/build coverage. This fixture binds the
     # modal handoff methods and deliberately excludes the independent Harmony patch boundary.
@@ -85,6 +110,16 @@ def sources(root):
     interface = sweep[sweep.index('internal interface IFanSweepTarget'):sweep.index('\n}', sweep.index('internal interface IFanSweepTarget')) + 2]
     bound["ItemContracts.cs"] = 'using UnityEngine; namespace GloomhavenVR.Cards { internal static class VRCard { ' + constant + ' }\n' + interface + '\n}'
     ritual = (base / "WorldUI/TownServices/TownServiceRitual.cs").read_text()
+    bound['PursePieceVisibility.cs'] = ('using System; using System.Collections.Generic; using UnityEngine; '
+        'namespace GloomhavenVR.WorldUI { internal static class TownServiceCardBody { internal static void SetVisibility(GameObject body, float visibility) {} } '
+        'internal sealed class PursePieceVisibility { private float _requestedVisibility; private readonly bool _offering = true; '
+        'private readonly Func<bool> _visible = () => true; private readonly TownServiceToken Token; private readonly CanvasGroup _purseGate; '
+        'private readonly Transform Body; private readonly string BodyKey = "ritual.purse"; private readonly List<Material> _coinMaterials = new(); '
+        'internal CanvasGroup Gate => _purseGate; '
+        'internal PursePieceVisibility(TownServiceToken token, Transform root, Transform body) { Token = token; Body = body; '
+        '_purseGate = root.gameObject.AddComponent<CanvasGroup>(); foreach (MeshRenderer renderer in body.GetComponentsInChildren<MeshRenderer>(true)) '
+        '_coinMaterials.AddRange(renderer.sharedMaterials); }\n'
+        + method(ritual, 'internal void SetVisibility(float visibility)', indent='        ') + '\n} }\n')
     inscription = method(ritual, "internal sealed class Inscription : IDisposable")
     bound["Inscription.cs"] = "using System; using GloomhavenVR.Net; using UnityEngine; namespace GloomhavenVR.WorldUI { internal sealed partial class TownServiceRitual { " + inscription + " } }"
     hashes["WorldUI/TownServices/TownServiceRitual.cs"] = hashlib.sha256(ritual.encode()).hexdigest()
@@ -166,6 +201,9 @@ def mutations():
         ("purse-label-pick", "Token.cs", "if (_uprightProp && _physical != null)\n        {\n            // Only original mesh", "if (false && _physical != null)\n        {\n            // Only original mesh", "purse collider encloses the original body independently of inscriptions"),
         ("purse-double-scale", "Token.cs", "physical.TransformVector(neck)", "physical.TransformDirection(neck)", "original purse neck stays at the tracked pinch through map scales"),
         ("purse-labelled-root-seat", "Token.cs", "- _physical.TransformVector(bottom)", "- Vector3.zero", "accepted original purse bottom meets its actual authored bowl seat"),
+        ("purse-stale-preview-hand", "PursePresentation.cs", "token.IsHeld ? token.HoldingHand : token.PhysicalAtHome ? previewHand : null", "previewHand", "held labelled purse body inscriptions and tooltip share the actual grabbing hand"),
+        ("purse-bowl-preview-hand", "PursePresentation.cs", "token.PhysicalAtHome ? previewHand : null", "previewHand", "bowl deposit clears every labelled purse hand attachment"),
+        ("purse-closed-fan-sink", "PursePresentation.cs", "token.IsMoving ? 1f : fanVisibility", "token.IsHeld ? 1f : fanVisibility", "closed fan preserves the pending original bowl purse opacity"),
         ("dead-inscription-root", "Inscription.cs", "if (_root != null) UnityEngine.Object.Destroy(_root.gameObject);", "UnityEngine.Object.Destroy(_root.gameObject);", "destroyed inscription root can be disposed without blocking native teardown"),
         ("enhancement-icon-outside", "PalmConfirmation.cs", "i == 4 ? -.14f : .075f", "i == 4 ? -.80f : .075f", "all original enhancement confirmation content stays together below the palm"),
         ("parked-reclaim", "Token.cs", "(_offering != null && TownServiceMerchantHandoff.CanReclaim(this))", "false", "actual routed grab reclaims parked stock through owned modal gate"),
@@ -232,6 +270,7 @@ def main():
     parser.add_argument("--unity-ui", type=Path, help="Real UnityEngine.UI.dll (never metadata-only RefAsm)")
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
     parser.add_argument("--only-mutation", action="append", help="Run production and selected negative controls")
+    parser.add_argument("--purse-transition-only", action="store_true", help="Run only the original purse home/grab/bowl/return transition probe")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
@@ -308,6 +347,7 @@ def main():
                "-executeMethod", "InteractionRunner.Start", "-interactionManifest", str(manifest_path),
                "-nativeBookObj", str(native_book), "-logFile", str(log)]
     command += ['-nativePurseData', str(native_purse)]
+    if args.purse_transition_only: command += ['-purseTransitionsOnly']
     completed = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=240)
     result = Path(manifest["result"])
     if result.exists():

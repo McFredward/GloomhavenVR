@@ -26,6 +26,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     private readonly Func<object?> _contextIdentity;
     private readonly Transform _mat;
     private readonly Transform? _physical;
+    private readonly Transform? _physicalHomeParent;
     private readonly Func<bool>? _drop, _eligible, _inspect;
     private readonly Func<Vector3, bool>? _dropLocation;
     private readonly Action? _grabbing;
@@ -53,6 +54,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     private float _settledAt;
     internal float PhysicalVisibility { get; private set; } = 1f;
     internal bool IsPhysical => _physical != null;
+    internal bool PhysicalAtHome => _physical != null && ReferenceEquals(_physical.parent, _physicalHomeParent);
     internal bool IsMoving => _hand != null || _returning || _offering != null || _settling && PhysicalVisibility > 0f;
     private readonly GameObject _pick;
     private readonly BoxCollider _shape;
@@ -112,6 +114,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         IsItemCard = physical != null && source.GetComponent<ItemCardUI>() != null;
         _source = source; _button = button; _identity = identity; _contextIdentity = contextIdentity;
         _sessionAlive = sessionAlive; _mat = mat; _physical = physical;
+        _physicalHomeParent = physical != null ? physical.parent : null;
         if (uprightProp && physical != null)
             _hasPhysicalBounds = ReadPhysicalBounds(physicalBody ?? physical, physical, out _physicalBounds);
         _dropLocation = dropLocation; _grabbing = grabbing;

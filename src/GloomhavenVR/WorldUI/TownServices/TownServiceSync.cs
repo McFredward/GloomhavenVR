@@ -216,8 +216,7 @@ internal sealed partial class TownServiceSync
                         // TempleOffering authors this exact wrist preview frame. A grabbed
                         // body reparents to its actual GrabAnchor and a deposited body leaves
                         // that frame, so neither is guessed from observer proximity.
-                        TownServiceMirror.RegisterMotionHand(piece.Root, previewHand, followsRotation: false);
-                        TownServiceMirror.RegisterMotionHand(piece.Body, piece.Token.HoldingHand, followsRotation: false);
+                        TownServicePursePresentation.RegisterMotion(piece.Token, piece.Root, piece.Body, previewHand);
                         PriorityRoots.Add(piece.Root); PriorityRoots.Add(piece.Body);
                         if (piece.Content != null) PriorityRoots.Add(piece.Content);
                     }

@@ -1103,10 +1103,105 @@ public static class InteractionProgram
         }
     }
 
+    private static void PurseTransitions()
+    {
+        foreach (bool paid in new[] { false, true })
+        {
+            var home = Probe.Go("Original temple fan frame").transform;
+            var bowl = Probe.Go("Actual priestess bowl frame").transform;
+            bowl.position = new Vector3(2f, 1f, 0f);
+            var labelled = Probe.Go("Original labelled purse", home).transform;
+            Transform body = NativePurse.Create(labelled);
+            var inscription = (RectTransform)Probe.Go("Original purse inscription", labelled).transform;
+            inscription.sizeDelta = new Vector2(.125f, .15f);
+            inscription.gameObject.AddComponent<Image>();
+            var detail = Probe.Go("Original held purse tooltip", labelled).transform;
+            var button = Probe.Go("Original native donate button").AddComponent<Button>();
+            var preview = new VRHand { Side = HandSide.Left, TriggerUp = true };
+            var grabbing = new VRHand { Side = HandSide.Right, TriggerUp = true };
+            VRHands.Left = preview; VRHands.Right = grabbing;
+            object identity = new(); int requests = 0;
+            using var token = new TownServiceToken(inscription, button, () => identity, () => identity, () => true,
+                bowl, labelled, drop: () => { requests++; return true; }, eligible: () => true,
+                inspect: () => true, uprightProp: true, physicalBody: body,
+                dropLocation: world => TownServiceTempleBowl.Contains(bowl, world));
+            var piece = new PursePieceVisibility(token, labelled, body);
+            Transform[] originals = { labelled, body, inscription, detail };
+            void Attachment(VRHand? expected, string message)
+            {
+                TownServicePursePresentation.RegisterMotion(token, labelled, body, preview);
+                foreach (Transform original in originals)
+                    Check(ReferenceEquals(PurseMotionBindings.MotionHand(original, out _), expected), message);
+            }
+            Check(token.PhysicalAtHome, "original purse home provenance exists before its first pickup");
+            Attachment(preview, "home original labelled purse and body follow their preview hand");
+            piece.SetVisibility(TownServicePursePresentation.Visibility(token, 0f));
+            Check(piece.Gate.alpha == 0f, "idle original purse retains its closed fan opacity");
+            piece.SetVisibility(TownServicePursePresentation.Visibility(token, 1f));
+            token.Tick(1f);
+            Check(grabbing.Grabber.ForceGrab(token, true), "actual original purse can be picked up by the other tracked hand");
+            token.Tick(1f);
+            Check(!token.PhysicalAtHome && token.IsHeld && labelled.parent == grabbing.Rig.GrabAnchor,
+                "real purse pickup reparents the entire labelled root to the grabbing hand");
+            Attachment(grabbing, "held labelled purse body inscriptions and tooltip share the actual grabbing hand");
+            MeshRenderer renderer = body.GetComponentInChildren<MeshRenderer>();
+            labelled.position += bowl.TransformPoint(TownServiceTempleBowl.Center) - renderer.bounds.center;
+            grabbing.Grabber.ReleaseTick();
+            Check(requests == 1 && !token.IsHeld && token.IsMoving && !token.PhysicalAtHome && labelled.parent == bowl,
+                "actual release parks the original labelled purse once at the native bowl");
+            Attachment(null, "bowl deposit clears every labelled purse hand attachment");
+            Vector3 deposited = renderer.bounds.center;
+            preview.Rig.GrabAnchor.position += Vector3.right;
+            grabbing.Rig.GrabAnchor.position += Vector3.left;
+            Check(Vector3.Distance(deposited, renderer.bounds.center) < .00001f,
+                "the deposited native purse does not follow either moving owner hand");
+            piece.SetVisibility(TownServicePursePresentation.Visibility(token, 0f));
+            Check(piece.Gate.alpha == 1f, "closed fan preserves the pending original bowl purse opacity");
+            token.CompletePhysicalOffering(paid);
+            if (paid)
+            {
+                typeof(TownServiceToken).GetField("_settledAt", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .SetValue(token, Time.unscaledTime - .14f);
+                token.Tick(1f);
+                piece.SetVisibility(TownServicePursePresentation.Visibility(token, 0f));
+                Check(piece.Gate.alpha > .1f && piece.Gate.alpha < .9f
+                    && Mathf.Abs(piece.Gate.alpha - token.PhysicalVisibility) < .00001f,
+                    "closed fan preserves the actual native purse sink opacity");
+                Check(renderer.bounds.center.y < deposited.y,
+                    "original purse sink advances at the actual bowl while the owner fan is closed");
+                Attachment(null, "bowl deposit clears every labelled purse hand attachment");
+                typeof(TownServiceToken).GetField("_settledAt", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .SetValue(token, Time.unscaledTime - 1f);
+            }
+            else
+            {
+                Check(token.PhysicalAtHome && token.IsMoving && labelled.parent == home,
+                    "cancelled native payment returns the labelled purse to its actual fan frame");
+                Attachment(preview, "returning original labelled purse and body restore preview-hand provenance");
+                piece.SetVisibility(TownServicePursePresentation.Visibility(token, 0f));
+                Check(piece.Gate.alpha == 1f, "closed fan preserves the actual visible purse return flight");
+                typeof(TownServiceToken).GetField("_returnStarted", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .SetValue(token, Time.unscaledTime - 1f);
+            }
+            token.Tick(1f);
+            Check(token.PhysicalAtHome && !token.IsMoving && labelled.parent == home,
+                "completed native purse movement restores the original fan hierarchy");
+            Attachment(preview, "home original labelled purse and body follow their preview hand");
+            piece.SetVisibility(TownServicePursePresentation.Visibility(token, 0f));
+            Check(piece.Gate.alpha == 0f, "completed original purse obeys the closed fan again");
+            PurseMotionBindings.Clear(); Clean();
+        }
+    }
+
     public static int Run()
     {
         _assertions = 0;
-        try { NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); MerchantConfirmationPreparationFailure(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); UnconvertedMerchantController(); MerchantContextLifecycle(); MerchantCoordinatorTimeout(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); StalledEnhancementRestoresNativeWindow(); RollbackAndContinuation(); OptionalPresentation(); SharedRitualPlacement(); MapHandFallback(); PhysicalPurse(); PurseSettlement(); return _assertions; }
+        try
+        {
+            if (Array.IndexOf(Environment.GetCommandLineArgs(), "-purseTransitionsOnly") >= 0)
+            { PurseTransitions(); return _assertions; }
+            NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); MerchantConfirmationPreparationFailure(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); UnconvertedMerchantController(); MerchantContextLifecycle(); MerchantCoordinatorTimeout(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); StalledEnhancementRestoresNativeWindow(); RollbackAndContinuation(); OptionalPresentation(); SharedRitualPlacement(); MapHandFallback(); PhysicalPurse(); PurseSettlement(); PurseTransitions(); return _assertions;
+        }
         finally { Clean(); }
     }
 }

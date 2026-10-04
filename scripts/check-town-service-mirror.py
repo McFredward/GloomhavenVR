@@ -28,6 +28,7 @@ def sources(root):
              "TownServiceFrame", "TownRackState", "TownCatalogLayout", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMirror.PublicVisibility", "TownServiceMirror.Offerings", "TownServiceMirror.Voice", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
     bound['NativePurse.cs'] = (root / 'scripts/town-purse-runtime/NativePurse.cs').read_text()
+    bound['TownServicePursePresentation.cs'] = (base / 'WorldUI/TownServices/TownServicePursePresentation.cs').read_text()
     bound['BundleShaders.cs'] = (base / 'Core/BundleShaders.cs').read_text()
     bound["PresentationCompression.cs"] = (base / "Net/PresentationCompression.cs").read_text()
     bound["NetPacket.cs"] = (base / "Net/NetPacket.cs").read_text()

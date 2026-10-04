@@ -103,3 +103,39 @@ The user's Build 622 clarification makes only the temple donation ghost/overlay
 visitor-local. The original wrist/held purse, payment animation and audio remain
 shared. The integrator removes guide publication and records the exception in
 the repository contract.
+
+## Labelled root and bowl transition follow-up
+
+The integrated source review found two additional causes outside the original
+body-only motion matrix. `TownServiceSync` registered the labelled root against
+the preview hand in every phase. Its inscriptions inherited that registration
+after the token moved to the other hand; a bowl deposit also inherited the
+preview hand after the body's own registration was removed. The token now
+records its actual physical home parent at construction. The production purse
+selector registers both root and body against the holding hand while held,
+against the preview hand only at home, and against no hand at the bowl.
+
+`TownServiceTempleOffering` previously forced opacity only while held. Closing
+the fan therefore supplied zero during a pending bowl deposit, sink or return,
+even though `Piece.SetVisibility` correctly retained the moving piece. The
+owner now preserves moving-piece visibility; the existing physical sink opacity
+still controls the actual fade.
+
+The bounded `--purse-transition-only` run passed 62 assertions and all three
+causal controls in `purse622/transition-verified/run-zy72axpv`. It exercises the
+original normalized mesh under its real labelled root, inscription and tooltip,
+using the production selector, production transport registration/ancestor
+lookup, real grab/release and bowl containment, and production piece opacity.
+Both native payment outcomes cover home, another grabbing hand, the bowl and
+return. Closing the fan during the actual advancing sink retains its measured
+physical opacity. The earlier scale/style matrix was not repeated.
+
+Two fixture failures remain retained: the first nested-method extraction used
+the wrong indentation; the next probe correctly refused to grab a purse whose
+fan the fixture had just closed. The fixture now opens that fan before pickup.
+Neither failed run is counted as a pass. The follow-up Release build on the
+partial integration base could not compile the separately owned, missing
+`ItemsPile.InspectionUsesAvatarTransport` API and existing shared-sync nullable
+errors; the integrator was informed. The focused runtime compilation and Python
+compilation pass, and the final integrated build/gate remains the integrator's
+responsibility. Headset appearance remains unverified.
