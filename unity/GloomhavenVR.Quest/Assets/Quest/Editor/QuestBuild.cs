@@ -235,9 +235,11 @@ namespace GloomhavenVR.Quest.Editor
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             GameObject bootstrap = new GameObject("Original Gloomhaven startup diagnostic");
             bootstrap.AddComponent<QuestGameBootstrap>();
-            // Serialize the first rendering camera and built-in font reference
-            // into the startup scene. Dynamic resources alone would not retain
-            // the loading text material/font in a stripped Android player.
+            // Serialize the shared world-space loading artwork, original logo,
+            // progress bar and built-in font with its first camera owner. Later
+            // content delivery uses the same helper under the existing VR head.
+            if (Resources.Load<Texture2D>(QuestLoadingView.LogoResource) == null)
+                throw new InvalidOperationException("The original GloomhavenVR loading logo is unavailable.");
             bootstrap.AddComponent<QuestGameModLifecycle>().PrepareStartupView();
             Directory.CreateDirectory("Assets/Quest/Scenes");
             const string startupScene = "Assets/Quest/Scenes/QuestOriginalStartup.unity";

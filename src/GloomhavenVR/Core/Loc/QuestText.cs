@@ -36,6 +36,12 @@ public static class QuestText
             case "navigation": return german ? "Linker Stick: bewegen · Rechter Stick: drehen / Höhe · Trigger: auswählen" : "Left stick: move · Right stick: turn / height · Trigger: select";
             case "startupTitle": return german ? "Startdiagnose des Originalspiels" : "Original game startup diagnostic";
             case "startupPending": return german ? "Spielstart wird vorbereitet" : "Preparing game startup";
+            case "loadingPreparing": return german ? "Spielstart vorbereiten" : "Preparing game startup";
+            case "loadingReading": return german ? "Inhalte laden" : "Loading content";
+            case "loadingUnpackingFile": return german ? "Aktuelle Datei bereitstellen" : "Preparing current file";
+            case "loadingVerifyingFile": return german ? "Aktuelle Datei prüfen" : "Checking current file";
+            case "loadingVerifying": return german ? "Inhalte prüfen" : "Checking content";
+            case "loadingStarting": return german ? "Spiel starten" : "Starting the game";
             case "startupCheckingMod": return german ? "VR-Dateien werden geprüft" : "Checking VR resources";
             case "startupCopyingMod": return german ? "VR-Dateien werden aus der APK gelesen" : "Reading VR resources from the APK";
             case "startupExtractingMod": return german ? "VR-Dateien werden bereitgestellt und geprüft" : "Preparing and verifying VR resources";

@@ -6,7 +6,6 @@ using System.IO;
 using System.Reflection;
 using GloomhavenVR.Core;
 using UnityEngine;
-using UnityEngine.UI;
 using UnityEngine.XR;
 using UnityEngine.XR.Management;
 
@@ -27,11 +26,8 @@ namespace GloomhavenVR.Quest
         public string Failure { get; private set; }
         Plugin plugin;
         [SerializeField] Camera startupAnchor;
-        [SerializeField] Canvas loadingCanvas;
-        [SerializeField] Text loadingLabel;
-        string lastLoadingText;
-        public bool StartupViewAvailable { get { return loadingCanvas != null && loadingCanvas.gameObject.activeInHierarchy
-            && loadingCanvas.worldCamera != null && loadingCanvas.worldCamera.isActiveAndEnabled; } }
+        [SerializeField] QuestLoadingView loadingView;
+        public bool StartupViewAvailable { get { return loadingView != null && loadingView.Available; } }
         string lastObservation;
         bool activated;
         bool deliveryViewRequested;
@@ -150,7 +146,7 @@ namespace GloomhavenVR.Quest
             startupAnchor = anchor.AddComponent<Camera>();
             startupAnchor.tag = "MainCamera";
             // The initial scene must submit frames while bank delivery runs.
-            // This camera renders only its temporary label; the plugin adopts
+            // This camera renders only its temporary artwork; the plugin adopts
             // the same neutral reference once its verified assets are available.
             startupAnchor.cullingMask = 1 << 31;
             startupAnchor.clearFlags = CameraClearFlags.SolidColor;
@@ -158,97 +154,57 @@ namespace GloomhavenVR.Quest
             startupAnchor.stereoTargetEye = StereoTargetEyeMask.Both;
             startupAnchor.depth = -100;
             startupAnchor.enabled = true;
-            GameObject panel = new GameObject("Quest temporary loading view", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler));
-            panel.layer = 31;
-            panel.transform.SetParent(anchor.transform, false);
-            loadingCanvas = panel.GetComponent<Canvas>();
-            loadingCanvas.renderMode = RenderMode.ScreenSpaceCamera;
-            loadingCanvas.worldCamera = startupAnchor;
-            loadingCanvas.planeDistance = 1f;
-            CanvasScaler scaler = panel.GetComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1600, 900);
-            GameObject label = new GameObject("Quest loading status", typeof(RectTransform), typeof(Text));
-            label.layer = 31;
-            label.transform.SetParent(panel.transform, false);
-            RectTransform rectangle = label.GetComponent<RectTransform>();
-            rectangle.anchorMin = new Vector2(.15f, .25f); rectangle.anchorMax = new Vector2(.85f, .75f);
-            rectangle.offsetMin = rectangle.offsetMax = Vector2.zero;
-            loadingLabel = label.GetComponent<Text>();
-            loadingLabel.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            if (loadingLabel.font == null) throw new InvalidDataException("The serialized startup font is unavailable.");
-            loadingLabel.fontSize = 40;
-            loadingLabel.alignment = TextAnchor.MiddleCenter;
-            loadingLabel.color = Color.white;
-            loadingLabel.raycastTarget = false;
+            loadingView = QuestLoadingView.Create(startupAnchor, 31);
             // No GraphicRaycaster, input actions, buttons, hands or pointer are
-            // introduced here. Remove this canvas before original mod creation.
+            // introduced here. Remove this artwork before original mod creation.
             UpdateStartupView("pending", null);
             UnityEngine.Debug.Log("[Quest startup] temporary stereo loading view available before content delivery; neutral anchor retained for original VR rig.");
         }
 
         public void UpdateStartupView(string state, QuestGameContentProgress progress)
         {
-            if (deliveryViewRequested && loadingLabel == null)
+            if (deliveryViewRequested && (loadingView == null || !loadingView.Available))
             {
                 // A native XR restart can temporarily remove the existing head.
-                // Resume the noninteractive label when its owner returns.
+                // Resume the noninteractive artwork when its owner returns.
                 if (QuestStandalonePlatform.HeadCamera == null) return;
+                if (loadingView != null) loadingView.Retire();
+                loadingView = null;
                 BeginDeliveryView();
             }
-            if (loadingLabel == null) return;
-            bool german = Application.systemLanguage == SystemLanguage.German;
+            if (loadingView == null) return;
+            bool measuring = progress != null && (state.StartsWith("checking-", StringComparison.Ordinal)
+                || state.StartsWith("copying-", StringComparison.Ordinal) || state.StartsWith("extracting-", StringComparison.Ordinal));
+            string phase = measuring ? progress.Phase : state;
             string key = state == "failed" ? "startupFailed"
-                : state.StartsWith("checking-mod-", StringComparison.Ordinal) ? "startupCheckingMod"
-                : state.StartsWith("copying-mod-", StringComparison.Ordinal) ? "startupCopyingMod"
-                : state.StartsWith("extracting-mod-", StringComparison.Ordinal) ? "startupExtractingMod"
-                : state == "starting-real-mod" ? "startupStartingMod"
-                : state == "checking-content" || state == "copying-content" ? "startupCheckingContent"
-                : state == "extracting-content" ? "startupExtractingContent"
-                : state == "initializing-native-addressables" ? "startupAddressables" : "startupPending";
-            string value = QuestText.Get("title", german) + "\n\n" + QuestText.Get(key, german);
-            if (progress != null && progress.TotalBytes > 0)
-                value += "\n" + (progress.ProcessedBytes / 1048576f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)
-                    + " / " + (progress.TotalBytes / 1048576f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " MiB";
-            if (value != lastLoadingText) { lastLoadingText = value; loadingLabel.text = value; }
+                : phase == "copying-archive" ? "loadingReading"
+                : phase == "extracting-file" ? "loadingUnpackingFile"
+                : phase == "checking-files" || phase == "verifying-file" ? "loadingVerifyingFile"
+                : phase == "verifying-archive" ? "loadingVerifying"
+                : state == "starting-real-mod" || state == "loading-original-bootstrap" ? "loadingStarting"
+                : state == "initializing-native-addressables" ? "loadingReading" : "loadingPreparing";
+            loadingView.UpdatePhase(QuestText.Get(key, Application.systemLanguage == SystemLanguage.German),
+                measuring ? progress.ProcessedBytes : 0, measuring ? progress.TotalBytes : 0);
         }
 
         void StopLoadingView()
         {
-            if (loadingCanvas != null) { loadingCanvas.gameObject.SetActive(false); Destroy(loadingCanvas.gameObject); }
-            loadingCanvas = null; loadingLabel = null;
+            if (loadingView != null) loadingView.Retire();
+            loadingView = null;
             if (startupAnchor != null) { startupAnchor.cullingMask = 0; startupAnchor.stereoTargetEye = StereoTargetEyeMask.None; }
         }
 
         public void BeginDeliveryView()
         {
             deliveryViewRequested = true;
-            if (loadingCanvas != null) return;
+            if (loadingView != null) return;
             var head = QuestStandalonePlatform.HeadCamera;
             if (head == null) throw new InvalidOperationException("Original content delivery requires the observed real VR camera.");
             // The large original menu movies need worker verification too. Reuse
             // the existing rig for this temporary, noninteractive status canvas;
             // never add a second XR camera or a separate input/controller path.
-            var panel = new GameObject("Quest original content status", typeof(RectTransform), typeof(Canvas));
-            panel.layer = QuestStandalonePlatform.PresentationLayer;
-            panel.transform.SetParent(head.transform, false);
-            panel.transform.localPosition = new Vector3(0, -.05f, 1.5f);
-            panel.transform.localScale = Vector3.one * .001f;
-            panel.GetComponent<RectTransform>().sizeDelta = new Vector2(1300, 260);
-            loadingCanvas = panel.GetComponent<Canvas>();
-            loadingCanvas.renderMode = RenderMode.WorldSpace;
-            loadingCanvas.worldCamera = head;
-            var label = new GameObject("Quest original content progress", typeof(RectTransform), typeof(Text));
-            label.layer = panel.layer; label.transform.SetParent(panel.transform, false);
-            var rectangle = label.GetComponent<RectTransform>();
-            rectangle.anchorMin = Vector2.zero; rectangle.anchorMax = Vector2.one;
-            rectangle.offsetMin = rectangle.offsetMax = Vector2.zero;
-            loadingLabel = label.GetComponent<Text>();
-            loadingLabel.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            if (loadingLabel.font == null) throw new InvalidDataException("Original delivery font is unavailable.");
-            loadingLabel.fontSize = 40; loadingLabel.alignment = TextAnchor.MiddleCenter;
-            loadingLabel.color = Color.white; loadingLabel.raycastTarget = false;
-            lastLoadingText = null;
+            loadingView = QuestLoadingView.Create(head, QuestStandalonePlatform.PresentationLayer);
+            UpdateStartupView("pending", null);
         }
         public void EndDeliveryView() { deliveryViewRequested = false; StopLoadingView(); }
 
