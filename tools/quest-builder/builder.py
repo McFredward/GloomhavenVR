@@ -374,6 +374,8 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             command([sys.executable, str(source / "tools/quest-recovery/compute_sources.py"),
                      "--project", str(project), "--cache", str(output / "tool-cache/legacy-compute")],
                     output / "logs" / ("startup-compute-source-" + key[:12] + ".log"))
+            startup.stage_startup_script_orders(project, game, source, output / "tool-cache",
+                                               tool_path(args.dotnet, "dotnet"))
         manifest = project / "Assets/StreamingAssets/Quest/input-manifest.json"
         write_json(manifest, inputs)
         settings = project / "QuestBuilderSettings.json"
@@ -386,7 +388,9 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
         if args.target == "startup":
             contracts.extend([resources / "quest-loading-logo.png", resources / startup.REPORT, resources / startup.MOVIES_REPORT, resources / "quest-startup-content.json",
                               project / "Assets/StreamingAssets/quest-startup-content.zip",
-                              project / "QuestStartupEvidence/compute-source-restoration.json"])
+                              project / "QuestStartupEvidence/compute-source-restoration.json",
+                              project / "Assets/QuestOriginalStartup/script-orders.json",
+                              project / "QuestStartupEvidence/script-orders-source.json"])
             contracts.extend(startup_shader_contracts(project))
             contracts.extend([project / "QuestStartupEvidence/ugui-layout-gate.json",
                               project / "Packages/com.unity.ugui/Runtime/UI/Core/Layout/LayoutRebuilder.cs"])

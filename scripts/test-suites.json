@@ -1407,6 +1407,12 @@
       "weight": 2
     },
     {
+      "id": "quest-script-order-staging",
+      "command": ["python3", "scripts/quest-script-order-staging-tests.py"],
+      "groups": ["local", "ci"],
+      "weight": 2
+    },
+    {
       "id": "quest-startup-video",
       "command": ["python3", "scripts/quest-startup-video-tests.py"],
       "groups": ["local", "ci"],

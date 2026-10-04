@@ -231,6 +231,7 @@ namespace GloomhavenVR.Quest.Editor
             // The recovery helper remaps exact original package-script identities
             // before any original scene runs. Unsupported references remain a build error.
             QuestOriginalScriptBindings.RemapAndValidate();
+            QuestOriginalScriptOrders.RestoreAndVerify();
             QuestStartupAddressablesBuild.Build();
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             GameObject bootstrap = new GameObject("Original Gloomhaven startup diagnostic");
