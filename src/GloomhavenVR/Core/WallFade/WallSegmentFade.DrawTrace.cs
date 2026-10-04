@@ -11,11 +11,16 @@ internal static partial class WallSegmentFade
         // still popped on Frame. Read the real renderer immediately before the head
         // camera's submission, not the scalar ledger. This diagnostic does not assert
         // visible pixels: command buffers and native shader execution follow this event.
-        // Six episodes / three distinct native routes / twelve samples each per scene. Nothing
+        // Six segments / at most three distinct route renderers per segment / twelve
+        // samples per renderer: at most 18 renderer episodes and 216 Debug records.
+        // Reserve two renderer episodes per actual route and one terminal sample per
+        // episode. Six first HIGH walls must not exhaust LOW/toggle coverage, and a
+        // last returning bucket must never suppress the restored solid MPB endpoint. Nothing
         // is sampled at normal logging, and no scene query, extra camera or readback runs.
         private const int DrawTraceEpisodes = 6;
         private const int DrawTraceRenderers = 3;
         private const int DrawTraceSamples = 12;
+        private const int DrawTraceRouteEpisodes = 2;
         private readonly List<WallDrawEpisode> _wallDrawEpisodes = new(DrawTraceEpisodes);
         private readonly List<Material> _drawMaterials = new(8);
         private readonly MaterialPropertyBlock _drawBlock = new();
@@ -28,10 +33,10 @@ internal static partial class WallSegmentFade
             internal Segment Segment = null!;
             internal Renderer Renderer = null!;
             internal int Number, WriteFrame, LastDrawFrame = -1, Samples, LastBucket = -1;
-            internal float ExpectedCutoff, ExpectedToggle, ExpectedOn;
+            internal float ExpectedCutoff, ExpectedToggle, ExpectedOn, PreviousFade;
             internal int ExpectedGate;
             internal Texture? ExpectedMap;
-            internal bool ExpectedBlock, WasReturning, Complete;
+            internal bool ExpectedBlock, WasReturning, Complete, HasFade;
             internal Material? WrittenMaterial;
             internal Shader? WrittenShader;
             internal bool WrittenEnabled, WrittenForceOff;
@@ -106,8 +111,12 @@ internal static partial class WallSegmentFade
                 if (block == null || seg.Fade <= 0f || seg.Fade >= 0.3f
                     || members >= DrawTraceRenderers || _drawEpisodeCount >= DrawTraceEpisodes && !existingSegment)
                     return;
-                if (!existingSegment) _drawEpisodeCount++;
                 string route = WallDrawRoute(renderer);
+                int routeEpisodes = 0;
+                foreach (WallDrawEpisode candidate in _wallDrawEpisodes)
+                    if (candidate.Route == route) routeEpisodes++;
+                if (routeEpisodes >= DrawTraceRouteEpisodes) return;
+                if (!existingSegment) _drawEpisodeCount++;
                 // In the reported scene HIGH and toggle-native coexist in one segment.
                 // Consecutive renderer IDs alone would only sample the first family.
                 foreach (WallDrawEpisode candidate in _wallDrawEpisodes)
@@ -118,6 +127,12 @@ internal static partial class WallSegmentFade
                 episode = new WallDrawEpisode { Segment = seg, Renderer = renderer, Number = number, Route = route };
                 _wallDrawEpisodes.Add(episode);
             }
+            // Infer the direction from actual writes, including an early reversal
+            // that never reached fade=1. A repeated equal write retains its direction.
+            if (episode.HasFade && seg.Fade < episode.PreviousFade) episode.WasReturning = true;
+            else if (episode.HasFade && seg.Fade > episode.PreviousFade) episode.WasReturning = false;
+            episode.PreviousFade = seg.Fade;
+            episode.HasFade = true;
             episode.WriteFrame = Time.frameCount;
             episode.ExpectedBlock = block != null;
             episode.ExpectedCutoff = block != null ? block.GetFloat(CutoffId) : 0f;
@@ -131,7 +146,7 @@ internal static partial class WallSegmentFade
             episode.WrittenForceOff = renderer.forceRenderingOff;
             int bucket = Mathf.Clamp(Mathf.FloorToInt(seg.Fade * 4f), 0, 4);
             if (seg.Fade < 1f && episode.WasReturning) bucket += 5;
-            if (bucket != episode.LastBucket)
+            if (bucket != episode.LastBucket || seg.Fade <= 0f)
             {
                 _drawMaterials.Clear(); renderer.GetSharedMaterials(_drawMaterials);
                 episode.WrittenSlotCount = _drawMaterials.Count;
@@ -169,9 +184,12 @@ internal static partial class WallSegmentFade
                 float fade = episode.Segment.Fade;
                 bool returning = fade < 1f && episode.WasReturning;
                 int bucket = Mathf.Clamp(Mathf.FloorToInt(fade * 4f), 0, 4);
-                if (fade >= 1f) episode.WasReturning = true;
                 if (returning) bucket += 5;
-                if (bucket == episode.LastBucket) continue;
+                bool terminal = fade <= 0f;
+                // Process completion before bucket deduplication. The final .2494 and
+                // restored 0 share bucket5; the old trace silently dropped the endpoint
+                // and spent its cap on a second outward cycle instead.
+                if (!terminal && (bucket == episode.LastBucket || episode.Samples >= DrawTraceSamples - 1)) continue;
                 episode.LastDrawFrame = Time.frameCount;
                 episode.LastBucket = bucket;
                 episode.Samples++;
@@ -227,7 +245,7 @@ internal static partial class WallSegmentFade
                 VRLog.Debug(Name, "DRAW DELIVERY: episode=" + episode.Number + "/" + DrawTraceEpisodes
                     + " sample=" + episode.Samples + "/" + DrawTraceSamples + " frame=" + Time.frameCount
                     + " eye=" + camera.stereoActiveEye + " renderer=" + r.name + "#" + r.GetInstanceID()
-                    + " route=" + episode.Route + " fade=" + fade.ToString("F4") + " enabled=" + r.enabled
+                    + " route=" + episode.Route + " fade=" + fade.ToString("F4") + " terminal=" + terminal + " enabled=" + r.enabled
                     + " forceOff=" + r.forceRenderingOff + " block=" + hasBlock
                     + " cutoff=" + cutoff.ToString("F4") + " expected=" + episode.ExpectedCutoff.ToString("F4")
                     + " map=" + (map != null ? map.name + "#" + map.GetInstanceID() : "<none>")
@@ -237,7 +255,7 @@ internal static partial class WallSegmentFade
                     + " lateToDrawChanged=" + changed + " materialSlots=" + _drawMaterials.Count
                     + " [" + slots + "] named=" + count + "/" + _drawMaterials.Count
                     + "; native shader pixels remain unmeasured.");
-                if (episode.Samples >= DrawTraceSamples || fade <= 0f) episode.Complete = true;
+                if (terminal) episode.Complete = true;
             }
         }
     }

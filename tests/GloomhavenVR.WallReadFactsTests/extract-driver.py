@@ -6,8 +6,19 @@ import sys
 source = pathlib.Path(sys.argv[1]).read_text()
 prepare_source = pathlib.Path(sys.argv[4]).read_text() if len(sys.argv) > 4 else pathlib.Path(__file__).parents[2].joinpath('src/GloomhavenVR/Core/WallFade/WallSegmentFade.Prepare.cs').read_text()
 mounted_source = pathlib.Path(sys.argv[3]).read_text() if len(sys.argv) > 3 else pathlib.Path(__file__).parents[2].joinpath('src/GloomhavenVR/Core/WallFade/WallSegmentFade.Mounted.cs').read_text()
-assert 'f.Mod = IsModPresentation(r, n) || IsNativeHexSelectionVisual(r);' in source, 'Exact presentation ownership must reach the production classifier'
-assert 'private static bool IsModObject(Renderer r) => IsModPresentation(r, r.name);' in source, 'Live adoption must share the exact cold ownership verdict'
+assert 'f.Mod = f.ModPresentation || IsNativeNonWallPresentation(r);' in source, 'Exact presentation ownership must reach the production classifier'
+assert 'private static bool IsModObject(Renderer r) => IsModPresentation(r, r.name) || IsNativeNonWallPresentation(r);' in source, 'Live adoption must share the exact cold ownership verdict'
+consumer_root = pathlib.Path(__file__).parents[2] / 'src/GloomhavenVR/Core/WallFade'
+free_source = consumer_root.joinpath('WallSegmentFade.FreeStanding.cs').read_text()
+assert 'if (f.R == null || f.Mod || f.Figure || !f.Mountable)' in free_source, \
+    'FreeStanding riders must reject the same native presentation owner fact'
+assert 'if (f.R == null || f.Mod)' in mounted_source, \
+    'Mounted candidates must reject the same native presentation owner fact'
+assert re.search(r'if \(IsModObject\(p.Renderer\)\)\s*\{\s*RestoreProp\(p\);\s*_mountedOwned.Remove\(p.Renderer\);\s*continue;', mounted_source), \
+    'Mounted sticky carry must restitute newly acquired native presentation ownership'
+assert 'if (f.WaterSurface && !f.Mod)' in source and 'if (f.Mesh != null && f.WallFadeShader)' in source, \
+    'Water protection and mesh-only native wall adoption must retain their original input gates'
+
 
 
 def member(signature, source=source):

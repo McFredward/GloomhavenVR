@@ -7,10 +7,19 @@ if ! command -v dotnet >/dev/null 2>&1 && [[ -x "$HOME/.dotnet/dotnet" ]]; then
 fi
 export PATH="${DOTNET_ROOT:-$HOME/.dotnet}:$PATH"
 project="$repo_root/tests/GloomhavenVR.WallReadFactsTests/GloomhavenVR.WallReadFactsTests.csproj"
-dotnet run --project "$project" --configuration Release
+mutations=(material-no-cache material-retained figure-no-cache figure-retained gate-inverted phase-unbounded material-bypass-ignored figure-bypass-ignored selection-owner-broadened drawing-force-ignored masked-restitution-lost prepared-cross-frame prepared-label-unshared prepare-room-gate-omitted mirror-owner-ignored mirror-cache-ignored mirror-cache-unbounded mirror-wall-signature-unconditional mirror-death-reclassified root-selection-owner-broadened root-selection-owner-ignored waypoint-parent-broadened waypoint-owner-ignored action-prefab-broadened action-parked-omitted native-water-veto-omitted native-wall-veto-omitted native-live-owner-omitted)
+if (($#)); then
+    mutations=()
+    while (($#)); do
+        [[ "$1" == --mutation && $# -ge 2 ]] || { echo "Usage: $0 [--mutation NAME ...]" >&2; exit 2; }
+        mutations+=("$2"); shift 2
+    done
+else
+    dotnet run --project "$project" --configuration Release
+fi
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
-for mutation in material-no-cache material-retained figure-no-cache figure-retained gate-inverted phase-unbounded material-bypass-ignored figure-bypass-ignored selection-owner-broadened drawing-force-ignored masked-restitution-lost prepared-cross-frame prepared-label-unshared prepare-room-gate-omitted mirror-owner-ignored mirror-cache-ignored mirror-cache-unbounded mirror-wall-signature-unconditional mirror-death-reclassified root-selection-owner-broadened root-selection-owner-ignored; do
+for mutation in "${mutations[@]}"; do
     python3 - "$repo_root" "$mutation_dir" "$mutation" <<'PY'
 import pathlib
 import sys
@@ -49,8 +58,15 @@ changes = {
     'mirror-death-reclassified': ('bool holeExempt = SceneRowWasExemptWhenAlive(i);', 'bool holeExempt = false;'),
     'root-selection-owner-broadened': ('renderer.GetComponent<HexSelect_Control>() != null', 'renderer.GetComponentInParent<HexSelect_Control>(true) != null'),
     'root-selection-owner-ignored': ('renderer.GetComponent<HexSelect_Control>() != null', 'bool.Parse("false")'),
+    'waypoint-parent-broadened': ('renderer.transform.IsChildOf(member.Prefab.transform)', 'bool.Parse("true")'),
+    'waypoint-owner-ignored': ('owned = IsNativeWaypointParticle(renderer) || IsNativeActionParticle(renderer);', 'owned = IsNativeActionParticle(renderer);'),
+    'action-prefab-broadened': ('IsPublishedActionPrefab(entry.Value, settings)', 'bool.Parse("true")'),
+    'action-parked-omitted': ('if (parked != null)', 'if (parked != null && bool.Parse("false"))'),
+    'native-water-veto-omitted': ('shader.IndexOf("Water_Sh", System.StringComparison.OrdinalIgnoreCase) >= 0', 'bool.Parse("false")'),
+    'native-wall-veto-omitted': ('IsWallFadeShaderName(shader)', 'bool.Parse("false")'),
+    'native-live-owner-omitted': ('if (!cold && f.Particles) f.Mod = f.ModPresentation || IsNativeNonWallPresentation(r);', '// injected: immutable native pooled ownership'),
 }
-if mutation in ('figure-retained', 'gate-inverted', 'phase-unbounded', 'figure-bypass-ignored', 'mirror-cache-unbounded', 'mirror-wall-signature-unconditional', 'mirror-death-reclassified'):
+if mutation in ('figure-retained', 'gate-inverted', 'phase-unbounded', 'figure-bypass-ignored', 'mirror-cache-unbounded', 'mirror-wall-signature-unconditional', 'mirror-death-reclassified', 'native-live-owner-omitted'):
     source = root / 'src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs'
 extra_sources = {
     'selection-owner-broadened': 'WallSegmentFade.SelectionFacts.cs',
@@ -58,6 +74,12 @@ extra_sources = {
     'mirror-cache-ignored': 'WallSegmentFade.SelectionFacts.cs',
     'root-selection-owner-broadened': 'WallSegmentFade.SelectionFacts.cs',
     'root-selection-owner-ignored': 'WallSegmentFade.SelectionFacts.cs',
+    'waypoint-parent-broadened': 'WallSegmentFade.SelectionFacts.cs',
+    'waypoint-owner-ignored': 'WallSegmentFade.SelectionFacts.cs',
+    'action-prefab-broadened': 'WallSegmentFade.SelectionFacts.cs',
+    'action-parked-omitted': 'WallSegmentFade.SelectionFacts.cs',
+    'native-water-veto-omitted': 'WallSegmentFade.SelectionFacts.cs',
+    'native-wall-veto-omitted': 'WallSegmentFade.SelectionFacts.cs',
     'drawing-force-ignored': 'WallSegmentFade.Mounted.cs',
     'masked-restitution-lost': 'WallSegmentFade.BudgetMask.cs',
     'prepared-cross-frame': 'WallSegmentFade.PreparedReads.cs',
@@ -102,6 +124,13 @@ PY
         mirror-death-reclassified) property=DriverSource; expected='A dead clone row retains its exact exemption without signature churn' ;;
         root-selection-owner-broadened) property=SelectionFactsSource; expected='Parent proximity never exempts a foreign selection-root emitter' ;;
         root-selection-owner-ignored) property=SelectionFactsSource; expected='Exact native root selection emitter is not wall scenery' ;;
+        waypoint-parent-broadened) property=SelectionFactsSource; expected='Unpublished nearby same-name scenery cannot become a waypoint' ;;
+        waypoint-owner-ignored) property=SelectionFactsSource; expected='Published waypoint particles share exact signature and live collector rejection' ;;
+        action-prefab-broadened) property=SelectionFactsSource; expected='Pooled root reassigned to scenery immediately loses action ownership' ;;
+        action-parked-omitted) property=SelectionFactsSource; expected='Native recycle and inactive action pool preserve exact prefab ownership' ;;
+        native-water-veto-omitted) property=SelectionFactsSource; expected='Published waypoint water remains a protection input' ;;
+        native-wall-veto-omitted) property=SelectionFactsSource; expected='Published waypoint with a real wall shader remains a table input' ;;
+        native-live-owner-omitted) property=DriverSource; expected='Reparented unpublished waypoint fails conservative on warm ownership' ;;
     esac
     if [[ "$mutation" == phase-unbounded ]]; then
         if python3 "$repo_root/tests/GloomhavenVR.WallReadFactsTests/extract-driver.py" \

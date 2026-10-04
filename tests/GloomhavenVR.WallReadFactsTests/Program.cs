@@ -28,6 +28,11 @@ namespace UnityEngine
     internal sealed class Transform
     {
         internal Transform? parent;
+        internal readonly GameObject gameObject;
+        internal Transform() { gameObject = new GameObject(this); }
+        internal Transform(GameObject owner) { gameObject = owner; }
+        internal bool IsChildOf(Transform root)
+        { for (Transform? node=this;node!=null;node=node.parent) if(ReferenceEquals(root,node))return true; return false; }
         internal Vector3 position = default;
         internal readonly HashSet<Type> Components = new();
         internal string name = "Native unit";
@@ -44,13 +49,19 @@ namespace UnityEngine
         { if (includeInactive) throw new Exception("Wall collection must retain active children only"); HierarchyReads++; destination.AddRange(Children); }
     }
     internal sealed class Animator { }
-    internal sealed class GameObject { internal bool activeInHierarchy = true; internal int layer = 0; }
+    internal sealed class GameObject
+    {
+        internal bool activeInHierarchy = true; internal int layer = 0;
+        internal readonly Transform transform;
+        internal GameObject() { transform = new Transform(this); }
+        internal GameObject(Transform owner) { transform=owner; }
+    }
     internal class Renderer
     {
         internal bool enabled = true, forceRenderingOff;
         internal readonly GameObject gameObject = new();
         internal string name = "Native renderer";
-        internal readonly Transform transform = new();
+        internal Transform transform => gameObject.transform;
         internal readonly Bounds bounds = new();
         internal readonly List<Material> Materials = new();
         internal int MaterialListReads;
@@ -63,6 +74,7 @@ namespace UnityEngine
         internal int MirrorQueries;
         internal bool ActorParent = false;
         internal ActorBehaviour ActorOwner = new();
+        internal WaypointHolder? WaypointOwner;
         internal HexSelect_Control? Selector, OwnSelector;
         internal HexSelectControlParticles? SelectorParticles;
         internal ParticleSystem? System;
@@ -71,6 +83,7 @@ namespace UnityEngine
             if (!includeInactive) throw new InvalidOperationException("Exact visual ownership must include inactive children");
             if (typeof(T) == typeof(FigureVisualMirror)) { MirrorQueries++; return Mirror as T; }
             if (typeof(T) == typeof(ActorBehaviour)) return ActorParent ? ActorOwner as T : null;
+            if (typeof(T) == typeof(WaypointHolder)) return WaypointOwner as T;
             return typeof(T) == typeof(HexSelect_Control) ? Selector as T : SelectorParticles as T;
         }
         internal T? GetComponent<T>() where T : class => typeof(T) == typeof(HexSelect_Control) ? OwnSelector as T : System as T;
@@ -95,6 +108,36 @@ internal sealed class HexSelectControlParticles
 {
     internal ParticleSystem[]? ParticleBits, ParticleHover;
     internal MeshRenderer? UnseenGroundPlane;
+}
+internal sealed class WaypointHolder
+{
+    internal sealed class WaypointPrefab { internal GameObject? Prefab; }
+    internal List<WaypointPrefab>? m_Prefabs;
+}
+internal sealed class ObjectPool
+{
+    internal static ObjectPool? instance;
+    // Actual native field names and exact collection shapes, borrowed by production reflection.
+    private readonly Dictionary<GameObject,GameObject> spawnedObjects = new();
+    private readonly Dictionary<GameObject,List<GameObject>> pooledObjects = new();
+    internal void Spawn(GameObject instance,GameObject prefab) { spawnedObjects[instance]=prefab; }
+    internal void Park(GameObject instance,GameObject prefab)
+    { spawnedObjects.Remove(instance); pooledObjects[prefab]=new List<GameObject>{instance}; }
+    internal void Clear() { spawnedObjects.Clear(); pooledObjects.Clear(); }
+}
+internal sealed class GlobalSettings
+{
+    internal static GlobalSettings? Instance;
+    internal sealed class GlobalParticleEffects
+    { internal GameObject? DefaultHealEffect = null, DefaultPositiveCondition = null, DefaultNegativeCondition = null, DefaultCharacterReveal = null, DefaultCharacterSwap = null; }
+    internal sealed class MagicEffects { internal GameObject? RetaliateHit = null, RetaliateTarget = null, WoundDamage = null; }
+    internal sealed class ActiveBonusBuffTargetEffects
+    {
+        internal GameObject? AttackBuffTargetEffect = null, ShieldActiveBonusTargetEffect = null, RetaliateActiveBonusTargetEffect = null, GainShield = null, GainRetaliate = null, GainDisarm = null, GainImmobilize = null, GainPoison = null, GainStun = null, GainWound = null, GainBless = null, GainCurse = null, GainSleep = null, GainStrengthen = null, GainMuddle = null, GainInvisibility = null, GainAddTarget = null, GainAddHeal = null, GainAddRange = null, GainAttackersGainDisadvantage = null, GainAttackActiveBonus = null, GainDefault = null;
+    }
+    internal GlobalParticleEffects? m_GlobalParticles = null;
+    internal MagicEffects? m_MagicEffects = null;
+    internal ActiveBonusBuffTargetEffects? m_ActiveBonusBuffTargetEffects = null;
 }
 internal sealed class TilesOcclusionGenerator { internal readonly List<MeshRenderer> m_RoomRenderers = new(); }
 internal sealed class ActorBehaviour { internal readonly GameObject gameObject = new(); }
@@ -191,6 +234,7 @@ namespace GloomhavenVR.Core
                 driver.VisualCloneOwnership();
                 driver.VisualCloneOwnershipQueries();
                 driver.NativeSelectionVisuals();
+                driver.NativeTransientOwnership();
                 driver.ActorParticleSignatures();
                 driver.BudgetMasks();
                 driver.PreparedReadLifetime();
@@ -431,6 +475,61 @@ namespace GloomhavenVR.Core
                 Check(!IsNativeHexSelectionVisual(projected), "A same-shader object without native ownership is not exempt");
                 particles.ParticleHover = null;
                 Check(!IsNativeHexSelectionVisual(highlight), "Unpublished missing selection arrays remain conservative");
+            }
+            private void NativeTransientOwnership()
+            {
+                var member = new GameObject();
+                var holder = new WaypointHolder { m_Prefabs = new List<WaypointHolder.WaypointPrefab>
+                    { new WaypointHolder.WaypointPrefab { Prefab=member } } };
+                var particle = new ParticleSystemRenderer { name="Sparks", System=new ParticleSystem(), WaypointOwner=holder };
+                particle.transform.parent=member.transform;
+                Check(IsNativeNonWallPresentation(particle) && IsModObject(particle),
+                    "Published waypoint particles share exact signature and live collector rejection");
+                var sameName=new ParticleSystemRenderer { name="Sparks", System=new ParticleSystem(), WaypointOwner=holder };
+                Check(!IsNativeNonWallPresentation(sameName), "Unpublished nearby same-name scenery cannot become a waypoint");
+                SurveyOwned(particle);
+                Check(_sceneExemptRows==1 && _sceneFoldedRows==0,
+                    "Actual classifier exempts native waypoint identity, active state and death");
+                particle.gameObject.activeInHierarchy=false;
+                ulong before=_sceneFactSigSum; SurveyOwned(particle);
+                Check(_sceneFactSigSum==before, "Inactive pooled waypoint cannot move the wall scene signature");
+                particle.gameObject.activeInHierarchy=true; particle.transform.parent=null;
+                SurveyOwned(particle);
+                Check(_sceneExemptRows==0 && _sceneFoldedRows==1, "Reparented unpublished waypoint fails conservative on warm ownership");
+                particle.transform.parent=member.transform;
+                SurveyOwned(particle); SurveyOwned(null);
+                Check(_sceneFactSigSum==before, "Dead published waypoint keeps its remembered exact exemption");
+                particle.Materials.Add(Mat("Amp_Basic_WallFade"));
+                Check(!IsNativeNonWallPresentation(particle), "Published waypoint with a real wall shader remains a table input");
+                particle.Materials.Clear(); particle.Materials.Add(Mat("Water_Shd"));
+                Check(!IsNativeNonWallPresentation(particle), "Published waypoint water remains a protection input");
+                particle.Materials.Clear(); holder.m_Prefabs=null;
+                Check(!IsNativeNonWallPresentation(particle), "Missing published waypoint references remain conservative");
+
+                var root = new GameObject(); var original=new GameObject();
+                var fx=new ParticleSystemRenderer { name="Sparks", System=new ParticleSystem() };
+                fx.transform.parent=root.transform;
+                GlobalSettings.Instance=new GlobalSettings { m_MagicEffects=new GlobalSettings.MagicEffects { RetaliateHit=original } };
+                ObjectPool.instance=new ObjectPool(); ObjectPool.instance.Spawn(root,original);
+                BeginFigureMemo();
+                Check(IsNativeNonWallPresentation(fx) && IsModObject(fx), "Exact original combat-prefab pool membership rejects live collector adoption");
+                Check(NativeActionRoots.Count==1, "Native action roots are borrowed once inside one synchronous owner window");
+                EndFigureMemo();
+                Check(NativeActionRoots.Count==0 && NativeVisualOwnershipMemo.Count==0,
+                    "Native ownership window releases all roots and renderer references");
+                ObjectPool.instance.Park(root,original);
+                Check(IsNativeNonWallPresentation(fx), "Native recycle and inactive action pool preserve exact prefab ownership");
+                ObjectPool.instance.Clear(); ObjectPool.instance.Spawn(root,new GameObject());
+                Check(!IsNativeNonWallPresentation(fx), "Pooled root reassigned to scenery immediately loses action ownership");
+                ObjectPool.instance.Spawn(root,original); fx.Materials.Add(Mat("Water_Shd"));
+                Check(!IsNativeNonWallPresentation(fx), "Exact combat pool never exempts authored water surfaces");
+                fx.Materials.Clear(); fx.Materials.Add(Mat("Amp_Basic_WallFade"));
+                Check(!IsNativeNonWallPresentation(fx), "Exact combat pool never exempts real wall-shader members");
+                fx.Materials.Clear(); fx.name="Fountain";
+                Check(!IsNativeNonWallPresentation(fx), "Existing native water-name protection is conservative for combat pools");
+                ObjectPool.instance=null; GlobalSettings.Instance=null;
+                Check(!IsNativeNonWallPresentation(fx), "Unavailable native owners keep original signature and collectors");
+                NativeActionRoots.Clear(); _nativeActionRootsReady=false;
             }
             private void MaterialAdmission()
             {

@@ -163,6 +163,9 @@ def main():
             ('wall-trace-actual-block-not-read', 'r.GetPropertyBlock(_drawBlock);', '_drawBlock.Clear();', 'actual head-camera callback reads the delivered native renderer, shader and keyword', 1),
             ('wall-trace-slot-overrides-not-read', 'r.GetPropertyBlock(_drawSlotBlock, i);', '_drawSlotBlock.Clear();', 'draw capture exposes material-index overrides', 1),
             ('wall-trace-episode-bound-missing', '_drawEpisodeCount >= DrawTraceEpisodes && !existingSegment', 'false', 'wall draw episodes are bounded for a whole scene', 1),
+            ('wall-trace-terminal-bucket-dropped', 'if (!terminal && (bucket == episode.LastBucket || episode.Samples >= DrawTraceSamples - 1)) continue;', 'if (bucket == episode.LastBucket || episode.Samples >= DrawTraceSamples - 1) continue;', 'restored zero endpoint is sampled despite sharing the last returning bucket', 1),
+            ('wall-trace-endpoint-reservation-lost', 'episode.Samples >= DrawTraceSamples - 1', 'episode.Samples >= DrawTraceSamples', 'intermediate samples reserve one bounded endpoint slot', 1),
+            ('wall-trace-route-reservation-lost', 'routeEpisodes >= DrawTraceRouteEpisodes', 'bool.Parse("false")', 'first native HIGH route reserves LOW and toggle-native coverage', 1),
         ]
         for name, before, after, expected, occurrences in trace_changes:
             assert trace.count(before) == occurrences, 'Wall trace negative control binding drift: '+name
@@ -202,6 +205,12 @@ def main():
     unity_project = run/'unity'; (unity_project/'Assets/Editor').mkdir(parents=True); (unity_project/'Packages').mkdir(); (unity_project/'ProjectSettings').mkdir()
     shutil.copyfile(fixture/'Editor/EnvironmentRunner.cs',unity_project/'Assets/Editor/EnvironmentRunner.cs')
     shutil.copyfile(fixture/'NativeMaterials.shader',unity_project/'Assets/NativeMaterials.shader')
+    # Independent imported shader metadata routes. Unity Shader.name writes do not
+    # change the compiled shader name, so a renamed Object is not route coverage.
+    native_shader = (fixture/'NativeMaterials.shader').read_text()
+    for route in ('High','Low'):
+        (unity_project/'Assets'/('NativeTrace'+route+'.shader')).write_text(
+            native_shader.replace('Shader "Amp_Basic_N_MRAO"', 'Shader "WallTrace.WallFade.'+route+'"'))
     (unity_project/'Assets/ScenarioSimpleEnvironment.shader').write_text(shader)
     (unity_project/'Packages/manifest.json').write_text('{"dependencies":{}}\n')
     (unity_project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')

@@ -1808,13 +1808,17 @@ internal static partial class WallSegmentFade
             /// <c>(bounds.center.x, bounds.min.y, bounds.center.z)</c> for anything else, so
             /// <c>Anchor.y</c> IS the <c>anchorY</c> both passes use.</summary>
             public Vector3 Anchor;
-            /// <summary>Fixed for a renderer's lifetime, so a census verdict on it can never
-            /// go stale: mod layers/names and the exact FigureVisualMirror owner are stamped at
-            /// creation. Native-named children of a visual clone retain that owner, including
+            /// <summary>Presentation excluded from every wall collector. Mod layers/names
+            /// and exact FigureVisualMirror owners are stamped at creation. Native pooled
+            /// particle ownership is re-evaluated on warm slices, using the same verdict as
+            /// live collectors; a reassigned prefab must not retain its old exemption.
+            /// Native-named children of a visual clone retain that owner, including
             /// inactive LODs. (<c>enabled</c> is deliberately NOT cached — the game flips it at
             /// will, and a stale <c>enabled</c> used as a reject would NARROW a candidate set.
             /// Every pass that cares reads it live.)</summary>
             public bool Mod;
+            // Immutable mod-owned half, separate from mutable native particle membership.
+            public bool ModPresentation;
             public bool WallFadeShader;
             public bool FoliageShader;
             public bool WaterSurface;
@@ -5438,6 +5442,10 @@ internal static partial class WallSegmentFade
                     f.Mountable = IsMountableRendererType(r);
                     ClassifyMaterialsAndName(r, ref f);
                 }
+                // Pool reuse/reparenting can change the original native visual owner.
+                // Keep immutable material facts cold, but share the live ownership verdict
+                // with every collector rather than retaining an old pool claim.
+                if (!cold && f.Particles) f.Mod = f.ModPresentation || IsNativeNonWallPresentation(r);
                 f.Bounds = WallCommitGeometryReads.Read(r);
                 f.Anchor = f.Particles
                     ? r.transform.position
@@ -5695,7 +5703,8 @@ internal static partial class WallSegmentFade
             // ancestor rather than a broader figure/name heuristic. Exact native published
             // selection decals/particles also remain non-wall presentation.
             // Actual wall-shader members retain their conservative scene signature below.
-            f.Mod = IsModPresentation(r, n) || IsNativeHexSelectionVisual(r);
+            f.ModPresentation = IsModPresentation(r, n);
+            f.Mod = f.ModPresentation || IsNativeNonWallPresentation(r);
             // The authored water name family, consulted — as before — only when the shader
             // family already said no. See WallSegmentFade.Water.cs.
             f.WaterSurface = water || IsWaterNameFamily(n);
@@ -7697,7 +7706,7 @@ internal static partial class WallSegmentFade
         /// and layers; their exact FigureVisualMirror ancestry is the ownership proof shared
         /// with the cold classifier. Native figures and scenery without it stay unchanged.
         /// </summary>
-        private static bool IsModObject(Renderer r) => IsModPresentation(r, r.name);
+        private static bool IsModObject(Renderer r) => IsModPresentation(r, r.name) || IsNativeNonWallPresentation(r);
 
         /// <summary>
         /// FIGURES ARE NEVER TOUCHED — round-7 ruling, same severity as the Lights rule
@@ -7811,6 +7820,10 @@ internal static partial class WallSegmentFade
         private static void BeginFigureMemo()
         {
             VisualMirrorOwnershipMemo.Clear();
+            NativeVisualOwnershipMemo.Clear();
+            NativeVisualMaterials.Clear();
+            NativeActionRoots.Clear();
+            _nativeActionRootsReady = false;
             FigureAncestryMemo.Clear();
             FigureRootMemo.Clear();
             _figureRootMemoActive = PerfConfig.SharedWallReadCacheOn;
@@ -7824,6 +7837,10 @@ internal static partial class WallSegmentFade
             _figureMemoActive = false;
             _figureRootMemoActive = false;
             VisualMirrorOwnershipMemo.Clear();
+            NativeVisualOwnershipMemo.Clear();
+            NativeVisualMaterials.Clear();
+            NativeActionRoots.Clear();
+            _nativeActionRootsReady = false;
             FigureAncestryMemo.Clear(); // never hold transform references across frames
             FigureRootMemo.Clear();
             GameLogicAncestryMemo.Clear();

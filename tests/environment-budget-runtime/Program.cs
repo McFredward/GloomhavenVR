@@ -751,8 +751,62 @@ public static class EnvironmentProgram
             VRLog.DebugLines.Clear();
             using (var fixture = new WallSegmentFade.Fixture(wall))
             {
-                for(int id=0;id<10;id++) { fixture.TraceWrite(wall,id,.09f); room.Render(); }
-                Check(WallDrawLines().Count == 6, "wall draw episodes are bounded for a whole scene");
+                // Same production pre-render, renderer and MPB path. Surrogate shader
+                // names are metadata boundary fixtures; native HIGH pixels are not claimed.
+                Shader savedShader=native.shader;
+                try
+                {
+                    native.shader=Shader.Find("WallTrace.WallFade.High");
+                    for(int id=0;id<10;id++) { fixture.TraceWrite(wall,id,.09f); room.Render(); }
+                    Check(WallDrawLines().Count==2, "first native HIGH route reserves LOW and toggle-native coverage");
+                    native.shader=Shader.Find("WallTrace.WallFade.Low");
+                    for(int id=10;id<14;id++) { fixture.TraceWrite(wall,id,.09f); room.Render(); }
+                    native.shader=savedShader;
+                    for(int id=14;id<18;id++) { fixture.TraceWrite(wall,id,.09f); room.Render(); }
+                    Check(WallDrawLines().Count==6 && WallDrawLines().FindAll(line=>line.Contains("route=LOW ")).Count==2
+                        && WallDrawLines().FindAll(line=>line.Contains("route=toggle-native ")).Count==2,
+                        "three native route families remain independently observable");
+                    var slots=wall.sharedMaterials;
+                    var high=new Material(Shader.Find("WallTrace.WallFade.High"));
+                    var low=new Material(Shader.Find("WallTrace.WallFade.Low"));
+                    try
+                    {
+                        wall.sharedMaterials=new[]{high,low};
+                        for(int id=18;id<22;id++) { fixture.TraceWrite(wall,id,.09f); room.Render(); }
+                        Check(WallDrawLines().Count == 6, "wall draw episodes are bounded for a whole scene");
+                    }
+                    finally { wall.sharedMaterials=slots; UnityEngine.Object.DestroyImmediate(high); UnityEngine.Object.DestroyImmediate(low); }
+                }
+                finally { native.shader=savedShader; }
+            }
+            VRLog.DebugLines.Clear();
+            using (var fixture = new WallSegmentFade.Fixture(wall))
+            {
+                foreach(float fade in new[]{.09f,.26f,.51f,.76f,1f,.76f,.51f,.26f,.2494f})
+                { fixture.TraceWrite(wall,0,fade); room.Render(); }
+                int before=WallDrawLines().Count;
+                fixture.TraceWrite(wall,0,0f); room.Render();
+                Check(WallDrawLines().Count==before+1 && WallDrawLines()[before].Contains("terminal=True")
+                    && WallDrawLines()[before].Contains("fade=0.0000") && WallDrawLines()[before].Contains("block=False")
+                    && WallDrawLines()[before].Contains("lateToDrawChanged=False"),
+                    "restored zero endpoint is sampled despite sharing the last returning bucket");
+                fixture.TraceWrite(wall,0,.09f); room.Render();
+                Check(WallDrawLines().Count==before+1, "completed draw episode cannot absorb a second outward cycle");
+            }
+            VRLog.DebugLines.Clear();
+            using (var fixture = new WallSegmentFade.Fixture(wall))
+            {
+                fixture.TraceWrite(wall,0,.09f); room.Render();
+                for(int cycle=0;cycle<30;cycle++)
+                    foreach(float fade in new[]{.26f,.51f,.76f,.51f,.26f,.09f})
+                    { fixture.TraceWrite(wall,0,fade); room.Render(); }
+                Check(WallDrawLines().Count==11, "intermediate samples reserve one bounded endpoint slot");
+                fixture.TraceWrite(wall,0,0f); room.Render();
+                Check(WallDrawLines().Count==12 && WallDrawLines()[11].Contains("terminal=True")
+                    && WallDrawLines()[11].Contains("block=False"),
+                    "repeated partial reversals retain the final restored endpoint within the sample cap");
+                for(int i=0;i<10;i++) { fixture.TraceWrite(wall,0,.09f); room.Render(); }
+                Check(WallDrawLines().Count==12, "endpoint completion stays bounded across later cycles");
             }
             VRLog.DebugLines.Clear();
             using (var fixture = new WallSegmentFade.Fixture(wall))

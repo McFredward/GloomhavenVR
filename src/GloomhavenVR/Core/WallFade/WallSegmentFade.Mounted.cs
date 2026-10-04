@@ -2020,6 +2020,15 @@ internal static partial class WallSegmentFade
                         // releases below therefore only ever touch a prop THIS segment owns.
                         if (p.Renderer == null || !_mountedOwned.Add(p.Renderer))
                             continue;
+                        // Pool reparenting may turn previously carried scenery into an
+                        // exact published native selection/action visual. Restitute it
+                        // before sticky carry; signature and all collectors use this owner.
+                        if (IsModObject(p.Renderer))
+                        {
+                            RestoreProp(p);
+                            _mountedOwned.Remove(p.Renderer);
+                            continue;
+                        }
                         // Figures are NEVER carried, sticky or not (round-7 ruling).
                         //
                         // MODBUILD 268 — THE FIFTH SITE. ModBuild 266 lifted this same refusal
