@@ -208,6 +208,7 @@ public static class InteractionProgram
             PerfMonitor.StepsActive=false;
             double prior=PerfMonitor.Ms("Hands.NearGrip.Eligibility");handMethods.Eligible(target);
             Check(PerfMonitor.Ms("Hands.NearGrip.Eligibility")==prior&&target.GateCalls==2,"disabled attribution preserves callback without recording work");
+            count += SpikePreparationFixture.Run();
             Console.WriteLine("Controlled loaded scene: "+native+" renderers; "+scene.Substring(scene.IndexOf("INSTRUMENT COST")));
             return count;
         }

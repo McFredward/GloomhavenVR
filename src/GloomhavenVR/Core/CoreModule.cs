@@ -57,6 +57,7 @@ internal sealed class CoreModule : IVRModule
         // Frame-pacing instrumentation (2026-07 perf pass). Cheap and self-disabling: with
         // [Perf] Enabled = false its host costs one bool test per frame and nothing else.
         PerfMonitor.Install(_hostGo);
+        ScenarioInteractionPreparation.Install(_hostGo);
 
         // ModBuild 228. Installed on the SAME unconditional host and for the same reason: the
         // flat-screen session is the reference reading the VR one has to be judged against, and its
@@ -126,6 +127,7 @@ internal sealed class CoreModule : IVRModule
         NativeCameraRenderBudget.Shutdown();
         Loc.Dispose(); // detach the engine localization event (hot-reload teardown)
         ExceptionTraces.Shutdown(); // puts the game's own StackTraceLogType.None straight back
+        ScenarioInteractionPreparation.Reset();
         PerfMonitor.Shutdown(); // drop the sampling host + every step record before the GO dies
         AutoLod.Shutdown();     // re-enable every AutomaticLOD it disabled, restore lodBias
         ScenarioSceneryBudget.Shutdown(); // restore only decorative submissions this budget owns

@@ -566,7 +566,34 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 616;
+    public const ushort ModBuild = 617;
+
+    // ModBuild 617 — prepare original interaction resources before ordinary scenario input.
+    // The bounded visible preparation period warms every real party class's original card
+    // skins/state/element sprites in existing shared pin/mip caches and reserves inert
+    // ordinary card backings. No native face, gameplay hand, focus change or reveal is
+    // fabricated; local/remote rendering and map/2D/non-NPC paths keep their original rules.
+    // Original figure ghosts are prepared inactive, then validated against today's source
+    // hierarchy/mesh/material/shader/LOD/bones and rebound to current evaluated idle poses
+    // before local or remote pickup. Held actors are never replaced by loading preparation.
+    // Existing native stat chrome/art is warmed without Show/activation; unseen portraits,
+    // native conversion and late/replaced content retain immediate original lazy fallback.
+    // Alternate card/figure work under the existing loading indicator without changing
+    // native loading flags or gating input. Failure/90s cancellation preserves live holds
+    // and valid reserves; actual scene/load/VR teardown releases owned inactive resources.
+    // Debug inventories batch small borrowed component/child work and memoize only proven
+    // complete ancestor chains, retaining configured CPU/work caps and lifecycle invalidation.
+    // Debug SPIKE evidence observes bounded native callback ledgers beyond the first 120
+    // summary frames, per-frame GC collection deltas and available inclusive engine markers.
+    // Reset/resume actual Unity recorders at each boundary; unavailable markers stay n/a.
+    // Reports remain on the existing capped SPIKE emitter; no ordinary per-frame stream.
+    // Native wall delivery is sampled read-only at head-camera pre-render, including indexed
+    // MPBs, material/keyword gates and renderer enable state. Ceiling commits rank their
+    // existing measured phases. Complete native collector closure is not yet proven, so
+    // the safety ceiling remains intact; neither wall pixels nor headset gains are claimed.
+    // All changes are mod-side; original gameplay, native callbacks, wire v3 and bundles
+    // remain unchanged. Hardware must establish actual preparation hits and post-load gains.
+    //
 
     // ModBuild 616 — original town NPC meshes and the Build 615 Frame hardware review.
     // Remove the three immersive residents' twelve simplified body derivatives and

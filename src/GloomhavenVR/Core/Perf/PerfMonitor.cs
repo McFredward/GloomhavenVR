@@ -442,6 +442,7 @@ internal static partial class PerfMonitor
             UnityEngine.Object.Destroy(_host);
             _host = null;
         }
+        PerfSpikeDetails.Shutdown();
         PerfFrameSplit.Shutdown();
         Steps.Clear();
         StepOrder.Clear();
@@ -464,6 +465,7 @@ internal static partial class PerfMonitor
     {
         PerfConfig.Bind();
         bool on = PerfConfig.Enabled.Value;
+        PerfSpikeDetails.RollFrame(on && PerfConfig.FrameSplit.Value && VRLog.WantsDebug);
         // Written for NEXT frame's steps; the value that was live during frame N-1 is the one whose
         // measurements we are closing out right now, which is exactly what we want.
         StepsActive = on && PerfConfig.Attribution.Value;
@@ -1083,9 +1085,8 @@ internal static partial class PerfMonitor
 
     /// <summary>
     /// One line per over-budget frame — the judder itself, not its average. Names the worst mod
-    /// steps IN THAT FRAME, and states plainly when the mod is not the culprit: a spike with a
-    /// near-zero mod total is a game/GPU/compositor spike and no amount of mod optimization will
-    /// move it, which is exactly the conclusion worth reading off a log rather than guessing at.
+    /// steps IN THAT FRAME. Named scopes do not cover all mod/native/engine work; an unmeasured
+    /// remainder cannot by itself assign the hitch to a GPU, the game or the compositor.
     /// </summary>
     private static void LogSpike(float dtSeconds, double modSeconds, float thresholdSeconds)
     {
@@ -1120,11 +1121,12 @@ internal static partial class PerfMonitor
                       .Append((Ranked[i].SpikeSeconds * 1000d).ToString("F2")).Append("ms");
                 }
             }
-            // 25 % is a deliberately generous bar: below it the mod cannot be the story even if
-            // every one of its steps were free.
+            // Retain the historical grep token, but bound its interpretation explicitly:
+            // this verdict covers named scopes, not all work performed by the mod/game.
             if (modSeconds < dtSeconds * 0.25f)
                 sb.Append(" | VERDICT: NOT the mod — the mod accounts for under a quarter of this "
-                          + "frame, so the stall is game/GPU/compositor side");
+                          + "frame, so the stall is game/GPU/compositor side"
+                          + " (named scopes only; uninstrumented work remains unassigned)");
         }
         else
         {
@@ -1134,6 +1136,7 @@ internal static partial class PerfMonitor
         if (PerfConfig.Allocations.Value)
             sb.Append(" | heap ").Append((GC.GetTotalMemory(false) / 1048576d).ToString("F1")).Append("MB");
 
+        PerfSpikeDetails.Append(sb);
         VRLog.Info(Scope0, sb.ToString());
     }
 

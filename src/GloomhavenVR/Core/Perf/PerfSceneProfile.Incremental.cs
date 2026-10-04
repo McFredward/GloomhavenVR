@@ -25,6 +25,8 @@ internal static partial class PerfSceneProfile
     private static readonly List<Component> _componentScratch = new(16);
     private static readonly Stack<Transform> _pendingNodes = new(512);
     private static readonly HashSet<int> _rendererAncestors = new(4096);
+    private static readonly HashSet<int> _completeRendererAncestors = new(4096);
+    private static readonly List<int> _ancestorTrail = new(MaxHierarchyDepth);
     private static readonly HashSet<int> _visitedNodes = new(8192);
     private static readonly HashSet<int> _sceneHandles = new(16);
     private static Scene _persistentScene;
@@ -276,6 +278,8 @@ internal static partial class PerfSceneProfile
         _componentScratch.Clear();
         _pendingNodes.Clear();
         _rendererAncestors.Clear();
+        _completeRendererAncestors.Clear();
+        _ancestorTrail.Clear();
         _visitedNodes.Clear();
         _sceneHandles.Clear();
         SimSb.Length = _sceneLine.Length = _gfxLights.Length = 0;
@@ -336,20 +340,36 @@ internal static partial class PerfSceneProfile
             if (node == null || !_visitedNodes.Add(node.GetInstanceID())) continue;
             _componentScratch.Clear();
             node.GetComponents(_componentScratch);
+            bool active = node.gameObject.activeInHierarchy;
             // Inactive nodes are traversed solely to answer the original Animator descendant-
             // Renderer predicate (which includes inactive descendants); counts remain active-only.
             for (int c = 0; c < _componentScratch.Count; c++)
             {
-                yield return null;
+                // Classifying a few already borrowed references is managed work; avoid paying
+                // one whole frame turn per Transform/component. Native groups remain bounded,
+                // and every node still yields so the configured work cap limits traversal.
+                if (c != 0 && c % 8 == 0) yield return null;
                 Component component = _componentScratch[c];
                 if (component == null) continue;
                 if (_sampleFullProfile && component is Renderer)
                 {
+                    yield return null;
+                    _ancestorTrail.Clear();
                     Transform parent = node;
-                    for (int depth = 0; parent != null && depth < MaxHierarchyDepth; depth++, parent = parent.parent)
-                        _rendererAncestors.Add(parent.GetInstanceID());
+                    int depth = 0;
+                    for (; parent != null && depth < MaxHierarchyDepth; depth++, parent = parent.parent)
+                    {
+                        int id = parent.GetInstanceID();
+                        if (_completeRendererAncestors.Contains(id)) break;
+                        _rendererAncestors.Add(id);
+                        _ancestorTrail.Add(id);
+                    }
+                    // Only a chain proven complete to its root can terminate another walk.
+                    // A depth-limited partial chain must never certify unrelated ancestors.
+                    if (parent == null || depth < MaxHierarchyDepth)
+                        foreach (int id in _ancestorTrail) _completeRendererAncestors.Add(id);
                 }
-                if (!node.gameObject.activeInHierarchy) continue;
+                if (!active) continue;
                 if (component is Graphic graphic) _inventoryGraphics.Add(graphic);
                 if (component is Renderer renderer) _inventoryRenderers.Add(renderer);
                 else if (!_sampleFullProfile) continue;
@@ -365,7 +385,7 @@ internal static partial class PerfSceneProfile
             }
             for (int child = 0; node != null && child < node.childCount; child++)
             {
-                yield return null;
+                if (child % 8 == 0) yield return null;
                 if (node != null && child < node.childCount) _pendingNodes.Push(node.GetChild(child));
             }
         }

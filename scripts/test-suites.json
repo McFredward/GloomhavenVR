@@ -1226,14 +1226,25 @@
     },
     {
       "id": "scenario-figure-detail-budget",
-      "command": ["python3", "scripts/check-scenario-figure-detail-budget.py"],
-      "groups": ["local", "ci"],
+      "command": [
+        "python3",
+        "scripts/check-scenario-figure-detail-budget.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
       "weight": 1
     },
     {
       "id": "scenario-figure-detail-runtime",
-      "command": ["python3", "scripts/check-scenario-figure-detail-runtime.py"],
-      "groups": ["local"],
+      "command": [
+        "python3",
+        "scripts/check-scenario-figure-detail-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
       "weight": 14
     },
     {
@@ -1242,7 +1253,9 @@
         "python3",
         "scripts/check-scenario-generation-runtime.py"
       ],
-      "groups": ["local"],
+      "groups": [
+        "local"
+      ],
       "weight": 12
     },
     {
@@ -1259,8 +1272,14 @@
     },
     {
       "id": "perf-figure-measurement",
-      "command": ["bash", "scripts/perf-figure-measurement-tests.sh"],
-      "groups": ["local", "ci"],
+      "command": [
+        "bash",
+        "scripts/perf-figure-measurement-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
       "weight": 1
     },
     {
@@ -1331,50 +1350,90 @@
     },
     {
       "id": "card-diagnostic-runtime",
-      "command": ["python3", "scripts/check-card-diagnostic-runtime.py"],
-      "groups": ["local"],
+      "command": [
+        "python3",
+        "scripts/check-card-diagnostic-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
       "weight": 90
     },
     {
       "id": "perf-census-runtime",
-      "command": ["python3", "scripts/check-perf-census-runtime.py"],
-      "groups": ["local"],
+      "command": [
+        "python3",
+        "scripts/check-perf-census-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
       "weight": 50
     },
     {
       "id": "ui-inventory-runtime",
-      "command": ["python3", "scripts/check-ui-inventory-runtime.py"],
-      "groups": ["local"],
+      "command": [
+        "python3",
+        "scripts/check-ui-inventory-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
       "weight": 40
     },
     {
       "id": "native-actor-audit-runtime",
-      "command": ["python3", "scripts/check-native-actor-audit-runtime.py"],
-      "groups": ["local"],
+      "command": [
+        "python3",
+        "scripts/check-native-actor-audit-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
       "weight": 60
     },
     {
       "id": "structural-instancing-runtime",
-      "command": ["python3", "scripts/check-structural-instancing.py"],
-      "groups": ["local"],
+      "command": [
+        "python3",
+        "scripts/check-structural-instancing.py"
+      ],
+      "groups": [
+        "local"
+      ],
       "weight": 40
     },
     {
       "id": "actor-bar-pose-runtime",
-      "command": ["python3", "scripts/check-actor-bar-pose-runtime.py"],
-      "groups": ["local"],
+      "command": [
+        "python3",
+        "scripts/check-actor-bar-pose-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
       "weight": 90
     },
     {
       "id": "board-rules-runtime",
-      "command": ["python3", "scripts/check-board-rules-runtime.py"],
-      "groups": ["local"],
+      "command": [
+        "python3",
+        "scripts/check-board-rules-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
       "weight": 90
     },
     {
       "id": "figure-overlay-runtime",
-      "command": ["python3", "scripts/check-figure-overlay-runtime.py"],
-      "groups": ["local"],
+      "command": [
+        "python3",
+        "scripts/check-figure-overlay-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
       "weight": 90
     },
     {
@@ -1424,38 +1483,75 @@
     },
     {
       "id": "quest-builder",
-      "command": ["python3", "scripts/quest-python-tests.py", "builder"],
-      "groups": ["local", "ci"],
+      "command": [
+        "python3",
+        "scripts/quest-python-tests.py",
+        "builder"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
       "weight": 1
     },
     {
       "id": "quest-recovery",
-      "command": ["python3", "scripts/quest-python-tests.py", "recovery"],
-      "groups": ["local", "ci"],
+      "command": [
+        "python3",
+        "scripts/quest-python-tests.py",
+        "recovery"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
       "weight": 1
     },
     {
       "id": "quest-native",
-      "command": ["python3", "scripts/quest-native-tests.py"],
-      "groups": ["local", "ci"],
+      "command": [
+        "python3",
+        "scripts/quest-native-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
       "weight": 2
     },
     {
       "id": "quest-weaver",
-      "command": ["bash", "scripts/quest-weaver-tests.sh"],
-      "groups": ["local", "ci"],
+      "command": [
+        "bash",
+        "scripts/quest-weaver-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
       "weight": 2
     },
     {
       "id": "town-grant-lifecycle",
-      "command": ["python3", "scripts/check-town-grant-lifecycle.py"],
-      "groups": ["local", "ci"],
+      "command": [
+        "python3",
+        "scripts/check-town-grant-lifecycle.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
       "weight": 2
     },
     {
       "id": "figure-distance-runtime",
-      "command": ["python3", "scripts/check-figure-distance-runtime.py"],
-      "groups": ["local"],
+      "command": [
+        "python3",
+        "scripts/check-figure-distance-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
       "weight": 80
     },
     {
@@ -1468,6 +1564,30 @@
         "local"
       ],
       "weight": 35
+    },
+    {
+      "id": "scenario-card-preparation",
+      "command": [
+        "python3",
+        "scripts/check-scenario-card-preparation.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 90
+    },
+    {
+      "id": "wall-maintenance-trace",
+      "command": [
+        "python3",
+        "scripts/check-wall-maintenance-trace.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 4
     }
   ]
 }

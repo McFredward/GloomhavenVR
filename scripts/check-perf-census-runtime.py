@@ -18,8 +18,16 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 FILES = {name: "src/GloomhavenVR/Core/Perf/" + name for name in (
     "PerfSceneProfile.cs", "PerfSceneProfile.Incremental.cs", "PerfTextureCensus.cs", "LodGroupCensus.cs")}
+FILES["PerfNativeLoopProbe.cs"] = "src/GloomhavenVR/Core/Perf/PerfNativeLoopProbe.cs"
+FILES["PerfSpikeDetails.cs"] = "src/GloomhavenVR/Core/Perf/PerfSpikeDetails.cs"
+FILES["ScenarioInteractionPreparation.cs"] = "src/GloomhavenVR/Core/ScenarioInteractionPreparation.cs"
 FILES["IGrabbable.cs"] = "src/GloomhavenVR/Hands/Interact/IGrabbable.cs"
 CONTROLS = (
+    ("stop-spike-at-summary-cap", "PerfNativeLoopProbe.cs", "if (!_sampling && !_spikeCapture)", "if (!_sampling)", "callbacks after summary cap still reach exact frame attribution"),
+    ("retain-native-previous-frame", "PerfNativeLoopProbe.cs", "target.FrameCalls = 0;", "// retain prior frame", "callbacks after summary cap still reach exact frame attribution"),
+    ("ignore-spike-debug", "PerfSpikeDetails.cs", "on &= VRLog.WantsDebug;", "on &= true;", "ordinary logging leaves spike resources disabled"),
+    ("preparation-gates-native-load", "ScenarioInteractionPreparation.cs", "if (loading)", "if (false)", "preparation waits for native loading without writing native flags"),
+    ("restart-completed-preparation", "ScenarioInteractionPreparation.cs", "if (ScenarioCardPreparation.Failures > 0)", "_begun = false; if (ScenarioCardPreparation.Failures > 0)", "completed preparation does not restart during normal play"),
     ("refresh-cancels-census", "ScopeMethods.cs", "invalidateSceneCensus: false", "invalidateSceneCensus: true", "adaptive refresh preserves the same in-progress census"),
     ("setting-keeps-census", "ScopeMethods.cs", "if (invalidateSceneCensus)", "if (false && invalidateSceneCensus)", "graphics changes still cancel incremental inventories"),
     ("refresh-keeps-pacing-window", "ScopeMethods.cs", "if (changed)\n            MarkChange", "if (false && changed)\n            MarkChange", "refresh closes the old pacing window before adopting the new rate"),
@@ -30,7 +38,7 @@ CONTROLS = (
     ("retain-zoom-roster", "PerfSceneProfile.Incremental.cs", "PerfFrameSplit.ClearCensusRoster();", "// negative control: retain old epoch roster", "graphics changes drop the completed Zoom roster"),
     ("unbounded-pump", "PerfSceneProfile.Incremental.cs", "i < _objectsPerFrame", "i < 10000000", "object-count budget limits a native traversal slice"),
     ("missing-persistent-scene", "PerfSceneProfile.Incremental.cs", ": _persistentScene;", ": default;", "persistent scene renderer participates"),
-    ("count-inactive", "PerfSceneProfile.Incremental.cs", "if (!node.gameObject.activeInHierarchy) continue;", "if (false) continue;", "active renderer population agrees with original Unity census"),
+    ("count-inactive", "PerfSceneProfile.Incremental.cs", "if (!active) continue;", "if (false) continue;", "active renderer population agrees with original Unity census"),
     ("ignore-debug", "PerfSceneProfile.Incremental.cs", "!VRLog.WantsDebug ||", "false ||", "Debug off cancels inventory references"),
     ("omit-hover-timing", "GrabMethods.cs", '"Hands.NearGrip.HoverCallbacks"', '"NegativeControl.OmittedHoverTiming"', "hover callback stage exists and is priced"),
     ("duplicate-gate", "GrabMethods.cs", "return target.CanGrab;", "bool ignored = target.CanGrab; return target.CanGrab;", "eligibility callback executes once"),
@@ -52,6 +60,12 @@ def braced(source, marker):
 def bound_sources(root):
     bound = {name: (root / path).read_text() for name, path in FILES.items()}
     monitor = (root / "src/GloomhavenVR/Core/Perf/PerfMonitor.cs").read_text()
+    sample = braced(monitor, "    private static void Sample()")
+    assert sample.index("PerfSpikeDetails.RollFrame(") < sample.index("RefreshBudget();"), "Spike snapshot precedes window changes"
+    assert "PerfSpikeDetails.Append(sb);" in braced(monitor, "    private static void LogSpike("), "Only the existing bounded SPIKE emitter formats details"
+    assert "PerfSpikeDetails.Shutdown();" in braced(monitor, "    internal static void Shutdown()"), "Shutdown releases continuous diagnostic recorders"
+    assert "ScenarioInteractionPreparation.Install(_hostGo);" in (root / "src/GloomhavenVR/Core/CoreModule.cs").read_text()
+    assert "(IsGameLoading() || ScenarioInteractionPreparation.IsPreparing)" in (root / "src/GloomhavenVR/WorldUI/LoadingIndicator.cs").read_text()
     members = [braced(monitor, m) for m in (
         "    private sealed class Step", "    internal static long BeginStep()", "    internal static void EndStep(",
         "    internal readonly struct Measure", "    private static void LogSceneProfile()", "    private static void LogSplit(",
@@ -96,6 +110,8 @@ def main():
         "original_complete_sources": originals}, indent=2) + "\n")
     native = ROOT / "ressources/GH_Data/Managed"
     refs = "".join('<Reference Include="' + p.stem + '"><HintPath>' + str(p) + '</HintPath><Private>false</Private></Reference>' for p in native.glob("UnityEngine*.dll"))
+    harmony = Path.home() / ".nuget/packages/harmonyx/2.7.0/lib/net45/0Harmony.dll"
+    refs += '<Reference Include="0Harmony"><HintPath>' + str(harmony) + '</HintPath><Private>false</Private></Reference>'
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     variants = [("production", None)] + ([] if args.no_negative_controls else [(c[0],c) for c in CONTROLS if not args.control or c[0] in args.control])
     manifest = {"result": str(run / "results.txt"), "cases": []}
@@ -107,7 +123,7 @@ def main():
                 if control[2] not in source: raise RuntimeError("Control marker drift: " + name)
                 source = source.replace(control[2],control[3])
             (case / filename).write_text(source)
-        for filename in ("Boundaries.cs", "Program.cs", "WindowBoundary.cs"):
+        for filename in ("Boundaries.cs", "Program.cs", "WindowBoundary.cs", "SpikePreparationFixture.cs"):
             shutil.copyfile(ROOT / "scripts/perf-census-runtime" / filename, case / filename)
         project = case / "Fixture.csproj"
         project.write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net472</TargetFramework><LangVersion>latest</LangVersion><Nullable>enable</Nullable><NoWarn>0649;0414;0162</NoWarn><AssemblyName>PerfCensus_' + name.replace('-','_') + '</AssemblyName><GenerateDocumentationFile>false</GenerateDocumentationFile><EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems></PropertyGroup><ItemGroup>' + refs + '</ItemGroup></Project>')
@@ -123,6 +139,13 @@ def main():
     (project / "Packages").mkdir()
     (project / "ProjectSettings").mkdir()
     runner = (ROOT / "scripts/town-service-interaction-runtime/Editor/InteractionRunner.cs").read_text()
+    # Harmony's native detour dependencies are already restored. Load them before fixtures;
+    # native Unity hooks are exercised, not replaced with test-specific observer bodies.
+    runtime_deps = [Path.home()/'.nuget/packages/mono.cecil/0.11.4/lib/net40/Mono.Cecil.dll',
+                    Path.home()/'.nuget/packages/monomod.utils/21.12.13.1/lib/net452/MonoMod.Utils.dll',
+                    Path.home()/'.nuget/packages/monomod.runtimedetour/21.12.13.1/lib/net452/MonoMod.RuntimeDetour.dll', harmony]
+    loader = "\n".join('        Assembly.LoadFile(@"' + str(p) + '");' for p in runtime_deps)
+    runner = runner.replace("ran = true; bool passed = true;", "ran = true; bool passed = true;\n" + loader)
     runner = runner.replace("EditorSettings.enterPlayModeOptionsEnabled = true;", '''
         var first = UnityEditor.SceneManagement.EditorSceneManager.NewScene(UnityEditor.SceneManagement.NewSceneSetup.EmptyScene);
         UnityEditor.SceneManagement.EditorSceneManager.SaveScene(first, "Assets/Prelude.unity");
@@ -130,7 +153,9 @@ def main():
         UnityEditor.SceneManagement.EditorSceneManager.SaveScene(test, "Assets/Census.unity");
         EditorBuildSettings.scenes = new[] {new EditorBuildSettingsScene("Assets/Prelude.unity",true),new EditorBuildSettingsScene("Assets/Census.unity",true)};
         EditorSettings.enterPlayModeOptionsEnabled = true;''')
+    runner = runner.replace("EditorApplication.Exit(passed ? 0 : 1);", 'SpikeMarkerRunner.Start(Assembly.LoadFile(manifest.cases[0].dll), manifest.result, passed);')
     (project / "Assets/Editor/InteractionRunner.cs").write_text(runner)
+    shutil.copyfile(ROOT / "scripts/perf-census-runtime/SpikeMarkerRunner.cs", project / "Assets/Editor/SpikeMarkerRunner.cs")
     (project / "Packages/manifest.json").write_text('{"dependencies":{"com.unity.ugui":"1.0.0"}}')
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
     manifest_path = run / "manifest.json"

@@ -51,9 +51,10 @@ The shared loader owns these calls on all platforms:
 | `Begin()` | Start a fresh preparation pass; wait for the existing factory, native roster and UI resources. |
 | `Tick()` | At most one reference observation/start, one mip preparation or one backing build per actual frame. Repeated offers in the same frame are ignored. |
 | `IsReady` | This preparation pass completed, including bounded fallback failures. Ordinary native loaders still handle late/unseen content. |
+| `CancelPreparation()` | Drain unfinished work; retain valid reserves, shared pins/mips and live faces. |
 | `Reset()` | Drop the pass and destroy only unused reservations. Retain live faces, shared mips and shared pins. |
 
-Keep the completed reservations until scene/VR teardown or cancellation: resetting
+Keep the completed reservations until actual scene/VR teardown: resetting
 immediately when `IsReady` becomes true would discard the prepared slabs. Progress
 is exposed as `Classes`, `SpritesPrepared`, `SpritesTotal`, `ReferencesPending`,
 `BackingsPrepared`, `BackingsTarget` and `Failures`. Prerequisite waiting and pending
@@ -82,7 +83,7 @@ existing owners; this is not a claim to eliminate every first-hand cost.
 
 `python3 scripts/check-scenario-card-preparation.py` runs the full production
 preparation, pin, mip/cache/readback and factory files in Unity 2021.3.5 play-mode.
-The final focused run has **759 runtime assertions and 10 effective negative
+The final focused run has **761 runtime assertions and 10 effective negative
 controls**, including 24 real GPU pixel comparisons. It checks:
 
 - three native party classes plus a transferred fourth skin, original default and

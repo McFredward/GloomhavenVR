@@ -22,8 +22,9 @@ namespace GloomhavenVR.Core;
 /// method not named below remain unmeasured. The next headset log decides whether any candidate
 /// is actually expensive. A source count or this patch alone cannot establish a frame gain.
 ///
-/// Harmony's small wrapper remains on the named methods after the 120-frame sample, but the
-/// timing body then costs only a bool branch. Patches are installed only once, only after Debug
+/// The summary retains its first-120-frame sample. A separate bounded per-frame ledger stays
+/// active for Debug SPIKE attribution after that sample; ordinary logging costs a bool branch.
+/// Patches are installed only once, only after Debug
 /// logging and [Perf] FrameSplit are active, and Plugin.OnDestroy removes them with UnpatchSelf.
 /// Setup cost is measured and reported; instrumentation's in-call overhead is not isolated.
 /// </summary>
@@ -44,6 +45,8 @@ internal static class PerfNativeLoopProbe
         internal long Ticks;
         internal long WorstTicks;
         internal int Calls;
+        internal long FrameTicks, LastFrameTicks;
+        internal int FrameCalls, LastFrameCalls;
 
         internal string Label => TypeName + "." + MethodName;
     }
@@ -81,6 +84,43 @@ internal static class PerfNativeLoopProbe
 
     private static bool _installed;
     private static bool _sampling;
+    private static bool _spikeCapture;
+    private static readonly List<Target> SpikeRanked = new(Targets.Length);
+
+    // Rolled at the monitor's first Update, before refresh/settings may close its summary.
+    // Fixed-size ledgers, no formatting or allocation on the ordinary frame path.
+    internal static void RollSpikeFrame(bool on)
+    {
+        bool enabled = on && VRLog.WantsDebug && VRSession.Harmony != null;
+        if (!enabled && !_spikeCapture) return;
+        _spikeCapture = enabled;
+        if (_spikeCapture && !_installed) Install();
+        foreach (Target target in Targets)
+        {
+            target.LastFrameTicks = _spikeCapture ? target.FrameTicks : 0;
+            target.LastFrameCalls = _spikeCapture ? target.FrameCalls : 0;
+            target.FrameTicks = 0;
+            target.FrameCalls = 0;
+        }
+    }
+
+    internal static void AppendSpike(StringBuilder sb)
+    {
+        if (!_spikeCapture) return;
+        SpikeRanked.Clear();
+        foreach (Target target in Targets)
+            if (target.LastFrameCalls != 0) SpikeRanked.Add(target);
+        SpikeRanked.Sort((a, b) => b.LastFrameTicks.CompareTo(a.LastFrameTicks));
+        sb.Append(" | native previous-frame inclusive (Debug; nested):");
+        if (SpikeRanked.Count == 0) sb.Append(" n/a (no selected callback completed)");
+        for (int i = 0; i < Math.Min(4, SpikeRanked.Count); i++)
+        {
+            Target target = SpikeRanked[i];
+            sb.Append(i == 0 ? " " : ", ").Append(target.Label).Append(' ')
+                .Append((target.LastFrameTicks * 1000d / Stopwatch.Frequency).ToString("F3"))
+                .Append("ms/").Append(target.LastFrameCalls).Append(" call(s)");
+        }
+    }
     private static int _captureGeneration;
     private static int _sampleFrames;
     private static double _setupMs;
@@ -113,6 +153,8 @@ internal static class PerfNativeLoopProbe
     internal static void Shutdown()
     {
         _sampling = false;
+        RollSpikeFrame(false);
+        _spikeCapture = false;
         _sampleFrames = 0;
         // The shared plugin Harmony removes these patches during Plugin.OnDestroy. Clear the
         // mapping here so a hot reload cannot retain references to old game methods.
@@ -229,7 +271,7 @@ internal static class PerfNativeLoopProbe
     {
         // This hook is installed only on the explicit target methods. Looking the method
         // up here would add work to every call merely to confirm the registration we made once.
-        if (!_sampling)
+        if (!_sampling && !_spikeCapture)
             return;
         __state.Capture = _captureGeneration;
         __state.Started = Stopwatch.GetTimestamp();
@@ -243,9 +285,16 @@ internal static class PerfNativeLoopProbe
             || !ByMethod.TryGetValue(__originalMethod, out Target target))
             return;
         long ticks = Stopwatch.GetTimestamp() - __state.Started;
-        target.Ticks += ticks;
-        if (ticks > target.WorstTicks)
-            target.WorstTicks = ticks;
-        target.Calls++;
+        if (_sampling)
+        {
+            target.Ticks += ticks;
+            if (ticks > target.WorstTicks) target.WorstTicks = ticks;
+            target.Calls++;
+        }
+        if (_spikeCapture)
+        {
+            target.FrameTicks += ticks;
+            target.FrameCalls++;
+        }
     }
 }
