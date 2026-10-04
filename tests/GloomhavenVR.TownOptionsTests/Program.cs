@@ -256,8 +256,19 @@ namespace GloomhavenVR.WorldUI
                 Check(DonorCalls == 0, "native donor callbacks stripped from clone");
             }
             Check(changes == 64 && Saves == 64, "one notification and save per deliberate press");
+            Check(GraphicsProfileActions.Calls == 0, "constructing and reopening town controls never executes stored graphics actions");
             Console.WriteLine($"Town options: {Assertions} assertions passed.");
         }
+    }
+}
+namespace GloomhavenVR.WorldUI
+{
+    // Unrelated action boundary. The complete production graphics action has its own suite;
+    // this fixture compiles the real curated table and checks that construction is deferred.
+    internal static class GraphicsProfileActions
+    {
+        internal static int Calls;
+        internal static void Apply(int index) { Calls++; }
     }
 }
 internal static class Program { private static void Main() => GloomhavenVR.WorldUI.VROptionsTab.Run(); }
