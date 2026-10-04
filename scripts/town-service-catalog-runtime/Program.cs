@@ -1,3 +1,4 @@
+using System.Linq;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -161,7 +162,7 @@ public static class InteractionProgram
         Check(audio.isPlaying&&audio.clip==TownServiceAssets.Cabinet,"local cabinet turn starts one spatial mechanism sound");
         Check(audio.spatialBlend==1f&&audio.loop==false&&audio.rolloffMode==AudioRolloffMode.Linear,
             "cabinet mechanism remains a bounded spatial one-shot");
-        Check(!crank.RequestTurn(),"a running mechanical turn cannot restart");
+        Check(crank.RequestTurn(-1) && crank.RequestTurn(1),"a new page button press can reverse and restart the running holder animation");
         Set(crank,"_clock",.20f);crank.Tick(1f);
         Check(crank.Page==previous,"card identity is retained while outgoing front is visible");
         Check(crank.HousingRoot.Find("Cassette/Row0").localPosition.z > .025f,"scrolling folds the outgoing lower holder behind the cabinet lip");
@@ -587,7 +588,10 @@ public static class InteractionProgram
         Check(cold.RowSource.LastPrice==10,"cold source defers invisible price work");
         var pageTestRack=catalog.Drawers[0];
         WorldUIConfig.ImmersiveTownSoundEffects.Value=false;
-        Check(pageTestRack.Select(2,false),"category test starts a normal shutter transition");
+        Check(pageTestRack.Select(1,false),"category test starts the preceding transition");
+        Check(pageTestRack.Select(2,false),"category press restarts a moving cabinet from the currently visible page");
+        Check(catalog.Categories.All(category => category.Root.GetComponent<BoxCollider>().enabled),
+            "all category buttons remain available during holder animation without an assigned character");
         Set(pageTestRack,"_clock",.45f);catalog.Tick(1f);
         Check(cold.RowSource.LastPrice==17&&!cold.RowSource.LastAffordable&&cold.Exposed,
             "cold original row receives current native price and affordability on its first exposed frame");

@@ -134,6 +134,8 @@ internal static class NetProtocol
     /// One byte (0/1); absent means ordinary follow/fixed. No wrist offsets or viewer
     /// settings are needed: the original board pose/scale is already authoritative.</summary>
     public const byte ExtIdBoardWrist = 100;
+    // Atomic public map-item source. Existing rig/extra prefixes and record36 stay unchanged.
+    public const byte ExtIdTownItemHeld = 101;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -26016,7 +26018,7 @@ internal static class NetProtocol
     /// sees; <c>scripts/check-wire-coverage.py</c> fails the guard while any range approaches
     /// full.</para>
     /// </summary>
-    public const int BoardTuneMaxFields = 247;
+    public const int BoardTuneMaxFields = 248;
 
     /// <summary>
     /// Worst-case byte length of a COMPLETE field run — every usable id present at its own width:
@@ -26029,7 +26031,7 @@ internal static class NetProtocol
     /// is stated as an arithmetic expression rather than a literal for exactly this reason: a range
     /// boundary moves in one place and every bound derived from it follows.</para>
     /// </summary>
-    public const int BoardTuneMaxFieldBytes = 47 * 7 + 16 * 4 + 64 * 3 + 64 * 3 + 32 * 3 + 24 * 2;
+    public const int BoardTuneMaxFieldBytes = 47 * 7 + 16 * 4 + 64 * 3 + 64 * 3 + 32 * 3 + 24 * 2 + 5;
 
     /// <summary>Header of one record-28 PAGE, in bytes:
     /// <c>[pageIndex][pageCount][sig lo][sig hi][idLo][idHi][fieldCount]</c>.</summary>
@@ -26121,6 +26123,12 @@ internal static class NetProtocol
     /// <summary>First / last id whose value is an integer COUNT (1 byte).</summary>
     public const byte TuneCountIdMin = 224;
     public const byte TuneCountIdMax = 247;
+    // Unbounded finite config values retain their original single-precision contract.
+    // Count range stays byte-wide; id248 remains the historical zero-width tombstone.
+    public const byte TuneFloatIdMin = 249;
+    public const byte TuneFloatIdMax = 249;
+    /// <summary>[Cards] FanFollowDeadzone — owner position deadzone in metres, finite float249.</summary>
+    public const byte TuneFanFollowDeadzone = 249;
 
     // ---- field ids — WIRE CONSTANTS. Append only inside a range; never renumber. ---------------
     // VECTOR3 (6 B): board-local / mount-local offsets, tray-root metres.
@@ -27032,6 +27040,7 @@ internal static class NetProtocol
         if (id >= TuneColorIdMin && id <= TuneColorIdMax) return 3;
         if (id >= TuneLengthIdMin && id <= TuneAngleIdMax) return 2;
         if (id >= TuneCountIdMin && id <= TuneCountIdMax) return 1;
+        if (id >= TuneFloatIdMin && id <= TuneFloatIdMax) return 4;
         return 0;
     }
 
@@ -27277,6 +27286,20 @@ internal static class NetProtocol
         payload[i++] = (byte)(code & 0xFF);
         payload[i++] = (byte)((code >> 8) & 0xFF);
         return true;
+    }
+
+    /// <summary>Append a finite single-precision field without narrowing an unbounded config.</summary>
+    public static bool WriteTuneFloatField(byte[] payload, ref int i, byte id, float live, float shipped)
+    {
+        if (float.IsNaN(live) || float.IsInfinity(live) || live == shipped || i + 5 > payload.Length) return false;
+        payload[i++] = id; AvatarSerializer.WriteF32(payload, ref i, live); return true;
+    }
+    public static float BoardTuneFloat(byte[]? payload, int offset, int len, byte id, float fallback)
+    {
+        int at = FindBoardTuneField(payload, offset, len, id);
+        if (at < 0) return fallback;
+        float value = AvatarSerializer.ReadF32(payload!, ref at);
+        return float.IsNaN(value) || float.IsInfinity(value) ? fallback : value;
     }
 
     /// <summary>COUNT counterpart of <see cref="WriteTuneLengthField"/> (1 byte, clamped 0..255).</summary>

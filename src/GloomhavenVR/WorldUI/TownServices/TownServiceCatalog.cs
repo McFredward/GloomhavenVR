@@ -78,6 +78,24 @@ internal sealed class TownServiceCatalog : IDisposable
     private object? _context;
     private TownServiceCatalogPreview? _preview;
     private Entry? _inspected;
+    internal static bool TryNameHeldStock(TownServiceToken token, out TownItemHeldSource source, out Transform? root)
+    {
+        source = default; root = null;
+        foreach (Entry entry in CardMounts.Values)
+            if (!entry.Selling && entry.Current && ReferenceEquals(entry.Sample, token) && token.IsHeld)
+            {
+                source = new TownItemHeldSource(TownItemHeldSource.Stock, 0, entry.ItemId, 0, 0);
+                root = entry.MountRoot;
+                return source.Validate() && root != null;
+            }
+        return false;
+    }
+    internal static bool HasLocallyHeldStock(int itemId)
+    {
+        foreach (Entry entry in CardMounts.Values)
+            if (!entry.Selling && entry.Current && entry.ItemId == itemId && entry.Sample.IsHeld) return true;
+        return false;
+    }
     internal IReadOnlyList<Entry> Entries => _entries;
     internal IReadOnlyList<TownServiceToken> Samples => _samples;
     internal IReadOnlyList<Control> Controls => _controls;
@@ -122,7 +140,7 @@ internal sealed class TownServiceCatalog : IDisposable
                 // continue without moving it or reserving the whole cabinet.
                 () => true, drawer => ClearInspection()));
             for(int category=0;category<6;category++)
-                _categories.Add(new TownServiceCatalogCategory(Root,category,_drawers[0],()=>_allowInput&&_alive()&&_drawers[0].Accessible&&TownServicePublicMerchant.CanClaim));
+                _categories.Add(new TownServiceCatalogCategory(Root,category,_drawers[0],()=>_allowInput&&_alive()&&TownServicePublicMerchant.CanClaim));
             if(!persistent&&inventory.itemTooltip!=null)_preview=new TownServiceCatalogPreview(inventory.itemTooltip,Root,()=>_inspected!=null&&_inspected.Current&&_inspected.Sample.IsHeld);
         }
         catch { Dispose(); throw; }

@@ -552,6 +552,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     private byte _lastSentFaceCode1;
     private byte _lastSentFaceCount0, _lastSentFaceCount1;
     private int _lastSentSecondFaceActor;
+    private TownItemHeldSource? _lastSentSecondTownItem;
     private uint _lastSentSecondMapKey;
     private byte _lastSentSecondMapArcSeat;
     private ushort _lastSentSecondMapSeat, _lastSentSecondMapCount;
@@ -808,6 +809,31 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
 
     /// <summary>Use the same interpolated rig hand that already carries remote
     /// scenario cards. Town props must not chase a separate delayed world pose.</summary>
+    internal static bool TryGetTownHeldStock(int peer, int wanted, out int itemId)
+    {
+        itemId = 0;
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || !driver._avatars.TryGetValue(peer, out RemoteAvatar avatar)
+            || avatar.TimeSinceUpdate > NetProtocol.StaleTimeoutSeconds) return false;
+        for (int slot = 1; slot <= 2; slot++)
+        {
+            TownItemHeldSource? source = avatar.HeldTownItemSource(slot);
+            if (source.HasValue && source.Value.Kind == TownItemHeldSource.Stock
+                && (wanted == 0 || source.Value.ItemId == wanted) && avatar.HoldsTownStock(source.Value.ItemId))
+            { itemId = source.Value.ItemId; return true; }
+        }
+        return false;
+    }
+
+    internal static bool IsTownStockHeld(int itemId)
+    {
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || itemId <= 0) return false;
+        foreach (RemoteAvatar avatar in driver._avatars.Values)
+            if (avatar.TimeSinceUpdate <= NetProtocol.StaleTimeoutSeconds && avatar.HoldsTownStock(itemId)) return true;
+        return false;
+    }
+
     internal static bool TryGetTownMotionHand(int player, byte hand, out Transform? root)
     {
         root = null;
@@ -1067,9 +1093,10 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     private void Update()
     {
         float dt = Time.unscaledDeltaTime;
-
         using (Core.PerfMonitor.Scope("Net.Avatar"))
         {
+            try { PrepareMerchantCards(); }
+            catch (Exception e) { LogPhaseError("PrepareMerchantCards", e); }
             // EVERY phase runs behind its own catch, because the phases are INDEPENDENT and an
             // exception must only cost the phase it happened in. The second multiplayer test
             // proved the opposite contract fatal: one deterministic NRE inside ApplyPending
@@ -1333,7 +1360,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         if (fanInsertionGap > handNow || fanInsertionGap > 16) fanInsertionGap = -1;
         bool fanPresentationChanged = _fanPresentationSent.HasChanged(
             fanArcOrder, fanArcOrderCount, _fanArcOrderBuf, fanInsertionGap);
-        ItemsPile? itemsNow = ItemsPile.Current;
+        ItemsPile? itemsNow = RevealGate.InScenario ? ItemsPile.Current : ItemsPile.InspectionCurrent;
         int itemsCount = itemsNow != null && itemsNow.IsOpen ? itemsNow.Chips.Count : 0;
         bool countsChanged = handNow != _lastSentHandCount || itemsCount != _lastSentItemCount;
 
@@ -1360,7 +1387,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // single scan the owner's own recess is driven from — a stale index would leave a slab lying
         // in a recess that is empty on the owner's board, which is worse than none.
         ItemsPile? recessNow = ItemsPile.RecessOwner;
-        int itemClip = recessNow != null ? recessNow.ClippedChipIndex : -1;
+        int itemClip = RevealGate.InScenario ? (recessNow != null ? recessNow.ClippedChipIndex : -1)
+            : ItemsPile.InspectionOwner?.InspectionOfferingSeat ?? -1;
         // THE CARD OUTLIVES THE FAN (user report 2026-08-09; local half in ItemsPile._keptClip). The
         // clamp used to be unconditional, which quietly encoded "no fan => no card in the recess" —
         // and that is precisely the state the owner now spends most of the decision in: they lay the
@@ -1497,7 +1525,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         string fanHlSource = fanHl >= 0 ? "pile browser" : "none";
         if (fanHl < 0)
         {
-            fanHl = ItemsPile.Current?.HighlightedIndex ?? -1;
+            fanHl = itemsNow?.HighlightedIndex ?? -1;
             if (fanHl >= 0)
                 fanHlSource = "item fan";
         }
@@ -2092,8 +2120,11 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // latch is written UNCONDITIONALLY inside FillHeldCardRecords, FillHeldCardRecords runs on
         // every packet that goes out, and a true term forces a packet out. So a term that opens the
         // gate is cleared by the very packet it forced, on the same tick.
+        TownItemHeldSource? secondTownItem = LocalRigSampler.SampleHeldTownItem(2);
+        bool secondTownChanged = secondTownItem.HasValue != _lastSentSecondTownItem.HasValue
+            || secondTownItem.HasValue && !secondTownItem.Value.Same(_lastSentSecondTownItem.GetValueOrDefault());
         bool secondMapCard = LocalRigSampler.SampleHeldMapCard(2, out uint secondMapKey, out ushort secondMapSeat, out ushort secondMapCount, out byte secondMapArcSeat);
-        bool heldFaceChanged = faceCode0 != _lastSentFaceCode0 || faceCode1 != _lastSentFaceCode1
+        bool heldFaceChanged = secondTownChanged || faceCode0 != _lastSentFaceCode0 || faceCode1 != _lastSentFaceCode1
             || faceCount0 != _lastSentFaceCount0 || faceCount1 != _lastSentFaceCount1
             || secondFaceActor != _lastSentSecondFaceActor || secondMapKey != _lastSentSecondMapKey
             || secondMapSeat != _lastSentSecondMapSeat || secondMapCount != _lastSentSecondMapCount
@@ -2235,8 +2266,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         {
             extras.HasItemFan = true;
             extras.ItemCardCount = (byte)Mathf.Clamp(itemsCount, 0, 255);
-            extras.ItemFanHeld = itemsNow != null && itemsNow.IsHandHeld;
-            extras.ItemFanLeftHand = itemsNow != null && itemsNow.IsHeldByLeftHand;
+            extras.ItemFanHeld = itemsNow != null && (!RevealGate.InScenario || itemsNow.IsHandHeld);
+            extras.ItemFanLeftHand = itemsNow != null && (RevealGate.InScenario ? itemsNow.IsHeldByLeftHand : itemsNow.InspectionHeldByLeftHand);
         }
         // ITEM-USE CLIP (record 26): WHICH position is lying in our own use recess right now.
         //
@@ -3468,6 +3499,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         {
             extras.HasSecondHeldCard = true;
             extras.SecondHeldFaceActorId = secondFaceActor;
+            extras.HeldTownItem = secondTownItem;
             extras.HasHeldMapCard = secondMapCard; extras.HeldMapKey = secondMapKey;
             extras.HeldMapPoolSeat = secondMapSeat; extras.HeldMapPoolCount = secondMapCount; extras.HeldMapArcSeat = secondMapArcSeat;
             extras.SecondHeldCardPose.Position = secondCardPos;
@@ -3560,6 +3592,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         _lastSentFaceCount0 = faceCount0; _lastSentFaceCount1 = faceCount1;
         _lastSentSecondFaceActor = secondFaceActor;
         _lastSentSecondMapArcSeat = secondMapArcSeat;
+        _lastSentSecondTownItem = secondTownItem;
         _lastSentSecondMapKey = secondMapKey; _lastSentSecondMapSeat = secondMapSeat; _lastSentSecondMapCount = secondMapCount;
         FillHeldCardRecords(ref extras, faceCode0, faceCount0, faceCode1, faceCount1,
                             seatCode0, seatCount0, seatCode1, seatCount1, seatReason,

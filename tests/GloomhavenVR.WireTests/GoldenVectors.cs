@@ -4587,16 +4587,16 @@ internal static class GoldenVectors
                "and read by the other");
         t.Equal(0, strict.AssembledLength, "nothing was ever published from any of them");
 
-        // THE ID SPACE IS THE ONLY BOUND LEFT, and it is a BUILD-TIME one: 247 usable ids at their
-        // own widths is 921 bytes, which is what sizes the sender's buffer and the receiver's
+        // THE ID SPACE IS THE ONLY BOUND LEFT, and it is a BUILD-TIME one: 248 usable ids at their
+        // own widths is 926 bytes, which is what sizes the sender's buffer and the receiver's
         // accumulator. Pinned here so that widening a range is a deliberate act with a failing test
         // attached, not something a dial discovers at runtime on somebody's Quest.
-        t.Equal(247, NetProtocol.BoardTuneMaxFields,
-                "247 usable field ids: 47 vec + 16 colour + 64 length + 64 factor + 32 angle + "
+        t.Equal(248, NetProtocol.BoardTuneMaxFields,
+                "248 usable field ids including float249: 47 vec + 16 colour + 64 length + 64 factor + 32 angle + "
                 + "24 count — the COLOUR range was carved out of the vec range's unused tail, so "
                 + "the id COUNT is exactly what it was before it existed");
-        t.Equal(921, NetProtocol.BoardTuneMaxFieldBytes,
-                "= 921 bytes at their widths — it was 969, and it went DOWN when thirteen dials "
+        t.Equal(926, NetProtocol.BoardTuneMaxFieldBytes,
+                "= 926 bytes at their widths — it was 969, and it went DOWN when thirteen dials "
                 + "were added: sixteen ids moved from 7 bytes each to 4");
         t.True(NetProtocol.BoardTuneMaxFields < 255,
                "and under 255, which is the PROOF that the assembled payload's one-byte field count " +

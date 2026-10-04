@@ -328,6 +328,28 @@ public static partial class MirrorProgram
                 "merchant stock refusal cannot impersonate the enchantress");
         }
         TownServiceMirror.Shutdown();
+        var stockManifest = new TownServiceFrame { Service=1, Session=991, Sequence=1,
+            Module=TownServiceFrame.ManifestModule, VisitorStock=true, Visible=true,
+            SampleTime=Time.unscaledTime, SessionAge=1, Modules=Array.Empty<ushort>(),
+            Pose=new[]{0f,0f,0f,0f,0f,0f,1f,1f,1f,1f} };
+        byte[] stockBytes=TownServiceCodec.Write(stockManifest);
+        Check(TownServiceMirror.Receive(21,stockBytes,stockBytes.Length),"normal held stock retains an independent manifest without town face modules");
+        NetAvatarDriver.PeerHeldStock[21]=611;
+        var stockCue=TownServiceVoiceRelayCodec.Create(1,991,2,GloomhavenVR.WorldUI.TownVoiceReaction.MerchantOffer,Time.unscaledTime,1);
+        stockCue.VisitorStock=true;
+        bool StockVoice(int peer) {
+            object?[] args={peer,stockCue,null};return (bool)typeof(TownServiceMirror).GetMethod("TryStockVoiceSession",PrivateStatic)!.Invoke(null,args)!;
+        }
+        Check(TownServiceMirror.StockItemHeldByOther(611)&&StockVoice(21),"atomic avatar stock provenance preserves public vacancy and pickup voice with zero heldstock modules");
+        Check(!StockVoice(22),"another peer's held stock cannot authorize this visitor voice session");
+        NetAvatarDriver.PeerHeldStock.Remove(21);
+        Check(!TownServiceMirror.StockItemHeldByOther(611)&&!StockVoice(21),"released or stale avatar stock clears public vacancy and pickup voice eligibility");
+        NetAvatarDriver.PeerHeldStock[21]=611;
+        stockManifest.Sequence=3;stockManifest.Visible=false;stockBytes=TownServiceCodec.Write(stockManifest);
+        TownServiceMirror.Receive(21,stockBytes,stockBytes.Length);
+        Check(!StockVoice(21),"inactive stock session cannot revive a relayed pickup reaction");
+        NetAvatarDriver.PeerHeldStock.Clear();
+        TownServiceMirror.Shutdown();
     }
     private static void PublisherNoCloth()
     {

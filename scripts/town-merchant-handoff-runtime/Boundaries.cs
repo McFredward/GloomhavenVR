@@ -8,7 +8,7 @@ namespace TMPro { public class TMP_Text : MonoBehaviour { public string text = "
 namespace FFSNet { public static class FFSNetwork { public static bool IsOnline; } }
 namespace ScenarioRuleLibrary { public class CItem { public int ID; public bool Tradeable = true; } }
 namespace MapRuleLibrary.Party {
- public class CMapCharacter { public bool IsUnderMyControl = true; public readonly List<ScenarioRuleLibrary.CItem> AllCharacterItems = new(); }
+ public class CMapCharacter { public string CharacterName="Brute"; public bool IsUnderMyControl = true; public readonly List<ScenarioRuleLibrary.CItem> AllCharacterItems = new(); }
  public class CMapParty { public readonly List<ScenarioRuleLibrary.CItem> Stock = new(); }
 }
 namespace MapRuleLibrary.Adventure {
@@ -145,7 +145,7 @@ namespace GloomhavenVR.Cards {
   private void ClearChips() { foreach(var c in _chips) UnityEngine.Object.DestroyImmediate(c.gameObject); _chips.Clear(); }
   internal partial class ItemChip : GrabbableBehaviour {
    public enum Visual { Normal, Spent } public Visual State;
-   public bool PendingUse, TownOffering; public Action? TownOfferingReclaimed;
+   public bool IsTownInspection => Owner != null && Owner._inspectionRelease != null; public bool PendingUse, TownOffering; public Action? TownOfferingReclaimed;
    public void CancelReleaseGlide() { _releaseGlide=0f; }
    public void ResumeInspectionGlide() { _releaseGlide=.3f; }
    private Vector3 _homePos,_emergeFrom,_collapseWorld,_collapseFrom;
@@ -201,12 +201,19 @@ namespace GloomhavenVR.WorldUI.MapRoom {
  public static class MapCharacterSelection { public static MapRuleLibrary.Party.CMapCharacter? Selected; public static MapRuleLibrary.Party.CMapCharacter? Current(out string source) { source="fixture"; return Selected; } }
  internal sealed partial class MapRoomHand {
   private static MapRoomHand s_live = new(); private bool _engaged = true;
+  internal static readonly List<MapRuleLibrary.Party.CMapCharacter> FixtureParty = new();
+  private static List<MapRuleLibrary.Party.CMapCharacter> PartyMembers() {
+   if(FixtureParty.Count>0)return FixtureParty;
+   var result=new List<MapRuleLibrary.Party.CMapCharacter>(); if(MapCharacterSelection.Selected!=null)result.Add(MapCharacterSelection.Selected); return result;
+  }
+  internal static uint s_localFanCharacterKey;
   public static int NormalRebuilds, NormalReleases;
   private void ReleaseFan(string why) { NormalReleases++; }
   private void RebuildFan() { NormalRebuilds++; }
  }
 }
 namespace GloomhavenVR.WorldUI {
+ internal static class TownServicePublicMerchant { internal static TownServiceCatalog? Catalog; }
  internal static class CanvasConversion { internal static int Releases; internal static int ReleaseHiddenWindowVeilOwnership(Transform root) { Releases++; return 1; } }
  internal static class TownServiceMerchantLayout { internal const float CardWidth=.14f; }
  internal enum TownVoiceReaction : byte { MerchantOffer, MerchantBuy, MerchantSell, MerchantUnaffordable, MerchantSoldOut }
@@ -226,7 +233,10 @@ namespace GloomhavenVR.WorldUI {
  public static class StoryComposite { public static bool PointOfNoReturn; }
  internal sealed class TownServiceStation { public Transform Root = null!; public bool Near = true; public bool IsLocalVisitorNear(bool previous)=>Near; }
  internal static class TownServicePopulation { public static TownServiceStation? Station; public static bool Available(byte s)=>Station!=null; public static TownServiceStation? Acquire(byte s)=>Station; }
- internal static class TownServiceCatalog { public static Func<ScenarioRuleLibrary.CItem,bool,bool>? CanOffer; public static Func<ScenarioRuleLibrary.CItem,bool,Vector3,bool>? Offer; public static Func<Vector3,bool>? InOfferingZone; public static bool HeldOfferAvailable; public static Action<TownServiceToken>? RetainOffer; public static bool TryHeldOffer(Vector3 target, out Vector3 position, out Hands.VRHand? hand, out bool selling) { position=default; hand=null; selling=false; return HeldOfferAvailable; } }
+ internal sealed class TownServiceCatalog {
+  internal class Entry { internal bool Current,Selling; internal int ItemId; }
+  internal readonly List<Entry> Entries = new();
+  public static Func<ScenarioRuleLibrary.CItem,bool,bool>? CanOffer; public static Func<ScenarioRuleLibrary.CItem,bool,Vector3,bool>? Offer; public static Func<Vector3,bool>? InOfferingZone; public static bool HeldOfferAvailable; public static Action<TownServiceToken>? RetainOffer; public static bool TryHeldOffer(Vector3 target, out Vector3 position, out Hands.VRHand? hand, out bool selling) { position=default; hand=null; selling=false; return HeldOfferAvailable; } }
  internal sealed class TownServiceToken { public int Parks,Returns; public void ParkOffering(Transform seat,Action reclaim) { Parks++; } public void ReturnOffering() { Returns++; } }
  internal static class TownServicePalmConfirmation {
   internal static int Bindings;

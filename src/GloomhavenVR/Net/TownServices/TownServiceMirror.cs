@@ -1037,6 +1037,7 @@ internal static partial class TownServiceMirror
                 TownServiceFrame? expanded = TownServiceDelta.Expand(baseline, received);
                 if (expanded == null) continue;
                 TownServiceFrame frame = expanded;
+                if (HoldReorderedPublicRackMember(entry.Key, frame)) continue;
                 if (secondaryVisitor && !IndependentVisitorModule(frame, entry.Key, !session.TransactionActive)) continue;
                 if (frame.Session != session.Session || frame.Service != session.Service || Array.BinarySearch(session.Modules, frame.Module) < 0) continue;
                 try

@@ -4679,9 +4679,9 @@ internal sealed class RemoteHandFan
         {
             float k = 1f - Mathf.Exp(-_followSmoothing * Mathf.Max(dt, 0f));
             _facing = Quaternion.Slerp(_facing, targetRot, k);
-            root.SetPositionAndRotation(
-                Vector3.Lerp(root.position, target, k),
-                ApplyGazeBias(_facing, biasYaw));
+            Vector3 position = (root.position - target).magnitude > _owner.BoardTuning.FanFollowDeadzone * _owner.AppliedScale
+                ? Vector3.Lerp(root.position, target, k) : root.position;
+            root.SetPositionAndRotation(position, ApplyGazeBias(_facing, biasYaw));
         }
     }
 

@@ -145,9 +145,12 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         || page == Page / 256 * 256 + (Page % 256 + 1) % Math.Max(1, PageCount);
     internal bool Select(int category, bool selling)
     {
-        if (category < 0 || category >= 6 || _disposed || _hand != null || _turning || !_alive() || !_mayClose()) return false;
+        // A shared presentation turn must never disable public category keys. A new
+        // press starts from the currently visible original page, even while the former
+        // owner clock is in flight. Manual crank grabs still own their physical input.
+        if (category < 0 || category >= 6 || _disposed || _hand != null || !_alive() || !_mayClose()) return false;
         int target = category * 256 + (selling ? 2048 : 0);
-        return target != Page && Begin(target);
+        return (target != Page || _turning && target != ToPage) && Begin(target);
     }
     private bool Begin(int page, int direction = 0)
     {
@@ -156,8 +159,12 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         _audio.Begin(TurnEpoch, 0f); return true;
     }
     internal bool RequestTurn() => RequestTurn(1);
-    internal bool RequestTurn(int direction) => direction != 0 && CanGrab
-        && Begin(Page / 256 * 256 + (Page % 256 + (direction > 0 ? 1 : _availablePages - 1)) % _availablePages, direction);
+    internal bool RequestTurn(int direction)
+    {
+        if (direction == 0 || _disposed || _hand != null || PageCount <= 1 || !_alive() || !_mayClose()) return false;
+        int source = _turning ? ToPage : Page;
+        return Begin(source / 256 * 256 + (source % 256 + (direction > 0 ? 1 : _availablePages - 1)) % _availablePages, direction);
+    }
 
     // The stock display is a physical scroll surface. Reuse the UI/flight arbitration so
     // aiming here never scrolls the cabinet and moves the player vertically at the same time.

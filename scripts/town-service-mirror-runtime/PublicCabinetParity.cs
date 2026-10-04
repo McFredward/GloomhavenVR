@@ -138,13 +138,13 @@ public static partial class MirrorProgram
         Receive(3, next.Where(bytes => ReadModule(bytes) != 13 && ReadModule(bytes) != 21));
         TownServiceMirror.TickRemote(_ => viewer);
         Check(!TownServiceMirror.HasReadyPublicPresentation && second.gameObject.activeInHierarchy
-            && !Remote(-3, 10)!.Root.gameObject.activeInHierarchy,
-            "missing current mechanical originals delay atomic reveal even when every card original is ready");
+            && ReferenceEquals(second, Remote(-3, 10)!.Root),
+            "missing new mechanical original retains the same author's usable native cabinet");
         Receive(3, next.Where(bytes => ReadModule(bytes) == 13)); TownServiceMirror.TickRemote(_ => viewer);
         Transform third = Remote(-3, 10)!.Root;
         Check(TownServiceMirror.HasReadyPublicPresentation && third.gameObject.activeInHierarchy
-            && !second.gameObject.activeInHierarchy && Remote(-3, 12)!.Root.gameObject.activeInHierarchy && Remote(-3, 13)!.Root.gameObject.activeInHierarchy,
-            "the same author's next complete category remains populated and retires the old native group once");
+            && ReferenceEquals(second, third) && Remote(-3, 12)!.Root.gameObject.activeInHierarchy && Remote(-3, 13)!.Root.gameObject.activeInHierarchy,
+            "the same author's next complete category reuses the populated original native group");
         NetPlayerActors.Peer = 2; key.onClick.Invoke();
         Check(TownServiceMirror.IsPublicAuthor && key.interactable && !TownServicePublicMerchant.FixtureObserving,
             "a later different visitor can press the native category again after both validated replacements");

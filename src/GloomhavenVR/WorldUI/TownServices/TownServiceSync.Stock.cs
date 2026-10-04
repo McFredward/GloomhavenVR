@@ -63,7 +63,7 @@ internal sealed partial class TownServiceSync
     {
         foreach (TownServiceCatalog.Entry entry in catalog.Entries)
         {
-            if (!entry.Current || !entry.Sample.IsMoving) continue;
+            if (!entry.Current || !entry.Sample.IsMoving || entry.Sample.IsHeld) continue;
             PriorityRoots.Add(entry.MountRoot); PriorityRoots.Add(entry.CardRoot);
             // The scenario's approved avatar holder already smooths the tracked
             // hand. Stock inspection must attach to that same frame rather than

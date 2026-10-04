@@ -60,6 +60,8 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\NetProtocol.cs" Link="wire\NetProtocol.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/MapButtonTooltipCodec.cs" />
     <Compile Include="MapButtonTooltipVectors.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownItemHeldSource.cs" />
+    <Compile Include="TownItemHeldVectors.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Avatar\AvatarState.cs" Link="wire\AvatarState.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Avatar\AvatarSerializer.cs" Link="wire\AvatarSerializer.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\PresenceState.cs" Link="wire\PresenceState.cs" />

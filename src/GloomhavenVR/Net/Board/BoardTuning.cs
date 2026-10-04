@@ -588,6 +588,11 @@ internal static class BoardTuningSampler
         n += Bool8(payload, ref i, NetProtocol.TuneFanGazeBiasOn,
                    Cards.CardsConfig.FanGazeBias, Defaults.FanGazeBias);
 
+        // Float249 is intentionally appended after all byte-count fields. The config
+        // has no maximum; storing millimetres in one byte would change the owner's behavior.
+        n += CardsConfig.FanFollowDeadzone == null ? 0 :
+            NetProtocol.WriteTuneFloatField(payload, ref i, NetProtocol.TuneFanFollowDeadzone,
+                CardsConfig.FanFollowDeadzone.Value, Defaults.FanFollowDeadzone) ? 1 : 0;
         if (n == 0)
             return 0;                  // every dial at its shipped default — write NO record
 
@@ -1011,6 +1016,7 @@ internal readonly struct RemoteBoardTuning
     /// ease, so a consumer must branch on it rather than merely scaling by it. Wire id
     /// <see cref="NetProtocol.TuneFanFollowSmoothing"/>.</summary>
     public float FanFollowSmoothing { get; }
+    public float FanFollowDeadzone { get; }
 
     /// <summary>[Cards] InspectScale — how far a card GROWS while the owner holds it up to read it.
     /// The second factor of the held card's size; the first is <see cref="CardWidth"/>, and a
@@ -1305,6 +1311,8 @@ internal readonly struct RemoteBoardTuning
         FanFollowSmoothing = Mathf.Clamp(
             F(payload, len, NetProtocol.TuneFanFollowSmoothing, Defaults.FanFollowSmoothing),
             0f, 60f);
+        FanFollowDeadzone = NetProtocol.BoardTuneFloat(payload, 0, len,
+            NetProtocol.TuneFanFollowDeadzone, Defaults.FanFollowDeadzone);
         FanGazeSmoothing = Mathf.Clamp(
             F(payload, len, NetProtocol.TuneFanGazeSmoothing, Defaults.FanGazeSmoothing), 1f, 30f);
         // The owner's [Cards] InspectScale bound (0.5..4) applied on the receiving side for the same

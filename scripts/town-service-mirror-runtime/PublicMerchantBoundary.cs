@@ -86,7 +86,7 @@ namespace GloomhavenVR.WorldUI
         {
             _rack = rack; _category = category; _home = Root.localPosition;
             _shape = Root.gameObject.AddComponent<BoxCollider>();
-            _available = () => rack.Accessible && TownServicePublicMerchant.CanClaim;
+            _available = () => TownServicePublicMerchant.CanClaim;
         }
     }
 }

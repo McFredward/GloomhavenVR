@@ -24,6 +24,42 @@ public static class InteractionProgram
   if(benchmarkFailure!=null) throw benchmarkFailure;
   return _count;
  }
+ private static void ProvePublicHeldItemProvenance() {
+  var selectedBefore=MapCharacterSelection.Selected;
+  VRHands.Left!.PalmGate.IsOpen=true; VRHands.Right!.Grabber.Held=null; ItemsPile.ItemChip.NewArtReady=true;
+  var original=new CMapCharacter{CharacterName="Brute"};var other=new CMapCharacter{CharacterName="Tinkerer"};
+  for(int i=0;i<87;i++)original.AllCharacterItems.Add(new CItem{ID=100+i});
+  MapRoomHand.FixtureParty.Clear();MapRoomHand.FixtureParty.Add(original);MapRoomHand.FixtureParty.Add(other);
+  MapCharacterSelection.Selected=original;MapRoomDriver.Active=true;
+  FFSNet.FFSNetwork.IsOnline=true;original.IsUnderMyControl=true;
+  var pile=ItemsPile.CreateInspection((c,p,h)=>{});pile.TickInspection(original.AllCharacterItems,1);
+  MapRoomHand.s_localFanCharacterKey=0; int releases=MapRoomHand.NormalReleases;
+  MapRoomHand.SetMerchantInspection(true);
+  Check(MapRoomHand.NormalReleases==releases+1 && MapRoomHand.LocalFanCharacterKey==pile.InspectionCharacterKey,
+      "visible inspection fan owns record20 even when the ordinary ability fan is absent");
+  var held=pile.InspectionChips[44];held.Holder=VRHands.Right;
+  Check(MapRoomHand.TryNameMerchantItem(held,out var source)&&source.Seat==44&&source.Count==87,"actual inspection source names seat44 of87 without a30-card cap");
+  var bytes=new byte[GloomhavenVR.Net.TownItemHeldSource.PayloadSize];int at=0;source.Write(bytes,ref at);
+  Check(GloomhavenVR.Net.TownItemHeldSource.TryRead(bytes,0,bytes.Length,out var received)&&ReferenceEquals(MapRoomHand.ResolveMerchantHeldItem(received),held.Item),"owner chip to101 codec to receiver resolves the same native original model");
+  held.Holder=null;held.TownOffering=true;
+  Check(!ItemsPile.InspectionUsesAvatarTransport(held)&&pile.InspectionOfferingSeat==44,"actual offered item leaves the canonical fan seat and stays in shared palm transport");
+  held.TownOffering=false;pile.ResumeInspection(held);
+  Check(!ItemsPile.InspectionUsesAvatarTransport(held)&&pile.InspectionOfferingSeat==44,"real palm return keeps its fan seat withdrawn until the original glide lands");
+  for(int t=0;t<512&&!ItemsPile.InspectionUsesAvatarTransport(held);t++)pile.TickInspection(original.AllCharacterItems,1);
+  Check(ItemsPile.InspectionUsesAvatarTransport(held)&&pile.InspectionOfferingSeat==-1,"completed return restores canonical fan transport exactly once");
+  MapCharacterSelection.Selected=other;
+  Check(MapRoomHand.TryNameMerchantItem(held,out var focused)&&focused.Same(source)&&ReferenceEquals(MapRoomHand.ResolveMerchantHeldItem(received),held.Item),"immutable owned source survives unrelated current fan focus until native release");
+  var swap=original.AllCharacterItems[44];original.AllCharacterItems[44]=original.AllCharacterItems[45];original.AllCharacterItems[45]=swap;
+  Check(MapRoomHand.ResolveMerchantHeldItem(received)==null,"same-size reordered inventory cannot draw a different held item");
+  pile.TickInspection(original.AllCharacterItems,2);
+  for(int i=0;i<original.AllCharacterItems.Count;i++)Check(ReferenceEquals(pile.InspectionChips[i].Item,original.AllCharacterItems[i]),"actual owner fan order follows native inventory after same-size reorder "+i);
+  original.AllCharacterItems[45]=original.AllCharacterItems[44];original.AllCharacterItems[44]=swap;
+  original.AllCharacterItems.RemoveAt(0);
+  Check(MapRoomHand.ResolveMerchantHeldItem(received)==null,"stale count prevents positional source reuse");
+  MapRoomHand.FixtureParty.Add(new CMapCharacter{CharacterName="Brute"});
+  Check(MapRoomHand.ResolveMerchantHeldItem(received)==null,"ambiguous public character hash never substitutes a viewer model");
+  MapRoomHand.FixtureParty.Clear();pile.DestroyInspection();MapRoomHand.SetMerchantInspection(false);MapCharacterSelection.Selected=selectedBefore;
+ }
  private static void RunScale(float scale) {
   ItemsPile.ItemChip.NewArtReady=true;
  TownServiceVoice.Offers=TownServiceVoice.Buys=TownServiceVoice.Sells=0;
@@ -184,9 +220,11 @@ public static class InteractionProgram
   FFSNet.FFSNetwork.IsOnline=true; character.IsUnderMyControl=false; TownServiceMerchantHandoff.Tick();
   Check(!TownServiceMerchantHandoff.Active,"remote character cannot open an owned-item fan");
   character.IsUnderMyControl=true; VRHands.Left.PalmGate.IsOpen=true; TownServiceMerchantHandoff.Tick(); TownServiceMerchantHandoff.LateTick();
+  var beforeSwitch=TownServiceMerchantHandoff.OwnedChips[0]; beforeSwitch.Holder=VRHands.Right; VRHands.Right!.Grabber.Held=beforeSwitch;
   uint session=TownServiceMerchantHandoff.Session;
   var replacement=new CMapCharacter(); replacement.AllCharacterItems.Add(new CItem{ID=90}); MapCharacterSelection.Selected=replacement;
   TownServiceMerchantHandoff.Tick(); TownServiceMerchantHandoff.LateTick();
+  Check(VRHands.Right.Grabber.Held==null,"character focus switch cancels an old inspection hand before its fan is destroyed");
   Check(TownServiceMerchantHandoff.Session!=session && TownServiceMerchantHandoff.OwnedChips.Count==1,"character switch replaces all fan contents and transaction scope");
   var stock=new CItem{ID=99}; AdventureState.MapState.MapParty.Stock.Add(stock); window.ItemInventory.character=replacement;
   int rejectedFunds=TownServiceVoice.Unaffordable,rejectedStock=TownServiceVoice.SoldOut;
@@ -345,6 +383,7 @@ public static class InteractionProgram
   TownServiceMerchantHandoff.Reset();
   Check(Singleton<UIItemConfirmationBox>.Instance.IsActive && ReferenceEquals(Singleton<UIItemConfirmationBox>.Instance._onConfirmedCallback,foreign),"reset cannot cancel somebody else's confirmation");
   Check(TownServiceCatalog.Offer==null && TownServiceCatalog.CanOffer==null && TownServiceCatalog.InOfferingZone==null,"reset clears callback lifetime");
+  ProvePublicHeldItemProvenance();
   UnityEngine.Object.DestroyImmediate(root);
  }
  private static void FlushNextFrameInspectionReaction() {

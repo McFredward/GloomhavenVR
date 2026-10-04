@@ -103,6 +103,7 @@ internal static class LocalRigSampler
             SampleHeldCardFaces(out state.HeldFaceCode, out state.HeldFaceCount,
                 out state.SecondHeldFaceCode, out state.SecondHeldFaceCount, out state.HeldFaceActorId, out _);
             state.HasHeldCardFace = true;
+            state.HeldTownItem = SampleHeldTownItem(1);
             state.HasHeldMapCard = SampleHeldMapCard(1, out state.HeldMapKey, out state.HeldMapPoolSeat, out state.HeldMapPoolCount, out state.HeldMapArcSeat);
         }
 
@@ -215,8 +216,9 @@ internal static class LocalRigSampler
     /// describing the wrong card.</para></summary>
     private static bool HoldsCardShape(VRHand? hand)
         => hand != null && hand.Grabber != null
-           && (hand.Grabber.Held is Cards.ItemsPile.ItemChip chip && chip != null && !chip.IsTownInspection
-               || hand.Grabber.Held is Cards.VRCard card && card != null);
+           && (hand.Grabber.Held is Cards.ItemsPile.ItemChip chip && chip != null
+               || hand.Grabber.Held is Cards.VRCard card && card != null
+               || hand.Grabber.Held is WorldUI.TownServiceToken token && token.IsItemCard);
 
     /// <summary>
     /// WHICH HELD-CARD POSE SLOTS ARE RIGID — extension record
@@ -325,6 +327,19 @@ internal static class LocalRigSampler
         if (left && right) SampleHeldFace(VRHands.Right, out code1, out count1, out actor1);
     }
 
+    internal static TownItemHeldSource? SampleHeldTownItem(int poseSlot)
+    {
+        if (RevealGate.InScenario) return null;
+        bool left = HoldsCardShape(VRHands.Left), right = HoldsCardShape(VRHands.Right);
+        if ((!left && !right) || (poseSlot == 2 && (!left || !right))) return null;
+        VRHand? hand = poseSlot == 2 || !left ? VRHands.Right : VRHands.Left;
+        if (hand?.Grabber?.Held is Cards.ItemsPile.ItemChip chip
+            && WorldUI.MapRoom.MapRoomHand.TryNameMerchantItem(chip, out TownItemHeldSource owned)) return owned;
+        if (hand?.Grabber?.Held is WorldUI.TownServiceToken token
+            && WorldUI.TownServiceCatalog.TryNameHeldStock(token, out TownItemHeldSource stock, out _)) return stock;
+        return null;
+    }
+
     internal static bool SampleHeldMapCard(int poseSlot, out uint key, out ushort seat, out ushort count, out byte arcSeat)
     {
         key = 0; seat = count = 0; arcSeat = 255;
@@ -339,7 +354,21 @@ internal static class LocalRigSampler
     private static void SampleHeldFace(VRHand? hand, out byte code, out byte count, out int actorId)
     {
         code = count = 0; actorId = 0;
-        if (!RevealGate.InScenario) { NameHeldMapCard(hand, out code, out count); return; }
+        if (!RevealGate.InScenario)
+        {
+            object? heldMap = hand?.Grabber?.Held;
+            TownItemHeldSource itemSource;
+            if (heldMap is Cards.ItemsPile.ItemChip mapChip
+                && WorldUI.MapRoom.MapRoomHand.TryNameMerchantItem(mapChip, out itemSource)
+                || heldMap is WorldUI.TownServiceToken token
+                && WorldUI.TownServiceCatalog.TryNameHeldStock(token, out itemSource, out _))
+            {
+                code = NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListItems, itemSource.Kind == TownItemHeldSource.Owned ? itemSource.Seat : -1);
+                count = (byte)System.Math.Min(255, (int)itemSource.Count);
+                return;
+            }
+            NameHeldMapCard(hand, out code, out count); return;
+        }
         // A physical hold survives a board focus change. Read the actual held widget/chip's
         // owner, never the newly displayed character or whichever item fan happens to be open.
         object? held = hand?.Grabber?.Held;
@@ -1169,8 +1198,10 @@ internal static class LocalRigSampler
         // board-laser pluck (ItemChip.OnPoke → ProximityGrabber.ForceGrab) BOTH set Grabber.Held to
         // the chip itself, so one pattern match covers every way an item card gets into a hand.
         Cards.ItemsPile.ItemChip? chip = hand.Grabber.Held as Cards.ItemsPile.ItemChip;
-        if (chip != null && chip.IsTownInspection) return false; // Town service stream owns this original face and body.
-        Transform? t = chip != null
+        Transform? stockRoot = null;
+        if (hand.Grabber.Held is WorldUI.TownServiceToken stock)
+            WorldUI.TownServiceCatalog.TryNameHeldStock(stock, out _, out stockRoot);
+        Transform? t = stockRoot != null ? stockRoot : chip != null
             ? chip.transform
             : hand.Grabber.Held is Cards.VRCard card && card != null ? card.transform : null;
         if (t == null)

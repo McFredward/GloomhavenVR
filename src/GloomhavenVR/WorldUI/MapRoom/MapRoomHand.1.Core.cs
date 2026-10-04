@@ -911,7 +911,7 @@ internal sealed partial class MapRoomHand
     /// this key identifies is which party member to look up in the receiver's OWN party, and the
     /// cards themselves are still drawn from the receiver's own art.</para>
     /// </summary>
-    internal static uint LocalFanCharacterKey => s_localFanCharacterKey;
+    internal static uint LocalFanCharacterKey => Cards.ItemsPile.InspectionCurrent?.InspectionCharacterKey ?? s_localFanCharacterKey;
 
     /// <inheritdoc cref="LocalFanCharacterKey"/>
     private static uint s_localFanCharacterKey;

@@ -36,8 +36,14 @@ def sources(root):
     paths = ["src/GloomhavenVR/WorldUI/TownServices/TownServiceMerchantHandoff.cs",
              "src/GloomhavenVR/WorldUI/TownServices/TownServiceOfferingPose.cs",
              "src/GloomhavenVR/Cards/Piles/ItemsPile.Merchant.cs",
-             "src/GloomhavenVR/WorldUI/MapRoom/MapRoomHand.5.Merchant.cs"]
+             "src/GloomhavenVR/WorldUI/MapRoom/MapRoomHand.5.Merchant.cs",
+             "src/GloomhavenVR/Net/TownItemHeldSource.cs"]
     bound = {Path(p).name: (root / p).read_text() for p in paths}
+    protocol = (root / "src/GloomhavenVR/Net/NetProtocol.cs").read_text()
+    bound["ActualMerchantHash.cs"] = "namespace GloomhavenVR.Net { internal static class NetProtocol { " + method(protocol, "public static uint HashMapKey(string? id)") + " } }"
+    core = (root / "src/GloomhavenVR/WorldUI/MapRoom/MapRoomHand.1.Core.cs").read_text()
+    accessor = next(line.strip() for line in core.splitlines() if "internal static uint LocalFanCharacterKey =>" in line)
+    bound["ActualInspectionFanKey.cs"] = "namespace GloomhavenVR.WorldUI.MapRoom { internal sealed partial class MapRoomHand { " + accessor + " } }"
     feedback = root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceOfferFeedback.cs"
     bound[feedback.name] = feedback.read_text()
     face = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceFace.cs").read_text()
@@ -93,7 +99,9 @@ def mutations():
         ("purchase-placeholder", "ItemsPile.Merchant.cs", "chip.BeginInspectionEmerge(Vector3.zero, chip.transform.localPosition.x >= 0f ? 1f : -1f);", "chip.BeginEmerge(Vector3.zero, 0f, chip.transform.localPosition.x >= 0f ? 1f : -1f);", "purchased item never exposes a brown backing while original art is pending"),
         ("offering-flat", "TownServiceOfferingPose.cs", "facing * Quaternion.Euler(0f, 1.5f * Mathf.Sin(age * .9f), 0f)", "palm.rotation * Quaternion.Euler(90f, 0f, 0f)", "offering overlay is upright over the palm"),
         ("offering-static", "TownServiceOfferingPose.cs", ".006f * Mathf.Sin(age * 1.8f)", "0f", "offering suspension has visible gentle continuous motion"),
-        ("offering-retirement", "ItemsPile.Merchant.cs", "!chip.TownOffering &&", "", "closed wrist fan retains actual pending offering"),
+        ("inspection-fan-source", "ActualInspectionFanKey.cs", "Cards.ItemsPile.InspectionCurrent?.InspectionCharacterKey ?? s_localFanCharacterKey", "s_localFanCharacterKey", "visible inspection fan owns record20 even when the ordinary ability fan is absent"),
+        ("held-stale-identity", "MapRoomHand.5.Merchant.cs", "&& items[source.Seat] != null && items[source.Seat].ID == source.ItemId", "&& items[source.Seat] != null", "same-size reordered inventory cannot draw a different held item"),
+        ("offering-retirement", "ItemsPile.Merchant.cs", "chip.Holder == null && !chip.TownOffering &&", "chip.Holder == null &&", "closed wrist fan retains actual pending offering"),
         ("remote-owner", "MapRoomHand.5.Merchant.cs", "(!FFSNetwork.IsOnline || character.IsUnderMyControl)", "true", "remote character cannot open an owned-item fan"),
         ("palm-bypass", "TownServiceMerchantHandoff.cs", "!Eligible(item, selling, cached: false) || !InOfferingZone(world)", "!Eligible(item, selling, cached: false)", "release outside palm cannot open merchant"),
         ("inventory-cap", "TownServiceMerchantHandoff.cs", "Items.AddRange(current);", "Items.AddRange(current.GetRange(0, 1));", "all equipped and bound copies become actual inspection cards"),

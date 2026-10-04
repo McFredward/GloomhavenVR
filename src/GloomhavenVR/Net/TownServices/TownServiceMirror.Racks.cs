@@ -107,7 +107,8 @@ internal static partial class TownServiceMirror
         {
             if(member.Page!=page||member.Detached)continue;
             if(!modules.TryGetValue(member.Id,out var module)||!module.Alive||module.LastFrame==null
-                ||module.LastFrame.RackMember==null||module.LastFrame.RackMember.Rack!=rackId||module.LastFrame.RackMember.Page!=page)return false;
+                ||module.LastFrame.RackMember==null||module.LastFrame.RackMember.Rack!=rackId||module.LastFrame.RackMember.Page!=page
+                ||state.Layout!=null&&module.LastFrame.RackMember.Turn<state.Turn)return false;
         }
         return true;
     }
@@ -147,9 +148,17 @@ internal static partial class TownServiceMirror
                     clock.DisplayPage=clock.Turning&&TownRackState.Progress(clock.Elapsed)<.5f?state.From:state.To;
                     if(state.Turn==0)clock.DisplayPage=state.Page;
                 }
-                else clock.Turning=state.Turn!=0;
+                else
+                {
+                    // A missing target face must never hold an obsolete outgoing page
+                    // visibly open beyond the owner's replacement boundary. Existing
+                    // originals continue the owner's holder motion while dependencies arrive.
+                    clock.Elapsed=Mathf.Max(clock.Elapsed,ownerAge);
+                    clock.Turning=state.Turn!=0&&clock.Elapsed<TownRackState.TurnDuration;
+                    clock.DisplayPage=TownRackState.Progress(clock.Elapsed)<.5f?state.From:state.To;
+                }
             }
-            bool replaying=clock.Turning&&!clock.Waiting;
+            bool replaying=clock.Turning;
             clock.LastTick=now;
             bool complete=RackPageReady(pair.Key,clock.DisplayPage==clock.FromPage?clock.Outgoing??state:state,clock.DisplayPage,modules);
             // A cold page appears as one dependency group, never face/price/body fragments.

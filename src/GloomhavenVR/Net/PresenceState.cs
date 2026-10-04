@@ -498,6 +498,7 @@ internal struct PresenceState
     /// exactly what peers predating the record render.
     /// </summary>
     public bool HasSecondHeldCard;
+    public TownItemHeldSource? HeldTownItem;
 
     /// <summary>
     /// True when at least one held card is being held RIGIDLY in the fist and this packet carries
@@ -1898,11 +1899,11 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    // Base6869 + residents79(141 including anchored cloth controls) + faces80(96)
+    // Base6869 + residents79(147 including complete anchored cloth controls) + faces80(96)
     // + activity81(55) + public map loadout88(3) + native opening histories83/84(510)
-    // = 7674. The 7680-byte fragment envelope retains six bytes; the local send
-    // buffer still keeps the 257-byte largest-record margin.
-    public const int MaxSize = 7931;
+    // + held item101(15) + sparse float249(5) = 7700. Keep the largest-record
+    // margin257 in the writer and bounded8192 fragment reassembly.
+    public const int MaxSize = 7957;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -2047,6 +2048,7 @@ internal static class PresenceSerializer
                           // not holding a card byte-identical to the previous build's.
                           || (state.HasHeldCardFace && HeldFacePayload(in state) > 0)
                           || (state.HasSecondHeldCard && state.HasHeldMapCard)
+                          || (state.HasSecondHeldCard && state.HeldTownItem.HasValue)
                           // A held-prop record whose first slot names nothing says nothing, so
                           // it must not open the tail either — the same rule the held-card face
                           // record above it follows, and it is what keeps every packet of every
@@ -3422,6 +3424,14 @@ internal static class PresenceSerializer
                 }
             }
         }
+        if (state.HasSecondHeldCard && state.HeldTownItem.HasValue && state.HeldTownItem.Value.Validate()
+            && i + 2 + TownItemHeldSource.PayloadSize <= buffer.Length)
+        {
+            buffer[i++] = NetProtocol.ExtIdTownItemHeld;
+            buffer[i++] = TownItemHeldSource.PayloadSize;
+            state.HeldTownItem.Value.Write(buffer, ref i);
+            records++;
+        }
         return records;
     }
 
@@ -4053,12 +4063,12 @@ internal static class PresenceSerializer
                     if (length > i && buffer[i] == NetProtocol.ExtIdTownActivity) state.TownActivityRecordSeen = true;
                     if (length < i + 2)
                     {
-                        if (length > i && buffer[i] == NetProtocol.ExtIdFanInsertionGap) return false;
+                        if (length > i && (buffer[i] == NetProtocol.ExtIdFanInsertionGap || buffer[i] == NetProtocol.ExtIdTownItemHeld)) return false;
                         break;
                     }
                     byte id = buffer[i++];
                     int len = buffer[i++];
-                    bool provenance = id == NetProtocol.ExtIdSecondHeldFaceActor || id == NetProtocol.ExtIdHeldMapCard;
+                    bool provenance = id == NetProtocol.ExtIdSecondHeldFaceActor || id == NetProtocol.ExtIdHeldMapCard || id == NetProtocol.ExtIdTownItemHeld;
                     if (length < i + len)
                     {
                         if (provenance || id == NetProtocol.ExtIdFanInsertionGap) return false;
@@ -4078,6 +4088,11 @@ internal static class PresenceSerializer
                         {
                             if (len != 4 || !state.HasHeldCardFace || AvatarSerializer.ReadI32(buffer, ref at) == 0) return false;
                         }
+                        else if (id == NetProtocol.ExtIdTownItemHeld)
+                        {
+                            if (!TownItemHeldSource.TryRead(buffer, at, len, out TownItemHeldSource source)) return false;
+                            state.HeldTownItem = source;
+                        }
                         else
                         {
                             if (len != 9 || AvatarSerializer.ReadU32(buffer, ref at) == 0) return false;
@@ -4091,6 +4106,8 @@ internal static class PresenceSerializer
                 }
             }
         }
+        if (state.HeldTownItem.HasValue && (!state.HasHeldCardFace
+            || NetProtocol.HeldFaceList(state.SecondHeldFaceCode) != NetProtocol.HeldFaceListItems)) return false;
         return true;
     }
 

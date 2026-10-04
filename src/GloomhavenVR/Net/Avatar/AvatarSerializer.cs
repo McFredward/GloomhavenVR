@@ -44,7 +44,7 @@ internal static unsafe class AvatarSerializer
     /// held-figure block (4+20) + hand-style byte + held-card pose (20) = 127, rounded up to
     /// 159 including held-face/actor/map TLVs, plus 27 for the atomic board pose
     /// and 3 for optional wrist control visibility.</summary>
-    public const int MaxSize = 189;
+    public const int MaxSize = 204;
 
     private const float QuatScale = 32767f;
 
@@ -143,6 +143,12 @@ internal static unsafe class AvatarSerializer
             buffer[i++] = NetProtocol.ExtIdBoardWrist;
             buffer[i++] = 1;
             buffer[i++] = 1;
+        }
+        if (state.HasHeldCard && state.HeldTownItem.HasValue && state.HeldTownItem.Value.Validate())
+        {
+            buffer[i++] = NetProtocol.ExtIdTownItemHeld;
+            buffer[i++] = TownItemHeldSource.PayloadSize;
+            state.HeldTownItem.Value.Write(buffer, ref i);
         }
         return i;
     }
@@ -249,7 +255,7 @@ internal static unsafe class AvatarSerializer
         {
             byte id = buffer[i++];
             bool known = id == NetProtocol.ExtIdHeldCardFace || id == NetProtocol.ExtIdHeldFaceActor || id == NetProtocol.ExtIdHeldMapCard
-                || id == NetProtocol.ExtIdBoardRigPose || id == NetProtocol.ExtIdBoardWrist;
+                || id == NetProtocol.ExtIdBoardRigPose || id == NetProtocol.ExtIdBoardWrist || id == NetProtocol.ExtIdTownItemHeld;
             if (i == length) { if (known) return false; break; }
             int size = buffer[i++];
             // Older v3 permits opaque future suffixes. Only our known atomic records impose
@@ -280,6 +286,12 @@ internal static unsafe class AvatarSerializer
                 if (!heldCard || state.HeldMapKey == 0 || state.HeldMapPoolSeat >= state.HeldMapPoolCount) return false;
                 state.HasHeldMapCard = true;
             }
+            if (id == NetProtocol.ExtIdTownItemHeld)
+            {
+                if (!heldCard || state.HeldTownItem.HasValue
+                    || !TownItemHeldSource.TryRead(buffer, i, size, out TownItemHeldSource source)) return false;
+                state.HeldTownItem = source;
+            }
             if (id == NetProtocol.ExtIdBoardRigPose)
             {
                 if (state.HasBoardPose || (size != 1 && size != 25)) return false;
@@ -306,6 +318,8 @@ internal static unsafe class AvatarSerializer
         }
         if (wrist && !state.HasBoardPose) return false;
         if (state.HasHeldMapCard && state.HeldFaceActorId != 0) return false;
+        if (state.HeldTownItem.HasValue && (state.HasHeldMapCard || state.HeldFaceActorId != 0
+            || !face || NetProtocol.HeldFaceList(state.HeldFaceCode) != NetProtocol.HeldFaceListItems)) return false;
         state.HasHeldCardFace = heldCard && face && actor;
         return true;
     }

@@ -124,11 +124,14 @@ public static partial class MirrorProgram
                         + " remote=" + Remote(-2, TownServiceSync.PublicModuleId(key.Root))!.Root.position);
                 identities.Switch(1);
                 drawer.Follow(new TownRackState { Page = 0, From = 0, To = 0, Elapsed = TownRackState.TurnDuration });
+                drawer._hand = hand; // Actual manual grab owns the crank input; animated turns do not.
                 catalog.Categories[1].OnPoke(hand);
-                Check(TownServiceMirror.PublicAuthor == 2 && drawer.FixtureFollowingTurn && hand.Haptics == 1,
-                    "a stale peer proxy cannot steal public authority when the current owner cassette is still moving");
+                Check(TownServiceMirror.PublicAuthor == 2 && hand.Haptics == 1,
+                    "a manual crank grab prevents a competing category input from stealing authority");
                 Check(!TownServicePublicMerchant.TryTurnPage(drawer, 1) && TownServiceMirror.PublicAuthor == 2,
-                    "a page request cannot steal public authority when the received cassette is still moving");
+                    "a manual crank grab prevents a competing page input from stealing authority");
+                drawer._hand = null;
+                TownServicePublicMerchant.FixtureFollowPublicRack();
                 sampled = true;
             }
             yield return null;

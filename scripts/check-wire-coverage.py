@@ -175,7 +175,7 @@ EXEMPT = {
     # this entry, so the checker was RED on a clean tree until the lane that consumed the field
     # reported it. Landing a field and retiring its exemption are one change; splitting them across
     # commits leaves the guard failing for reasons unrelated to whoever next runs it.
-    ("Cards", "FanFollowDeadzone"): ("COMFORT", "as FanFollowSmoothing"),
+    # FanFollowDeadzone is carried as finite float249; both ordinary and map fans consume it.
     # [Cards] FanGazeBias STOOD HERE AND IS NOW WIRED (id 239, 2026-08-28). It is the one entry that
     # went COMFORT -> PENDING -> wired, and the MIDDLE STEP IS THE POINT.
     #

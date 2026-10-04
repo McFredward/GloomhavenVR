@@ -18,17 +18,32 @@ internal sealed partial class ItemsPile
     private readonly HashSet<CItem> _inspectionPresent = new();
     private readonly HashSet<CItem> _inspectionDesired = new();
     private readonly List<ItemChip> _inspectionNew = new();
+    private readonly Dictionary<ItemChip, float> _inspectionTownReturns = new();
+    private readonly List<ItemChip> _inspectionReturnKeys = new();
     private uint _inspectionRevision = uint.MaxValue;
     private bool _inspectionCensusDirty = true;
     private int _inspectionLayoutPivot = int.MinValue;
     private (float Radius, float Step, float Split, float Falloff, float Scale) _inspectionLayout;
     internal static ItemsPile? InspectionCurrent { get; private set; }
+    internal static ItemsPile? InspectionOwner { get; private set; }
     internal IReadOnlyList<ItemChip> InspectionChips => _inspectionPublished;
+    internal uint InspectionCharacterKey { get; private set; }
+    internal bool InspectionHeldByLeftHand => _inspectionGateHand == VRHands.Left;
+    internal static bool InspectionUsesAvatarTransport(ItemChip chip) => chip != null
+        && chip.IsTownInspection && !chip.TownOffering
+        && (chip.Owner == null || !chip.Owner._inspectionTownReturns.ContainsKey(chip));
+    internal int InspectionOfferingSeat
+    {
+        get { for (int i = 0; i < _chips.Count; i++) if (_chips[i] != null && (_chips[i].TownOffering || _inspectionTownReturns.ContainsKey(_chips[i]))) return i; return -1; }
+    }
     internal static ItemsPile CreateInspection(Action<ItemChip, Vector3, VRHand> release)
     {
         var pile = new ItemsPile(release);
         pile.EnsureRoot();
         pile._root!.name = "GloomhavenVR.MerchantOwnedItems";
+        InspectionOwner = pile;
+        var character = WorldUI.MapRoom.MapRoomHand.OwnedMerchantCharacter();
+        pile.InspectionCharacterKey = character == null ? 0 : Net.NetProtocol.HashMapKey(character.CharacterName);
         pile._root.SetParent(VRRigDriver.RigRoot, false);
         if (pile._title != null) pile._title.gameObject.SetActive(false);
         return pile;
@@ -57,6 +72,14 @@ internal sealed partial class ItemsPile
             float parentScale = _root.parent != null ? _root.parent.lossyScale.x : 1f;
             _root.localScale = Vector3.one * (gate.WorldScale / Mathf.Max(.0001f, parentScale));
             PileFanShape.FaceHead(_root);
+        }
+        _inspectionReturnKeys.Clear();
+        _inspectionReturnKeys.AddRange(_inspectionTownReturns.Keys);
+        foreach (ItemChip chip in _inspectionReturnKeys)
+        {
+            float left = _inspectionTownReturns[chip] - Mathf.Min(Time.unscaledDeltaTime, .05f);
+            if (chip == null || chip.Holder != null || left <= 0f) _inspectionTownReturns.Remove(chip!);
+            else _inspectionTownReturns[chip] = left;
         }
         bool changed = false;
         if (_inspectionRevision != revision)
@@ -104,6 +127,18 @@ internal sealed partial class ItemsPile
                     _chips.Add(chip); _inspectionNew.Add(chip); changed = true;
                 }
             }
+            // Inventory refreshes may insert in the middle of AllCharacterItems. Restore the
+            // native order before publishing count/seats; held cards keep their world pose.
+            for (int nativeSeat = 0, arcSeat = 0; nativeSeat < items.Count; nativeSeat++)
+            {
+                CItem item = items[nativeSeat];
+                if (item == null) continue;
+                int found = _chips.FindIndex(chip => chip != null && ReferenceEquals(chip.Item, item));
+                if (found < 0) continue;
+                if (found != arcSeat)
+                { ItemChip chip = _chips[found]; _chips.RemoveAt(found); _chips.Insert(arcSeat, chip); changed = true; }
+                arcSeat++;
+            }
         }
         if (show)
         {
@@ -139,6 +174,9 @@ internal sealed partial class ItemsPile
         // that parent made the normal local home rotation render as alternating backs/brown faces.
         // Restore the canonical fan parent before either collapse or layout owns the pose.
         chip.PrepareInspectionReturn(_root);
+        // The real palm return owns this bounded glide. The avatar fan keeps its slot
+        // withdrawn until the original has landed, then resumes its canonical front.
+        _inspectionTownReturns[chip] = .35f; // ItemChip.ReleaseGlideSeconds
         if (!IsOpen) chip.BeginCollapse(_root.position);
         else if (!chip.InspectionArtPending) { chip.ResumeInspectionGlide(); Relayout(); }
     }
@@ -164,6 +202,7 @@ internal sealed partial class ItemsPile
     internal void DestroyInspection()
     {
         if (ReferenceEquals(InspectionCurrent, this)) InspectionCurrent = null;
+        if (ReferenceEquals(InspectionOwner, this)) InspectionOwner = null;
         IsOpen = false; ClearHandSweep();
         // Context changes withdraw inspection, never perform a transaction through release.
         foreach (ItemChip chip in _chips)
@@ -172,7 +211,7 @@ internal sealed partial class ItemsPile
         foreach (ItemChip chip in _inspectionRetiring)
             if (chip != null) UnityEngine.Object.DestroyImmediate(chip.gameObject);
         _inspectionRetiring.Clear(); _inspectionPublished.Clear(); _inspectionNew.Clear();
-        _inspectionDesired.Clear(); _inspectionPresent.Clear();
+        _inspectionDesired.Clear(); _inspectionPresent.Clear(); _inspectionTownReturns.Clear(); _inspectionReturnKeys.Clear();
         if (_root != null) UnityEngine.Object.Destroy(_root.gameObject);
         _root = null; _title = null;
     }

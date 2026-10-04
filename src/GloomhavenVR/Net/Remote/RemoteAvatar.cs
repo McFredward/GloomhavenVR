@@ -387,6 +387,11 @@ internal sealed class RemoteAvatar
     /// "names nothing". Never a card identity.</summary>
     private byte _heldFaceCode;
     private int _heldFaceActorId, _secondHeldFaceActorId;
+    private TownItemHeldSource? _heldTownItem, _secondHeldTownItem;
+    internal TownItemHeldSource? HeldTownItemSource(int slot) => slot == 1 ? _heldTownItem : slot == 2 ? _secondHeldTownItem : null;
+    internal bool HoldsTownStock(int itemId) => !RevealGate.InScenario
+        && (_target.HasHeldCard && _heldTownItem.HasValue && _heldTownItem.Value.Kind == TownItemHeldSource.Stock && _heldTownItem.Value.ItemId == itemId
+            || _hasSecondHeldCard && _secondHeldTownItem.HasValue && _secondHeldTownItem.Value.Kind == TownItemHeldSource.Stock && _secondHeldTownItem.Value.ItemId == itemId);
     private uint _heldMapKey, _secondHeldMapKey;
     private byte _heldMapArcSeat, _secondHeldMapArcSeat;
     internal byte HeldFaceMapArcSeat(int slot) => slot == 1 ? _heldMapArcSeat : _secondHeldMapArcSeat;
@@ -698,6 +703,19 @@ internal sealed class RemoteAvatar
     {
         rawSeat = -1;
         listLength = 0;
+        TownItemHeldSource? town = HeldTownItemSource(poseSlot);
+        if (!RevealGate.InScenario && town.HasValue)
+        {
+            TownItemHeldSource source = town.Value;
+            // The held source survives fan focus changes. A different active fan must not
+            // withdraw this seat, but the immutable held face itself remains addressable.
+            if (source.Kind != TownItemHeldSource.Owned || !RemoteMapRoom.TryGetPeerFanCharacterKey(PlayerId, out uint key)
+                || key != source.CharacterKey) return false;
+            var items = WorldUI.MapRoom.MapRoomHand.ResolveMerchantItems(source.CharacterKey);
+            if (items == null || items.Count != source.Count || source.Seat >= items.Count
+                || items[source.Seat] == null || items[source.Seat].ID != source.ItemId) return false;
+            rawSeat = source.Seat; listLength = source.Count; return true;
+        }
         byte code = poseSlot == 1 ? _heldFaceCode : poseSlot == 2 ? _secondHeldFaceCode : (byte)0;
         if (!HeldSlotMatchesBoard(poseSlot) || !NetProtocol.HeldFaceNamesCard(code)
             || NetProtocol.HeldFaceList(code) != NetProtocol.HeldFaceListItems)
@@ -1600,10 +1618,11 @@ internal sealed class RemoteAvatar
     {
         _target = state;
         _boardPose.AcceptRig(in state);
+        _heldTownItem = state.HasHeldCard ? state.HeldTownItem : null;
         _heldMapKey = state.HasHeldCard && state.HasHeldMapCard ? state.HeldMapKey : 0;
         _heldMapArcSeat = state.HeldMapArcSeat;
         _heldMapPoolSeat = state.HeldMapPoolSeat; _heldMapPoolCount = state.HeldMapPoolCount;
-        _heldFaceAddressReady = state.HasHeldCard && (state.HasHeldCardFace || state.HasHeldMapCard);
+        _heldFaceAddressReady = state.HasHeldCard && (state.HasHeldCardFace || state.HasHeldMapCard || state.HeldTownItem.HasValue);
         _heldFaceActorId = _heldFaceAddressReady ? state.HeldFaceActorId : 0;
         _heldFaceCode = _heldFaceAddressReady ? state.HeldFaceCode : (byte)0;
         _heldFaceCount = _heldFaceAddressReady ? state.HeldFaceCount : (byte)0;
@@ -1854,7 +1873,8 @@ internal sealed class RemoteAvatar
         // is the statement "these slabs name nothing", and a latched code would keep a front on a
         // card its owner has already put down.
         // Slot 1 belongs to the rig pose; slower extras must never overwrite its address.
-        _secondHeldFaceAddressReady = p.HasSecondHeldCard && (p.HasHeldCardFace || p.HasHeldMapCard);
+        _secondHeldTownItem = p.HasSecondHeldCard ? p.HeldTownItem : null;
+        _secondHeldFaceAddressReady = p.HasSecondHeldCard && (p.HasHeldCardFace || p.HasHeldMapCard || p.HeldTownItem.HasValue);
         _secondHeldFaceActorId = p.SecondHeldFaceActorId;
         _secondHeldMapKey = p.HasSecondHeldCard && p.HasHeldMapCard ? p.HeldMapKey : 0;
         _secondHeldMapArcSeat = p.HeldMapArcSeat;

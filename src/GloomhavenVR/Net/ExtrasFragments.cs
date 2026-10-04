@@ -10,9 +10,9 @@ namespace GloomhavenVR.Net;
 /// </summary>
 internal sealed class ExtrasFragments
 {
-    // Story/reward opening histories raise the worst extras payload to7379 bytes.
-    // Grammar/chunk size remain unchanged; ten bounded datagrams cover this payload.
-    internal const int MaxSnapshotBytes = 7680;
+    // Complete cloth controls, held item101 and float tuning249 raise the legal maximum
+    // to 7700 bytes. Keep bounded headroom; chunk/header grammar stays unchanged.
+    internal const int MaxSnapshotBytes = 8192;
     internal const int MaxDatagramBytes = 864;
     internal const int ChunkBytes = 200;
     private const int MetadataBytes = 12; // sequence:u64, snapshot length:u16, offset:u16

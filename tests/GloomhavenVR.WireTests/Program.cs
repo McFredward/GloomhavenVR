@@ -10,6 +10,8 @@ internal static class Program
         string repoRoot = args.Length > 0 ? args[0] : FindRepoRoot();
 
         var t = new Harness();
+        if (args.Length > 1 && args[1] == "town-item-held")
+        { TownItemHeldVectors.Run(t); HeldFaceAtomicVectors.Run(t); ExtrasFragmentVectors.Run(t); TownResidentsVectors.Run(t); TownFaceVectors.Run(t); TownActivityVectors.Run(t); SharedWindowMotionVectors.Run(t); return t.Report(); }
         try
         {
             // Pin the two shimmed constants against the real declarations FIRST — every clamp
@@ -28,6 +30,7 @@ internal static class Program
             CardFxVisibilityVectors.Run(t);
             DamageDecisionPreviewVectors.Run(t);
             HeldFaceAtomicVectors.Run(t);
+            TownItemHeldVectors.Run(t);
             CardFaceLifecycleVectors.Run(t, repoRoot);
             CardProvenanceVectors.Run(t, repoRoot);
             CardAppearanceVectors.Run(t, repoRoot);

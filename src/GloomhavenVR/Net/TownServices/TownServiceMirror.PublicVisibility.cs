@@ -96,7 +96,8 @@ internal static partial class TownServiceMirror
         {
             int category = slot.Ordinal / TownCatalogLayout.SlotsPerCategory;
             int ordinal = slot.Ordinal % TownCatalogLayout.SlotsPerCategory;
-            if (category * 256 + ordinal / 12 != page || StockHeldIds.Contains(slot.ItemId)) continue;
+            if (category * 256 + ordinal / 12 != page || StockHeldIds.Contains(slot.ItemId)
+                || NetAvatarDriver.IsTownStockHeld(slot.ItemId) || WorldUI.TownServiceCatalog.HasLocallyHeldStock(slot.ItemId)) continue;
             bool found = false;
             foreach (TownRackMember member in state.Members)
             {
@@ -132,10 +133,21 @@ internal static partial class TownServiceMirror
             if (turn <= root.LastFrame.Rack.Turn) continue;
             // A reordered member can precede its root clock. It still starts a
             // replacement epoch, but cannot reveal an old clock as "ready".
-            if (StagePublicPicture(peer))
-            { _pendingPublicPeer = peer; _pendingPublicTurn = turn; }
+            // The same author updates the same native modules. Retiring the complete
+            // cabinet here discarded ready originals and forced all asset clones cold.
+            // Only author/session changes need an independent retained group.
+            _pendingPublicPeer = peer; _pendingPublicTurn = Math.Max(_pendingPublicTurn, turn);
             return;
         }
+    }
+
+    private static bool HoldReorderedPublicRackMember(int peer, TownServiceFrame frame)
+    {
+        TownRackStamp? stamp = frame.RackMember;
+        if (stamp == null || peer != _displayedPublicPeer || !RemoteRacks.TryGetValue(peer, out var clocks)
+            || !clocks.TryGetValue(stamp.Rack, out var clock)) return false;
+        return frame.Session == Sessions[peer].Session && frame.PublicClaim == Sessions[peer].PublicClaim
+            && stamp.Turn > clock.Latest.Turn;
     }
 
     private static bool StagePublicPicture(int peer)
@@ -164,14 +176,15 @@ internal static partial class TownServiceMirror
             foreach (RemoteModule module in candidate.Values)
             {
                 if (!module.Alive) continue;
-                if (!ready) { module.PublicMasked = true; module.Host.SetActive(false); }
+                if (!ready && _displayedPublicPeer != -elected)
+                { module.PublicMasked = true; module.Host.SetActive(false); }
                 else if (module.PublicMasked)
                 { module.PublicMasked = false; module.Host.SetActive(!module.StockMasked
                     && EffectiveRemoteFrame(module)?.Visible == true); }
             }
             if (ready) _displayedPublicPeer = -elected;
         }
-        if (ready) ClearRetainedPublic();
+        if (ready || _pendingPublicTurn != 0 && _pendingPublicPeer == -elected) ClearRetainedPublic();
         else if (RetainedPublic != null && (!Sessions.TryGetValue(-elected, out var session)
             || !session.Active || Time.unscaledTime - session.LastSeenTime > 10f)) ClearRetainedPublic();
     }

@@ -1,3 +1,4 @@
+using System.Linq;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -94,6 +95,11 @@ namespace GloomhavenVR.Net
     }
     internal sealed partial class NetAvatarDriver
     {
+        internal static readonly HashSet<int> HeldStockIds = new();
+        internal static bool IsTownStockHeld(int itemId) => HeldStockIds.Contains(itemId) || PeerHeldStock.Values.Contains(itemId);
+        internal static readonly Dictionary<int, int> PeerHeldStock = new();
+        internal static bool TryGetTownHeldStock(int peer, int wanted, out int itemId)
+        { itemId = PeerHeldStock.TryGetValue(peer, out int held) && (wanted == 0 || wanted == held) ? held : 0; return itemId != 0; }
         internal static readonly Dictionary<int, Transform[]> MotionHandFrames = new();
         internal static bool TryGetTownMotionHand(int player, byte side, out Transform? root)
         { root = null; if (side > 1 || !MotionHandFrames.TryGetValue(player, out Transform[]? hands)) return false;

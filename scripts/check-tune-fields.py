@@ -87,6 +87,7 @@ def parse_ranges(consts):
         ("colour", consts["TuneColorIdMin"], consts["TuneColorIdMax"], 3),
         ("length/angle", consts["TuneLengthIdMin"], consts["TuneAngleIdMax"], 2),
         ("count", consts["TuneCountIdMin"], consts["TuneCountIdMax"], 1),
+        ("float", consts["TuneFloatIdMin"], consts["TuneFloatIdMax"], 4),
     ]
 
 

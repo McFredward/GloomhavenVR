@@ -61,6 +61,7 @@ internal static partial class TownServiceMirror
     internal static bool StockItemHeldByOther(int itemId)
     {
         if (itemId <= 0) return false;
+        if (NetAvatarDriver.IsTownStockHeld(itemId)) return true;
         foreach (var pair in StockPeers)
             if (pair.Value != LocalPeer && LiveStockItems(pair.Key, itemId)) return true;
         return false;
@@ -69,8 +70,10 @@ internal static partial class TownServiceMirror
     private static bool LiveStockItems(int key, int wanted = 0)
     {
         if (!Sessions.TryGetValue(key, out TownServiceSessionInfo? session) || !session.Active
-            || session.Service != 1 || Time.unscaledTime - session.LastSeenTime > NetProtocol.StaleTimeoutSeconds
-            || !Pending.TryGetValue(key, out Dictionary<ushort, TownServiceFrame>? frames)) return false;
+            || session.Service != 1 || Time.unscaledTime - session.LastSeenTime > NetProtocol.StaleTimeoutSeconds) return false;
+        bool found = NetAvatarDriver.TryGetTownHeldStock(RealPeer(key), wanted, out int avatarItem);
+        if (found && wanted == 0) StockHeldIds.Add(avatarItem);
+        if (!Pending.TryGetValue(key, out Dictionary<ushort, TownServiceFrame>? frames)) return found;
         StockMountIds.Clear();
         foreach (TownServiceFrame pending in frames.Values)
         {
@@ -78,7 +81,6 @@ internal static partial class TownServiceMirror
             if (frame.Session == session.Session && frame.Visible && frame.TemplateAddress == "merchant.heldstock|"
                 && Array.BinarySearch(session.Modules, frame.Module) >= 0) StockMountIds.Add(frame.Module);
         }
-        bool found = false;
         foreach (TownServiceFrame pending in frames.Values)
         {
             TownServiceFrame frame = EffectiveStockFrame(key, pending);
@@ -168,7 +170,9 @@ internal static partial class TownServiceMirror
         foreach (RemoteModule item in modules.Values)
         {
             TownServiceFrame? frame = EffectiveRemoteFrame(item);
-            if (frame == null || !TryStockItemId(item.Address, out int id) || !StockHeldIds.Contains(id)) continue;
+            if (frame == null || !TryStockItemId(item.Address, out int id)
+                || !StockHeldIds.Contains(id) && !NetAvatarDriver.IsTownStockHeld(id)
+                    && !WorldUI.TownServiceCatalog.HasLocallyHeldStock(id)) continue;
             ushort parent = frame.ParentModule;
             for (int steps = 0; steps < modules.Count; steps++)
             {

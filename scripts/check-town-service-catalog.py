@@ -58,12 +58,14 @@ def sources(root):
     # Unlock behavior is covered by GloomhavenVR.TownAvailabilityTests. This isolated
     # cabinet fixture keeps the native gate open to exercise only the scroll-hover route.
     bound["CabinetAvailability.cs"] = "namespace GloomhavenVR.WorldUI; internal static class TownServiceAvailability { internal static bool NativeUnlocked(byte service) => service == 1; }"
+    bound["TownItemHeldSource.cs"] = (root / "src/GloomhavenVR/Net/TownItemHeldSource.cs").read_text()
     hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
     return bound, hashes
 
 
 def mutations():
     return [
+        ("moving-category-disabled", "TownServiceMerchantDrawer.cs", "if (category < 0 || category >= 6 || _disposed || _hand != null || !_alive() || !_mayClose()) return false;", "if (category < 0 || category >= 6 || _disposed || _turning || _hand != null || !_alive() || !_mayClose()) return false;", "category press restarts a moving cabinet from the currently visible page"),
         ("stale-native-party", "TownServiceMerchantRows.cs", "if (_publicService != null && !ReferenceEquals(_publicParty, AdventureState.MapState.MapParty))", "if (_publicService != null && ReferenceEquals(_publicParty, AdventureState.MapState.MapParty))", "replacement native MapParty rebinds owned stock instead of reading the captured old party"),
         ("foreign-stock-double", "TownServiceCatalog.cs", "if (_display.gameObject.activeSelf == foreignStock) _display.gameObject.SetActive(!foreignStock);", "", "another visitor's live stock sample vacates the complete original shelf face body price and input"),
         ("local-history-over-owner-layout", "TownServiceCatalog.cs", "entry.ApplyOrdinal(ordinal);", "entry.ApplyOrdinal(entry.Ordinal);", "public author handover adopts the original cold-page slot without moving a held card"),

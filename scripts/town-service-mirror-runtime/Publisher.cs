@@ -1,3 +1,4 @@
+using System.Linq;
 using System;
 using System.Collections.Generic;
 using GloomhavenVR.Net.TownServices;
@@ -45,6 +46,7 @@ namespace GloomhavenVR.WorldUI
     internal sealed class PanelFixture { internal Transform Target = null!; }
     internal sealed partial class TownServiceCatalog
     {
+        internal static bool HasLocallyHeldStock(int id) => CardMounts.Values.Any(entry => entry.ItemId == id && entry.Sample.IsHeld && !entry.Selling);
         internal TownCatalogSlot[] StockLayout = Array.Empty<TownCatalogSlot>();
         internal static readonly Dictionary<Transform, Entry> CardMounts = new();
         internal sealed class Control { internal string Key = ""; internal TownServiceSurface Surface = new(); }

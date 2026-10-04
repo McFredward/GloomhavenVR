@@ -1,6 +1,8 @@
 using FFSNet;
 using GloomhavenVR.Cards;
 using MapRuleLibrary.Party;
+using ScenarioRuleLibrary;
+using System.Collections.Generic;
 
 namespace GloomhavenVR.WorldUI.MapRoom;
 
@@ -13,6 +15,47 @@ internal sealed partial class MapRoomHand
         CMapCharacter? character = MapCharacterSelection.Current(out _);
         return MapRoomDriver.Active && character != null
             && (!FFSNetwork.IsOnline || character.IsUnderMyControl) ? character : null;
+    }
+    // Map fans follow the native AllCharacterItems order (the handoff copies it verbatim).
+    // Public held source101 also pins immutable item identity against same-size reorders;
+    // viewer selection never substitutes for its character. Refuse ambiguous hashes/counts.
+    internal static void CollectMerchantPreparationItems(List<int> into)
+    {
+        into.Clear();
+        foreach (CMapCharacter character in PartyMembers())
+            foreach (CItem item in character.AllCharacterItems) if (item != null && item.ID > 0) into.Add(item.ID);
+        WorldUI.TownServiceCatalog? catalog = WorldUI.TownServicePublicMerchant.Catalog;
+        if (catalog != null) foreach (var entry in catalog.Entries)
+            if (entry.Current && !entry.Selling) into.Add(entry.ItemId);
+    }
+
+    internal static List<CItem>? ResolveMerchantItems(uint key)
+    {
+        if (key == 0) return null;
+        CMapCharacter? match = null;
+        foreach (CMapCharacter character in PartyMembers())
+            if (Net.NetProtocol.HashMapKey(character.CharacterName) == key)
+            { if (match != null) return null; match = character; }
+        return match?.AllCharacterItems;
+    }
+    internal static bool TryNameMerchantItem(ItemsPile.ItemChip chip, out Net.TownItemHeldSource source)
+    {
+        source = default;
+        uint key = chip?.Owner?.InspectionCharacterKey ?? 0;
+        List<CItem>? items = ResolveMerchantItems(key);
+        if (!MapRoomDriver.Active || chip == null || !chip.IsTownInspection || items == null || chip.Item == null) return false;
+        int seat = items.IndexOf(chip.Item);
+        if (seat < 0 || items.Count > ushort.MaxValue) return false;
+        source = new Net.TownItemHeldSource(Net.TownItemHeldSource.Owned,
+            key, chip.Item.ID, (ushort)seat, (ushort)items.Count);
+        return source.Validate();
+    }
+    internal static CItem? ResolveMerchantHeldItem(Net.TownItemHeldSource source)
+    {
+        if (!source.Validate() || source.Kind != Net.TownItemHeldSource.Owned) return null;
+        List<CItem>? items = ResolveMerchantItems(source.CharacterKey);
+        return items != null && items.Count == source.Count && source.Seat < items.Count
+            && items[source.Seat] != null && items[source.Seat].ID == source.ItemId ? items[source.Seat] : null;
     }
     internal static void SetTempleInspection(bool active)
     {

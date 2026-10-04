@@ -35,7 +35,8 @@ def sources(root):
         "private bool Begin(int page, int direction = 0)", "internal void Tick(float opacity)"))
     retain_start = drawer.index("    internal bool RetainsPage(int page)")
     follower += drawer[retain_start:drawer.index(";", retain_start)+1]
-    for signature in ("public bool CanGrab =>", "internal bool RequestTurn(int direction) =>"):
+    follower += block(drawer, "internal bool RequestTurn(int direction)")
+    for signature in ("public bool CanGrab =>",):
         expression_start = drawer.index("    " + signature)
         follower += drawer[expression_start:drawer.index(";", expression_start)+1]
     generated = ("using System; using UnityEngine; using GloomhavenVR.Hands; using GloomhavenVR.Net.TownServices; "
