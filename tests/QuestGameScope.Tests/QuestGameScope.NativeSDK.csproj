@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>QuestGameScope.NativeSDK</AssemblyName>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <DefineConstants>GHVR_QUEST_STARTUP</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(UnityManaged)/UnityEngine.CoreModule.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(GameManaged)/UnityEngine.UI.dll</HintPath></Reference>
+    <Compile Include="$(RuntimeSource)/QuestGameScope.cs" />
+    <Compile Include="$(RuntimeSource)/QuestText.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)NativeSDKProbe.cs" />
+  </ItemGroup>
+</Project>

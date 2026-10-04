@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>GH.Runtime</AssemblyName>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <DefineConstants>GHVR_QUEST_STARTUP</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(RuntimeSource)/QuestGameScope.cs" />
+    <Compile Include="$(RuntimeSource)/QuestText.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Program.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)ScopeStubs.cs" />
+  </ItemGroup>
+</Project>
