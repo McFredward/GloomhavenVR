@@ -35,6 +35,29 @@
 
 ---
 
+
+## Build622 additive map item contract (2026-10-05)
+
+The fixed v3 rig/extras layouts remain frozen. Additive TLV101 names only public
+3D-map items: kind, immutable character key, original public item ID and native
+ushort seat/count. Primary provenance travels atomically in its rig pose; secondary
+provenance travels with its own extras held pose. Reject duplicates, conflicting
+actor/map provenance, missing poses and stale count/seat/ID matches. Never apply
+this source in a scenario. The actual inspection pile owns record20's character
+key; the separate ability fan or viewer focus is not its owner. Existing scenario
+item rendering/pose and disclosure predicates stay authoritative in scenarios.
+
+Float249 is the owner's finite metre deadzone; count224..247 stays byte-wide and
+zero-width248 stays retired. Actual complete-cloth145 makes the old bound7680;
+101 adds15 and249 adds5. Worst presence7700, writer7957, envelope8192. All existing
+record lengths/header/chunk grammar are unchanged, with literal golden controls.
+Ready same-author public cabinet originals survive page epochs. Reordered future
+members wait for their matching rack clock before mutating current modules;
+new-author changes still require atomic group handover. Native originals and
+owner-authored intermediate motion remain mandatory.
+
+---
+
 # PART I — THE WIRE FORMAT (FROZEN)
 
 ## 0. Why this section exists

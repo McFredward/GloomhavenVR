@@ -1,5 +1,24 @@
 # State — where the project stands
 
+**Build622 integration, 2026-10-05: 1.1.0 — final validation in progress.**
+
+Both supplied NPC hardware peers were Build620 (host Debug, observer Info).
+The integrated review resolves original bank shaders, shared cabinet epochs and
+visible native enhancement rows. Merchant inspection uses the existing avatar
+item-fan/rig path with real inspection-owner provenance, original resident artwork
+and bounded loading preparation. Actual labelled purse geometry owns grip, holder
+scale and bowl/return lifetime; the explicitly local temple guide is not published.
+Offered-card aura rotation uses the final original card plane. Normal converted
+service windows retain their contents across City/World map switches.
+
+The supplied failed rejoin used a truncated code; the complete code connected.
+Native Story admission already accepts the connection, then waits for a fresh
+safe-save checkpoint. No forced old-save load or native action bypass is added.
+The source review, proof boundaries and next hardware checks are retained in
+[NPC-622-REVIEW.md](NPC-622-REVIEW.md). No Build622 headset outcome is claimed.
+
+---
+
 **Build 621 integration complete, 2026-10-04: 1.1.0.**
 
 The supplied Gaming PC logs identify Build620 and have no mod Debug rows. Their

@@ -11,6 +11,8 @@ internal sealed partial class NetAvatarDriver
     private float _nextMerchantPreparation;
     private static readonly List<int> LoadingMerchantItems = new();
     private static float _nextLoadingMerchantCensus;
+    private static ObjectPool? _loadingMerchantPool;
+    private static bool _loadingMerchantReady;
 
     // Call from native map/town preparation before the loading screen releases. This does
     // not require MapRoomDriver.Active. False retains the prerequisite until original art
@@ -18,14 +20,17 @@ internal sealed partial class NetAvatarDriver
     internal static bool PrepareMerchantCardsForLoading()
     {
         if (UIInfoTools.Instance == null || ObjectPool.instance == null) return false;
-        if (LoadingMerchantItems.Count == 0 || Time.unscaledTime >= _nextLoadingMerchantCensus)
-        {
-            _nextLoadingMerchantCensus = Time.unscaledTime + .25f;
-            WorldUI.MapRoom.MapRoomHand.CollectMerchantPreparationItems(LoadingMerchantItems);
-        }
+        // PrepareCore also runs during ordinary play. Do not revisit every item/pool
+        // on every sync tick after readiness. The bounded census still detects a
+        // Clear on the same pool singleton; visible original borrows validate directly.
+        if (_loadingMerchantPool == ObjectPool.instance && Time.unscaledTime < _nextLoadingMerchantCensus)
+            return _loadingMerchantReady;
+        _loadingMerchantPool = ObjectPool.instance;
+        _nextLoadingMerchantCensus = Time.unscaledTime + .25f;
+        WorldUI.MapRoom.MapRoomHand.CollectMerchantPreparationItems(LoadingMerchantItems);
         bool ready = true;
         foreach (int id in LoadingMerchantItems) ready &= RemoteItemCardSource.PrepareMapItemForLoading(id);
-        return ready;
+        return _loadingMerchantReady = ready;
     }
     private void PrepareMerchantCards()
     {

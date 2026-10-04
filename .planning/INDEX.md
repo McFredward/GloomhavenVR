@@ -1,10 +1,11 @@
 # Planning index
 
-Updated 2026-10-04 for Build621: whole-game small decoration coverage, retained
-arch-mounted flames and optional wrist-mounted control board. Build620's room
-loading and historical continuous wall animation remain the preceding baseline. Hardware outcomes remain
-separate from source/runtime evidence. This directory holds internal engineering
-records, historical decisions and current status; it is not the player manual.
+Updated 2026-10-05 for Build622: paired NPC original publication, canonical merchant
+item fan/held transport, actual purse geometry and native enhancement rows, preserved
+normal service windows across map switches and source-verified story reconnection.
+Build621 remains the preceding graphics/wrist-board baseline. Hardware outcomes
+remain separate from source/runtime evidence. This directory holds internal
+engineering records, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
 
@@ -14,6 +15,10 @@ records, historical decisions and current status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [NPC-622-REVIEW.md](NPC-622-REVIEW.md) | Paired evidence, causal corrections, 1:1 review and actual story reconnect flow |
+| [NPC622-MERCHANT-PROOF.md](NPC622-MERCHANT-PROOF.md) | Canonical public map item source, cabinet epochs and additive wire bounds |
+| [TOWN-PUBLISHER-622.md](TOWN-PUBLISHER-622.md) | Actual native publisher, cold original bank, dynamic rows and causal controls |
+| [TOWN-PURSE-622.md](TOWN-PURSE-622.md) | Native PCG geometry, labelled-root hand attachment and moving visibility |
 | [../docs/performance/FRAME-621-IMPLEMENTATION.md](../docs/performance/FRAME-621-IMPLEMENTATION.md) | Integrated small-clutter, actual arch attachment and wrist-board scope/evidence |
 | [../docs/performance/FRAME-621-SCENERY.md](../docs/performance/FRAME-621-SCENERY.md) | Exact original small mesh/collider census, large-decor protection and causal controls |
 | [../docs/performance/FRAME-621-ARCH-FLAMES.md](../docs/performance/FRAME-621-ARCH-FLAMES.md) | Whole-game original doorway attachment provenance and sticky-fade restoration |

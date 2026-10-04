@@ -572,7 +572,35 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 621;
+    public const ushort ModBuild = 622;
+
+    // ModBuild 622 — paired original NPC publication, canonical merchant items and safe map switches.
+    // Both supplied hardware peers were Build620; the observer reports an original TownNpc
+    // shader missing from unresolved bank lookup. Resolve original bundled shaders before
+    // material construction, retain the native property contract and prioritize current
+    // public shelf mechanics/cards, actual offered faces and native enhancement rows.
+    // Same-author page changes retain ready clones; reordered members wait for their own
+    // rack clock. The original cassette continues its owner-authored intermediate motion.
+    // Merchant item inspection now uses the approved avatar fan/rig held-card pipeline.
+    // The real inspection pile owns its immutable character key, independently of the
+    // ability fan. Map-only additive v3 record101 carries public original item provenance
+    // atomically with each held pose; seat/count/ID checks reject stale native lists.
+    // Owner deadzone float249 complements unchanged count224..247 and inert tombstone248.
+    // Presence maximum is7700, writer7957 and bounded fragment envelope8192; fixed layouts,
+    // scenario concealment and all prior record meanings remain unchanged.
+    // Original resident item sprites and inactive pool templates warm during visible town
+    // preparation. Normal play uses a bounded readiness census, not a full per-frame scan.
+    // Native world-Z aura tween phase transfers into the final offered-card plane. Actual
+    // pooled enhancement rows retain original masks, scrolling, hover and inert observers.
+    // Native purse bounds define grip and bowl placement; styled hand offsets/scale use the
+    // same compensated holder as approved rig cards. Root and body follow the actual hand;
+    // bowl/return animation survives closed wrists. The user explicitly made the temple
+    // pre-drop guide local-only; real purses, NPC poses, blessings and audio remain shared.
+    // Converted original service windows keep title/rows/selection across City/World map
+    // switches. Native story admission already allows connections and waits for a fresh
+    // safe checkpoint; the supplied failed code was truncated, then full-code join worked.
+    // No native admission/save/action/controller bypass is introduced. The review and
+    // original-hierarchy causal proofs are recorded in .planning/NPC-622-REVIEW.md.
 
     // ModBuild 621 — whole-game small dressing, retained-arch flames and opt-in wrist board.
     // Read-only original PCG provenance admits 276 exact small mesh identities and their
