@@ -19,6 +19,59 @@ static class Program
     {
         Near(a.x, b.x, message); Near(a.y, b.y, message); Near(a.z, b.z, message);
     }
+    static void WristRetryBoundary(bool requested, bool controlsHidden)
+    {
+        var driver = new VRRigDriver(); VRRigDriver.Instance = driver;
+        driver.Enter(new object());
+        driver.Pose(new Vector3(11, 0, -7), 45, 20, new Vector3(.1f, 1.5f, 0), 15);
+        driver.Capture();
+        Vector3 headStart = driver.HeadPosition;
+        var tray = new PlayTray(); PlayTray.Current = tray;
+        Vector3 boardStart = new(-9, 24, 2);
+        Quaternion boardYaw = Quaternion.Yaw(22);
+        tray.Root.position = boardStart;
+        tray.Root.rotation = boardYaw;
+        tray.Root.localScale = Vector3.one * 12;
+        tray.Capture();
+        tray.WristRequested = requested;
+        tray.WristControlsHidden = controlsHidden;
+        // This is an arbitrary external-owner sentinel, not a reconstructed wrist model.
+        Vector3 wristSentinel = new(84, 38, -31);
+        Quaternion wristYaw = Quaternion.Yaw(117);
+        tray.Root.position = wristSentinel;
+        tray.Root.rotation = wristYaw;
+        tray.Root.localScale = Vector3.one * 5;
+        VRRigDriver.RememberRetryRequest(false);
+        driver.Enter(new object());
+        tray.Bind();
+        driver.Pose(new Vector3(300, -100, 80), 77, 47, new Vector3(-.3f, 1.75f, .4f), -48);
+        int calls = PlayTray.Calls;
+        driver.Restore();
+        Near(driver.HeadPosition, headStart, "Wrist ownership must not delay genuine rig retry restoration");
+        Check(PlayTray.Calls == calls,
+            requested ? "Requested wrist ownership must defer board retry without consuming baseline"
+                      : "Returning wrist ownership must defer board retry without consuming baseline");
+        Check(tray.WristBoundaryTicks == 1, "Retry must delegate to the external wrist pose owner");
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            Check(!tray.Restore(), "Repeated wrist-owned retry must retain the pending ordinary board restore");
+            Near(tray.Root.position, wristSentinel, "Retry must not overwrite external wrist-owned board position");
+            Near(tray.Root.rotation * new Vector3(0, 0, 1), wristYaw * new Vector3(0, 0, 1),
+                "Retry must not overwrite external wrist-owned board orientation");
+            Near(tray.Root.lossyScale.x, 5, "Retry must not overwrite external wrist-owned board size");
+        }
+        Check(tray.WristBoundaryTicks == 4 && PlayTray.Calls == calls,
+            "Deferred retry must delegate once per call without publishing a normal reset");
+        tray.WristRequested = false;
+        tray.WristControlsHidden = false;
+        Check(tray.Restore(), "Leaving wrist ownership must restore the preserved ordinary retry baseline");
+        Near(tray.Root.position, boardStart, "Leaving wrist ownership must recover actual original board position");
+        Near(tray.Root.rotation * new Vector3(0, 0, 1), boardYaw * new Vector3(0, 0, 1),
+            "Leaving wrist ownership must recover actual original board orientation");
+        Near(tray.Root.lossyScale.x, 12, "Leaving wrist ownership must recover original board world size");
+        Check(!tray.Restore() && PlayTray.Calls == calls + 1,
+            "Wrist-deferred ordinary board restore must be consumed exactly once");
+    }
     static void Main()
     {
         var state = new ScenarioRetrySeat<int>();
@@ -162,6 +215,10 @@ static class Program
         freshTray.Root.position = new Vector3(-9, 25, 0); freshTray.Capture();
         VRRigDriver.RememberRetryRequest(false); fresh.Enter(new object()); freshTray.Bind(); fresh.Restore();
         Near(freshTray.Root.position, new Vector3(-9, 25, 0), "Outgoing/map tray must not seed new scenario board baseline");
+        // Requested attachment and an in-progress mode exit independently outrank retry writes.
+        // Production retry code runs unchanged; only its external pose-owner boundary is stubbed.
+        WristRetryBoundary(requested: true, controlsHidden: false);
+        WristRetryBoundary(requested: false, controlsHidden: true);
         var flat = new VRRigDriver(); VRRigDriver.Instance = flat;
         flat.Enter(new object()); flat.Capture(); VRSession.IsRunning = false;
         VRRigDriver.RememberRetryRequest(false); flat.Enter(new object());

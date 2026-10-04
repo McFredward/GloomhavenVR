@@ -33,6 +33,9 @@ for name, original, old, new in [
     ('board-pin', board, '_anchor.RecacheRigLocal(_root);', ''),
     ('board-correction', pose, 'if (_scenarioStart.HasPose && previous.HasBoard)', 'if (previous.Scale < 0)'),
     ('round-restart', pose, 'yield return AccessTools.Method(typeof(SceneController), "RegenerateAndRestartScenario");', ''),
+    ('wrist-request', board, 'if (WantsWrist || WristControlsHidden)', 'if (WristControlsHidden)'),
+    ('wrist-return', board, 'if (WantsWrist || WristControlsHidden)', 'if (WantsWrist)'),
+    ('wrist-delegation', board, '{ TickWristAnchor(); return false; }', '{ return false; }'),
 ]:
     assert original.count(old) == 1, name
     if name == 'no-retire':
@@ -43,7 +46,7 @@ for name, original, old, new in [
         changed = original.replace(old, new)
     (dest/(name+'.fixture')).write_text(changed)
 PY
-for mutation in old-scene no-arm capture-drift no-retire scale head-offset head-yaw board board-position board-parent-scale board-owner board-loading board-pin board-correction round-restart; do
+for mutation in old-scene no-arm capture-drift no-retire scale head-offset head-yaw board board-position board-parent-scale board-owner board-loading board-pin board-correction round-restart wrist-request wrist-return wrist-delegation; do
     state="$root/src/GloomhavenVR/Rig/ScenarioRetrySeat.cs"
     pose="$root/src/GloomhavenVR/Rig/VRRigDriver.RetryStart.cs"
     board="$root/src/GloomhavenVR/Cards/Tray/PlayTray.RetryStart.cs"
@@ -63,6 +66,9 @@ for mutation in old-scene no-arm capture-drift no-retire scale head-offset head-
         board-pin) board="$fixture/$mutation.fixture"; expected='Pinned board must recache original world pose' ;;
         board-correction) pose="$fixture/$mutation.fixture"; expected='Late ring correction must carry original board without adopting the dragged board' ;;
         round-restart) pose="$fixture/$mutation.fixture"; expected='Both defeat callbacks and preserve-only round restart must be covered' ;;
+        wrist-request) board="$fixture/$mutation.fixture"; expected='Requested wrist ownership must defer board retry without consuming baseline' ;;
+        wrist-return) board="$fixture/$mutation.fixture"; expected='Returning wrist ownership must defer board retry without consuming baseline' ;;
+        wrist-delegation) board="$fixture/$mutation.fixture"; expected='Retry must delegate to the external wrist pose owner' ;;
     esac
     if dotnet run --project "$fixture/GloomhavenVR.RetryStartTests.csproj" --configuration Release \
         --property:RetryStateSource="$state" --property:RetryPoseSource="$pose" --property:RetryBoardSource="$board" > "$fixture/$mutation.log" 2>&1; then
