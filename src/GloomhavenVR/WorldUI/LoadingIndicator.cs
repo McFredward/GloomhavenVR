@@ -259,6 +259,7 @@ internal sealed class LoadingIndicator
         public float Width = 1f;          // authored aspect (uGUI rect), normalized below
         public float Height = 1f;
         public float SizeRatio = 1f;      // this layer's size relative to the BASE layer
+        public Vector2 CenterRatio;      // trimmed drawing centre in authored base-rect units
     }
 
     /// <summary>
@@ -747,8 +748,14 @@ internal sealed class LoadingIndicator
         DestroyObj(ref _overlayMesh);
         _baseMaterial = CreateLayerMaterial(_baseArt, _fallbackBaseTex);
         _overlayMaterial = CreateLayerMaterial(_overlayArt, _fallbackOverlayTex);
+        // These are two authored animation layers of ONE flat widget. Quest puts
+        // them on one stereo plane and uses queue order for alpha composition;
+        // a depth gap invents binocular disparity that the original UI never had.
+        bool quest = QuestStandalonePlatform.Enabled;
+        if (quest)
+            _overlayMaterial.renderQueue = _baseMaterial.renderQueue + 1;
         _baseQuad = CreateQuad("Base", _baseMaterial, _baseArt, 0f, ref _baseMesh);
-        _overlayQuad = CreateQuad("Overlay", _overlayMaterial, _overlayArt, -OverlayLiftMeters, ref _overlayMesh);
+        _overlayQuad = CreateQuad("Overlay", _overlayMaterial, _overlayArt, quest ? 0f : -OverlayLiftMeters, ref _overlayMesh);
 
         // Match LoadingScreen.OnEnable: overlay starts at min alpha, rising.
         _overlayAlpha = _minAlpha;
@@ -788,7 +795,8 @@ internal sealed class LoadingIndicator
         // Atlas sub-rect via mesh UVs (shader-independent). Identity rect (procedural
         // fallback textures) keeps the shared primitive mesh — nothing to remap.
         Rect uv = art.Uv;
-        if (uv.x != 0f || uv.y != 0f || uv.width != 1f || uv.height != 1f)
+        bool offset = art.CenterRatio.sqrMagnitude > 0f;
+        if (uv.x != 0f || uv.y != 0f || uv.width != 1f || uv.height != 1f || offset)
         {
             MeshFilter meshFilter = quad.GetComponent<MeshFilter>();
             // Clone — NEVER mutate the shared primitive mesh (every Quad in the process,
@@ -799,6 +807,19 @@ internal sealed class LoadingIndicator
             for (int i = 0; i < uvs.Length; i++)
                 uvs[i] = new Vector2(uv.x + uvs[i].x * uv.width, uv.y + uvs[i].y * uv.height);
             clone.uv = uvs;
+            if (offset)
+            {
+                // Keep the native rotation pivot: the crop's centre offset lives
+                // in mesh vertices, so it rotates WITH both animation layers.
+                float maxSide = Mathf.Max(art.Width, art.Height);
+                float x = art.CenterRatio.x * maxSide / (art.Width * art.SizeRatio);
+                float y = art.CenterRatio.y * maxSide / (art.Height * art.SizeRatio);
+                Vector3[] vertices = clone.vertices;
+                for (int i = 0; i < vertices.Length; i++)
+                    vertices[i] += new Vector3(x, y, 0f);
+                clone.vertices = vertices;
+                clone.RecalculateBounds();
+            }
             meshFilter.mesh = clone;
             // The quad dies with _root, but the clone is an asset-like orphan — tracked so
             // Shutdown/BuildVisual destroy it explicitly (mirrors the material bookkeeping).
@@ -1118,7 +1139,7 @@ internal sealed class LoadingIndicator
             if (!File.Exists(manifest) || !File.Exists(IconCachePath(".base.png")) || !File.Exists(IconCachePath(".overlay.png")))
                 return false;
             Dictionary<string, string> kv = ParseManifest(File.ReadAllLines(manifest));
-            if (!kv.TryGetValue("v", out string? version) || version != "1")
+            if (!kv.TryGetValue("v", out string? version) || version != "2")
                 return false;
             baseTex = LoadPngTexture(IconCachePath(".base.png"), "GloomhavenVR.LoadingIconCached.Base");
             overlayTex = baseTex != null ? LoadPngTexture(IconCachePath(".overlay.png"), "GloomhavenVR.LoadingIconCached.Overlay") : null;
@@ -1128,22 +1149,25 @@ internal sealed class LoadingIndicator
                 DestroyObj(ref overlayTex);
                 return false;
             }
-            // The PNGs are already cropped to the sprite rect, so the UV rect is the identity and
-            // the pixel dimensions carry the authored aspect.
+            // Pixel crops and drawing geometry differ when the sprite is trimmed.
+            // Version 1 lost that padding and cannot be reused after the layout fix.
             _baseArt = new LayerArt
             {
                 Tex = baseTex,
                 Tint = ParseColor(kv, "basetint", Color.white),
-                Width = baseTex.width,
-                Height = baseTex.height,
+                Width = PositiveOr(ParseFloat(kv, "basewidth", float.NaN), baseTex.width),
+                Height = PositiveOr(ParseFloat(kv, "baseheight", float.NaN), baseTex.height),
+                SizeRatio = Mathf.Clamp(ParseFloat(kv, "baseratio", 1f), 0.01f, 4f),
+                CenterRatio = new Vector2(ParseFloat(kv, "basex", 0f), ParseFloat(kv, "basey", 0f)),
             };
             _overlayArt = new LayerArt
             {
                 Tex = overlayTex,
                 Tint = ParseColor(kv, "overlaytint", Color.white),
-                Width = overlayTex.width,
-                Height = overlayTex.height,
-                SizeRatio = Mathf.Clamp(ParseFloat(kv, "overlayratio", 1f), 0.25f, 4f),
+                Width = PositiveOr(ParseFloat(kv, "overlaywidth", float.NaN), overlayTex.width),
+                Height = PositiveOr(ParseFloat(kv, "overlayheight", float.NaN), overlayTex.height),
+                SizeRatio = Mathf.Clamp(ParseFloat(kv, "overlayratio", 1f), 0.01f, 4f),
+                CenterRatio = new Vector2(ParseFloat(kv, "overlayx", 0f), ParseFloat(kv, "overlayy", 0f)),
             };
             _ownedArtTextures.Add(baseTex);
             _ownedArtTextures.Add(overlayTex);
@@ -1198,7 +1222,7 @@ internal sealed class LoadingIndicator
             if (File.Exists(manifest) && File.Exists(IconCachePath(".base.png")) && File.Exists(IconCachePath(".overlay.png")))
             {
                 Dictionary<string, string> existing = ParseManifest(File.ReadAllLines(manifest));
-                if (existing.TryGetValue("v", out string? v) && v == "1" &&
+                if (existing.TryGetValue("v", out string? v) && v == "2" &&
                     existing.TryGetValue("id", out string? id) && id == identity)
                     return; // already the current art — no readback at all
             }
@@ -1287,7 +1311,7 @@ internal sealed class LoadingIndicator
         sb.Append("# GloomhavenVR — a copy of the GAME's own loading symbol, taken once so the boot window\n");
         sb.Append("# (intro over, Gloomhaven_unified still loading) can show it. Delete these three files to\n");
         sb.Append("# have the mod re-take them on the next load. Nothing here is user tuning.\n");
-        sb.Append("v=1\n");
+        sb.Append("v=2\n");
         sb.Append("id=").Append(identity).Append('\n');
         Append(sb, "spin", _spinDegrees);
         Append(sb, "step", _stepSeconds);
@@ -1295,8 +1319,18 @@ internal sealed class LoadingIndicator
         Append(sb, "minalpha", _minAlpha);
         sb.Append("basetint=").Append(FormatColor(baseArt.Tint)).Append('\n');
         sb.Append("overlaytint=").Append(FormatColor(overlayArt.Tint)).Append('\n');
-        Append(sb, "overlayratio", overlayArt.SizeRatio);
+        AppendLayer("base", baseArt);
+        AppendLayer("overlay", overlayArt);
         return sb.ToString();
+
+        void AppendLayer(string prefix, LayerArt art)
+        {
+            Append(sb, prefix + "width", art.Width);
+            Append(sb, prefix + "height", art.Height);
+            Append(sb, prefix + "ratio", art.SizeRatio);
+            Append(sb, prefix + "x", art.CenterRatio.x);
+            Append(sb, prefix + "y", art.CenterRatio.y);
+        }
 
         static void Append(System.Text.StringBuilder b, string key, float value) =>
             b.Append(key).Append('=').Append(value.ToString("R", CultureInfo.InvariantCulture)).Append('\n');
@@ -1365,19 +1399,30 @@ internal sealed class LoadingIndicator
             return null;
 
         Rect tr = sprite.textureRect; // throws for tight-packed sprites → caller's catch → fallback
+        RectTransform? iconRect = iconGo.GetComponent<RectTransform>();
+        RectTransform? baseRect = baseGo.GetComponent<RectTransform>();
+        if (iconRect == null || baseRect == null)
+            return null;
+        float units = Mathf.Max(baseRect.rect.width, baseRect.rect.height);
+        if (units <= 1f)
+            return null;
+        Rect drawing = LoadingIconGeometry.DrawingRect(image);
+        Vector3 center = baseRect.InverseTransformPoint(iconRect.TransformPoint(drawing.center))
+                         - (Vector3)baseRect.rect.center;
+        float width = drawing.width * baseRect.InverseTransformVector(iconRect.TransformVector(Vector3.right)).magnitude;
+        float height = drawing.height * baseRect.InverseTransformVector(iconRect.TransformVector(Vector3.up)).magnitude;
+        if (width <= 0f || height <= 0f)
+            return null;
         var art = new LayerArt
         {
             Tex = tex,
             Uv = new Rect(tr.x / tex.width, tr.y / tex.height, tr.width / tex.width, tr.height / tex.height),
             Tint = image.color,
-            Width = Mathf.Max(1f, tr.width),
-            Height = Mathf.Max(1f, tr.height),
+            Width = width,
+            Height = height,
+            SizeRatio = Mathf.Max(width, height) / units,
+            CenterRatio = new Vector2(center.x / units, center.y / units),
         };
-        // Relative size from the authored uGUI rects (overlay may be larger/smaller than base).
-        var iconRect = iconGo.GetComponent<RectTransform>();
-        var baseRect = baseGo.GetComponent<RectTransform>();
-        if (iconRect != null && baseRect != null && baseRect.rect.width > 1f)
-            art.SizeRatio = Mathf.Clamp(iconRect.rect.width / baseRect.rect.width, 0.25f, 4f);
         return art;
     }
 

@@ -117,6 +117,7 @@ internal sealed partial class FlatScreenStereo
         // captures fine. Force a 24-bit depth + 8-bit stencil buffer whenever we ask for a depth buffer.
         if (depth >= 24)
             rt.depthStencilFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.D24_UNorm_S8_UInt;
+        QuestScreenSampling.Configure(rt);
         return rt;
     }
 
@@ -126,7 +127,7 @@ internal sealed partial class FlatScreenStereo
         if (rt == null)
             return "null";
         bool srgb = UnityEngine.Experimental.Rendering.GraphicsFormatUtility.IsSRGBFormat(rt.graphicsFormat);
-        return $"'{rt.name}' {rt.width}x{rt.height} fmt {rt.format}/{rt.graphicsFormat} sRGB={srgb} depth={rt.depth} aa={rt.antiAliasing}";
+        return $"'{rt.name}' {rt.width}x{rt.height} fmt {rt.format}/{rt.graphicsFormat} sRGB={srgb} depth={rt.depth} aa={rt.antiAliasing} mips={rt.mipmapCount} filter={rt.filterMode} aniso={rt.anisoLevel}";
     }
 
     private static bool WantActive(RenderTexture? leftRt) =>

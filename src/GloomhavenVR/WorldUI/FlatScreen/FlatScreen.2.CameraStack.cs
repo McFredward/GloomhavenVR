@@ -267,6 +267,7 @@ internal sealed partial class FlatScreen
             name = "GloomhavenVR.FlatScreenRT.UI",
             antiAliasing = 1,
         };
+        QuestScreenSampling.Configure(uiRt);
         // Alpha-blended glass shader (both verified shipped — see the Show() shader
         // comment); the RT alpha is exactly what the UI cameras leave behind, which
         // is the point: everything they did not draw stays see-through.
