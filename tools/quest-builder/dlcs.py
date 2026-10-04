@@ -1,10 +1,11 @@
 """Capture local DLC availability before building; no store API runs on Quest.
 
 The original game ships DLC data with the base installation. File presence is
-therefore not ownership. Windows queries the active Steam client through the
-owned game's original library in a short-lived process. Portable build hosts can
-consume a small explicit local ownership declaration instead; this is deliberately
-a convenience hurdle, not DRM or a claim of tamper-proof license verification.
+therefore not ownership. Prefer provider-local installed-entitlement metadata
+where it identifies ownership (GOG mini-manifests); preserve the existing local
+Steam fallback. Epic's base install records cannot prove bundled-DLC entitlement.
+Every provider can use a small explicit ownership declaration. This is deliberately
+a convenience hurdle, not DRM or tamper-proof license verification.
 """
 from __future__ import annotations
 
@@ -30,30 +31,38 @@ CATALOG = (
 IDS = {row[3] for row in CATALOG}
 
 
-def manifest(steam_id: str, installed_ids: list[int], source: str) -> dict:
+def manifest(steam_id: str, installed_ids: list[int], source: str,
+             provider: str = "steam", provider_id: str | None = None) -> dict:
     if (not isinstance(installed_ids, list) or any(type(i) is not int or i not in IDS for i in installed_ids)
             or len(installed_ids) != len(set(installed_ids))):
         raise BuildError("DLC ownership contains duplicate or unsupported app IDs.")
     mask = sum(row[2] for row in CATALOG if row[3] in installed_ids)
-    return {"schema": 1, "provider": "steam", "appId": APP_ID,
+    if provider not in ("steam", "epic", "gog") or provider != "steam" and not provider_id:
+        raise BuildError("DLC ownership needs a supported provider and the selected local provider ID.")
+    result = {"schema": 1, "provider": provider, "appId": APP_ID,
             "steamId": steam_id, "source": source, "ownedMask": mask,
             "installedAppIds": sorted(installed_ids),
             "dlcs": [{"key": row[1], "appId": row[3], "owned": row[3] in installed_ids}
                      for row in CATALOG]}
+    if provider != "steam":
+        result["providerId"] = provider_id
+    return result
 
 
-def declaration(path: Path, steam_id: str) -> dict:
+def declaration(path: Path, steam_id: str, provider: str = "steam", provider_id: str | None = None) -> dict:
     if path.stat().st_size > 4096:
         raise BuildError("DLC ownership JSON must contain only the small local declaration, not an account export.")
     try:
         data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (ValueError, OSError) as error:
         raise BuildError("DLC ownership JSON is invalid.") from error
-    if (not isinstance(data, dict) or set(data) != {"schema", "provider", "appId", "steamId", "installedAppIds"}
-            or type(data.get("schema")) is not int or data.get("schema") != 1 or data.get("provider") != "steam"
-            or type(data.get("appId")) is not int or data.get("appId") != APP_ID or data.get("steamId") != steam_id):
-        raise BuildError("DLC ownership declaration must match the selected Steam account and Gloomhaven app.")
-    value = manifest(steam_id, data["installedAppIds"], "explicit-local-declaration")
+    expected_fields = {"schema", "provider", "appId", "installedAppIds", "steamId" if provider == "steam" else "providerId"}
+    if (not isinstance(data, dict) or set(data) != expected_fields
+            or type(data.get("schema")) is not int or data.get("schema") != 1 or data.get("provider") != provider
+            or type(data.get("appId")) is not int or data.get("appId") != APP_ID
+            or data.get("steamId" if provider == "steam" else "providerId") != (steam_id if provider == "steam" else provider_id)):
+        raise BuildError("DLC ownership declaration must match the selected local provider account and Gloomhaven app.")
+    value = manifest(steam_id, data["installedAppIds"], "explicit-local-declaration", provider, provider_id)
     value["declarationSha256"] = digest(path)
     return value
 
@@ -98,19 +107,35 @@ def native_query(library: Path, sdk=None) -> dict:
 
 
 def capture(args, game: Path, profile: dict) -> dict:
+    provider = profile.get("provider", "steam")
+    provider_id = profile.get("providerId", profile["steamId"])
     explicit = getattr(args, "dlc_ownership_json", None)
     selected = getattr(args, "owned_dlc", None)
     if explicit and selected:
         raise BuildError("Choose one DLC ownership source.")
     if explicit:
-        return declaration(Path(explicit), profile["steamId"])
+        return declaration(Path(explicit), profile["steamId"], provider, provider_id)
     if selected is not None:
-        if not profile.get("isDummy"):
-            raise BuildError("--owned-dlc is reserved for labelled maintainer diagnostics; use automatic Steam capture or --dlc-ownership-json.")
-        ids = [next(row[3] for row in CATALOG if row[0] == value) for value in selected]
-        return manifest(profile["steamId"], ids, "maintainer-declared-test-ownership")
+        try:
+            ids = [next(row[3] for row in CATALOG if row[0] == value) for value in selected]
+        except (StopIteration, TypeError) as error:
+            raise BuildError("Explicit DLC selection contains an unsupported product.") from error
+        source = "maintainer-declared-test-ownership" if profile.get("isDummy") else "explicit-local-ownership"
+        return manifest(profile["steamId"], ids, source, provider, provider_id)
     if profile.get("isDummy"):
         return manifest(profile["steamId"], [], "dummy-base-game-only")
+    if provider != "steam":
+        import provider_metadata
+        metadata_root = getattr(args, "provider_metadata_dir", None)
+        evidence = provider_metadata.installation(game, provider, Path(metadata_root) if metadata_root else None)
+        if evidence is None or not evidence["ownershipComplete"]:
+            raise BuildError("The selected " + provider + " copy has no complete local DLC entitlement markers. "
+                             "Bundled DLC files are not ownership; supply --dlc-ownership-json or explicit --owned-dlc selections "
+                             "(an empty installedAppIds list declares base game only).")
+        ids = [row[3] for row in CATALOG if row[0] in evidence["ownedDlcKeys"]]
+        value = manifest(profile["steamId"], ids, evidence["source"], provider, provider_id)
+        value["installationEvidence"] = evidence
+        return value
     if sys.platform != "win32":
         raise BuildError("Automatic DLC capture uses the local Windows Steam client; supply --dlc-ownership-json on another build host.")
     library = game / "Plugins/x86_64/steam_api64.dll"
@@ -173,7 +198,7 @@ def stage(project: Path, ownership: dict) -> dict:
         Path(str(path) + ".meta").unlink(missing_ok=True)
     receipt = {"schema": 1, "ownership": ownership, "removedUnavailableRuleFiles": removed,
                "promotionalAssetsRetained": True,
-               "scope": "startup rules and original local DLC availability; playable campaign export remains gated"}
+               "scope": "owned DLC rule selection and original local availability; complete campaign/Android outcomes require runtime evidence"}
     write_json(project / "Assets/Quest/Resources/quest-dlc-ownership.json", ownership)
     write_json(project / "QuestStartupEvidence/dlc-content-selection.json", receipt)
     return receipt

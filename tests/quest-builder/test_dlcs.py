@@ -74,7 +74,7 @@ class DlcTests(unittest.TestCase):
         self.assertEqual(dlcs.capture(args, self.root, profile)["ownedMask"], 0)
         args.owned_dlc = ["jotl", "solo"]
         self.assertEqual(dlcs.capture(args, self.root, profile)["source"], "maintainer-declared-test-ownership")
-        with self.assertRaises(BuildError): dlcs.capture(args, self.root, {"steamId": "1"})
+        self.assertEqual(dlcs.capture(args, self.root, {"steamId": "1"})["source"], "explicit-local-ownership")
     def test_generated_unowned_rules_removed_owned_rules_and_all_ads_preserved(self):
         project = self.root / "generated"
         for row in dlcs.CATALOG[:2]:

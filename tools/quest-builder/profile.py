@@ -1,4 +1,4 @@
-"""Offline identity capture. No Steam API, tokens or personal avatar requests."""
+"""Offline identity capture. No provider API, tokens or personal avatar requests."""
 
 from __future__ import annotations
 
@@ -57,15 +57,32 @@ def validate_identity(value: dict) -> dict:
     """Preserve the full ID separately from its uint32 account number."""
     if not isinstance(value, dict):
         raise ProfileError("The local profile must be a JSON object.")
-    if set(value) - {"schema", "provider", "steamId", "accountId", "displayName", "source", "logoSha256"}:
+    if set(value) - {"schema", "provider", "providerId", "steamId", "accountId", "displayName", "source", "logoSha256"}:
         raise ProfileError("Unexpected profile fields; provide identity only, without credentials.")
+    provider = value.get("provider", "steam")
+    if value.get("schema", 1) != 1 or provider not in ("steam", "epic", "gog"):
+        raise ProfileError("The local profile needs schema 1 and provider steam, epic or gog.")
     raw = value.get("steamId")
-    if not isinstance(raw, str) or not re.fullmatch(r"[0-9]{17}", raw):
-        raise ProfileError("steamId must be the full 17-digit Steam individual ID as a string.")
-    number = int(raw)
-    account = number - STEAM_INDIVIDUAL_BASE
-    if not 0 < account <= 0xFFFFFFFF:
-        raise ProfileError("steamId is not a public-universe individual account ID.")
+    if provider == "steam":
+        if not isinstance(raw, str) or not re.fullmatch(r"[0-9]{17}", raw):
+            raise ProfileError("steamId must be the full 17-digit Steam individual ID as a string.")
+        account = int(raw) - STEAM_INDIVIDUAL_BASE
+        if not 0 < account <= 0xFFFFFFFF:
+            raise ProfileError("steamId is not a public-universe individual account ID.")
+        provider_id = value.get("providerId", raw)
+        if provider_id != raw:
+            raise ProfileError("Steam providerId must match the full Steam ID.")
+    else:
+        provider_id = value.get("providerId")
+        pattern = r"[0-9a-f]{32}" if provider == "epic" else r"[1-9][0-9]{0,19}"
+        if not isinstance(provider_id, str) or not re.fullmatch(pattern, provider_id):
+            raise ProfileError("providerId must be a full local Epic account ID or numeric GOG user ID.")
+        if raw not in (None, "0"):
+            raise ProfileError("A non-Steam profile must not claim a Steam account.")
+        raw = "0"
+        # This numeric generic-user/save owner is stable across rebuilds; it is
+        # separate from the full provider ID and grants no authentication.
+        account = int.from_bytes(hashlib.sha256((provider + ":" + provider_id).encode()).digest()[:4], "big") or 1
     if "accountId" in value and (type(value["accountId"]) is not int or value["accountId"] != account):
         raise ProfileError("accountId does not match the full Steam ID.")
     name = value.get("displayName")
@@ -73,10 +90,11 @@ def validate_identity(value: dict) -> dict:
         raise ProfileError("displayName must be non-empty and at most 256 UTF-8 bytes.")
     if any(ord(c) < 32 or ord(c) == 127 for c in name):
         raise ProfileError("displayName contains control characters.")
-    if value.get("schema", 1) != 1 or value.get("provider", "steam") != "steam":
-        raise ProfileError("Only the local Steam profile schema 1 is supported.")
-    return {"schema": 1, "provider": "steam", "steamId": raw,
+    result = {"schema": 1, "provider": provider, "steamId": raw,
             "accountId": account, "displayName": name, "source": "explicit-local-profile"}
+    if provider != "steam" or "providerId" in value:
+        result["providerId"] = provider_id
+    return result
 
 
 def parse_vdf(raw: str) -> dict:
