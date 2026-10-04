@@ -99,3 +99,40 @@ DLC preload labels and build the resulting Android catalog. This is not silently
 claimed complete in the current menu-only APK. Source ownership selection is
 already local; automatic GOG/Epic discovery still requires genuine provider
 metadata fixtures as recorded in the B619 follow-up.
+
+## Verified handoff and cleanup
+
+The signed candidate uses clean native source `4621f21596d17a8e71235c72ed0227e12502d029`
+and input `4b5cb809a87c322002c3b060dc49e061be7ef43261c5406140bdcf3dd5b80011`.
+Later commits update only the loading fixture and developer documentation;
+selected runtime/build source remains identical to the frozen input.
+APK SHA-256: `2d6c25001cb5a94cc96f1a384ed530d5001aa21ccb05a4387e69b4f801fe5469`;
+bytes: 2,587,906,095. Windows ZIP SHA-256:
+`4b5e620800c7aba9cfa4ee8ef48043b261848c090b4d771e12c2c3cf9f726b26`;
+bytes: 2,588,017,594. Signing identity remains the existing local certificate.
+
+Final affected evidence: 18 focused Quest suites, 14 source checks, strict Release
+without warnings/errors, 286,760 unchanged direct wire/golden assertions, actual
+Android package SDK/GLES validation and independent compiled-boundary audit.
+The initial integration loading fixture lacked the new capture stub; the fixture
+was repaired and its full lifecycle/12-control rerun passes. The final boundary
+audit checks 136 CIL assertions plus 96 further conditions, all 15 methods in the
+actual compiled native library, and complete current 957-file mod source closure.
+This proves current integration, not perpetual compatibility or headset pixels.
+
+Final APK/ZIP native identity, ARM64 ELF headers, signatures, all ZIP entries,
+embedded manifests and original media provenance are independently checked.
+Isolated archive installer dry-run chooses B620 by its embedded stamp. Android
+build receipt and generated settings both enable incremental GC; hardware state
+will report the actual runtime collector. No new hardware outcome is claimed.
+The changed shader content produces updated startup bundle/catalog hashes, so
+first update preparation is possible. Second launch must use cached content.
+
+Ignored evidence: main `.planning/debug/quest3-validation/B620/`; compact cleanup
+archives: `cache-archive-B620/`. Three clean workers and the superseded B619 Unity
+project are removed after process/symlink guards, preserving Git refs, matching
+B619 symbols, native backups, current B620 and all canonical inputs/captures.
+Measured extra free space: 36,563,001,344 bytes for those roots and 7,764,107,264
+bytes for old downloads/packaging stage (44,327,108,608 combined during cleanup).
+Parallel dev checkouts are untouched. Latest handoff folder contains only APK,
+Windows ZIP and `handoff.json`.

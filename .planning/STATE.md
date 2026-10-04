@@ -12,8 +12,28 @@ two desktop-only option rows and existing VR keyboard's Android TMP input seam
 are corrected behind the central standalone gate. The generated player enables
 incremental GC, with bounded Debug frame/GC/write-cost evidence to investigate
 the reported recurring hitch. No sole hitch cause is established.
-See [B620 hardware procedure](QUEST3-HARDWARE-620.md). Native build/validation
-receipts and cleanup measurements will be recorded after the signed handoff.
+See [B620 hardware procedure](QUEST3-HARDWARE-620.md). Signed ARM64 IL2CPP
+candidate succeeds from clean native source `4621f215`, input `4b5cb809a87c…`,
+APK SHA `2d6c25001cb5…`. Eighteen final focused Quest suites, all fourteen source
+checks, strict Release and 286,760 direct unchanged protocol/golden assertions
+pass; no unrelated complete local gate is claimed. An integration test fixture
+needed the new read-only capture seam; its corrected rerun passes. Real Unity
+GPU tests and both Android video shader stages pass. Independent imported,
+stripped, backup CIL and actual compiled native symbols establish the scoped
+boundaries (136 CIL assertions + 96 further checks), with all 957 current mod
+C# source files included automatically. Headset outcomes remain unverified.
+The Windows ZIP passes complete CRC/content/hash and isolated installer checks;
+embedded B620 identity wins in merged folders. APK and ZIP are about 2.59 GB.
+
+Four obsolete Quest worker/project roots were removed after archive and matching
+B619 symbol retention, measuring 36,563,001,344 additional free bytes. Retiring
+superseded downloads and the verified B620 packaging stage measured another
+7,764,107,264 bytes. Latest outputs contain only the B620 APK, Windows archive
+and handoff. Canonical inputs, captures, Git refs and parallel dev worktrees stay.
+A preview initially wrote its metadata into the B619 archive directory; B620
+preview files were moved to their own archive. The retained B619 execution log
+preserves its historical deletion evidence and measured result; a reconstruction
+note records the overwritten historical summary rather than inventing counters.
 
 **Quest B619 menu follow-up, 2026-10-04: isolated feature.**
 
