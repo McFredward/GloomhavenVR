@@ -1004,6 +1004,17 @@
       "weight": 95
     },
     {
+      "id": "town-final-capture",
+      "command": [
+        "python3",
+        "scripts/check-town-final-capture.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 65
+    },
+    {
       "id": "town-service-workspace",
       "command": [
         "python3",

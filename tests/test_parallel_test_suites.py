@@ -230,13 +230,13 @@ class ParallelSuitesTests(unittest.TestCase):
         frame620_shared = {'player-settings-help'}
         frame620_local = {'options-notes-runtime'}
         frame621_local = {'arch-mounted-runtime', 'wrist-board-runtime'}
-        npc622_local = {'town-window-map-switch', 'town-publisher622'}
+        npc622_local = {'town-window-map-switch', 'town-publisher622', 'town-final-capture'}
         frame617_shared = {'wall-maintenance-trace'}
         quest609_shared = {'quest-builder', 'quest-recovery', 'quest-native', 'quest-weaver'}
         self.assertEqual(local, LOCAL_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-service-lighting", "town-residents", "town-face", "town-activity", "town-voice", "town-native-audio", "town-native-veil"} | physical_town | frame600 | frame601_local | town602_local | frame603_shared | frame603_local | frame604_local | frame605_local | frame606_local | frame606_shared | frame607_shared | quest609_shared | frame608_local | frame610_local | npc611_shared | npc611_local | frame612_local | npc614_local | frame615_local | frame617_local | frame617_shared | frame618_local | frame619_shared | frame619_local | frame620_shared | frame620_local | frame621_local | npc622_local)
         self.assertEqual(ci, CI_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-residents", "town-service-lighting", "town-activity-portable", "town-native-audio", "town-native-veil"} | frame600 | frame603_shared | frame606_shared | frame607_shared | quest609_shared | npc611_shared | frame617_shared | frame619_shared | frame620_shared)
         self.assertEqual({s['id'] for s in runner.selected_suites(suites, 'source', (0, 1))}, SOURCE_INVENTORY)
-        self.assertEqual(len(local), 129)
+        self.assertEqual(len(local), 130)
         self.assertEqual(len(ci), 81)
         self.assertEqual(local-ci, {'presentation-send', 'town-face', 'town-activity', 'town-voice'} | physical_town | frame601_local | town602_local | frame603_local | frame604_local | frame605_local | frame606_local | frame608_local | frame610_local | npc611_local | frame612_local | npc614_local | frame615_local | frame617_local | frame618_local | frame619_local | frame620_local | frame621_local | npc622_local)
         self.assertEqual(ci-local, {'self-update-dialog', 'banner-pose', 'quest-seat', 'town-activity-portable'})

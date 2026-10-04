@@ -496,7 +496,7 @@ internal sealed class WorldUIModule : IVRModule
             // the scenario path, and TickArrivals guards on the frame number, so the two can never
             // double-swap. Before 192 the ONLY thing baking a floated window was PanelSamplingProbe —
             // a measuring instrument, on a 30-frame scan, blind to inactive graphics by construction.
-            // FRAME-ORDER WorldUIModule.LateTail [PanelMipBake.TickArrivals, GrabBarTween.TickAll, CanvasConversion.TickPanelOrder]
+            // FRAME-ORDER WorldUIModule.LateTail [PanelMipBake.TickArrivals, TownServicePresentation.LateTick, GrabBarTween.TickAll, CanvasConversion.TickPanelOrder, Net.NetAvatarDriver.PublishTownServicesFinal]
             //   Locked (.planning/refactor/FRAME-ORDER.lock) because the tween's place is an
             //   ordering, not a preference: it must run AFTER every writer of a grab bar's target
             //   (GrabbableModal.SyncBar in ModalFallback's Update tick, SurfaceGrabBar.SyncBar in the
@@ -510,13 +510,16 @@ internal sealed class WorldUIModule : IVRModule
             // DRAWN rod — its root, its length, its laser capsule and the palm zone — toward it.
             // After every writer, before the transparency round; it moves no host.
             late.Add(("GrabBarTween.Late", GrabBarTween.TickAll));
-            // TRANSPARENCY ROUND, and it must stay LAST. CanvasConversion.TickPanelOrder assigns
+            // TRANSPARENCY ROUND must remain the LAST VISUAL WRITER. CanvasConversion.TickPanelOrder assigns
             // every converted panel's draw order from its measured eye distance (far = painted
             // first), which is what makes panels occlude each other by perspective now that none of
             // them writes depth. It reads panel POSES, and every board-docked surface above re-places
             // its host in its own LateTick — measuring before them would order the panels from last
             // frame's geometry. Nothing after it may move a host.
             late.Add(("CanvasConversion.Order", CanvasConversion.TickPanelOrder));
+            // Read-only capture follows every visual writer, including native town handoff/Sync
+            // and panel sorting. Capturing in UseBarsSurface.Late sampled their previous frame.
+            late.Add(("TownServices.PublishFinal", Net.NetAvatarDriver.PublishTownServicesFinal));
             _lateSteps = late.ToArray();
         }
 
