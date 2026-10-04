@@ -1,5 +1,38 @@
 # State — where the project stands
 
+**Three ordinary Frame hitch targets implemented, 2026-10-04: 1.1.0 / ModBuild 618.**
+
+The Build617 capture below is the hardware baseline; Build618 has no headset
+performance result yet. Original published waypoint/combat-FX pool ownership now
+matches wall signatures and live collectors, including warm reparenting/sticky
+restitution. Water, actual wall shaders, unknown FX and the 30-cycle ceiling stay
+conservative. Debug delivery traces reserve restored endpoints/route coverage;
+native HIGH pixel behavior and the wall-pop report remain open hardware checks.
+
+The existing scenario spinner now also covers original private Consume/Infuse
+arrays, area-atlas heavy caches and original actor portraits (player fallback,
+custom monster/object/summon). Late UIInfoTools readiness defers portrait
+discovery within a finite wait. Original Show, native loading requests, current
+ghost pose/masks and local/remote artwork permissions stay unchanged. Valid native
+identity changes still use immediate ghost fallback, with bounded Debug reasons.
+
+Only redundant private flat root scale/position writes are suppressed for exact
+actual adopted VR card ownership; original events, highlights, validity,
+ViewSettings, exception paths and returned/dialog/remote-clone cards remain.
+The existing bounded Debug SPIKE ledger now identifies original message enums
+and hand/card/bonus/item substeps without changing dispatch, queue order or
+budgets. The whole 207 ms callback and unassigned native work are not claimed fixed.
+
+Focused worker/root evidence is retained under
+`.planning/debug/frame618-implementation/` and
+`.planning/debug/frame618-review/wall-implementation/`. Final integrated gate
+and compiled-comparison results will be recorded here before pushing. All changes
+apply generally; Frame settings/defaults, network records, 2D map and original
+non-NPC paths are unchanged. See
+[FRAME-618-IMPLEMENTATION](../docs/performance/FRAME-618-IMPLEMENTATION.md).
+
+---
+
 **Build617 Frame hardware review, 2026-10-04. Documentation only; no new binary.**
 
 Both supplied sinks identify 617 / e1da52eaa and agree on all 22 frame summaries.

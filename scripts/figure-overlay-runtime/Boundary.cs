@@ -44,6 +44,34 @@ namespace SpriteMemoryManagement
 {
     public sealed class ReferenceToSprite { public Sprite? Sprite; public bool Pending; }
 }
+// Exact native field shapes used by the production wall-ownership predicates. This
+// overlay fixture has no action pool; wall-read-facts exercises pool lifecycle causally.
+public sealed class WaypointHolder : MonoBehaviour
+{
+    public sealed class WaypointPrefab { public GameObject? Prefab; }
+    public List<WaypointPrefab>? m_Prefabs;
+}
+public sealed class ObjectPool
+{
+    public static ObjectPool? instance;
+    private readonly Dictionary<GameObject,GameObject> spawnedObjects = new();
+    private readonly Dictionary<GameObject,List<GameObject>> pooledObjects = new();
+    public void Clear() { spawnedObjects.Clear(); pooledObjects.Clear(); }
+}
+public sealed class GlobalSettings
+{
+    public static GlobalSettings? Instance;
+    public sealed class GlobalParticleEffects
+    { public GameObject? DefaultHealEffect, DefaultPositiveCondition, DefaultNegativeCondition, DefaultCharacterReveal, DefaultCharacterSwap; }
+    public sealed class MagicEffects { public GameObject? RetaliateHit, RetaliateTarget, WoundDamage; }
+    public sealed class ActiveBonusBuffTargetEffects
+    {
+        public GameObject? AttackBuffTargetEffect, ShieldActiveBonusTargetEffect, RetaliateActiveBonusTargetEffect, GainShield, GainRetaliate, GainDisarm, GainImmobilize, GainPoison, GainStun, GainWound, GainBless, GainCurse, GainSleep, GainStrengthen, GainMuddle, GainInvisibility, GainAddTarget, GainAddHeal, GainAddRange, GainAttackersGainDisadvantage, GainAttackActiveBonus, GainDefault;
+    }
+    public GlobalParticleEffects? m_GlobalParticles;
+    public MagicEffects? m_MagicEffects;
+    public ActiveBonusBuffTargetEffects? m_ActiveBonusBuffTargetEffects;
+}
 public sealed class HexSelect_Control : MonoBehaviour { public MeshRenderer? HexProjector; }
 public sealed class HexSelectControlParticles : MonoBehaviour
 { public ParticleSystem[]? ParticleBits, ParticleHover; }

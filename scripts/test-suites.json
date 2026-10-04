@@ -1371,6 +1371,17 @@
       "weight": 50
     },
     {
+      "id": "native-card-layout",
+      "command": [
+        "python3",
+        "scripts/check-native-card-layout-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 75
+    },
+    {
       "id": "ui-inventory-runtime",
       "command": [
         "python3",

@@ -12,6 +12,9 @@ art with the original hero fallback, enemy model/custom portrait, attached-prop
 portrait override, and summon prefab/custom portrait. It visits the coordinator's
 one original actor snapshot, including inactive actors, without a second scene
 inventory, native Show, character selection, UI assignment or gameplay callback.
+If native UIInfoTools is not ready at Begin, a single deferred discovery job stays
+pending for at most 30 seconds and collects the same original snapshot when it
+arrives. It neither inventories the scene again nor silently reports readiness.
 
 Original references join `ScenarioCardPreparation`'s asynchronous queue while
 ghosts are constructed. The stat queue later observes the same GUID pin owner
@@ -36,8 +39,9 @@ The focused Unity 2021.3.5 fixture runs the complete production portrait collect
 and extracted stat queue against inert native-provider/pin boundaries with the
 shipped field/method shapes. It exercises player fallback, custom monster,
 attached object, summon, duplicate references, incomplete handles, mip-off and
-reset lifetime. Three causal controls remove the correct model, prop override
-or shared queue publication. Release compilation validates the selectors against
+reset lifetime, including late native UI readiness. Causal controls remove the
+correct model, prop override, shared queue publication or deferred discovery.
+Release compilation validates the selectors against
 the actual game assemblies. The same fixture separately renders the shipped
 SpittingDrake sleeping/flying rig and tests strict ghost reuse/invalidation.
 

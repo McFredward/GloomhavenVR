@@ -186,8 +186,24 @@ public static class InteractionProgram
         GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.ResetInteractionPreparation();
         Check(GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationTotal==0&&CardArtPin.Pins.Count==3,
             "stat preparation reset clears borrowed jobs while the shared pin owner retains lifetime");
+        UIInfoTools.Instance=null;
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.BeginInteractionPreparation(owners);
+        Check(!GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationReady
+            &&GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationTotal==1,
+            "late native UI resources keep one deferred portrait discovery job under the loader");
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.TickInteractionPreparation();
+        Check(!GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationReady,
+            "missing native tools cannot silently mark original portraits prepared");
+        UIInfoTools.Instance=tools;
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.TickInteractionPreparation();
+        Check(GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationTotal==5,
+            "late native tools trigger exactly one original portrait discovery before completion");
+        for(int i=0;i<5;i++)GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.TickInteractionPreparation();
+        Check(GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationReady,
+            "deferred original portrait discovery drains the same shared job queue");
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.ResetInteractionPreparation();
         foreach(var owner in owners)Object.DestroyImmediate(owner.gameObject);
-        UIInfoTools.Instance=null;CardArtPin.Pins.Clear();ScenarioCardPreparation.References.Clear();
+        UIInfoTools.Instance=new UIInfoTools();CardArtPin.Pins.Clear();ScenarioCardPreparation.References.Clear();
         CardFaceMipBake.Sprites.Clear();CardFaceMipBake.Textures.Clear();
         Object.DestroyImmediate(preview);Object.DestroyImmediate(fallback);
 

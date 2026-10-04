@@ -26,6 +26,28 @@
 > rejected alternatives. `docs/PATCH-INVENTORY.md` lists all of them; `.planning/STATE.md` says
 > where the project stands.
 
+## Build618: adopted-card geometry and bounded native attribution
+
+Cards registers `FullAbilityCard.UpdateScale` and `UpdatePosition` prefixes.
+The shipped private bodies only assign the flat hand's root scale and position.
+They are skipped only while VR/Cards is active, the adoption registry includes
+the face, and its actual (possibly inactive) ancestor is the same `VRCard` whose
+adopted `FullCard` it is. Registry membership alone is insufficient. Returned,
+yielded, dialog-owned, stale, remote-clone and flat-game faces run the originals.
+`UpdateView` still assigns native `ViewSettings`; hand selection, callbacks,
+highlights and action validity are preserved. This avoids dirtying the canvas
+with geometry that `CardFace.Maintain` immediately replaced in VR.
+
+The existing Debug-only `PerfNativeLoopProbe` additionally observes original
+message/hand/init/card construction substeps. `ProcessMessage` uses an observing
+prefix/finalizer to charge the original message enum, including failure, to a
+fixed main-thread ledger. It returns the original exception unchanged and never
+changes dispatch, queue order, budgets, state, requests or continuation. Its
+inclusive costs are not additive; fixed counts share the bounded SPIKE emitter,
+not a new per-frame log. Background queue publication is not charged to the
+main-thread frame. These probes do not prove the entire 207 ms native callback
+was eliminated.
+
 ## Effect / gate prose for the Phase-5 patch set
 
 Audited 2026-07 on `feat/integration`, and re-verified 17/17 accurate since. This

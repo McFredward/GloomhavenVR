@@ -1,8 +1,8 @@
 # Planning index
 
-Updated 2026-10-04 for the actual Build617 Frame capture, successful resource
-preparation, remaining ordinary wall/native/UI hitches and the still-open native
-wall transition. This directory holds internal
+Updated 2026-10-04 for Build618's wall ownership, original card/portrait preparation
+and adopted-card/native-message changes following the actual Build617 Frame
+capture. The native wall transition still needs hardware verification. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -13,6 +13,11 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [../docs/performance/FRAME-618-IMPLEMENTATION.md](../docs/performance/FRAME-618-IMPLEMENTATION.md) | Three implemented hitch targets, preserved presentation/gameplay paths, integrated validation and next hardware evidence |
+| [../docs/performance/FRAME-618-WALL-IMPLEMENTATION.md](../docs/performance/FRAME-618-WALL-IMPLEMENTATION.md) | Original waypoint/combat-pool ownership shared by signatures and collectors, protected water/walls and endpoint/route tracing |
+| [../docs/performance/FRAME-618-CARD-IMPLEMENTATION.md](../docs/performance/FRAME-618-CARD-IMPLEMENTATION.md) | Private native element-widget arrays, original area atlas and temporary sprite/cache lifecycle |
+| [../docs/performance/FRAME-618-FIGURE-IMPLEMENTATION.md](../docs/performance/FRAME-618-FIGURE-IMPLEMENTATION.md) | Exact original actor portrait selectors, bounded late-resource discovery, strict ghost miss categories and stat subscopes |
+| [../docs/performance/FRAME-618-NATIVE-IMPLEMENTATION.md](../docs/performance/FRAME-618-NATIVE-IMPLEMENTATION.md) | Shipped adopted-card geometry writers and Debug original message/substep costs; no whole-native-callback elimination claim |
 | [../docs/performance/FRAME-618-ANALYSIS.md](../docs/performance/FRAME-618-ANALYSIS.md) | Build617 result, completed preparation, recurring native path/FX wall invalidations and next implementation order; no new binary |
 | [../docs/performance/FRAME-618-PERF-AUDIT.md](../docs/performance/FRAME-618-PERF-AUDIT.md) | Twelve loaded/worn windows, completed inventories, applied actor budgets, GC/native attribution and actual camera/config evidence |
 | [../docs/performance/FRAME-618-COLD-PREPARATION.md](../docs/performance/FRAME-618-COLD-PREPARATION.md) | Actual ghost reuse, remaining native card-widget arrays and test-shape gap, cold stat/portrait/fan work |

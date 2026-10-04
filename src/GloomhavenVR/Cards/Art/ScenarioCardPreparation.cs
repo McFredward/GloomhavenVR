@@ -19,7 +19,7 @@ namespace GloomhavenVR.Cards;
 /// The coordinator owns Begin/Tick/Reset and its spinner. One Tick starts/observes one
 /// reference, bakes one sprite, or builds one backing. Failed/late art is terminal for this
 /// preparation pass, not a gameplay gate: ordinary native loaders and lazy fallbacks stay
-/// available. Pin handles retain their existing map/scenario teardown owner. Reset releases
+/// available. Pin handles retain their existing CardsModule shutdown owner. Reset releases
 /// only this job and unused backing reservations, never a shared/local/remote live face.
 /// </summary>
 internal static class ScenarioCardPreparation

@@ -566,7 +566,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 617;
+    public const ushort ModBuild = 618;
+
+    // ModBuild 618 — reduce the three ordinary-play hitch paths confirmed in Build617.
+    // Original published waypoint/combat-FX ownership is shared by wall signatures and
+    // live collectors, including pooled reparenting; actual water/wall-shader inputs and
+    // the conservative rescan ceiling remain intact. Debug draw traces reserve restored
+    // endpoints and native route coverage, without claiming native shader pixel parity.
+    // The existing loading spinner now also warms original Consume/Infuse widget arrays,
+    // original area-atlas regions and the actual actors' stat portraits in shared pin/mip
+    // caches. No synthetic native Show, gameplay callback, focus change or artwork exists.
+    // Already-adopted physical VR cards skip only redundant private flat scale/position
+    // writers; native selection/highlight/validity/events and returned/dialog cards retain
+    // their original bodies. Debug-only bounded message/substep costs and strict ghost
+    // miss reasons distinguish remaining native stalls; the full 207ms callback is not
+    // claimed eliminated. Network records, concealment rules, maps, NPC mode, animations,
+    // original presentation and ordinary-player log volume retain their existing contracts.
 
     // ModBuild 617 — prepare original interaction resources before ordinary scenario input.
     // The bounded visible preparation period warms every real party class's original card

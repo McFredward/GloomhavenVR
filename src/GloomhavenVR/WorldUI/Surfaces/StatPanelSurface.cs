@@ -194,35 +194,51 @@ internal sealed class StatPanelSurface
     }
     private static readonly List<PreparationArt> Preparation = new();
     private static int _preparedArt, _preparationFailures;
-    private static float _portraitWaitUntil;
-    internal static int InteractionPreparationTotal => Preparation.Count;
+    private static float _portraitWaitUntil, _portraitDiscoveryUntil;
+    private static ActorBehaviour[] _portraitActors = System.Array.Empty<ActorBehaviour>();
+    private static readonly HashSet<Sprite> PreparationSprites = new();
+    private static bool _portraitDiscoveryPending;
+    internal static int InteractionPreparationTotal => Preparation.Count + (_portraitDiscoveryPending ? 1 : 0);
     internal static int InteractionPreparationCompleted => _preparedArt;
-    internal static bool InteractionPreparationReady => _preparedArt >= Preparation.Count;
+    internal static bool InteractionPreparationReady => !_portraitDiscoveryPending && _preparedArt >= Preparation.Count;
 
     internal static void BeginInteractionPreparation(ActorBehaviour[]? actors = null)
     {
         ResetInteractionPreparation();
         if (WorldUIConfig.PanelMipBake == null || !WorldUIConfig.PanelMipBake.Value) return;
-        var sprites = new HashSet<Sprite>();
+        HashSet<Sprite> sprites = PreparationSprites;
         var textures = new HashSet<Texture2D>();
         if (Singleton<ActorStatPanel>.IsInitialized)
             CollectPreparationArt(ActorStatPanel.Instance, sprites, textures);
         if (Singleton<EnemyCurrentTurnStatPanel>.IsInitialized)
             CollectPreparationArt(EnemyCurrentTurnStatPanel.Instance, sprites, textures);
-        if (actors != null)
+        if (actors != null && actors.Length != 0)
         {
-            var references = new HashSet<ReferenceToSprite>();
-            StatPortraitPreparation.Collect(actors,
-                portrait => { if (sprites.Add(portrait)) Preparation.Add(new PreparationArt(portrait)); },
-                portrait =>
-                {
-                    if (!references.Add(portrait)) return;
-                    Preparation.Add(new PreparationArt(portrait));
-                    // Start asynchronously through the existing coordinator's one-resource
-                    // queue while figure ghosts are prepared; do not load in this callback.
-                    Cards.ScenarioCardPreparation.IncludeOriginalReference(portrait);
-                });
+            _portraitActors = actors;
+            _portraitDiscoveryPending = true;
+            _portraitDiscoveryUntil = Time.realtimeSinceStartup + 30f;
+            TryCollectOriginalPortraits();
         }
+    }
+
+    private static bool TryCollectOriginalPortraits()
+    {
+        if (!_portraitDiscoveryPending || UIInfoTools.Instance == null) return false;
+        _portraitDiscoveryPending = false;
+        ActorBehaviour[] actors = _portraitActors;
+        _portraitActors = System.Array.Empty<ActorBehaviour>();
+        var references = new HashSet<ReferenceToSprite>();
+        StatPortraitPreparation.Collect(actors,
+            portrait => { if (PreparationSprites.Add(portrait)) Preparation.Add(new PreparationArt(portrait)); },
+            portrait =>
+            {
+                if (!references.Add(portrait)) return;
+                Preparation.Add(new PreparationArt(portrait));
+                // Start asynchronously through the existing coordinator's one-resource
+                // queue while figure ghosts are prepared; do not load in this callback.
+                Cards.ScenarioCardPreparation.IncludeOriginalReference(portrait);
+            });
+        return true;
     }
 
     private static void CollectPreparationArt(Component? root, HashSet<Sprite> sprites, HashSet<Texture2D> textures)
@@ -239,6 +255,19 @@ internal sealed class StatPanelSurface
     internal static void TickInteractionPreparation()
     {
         if (InteractionPreparationReady) return;
+        if (_portraitDiscoveryPending)
+        {
+            if (WorldUIConfig.PanelMipBake != null && WorldUIConfig.PanelMipBake.Value)
+            {
+                if (TryCollectOriginalPortraits()) return;
+                if (Time.realtimeSinceStartup < _portraitDiscoveryUntil) return;
+                if (++_preparationFailures <= 2)
+                    VRLog.Warn("WorldUI", $"Original stat portrait discovery timed out waiting for native UI resources; live preview remains available (report {_preparationFailures}/2).");
+            }
+            _portraitDiscoveryPending = false;
+            _portraitActors = System.Array.Empty<ActorBehaviour>();
+            return;
+        }
         PreparationArt art = Preparation[_preparedArt++];
         if (WorldUIConfig.PanelMipBake == null || !WorldUIConfig.PanelMipBake.Value) return;
         using var timing = VRLog.WantsDebug ? PerfMonitor.Scope("FigurePreparation.StatArt") : default;
@@ -271,7 +300,10 @@ internal sealed class StatPanelSurface
 
     internal static void ResetInteractionPreparation()
     {
-        Preparation.Clear(); _preparedArt = _preparationFailures = 0; _portraitWaitUntil = 0f;
+        Preparation.Clear(); PreparationSprites.Clear();
+        _preparedArt = _preparationFailures = 0;
+        _portraitWaitUntil = _portraitDiscoveryUntil = 0f;
+        _portraitDiscoveryPending = false; _portraitActors = System.Array.Empty<ActorBehaviour>();
     }
 
     /// <summary>Viewer-relative dock side for a hand: RIGHT hand → viewer-LEFT (-1), LEFT hand →
