@@ -40,6 +40,12 @@ static class NativeSDKProbe
             Check(setText != null && setText.ReturnType == typeof(void), "SetText string/bool/string");
             Check(tooltip.GetProperty("ShownTooltipText", BindingFlags.Public | BindingFlags.Instance)?.PropertyType == typeof(string), "ShownTooltipText ownership");
             Check(tooltip.GetProperty("CanBeShown", BindingFlags.Public | BindingFlags.Instance)?.PropertyType == typeof(bool), "CanBeShown bool");
+            var main = original.GetType("GLOOM.MainMenu.UIMainOptionsMenu", true)!;
+            var guildmaster = Field(main, "guildmasterButton");
+            Check(guildmaster != null && guildmaster.IsPrivate && guildmaster.FieldType.FullName == "GLOOM.MainMenu.MainOptionOpenSuboptions", "exact original Guildmaster option binding");
+            var guildmasterButton = guildmaster!.FieldType.GetProperty("Button", BindingFlags.Public | BindingFlags.Instance);
+            Check(guildmasterButton != null && guildmasterButton.CanRead && guildmasterButton.PropertyType.FullName == "UIMainMenuOption", "original Guildmaster button property");
+            Check(Field(guildmasterButton!.PropertyType, "tooltip")?.FieldType == tooltip, "native menu tooltip pointer can be distinct from attached target");
             var buy = original.GetType("UIBuyDLCSlot", true)!;
             var promotion = original.GetType("UIPromotionDLCSlot", true)!;
             Check(buy.BaseType == promotion, "buy promotion inheritance");

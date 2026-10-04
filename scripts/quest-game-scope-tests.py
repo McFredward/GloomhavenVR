@@ -49,6 +49,8 @@ def main():
          "purchase tooltip German text"),
         ("purchase-panel-tooltip-misrouted", "QuestGameScope.cs", "entry.tooltipHost != null ? entry.tooltipHost : entry.button.gameObject", "entry.button.gameObject",
          "native tooltip attaches to active purchase panel"),
+        ("guildmaster-null-pointer-api-used", "QuestGameScope.cs", "tooltip != null && !entry.attachedTooltip", "tooltip != null",
+         "Guildmaster Quest explanation reaches actual attached target"),
     ]
     output = root / ".planning/debug/quest-game-scope"
     output.mkdir(parents=True, exist_ok=True)

@@ -120,21 +120,39 @@ public sealed class UIDLCSelectorOption : UnityEngine.MonoBehaviour
 public class UITooltipTarget : UnityEngine.MonoBehaviour { public bool TooltipEnabled { get; set; } }
 public sealed class UITextTooltipTarget : UITooltipTarget
 {
+    public string? tooltipText;
     public string? ShownTooltipText { get; private set; }
     public int SetTextCalls;
     public bool RefreshRequested;
     public string? Subtext;
-    public bool CanBeShown => TooltipEnabled && !string.IsNullOrEmpty(ShownTooltipText) && gameObject.activeInHierarchy;
+    public bool CanBeShown => enabled && TooltipEnabled && !string.IsNullOrEmpty(ShownTooltipText ?? tooltipText) && gameObject.activeInHierarchy;
     public void SetText(string? text, bool refreshTooltip = false, string? subtext = null)
     { ShownTooltipText = text; RefreshRequested = refreshTooltip; Subtext = subtext; SetTextCalls++; }
 }
 public class UIMenuOption : UnityEngine.MonoBehaviour
 {
     Action? onSelected;
+    UITextTooltipTarget? tooltip;
     public bool IsInteractable { get; set; } = true;
-    public bool TooltipEnabled;
-    public string? TooltipText;
-    public void SetTooltip(bool enabled, string text) { TooltipEnabled = enabled; TooltipText = text; }
+    public bool TooltipEnabled => tooltip != null && tooltip.enabled;
+    public string? TooltipText => tooltip?.ShownTooltipText;
+    public object? CallbackIdentity => onSelected;
+    public UIMenuOption() { tooltip = gameObject.AddComponent<UITextTooltipTarget>(); tooltip.enabled = false; }
+    public void SetTooltip(bool enabled, string? text)
+    {
+        // Actual UIMainMenuOption.SetTooltip silently returns when its serialized
+        // pointer is null, even if an authored tooltip exists on its GameObject.
+        if (tooltip == null) return;
+        if (!string.IsNullOrEmpty(text)) tooltip.SetText(text);
+        tooltip.enabled = enabled;
+    }
+    public void UseUnlinkedAuthoredTooltip()
+    {
+        tooltip!.enabled = true;
+        tooltip.TooltipEnabled = true;
+        tooltip.tooltipText = "GUI_MAIN_MENU_GUILDMASTER_TOOLTIP";
+        tooltip = null;
+    }
     public void Bind(GLOOM.MainMenu.MenuSuboption option) { var closure = new Selection(option); onSelected = closure.Invoke; }
     sealed class Selection
     {
@@ -155,7 +173,11 @@ namespace GLOOM.MainMenu
     public sealed class UIMainOptionsMenu : UnityEngine.MonoBehaviour
     {
         readonly MenuOptionWrapper guildmasterButton;
-        public UIMainOptionsMenu() => guildmasterButton = new MenuOptionWrapper(new UIMenuOption());
+        public UIMainOptionsMenu()
+        {
+            var button = new UIMenuOption(); button.UseUnlinkedAuthoredTooltip();
+            guildmasterButton = new MenuOptionWrapper(button);
+        }
         public UIMenuOption Guildmaster => guildmasterButton.Button;
     }
     public sealed class UILoadGameSlot : UnityEngine.MonoBehaviour

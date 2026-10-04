@@ -20,6 +20,7 @@ public static class QuestText
             case "guildmaster": return "Guildmaster";
             case "workshop": return "Steam Workshop";
             case "excluded": return german ? "In der Quest-Version nicht verfügbar." : "Unavailable in the Quest version.";
+            case "guildmasterUnavailable": return german ? "Guildmaster ist in der Quest-Standalone-Version derzeit nicht verfügbar." : "Guildmaster is currently unavailable in the Quest standalone version.";
             case "dlcPurchaseOnPc": return german ? "Kaufe diesen DLC auf deinem PC und baue anschließend die Quest-APK neu." : "Buy this DLC on your PC, then rebuild the Quest APK.";
             case "tracking": return german ? "Controller verfolgen und auf den Tisch zeigen" : "Track controllers and point at the table";
             case "mrFailed": return german ? "Passthrough nicht bereit; VR bleibt aktiv" : "Passthrough is not ready; VR remains active";

@@ -18,7 +18,7 @@ namespace GloomhavenVR.Quest
             internal Component button, owner, tooltip;
             internal GameObject tooltipHost;
             internal string key, tooltipText, previousTooltipText;
-            internal bool workshop, previousInteractable, interactionChanged, tooltipCreated, previousTooltipEnabled;
+            internal bool workshop, attachedTooltip, previousInteractable, interactionChanged, tooltipCreated, previousTooltipEnabled;
             internal object model;
             internal int purchaseMode;
         }
@@ -62,7 +62,13 @@ namespace GloomhavenVR.Quest
                         {
                             object button = option.GetType().GetProperty("Button", BindingFlags.Public | BindingFlags.Instance)?.GetValue(option);
                             if (!(button is Component)) throw new InvalidOperationException("Original Guildmaster Button ABI is missing.");
-                            Add((Component)button, "excluded", false, null);
+                            // The owned MainMenu scene has a separate authored
+                            // UITextTooltipTarget on this GameObject, while the
+                            // UIMainMenuOption.tooltip field is null. Its public
+                            // SetTooltip method therefore silently does nothing.
+                            // Bind that original target; keep its hover geometry,
+                            // native renderer and Guildmaster callbacks intact.
+                            Add((Component)button, "guildmasterUnavailable", false, null, attachedTooltip: true);
                         }
                     }
                     else if (type == "VoiceChat.VoceChatOptions")
@@ -100,10 +106,10 @@ namespace GloomhavenVR.Quest
             }
         }
 
-        void Add(Component button, string key, bool workshop, object model, Component owner = null, int purchaseMode = 0, GameObject tooltipHost = null)
+        void Add(Component button, string key, bool workshop, object model, Component owner = null, int purchaseMode = 0, GameObject tooltipHost = null, bool attachedTooltip = false)
         {
             foreach (Entry existing in entries) if (existing.button == button && ReferenceEquals(existing.model, model)) return;
-            var entry = new Entry { button = button, key = key, workshop = workshop, model = model, owner = owner,
+            var entry = new Entry { button = button, key = key, workshop = workshop, model = model, owner = owner, attachedTooltip = attachedTooltip,
                 purchaseMode = purchaseMode, tooltipHost = tooltipHost, previousInteractable = button is Selectable && ((Selectable)button).interactable };
             entries.Add(entry);
             if (reported.Add("bound:" + button.GetType().FullName + ":" + (workshop ? "Workshop" : key)))
@@ -129,8 +135,8 @@ namespace GloomhavenVR.Quest
             string text = QuestText.Get(entry.key, Application.systemLanguage == SystemLanguage.German);
             if (!changed && entry.tooltipText == text) return;
             MethodInfo tooltip = entry.button.GetType().GetMethod("SetTooltip", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(bool), typeof(string) }, null);
-            if (tooltip != null) tooltip.Invoke(entry.button, new object[] { true, text });
-            else if (entry.button is Selectable)
+            if (tooltip != null && !entry.attachedTooltip) tooltip.Invoke(entry.button, new object[] { true, text });
+            else if (entry.button is Selectable || entry.attachedTooltip)
             {
                 // Voice's original ExtendedButton has no menu SetTooltip API.
                 // Reuse the game's tooltip event handlers and rendering instead
@@ -148,6 +154,8 @@ namespace GloomhavenVR.Quest
                 {
                     GameObject host = entry.tooltipHost != null ? entry.tooltipHost : entry.button.gameObject;
                     entry.tooltip = host.GetComponent(nativeType);
+                    if (entry.attachedTooltip && entry.tooltip == null)
+                        throw new InvalidOperationException("Original Guildmaster attached tooltip binding is missing.");
                     if (entry.tooltip != null)
                     {
                         entry.previousTooltipEnabled = (bool)enabled.GetValue(entry.tooltip);
@@ -156,6 +164,7 @@ namespace GloomhavenVR.Quest
                     else { entry.tooltip = host.AddComponent(nativeType); entry.tooltipCreated = true; }
                 }
                 if (entry.tooltip == null) throw new InvalidOperationException("Unity refused the original tooltip component.");
+                if (entry.attachedTooltip) ((MonoBehaviour)entry.tooltip).enabled = true;
                 enabled.SetValue(entry.tooltip, true);
                 setText.Invoke(entry.tooltip, new object[] { text, true, null });
             }

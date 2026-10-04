@@ -123,7 +123,7 @@ static class Program
         var voice = new VoiceChat.VoceChatOptions();
         var create = new GLOOM.MainMenu.UICreateGameDLCStep();
         Tick(scope);
-        Check(!options.Guildmaster.IsInteractable && options.Guildmaster.TooltipEnabled, "original Guildmaster exclusion retained");
+        Check(!options.Guildmaster.IsInteractable && Tooltip(options.Guildmaster.gameObject)!.CanBeShown, "original Guildmaster exclusion retained");
         Check(!workshop.IsInteractable && workshop.TooltipEnabled, "original Workshop identity excluded");
         Check(credits.IsInteractable && !credits.TooltipEnabled, "ordinary suboption ignores Workshop display label");
         Check(!voice.NativeButton.interactable && Tooltip(voice.NativeButton.gameObject) != null, "voice diagnostic exclusion retained");
@@ -132,11 +132,44 @@ static class Program
         Tick(scope, .1f); Check(workshop.IsInteractable, "pooled Workshop exclusion cannot leak into multiplayer");
         NoErrors("existing scope");
     }
+    static void GuildmasterAttachedTooltip()
+    {
+        var scope = Reset(); var options = new GLOOM.MainMenu.UIMainOptionsMenu();
+        var button = options.Guildmaster; var tooltip = Tooltip(button.gameObject)!;
+        button.Bind(new GLOOM.MainMenu.MenuSuboption("GUI_GUILDMASTER"));
+        object? nativeCallback = button.CallbackIdentity;
+        button.SetTooltip(true, "unreachable old scope text");
+        Check(tooltip.ShownTooltipText == null && tooltip.tooltipText == "GUI_MAIN_MENU_GUILDMASTER_TOOLTIP",
+            "original null menu tooltip pointer reproduces silent SetTooltip no-op");
+        Check(tooltip.CanBeShown, "authored original Guildmaster description initially visible");
+        Tick(scope);
+        Check(ReferenceEquals(tooltip, Tooltip(button.gameObject)), "exact original Guildmaster tooltip reused");
+        Check(button.gameObject.ComponentCount<UITextTooltipTarget>() == 1, "Guildmaster does not create competing tooltip component");
+        Check(tooltip.ShownTooltipText == "Guildmaster is currently unavailable in the Quest standalone version.", "Guildmaster Quest explanation reaches actual attached target");
+        Check(tooltip.tooltipText == "GUI_MAIN_MENU_GUILDMASTER_TOOLTIP", "authored localization key remains intact under runtime override");
+        Check(!button.IsInteractable && tooltip.CanBeShown, "Guildmaster remains gray with original native hover available");
+        Check(ReferenceEquals(button.CallbackIdentity, nativeCallback), "Guildmaster native content callback untouched");
+        for (int i = 0; i < 128; i++) Tick(scope, .001f * i);
+        Check(tooltip.SetTextCalls == 1, "stable Guildmaster explanation not refreshed every frame");
+        Application.systemLanguage = SystemLanguage.German; Tick(scope, .2f);
+        Check(tooltip.ShownTooltipText == "Guildmaster ist in der Quest-Standalone-Version derzeit nicht verfügbar.", "Guildmaster Quest explanation German");
+        Check(tooltip.SetTextCalls == 2 && tooltip.CanBeShown, "Guildmaster language change refreshes existing native target once");
+        button.IsInteractable = true; Tick(scope, .3f);
+        Check(!button.IsInteractable && tooltip.CanBeShown, "native Guildmaster reenable retains exclusion and actual tooltip");
+        NoErrors("Guildmaster attached tooltip");
+
+        scope = Reset(); options = new GLOOM.MainMenu.UIMainOptionsMenu();
+        UnityEngine.Object.Destroy(Tooltip(options.Guildmaster.gameObject)!);
+        for (int i = 0; i < 64; i++) Tick(scope, .001f * i);
+        Check(Debug.Errors.Count == 1 && Debug.Errors[0].Contains("Original Guildmaster attached tooltip binding is missing."),
+            "changed Guildmaster scene binding emits one explicit original ABI failure");
+        Check(Tooltip(options.Guildmaster.gameObject) == null, "changed Guildmaster scene does not create substitute tooltip");
+    }
     public static int Main()
     {
         try
         {
-            AdsAndLocalization(); SavePooling(); ExistingTooltipOwnership(); SelectorPooling(); ExactExistingScope();
+            AdsAndLocalization(); SavePooling(); ExistingTooltipOwnership(); SelectorPooling(); ExactExistingScope(); GuildmasterAttachedTooltip();
             Console.WriteLine("PASS Quest native purchase scope: " + assertions + " behavioral assertions");
             return 0;
         }

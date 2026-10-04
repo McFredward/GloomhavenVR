@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(RuntimeSource)/QuestOptionVisibility.cs" Link="Production/QuestOptionVisibility.cs" />
+    <Compile Include="$(RuntimeSource)/Options.fixture" Link="Production/Options.cs" />
+  </ItemGroup>
+</Project>
