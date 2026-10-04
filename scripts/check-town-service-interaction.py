@@ -30,6 +30,7 @@ def sources(root):
     base = root / "src/GloomhavenVR"
     paths = {
         "Token.cs": "WorldUI/TownServices/TownServiceToken.cs",
+        "TempleBowl.cs": "WorldUI/TownServices/TownServiceTempleBowl.cs",
         "PalmConfirmation.cs": "WorldUI/TownServices/TownServicePalmConfirmation.cs",
         "Surface.cs": "WorldUI/TownServices/TownServiceSurface.cs",
         "OfferingPose.cs": "WorldUI/TownServices/TownServiceOfferingPose.cs",
@@ -45,10 +46,14 @@ def sources(root):
         "GrantSync.cs": "Net/TownServices/TownServiceGrantSync.cs",
     }
     raw = {name: (base / path).read_text() for name, path in paths.items()}
+    purse_fixture = (root / 'scripts/town-purse-runtime/NativePurse.cs').read_text()
     inspect_hidden_window_veil(raw["HiddenWindowVeil.cs"])
     inspect_host_grant_timeout(raw["GrantSync.cs"])
     hashes = {paths[name]: hashlib.sha256(text.encode()).hexdigest() for name, text in raw.items()}
     bound = {name: raw[name] for name in ("Token.cs", "OfferingPose.cs", "Presentation.cs", "Handoff.cs", "WindowMask.cs", "NativeListVeil.cs", "ConfirmationMask.cs", "PalmConfirmation.cs", "Surface.cs")}
+    bound['TempleBowl.cs'] = raw['TempleBowl.cs']
+    bound['NativePurse.cs'] = purse_fixture
+    hashes['scripts/town-purse-runtime/NativePurse.cs'] = hashlib.sha256(purse_fixture.encode()).hexdigest()
     # Native audio suppression has its own integration/build coverage. This fixture binds the
     # modal handoff methods and deliberately excludes the independent Harmony patch boundary.
     audio_class = bound["Handoff.cs"].index("internal static class TownServiceNativeAudioSilence")
@@ -155,10 +160,12 @@ def mutations():
         ("purse-restart-completion", "Token.cs", "if (_settlementDecided) return;", "", "confirmed purse sinks and fades once at bowl without restarting on duplicate completion"),
         ("paid-purse-never-returns", "Token.cs", "_physical.SetParent(_homeParent, false);", "_physical.SetParent(_mat, false);", "paid purse restores the inspectable fan prop only after its completed bowl sink"),
         ("purse-own-hand", "Token.cs", "(_handAllowed?.Invoke(hand) ?? true)", "true", "unowned or unavailable purse cannot be grabbed or donated"),
-        ("purse-visible-body", "Token.cs", "_physical.TransformPoint(Vector3.up * .0625f)", "_physical.position", "visible purse body can enter the bowl while its normalized base remains below the rim"),
+        ("purse-visible-body", "Token.cs", "_physical.TransformPoint(_physicalBounds.center)", "_physical.TransformPoint(Vector3.up * .0625f)", "bowl release samples the original visible purse midpoint"),
         ("flat-purse", "Token.cs", "if (_uprightProp)", "if (!_uprightProp)", "physical original follows either tracked hand"),
-        ("purse-depth", "Token.cs", "_reachDepth * scale", ".009f * scale", "purse collider encloses its physical depth at each map scale"),
-        ("purse-double-scale", "Token.cs", "InverseTransformVector(Vector3.down * (.13f * hand.WorldScale))", "InverseTransformDirection(Vector3.down * (.13f * hand.WorldScale))", "purse hangs below pinch without applying map scale twice"),
+        ("purse-depth", "Token.cs", "Vector3.Scale(_physicalBounds.size, new Vector3(", "Vector3.Scale(_physicalBounds.size * .1f, new Vector3(", "purse collider encloses the original body independently of inscriptions"),
+        ("purse-label-pick", "Token.cs", "if (_uprightProp && _physical != null)\n        {\n            // Only original mesh", "if (false && _physical != null)\n        {\n            // Only original mesh", "purse collider encloses the original body independently of inscriptions"),
+        ("purse-double-scale", "Token.cs", "physical.TransformVector(neck)", "physical.TransformDirection(neck)", "original purse neck stays at the tracked pinch through map scales"),
+        ("purse-labelled-root-seat", "Token.cs", "- _physical.TransformVector(bottom)", "- Vector3.zero", "accepted original purse bottom meets its actual authored bowl seat"),
         ("dead-inscription-root", "Inscription.cs", "if (_root != null) UnityEngine.Object.Destroy(_root.gameObject);", "UnityEngine.Object.Destroy(_root.gameObject);", "destroyed inscription root can be disposed without blocking native teardown"),
         ("enhancement-icon-outside", "PalmConfirmation.cs", "i == 4 ? -.14f : .075f", "i == 4 ? -.80f : .075f", "all original enhancement confirmation content stays together below the palm"),
         ("parked-reclaim", "Token.cs", "(_offering != null && TownServiceMerchantHandoff.CanReclaim(this))", "false", "actual routed grab reclaims parked stock through owned modal gate"),
@@ -254,6 +261,9 @@ def main():
     # export, at .32 m instead of the temple's .30 m. Verify the yaw-swept native
     # decision against its actual normalized envelope rather than a table mock.
     native_python = Path(os.environ.get("UNITYPY_PYTHON", str(Path.home() / "unitypy-venv/bin/python")))
+    native_purse = run / 'native-purse.json'
+    subprocess.run([str(native_python), str(repo / 'scripts/town-purse-runtime/export-native.py'),
+        str(args.source_root), str(native_purse)], check=True)
     native_book = run / "native-book.obj"
     subprocess.run([str(native_python), str(repo / "scripts/town-ritual-layout-runtime/export-native-book.py"),
         str(args.source_root), str(native_book)], check=True)
@@ -297,6 +307,7 @@ def main():
     command = [str(args.unity), "-batchmode", "-nographics", "-projectPath", str(project),
                "-executeMethod", "InteractionRunner.Start", "-interactionManifest", str(manifest_path),
                "-nativeBookObj", str(native_book), "-logFile", str(log)]
+    command += ['-nativePurseData', str(native_purse)]
     completed = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=240)
     result = Path(manifest["result"])
     if result.exists():

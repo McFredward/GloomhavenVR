@@ -178,13 +178,13 @@ internal static partial class TownServiceMirror
             {
                 followsRotation &= !module.Address.StartsWith("ritual.purse", StringComparison.Ordinal);
                 root.Hand = (byte)((hand.Side == HandSide.Left ? 1 : 2) + (followsRotation ? 0 : 2));
-                root.Pose = ReadPose(module.Binding.Root, hand.Rig.Root);
+                root.Pose = ReadMotionHandPose(module.Binding.Root, hand);
                 if (!followsRotation)
                 { Quaternion rotation = Quaternion.Inverse(lane.SharedFrame.rotation) * module.Binding.Root.rotation;
                   root.Pose[3] = rotation.x; root.Pose[4] = rotation.y; root.Pose[5] = rotation.z; root.Pose[6] = rotation.w; }
                 Canvas? canvas = module.Binding.Root.GetComponentInParent<Canvas>(true);
                 if (root.HasCanvasFrame && canvas != null && ReferenceEquals(MotionHand(canvas.transform, out _), hand))
-                { root.CanvasOnHand = true; root.CanvasPose = ReadPose(canvas.transform, hand.Rig.Root);
+                { root.CanvasOnHand = true; root.CanvasPose = ReadMotionHandPose(canvas.transform, hand);
                   if (!followsRotation) { Quaternion rotation = Quaternion.Inverse(lane.SharedFrame.rotation) * canvas.transform.rotation;
                     root.CanvasPose[3] = rotation.x; root.CanvasPose[4] = rotation.y; root.CanvasPose[5] = rotation.z; root.CanvasPose[6] = rotation.w; } }
             }
@@ -285,6 +285,23 @@ internal static partial class TownServiceMirror
         if (left != null && source.IsChildOf(left.Rig.GrabAnchor)) return left;
         if (right != null && source.IsChildOf(right.Rig.GrabAnchor)) return right;
         return null;
+    }
+    private static float[] ReadMotionHandPose(Transform source, VRHand hand)
+    {
+        // Local Rig.Root includes the owner's visual hand-style scale. RemoteAvatar's
+        // interpolated holder carries its position/rotation but only WorldScale; the
+        // style scale lives on a separate visual child. Using InverseTransformPoint
+        // on Rig.Root therefore enlarged both purse offsets and size by 1/.62 for
+        // Plate/Arcane hands in Build620. Attachment sockets are already compensated.
+        // Author against that same compensated holder frame for every style/scale.
+        Transform root = hand.Rig.Root;
+        float scale = Mathf.Max(.0001f, Mathf.Abs(hand.WorldScale));
+        Quaternion inverse = Quaternion.Inverse(root.rotation);
+        Vector3 position = inverse * (source.position - root.position) / scale;
+        Quaternion rotation = inverse * source.rotation;
+        Vector3 size = source.lossyScale / scale;
+        return new[] { position.x, position.y, position.z, rotation.x, rotation.y,
+            rotation.z, rotation.w, size.x, size.y, size.z };
     }
     private static TownServiceMotionEntry MotionHeader(TownServiceFrame frame, byte lane, byte kind) => new()
     { Kind = kind, Lane = lane, Service = frame.Service, Session = frame.Session, PublicClaim = frame.PublicClaim,

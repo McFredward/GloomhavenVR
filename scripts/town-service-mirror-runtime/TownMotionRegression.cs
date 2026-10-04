@@ -78,6 +78,7 @@ public static partial class MirrorProgram
     }
     private static IEnumerator MotionFast()
     {
+        IEnumerator purses = NativePurseMotion(); while (purses.MoveNext()) yield return purses.Current;
         IEnumerator intents = FastNpcIntents(); while (intents.MoveNext()) yield return intents.Current;
         TownServiceMirror.Shutdown();
         Transform shared = Go("Fast author frame").transform;
@@ -98,6 +99,13 @@ public static partial class MirrorProgram
         TownServiceBinding copy = Remote(1)!; Check(copy != null, "initial full native front creates an inert clone");
         Sprite original = copy.Root.Find("Filled").GetComponent<Image>().sprite;
         Vector3 originalRoot = copy.Root.position;
+        // The editor's render/clone settling can consume the real owner's .75 s
+        // artwork heartbeat. Refresh that clock before the synchronous numeric
+        // mutation, so this assertion isolates artwork changes rather than a
+        // scheduled heartbeat. Recovery remains exercised below.
+        // The ordinary artwork subscriber leaves the independent motion cadence
+        // untouched, so the following change remains eligible for one fast event.
+        Receive(1, Capture());
         int awakes = GameplayFixture.Awakes, enables = GameplayFixture.Enables;
         source.localPosition += new Vector3(.7f, .2f, 0f);
         _group.alpha = .52f; _fill.fillAmount = .26f; _fill.color = new Color(.8f, .3f, .5f, .9f);
@@ -238,6 +246,92 @@ public static partial class MirrorProgram
             "native upright fan offsets converge to the exact original after measured-interval interpolation");
         TownServiceMirror.Shutdown(); VRHands.Left = VRHands.Right = null; NetAvatarDriver.MotionHandFrames.Clear();
         IEnumerator warmed = HiddenOwnedFanWarmup(); while (warmed.MoveNext()) yield return warmed.Current;
+    }
+
+    private static IEnumerator NativePurseMotion()
+    {
+        foreach (float worldScale in new[] { .1f, 1f, 198.12f })
+        foreach (float styleScale in new[] { .62f, 1.12f, 1.7f })
+        {
+            TownServiceMirror.Shutdown(); NetPlayerActors.Peer = 1;
+            Transform shared = Go("Native purse author frame").transform;
+            Transform observer = Go("Native purse observer frame").transform;
+            observer.position = new Vector3(21f, 3f, -8f);
+            TownServiceMirror.SharedFrameForRemote = _ => observer;
+            Transform tracking = Go("Owner tracked hand").transform;
+            tracking.position = new Vector3(.25f, .7f, -.3f) * worldScale;
+            tracking.rotation = Quaternion.Euler(29f, 44f, -17f);
+            tracking.localScale = Vector3.one * worldScale;
+            Transform handRoot = Go("Owner style visual", tracking).transform;
+            handRoot.localScale = Vector3.one * styleScale;
+            Transform palm = Go("Compensated owner palm", handRoot).transform;
+            palm.localScale = Vector3.one / styleScale;
+            var hand = new VRHand { Side = HandSide.Left, HasPose = true, WorldScale = worldScale };
+            hand.Rig.Root = handRoot; hand.Rig.GrabAnchor = palm; VRHands.Left = hand;
+            Transform receiver = Go("Approved interpolated remote holder").transform;
+            receiver.SetPositionAndRotation(observer.position + handRoot.position, handRoot.rotation);
+            receiver.localScale = Vector3.one * worldScale;
+            NetAvatarDriver.MotionHandFrames[1] = new[] { receiver, Go("Unused right hand").transform };
+            Transform preview = Go("Owner labelled purse seat", shared).transform;
+            preview.position = palm.TransformPoint(new Vector3(0f, .12f, .03f));
+            preview.rotation = Quaternion.Euler(0f, 23f, 0f);
+            preview.localScale = Vector3.one * worldScale;
+            CanvasGroup gate = preview.gameObject.AddComponent<CanvasGroup>(); gate.alpha = 0f;
+            Transform source = NativePurse.Create(preview);
+            TownServiceMirror.RegisterTemplate(2, 7, source, address: "ritual.purse|");
+            TownServiceMirror.BeginSession(2, 772, shared, shared);
+            TownServiceMirror.RegisterModule(17, 7, source, address: "ritual.purse|");
+            TownServiceMirror.RegisterMotionHand(preview, hand, followsRotation: false);
+            FastCapture baseline = CaptureFast(); Receive(1, baseline.Artwork); DeliverMotion(1, baseline);
+            IEnumerator settle = FastSettle(observer, .12f); while (settle.MoveNext()) yield return settle.Current;
+            TownServiceBinding copy = Remote(1, 17)!;
+            Check(copy != null && copy.Root.parent.GetComponent<CanvasGroup>().alpha == 0f,
+                "closed original purse is prewarmed without exposing a hidden wrist");
+            gate.alpha = 1f;
+            for (float until = Time.unscaledTime + .08f; Time.unscaledTime < until;) yield return null;
+            FastCapture reveal = CaptureFast(); DeliverMotion(1, reveal);
+            Check(!reveal.Artwork.Exists(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? f)
+                && f!.Module == 17), "warm wrist purse reveal does not wait for immutable artwork");
+            settle = FastSettle(observer, .13f); while (settle.MoveNext()) yield return settle.Current;
+            Check(copy.Root.parent.GetComponent<CanvasGroup>().alpha > .99f,
+                "warm original wrist purse appears on its first independent numeric event");
+            CheckPurseGeometry(source, copy.Root, handRoot, receiver, worldScale);
+            // Grab/release preserve the same complete normalized native geometry, then
+            // every render frame follows the already approved smoothed remote holder.
+            source.SetParent(palm, true);
+            TownServiceMirror.RegisterMotionHand(source, hand, followsRotation: false);
+            for (float until = Time.unscaledTime + .08f; Time.unscaledTime < until;) yield return null;
+            FastCapture held = CaptureFast(); Receive(1, held.Artwork); DeliverMotion(1, held);
+            settle = FastSettle(observer, .15f); while (settle.MoveNext()) yield return settle.Current;
+            CheckPurseGeometry(source, copy.Root, handRoot, receiver, worldScale);
+            Vector3 relative = Quaternion.Inverse(handRoot.rotation) * (source.position - handRoot.position) / worldScale;
+            for (int step = 0; step < 4; step++)
+            {
+                receiver.position += new Vector3(.03f, -.01f, .02f) * worldScale;
+                TownServiceMirror.TickRemote(_ => observer);
+                Check(Vector3.Distance(copy.Root.position, receiver.TransformPoint(relative)) < .0002f * worldScale,
+                    "held original purse follows the approved smoothed rig between network events");
+            }
+            source.SetParent(preview, true); TownServiceMirror.RegisterMotionHand(source, null);
+            source.localPosition = new Vector3(0f, -.065f, 0f);
+            for (float until = Time.unscaledTime + .08f; Time.unscaledTime < until;) yield return null;
+            FastCapture returned = CaptureFast(); Receive(1, returned.Artwork); DeliverMotion(1, returned);
+            settle = FastSettle(observer, .15f); while (settle.MoveNext()) yield return settle.Current;
+            CheckPurseGeometry(source, copy.Root, handRoot, receiver, worldScale);
+            TownServiceMirror.Shutdown(); VRHands.Left = null; NetAvatarDriver.MotionHandFrames.Clear();
+        }
+    }
+    private static void CheckPurseGeometry(Transform source, Transform copy, Transform ownerHand, Transform receiver, float scale)
+    {
+        Vector3 relative = Quaternion.Inverse(ownerHand.rotation) * (source.position - ownerHand.position) / scale;
+        Check(Vector3.Distance(copy.position, receiver.TransformPoint(relative)) < .0002f * scale
+            && Vector3.Distance(copy.lossyScale, source.lossyScale) < .0002f * scale,
+            "original purse world size and wrist offset survive the owner hand style");
+        MeshRenderer original = source.GetComponentInChildren<MeshRenderer>();
+        MeshRenderer rendered = copy.GetComponentInChildren<MeshRenderer>();
+        Check(original.sharedMaterials.Length == rendered.sharedMaterials.Length
+            && Vector3.Distance(original.bounds.size, rendered.bounds.size) < .0002f * scale,
+            "exact original PCG purse renderer retains its visible body size after native playback");
     }
 
     private static IEnumerator HiddenOwnedFanWarmup()

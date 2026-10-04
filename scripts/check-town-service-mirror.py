@@ -27,6 +27,8 @@ def sources(root):
     names = ["TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta",
              "TownServiceFrame", "TownRackState", "TownCatalogLayout", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMirror.PublicVisibility", "TownServiceMirror.Offerings", "TownServiceMirror.Voice", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
+    bound['NativePurse.cs'] = (root / 'scripts/town-purse-runtime/NativePurse.cs').read_text()
+    bound['BundleShaders.cs'] = (base / 'Core/BundleShaders.cs').read_text()
     bound["PresentationCompression.cs"] = (base / "Net/PresentationCompression.cs").read_text()
     bound["NetPacket.cs"] = (base / "Net/NetPacket.cs").read_text()
     stock = base / "Net/TownServices/TownServiceMirror.Stock.cs"
@@ -138,6 +140,10 @@ def main():
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     managed = args.source_root / "ressources/GH_Data/Managed"
     bound, hashes = sources(args.source_root)
+    native_python = Path(os.environ.get('UNITYPY_PYTHON', str(Path.home() / 'unitypy-venv/bin/python')))
+    native_purse = run / 'native-purse.json'
+    subprocess.run([str(native_python), str(repo / 'scripts/town-purse-runtime/export-native.py'),
+        str(args.source_root), str(native_purse)], check=True)
     (run / "source-hashes.json").write_text(json.dumps({"root": str(args.source_root.resolve()), "sha256": hashes}, indent=2) + "\n")
     manifest = {"result": str(run / "results.txt"), "evidence": str(run), "suite": args.suite, "cases": []}
     variants = [("production", None, None, None, "")]
@@ -283,8 +289,9 @@ def main():
             variants += [
                 ("closed-fan-art-deferred", "PublisherTick.cs", 'Publish("item." + chip.Item.ID.ToString(System.Globalization.CultureInfo.InvariantCulture), face, prewarm: true);', 'Publish("item." + chip.Item.ID.ToString(System.Globalization.CultureInfo.InvariantCulture), face);', "closed owner item fan publishes complete original fronts with genuine hidden visibility before reveal"),
                 ("numeric-art-backlog", "TownServiceMirror.Motion.cs", "if (slot.Entry.Kind is 2 or 4) PatchMotionProperty(frame, slot.Entry);", "if (slot.Entry.Kind == 250) PatchMotionProperty(frame, slot.Entry);", "composing fast root scroll and hover preserves every simultaneous original property"),
-                ("rig-attachment-cadence", "TownServiceMirror.Motion.cs", "root != null && root.Entry.Hand != 0 && composed.Merged != null", "root != null && root.Entry.Hand == 250 && composed.Merged != null", "held original root follows the approved smoothed rig between network events"),
+                ("rig-attachment-cadence", "TownServiceMirror.Motion.cs", "root != null && root.Entry.Hand != 0 && composed.Merged != null", "root != null && root.Entry.Hand == 250 && composed.Merged != null", "held original purse follows the approved smoothed rig between network events"),
                 ("canvas-attachment-cadence", "TownServiceMirror.Motion.cs", "else if (entry.CanvasOnHand)", "else if (!entry.CanvasOnHand)", "enclosing original canvas follows the same approved smoothed rig between events"),
+                ("purse-hand-style-scale", "TownServiceMirror.Motion.cs", "root.Pose = ReadMotionHandPose(module.Binding.Root, hand);", "root.Pose = ReadPose(module.Binding.Root, hand.Rig.Root);", "original purse world size and wrist offset survive the owner hand style"),
             ]
     if args.suite == "voice-relay":
         variants = [("production", None, None, None, "")]
@@ -332,6 +339,7 @@ def main():
     manifest_path = run / "manifest.json"; manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     command = ["xvfb-run", "-a", str(args.unity), "-batchmode", "-force-glcore", "-projectPath", str(project),
                "-executeMethod", "MirrorRunner.Start", "-mirrorManifest", str(manifest_path), "-logFile", str(run / "unity.log")]
+    command += ['-nativePurseData', str(native_purse)]
     result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=300)
     evidence = Path(manifest["result"])
     if evidence.exists(): print(evidence.read_text(), end="")

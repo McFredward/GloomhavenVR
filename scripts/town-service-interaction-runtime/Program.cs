@@ -713,6 +713,8 @@ public static class InteractionProgram
             counter.localScale = Vector3.one * scale;
             var physical = Probe.Go("Purse", counter).transform;
             physical.localRotation = Quaternion.Euler(0f, 37f, 0f);
+            Transform body = NativePurse.Create(physical);
+            MeshRenderer bodyRenderer = body.GetComponentInChildren<MeshRenderer>();
             var source = (RectTransform)Probe.Go("PurseReach", physical).transform;
             source.sizeDelta = new Vector2(.1f, .13f);
             var button = Probe.Go("NativeDonate").AddComponent<Button>();
@@ -724,10 +726,20 @@ public static class InteractionProgram
             using var token = new TownServiceToken(source, button, () => identity, () => identity, () => true,
                 counter, physical, drop: () => { commits++; return true; }, eligible: () => eligible,
                 inspect: () => inspect, reachDepth: .10f, uprightProp: true, handAllowed: candidate => scenario != 5,
-                dropLocation: scenario == 6 ? world => world.y > counter.TransformPoint(new Vector3(0f, .09f, 0f)).y : null);
+                dropLocation: scenario == 6 ? world => Vector3.Distance(world,
+                    counter.TransformPoint(new Vector3(0f, .05f, 0f))) < .001f * scale : null,
+                physicalBody: body);
             token.Tick(scale);
             var shape = (BoxCollider)typeof(TownServiceToken).GetField("_shape", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(token)!;
-            Check(Mathf.Abs(shape.size.z - .1f * scale) < .0001f, "purse collider encloses its physical depth at each map scale");
+            Physics.SyncTransforms();
+            Check(Vector3.Distance(shape.transform.position, bodyRenderer.bounds.center) < .0001f * scale
+                && shape.size.z > .05f * scale,
+                "purse collider encloses the original body independently of inscriptions");
+            MeshFilter original = body.GetComponentInChildren<MeshFilter>();
+            foreach (Vector3 vertex in original.sharedMesh.vertices)
+                Check(Vector3.Distance(shape.ClosestPoint(original.transform.TransformPoint(vertex)),
+                    original.transform.TransformPoint(vertex)) < .0001f * scale,
+                    "every original purse vertex lies inside its actual physical pick shape");
             if (scenario == 4 || scenario == 5)
             {
                 Check(!hand.Grabber.ForceGrab(token, true) && commits == 0,
@@ -739,20 +751,28 @@ public static class InteractionProgram
             token.Tick(scale);
             Check(Quaternion.Angle(initial, physical.rotation) < .05f, "purse pickup preserves upright physical orientation");
             Vector3 pinch = new Vector3(0f, CardsConfig.HeldOffPalm.Value, CardsConfig.HeldForward.Value);
-            Vector3 below = physical.position - hand.Rig.GrabAnchor.TransformPoint(pinch);
-            Check(Vector3.Distance(below, Vector3.down * (.13f * scale)) < .0001f,
-                "purse hangs below pinch without applying map scale twice");
+            Vector3 neck = bodyRenderer.bounds.center;
+            neck.y = bodyRenderer.bounds.min.y + bodyRenderer.bounds.size.y * .9f;
+            Check(Vector3.Distance(neck, hand.Rig.GrabAnchor.TransformPoint(pinch)) < .0001f * scale,
+                "original purse neck stays at the tracked pinch through map scales");
             Quaternion delta = Quaternion.Euler(10f, -20f, 15f);
             hand.Rig.GrabAnchor.rotation = delta * hand.Rig.GrabAnchor.rotation;
             token.Tick(scale);
-            Check(Quaternion.Angle(delta * initial, physical.rotation) < .05f,
-                "held purse follows hand rotation without an independent card pose");
-            physical.position = counter.TransformPoint(new Vector3(scenario == 3 ? .6f : 0f, .05f, 0f));
+            Check(Vector3.Dot(physical.up, Vector3.up) > .99999f,
+                "held original purse stays upright while the tracked hand pitches and rolls");
+            neck = bodyRenderer.bounds.center;
+            neck.y = bodyRenderer.bounds.min.y + bodyRenderer.bounds.size.y * .9f;
+            Check(Vector3.Distance(neck, hand.Rig.GrabAnchor.TransformPoint(pinch)) < .0001f * scale,
+                "original purse neck stays at the tracked pinch through map scales");
+            Vector3 midpoint = counter.TransformPoint(new Vector3(scenario == 3 ? .6f : 0f, .05f, 0f));
+            physical.position += midpoint - bodyRenderer.bounds.center;
+            Check(Vector3.Distance(token.OfferingPoint, bodyRenderer.bounds.center) < .0001f * scale,
+                "bowl release samples the original visible purse midpoint");
             if (scenario == 1) hand.Grabber.CancelAll();
             if (scenario == 2) hand.HasPose = false;
             hand.Grabber.ReleaseTick(); token.OnRelease(hand, Vector3.zero);
             Check(commits == (scenario == 0 || scenario == 6 ? 1 : 0),
-                "visible purse body can enter the bowl while its normalized base remains below the rim " + scenario);
+                "visible purse body can enter the bowl independently of its labelled root " + scenario);
             if (scenario == 7) Check(token.HeldRoot == null && token.IsMoving,
                 "ineligible physical purse returns without parking or requesting native donation");
             Clean();
@@ -766,6 +786,7 @@ public static class InteractionProgram
             var home=Probe.Go("Owned purse home").transform;
             var bowl=Probe.Go("Shared physical bowl").transform;bowl.position=new Vector3(2f,1f,0f);
             var physical=Probe.Go("Offering purse",home).transform;
+            NativePurse.Create(physical);
             var source=(RectTransform)Probe.Go("Purse reach",physical).transform;source.sizeDelta=new Vector2(.1f,.13f);
             var button=Probe.Go("Native donation").AddComponent<Button>();
             object item=new object(),context=new object();int requests=0;
@@ -777,6 +798,10 @@ public static class InteractionProgram
             Vector3 released=physical.position;home.position+=Vector3.right*7f;token.Tick(1f);
             Check(physical.parent==bowl&&Vector3.Distance(released,physical.position)<.0001f&&requests==1,
                 "accepted purse waits at actual bowl instead of returning to moving hand before native payment");
+            Bounds body = physical.GetComponentInChildren<MeshRenderer>().bounds;
+            Vector3 bottom = body.center; bottom.y = body.min.y;
+            Check(Vector3.Distance(bottom,bowl.TransformPoint(TownServiceTempleBowl.PurseSeat))<.0001f,
+                "accepted original purse bottom meets its actual authored bowl seat");
             Check(!token.CanGrab&&token.PhysicalVisibility==1f,"pending native payment keeps one visible unreachable offering");
             if(scenario==0)
             {

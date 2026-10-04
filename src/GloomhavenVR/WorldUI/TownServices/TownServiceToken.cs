@@ -5,6 +5,7 @@ using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Net;
+using GloomhavenVR.Rig;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -75,6 +76,9 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     private float _nextRefresh;
     private readonly float _reachDepth;
     private readonly bool _uprightProp;
+    private readonly Bounds _physicalBounds;
+    private readonly bool _hasPhysicalBounds;
+    private Vector3 _heldPinch;
     private bool _insidePhysicalDrop;
     private float _nextPhysicalDropPulse;
     private readonly Func<VRHand, bool>? _handAllowed;
@@ -83,10 +87,11 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     internal Transform? HeldRoot => _held != null ? _held.transform : null;
     internal VRHand? HoldingHand => _hand;
     internal Vector3 OfferingPoint => IsHeld ? PhysicalDropPoint : Vector3.zero;
-    // A normalized purse is rooted at its base. The visible body, rather than that
-    // base point below the player's pinch, is what the player places in the bowl.
-    private Vector3 PhysicalDropPoint => _physical != null && _uprightProp
-        ? _physical.TransformPoint(Vector3.up * .0625f)
+    // The token owns the labelled Piece.Root, not the normalized bag's bottom root.
+    // Its original mesh sits 65 mm lower. Sample the actual body rather than an
+    // assumed midpoint above the label root (Build620's six missed bowl releases).
+    private Vector3 PhysicalDropPoint => _physical != null && _uprightProp && _hasPhysicalBounds
+        ? _physical.TransformPoint(_physicalBounds.center)
         : _held != null ? _held.transform.position : Vector3.zero;
     internal Transform? HeldContent => _mirror?.CloneOf(_source);
     internal Transform? HeldCloneOf(Transform original) => _mirror?.CloneOf(original);
@@ -100,13 +105,15 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
 
     internal TownServiceToken(RectTransform source, Selectable button, Func<object?> identity,
         Func<object?> contextIdentity, Func<bool> sessionAlive, Transform mat, Transform? physical = null,
-        Func<bool>? drop = null, Func<bool>? eligible = null, Vector3 zoneCenter = default, Func<bool>? inspect = null, float zoneHalfWidth = .20f, Func<Vector3, bool>? dropLocation = null, Action? grabbing = null, float reachDepth = .009f, bool uprightProp = false, Func<VRHand, bool>? handAllowed = null)
+        Func<bool>? drop = null, Func<bool>? eligible = null, Vector3 zoneCenter = default, Func<bool>? inspect = null, float zoneHalfWidth = .20f, Func<Vector3, bool>? dropLocation = null, Action? grabbing = null, float reachDepth = .009f, bool uprightProp = false, Func<VRHand, bool>? handAllowed = null, Transform? physicalBody = null)
     {
         _reachDepth = Mathf.Max(.001f, reachDepth);
         _uprightProp = uprightProp; _handAllowed = handAllowed;
         IsItemCard = physical != null && source.GetComponent<ItemCardUI>() != null;
         _source = source; _button = button; _identity = identity; _contextIdentity = contextIdentity;
         _sessionAlive = sessionAlive; _mat = mat; _physical = physical;
+        if (uprightProp && physical != null)
+            _hasPhysicalBounds = ReadPhysicalBounds(physicalBody ?? physical, physical, out _physicalBounds);
         _dropLocation = dropLocation; _grabbing = grabbing;
         _drop = drop; _eligible = eligible; _zoneCenter = zoneCenter; _inspect = inspect; _zoneHalfWidth = zoneHalfWidth;
         _pick = new GameObject("GloomhavenVR.TownService.SampleReach");
@@ -130,6 +137,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
                 _heldTracked = true;
                 if (IsItemCard) ItemCardHold.Tick(_held.transform, _hand, _hand.Rig.GrabAnchor,
                     _heldPosition, _heldScale, _heldWidth, _heldHeight);
+                else if (_uprightProp && _hasPhysicalBounds) TickPursePose(_hand);
                 else _held.transform.SetPositionAndRotation(_hand.Rig.GrabAnchor.TransformPoint(_heldPosition),
                     _hand.Rig.GrabAnchor.rotation * _heldRotation);
                 if (!IsPhysical) _held.transform.localScale = Vector3.one * scale;
@@ -192,8 +200,20 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
             if (t >= 1f) _returning = false;
         }
         bool visible = !_returning && Visible();
+        if (_uprightProp && !_hasPhysicalBounds) visible = false;
         if (_shape.enabled != visible) _shape.enabled = visible;
         if (!visible) return;
+        if (_uprightProp && _physical != null)
+        {
+            // Only original mesh geometry is touchable. The inscription rectangle
+            // above it used to steal trigger input and put the glove over the text.
+            Transform physical = _physical;
+            _pick.transform.SetPositionAndRotation(physical.TransformPoint(_physicalBounds.center), physical.rotation);
+            Vector3 physicalScale = physical.lossyScale;
+            _shape.size = Vector3.Scale(_physicalBounds.size, new Vector3(
+                Mathf.Abs(physicalScale.x), Mathf.Abs(physicalScale.y), Mathf.Abs(physicalScale.z)));
+            return;
+        }
         // Visible sampled these exact corners immediately above. No transform or
         // source mutation occurs between the visibility check and collider fit.
         Vector3 center = (_corners[0] + _corners[2]) * .5f;
@@ -204,6 +224,42 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         Vector3 size = new(Vector3.Distance(_corners[0], _corners[3]),
             Vector3.Distance(_corners[0], _corners[1]), _reachDepth * scale);
         if (!_shape.size.Equals(size)) _shape.size = size;
+    }
+
+    private static bool ReadPhysicalBounds(Transform body, Transform frame, out Bounds bounds)
+    {
+        bool any = false; bounds = default;
+        foreach (MeshFilter filter in body.GetComponentsInChildren<MeshFilter>(true))
+        {
+            if (filter.sharedMesh == null || filter.GetComponent<MeshRenderer>() == null) continue;
+            Bounds mesh = filter.sharedMesh.bounds;
+            for (int corner = 0; corner < 8; corner++)
+            {
+                Vector3 point = mesh.center + Vector3.Scale(mesh.extents, new Vector3(
+                    (corner & 1) == 0 ? -1f : 1f, (corner & 2) == 0 ? -1f : 1f,
+                    (corner & 4) == 0 ? -1f : 1f));
+                point = frame.InverseTransformPoint(filter.transform.TransformPoint(point));
+                if (!any) { bounds = new Bounds(point, Vector3.zero); any = true; }
+                else bounds.Encapsulate(point);
+            }
+        }
+        return any && bounds.size.sqrMagnitude > 1e-8f;
+    }
+
+    private void TickPursePose(VRHand hand)
+    {
+        Transform physical = _physical!;
+        Vector3 pinch = hand.Rig.GrabAnchor.TransformPoint(_heldPinch);
+        Vector3 forward = VRRigDriver.HeadCamera != null
+            ? pinch - VRRigDriver.HeadCamera.transform.position : physical.forward;
+        forward.y = 0f;
+        if (forward.sqrMagnitude > .0001f)
+            physical.rotation = Quaternion.LookRotation(forward, Vector3.up);
+        // Native purse provenance gives the neck, including Piece.Body's real
+        // offset. Root-at-bottom arithmetic used to leave the neck above the hand.
+        Vector3 neck = _physicalBounds.center;
+        neck.y = _physicalBounds.min.y + _physicalBounds.size.y * .90f;
+        physical.position = pinch - physical.TransformVector(neck);
     }
 
     private bool Visible()
@@ -277,14 +333,12 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
             }
             if (_uprightProp)
             {
-                // The original purse template is normalized at its bottom and stands about
-                // 15 cm tall. Put that bottom below the pinch so the fingers hold its neck;
-                // the old 5.5 cm drop buried most of the mesh through the glove.
                 _heldRotation = Quaternion.Inverse(hand.Rig.GrabAnchor.rotation) * _physical.rotation;
-                _heldPosition = pinch + hand.Rig.GrabAnchor.InverseTransformVector(Vector3.down * (.13f * hand.WorldScale));
+                _heldPinch = pinch;
             }
             _physical.SetParent(hand.Rig.GrabAnchor, true);
             _held = _physical.gameObject;
+            if (_uprightProp && _hasPhysicalBounds) TickPursePose(hand);
             if (reclaiming)
             {
                 _offering = null;
@@ -361,6 +415,17 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
                     _returning = false; _settling = true; _settlementDecided = false;
                     _settledIdentity = _identity(); _settledContext = _contextIdentity();
                     _physical.SetParent(_mat, true);
+                    // Piece.Body is a child of this labelled root. Its former
+                    // Body.parent == DropFrame check could never seat the purse.
+                    // Move the actual body's bottom to the authored bowl seat
+                    // once; the subsequent accepted sink keeps its own clock.
+                    if (_hasPhysicalBounds)
+                    {
+                        _physical.localRotation = Quaternion.identity;
+                        Vector3 bottom = _physicalBounds.center; bottom.y = _physicalBounds.min.y;
+                        _physical.position = _mat.TransformPoint(TownServiceTempleBowl.PurseSeat)
+                            - _physical.TransformVector(bottom);
+                    }
                     _settledPosition = _physical.localPosition; _settledRotation = _physical.localRotation;
                     _shape.enabled = false;
                 }

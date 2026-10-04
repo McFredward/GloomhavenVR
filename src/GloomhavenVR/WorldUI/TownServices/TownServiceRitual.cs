@@ -154,7 +154,8 @@ internal sealed class TownServiceRitual : IDisposable
                     inspect: () => owner._templeOffering?.CanInspectPurse ?? true,
                     zoneHalfWidth: owner._service == 2 ? .095f : .20f,
                     dropLocation: owner._service == 2 ? world => owner._templeOffering?.InBowl(world) ?? false : null, reachDepth: offering ? .10f : .009f, uprightProp: offering,
-                    handAllowed: hand => owner._templeOffering?.AllowsHand(hand) ?? true);
+                    handAllowed: hand => owner._templeOffering?.AllowsHand(hand) ?? true,
+                    physicalBody: offering ? Body : null);
                 VRLayers.Apply(root);
                 ApplyInscriptions(); SetVisibility(owner._visibility);
                 TownServiceDepthOrder.Bind(Root);
@@ -199,15 +200,6 @@ internal sealed class TownServiceRitual : IDisposable
                     forward.y = 0f;
                     Body.rotation = Quaternion.LookRotation(forward.sqrMagnitude > .0001f
                         ? forward : _owner.Root.forward, Vector3.up);
-                }
-                else if (_owner._templeOffering != null
-                    && ReferenceEquals(Body.parent, _owner._templeOffering.DropFrame))
-                {
-                    // TownServiceToken has already transferred presentation ownership to the
-                    // bowl. Replace its release point with the exact guide seat before render;
-                    // confirmation still belongs entirely to the original native callback.
-                    Body.localPosition = TownServiceTempleBowl.PurseSeat;
-                    Body.localRotation = Quaternion.identity;
                 }
             }
             SetVisibility(_requestedVisibility);
@@ -514,8 +506,8 @@ internal sealed class TownServiceRitual : IDisposable
         Vector3 bowlLocal = purseHand != null && _templeOffering != null
             ? _templeOffering.DropFrame.InverseTransformPoint(pursePoint) - TownServiceTempleBowl.Center
             : Vector3.zero;
-        // The token's existing inside-bowl pulse is the drop edge. This shared cue supplies
-        // the earlier hover tick and owner-authored visual approach without duplicating it.
+        // The token's existing inside-bowl pulse is the drop edge. The visitor-local
+        // guide supplies the earlier hover tick without duplicating it (Build622 ruling).
         float bowlStrength = _templeFeedback.Tick(bowlShown && purseHand != null, purseHand,
             purseHand != null ? bowlLocal.magnitude : float.MaxValue,
             purseHand != null && _templeOffering?.InBowl(pursePoint) == true, .28f,
