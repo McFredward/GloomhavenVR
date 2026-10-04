@@ -69,6 +69,7 @@ namespace UnityEngine
         internal static float Clock;
         internal static int Frame;
         public static float unscaledTime { get { Fixture.RequireMain("Time.unscaledTime"); return Clock; } }
+        public static float unscaledDeltaTime { get { Fixture.RequireMain("Time.unscaledDeltaTime"); return .016f; } }
         public static float realtimeSinceStartup { get { Fixture.RequireMain("Time.realtimeSinceStartup"); return Clock; } }
         public static int frameCount { get { Fixture.RequireMain("Time.frameCount"); return Frame; } }
     }
@@ -116,6 +117,14 @@ namespace UnityEngine
             return JsonSerializer.Serialize(value, new JsonSerializerOptions { IncludeFields = true, WriteIndented = pretty });
         }
     }
+}
+namespace UnityEngine.Scripting
+{
+    public static class GarbageCollector { public static bool isIncremental = true; }
+}
+namespace GloomhavenVR.Core
+{
+    public static class QuestStandalonePlatform { public static bool DebugLogging; }
 }
 namespace UnityEngine.SceneManagement
 {

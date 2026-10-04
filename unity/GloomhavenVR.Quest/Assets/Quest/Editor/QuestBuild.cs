@@ -27,6 +27,7 @@ namespace GloomhavenVR.Quest.Editor
             public int schema = 1;
             public string target, inputKey, package, profileSha256, unityVersion, buildResult;
             public string il2CppCompilerConfiguration, additionalIl2CppArgs;
+            public bool incrementalGc;
             public string[] scenes;
         }
         static string Required(string key)
@@ -99,7 +100,8 @@ namespace GloomhavenVR.Quest.Editor
                 profileSha256 = hash, unityVersion = Application.unityVersion,
                 buildResult = report.summary.result.ToString(), scenes = scenes,
                 il2CppCompilerConfiguration = PlayerSettings.GetIl2CppCompilerConfiguration(BuildTargetGroup.Android).ToString(),
-                additionalIl2CppArgs = PlayerSettings.GetAdditionalIl2CppArgs()
+                additionalIl2CppArgs = PlayerSettings.GetAdditionalIl2CppArgs(),
+                incrementalGc = PlayerSettings.gcIncremental
             }, true));
             if (report.summary.result != BuildResult.Succeeded)
                 throw new InvalidOperationException("Android build failed: " + report.summary.result + ", errors=" + report.summary.totalErrors);
@@ -115,6 +117,12 @@ namespace GloomhavenVR.Quest.Editor
             PlayerSettings.bundleVersion = "0.1.0";
             PlayerSettings.Android.bundleVersionCode = 1;
             PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android, ScriptingImplementation.IL2CPP);
+            // The recovered B619 project disabled incremental GC. The maintainer
+            // reports repeating menu hitches; that is not proof of their cause,
+            // but full-heap pauses are avoidable in this Android player. Restore
+            // Unity's incremental mode, without changing desktop mod settings or
+            // forcing collections. Runtime evidence reports the actual mode.
+            PlayerSettings.gcIncremental = true;
             if (originalStartup)
             {
                 PlayerSettings.SetApiCompatibilityLevel(BuildTargetGroup.Android, ApiCompatibilityLevel.NET_4_6);
@@ -241,9 +249,11 @@ namespace GloomhavenVR.Quest.Editor
             QuestSpriteGeometryValidation.ValidateStartupAssets();
             QuestUiAssetValidation.Validate(false);
             QuestPostEffectValidation.Validate(false);
+            QuestVideoValidation.Validate(false);
             QuestStartupAddressablesBuild.Build();
             QuestPostEffectValidation.Validate(true);
             QuestUiAssetValidation.Validate(true);
+            QuestVideoValidation.Validate(true);
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             GameObject bootstrap = new GameObject("Original Gloomhaven startup diagnostic");
             bootstrap.AddComponent<QuestGameBootstrap>();

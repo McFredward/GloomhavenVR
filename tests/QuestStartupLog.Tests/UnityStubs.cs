@@ -15,7 +15,7 @@ namespace UnityEngine
     }
     public class GameObject { public T AddComponent<T>() where T : new() { return new T(); } }
     public class AsyncOperation { }
-    public static class Time { public static float unscaledTime; }
+    public static class Time { public static float unscaledTime, unscaledDeltaTime; }
     public static class Application
     {
         public static string persistentDataPath, streamingAssetsPath, dataPath;
@@ -47,6 +47,14 @@ namespace UnityEngine
             return System.Text.Json.JsonSerializer.Serialize(value, new System.Text.Json.JsonSerializerOptions { IncludeFields = true, WriteIndented = pretty });
         }
     }
+}
+namespace UnityEngine.Scripting
+{
+    public static class GarbageCollector { public static bool isIncremental = true; }
+}
+namespace GloomhavenVR.Core
+{
+    public static class QuestStandalonePlatform { public static bool DebugLogging; }
 }
 namespace UnityEngine.SceneManagement
 {

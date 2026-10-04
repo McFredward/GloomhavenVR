@@ -25,6 +25,8 @@ internal static class Program
         Application.platform = RuntimePlatform.WindowsPlayer;
         SystemInfo.graphicsDeviceType = GraphicsDeviceType.Direct3D11;
         Check(!QuestStandalonePlatform.Enabled && !QuestStandalonePlatform.ModRunning && !QuestStandalonePlatform.RigReady, "desktop-gate: unconfigured desktop unexpectedly enabled standalone");
+        GloomhavenVR.WorldUI.FlatScreen.OwnedCamera = new Camera();
+        Check(!QuestStandalonePlatform.IsFlatScreenVideoTarget(GloomhavenVR.WorldUI.FlatScreen.OwnedCamera), "desktop-video: configured capture must not enable Quest output");
         Reject(() => QuestStandalonePlatform.Configure(directory, _ => true, () => true, () => true), "desktop-gate: desktop accepted standalone configuration");
         Color desktop = QuestStandalonePlatform.MixedRealityClearColor(new Color(.1f, .9f, .2f, .25f));
         Check(desktop.r == .1f && desktop.g == .9f && desktop.b == .2f && desktop.a == 1, "desktop-key: existing chroma key RGB/opaque alpha changed");

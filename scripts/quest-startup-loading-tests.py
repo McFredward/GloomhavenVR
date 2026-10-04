@@ -18,7 +18,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime-source", type=Path, default=root / "unity/GloomhavenVR.Quest/Assets/Quest/Runtime")
     args = parser.parse_args()
-    names = ("QuestGameBootstrap.cs", "QuestGameContent.cs", "QuestGameContent.Delivery.cs", "QuestGameArchiveDelivery.cs", "QuestContentHash.cs")
+    names = ("QuestGameBootstrap.cs", "QuestGameContent.cs", "QuestGameContent.Delivery.cs", "QuestGameArchiveDelivery.cs", "QuestContentHash.cs", "QuestFrameEvidence.cs")
     sources = {name: (args.runtime_source / name).read_text() for name in names}
     bootstrap = sources["QuestGameBootstrap.cs"]
     mutations = (

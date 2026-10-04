@@ -1,5 +1,20 @@
 # State — where the project stands
 
+**Quest B620 scoped menu follow-up, 2026-10-04: isolated feature.**
+
+The exact B619 package/input and supplied screenshot are verified. Audio is now
+hardware-confirmed solved. Intro decodes and plays audio but the captured menu
+camera stays grey; an Android-only output adapter composes original decoded
+frames in the actual owned capture, retaining original camera modes and stereo
+routing. Real Unity GPU tests cover depth, alpha, aspect, target replacement and
+ownership; headset pixels remain unverified. The attached Guildmaster tooltip,
+two desktop-only option rows and existing VR keyboard's Android TMP input seam
+are corrected behind the central standalone gate. The generated player enables
+incremental GC, with bounded Debug frame/GC/write-cost evidence to investigate
+the reported recurring hitch. No sole hitch cause is established.
+See [B620 hardware procedure](QUEST3-HARDWARE-620.md). Native build/validation
+receipts and cleanup measurements will be recorded after the signed handoff.
+
 **Quest B619 menu follow-up, 2026-10-04: isolated feature.**
 
 The exact latest B618 capture and three screenshots are inspected. The maintainer

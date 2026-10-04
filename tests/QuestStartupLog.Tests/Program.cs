@@ -75,9 +75,9 @@ internal static class Program
         text = File.ReadAllText(path);
         Check(text.Contains("first original loader failure after lifecycle cap") && text.Contains("retained first cause stack"), "lifecycle-reserve: routine lifecycle saturation swallowed original loader evidence");
         Check(text.Contains("retained build/input provenance") && new FileInfo(path).Length <= QuestGameStartupLog.MaxBytes, "combined-bound: lifecycle/error partition lost provenance or exceeded total bound");
-        reserved.Append("[Quest startup] original movie decoded frame source=fixture", "unused routine stack");
+        reserved.Append("[Quest startup] original scene loaded=fixture", "unused routine stack");
         text = File.ReadAllText(path);
-        Check(text.Contains("original movie decoded frame") && !text.Contains("unused routine stack"), "startup-reserve: mod trace cap swallowed native startup evidence");
+        Check(text.Contains("original scene loaded=fixture") && !text.Contains("unused routine stack"), "startup-reserve: mod trace cap swallowed native startup evidence");
 
         path = Path.Combine(root, "causes.log"); var causes = new QuestGameStartupLog(path, "cause cap");
         for (int i = 0; i < QuestGameStartupLog.MaxOriginalErrors * 2; i++) causes.AppendOriginalError("cause " + i, "stack " + i);
@@ -129,6 +129,52 @@ internal static class Program
         Check(retry.OriginalErrors == 0, "io-retry: failed persistence published a retained cause");
         Directory.Delete(path); File.WriteAllText(path, ""); retry.AppendOriginalError("first load failure", "retry stack");
         Check(retry.OriginalErrors == 1 && File.ReadAllText(path).Contains("retry stack"), "io-retry: failed persistence consumed the deduplication identity");
+
+        path = Path.Combine(root, "presentation-reserve.log");
+        var details = new QuestGameStartupLog(path, "B619 saturation replay");
+        for (int i = 0; i < 2000; i++)
+        {
+            details.Append("[Quest startup] original movie state unique=" + i);
+            details.Append("[Quest startup] presentation camera unique=" + i);
+            details.Append("[Quest startup] audio source unique=" + i);
+            details.Append("[Quest startup] frame summary unique=" + i);
+        }
+        details.Append("[Quest startup] original scene loaded=MainMenu state=running");
+        details.Append("[Quest startup] original movie URL bound MainMenu source=ambient");
+        details.AppendOriginalError("later original failure", "full later stack");
+        text = File.ReadAllText(path);
+        Check(text.Contains("original scene loaded=MainMenu") && text.Contains("original movie URL bound MainMenu"), "detail-reserve: detailed observations swallowed final menu lifecycle and video binding");
+        Check(Count(text, "presentation diagnostic log limit reached") == 1 && text.Contains("full later stack"), "detail-reserve: bounded detail stream lost first errors or repeated its cap marker");
+        Check(new FileInfo(path).Length <= QuestGameStartupLog.MaxBytes, "detail-reserve: independent lanes exceeded the global byte ceiling");
+
+        var frames = new QuestFrameEvidence();
+        Check(frames.Observe("MainMenu", true, false, 1, 0, 0, true) == null && !frames.Snapshot.sampling, "frame-debug: normal logging ran frame sampling");
+        frames.Observe("MainMenu", true, true, 9, 1, 0, true);
+        frames.Observe("MainMenu", true, true, .016f, 2, 0, true);
+        frames.Observe("MainMenu", true, true, .120f, 3, 1, true);
+        frames.Observe("MainMenu", true, true, .090f, 6, 1, true);
+        frames.Observe("MainMenu", true, true, .140f, 9, 2, true);
+        Check(frames.Snapshot.frames == 4 && frames.Snapshot.over40Ms == 3 && frames.Snapshot.over100Ms == 2, "frame-resume: scene/resume delta counted as a real frame");
+        Check(frames.Snapshot.gcCollections == 2 && frames.Snapshot.spikeGcDelta.Take(3).SequenceEqual(new[] { 1, 0, 1 }), "frame-gc: frame/GC association lost the independent non-GC hitch");
+        Check(frames.Snapshot.spikeTimes.Take(3).SequenceEqual(new[] { 3f, 6f, 9f }), "frame-cadence: retained timestamps cannot show a three-second recurrence");
+        frames.Observe("MainMenu", false, true, 40, 10, 2, true);
+        frames.Observe("MainMenu", true, true, 40, 50, 2, true);
+        Check(frames.Snapshot.frames == 4, "frame-resume: time without focused gameplay contaminated hitch counts");
+        frames.Observe("MainMenu", true, true, float.NaN, 51, 2, true);
+        frames.Observe("MainMenu", true, true, -1, 51, 2, true);
+        Check(frames.Snapshot.frames == 4, "frame-invalid: invalid delta poisoned aggregates");
+        frames.RecordSnapshotWrite(12); frames.RecordSnapshotWrite(3); frames.RecordSnapshotWrite(double.NaN);
+        Check(frames.Snapshot.maxSnapshotWriteMs == 12, "frame-io: state writer cost does not retain its maximum");
+        int reports = 0;
+        for (int i = 0; i < 2000; i++)
+            if (frames.Observe("MainMenu", true, true, .1f, 52 + i, 2, true) != null) reports++;
+        Check(reports <= 12 && frames.Snapshot.spikeCount == 24 && frames.Snapshot.over40Ms == 2003, "frame-bound: reports or retained spike arrays grew with test duration");
+        var noAlloc = new QuestFrameEvidence();
+        noAlloc.Observe("MainMenu", true, true, .016f, 0, 0, true);
+        for (int i = 0; i < 100; i++) noAlloc.Observe("MainMenu", true, true, .016f, 1, 0, true);
+        long allocationStart = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 10000; i++) noAlloc.Observe("MainMenu", true, true, .016f, 1, 0, true);
+        Check(GC.GetAllocatedBytesForCurrentThread() == allocationStart, "frame-allocation: ordinary per-frame measurement creates managed garbage");
         Console.WriteLine("PASS Quest startup logging: " + assertions + " assertions");
     }
 }

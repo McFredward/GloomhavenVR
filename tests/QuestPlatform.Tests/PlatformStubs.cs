@@ -190,3 +190,12 @@ namespace GloomhavenVR.Core
     public class VRHeartbeat { }
     public class VRPresenceWatch { }
 }
+
+namespace GloomhavenVR.WorldUI
+{
+    internal static class FlatScreen
+    {
+        internal static UnityEngine.Camera OwnedCamera;
+        internal static bool OwnsVideoCapture(UnityEngine.Camera camera) => camera != null && camera == OwnedCamera;
+    }
+}

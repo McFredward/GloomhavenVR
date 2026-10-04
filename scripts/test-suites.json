@@ -1431,6 +1431,24 @@
       "weight": 2
     },
     {
+      "id": "quest-options",
+      "command": ["python3", "scripts/quest-options-tests.py"],
+      "groups": ["local", "ci"],
+      "weight": 2
+    },
+    {
+      "id": "quest-keyboard-input",
+      "command": ["python3", "scripts/quest-keyboard-input-tests.py"],
+      "groups": ["local", "ci"],
+      "weight": 2
+    },
+    {
+      "id": "quest-video-output",
+      "command": ["python3", "scripts/quest-video-output-tests.py"],
+      "groups": ["local"],
+      "weight": 30
+    },
+    {
       "id": "quest-menu-sampling",
       "command": ["python3", "scripts/quest-menu-sampling-tests.py"],
       "groups": ["local"],

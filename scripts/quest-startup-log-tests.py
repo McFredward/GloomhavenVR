@@ -13,6 +13,7 @@ def main():
     runtime = root / "unity/GloomhavenVR.Quest/Assets/Quest/Runtime"
     logger = (runtime / "QuestGameStartupLog.cs").read_text()
     bootstrap = (runtime / "QuestGameBootstrap.cs").read_text()
+    frames = (runtime / "QuestFrameEvidence.cs").read_text()
     output = root / ".planning/debug/quest-startup-log"
     output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=output))
@@ -29,6 +30,7 @@ def main():
         ("unbounded-utf8-errors", "logger", " || errorBytes + length + Utf8.GetByteCount(ErrorLimit) > ErrorBytes", "", 1, "utf8-bound"),
         ("spent-error-before-io", "logger", "File.AppendAllText(path, line, Utf8); errorBytes += length; errorsSeen.Add(key);", "errorsSeen.Add(key); File.AppendAllText(path, line, Utf8); errorBytes += length;", 1, "io-retry"),
         ("threaded-listener-leak", "bootstrap", "Application.logMessageReceivedThreaded -= CaptureLog;", "// Missing threaded unsubscription defect\n", 1, "unsubscribe"),
+        ("presentation-spends-startup-reserve", "logger", "if (IsPresentationDetail(message))", "if (IsPresentationDetail(message) && message.Length < 0)", 1, "detail-reserve"),
     )
     for name, kind, before, after, count, expected in mutations:
         source = logger if kind == "logger" else bootstrap
@@ -38,7 +40,7 @@ def main():
         cases.append((name, replacement if kind == "logger" else logger,
                       replacement if kind == "bootstrap" else bootstrap, expected))
     evidence = {"sources": {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-                             for path in (runtime / "QuestGameStartupLog.cs", runtime / "QuestGameBootstrap.cs")}, "cases": []}
+                             for path in (runtime / "QuestGameStartupLog.cs", runtime / "QuestGameBootstrap.cs", runtime / "QuestFrameEvidence.cs")}, "cases": []}
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     print("Quest startup logging evidence: " + str(run), flush=True)
     for name, logger_source, bootstrap_source, expected in cases:
@@ -48,6 +50,7 @@ def main():
         shutil.copytree(harness, case_harness)
         (case / "QuestGameStartupLog.cs").write_text(logger_source)
         (case / "QuestGameBootstrap.cs").write_text(bootstrap_source)
+        (case / "QuestFrameEvidence.cs").write_text(frames)
         result = subprocess.run([dotnet, "run", "--project", str(case_harness / "QuestStartupLog.Tests.csproj"),
                                  "--configuration", "Release", "--property:RuntimeSource=" + str(case),
                                  "--", str(case / "files")], text=True, stdout=subprocess.PIPE,

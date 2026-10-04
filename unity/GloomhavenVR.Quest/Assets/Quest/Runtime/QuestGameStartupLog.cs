@@ -14,19 +14,24 @@ namespace GloomhavenVR.Quest
         internal const int MaxBytes = 256 * 1024, MaxRecords = 512;
         internal const int MaxOriginalErrors = 64;
         const int StartupBytes = 32 * 1024, StartupRecords = 96;
-        const int LifecycleBytes = MaxBytes / 2 - StartupBytes, ErrorBytes = MaxBytes / 2;
-        const int LifecycleRecords = MaxRecords - MaxOriginalErrors - StartupRecords - 3;
+        const int DetailBytes = 32 * 1024, DetailRecords = 128;
+        const int LifecycleBytes = MaxBytes / 2 - StartupBytes - DetailBytes, ErrorBytes = MaxBytes / 2;
+        const int LifecycleRecords = MaxRecords - MaxOriginalErrors - StartupRecords - DetailRecords - 4;
         // Retain the existing grep token; it now caps only lifecycle records.
         const string LifecycleLimit = "[Quest startup] diagnostic log limit reached; further records suppressed.\n";
         const string ErrorLimit = "[Quest startup] original error log limit reached; further distinct causes suppressed.\n";
         const string StartupLimit = "[Quest startup] startup lifecycle log limit reached; further records suppressed.\n";
+        const string DetailLimit = "[Quest startup] presentation diagnostic log limit reached; further records suppressed.\n";
         static readonly Encoding Utf8 = new UTF8Encoding(false);
         readonly string path;
         readonly object sync = new object();
         readonly HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
         readonly HashSet<string> errorsSeen = new HashSet<string>(StringComparer.Ordinal);
         readonly HashSet<string> startupSeen = new HashSet<string>(StringComparer.Ordinal);
+        readonly HashSet<string> detailSeen = new HashSet<string>(StringComparer.Ordinal);
         int startupBytes, startupRecords;
+        int detailBytes, detailRecords;
+        bool detailCapped;
         bool startupCapped;
         int bytes, records;
         int errorBytes, originalErrors;
@@ -65,6 +70,25 @@ namespace GloomhavenVR.Quest
                 // and the existing first-error reserve. It never stores stacks.
                 if (message != null && message.StartsWith("[Quest startup]", StringComparison.Ordinal))
                 {
+                    // B619's bounded audio/video/camera observations spent the
+                    // entire startup reserve before MainMenu's scene edge and
+                    // actual video output arrived. Give detailed presentation
+                    // samples their own bounded lane; retain the same total byte
+                    // and record ceilings and original first-error reserve.
+                    if (IsPresentationDetail(message))
+                    {
+                        if (detailCapped) return;
+                        string detailKey = Clip(message, 4096);
+                        if (detailSeen.Contains(detailKey)) return;
+                        string detailLine = Line(detailKey, null);
+                        int detailLength = Utf8.GetByteCount(detailLine);
+                        if (detailRecords >= DetailRecords || detailBytes + detailLength + Utf8.GetByteCount(DetailLimit) > DetailBytes)
+                        {
+                            File.AppendAllText(path, DetailLimit, Utf8); detailBytes += Utf8.GetByteCount(DetailLimit); detailCapped = true; return;
+                        }
+                        File.AppendAllText(path, detailLine, Utf8); detailBytes += detailLength; detailRecords++; detailSeen.Add(detailKey);
+                        return;
+                    }
                     if (startupCapped) return;
                     string startupKey = Clip(message, 4096);
                     if (startupSeen.Contains(startupKey)) return;
@@ -88,6 +112,14 @@ namespace GloomhavenVR.Quest
                 }
                 File.AppendAllText(path, line, Utf8); bytes += length; records++; seen.Add(key);
             }
+        }
+        static bool IsPresentationDetail(string message)
+        {
+            return message.StartsWith("[Quest startup] original movie state ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] original movie decoded frame ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] presentation ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] audio ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] frame ", StringComparison.Ordinal);
         }
 
         internal void AppendOriginalError(string message, string stack)

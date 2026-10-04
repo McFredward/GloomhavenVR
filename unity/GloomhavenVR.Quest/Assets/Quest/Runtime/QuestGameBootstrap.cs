@@ -24,6 +24,7 @@ namespace GloomhavenVR.Quest
             public int contentFileIndex, contentFileCount, preparationCompletedSteps, preparationTotalSteps;
             public double elapsedSeconds, lastContentProgressAgeSeconds;
             public int mainThreadFrames, startupOverallPercent;
+            public QuestFrameSnapshot frameTiming;
             public bool loadingViewAvailable, contentLogWriteFailed;
             public bool contentReady, modContentReady, addressablesReady, originalBootstrapStarted, modInitializationComplete, rigReady, modLifecycleAvailable, fullGameReady, eosAuthorised, proceduralRuntimeAvailable, voiceNativeAvailable, passthroughActive, inviteKeyboardBound, inviteKeyboardVisible, realKeyboardVisible, focused, paused;
         }
@@ -40,6 +41,7 @@ namespace GloomhavenVR.Quest
         QuestGameVideos videos;
         readonly QuestGamePresentationEvidence presentation = new QuestGamePresentationEvidence();
         readonly QuestGameAudioEvidence audio = new QuestGameAudioEvidence();
+        readonly QuestFrameEvidence frames = new QuestFrameEvidence();
         QuestGameModLifecycle modLifecycle;
         BuildStamp build;
         string lastScene;
@@ -271,7 +273,11 @@ namespace GloomhavenVR.Quest
                 }
             }
             lastScene = scene.name; loadedScenes++; SaveState();
-            if (scene.name == "MainMenu") nativeStartupComplete = true;
+            if (scene.name == "MainMenu")
+            {
+                nativeStartupComplete = true;
+                UnityEngine.Debug.Log("[Quest startup] native memory collector incremental=" + UnityEngine.Scripting.GarbageCollector.isIncremental);
+            }
             UnityEngine.Debug.Log("[Quest startup] original scene loaded=" + scene.name + " mode=" + mode + " state=" + State + " fullGameReady=false");
         }
         void Fail(string gate, Exception e)
@@ -310,6 +316,11 @@ namespace GloomhavenVR.Quest
         void Update()
         {
             mainThreadFrames++;
+            bool frameDebug = GloomhavenVR.Core.QuestStandalonePlatform.DebugLogging;
+            string frameReport = frames.Observe(lastScene, focused && !paused && nativeStartupComplete, frameDebug,
+                Time.unscaledDeltaTime, Time.unscaledTime,
+                frameDebug ? GC.CollectionCount(0) : 0, UnityEngine.Scripting.GarbageCollector.isIncremental);
+            if (frameReport != null) UnityEngine.Debug.Log(frameReport);
             if (Time.unscaledTime >= nextLoadingView)
             {
                 nextLoadingView = Time.unscaledTime + .25f;
@@ -342,6 +353,7 @@ namespace GloomhavenVR.Quest
                 lastContentProgressAgeSeconds = progress != null ? Math.Max(0, startupClock.Elapsed.TotalSeconds - progressTime) : 0,
                 loadingViewAvailable = modLifecycle != null && modLifecycle.StartupViewAvailable,
                 startupOverallPercent = startupOverallPercent,
+                frameTiming = frames.Snapshot,
                 contentLogWriteFailed = contentLogWriteFailed,
                 contentReady = ContentReady, modContentReady = ModContentReady, addressablesReady = addressables != null && addressables.Ready, originalBootstrapStarted = OriginalBootstrapStarted,
                 modLifecycleAvailable = ModLifecycleAvailable, fullGameReady = false, eosAuthorised = false, originalErrors = log != null ? log.OriginalErrors : 0,
@@ -356,8 +368,10 @@ namespace GloomhavenVR.Quest
             string path = Path.Combine(Application.persistentDataPath, "quest-startup-state.json"), temp = path + ".tmp";
             try
             {
+                long writeStarted = Stopwatch.GetTimestamp();
                 File.WriteAllText(temp, JsonUtility.ToJson(state, true));
                 if (File.Exists(path)) File.Replace(temp, path, null); else File.Move(temp, path);
+                frames.RecordSnapshotWrite((Stopwatch.GetTimestamp() - writeStarted) * 1000d / Stopwatch.Frequency);
             }
             catch (Exception e)
             {

@@ -4,6 +4,7 @@
     <Compile Include="Program.cs" />
     <Compile Include="UnityStubs.cs" />
     <Compile Include="$(RuntimeSource)/QuestGameStartupLog.cs" Link="QuestGameStartupLog.cs" />
+    <Compile Include="$(RuntimeSource)/QuestFrameEvidence.cs" Link="QuestFrameEvidence.cs" />
     <Compile Include="$(RuntimeSource)/QuestGameBootstrap.cs" Link="QuestGameBootstrap.cs" />
   </ItemGroup>
 </Project>

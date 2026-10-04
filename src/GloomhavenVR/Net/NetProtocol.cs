@@ -553,7 +553,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 619;
+    public const ushort ModBuild = 620;
+
+    // ModBuild 620 — Quest-only follow-up to the B619 menu hardware capture.
+    // Compose native decoded camera-plane video in the actual owned FlatScreen
+    // capture, preserving original playback and shared stereo-depth routing.
+    // Bind the attached native Guildmaster tooltip; hide only two desktop-only
+    // MR/mirror settings in Quest. Lease TMP soft-keyboard suppression while
+    // the existing VR keyboard owns a field, restoring native state on close.
+    // Enable incremental GC in the generated Android player and retain bounded
+    // Debug frame/GC evidence. Separate presentation detail from startup/errors.
+    // Central standalone gating preserves the desktop mod; native ABI drift must
+    // fail visibly. GPU/source checks do not establish headset video or timing.
 
     // ModBuild 619 — follow up the first successful Quest menu/MR hardware run.
     // Restore original quad audio frames and streamed WAV lengths without pitch,
