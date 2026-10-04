@@ -144,7 +144,12 @@ The full diagnostic inventory itself costs **614.8 ms across 2,083 bounded
 slices**, maximum slice **3.270 ms**, and then invokes its cooldown. It is Debug
 measurement work, not a single 615 ms gameplay pause. The selected `Perf.SceneProfileSlice`
 scope averages about **0.276 ms per measured frame**, with a worst selected
-scope of 10.68 ms across the complete measurement set. This overhead belongs in
+scope of **10.68 ms**. These timers have different boundaries:
+`PerfSceneProfile.Incremental.cs:222` opens the scope around the entire `Tick`
+job; line 239 records the internal slice maximum **before** final roster
+publication, GFX formatting, logging and cleanup, which remain inside the scope.
+Thus 3.270 ms does not bound the whole scoped call, and the log does not identify
+which individual finalization operation owns the additional peak. This overhead belongs in
 the comparison and does not account for the 145–210 ms wall bursts.
 
 ## GC, cameras and remaining limits
@@ -157,6 +162,14 @@ which simultaneously measures a 209.93 ms wall rescan. Collection counts do not
 measure pause duration, establish causality or prove a memory leak. Changing
 actions, resources and Debug instrumentation also change allocation.
 
+Actual main-thread `GC.Collect` markers are positive on three emitted primary
+spikes: **20.479 ms** on frame 9373 (311.58 ms total, collection deltas 1/1/1),
+**26.477 ms** on frame 10521 (163.62 ms total, 1/1/1), and **3.300 ms** on
+frame 6809 (123.95 ms total, 0/0/0). The latter also demonstrates that zero
+collection deltas must not be treated as proof of zero marked GC work. The
+20.479 ms marker is real coincident GC cost, not an explanation for the entire
+311.58 ms frame or permission to add it to nested wall scopes.
+
 The actual `[WorldUI] DesktopMirrorLeftEye` value is **True** here. Player line
 275 requests LEFT EYE; GFX confirms the value. The Frame default in
 `Core/Startup/FrameDefaults.cs` is False, while `WorldUIConfig.cs` preserves
@@ -168,9 +181,10 @@ not establish a second native scene-camera rendering regression, and no GPU
 saving from the spectator setting is quantified.
 
 FrameTimingManager returns no samples. `Canvas.BuildBatch`, `Animator.Update`
-and `WaitForTargetFPS` recorders remain unavailable in this player; reported
-main-thread `GC.Collect` and `Gfx.WaitForPresentOnGfxThread` samples on the cited
-spikes are 0.000 ms. Those samples do not cover unmeasured engine/native threads,
+and `WaitForTargetFPS` recorders remain unavailable in this player.
+`GC.Collect` has the positive samples listed above and reads 0.000 ms on the
+other cited spikes; `Gfx.WaitForPresentOnGfxThread` reads 0.000 ms on these cited
+spikes. Those samples do not cover unmeasured engine/native threads,
 all XR waits or GPU execution. Logic spans average about 30.7 ms, render-callback
 spans 7.0 ms and unbracketed work/waits 13.7 ms; there is measured CPU work to
 address, but no measured GPU-busy split. SteamVR refresh/adaptive pacing changes
