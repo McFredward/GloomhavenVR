@@ -90,20 +90,18 @@ def main():
     trace_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.DrawTrace.cs'
     occlusion_path = args.source_root/'src/GloomhavenVR/Core/OcclusionFade.cs'
     dissolve_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.Dissolve.cs'
-    native_transition_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.NativeTransition.cs'
     source, shader, repair, floor = source_path.read_text(), shader_path.read_text(), repair_path.read_text(), floor_path.read_text()
     wall, clock, occlusion = wall_path.read_text(), clock_path.read_text(), occlusion_path.read_text()
     trace = trace_path.read_text()
-    native_transition = native_transition_path.read_text()
     delivery = wall_delivery(wall)
     dissolve = dissolve_path.read_text()
     signature = 'private void DriveNativeProp(MountedProp p, float fade)'
     start = dissolve.index(signature)
     native_prop = dissolve[start:dissolve.index('\n        }',start)+len('\n        }')]
     delivery = delivery.replace('\n} }\n',native_prop+'\n} }\n')
-    assert dissolve.count('p.NativeHighTransition = NativeHighTransitionMaterials(_matScratch);') == 3, 'Native/swapped prop branch classification drift'
-    assert 'if (!NativeHighTransitionShaderName(shaderName)) seg.NativeHighTransition = false;' in wall, 'Unknown wall routes must retain their delivery'
-    clock_variants, delivery_variants, trace_variants, native_transition_variants = {}, {}, {}, {}
+    assert '_nativeTransitionMaps' not in wall + dissolve, 'Retired square-mask bank must not return'
+    assert 'Shader.PropertyToID("_EnableOcclusionMap")' in wall, 'Original native enable binding must remain explicit'
+    clock_variants, delivery_variants, trace_variants = {}, {}, {}
     wall_writes = []
     for path in (args.source_root/'src/GloomhavenVR/Core/WallFade').glob('WallSegmentFade*.cs'):
         text = path.read_text()
@@ -182,16 +180,15 @@ def main():
             variants.append((name,source,expected))
             trace_variants[name] = trace.replace(before,after)
         native_changes = [
-            ('native-high-enable-not-supplied', '_mpb.SetFloat(NativeMapEnableId, 1f);', '/* injected: native camera enable omitted */', 'original HIGH branch progressively reveals its native held geometry', 1),
-            ('native-high-continuous-map', 'if (seg.VariantHigh && seg.NativeHighTransition && seg.Fade < 1f)', 'if (bool.Parse("false"))', 'original HIGH branch progressively reveals its native held geometry', 1),
-            ('native-high-bilinear-map', 'filterMode = FilterMode.Point,', 'filterMode = FilterMode.Bilinear,', 'native rank map uses exact binary point-filtered texels', 1),
+            ('native-high-enable-not-supplied', '_mpb.SetFloat(NativeMapEnableId, 1f);', '/* injected: native camera enable omitted */', 'original wall supplies its actual native map-enable binding', 1),
+            ('native-prop-enable-not-supplied', '_mountedMpb.SetFloat(NativeMapEnableId, 1f);', '/* injected: native camera enable omitted */', 'original mounted prop supplies its actual native map-enable binding', 1),
+            ('historical-cutoff-sweep-replaced', '_mpb.SetFloat(CutoffId, Mathf.Lerp(-0.15f, 1f, seg.Fade));', '_mpb.SetFloat(CutoffId, seg.HeldCutoff);', 'visible native wall delivery has multiple decreasing frames and a complete held endpoint', 1),
+            ('historical-noise-uses-square-texels', 'filterMode = FilterMode.Bilinear,', 'filterMode = FilterMode.Point,', 'historical transition keeps its bilinear continuous noise texture', 1),
         ]
         for name, before, after, expected, occurrences in native_changes:
-            binding = delivery if name != 'native-high-bilinear-map' else native_transition
-            assert binding.count(before) == occurrences, 'Native HIGH mutation binding drift: '+name
+            assert delivery.count(before) == occurrences, 'Native historical delivery mutation binding drift: '+name
             variants.append((name,source,expected))
-            if name != 'native-high-bilinear-map': delivery_variants[name] = binding.replace(before,after)
-            else: native_transition_variants[name] = binding.replace(before,after)
+            delivery_variants[name] = delivery.replace(before,after)
     if args.case:
         unknown = set(args.case)-{name for name,_,_ in variants}
         if unknown: raise SystemExit('Unknown selected case: '+', '.join(sorted(unknown)))
@@ -203,7 +200,7 @@ def main():
     (run/'wall-write-bindings.json').write_text(json.dumps({'mpb_writes':wall_writes,'count':len(wall_writes),'contract':'synchronous native source restoration immediately before each actual wall MPB setter; enable primitives and material swaps additionally hooked'},indent=2)+'\n')
     fixture = ROOT/'tests/environment-budget-runtime'
     manifest = {'result':str(run/'results.txt'),'cases':[]}
-    bound_sources = {source_path:source,shader_path:shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,trace_path:trace,occlusion_path:occlusion,native_transition_path:native_transition, dissolve_path:dissolve}
+    bound_sources = {source_path:source,shader_path:shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,trace_path:trace,occlusion_path:occlusion,dissolve_path:dissolve}
     (run/'source-hashes.json').write_text(json.dumps({'root':str(args.source_root.resolve()),'sha256':{str(path):hashlib.sha256(value.encode()).hexdigest() for path,value in bound_sources.items()},'coverage':'partial' if partial else 'production-and-negative-controls','cases':[name for name,_,_ in variants],'limits':['Native scene classes/config and empty wall attachment lists are explicit boundary surrogates.','Complete original wall Apply/EnsureTextures, shared ramp and wall-specific visual clock execute.', 'Original enable/disable subscription bodies and complete draw sampler execute against actual Camera.Render events; Time.frameCount alone is aliased to a deterministic fixture clock. Native scene-loaded bookkeeping is an explicit boundary.','Actual Unity meshes, renderer masks, pixels, cloning and camera callbacks are executed.','Native wall pixels execute GL surrogates of the LOW branch and exact HIGH/toggle-native clip equation derived from original DXBC; HIGH noise is a valid parameterized sample. Windows bytecode, artwork and lighting are not executed.','Native material healer integration is source-bound; its native callbacks are not executed.','Native game scenes, OpenXR HMD images and FPS remain hardware-open.']},indent=2)+'\n')
     (run/'repair-binding.json').write_text(json.dumps({'native-success-order':'sharedMaterials / enabled / MaterialReady / return true','removed-edge-negative-control':'rejected'},indent=2)+'\n')
     dotnet = shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
@@ -215,7 +212,6 @@ def main():
         (production/'WallClock.cs').write_text(clock_variants.get(name,clock))
         (production/'WallDrawTrace.cs').write_text('using Time = GloomhavenVR.Core.WallFixtureClock;\n'+trace_variants.get(name,trace))
         (production/'OcclusionFade.cs').write_text(occlusion)
-        (production/'NativeTransition.cs').write_text(native_transition_variants.get(name,native_transition))
         project = build/'Environment.csproj'; shutil.copyfile(fixture/'Environment.csproj',project)
         assembly = 'EnvironmentBudget_'+name.replace('-','_')
         command = [dotnet,'build',str(project),'-c','Release','--nologo','--verbosity','quiet','-p:CaseName='+assembly,'-p:FixtureDir='+str(fixture),'-p:ProductionDir='+str(production),'-p:UnityManaged='+str(args.unity.parent/'Data/Managed')]

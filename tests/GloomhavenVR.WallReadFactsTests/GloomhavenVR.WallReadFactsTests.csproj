@@ -11,7 +11,6 @@
     <PreparedReadsSource Condition="'$(PreparedReadsSource)' == ''">../../src/GloomhavenVR/Core/WallFade/WallSegmentFade.PreparedReads.cs</PreparedReadsSource>
     <BudgetMaskSource Condition="'$(BudgetMaskSource)' == ''">../../src/GloomhavenVR/Core/WallFade/WallSegmentFade.BudgetMask.cs</BudgetMaskSource>
     <DriverSource Condition="'$(DriverSource)' == ''">../../src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs</DriverSource>
-    <NativeTransitionSource Condition="'$(NativeTransitionSource)' == ''">../../src/GloomhavenVR/Core/WallFade/WallSegmentFade.NativeTransition.cs</NativeTransitionSource>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../src/GloomhavenVR/Core/WallFade/WallCommitGeometryReads.cs" />
@@ -25,6 +24,6 @@
     <Compile Include="$(IntermediateOutputPath)OwnershipReads.g.cs" />
   </ItemGroup>
   <Target Name="ExtractDriverReads" BeforeTargets="BeforeCompile">
-    <Exec Command="python3 &quot;$(MSBuildProjectDirectory)/extract-driver.py&quot; &quot;$(DriverSource)&quot; &quot;$(IntermediateOutputPath)DriverReads.g.cs&quot; &quot;$(MountedSource)&quot; &quot;$(PrepareSource)&quot; &quot;$(NativeTransitionSource)&quot;" />
+    <Exec Command="python3 &quot;$(MSBuildProjectDirectory)/extract-driver.py&quot; &quot;$(DriverSource)&quot; &quot;$(IntermediateOutputPath)DriverReads.g.cs&quot; &quot;$(MountedSource)&quot; &quot;$(PrepareSource)&quot;" />
   </Target>
 </Project>

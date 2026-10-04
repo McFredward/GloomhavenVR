@@ -695,7 +695,12 @@ public static class EnvironmentProgram
             "all environment optimizations off preserve native wall rendering and its authored live material");
     }
 
-    private static void NativeHighRenderedContinuity(bool toggleNative=false,bool mounted=false)
+    // Actual original Apply/DriveNativeProp bodies and historical two textures execute.
+    // This shader is an explicitly bounded GL branch surrogate, not original Windows
+    // bytecode. Different valid simplex samples can have different HIGH pixel curves;
+    // the PC-approved historical delivery is proved without inventing a universal
+    // progressive-area claim for that branch.
+    private static void NativeHighHistoricalDelivery(bool toggleNative=false,bool mounted=false)
     {
         using var room = new Room();
         Shader shader = Shader.Find("Fixture/NativeHighWall");
@@ -703,12 +708,8 @@ public static class EnvironmentProgram
         var material = new Material(shader);
         material.SetColor("_Tint",new Color(.8f,.4f,.2f,1));
         material.SetFloat("_NativeToggleVariant",toggleNative?1f:0f);
-        // Model a suspended native flat producer: the actual map-enable binding
-        // starts disabled, and only the bound production MPB may open it.
-        material.SetFloat("_EnableOcclusionMap",0f);
+        material.SetFloat("_EnableOcclusionMap",0f); // suspended native flat-camera producer
         var wall = room.Surface("NativeHigh.UpperWall",x:1.1f,material:material);
-        // Cover the screen-space native map, rather than a tiny central sample of
-        // the low-frequency rank field, so every coverage step reaches fragments.
         room.Camera.orthographicSize=.55f;
         room.Camera.transform.position=new Vector3(1.1f,8f,0);
         Mesh mesh = wall.GetComponent<MeshFilter>().sharedMesh;
@@ -717,19 +718,8 @@ public static class EnvironmentProgram
         mesh.vertices=vertices;mesh.RecalculateBounds();
         using var fixture = new WallSegmentFade.Fixture(wall);
         fixture.SetHigh(true);
-        fixture.WarmMaps(); fixture.WarmMaps();
-        Check(!wall.HasPropertyBlock(),"prewarming cached native maps never touches a renderer");
-        Check(fixture.KnownShader("Amp_Basic_WallFade")&&fixture.KnownShader("Amp_Basic_N_MRAO")
-            &&fixture.KnownShader("Amp_Basic_N_MRAO(toggle-native)")
-            &&!fixture.KnownShader("Amp_Basic_WallFade_Low")&&!fixture.KnownShader("Amp_Unknown_WallFade"),
-            "only exact native DXBC HIGH branches use the new map delivery");
         void Present(float fade)
-        {
-            // Prop restoration is owned by DriveProp/RestoreProp outside this bound
-            // fragment-delivery method. Its solid endpoint here exercises the rank-0
-            // map; wall restoration executes the complete production Apply method.
-            if(mounted)fixture.PresentMounted(wall,fade); else fixture.Present(fade);
-        }
+        {if(mounted)fixture.PresentMounted(wall,fade);else fixture.Present(fade);}
         string evidence=Environment.GetEnvironmentVariable("GHVR_ENVIRONMENT_EVIDENCE")!;
         string caseName=typeof(EnvironmentProgram).Assembly.GetName().Name+"-"+(toggleNative?"toggle":"high")+(mounted?"-prop":"-wall");
         int Visible(Color32[] pixels)
@@ -746,50 +736,42 @@ public static class EnvironmentProgram
             UnityEngine.Object.DestroyImmediate(image);
         }
         var block = new MaterialPropertyBlock();
-        Present(0);int solid=Visible(room.Render());
-        Capture("solid");
-        Check(solid>20,"original HIGH upper geometry paints before native map transition");
-        int last=solid,changes=0;
-        bool progressiveOut=true,progressiveIn=true,pointRepeat=true,authoredCutoff=true,nativeEnable=true;
-        var outPixels=new List<int>();var inPixels=new List<int>();
-        var identities=new Dictionary<int,int>();
+        Present(0);int solid=Visible(room.Render());Capture("solid");
+        Check(solid>20,"original HIGH upper geometry paints before its historical transition");
+        Texture? noise=null;var outPixels=new List<int>();var inPixels=new List<int>();
         foreach(float fade in new[]{.0625f,.125f,.25f,.375f,.5f,.625f,.75f,.875f,.9375f,.984375f})
         {
-            Present(fade);int visible=Visible(room.Render());wall.GetPropertyBlock(block);
+            Present(fade);int visible=Visible(room.Render());wall.GetPropertyBlock(block);outPixels.Add(visible);
             var map=block.GetTexture(Shader.PropertyToID("_TilesOcclusionMap"));
-            // Retain the complete OUT and IN curves before a causal control fails;
-            // an unchanged early sample alone would not prove an endpoint pop.
-            outPixels.Add(visible);progressiveOut&=visible>0&&visible<last;
-            nativeEnable&=block.GetFloat(Shader.PropertyToID("_EnableOcclusionMap"))==1f;
-            pointRepeat&=map.filterMode==FilterMode.Point&&map.wrapMode==TextureWrapMode.Repeat;
-            authoredCutoff&=block.GetFloat(Shader.PropertyToID("_Cutoff"))==.5f;
+            Check(map!=null&&map.name=="GloomhavenVR.WallFadeNoise"
+                &&map.filterMode==FilterMode.Bilinear&&map.wrapMode==TextureWrapMode.Repeat,
+                "historical transition keeps its bilinear continuous noise texture");
+            Check(Mathf.Abs(block.GetFloat(Shader.PropertyToID("_Cutoff"))-Mathf.Lerp(mounted?-.05f:-.15f,1f,fade))<.00001f,
+                "historical transition keeps its continuous cutoff sweep");
+            Check(block.GetFloat(Shader.PropertyToID("_EnableOcclusionMap"))==1f,
+                mounted?"original mounted prop supplies its actual native map-enable binding":"original wall supplies its actual native map-enable binding");
+            if(noise==null)noise=map;
+            Check(map==noise,"every intermediate frame shares the same historical map without a binary texture bank");
             if(fade==.5f)Capture("mid");
-            if(visible<last)changes++;last=visible;
-            identities[(int)(fade*64)]=map.GetInstanceID();
         }
-        Present(1);int held=Visible(room.Render());
-        Capture("held");
-        outPixels.Add(held);
-        int growing=0;last=0;
+        Present(1);int held=Visible(room.Render());Capture("held");outPixels.Add(held);wall.GetPropertyBlock(block);
+        var heldMap=block.GetTexture(Shader.PropertyToID("_TilesOcclusionMap"));
+        Check(held==0&&heldMap.name=="GloomhavenVR.WallFadeOccluded"
+            &&Mathf.Abs(block.GetFloat(Shader.PropertyToID("_Cutoff"))-.5f)<.00001f,
+            "native held endpoint preserves original authored cutoff and hidden upper geometry");
         foreach(float fade in new[]{.9375f,.75f,.5f,.25f,.125f,.0625f})
         {
-            Present(fade);int visible=Visible(room.Render());wall.GetPropertyBlock(block);
-            inPixels.Add(visible);progressiveIn&=visible>last&&visible<solid;
-            Check(block.GetTexture(Shader.PropertyToID("_TilesOcclusionMap")).GetInstanceID()==identities[(int)(fade*64)],
-                "return reuses unchanged native maps without per-frame texture allocation");
-            if(visible>last&&visible<solid)growing++;last=visible;
+            Present(fade);inPixels.Add(Visible(room.Render()));wall.GetPropertyBlock(block);
+            Check(block.GetTexture(Shader.PropertyToID("_TilesOcclusionMap"))==noise,
+                "return reuses the original continuous map without per-frame texture allocation");
+            Check(Mathf.Abs(block.GetFloat(Shader.PropertyToID("_Cutoff"))-Mathf.Lerp(mounted?-.05f:-.15f,1f,fade))<.00001f,
+                "historical return uses the same continuous cutoff sweep");
         }
-        Present(0);
-        Capture("returned");
-        inPixels.Add(Visible(room.Render()));
-        Check(progressiveOut&&progressiveIn&&held==0&&changes>=8&&growing>=5,
-            "original HIGH branch progressively reveals its native held geometry: OUT="+string.Join(",",outPixels)+"; IN="+string.Join(",",inPixels));
-        Check(nativeEnable,"actual original shader binding pins native map scale independently of global writers");
-        Check(pointRepeat,"native rank map uses exact binary point-filtered texels");
-        Check(authoredCutoff,"native HIGH transition preserves the original authored cutoff");
-        Check(growing>=5&&Visible(room.Render())==solid&&(mounted||!wall.HasPropertyBlock()),"native HIGH solid endpoint restores the unchanged native material and removes only its owned block");
-        // Preserve native foundation with the same native authored geometry, not an
-        // arbitrary wall-height cutoff. Both branches are from the native fragment.
+        Present(0);Capture("returned");inPixels.Add(Visible(room.Render()));
+        System.IO.File.WriteAllText(System.IO.Path.Combine(evidence,caseName+"-curve.txt"),
+            "OUT="+string.Join(",",outPixels)+"; IN="+string.Join(",",inPixels)+"\n");
+        Check(Visible(room.Render())==solid&&(mounted||!wall.HasPropertyBlock()),
+            "native solid endpoint restores the unchanged original material and removes its owned wall block");
         vertices=mesh.vertices;for(int i=0;i<vertices.Length;i++)vertices[i].y=0;
         mesh.vertices=vertices;mesh.RecalculateBounds();
         Present(0);int foundation=Visible(room.Render());
@@ -967,10 +949,11 @@ public static class EnvironmentProgram
         try
         {
             PresentationPreparationVisibility(); ScopeAndMaterials(); AmbientScopes(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault(); StructuralChunks(); NativeWallChannelsAndRenderedClock();
-            NativeHighRenderedContinuity();
-        NativeHighRenderedContinuity(toggleNative:true);
-        NativeHighRenderedContinuity(mounted:true);
-        NativeHighRenderedContinuity(toggleNative:true,mounted:true); WallDrawDeliveryTrace();
+            NativeHighHistoricalDelivery();
+            NativeHighHistoricalDelivery(toggleNative:true);
+            NativeHighHistoricalDelivery(mounted:true);
+            NativeHighHistoricalDelivery(toggleNative:true,mounted:true);
+            WallDrawDeliveryTrace();
             return count;
         }
         finally { Application.logMessageReceived -= EngineMessage; }

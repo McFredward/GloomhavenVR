@@ -200,7 +200,7 @@ namespace GloomhavenVR.Core
                 internal Renderer Renderer = null!;
                 internal bool Driven;
             }
-            private sealed partial class Segment
+            private sealed class Segment
             {
                 internal readonly List<MeshRenderer> PrevRenderers = new();
                 internal readonly HashSet<MeshRenderer> PrevRendererSet = new();
@@ -576,8 +576,6 @@ namespace GloomhavenVR.Core
                         "Repeated shared material slots still count and donate per occurrence");
                     Check(_donors.Count == previousDonors + 2 && _donors[^1] == runtime,
                         "Template donation must still run for every eligible material occurrence");
-                    Check(!multi.NativeHighTransition,
-                        "A mixed native and unverified material set cannot enter the native HIGH transition");
                     Check(multi.HeldCutoff == 0.4f && multi.ShaderNames == "Amp_Basic(toggle-native)+Amp_WallFade_Low+Amp_WallFade_High",
                         "Material ordering, first cutoff and shader-name order must stay identical");
                     var noProperty = new Segment();
@@ -590,27 +588,6 @@ namespace GloomhavenVR.Core
                     Check(CollectWallFadeInfo(standing, new Segment(), true), "Figure-only foliage rule must preserve floor-arm exception");
                     standing.StandingFigure = true;
                     Check(!CollectWallFadeInfo(standing, new Segment(), true), "Figure-arm exception must never admit a figure");
-                    var nativeHigh = Mat("Amp_Basic_WallFade", 0.3f);
-                    var nativeToggle = Mat("Amp_Basic_N_MRAO", 0.3f, WallFadeOnMatId);
-                    var unverified = Mat("Amp_Basic_Themed", 0.3f, WallFadeOnMatId);
-                    var nativeSegment = new Segment();
-                    Check(nativeSegment.NativeHighTransition,
-                        "The actual production segment initializer starts a native HIGH candidate");
-                    Check(CollectWallFadeInfo(Renderer(nativeHigh, nativeToggle), nativeSegment)
-                        && nativeSegment.NativeHighTransition && nativeSegment.VariantHigh,
-                        "Both verified native HIGH and cached toggle diagnostic suffix retain the exact branch");
-                    var repeatedNative = new Segment();
-                    Check(CollectWallFadeInfo(Renderer(nativeToggle), repeatedNative)
-                        && repeatedNative.NativeHighTransition && repeatedNative.ShaderNames == "Amp_Basic_N_MRAO(toggle-native)",
-                        "Repeated native toggle material facts keep the verified transition discriminator");
-                    Check(CollectWallFadeInfo(Renderer(unverified), nativeSegment) && !nativeSegment.NativeHighTransition,
-                        "An unverified themed toggle material permanently rejects the native HIGH branch for this segment");
-                    Check(CollectWallFadeInfo(Renderer(nativeHigh), nativeSegment) && !nativeSegment.NativeHighTransition,
-                        "A later verified slot cannot erase an earlier unverified material veto");
-                    var lowSegment = new Segment();
-                    Check(CollectWallFadeInfo(Renderer(Mat("Amp_Basic_WallFade_Low", 0.3f)), lowSegment)
-                        && lowSegment.VariantLow && !lowSegment.NativeHighTransition,
-                        "Native LOW admission keeps the original continuous transition route");
                     if (cache) EndWallCacheMaterialFacts();
                 }
                 var common = Mat("Amp_Basic", 0.25f, WallFadeOnMatId);

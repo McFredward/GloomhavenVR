@@ -203,7 +203,6 @@ internal static partial class WallSegmentFade
                         CaptureMasonryTemplate(m); // late-donor: props may beat the walls to it
                     p.SwapChecked = true;
                     p.NativeFade = true;
-                    p.NativeHighTransition = NativeHighTransitionMaterials(_matScratch);
                     p.DissolveWhy = null;
                     _nativeTotal++;
                     return;
@@ -249,7 +248,6 @@ internal static partial class WallSegmentFade
                 // property block.
                 p.SwapChecked = true;
                 p.NativeFade = true;
-                p.NativeHighTransition = NativeHighTransitionMaterials(_matScratch);
                 p.DissolveWhy = null;
                 _nativeTotal++;
                 return;
@@ -304,8 +302,6 @@ internal static partial class WallSegmentFade
             p.SwapOwned = owned;
             p.SwapChecked = true;
             p.NativeFade = true; // driven by the same native ramp
-            _matScratch.Clear(); _matScratch.AddRange(copies);
-            p.NativeHighTransition = NativeHighTransitionMaterials(_matScratch);
             p.DissolveWhy = null;
             ScenarioEnvironmentBudget.BeforeNativeRendererWrite(mr);
             mr.sharedMaterials = copies;
@@ -380,9 +376,8 @@ internal static partial class WallSegmentFade
         /// <see cref="MountedProp.NativeFade"/> is set — natively-toggled materials as well as
         /// swapped copies). Identical math to <c>Apply</c>'s wall path: the held occlusion map
         /// (r=1,a=0 ⇒ map term 0) with the piece's AUTHORED Mask Clip Value at fade 1, and the
-        /// verified HIGH branch progressively supplies native solid/held texels, preserving
-        /// the authored cutoff. Other routes keep their noise/cutoff sweep. Both use opaque
-        /// per-pixel clip (no alpha blending — MR chroma-key ruling).
+        /// noise map with a swept <c>_Cutoff</c> during the transition — an opaque per-pixel
+        /// clip dissolve (no alpha blending — MR chroma-key ruling).
         /// </summary>
         private void DriveNativeProp(MountedProp p, float fade)
         {
@@ -394,13 +389,7 @@ internal static partial class WallSegmentFade
             _mountedMpb.SetFloat(ToggleWallfadeMatId, 1f);
             _mountedMpb.SetFloat(NativeMapEnableId, 1f);
             _mountedMpb.SetFloat(WallFadeOnMatId, 1f);
-            if (p.NativeHighTransition && fade < 1f)
-            {
-                _mountedMpb.SetTexture(TilesOcclusionMapId, NativeTransitionMap(fade));
-                _mountedMpb.SetFloat(CutoffId,
-                    p.CutoffId >= 0 ? Mathf.Clamp(p.BaseCutoff, 0.05f, 0.95f) : 0.5f);
-            }
-            else if (fade >= 1f)
+            if (fade >= 1f)
             {
                 _mountedMpb.SetTexture(TilesOcclusionMapId, _occludedTex!);
                 // The piece's own authored clip value, clamped exactly like a wall's
@@ -425,7 +414,6 @@ internal static partial class WallSegmentFade
         private static void RestorePropSwap(MountedProp p, Renderer? r)
         {
             p.NativeFade = false;
-            p.NativeHighTransition = false;
             p.DissolveWhy = null;
             if (p.SwapCopies == null)
             {

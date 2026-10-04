@@ -88,7 +88,6 @@ if '--ownership-only' in sys.argv:
     pathlib.Path(sys.argv[2]).write_text(text)
     sys.exit(0)
 
-native_transition_source = pathlib.Path(sys.argv[5]).read_text() if len(sys.argv) > 5 else consumer_root.joinpath('WallSegmentFade.NativeTransition.cs').read_text()
 text = '''#nullable enable
 using System;
 using System.Collections.Generic;
@@ -99,11 +98,6 @@ internal static partial class WallSegmentFade
     private sealed partial class FadeDriver
     {
 '''
-text += expression('        private static bool NativeHighTransitionShaderName(', native_transition_source) + '\n'
-# Keep the actual default, rather than inventing a fixture value that could silently
-# change which native shader branch the real material consumer admits.
-text += '        private sealed partial class Segment\n        {\n'
-text += expression('        public bool NativeHighTransition') + '\n        }\n'
 for signature in ('        private readonly struct ShaderFadeName',
                   '        private ShaderFadeName FadeNameOf(',
                   '        private static bool HasLiveWallFadeToggle(',
