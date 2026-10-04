@@ -18,6 +18,17 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm", ".ogv"}
 SERIALIZED_EXTENSIONS = {".unity", ".prefab", ".asset", ".mat", ".controller", ".overrideController", ".anim", ".playable", ".meta"}
 
 
+def stage_startup_script_orders(project: Path, game: Path, source: Path, cache: Path, dotnet: Path) -> dict:
+    """Restore original importer orders before Unity import or DLL weaving.
+
+    Run after recovered SDK DLL exclusion. The editor then verifies/restores
+    actual imported MonoScripts after QuestOriginalScriptBindings remapping.
+    Kept lazy so importing the hardware installer does not invoke build tools.
+    """
+    from script_order import stage_script_orders
+    return stage_script_orders(project, game, source, cache, dotnet)
+
+
 def inspect_project(root: Path, game_key: str, game_files: list[dict], *, snapshot_receipt: bool = False) -> dict:
     """Accept only the declared original closure and bytes of this owned installation."""
     root = root.resolve()
