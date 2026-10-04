@@ -33,6 +33,28 @@ namespace GloomhavenVR.Quest
                     + " layer=" + canvas.gameObject.layer + " order=" + canvas.sortingOrder);
                 if (++count >= 6) break;
             }
+            // One Debug observation per native scene, never a recurring sweep.
+            // A recovered blur placeholder is not proof that hidden UI draws.
+            var graphics = new List<UnityEngine.UI.Graphic>();
+            var scratch = new List<UnityEngine.UI.Graphic>();
+            new QuestSceneObjects(GloomhavenVR.Core.QuestStandalonePlatform.HeadCamera).Collect(graphics, scratch);
+            count = 0;
+            foreach (var graphic in graphics)
+            {
+                if (graphic == null) continue;
+                Material authored = graphic.material;
+                if (authored == null || authored.shader == null || authored.shader.name != "Custom/SimpleGrabPassBlur") continue;
+                CanvasRenderer ui = graphic.canvasRenderer;
+                Material rendered = ui.materialCount > 0 ? ui.GetMaterial(0) : null;
+                Debug.Log("[Quest startup] presentation blur scene=" + scene + " object=" + graphic.name
+                    + " parent=" + (graphic.transform.parent != null ? graphic.transform.parent.name : "none")
+                    + " active=" + graphic.gameObject.activeInHierarchy + " enabled=" + graphic.enabled
+                    + " culled=" + ui.cull + " cullTransparentMesh=" + ui.cullTransparentMesh
+                    + " vertexAlpha=" + graphic.color.a + " rendererAlpha=" + ui.GetAlpha()
+                    + " inheritedAlpha=" + ui.GetInheritedAlpha() + " material=" + authored.name
+                    + " renderedShader=" + (rendered != null && rendered.shader != null ? rendered.shader.name : "none"));
+                if (++count >= 4) break;
+            }
             count = 0;
             foreach (var renderer in Resources.FindObjectsOfTypeAll<Renderer>())
             {

@@ -75,6 +75,21 @@ Android crossplay. Owned Jaws of the Lion and Solo Scenarios selection remains;
 actual DLC startup asset recovery and genuine GOG/Epic ownership fixtures remain
 separate recorded work in B620/B619 notes.
 
+## Native UI blur follow-up
+
+Read-only scene/material tracing identifies an authentic `UI_Blur` material on
+MainMenu's right-side Close Area, referring to an unrecovered
+`Custom/SimpleGrabPassBlur` shader. Its original bank contains three Grab/Draw pairs
+and five distinct D3D11 programs, without a GLES bank. The original shader also
+ignores UI vertex color, so absent vertex alpha is not established as a port defect.
+The native window begins Hidden but remains active; whether its CanvasRenderer
+actually draws is an unanswered runtime question. B621 records bounded actual
+material/culling/alpha observations and separate UI/glass/right-center pixel data.
+Do not replace the shader with a guessed blur or alter native visibility. A faithful
+follow-up needs the original five programs, constants, render states and real UI
+GrabPass/capture pixel validation. This candidate does not claim that recovery or
+attribute the grey image to a material that might be culled.
+
 ## Hardware run
 
 1. Extract the complete Windows archive and run `Install-Quest.cmd`; confirm
