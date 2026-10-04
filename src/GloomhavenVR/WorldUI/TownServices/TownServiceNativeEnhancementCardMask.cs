@@ -10,6 +10,19 @@ namespace GloomhavenVR.WorldUI;
 internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
 {
     private static TownServiceNativeEnhancementCardMask? _active;
+    // Read the game's flat world-Z step before moving its parent into the
+    // actual card's plane. This retains its phase even during a tilted card's
+    // release-to-palm settle; RefreshCurrent then fits the final physical size.
+    internal static void PrepareCurrentPlacement()
+    {
+        TownServiceNativeEnhancementCardMask? mask = _active;
+        if (mask != null && mask._masked) mask.CaptureNativeAuraRotation();
+    }
+    internal static void RefreshCurrent()
+    {
+        TownServiceNativeEnhancementCardMask? mask = _active;
+        if (mask != null && mask._masked) mask.AlignNativeEffects();
+    }
     private readonly List<Graphic> _art = new();
     private readonly List<bool> _wasEnabled = new();
     private readonly List<Graphic> _frameGraphics = new();
@@ -23,6 +36,8 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
     private Quaternion _auraOriginalRotation;
     private Quaternion _lastCorrectedAuraRotation;
     private Quaternion _nativeAuraRotation;
+    private Quaternion _capturedAuraRotation;
+    private bool _phaseCaptured;
     private Vector3 _lastCorrectedAuraScale;
     private bool _hasCorrectedAura;
     private bool _mappedPhysicalCard;
@@ -177,6 +192,7 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
         _nativeFrame = null;
         _aura = _auraBuy = _auraSell = _highlighterRect = null;
         _hasCorrectedAura = false;
+        _phaseCaptured = false;
         _mappedPhysicalCard = false;
         _lastPhysicalCardHeight = 0f;
         _auraGraphics.Clear();
@@ -238,7 +254,16 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
         Transform parent = _aura.parent;
         if (!_hasCorrectedAura
             || Quaternion.Angle(_aura.localRotation, _lastCorrectedAuraRotation) > .05f)
-            _nativeAuraRotation = _aura.localRotation;
+        {
+            // UIEnchantressEffect.Rotate writes WORLD eulerAngles=(0,0,phase)
+            // on every LeanTween step. Its flat-screen basis is not the palm
+            // card's basis. Reading local Euler Z from inverse card yaw mixed
+            // those spaces and left the published ring sideways after native
+            // Update. Keep the native world-Z clock as a local planar rotation;
+            // RefreshCurrent also runs after final card placement, before sync.
+            if (!_phaseCaptured || Quaternion.Angle(_aura.localRotation, _capturedAuraRotation) > .05f)
+                CaptureNativeAuraRotation();
+        }
         Vector3 basisRight = parent.TransformVector(Vector3.right);
         Vector3 basisUp = parent.TransformVector(Vector3.up);
         float gxx = Vector3.Dot(basisRight, basisRight);
@@ -268,6 +293,7 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
         _lastCorrectedAuraScale = _aura.localScale;
         _lastCorrectedAuraRotation = correctedRotation;
         _hasCorrectedAura = true;
+        _phaseCaptured = false;
         _mappedPhysicalCard = physicalNow;
         _lastPhysicalCardHeight = cardHeight;
 
@@ -283,6 +309,15 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
         inkScale.x *= Mathf.Clamp(diameter / width, .025f, 40f);
         inkScale.y *= Mathf.Clamp(diameter / height, .025f, 40f);
         ink.localScale = inkScale;
+    }
+
+    private void CaptureNativeAuraRotation()
+    {
+        if (_aura == null || _hasCorrectedAura
+            && Quaternion.Angle(_aura.localRotation, _lastCorrectedAuraRotation) <= .05f) return;
+        _nativeAuraRotation = Quaternion.Euler(0f, 0f, _aura.rotation.eulerAngles.z);
+        _capturedAuraRotation = _aura.localRotation;
+        _phaseCaptured = true;
     }
 
     private RectTransform? ActiveAuraInk()

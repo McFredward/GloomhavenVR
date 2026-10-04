@@ -159,6 +159,18 @@ def check_laser_bridge(root):
 def mutations():
     name = "TownServiceEnhancementHandoff.cs"
     return [
+        ("native-world-z-phase", "TownServiceNativeEnhancementCardMask.cs",
+         "_aura.rotation.eulerAngles.z", "_aura.localRotation.eulerAngles.z",
+         "native world-Z animation keeps its original phase in the moving card plane"),
+        ("offered-card-presentation-home", name,
+         "Transform drawn = Card != null ? Card.transform : _seat;", "Transform drawn = _seat;",
+         "native world-Z tween follows the exact offered-card position and normal before publication"),
+        ("late-native-card-placement", name,
+         "if (surface.Id == 11) surface.Tick(Vector3.zero, Quaternion.identity, 1f);", "if (surface.Id == 11) { }",
+         "native world-Z tween follows the exact offered-card position and normal before publication"),
+        ("late-native-aura-correction", name,
+         "TownServiceNativeEnhancementCardMask.RefreshCurrent();", "/* omit late correction */",
+         "native world-Z tween follows the exact offered-card position and normal before publication"),
         ("native-cancel-release", name, "owner.Return();\n                }", "/* retain old offering */\n                }", "original native cancellation runs once and retires the exact parked card and selection"),
         ("native-cancel-callback", name, "try { original?.Invoke(); }", "try { /* omit native cancellation */ }", "original native cancellation runs once and retires the exact parked card and selection"),
         ("native-cancel-reservation", name, "TownServiceMirror.SetLocalTransactionActive(3, false);", "/* leave reservation active */", "native cancellation immediately releases the physical resident reservation"),

@@ -210,6 +210,9 @@ namespace GloomhavenVR.WorldUI
     {
         public ushort Id;
         public ConvertedPanel Panel = new();
+        public Action? Place;
+        public int Placements;
+        public void Tick(Vector3 origin, Quaternion yaw, float scale) { Placements++; Place?.Invoke(); }
     }
     internal sealed class ConvertedPanel { public Canvas? HostCanvas; }
     internal sealed class TownServiceRitual

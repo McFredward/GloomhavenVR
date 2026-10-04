@@ -243,6 +243,30 @@ public static class InteractionProgram
             Check(SquareInWorld((RectTransform)ink.transform)
                 && Mathf.Abs(Diameter((RectTransform)ink.transform) - diameter * .7f) < .002f,
                 "later native aura pulse remains visible at the physical card's scale");
+
+            // Reproduce the real UIEnchantressEffect tween, which assigns WORLD
+            // Euler Z rather than local rotation. The old fixture only varied
+            // local X/Y scale under a planar parent and could not catch this.
+            var surface = new TownServiceSurface { Id = 11 };
+            surface.Place = () => highlighter.transform.SetPositionAndRotation(
+                handoff.Seat.position, handoff.Seat.rotation);
+            TownServicePresentation.Ritual = new TownServiceRitual { Handoff = handoff };
+            TownServicePresentation.Ritual.Surfaces.Add(surface);
+            for (int i = 0; i < 4; i++)
+            {
+                card.transform.SetPositionAndRotation(new Vector3(.25f + i * .1f, .4f, -.3f),
+                    Quaternion.Euler(16f, 38f + i * 41f, 12f));
+                aura.transform.eulerAngles = new Vector3(0f, 0f, 27f + i * 33f);
+                handoff.LateTick();
+                Check(Vector3.Distance(highlighter.transform.position, card.transform.position) < .00001f
+                    && Vector3.Dot(ink.transform.forward, card.transform.forward) > .9999f,
+                    "native world-Z tween follows the exact offered-card position and normal before publication");
+                Check(Mathf.Abs(Mathf.DeltaAngle(aura.transform.localEulerAngles.z, 27f + i * 33f)) < .01f,
+                    "native world-Z animation keeps its original phase in the moving card plane");
+            }
+            Check(surface.Placements == 4,
+                "original ability hotspots are placed after the final offered-card sample");
+            TownServicePresentation.Ritual = null;
         }
         UnityEngine.Object.DestroyImmediate(fixture);
     }

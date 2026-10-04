@@ -147,6 +147,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private readonly Func<bool> _alive;
     private readonly Func<bool> _input;
     private readonly Transform _seat;
+    private readonly Transform _presentationSeat;
+    private readonly float _presentationCardHeight;
     private readonly CanvasGroup _zoneGate;
     private readonly TMP_Text _zoneLabel;
     private readonly TownServiceOfferFeedback _feedback;
@@ -163,11 +165,12 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         && Time.unscaledTime - _cueHiddenSince >= 3f;
     private float _offeredHeight;
     internal VRCard? Card { get; private set; }
+    internal int OfferedCardId => _model?.ID ?? -1;
     internal AbilityCardUI? NativeSource { get; private set; }
     internal AbilityCardUI? NativeHighlightedCard => _shop != null ? _shop.cardHolder.Card : null;
     internal UIEnhanceCardSlot? NativeSlot { get; private set; }
     internal Transform Zone { get; }
-    internal Transform Seat => _seat;
+    internal Transform Seat => _presentationSeat;
     internal Transform? Face => Card != null ? Card.GetComponentInChildren<FullAbilityCard>(true)?.transform : null;
 
     internal TownServiceEnhancementHandoff(UINewEnhancementWindow shop, Transform station,
@@ -177,6 +180,10 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         _current?.Dispose();
         _seat = new GameObject("GloomhavenVR.TownService.OfferingPalm").transform;
         _seat.SetParent(station, false);
+        _presentationSeat = new GameObject("GloomhavenVR.TownService.OfferingCardPresentation").transform;
+        _presentationSeat.SetParent(station, false);
+        _presentationCardHeight = CardsConfig.CardHeight * CardsConfig.InspectScale.Value
+            * (VRHands.Primary?.WorldScale ?? Mathf.Abs(station.lossyScale.x));
         Zone = TownServiceMerchantZone.CreateTemplate(shop.GetComponentInChildren<TMP_Text>(true)).transform;
         Zone.SetParent(_seat, false); Zone.localPosition = Vector3.zero; Zone.localRotation = Quaternion.identity;
         ((RectTransform)Zone).sizeDelta = new Vector2(170f, 240f);
@@ -527,6 +534,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             TownServiceOfferingPose.Place(_seat, _palm, _station, TownServicePresentation.SessionAge, _offeredHeight * .5f);
             // Authored activity markers carry station units, not imported bone scale.
             _seat.localScale = Vector3.one;
+            RefreshPresentationSeat();
         }
         bool ready = Ready, hasPalm = _palm != null;
         VRCard? leftHeld = VRHands.Left?.Grabber.Held as VRCard;
@@ -664,7 +672,30 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     internal void LateTick()
     {
         if (!_disposed && _palm != null)
+        {
             TownServiceOfferingPose.Place(_seat, _palm, _station, TownServicePresentation.SessionAge, _offeredHeight * .5f);
+            TownServiceNativeEnhancementCardMask.PrepareCurrentPlacement();
+            RefreshPresentationSeat();
+            TownServiceRitual? ritual = TownServicePresentation.Ritual;
+            if (ritual != null && ReferenceEquals(ritual.Handoff, this))
+                foreach (TownServiceSurface surface in ritual.Surfaces)
+                    if (surface.Id == 11) surface.Tick(Vector3.zero, Quaternion.identity, 1f);
+            TownServiceNativeEnhancementCardMask.RefreshCurrent();
+        }
+    }
+
+    private void RefreshPresentationSeat()
+    {
+        // Build620's actual card eases towards its palm home, while the native
+        // holder previously followed that home immediately. It also moved only in
+        // Tick, before the final tracked-head/palm sample. Follow the drawn card's
+        // actual intermediate pose and size, and place its original hotspots again
+        // before publication; observers receive the same author, never their head.
+        Transform drawn = Card != null ? Card.transform : _seat;
+        _presentationSeat.SetPositionAndRotation(drawn.position, drawn.rotation);
+        float ratio = Card != null && _presentationCardHeight > .0001f
+            ? CardsConfig.CardHeight * Mathf.Abs(drawn.lossyScale.x) / _presentationCardHeight : 1f;
+        _presentationSeat.localScale = Vector3.one * ratio;
     }
 
     private bool ValidOwner(VRCard card) => MapRoomHand.TryOwnedTownCard(card, out var owner, out _)
@@ -823,6 +854,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         card.SetHandPopSuppressed(false);
         card.ResetColliderRegion();
         card.Grabbable = true; card.InspectOnly = true; card.AllowsGateHand = true;
+        RefreshPresentationSeat();
     }
 
     private bool ParkAwaitingClaim(VRCard card, CAbilityCard model, UIEnhanceCardSlot slot)
@@ -937,6 +969,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         Return(); _disposed = true;
         if (ReferenceEquals(_current, this)) _current = null;
         if (_seat != null) UnityEngine.Object.Destroy(_seat.gameObject);
+        if (_presentationSeat != null) UnityEngine.Object.Destroy(_presentationSeat.gameObject);
     }
 }
 
