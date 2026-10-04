@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEditor.Rendering;
 using UnityEngine;
@@ -56,11 +57,11 @@ namespace GloomhavenVR.Quest.Editor
             public string message, details, file, severity, platform;
             public int line;
         }
-        [Serializable] public sealed class CompiledStage
+        [Serializable] public sealed class CompiledProgram
         {
-            public int passIndex, compiledBytes;
-            public string stage, sha256;
-            public bool success;
+            public int passIndex, compiledBytes, vertexSectionBytes, fragmentSectionBytes;
+            public string sha256, vertexSectionSha256, fragmentSectionSha256;
+            public bool success, vertexSectionVerified, fragmentSectionVerified;
             public CompilerMessage[] messages;
         }
         [Serializable] public sealed class ValidatedAsset
@@ -71,13 +72,14 @@ namespace GloomhavenVR.Quest.Editor
             public int importedSubshaderCount, importedPassCount;
             public bool shaderHasError;
             public CompilerMessage[] messages;
-            public CompiledStage[] glesStages;
+            public CompiledProgram[] glesPrograms;
         }
         [Serializable] public sealed class ValidationReceipt
         {
             public int schema = 1;
             public string unityVersion, sourceReceiptSha256, activeBuildTarget, compilerPlatform;
             public bool androidAssetsBuilt, allImportedAssetsVerified, allGlesPassStagesCompiled;
+            public int combinedProgramCount, compiledStageSections;
             public bool originalPixelParityVerified;
             public ValidatedAsset[] shaders;
         }
@@ -139,30 +141,33 @@ namespace GloomhavenVR.Quest.Editor
                 if (subshader == null || subshader.PassCount != expected.passes)
                     throw new InvalidOperationException("Imported post-effect pass count differs: " + expected.name);
                 RejectErrors(shader, expected.name);
-                var stages = new List<CompiledStage>();
+                var programs = new List<CompiledProgram>();
                 if (androidAssetsBuilt)
                 {
-                    // Ask the actual Unity Android shader compiler for every original
-                    // pass, rather than inferring successful GLES output from an empty
-                    // cached message list. Both shader stages are used by all 18 passes.
+                    // GLES3x's Vertex request contains the complete program; an
+                    // independent Fragment request succeeds with empty bytecode.
+                    // Verify both genuine emitted sections, not just API success.
+                    // https://docs.unity3d.com/2021.2/Documentation/ScriptReference/ShaderData.Pass.CompileVariant.html
                     for (int index = 0; index < expected.passes; ++index)
                     {
                         var pass = subshader.GetPass(index);
-                        if (pass == null)
-                            throw new InvalidOperationException("Imported post-effect pass is missing: " + expected.name + " " + index);
-                        foreach (var stage in new[] { ShaderType.Vertex, ShaderType.Fragment })
-                        {
-                            var compiled = pass.CompileVariant(stage, new string[0], ShaderCompilerPlatform.GLES3x, BuildTarget.Android);
-                            var messages = Messages(compiled.Messages);
-                            if (!compiled.Success || compiled.ShaderData == null || compiled.ShaderData.Length == 0 ||
-                                messages.Any(message => message.severity == ShaderCompilerMessageSeverity.Error.ToString()))
-                                throw new InvalidOperationException("Android post-effect compilation failed: " + expected.name +
-                                    " pass=" + index + " stage=" + stage + " " + Describe(messages));
-                            stages.Add(new CompiledStage {
-                                passIndex = index, stage = stage.ToString(), success = true,
-                                compiledBytes = compiled.ShaderData.Length, sha256 = Hash(compiled.ShaderData), messages = messages
-                            });
-                        }
+                        if (pass == null || !pass.HasShaderStage(ShaderType.Vertex) || !pass.HasShaderStage(ShaderType.Fragment))
+                            throw new InvalidOperationException("Imported post-effect stage is missing: " + expected.name + " " + index);
+                        var compiled = pass.CompileVariant(ShaderType.Vertex, new string[0], ShaderCompilerPlatform.GLES3x, BuildTarget.Android);
+                        var messages = Messages(compiled.Messages);
+                        if (!compiled.Success || compiled.ShaderData == null || compiled.ShaderData.Length == 0 ||
+                            messages.Any(message => message.severity == ShaderCompilerMessageSeverity.Error.ToString()))
+                            throw new InvalidOperationException("Android post-effect compilation failed: " + expected.name +
+                                " pass=" + index + " " + Describe(messages));
+                        var sections = VerifiedGlesSections(compiled.ShaderData, expected.name, index);
+                        byte[] vertex = Encoding.UTF8.GetBytes(sections[0]), fragment = Encoding.UTF8.GetBytes(sections[1]);
+                        programs.Add(new CompiledProgram {
+                            passIndex = index, success = true, compiledBytes = compiled.ShaderData.Length,
+                            sha256 = Hash(compiled.ShaderData), messages = messages,
+                            vertexSectionVerified = true, fragmentSectionVerified = true,
+                            vertexSectionBytes = vertex.Length, fragmentSectionBytes = fragment.Length,
+                            vertexSectionSha256 = Hash(vertex), fragmentSectionSha256 = Hash(fragment)
+                        });
                     }
                 }
                 RejectErrors(shader, expected.name);
@@ -172,14 +177,17 @@ namespace GloomhavenVR.Quest.Editor
                     unityObjectToClipPosUpgradeApplied = importedSha256 == expected.upgradeSha256,
                     importedSubshaderCount = data.SubshaderCount,
                     importedPassCount = subshader.PassCount, shaderHasError = false,
-                    messages = Messages(ShaderUtil.GetShaderMessages(shader)), glesStages = stages.ToArray()
+                    messages = Messages(ShaderUtil.GetShaderMessages(shader)), glesPrograms = programs.ToArray()
                 });
             }
             var receipt = new ValidationReceipt {
                 unityVersion = Application.unityVersion, sourceReceiptSha256 = Hash(inputBytes),
                 activeBuildTarget = BuildTarget.Android.ToString(), compilerPlatform = ShaderCompilerPlatform.GLES3x.ToString(),
                 androidAssetsBuilt = androidAssetsBuilt, allImportedAssetsVerified = true,
-                allGlesPassStagesCompiled = androidAssetsBuilt, originalPixelParityVerified = false, shaders = results.ToArray()
+                allGlesPassStagesCompiled = androidAssetsBuilt,
+                combinedProgramCount = results.Sum(result => result.glesPrograms.Length),
+                compiledStageSections = results.Sum(result => result.glesPrograms.Length) * 2,
+                originalPixelParityVerified = false, shaders = results.ToArray()
             };
             Directory.CreateDirectory(Path.GetDirectoryName(ReceiptPath));
             string temporary = ReceiptPath + ".tmp-" + Guid.NewGuid().ToString("N");
@@ -190,7 +198,23 @@ namespace GloomhavenVR.Quest.Editor
             }
             finally { if (File.Exists(temporary)) File.Delete(temporary); }
             Debug.Log("[GloomhavenVR Quest] original Bloom shaders verified: passes=11/2/5, GLES stages=" +
-                (androidAssetsBuilt ? "36 compiled" : "pending Android assets build"));
+                (androidAssetsBuilt ? "18 combined programs / 36 verified sections" : "pending Android assets build"));
+        }
+
+        private static string[] VerifiedGlesSections(byte[] bytes, string name, int pass)
+        {
+            string code = new UTF8Encoding(false, true).GetString(bytes);
+            var match = Regex.Match(code, @"\A#ifdef VERTEX\n(.*?)\n#endif\n#ifdef FRAGMENT\n(.*?)\n#endif\n*\z", RegexOptions.Singleline);
+            if (!match.Success)
+                throw new InvalidOperationException("Android post-effect combined GLES program is incomplete: " + name + " " + pass);
+            string vertex = match.Groups[1].Value, fragment = match.Groups[2].Value;
+            foreach (string section in new[] { vertex, fragment })
+                if (!section.StartsWith("#version 300 es\n", StringComparison.Ordinal) ||
+                    !Regex.IsMatch(section, @"\bvoid\s+main\s*\(\s*\)"))
+                    throw new InvalidOperationException("Android post-effect GLSL300 stage is missing: " + name + " " + pass);
+            if (!Regex.IsMatch(vertex, @"\bgl_Position\b") || !Regex.IsMatch(fragment, @"\bSV_Target0\b"))
+                throw new InvalidOperationException("Android post-effect GLSL stage output is missing: " + name + " " + pass);
+            return new[] { vertex, fragment };
         }
 
         private static void RejectErrors(Shader shader, string name)

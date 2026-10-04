@@ -7,6 +7,8 @@ import io
 import json
 from pathlib import Path
 import shutil
+import re
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -194,6 +196,28 @@ def run_tests(root):
     return {'assertions': CHECKS, 'sourceAssetsRedistributed': False, 'unityLaunched': False}
 
 
+def run_gles_parser(root):
+    source = (ROOT / 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestPostEffectValidation.cs').read_text()
+    parser = re.search(r'        private static string\[\] VerifiedGlesSections\(.*?(?=\n        private static void RejectErrors)', source, re.S)
+    if parser is None:
+        raise AssertionError('production combined GLES parser seam changed')
+    case = root / 'gles-parser'
+    case.mkdir()
+    (case / 'Parser.cs').write_text('using System;\nusing System.Text;\nusing System.Text.RegularExpressions;\npublic static class Parser {\n' +
+                                  parser[0].replace('private static', 'public static', 1) + '\n}\n')
+    shutil.copyfile(ROOT / 'tests/QuestPostEffectSources.Tests/GlesProgramChecks.cs', case / 'Program.cs')
+    (case / 'GlesParser.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework>'
+                                          '<OutputType>Exe</OutputType><Nullable>disable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>'
+                                          '</PropertyGroup></Project>')
+    dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
+    result = subprocess.run([dotnet, 'run', '--project', str(case / 'GlesParser.csproj'), '-c', 'Release'],
+                            text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if result.returncode != 0:
+        raise AssertionError('production combined GLES parser failed: ' + result.stdout)
+    check('positive + 7 failure controls' in result.stdout, 'production combined shader parser positive and negative controls')
+    return {'productionParserPassed': True, 'failureControls': 7}
+
+
 def run_private(root, installer, recovered):
     shaders._require(installer, shaders.SOURCE_SHA256, shaders.SOURCE_BYTES)
     package = root / 'Effects.unitypackage'
@@ -236,6 +260,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='quest-post-effects-') as temporary:
         root = Path(temporary)
         proof = run_tests(root)
+        proof['glesCombinedParser'] = run_gles_parser(root)
         if args.official_installer:
             proof['officialSourceProof'] = run_private(root, args.official_installer, args.recovered_project)
         if args.proof:
