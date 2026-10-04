@@ -70,9 +70,26 @@ introduced. See [the feature contract](../design/WRIST-BOARD.md).
 Focused worker proofs cover the production classifier, real Unity renderer and
 collider restoration, live controller changes, actual arch attachment and sticky
 fade restitution, original board lifecycle, options and owner/observer state.
-The integration ledger records the complete final local attempt, source gates,
-wire goldens, strict build, surfaces and compiled review. Isolated fixture failures
-retain their original evidence and resume only their affected scope. The patch
+The complete integrated attempt records all 127 local scopes: 120 pass directly;
+seven fixture-only resumes cover the remaining scopes. The production/native
+asset domain remains identical across 2,992 files. Retry's partial fixture declares
+the external wrist owner, and five native suites resume their unchanged cached
+cases after the shared adapter makes its Scenery-only controller injection conditional
+on an actual declaration. Scenery's late-loading fixture waits for real queue
+completion through unchanged Update rather than assuming ten updates finish a
+4-ms-per-update traversal. Its production passes 920 assertions; only the failed
+control resumes, preserving the 50 controls already passed in the complete attempt.
+Original failures remain retained; no unrelated passing suite is repeated.
+
+All 14 source scopes and 307,491 golden assertions pass. The original wire wrapper
+stopped before vectors on fixture failures, so its original already-built executable
+runs separately. Strict Release has zero warnings/errors and all five EN/DE player
+document pairs agree. Bundle/figure-bank and surface checks pass: 660 config keys,
+209 patch registrations and 4,790 log tokens, with no removals. The compiled review
+contains 16 intended implementation changes, six build-constant-only changes and
+the new wrist-hand enum. The integration ledger, preserved raw failures, resumes,
+byte-identity receipt and exact unchanged post-wire continuation are retained in
+`.planning/debug/frame621/`. The patch
 inventory scanner also distinguishes C# literals, interpolation and comments from
 actual brackets: an authored clone-suffix literal exposed its prior false syntax
 failure. Nine focused lexer regressions preserve the unchanged patch membership.

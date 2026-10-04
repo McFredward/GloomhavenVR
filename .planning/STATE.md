@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Build 621 integration in progress, 2026-10-04: 1.1.0.**
+**Build 621 integration complete, 2026-10-04: 1.1.0.**
 
 The supplied Gaming PC logs identify Build620 and have no mod Debug rows. Their
 zero-decoration counts prove execution, not the photographed leaves' removal.
@@ -23,9 +23,31 @@ and pinch tutorial tasks are omitted only while unavailable. Existing fast recor
 carries owner pose/scale; additive v3 record100 carries hidden controls. Observers
 use the owner's result and original interpolation, never their own wrist config.
 
-Focused worker proofs and the root tutorial/patch-scanner controls are recorded.
-The complete final integrated gate, strict build and compiled review are pending;
-no Build621 hardware or FPS outcome is claimed. The unrelated original cult-chain
+The complete integrated attempt recorded all 127 local scopes: 120 passed directly;
+seven fixture-only resumes satisfy the remaining scopes. Retry's partial fixture
+now explicitly declares the external wrist owner and proves its deferral. Five
+native suites shared an adapter that injected a Scenery-only field unconditionally;
+their unchanged cached runtime cases pass after declaration-bound injection. The
+late-scenery proof now waits for the actual discovery queue instead of ten updates
+under a real 4-ms budget: production passes 920 assertions and the one failed control
+reaches its intended defect; 50 earlier passing controls are retained. Original
+failures remain recorded. Passing suites were not repeated, and all 2,992 runtime/
+authored-asset files match the complete attempt after these fixture corrections.
+
+All 14 source scopes, 307,491 golden assertions, strict Release (zero warnings/errors),
+five EN/DE player-document pairs, bundle/figure-bank and surface checks passed. The
+original wire wrapper halted before goldens on local fixture failures; its original
+already-built executable ran separately. Unchanged remaining guard phases ran after
+explicit complete-coverage and byte-identity verification. The compiled comparison
+contains 16 intended implementation changes, six inlined build-constant changes and
+the new hand-selection enum, with no removals or unexplained changes. All 660 config
+keys, 209 patch registrations and 4,790 log tokens remain. Evidence and the exact
+continuation are retained in `.planning/debug/frame621/validation-ledger.json`.
+
+Next hardware checks: small clutter at 0/low/100% with large decor retained;
+arch flames while adjacent walls fade; wrist entry/motion/hand switching/style
+changes and ordinary return, including the remote board and hidden controls.
+No Build621 hardware or FPS outcome is claimed. The unrelated original cult-chain
 null-material reports are not claimed fixed. See
 [implementation and evidence limits](../docs/performance/FRAME-621-IMPLEMENTATION.md).
 
