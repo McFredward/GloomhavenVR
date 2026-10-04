@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using BepInEx;
 using GloomhavenVR.Core;
+using GloomhavenVR.Net;
 using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.WorldUI.MapRoom;
 using HarmonyLib;
@@ -313,10 +314,11 @@ internal sealed class LoadingIndicator
 
     private bool _shownLogged;
 
-    // An options toggle does not change SceneController's loading flags. Keep the existing
-    // spinner alive until the re-enabled stations are ready, with a bounded failure exit.
+    // Initial map entry and an options toggle can outlive native loading flags. Keep the
+    // existing spinner until original resident/card preparation finishes, with a bounded exit.
     private bool _townModeObserved;
     private bool _townWasEnabled;
+    private bool _townMapWasActive;
     private bool _townReloadActive;
     private bool _townReloadVisual;
     private float _townReloadStartedAt;
@@ -566,10 +568,13 @@ internal sealed class LoadingIndicator
         _townWasEnabled = enabled;
         if (!enabled || !MapRoomDriver.Active)
         {
+            _townMapWasActive = false;
             _townReloadActive = false;
             return false;
         }
-        if (switchedOn)
+        bool enteredMap = !_townMapWasActive;
+        _townMapWasActive = true;
+        if (switchedOn || enteredMap)
         {
             _townReloadActive = true;
             _townReloadStartedAt = Time.unscaledTime;
@@ -594,7 +599,8 @@ internal sealed class LoadingIndicator
         // after the resident. Do not dismiss the spinner with an empty cabinet.
         if (TownServiceAvailability.NativeUnlocked(1) && TownServiceGrantSync.CanUseImmersive
             && !TownServicePresentation.NativeFallbackFor(1)
-            && TownServicePublicMerchant.Catalog == null)
+            && (TownServicePublicMerchant.Catalog == null
+                || !NetAvatarDriver.PrepareMerchantCardsForLoading()))
             return true;
         _townReloadActive = false;
         VRLog.Info("WorldUI", $"Immersive town services ready after {elapsed:0.00}s; loading indicator released.");

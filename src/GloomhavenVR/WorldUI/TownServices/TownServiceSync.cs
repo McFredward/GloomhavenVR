@@ -78,6 +78,9 @@ internal sealed partial class TownServiceSync
         {
             NativeTemplates.Initialize(); TownServiceNativeAssets.Tick();
             NativeTemplates.PreparePhysicalPurses();
+            // Resident item artwork and native pool layouts serve the same canonical
+            // avatar fan even when the player has disabled the visual loading indicator.
+            NetAvatarDriver.PrepareMerchantCardsForLoading();
         }
         catch (Exception e) { _prepareAfter = Time.unscaledTime + 2f; Report("prepare", e); }
     }
