@@ -58,5 +58,4 @@ namespace GloomhavenVR.Core {
 internal static class ScenarioSceneryBudget { internal static bool IsPreparingPresentation; }
 internal static class ScenarioEnvironmentBudget { internal static bool IsPreparingPresentation=>false; }
 internal static class ScenarioFigureDetailBudget { internal static bool IsPreparingPresentation=>false; }
-internal static class WallSegmentFade { internal static int PreparationCalls; internal static bool CalledUnderSpinner; internal static void PreparePresentationMasks(){PreparationCalls++;CalledUnderSpinner=ScenarioInteractionPreparation.IsPreparing;} }
 }

@@ -34,7 +34,6 @@ CONTROLS = (
     ("ignore-spike-debug", "PerfSpikeDetails.cs", "on &= VRLog.WantsDebug;", "on &= true;", "ordinary logging leaves spike resources disabled"),
     ("preparation-gates-native-load", "ScenarioInteractionPreparation.cs", "if (loading)", "if (false)", "preparation waits for native loading without writing native flags"),
     ("restart-completed-preparation", "ScenarioInteractionPreparation.cs", "if (ScenarioCardPreparation.Failures > 0)", "_begun = false; if (ScenarioCardPreparation.Failures > 0)", "native reveal event immediately publishes the loading indicator state"),
-    ("skip-native-wall-mask-preparation", "ScenarioInteractionPreparation.cs", "WallSegmentFade.PreparePresentationMasks();", "/* omit fixed native mask preparation */", "native wall masks prepare once under the spinner before heavy card or figure jobs"),
     ("room-ignores-native-busy", "ScenarioRoomLoading.cs", "&& entity.IsBusy)", "&& false)", "room spinner follows native generation before preparing new actors"),
     ("room-uses-enabled-as-loading", "ScenarioRoomLoading.cs", "if (LoadedMaterials?.GetValue(request) is Material[] loaded)", "if (!request.Renderer.enabled && LoadedMaterials?.GetValue(request) is Material[] loaded)", "room readiness uses original pending materials even when renderer is enabled"),
     ("refresh-cancels-census", "ScopeMethods.cs", "invalidateSceneCensus: false", "invalidateSceneCensus: true", "adaptive refresh preserves the same in-progress census"),

@@ -17,7 +17,7 @@ internal static class ScenarioInteractionPreparation
 {
     private const float MaximumSeconds = 90f;
     private static int _scene, _procedural;
-    private static bool _wasLoading, _begun, _figureTurn, _faulted, _roomPass, _resourceJobsBegun, _wallMasksPrepared;
+    private static bool _wasLoading, _begun, _figureTurn, _faulted, _roomPass, _resourceJobsBegun;
     private static float _startedAt, _nextProgressAt;
     internal static bool IsPreparing { get; private set; }
     internal static bool AcceptsRoomReveal(ProceduralMapTile tile) => _begun && !_faulted
@@ -117,16 +117,6 @@ internal static class ScenarioInteractionPreparation
                 if (TimedOut()) StopTimedOut();
                 return;
             }
-            if (!_wallMasksPrepared)
-            {
-                // The fixed native-HIGH rank-mask bank is about one MiB. Its one-time
-                // texture upload belongs under this existing spinner, in a separate cold
-                // frame before card/ghost construction. Room reveals reuse the same bank.
-                _wallMasksPrepared = true;
-                using var maskScope = PerfMonitor.Scope("Core.WallMaskPreparation");
-                WallSegmentFade.PreparePresentationMasks();
-                return;
-            }
             if (!_resourceJobsBegun)
             {
                 _resourceJobsBegun = true;
@@ -164,7 +154,7 @@ internal static class ScenarioInteractionPreparation
         if (_begun || IsPreparing) ResetJobs();
         ScenarioRoomLoading.Reset();
         _scene = _procedural = 0;
-        _wasLoading = _begun = _figureTurn = _faulted = _roomPass = _resourceJobsBegun = _wallMasksPrepared = IsPreparing = false;
+        _wasLoading = _begun = _figureTurn = _faulted = _roomPass = _resourceJobsBegun = IsPreparing = false;
     }
 
     private static bool PresentationBudgetPending => ScenarioSceneryBudget.IsPreparingPresentation
