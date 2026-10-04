@@ -1,5 +1,64 @@
 # State — where the project stands
 
+**Frame follow-up complete, 2026-10-04: 1.1.0 / ModBuild 619.**
+
+The immutable supplied hardware baseline is Build618/c108555cd, with two
+scenario loads and a CampaignMap interval. Both long preparation intervals hit
+90-second limits. This is not a matched FPS benchmark; Build619 has no new
+headset result yet. See [the analysis](../docs/performance/FRAME-619-ANALYSIS.md).
+
+Preparation now batches cheap/cache-hit original metadata, limits cold jobs and
+shares the portrait deadline. Real room-visibility events, native procedural/
+material requests and pending presentation queues re-arm the existing spinner.
+Native input/continuation/loading flags and existing local/remote caches stay
+untouched. Unity async integration priority returns when native loading ends.
+
+All 188 original character bundles/190 model trees and the nested PCG census
+were reviewed for cosmetic provenance. Normal/elite Living Spirit effects and
+mesh eye bands are included alongside heroes, summons, bosses and other enemies.
+Gameplay-dependent simulations/callbacks and core bodies remain protected;
+unknown assets are not declared optional merely by name or shader.
+
+Original HIGH wall materials now receive actual map-enable delivery and a
+progressive native solid/held mask bank, prewarmed under the spinner. Original
+Windows shader bytecode explains the branch; real Unity surrogate pixels verify
+the delivered inputs, not Frame shader execution. The missing native-camera
+producer is a source-proven dependency, not proof of the sole hardware cause.
+The bar's TMP font/submesh bindings now share the chosen depth mode with images.
+New pooled materials still use the existing bounded discovery scan.
+
+Graphics exposes four one-shot profiles (Standalone, Performance PC, Balanced
+PC, High-End PC) through original native quality callbacks. Standalone matches
+fresh-Frame defaults including native Fastest. Later manual edits win. Technical
+quality/cadence controls move to Advanced; eleven saved work-removal/stereo-safety
+keys remain bound but INERT. No wire record or local/remote card permission changes.
+
+The complete integrated local attempt recorded all 123 suites: 117 passed
+straight away; six fixture-only resumes satisfy the remaining scopes. Four exact
+negative-control labels were updated to their newly earlier causal assertions;
+two extraction boundaries now bind the added production members. Their original
+failures remain preserved. Passing suites were not repeated. All 14 source gates,
+307,473 golden-vector assertions, strict Release (zero warnings/errors), five
+EN/DE document pairs, bundle/figure-bank and surface checks passed. The complete
+wire wrapper stopped after the local failures, so its already-built original
+vector executable was run separately. A launch-environment failure is retained.
+
+The unchanged guard's remaining phases ran separately after coverage verification.
+One uppercase search token in a retired config description was restored after
+surface review; no execution logic changed. The compiled comparison has eighteen
+intended implementation changes, three additions and seven inlined build-only
+changes; no types were removed. All 655 keys and 209 patch registrations remain;
+one bounded Debug FX marker was added. Evidence, exact continuation script,
+original attempts, bounded resumes and reviewed diffs live in
+`.planning/debug/frame619/validation-ledger.json` and companion files.
+
+Next hardware checks: spinner duration and new rooms; whole-game cosmetic budgets;
+wall OUT/IN on Frame and PC; complete healthbars behind walls; four graphics
+profiles and subsequent manual edits. General 2D-map/original-window paths remain
+covered. See [implementation and test boundaries](../docs/performance/FRAME-619-IMPLEMENTATION.md).
+
+---
+
 **Three ordinary Frame hitch targets implemented, 2026-10-04: 1.1.0 / ModBuild 618.**
 
 The Build617 capture below is the hardware baseline; Build618 has no headset

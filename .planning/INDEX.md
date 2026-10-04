@@ -1,9 +1,10 @@
 # Planning index
 
-Updated 2026-10-04 for Build618's wall ownership, original card/portrait preparation
-and adopted-card/native-message changes following the actual Build617 Frame
-capture. The native wall transition still needs hardware verification. This directory holds internal
-engineering evidence, historical decisions and current status; it is not the player manual.
+Updated 2026-10-04 for Build619's finite preparation and real room loading, whole-game
+cosmetic coverage, native wall inputs/TMP depth and four curated graphics profiles,
+following the actual Build618 Frame capture. Headset outcomes still need hardware
+verification. This directory holds internal engineering evidence, historical decisions
+and current status; it is not the player manual.
 
 ## Current entry points
 
@@ -13,6 +14,12 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [../docs/performance/FRAME-619-IMPLEMENTATION.md](../docs/performance/FRAME-619-IMPLEMENTATION.md) | Six implemented Frame follow-ups, exact environment-material test switch, integrated coverage and next hardware checks |
+| [../docs/performance/FRAME-619-ANALYSIS.md](../docs/performance/FRAME-619-ANALYSIS.md) | Actual Build618 scenes, two preparation timeouts, missed Living Spirit effects and hardware attribution limits |
+| [../docs/performance/FRAME-619-LOADING.md](../docs/performance/FRAME-619-LOADING.md) | Batched original metadata, shared portrait deadline, native room generation/material completion and preserved caches |
+| [../docs/performance/FRAME-619-DETAIL-COVERAGE.md](../docs/performance/FRAME-619-DETAIL-COVERAGE.md) | Whole original character/nested-PCG census, exact cosmetic provenance, collision callbacks and real rendered controls |
+| [../docs/performance/FRAME-619-BARS-WALLS.md](../docs/performance/FRAME-619-BARS-WALLS.md) | Original shader bytecode/map-enable producer, progressive native masks, actual TMP bindings and pixel-proof boundaries |
+| [../docs/performance/FRAME-619-GRAPHICS-AUDIT.md](../docs/performance/FRAME-619-GRAPHICS-AUDIT.md) | Everyday/Advanced tradeoffs, four native-quality actions and retained INERT optimization keys |
 | [../docs/performance/FRAME-618-IMPLEMENTATION.md](../docs/performance/FRAME-618-IMPLEMENTATION.md) | Three implemented hitch targets, preserved presentation/gameplay paths, integrated validation and next hardware evidence |
 | [../docs/performance/FRAME-618-WALL-IMPLEMENTATION.md](../docs/performance/FRAME-618-WALL-IMPLEMENTATION.md) | Original waypoint/combat-pool ownership shared by signatures and collectors, protected water/walls and endpoint/route tracing |
 | [../docs/performance/FRAME-618-CARD-IMPLEMENTATION.md](../docs/performance/FRAME-618-CARD-IMPLEMENTATION.md) | Private native element-widget arrays, original area atlas and temporary sprite/cache lifecycle |

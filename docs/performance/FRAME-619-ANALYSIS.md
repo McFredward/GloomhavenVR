@@ -9,10 +9,10 @@ this capture. Existing user descriptions are observations, not inferred pixels.
 
 This run contains two Game/ProcGen loads and a CampaignMap interval. It is not a
 single matched scenario benchmark. The preparation spinner times out twice at
-its 90-second safety ceiling (Player lines8581 and24234). Native load completion
+its 90-second safety ceiling (Player lines 8581 and 24234). Native load completion
 and visible play precede these timeouts. The old queue handled even already-warm
 widget/sprite metadata one item on each alternating frame, and portrait owners
-could each wait anew for 30seconds. These source paths explain prolonged
+could each wait anew for 30 seconds. These source paths explain prolonged
 preparation without establishing the exact duration of each individual resource.
 
 Build619 batches cheap/cache-hit jobs under count/time bounds, permits only one
@@ -28,10 +28,10 @@ and routine periodic scans cannot re-arm the spinner by themselves.
 
 ## Remaining frame cost
 
-The production frame report contains39 summary windows, including loading and
-transitions. The first loaded scenario's later windows remain roughly52–60ms
-per frame with31–36ms logic. The map interval is roughly32–54ms. The second
-scenario's late windows vary54–81ms, with a97.9ms transition window. Mixing these
+The production frame report contains 39 summary windows, including loading and
+transitions. The first loaded scenario's later windows remain roughly 52–60 ms
+per frame with 31–36 ms logic. The map interval is roughly 32–54 ms. The second
+scenario's late windows vary 54–81 ms, with a 97.9 ms transition window. Mixing these
 windows into one improvement percentage would confound scenes, viewpoint,
 preparation and native loading. XR runtime intervals/waits are not GPU-busy
 measurements, and nested native/mod attribution cannot be added together.
@@ -44,7 +44,7 @@ measurements, retaining scene and settings identities.
 ## Whole-game effects and wall/bar findings
 
 The old figure effect classifier named four demon families. Original LivingSpirit
-prefabs contain13 particle renderers and three additional glow surfaces, so that
+prefabs contain 13 particle renderers and three additional glow surfaces, so that
 scope could not meet the user's whole-game requirement. The new read-only native
 prefab/PCG census supplies exact provenance across heroes, summons, normal/elite
 enemies, bosses and scenery. Unknown bodies and gameplay-significant particle

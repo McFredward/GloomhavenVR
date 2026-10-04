@@ -16,7 +16,7 @@ stay alive, and original input, loading flags and continuation are untouched.
 
 ## Whole-game detail coverage
 
-[Coverage](FRAME-619-DETAIL-COVERAGE.md) derives cosmetic ownership from all188
+[Coverage](FRAME-619-DETAIL-COVERAGE.md) derives cosmetic ownership from all 188
 original character bundles/190 model trees and the complete nested PCG database
 census. Living Spirit ordinary/elite particles and mesh eye bands are included.
 Heroes, summons, bosses and other enemies use the same policy. Exact native
@@ -34,7 +34,7 @@ hardware confirmation. Healthbar materials use the original TMP font/submesh
 routes as well as ordinary Graphics, so the circled number shares the bar's
 selected depth policy. Original materials, clipping and masks are restored.
 
-To A/B the environment simplification use **Graphics → Simple environment
+To A/B the environment simplification use **Graphics → Simpler environment
 shading** (`Einfachere Umgebungsschattierung`), or:
 
 ```ini
@@ -60,14 +60,26 @@ have off switches that add work without an intended quality benefit.
 ## Validation and hardware boundaries
 
 Focused worker proofs and original failures/resumes are retained under
-`.planning/debug/frame619/`. The primary integrated gate, strict Release build,
-configuration/patch/log surface review and EN/DE document checks are required
-before pushing. A passing fixture establishes its specific production-bound
-contract, not a headset image or improved FPS. The final validation ledger is
-recorded in `.planning/STATE.md` after the complete integrated attempt.
+`.planning/debug/frame619/`. The complete integrated attempt recorded all 123
+local suites: 117 passed directly and six bounded fixture-only resumes satisfy
+the remaining scopes. Original failures remain visible; passing suites were not
+repeated. All 14 source gates, 307,473 original golden-vector assertions, strict
+Release (zero warnings/errors), five EN/DE document pairs, bundle/figure-bank
+and configuration/patch/log surface checks passed. No saved key or patch was
+removed. The reviewed compiled differences match eighteen implementation types,
+three additions and seven inlined build changes. The guard's nonzero compiled
+difference verdict is intentional; it is not a claim of unchanged behavior.
+
+The exact unchanged remaining guard phases ran after explicit coverage audit;
+the complete wire wrapper's original vector executable ran separately because
+local fixture failures had stopped that wrapper before vectors. The initial
+surface failure and restored description token are also retained. See
+`.planning/debug/frame619/validation-ledger.json` and `.planning/STATE.md`.
+A passing fixture establishes its specific production-bound contract, not a
+headset image or improved FPS.
 
 Next hardware checks: initial spinner duration, door/new-room spinner, Living
-Spirit and other enemy cosmetics at0/100, both wall fade directions, whole
+Spirit and other enemy cosmetics at 0/100, both wall fade directions, whole
 healthbars through/behind walls, all four profiles, and a later manual change
 after applying a profile. Existing Debug configuration is sufficient. Ignore
 load/profile-switch hitches when comparing ordinary play; retain scene identity
