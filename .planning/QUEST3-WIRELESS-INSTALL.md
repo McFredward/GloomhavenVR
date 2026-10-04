@@ -4,7 +4,7 @@
 It connects the remembered Quest over Wi-Fi, installs the selected local APK
 with `adb install -r`, and starts the app. The accompanying PowerShell and Python
 entry points support command-line use. The installer selects the latest verified private diagnostic; the current
-hardware checkpoint is611 and remains distinct from a playable campaign.
+hardware checkpoint is618 and remains distinct from a playable campaign.
 
 ## First installation on Windows
 
@@ -85,6 +85,14 @@ is respected, including a clear error if that supplied executable is missing.
 Double-click `scripts/install-quest-wireless.cmd`. Leave the newest completed
 builder output or updated private handoff at the remembered location. The
 installer reconnects, validates the current artifact and updates the app.
+
+Merging successive archives into the same Windows folder is supported. Automatic
+selection compares build stamps embedded in the APKs, so remembered paths and
+older remaining APKs do not pin a test to an earlier build. Incomplete obsolete
+candidates are reported and skipped. Explicit `-Apk`, `-Handoff` or `-OutputRoot`
+selects that exact source and keeps strict verification. B618 and later confirm
+the actual Android build and input stamp before launch; both are retained in the
+installation receipt and independently queried during log collection.
 
 The builder's `latest-build.json` identifies its latest successful build; its
 receipt and APK hashes are checked. A handoff identifies one APK and its hash.

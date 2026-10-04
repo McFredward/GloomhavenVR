@@ -40,6 +40,21 @@ internal static class Program
         Application.Emit("ordinary frame", "", LogType.Log); Application.Emit("ordinary warning", "", LogType.Warning);
         text = File.ReadAllText(path);
         Check(!text.Contains("ordinary frame") && !text.Contains("ordinary warning"), "log-filter: ordinary original messages create diagnostic noise");
+        Task.Run(() =>
+        {
+            for (int i = 0; i < 1000; i++) Application.Emit("Checking YML CheckSums", "", LogType.Log, mainThread: false);
+            Application.Emit("[YML] Finished parse for GlobalRules Duration: 4.2", "", LogType.Log, mainThread: false);
+            Application.Emit("[SceneController] Entitlements refreshing...", "", LogType.Warning, mainThread: false);
+            for (int i = 0; i < 100; i++) Application.Emit("[YML] Starting parse for library-" + i, "", LogType.Log, mainThread: false);
+        }).GetAwaiter().GetResult();
+        text = File.ReadAllText(path);
+        Check(Count(text, "original phase Checking YML CheckSums") == 1 && text.Contains("Finished parse for GlobalRules Duration: 4.2"), "native-phases: source-proven worker milestones are not retained/deduplicated");
+        Check(!text.Contains("Entitlements refreshing...") && !text.Contains("Starting parse for library-99"), "native-phase-bound: native per-frame or unbounded milestones were retained");
+        Application.Emit("[DIAGNOSTICS]: Init Cards elapsed 24.5", "", LogType.Log);
+        Check(File.ReadAllText(path).Contains("Init Cards elapsed 24.5"), "native-phase-reserve: repeated YAML phases swallowed the card initialization duration");
+        typeof(QuestGameBootstrap).GetField("nativeStartupComplete", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(bootstrap, true);
+        Application.Emit("LoadAlwaysLoadedAddressable after-menu", "", LogType.Log);
+        Check(!File.ReadAllText(path).Contains("after-menu"), "native-phase-window: native gameplay milestones leak into startup evidence");
         Invoke(bootstrap, "OnDestroy");
         long size = new FileInfo(path).Length;
         Application.Emit("after destroy", "", LogType.Error, mainThread: false);

@@ -1,5 +1,18 @@
 # State — where the project stands
 
+**Quest B618 longer Intro/menu follow-up, 2026-10-04: isolated feature.**
+
+The longer supplied captures reach original Intro and MainMenu and expose native
+video opening, camera-anchor rejection, missing Bloom passes and null platform
+user removal. Existing content takes 182 seconds to re-read. Implementation uses
+a content-keyed installation receipt without warm byte scans, one conditional
+preparation canvas, original asset-load ownership and Quest-native camera-anchor
+recovery. Lossless Intro container adaptation retains every authored A/V packet
+and timestamp; its Android decoder outcome remains unverified. Merged Windows
+archives now select embedded build stamps and confirm installed Android identity.
+See [618 evidence and hardware procedure](QUEST3-HARDWARE-618.md). Hardware results,
+shipping startup performance and full campaign/crossplay remain open.
+
 **Quest B617 preparation follow-up, 2026-10-04: isolated feature.**
 
 The exact B616 capture verifies APK/input and a running real VR rig after

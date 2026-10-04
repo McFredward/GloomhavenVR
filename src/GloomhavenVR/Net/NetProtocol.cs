@@ -553,7 +553,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 617;
+    public const ushort ModBuild = 618;
+
+    // ModBuild 618 — Quest Intro/menu recovery from the longer hardware capture.
+    // Native scenes reach MainMenu; video opening, rejected redirected UI-camera
+    // anchors, missing recovered Bloom passes and a null platform-user removal
+    // are observed separately. Restore the native presentation/platform boundary
+    // without changing original rules, saves or network protocols. A content-keyed
+    // local installation receipt removes warm full-byte scans and survives
+    // source-only changes. Actual copy/repair uses one overall preparation view;
+    // the original AssetBundleManager owns asset loading. Intro container remux
+    // preserves every authored audio/video packet and timeline; its effect on the
+    // Android decoder remains a hardware hypothesis. Windows merged directories
+    // select actual embedded builds, and Android package stamps confirm installs.
+    // Headset Intro/menu correctness and shipping performance remain unverified.
 
     // ModBuild 617 — bounded Quest preparation after measured B616 SHA amplification.
     // The exact 095749Z capture verifies B616 APK/input, eleven real modules and

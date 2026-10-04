@@ -21,6 +21,7 @@ import sys
 import zipfile
 
 import startup
+import shaders
 
 from profile import discover_steam_root, dummy_identity, load_profile, read_logo, ProfileError
 from storage import (BuildError, Stages, canonical, digest, ensure_output, inventory,
@@ -343,6 +344,10 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
         for name in ("quest-profile.json", "quest-steam-logo.png"):
             shutil.copyfile(identity / name, resources / name)
         if args.target == "startup":
+            # AssetRipper's Windows Bloom exports are one-pass placeholders.
+            # Restore their original interfaces from pinned official portable
+            # sources in the private build cache before Unity imports any asset.
+            shaders.restore_post_effects(project, output / "tool-cache/legacy-post-effects")
             loading_logo = source / "src/GloomhavenVR/Assets/GloomhavenVR_logo.png"
             if not loading_logo.is_file():
                 raise BuildError("The selected mod is missing its original GloomhavenVR loading logo.")

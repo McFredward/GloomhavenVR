@@ -1419,6 +1419,30 @@
       "weight": 40
     },
     {
+      "id": "quest-startup-media",
+      "command": ["python3", "scripts/quest-startup-media-tests.py"],
+      "groups": ["local", "ci"],
+      "weight": 2
+    },
+    {
+      "id": "quest-menu-presentation",
+      "command": ["python3", "scripts/quest-menu-presentation-tests.py"],
+      "groups": ["local", "ci"],
+      "weight": 2
+    },
+    {
+      "id": "quest-addressables",
+      "command": ["python3", "scripts/quest-addressables-tests.py"],
+      "groups": ["local", "ci"],
+      "weight": 2
+    },
+    {
+      "id": "quest-post-effect-sources",
+      "command": ["python3", "scripts/quest-post-effect-source-tests.py"],
+      "groups": ["local", "ci"],
+      "weight": 2
+    },
+    {
       "id": "quest-startup-loading",
       "command": ["python3", "scripts/quest-startup-loading-tests.py"],
       "groups": ["local", "ci"],
@@ -1428,6 +1452,12 @@
       "id": "quest-platform",
       "command": ["python3", "scripts/quest-platform-tests.py"],
       "groups": ["local", "ci"],
+      "weight": 2
+    },
+    {
+      "id": "quest-platform-bridge",
+      "command": ["python3", "scripts/quest-platform-bridge-tests.py"],
+      "groups": ["local"],
       "weight": 2
     },
     {

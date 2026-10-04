@@ -47,7 +47,8 @@ namespace GloomhavenVR.Quest.Editor
             string apk = Required("GHVR_QUEST_OUTPUT_APK");
             string package = Required("GHVR_QUEST_PACKAGE");
             var manifest = JsonUtility.FromJson<InputManifest>(File.ReadAllText(Required("GHVR_QUEST_MANIFEST_PATH")));
-            if (manifest == null || manifest.mod == null || manifest.mod.modBuild <= 0)
+            if (manifest == null || manifest.mod == null || manifest.mod.modBuild <= 0
+                || !System.Text.RegularExpressions.Regex.IsMatch(manifest.inputKey ?? "", "^[0-9a-f]{64}$"))
                 throw new InvalidDataException("Android build identity is missing.");
             ConfigureAndroid(package, target == "startup");
             PlayerSettings.bundleVersion = "0.1.0.B" + manifest.mod.modBuild + "." + manifest.inputKey.Substring(0, 12);
@@ -236,13 +237,15 @@ namespace GloomhavenVR.Quest.Editor
             // before any original scene runs. Unsupported references remain a build error.
             QuestOriginalScriptBindings.RemapAndValidate();
             QuestOriginalScriptOrders.RestoreAndVerify();
+            QuestPostEffectValidation.Validate(false);
             QuestStartupAddressablesBuild.Build();
+            QuestPostEffectValidation.Validate(true);
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             GameObject bootstrap = new GameObject("Original Gloomhaven startup diagnostic");
             bootstrap.AddComponent<QuestGameBootstrap>();
-            // Serialize the shared world-space loading artwork, original logo,
-            // progress bar and built-in font with its first camera owner. Later
-            // content delivery uses the same helper under the existing VR head.
+            // Preserve the logo import and neutral startup camera. The reusable
+            // artwork is created only when actual content installation needs it;
+            // cached starts continue directly into the original native flow.
             PrepareLoadingLogo();
             bootstrap.AddComponent<QuestGameModLifecycle>().PrepareStartupView();
             Directory.CreateDirectory("Assets/Quest/Scenes");

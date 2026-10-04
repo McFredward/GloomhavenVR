@@ -2,6 +2,7 @@
 #if GHVR_QUEST_STARTUP
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
@@ -46,6 +47,9 @@ namespace GloomhavenVR.Quest
         bool focused = true, paused, stateWriteWarning;
         readonly Stopwatch startupClock = Stopwatch.StartNew();
         readonly object contentSync = new object();
+        readonly HashSet<string> originalMilestones = new HashSet<string>(StringComparer.Ordinal);
+        int nativeYamlMilestones;
+        bool nativeStartupComplete;
         QuestGameContentProgress contentProgress;
         double lastContentProgress;
         int contentLogRecords, mainThreadFrames;
@@ -266,6 +270,7 @@ namespace GloomhavenVR.Quest
                 }
             }
             lastScene = scene.name; loadedScenes++; SaveState();
+            if (scene.name == "MainMenu") nativeStartupComplete = true;
             UnityEngine.Debug.Log("[Quest startup] original scene loaded=" + scene.name + " mode=" + mode + " state=" + State + " fullGameReady=false");
         }
         void Fail(string gate, Exception e)
@@ -370,9 +375,35 @@ namespace GloomhavenVR.Quest
                 {
                     if (log != null) log.Append(message, stack);
                 }
+                else if (!nativeStartupComplete && message != null && message.Length <= 1024 && IsOriginalStartupMilestone(message))
+                {
+                    // Logcat can evict early native phases during a long Debug
+                    // run. Keep only source-proven startup milestones, once,
+                    // without changing the original loaders or per-frame logs.
+                    lock (contentSync)
+                    {
+                        bool yaml = message.StartsWith("[YML]", StringComparison.Ordinal);
+                        if ((!yaml || nativeYamlMilestones < 32) && originalMilestones.Count < 64 && originalMilestones.Add(message) && log != null)
+                        {
+                            if (yaml) nativeYamlMilestones++;
+                            log.Append("[Quest startup] original phase " + message, null);
+                        }
+                    }
+                }
             }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
+        }
+        static bool IsOriginalStartupMilestone(string message)
+        {
+            return message == "Start SceneController" || message == "Checking YML CheckSums" || message == "Loading Rulebase"
+                || message == "[SceneController] Refreshing entitlements..." || message == "[SceneController] Entitlements refreshed"
+                || message.StartsWith("[YML] Starting parse for ", StringComparison.Ordinal)
+                || message.StartsWith("[YML] Finished parse for ", StringComparison.Ordinal)
+                || message.StartsWith("LoadAlwaysLoadedAddressable ", StringComparison.Ordinal)
+                || message.StartsWith("[DIAGNOSTICS]: Bundle Init elapsed ", StringComparison.Ordinal)
+                || message.StartsWith("[DIAGNOSTICS]: Init DLCs elapsed ", StringComparison.Ordinal)
+                || message.StartsWith("[DIAGNOSTICS]: Init Cards elapsed ", StringComparison.Ordinal);
         }
         void OnDestroy() { destroyed = true; Application.logMessageReceivedThreaded -= CaptureLog; SceneManager.sceneLoaded -= SceneLoaded; if (videos != null) videos.Dispose(); if (addressables != null) addressables.Dispose(); }
     }

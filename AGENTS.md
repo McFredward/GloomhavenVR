@@ -18,6 +18,15 @@ directory. Preserve supplied captures in `quest3_probleme/`. The initial loading
 view must use the existing GloomhavenVR logo, a real progress bar and percentage;
 keep the presentation reusable for later in-game loading.
 
+**Quest startup, clarified on 2026-10-04 after the longer menu capture:**
+prefer the original Intro-to-menu flow without an extra preparation display.
+Reuse successfully installed content across launches and source-only mod updates;
+do not run full-file integrity scans on every launch. If actual installation or
+repair needs preparation, show one overall progress bar before native startup,
+without individual verification/file/step bars. Complete it only at observed
+native handover. This supersedes the earlier five-step progress presentation.
+The original native loaders retain their asset-load ownership.
+
 **Quest cache hygiene, requested by the maintainer on 2026-10-04:** after a
 verified hardware handoff, archive compact diagnostic receipts and prune obsolete
 Quest worker checkouts, generated test copies and historical Unity/build caches.
