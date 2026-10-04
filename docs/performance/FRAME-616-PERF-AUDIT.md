@@ -129,6 +129,18 @@ PanelSSCam passes during map/options artwork capture have a visible purpose;
 they are not a demonstrated camera leak. The sampled native callback block
 does not reveal a comparable hundred-millisecond culprit in stable play.
 
+Player 112 and 198 record two real startup script errors: the attached
+`ScenarioEnvironmentBudget.Driver` declares parameterized `OnPostRender(Camera)`
+and `OnPreCull(Camera)` methods. These names are reserved Unity messages whose
+automatic callbacks take no parameters, so Unity rejects those automatic message
+registrations while adding the component (`ScenarioEnvironmentBudget.Install:52`).
+The methods also serve explicit Camera event subscriptions; the signature error
+does not establish that those subscribed events stopped running. Rename only these
+attached MonoBehaviour handlers and preserve their event subscription/removal.
+Static helper-class Camera handlers do not have this message-registration conflict.
+These startup errors are source-proven defects, not an established explanation
+for the later long frames or a crash.
+
 Player logs nine Hydra endpoint DNS failures, including three after scenario
 loading. They belong to the game's native online-service registration/retries;
 no mod exception/deadlock is established. Their ordering alone cannot assign
