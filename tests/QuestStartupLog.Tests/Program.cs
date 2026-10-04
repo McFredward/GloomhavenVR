@@ -173,9 +173,10 @@ internal static class Program
         Check(reports <= 12 && frames.Snapshot.spikeCount == 24 && frames.Snapshot.over40Ms == 2003, "frame-bound: reports or retained spike arrays grew with test duration");
         Check(frames.Snapshot.spikeTimes.Max() >= 2050 && frames.Snapshot.spikeCursor < 24,
             "frame-window: retained samples lost sustained late-session hitches");
-        frames.RecordDiscovery(25, 340, .7f, 2.1f);
+        frames.RecordDiscovery(25, 340, .7f, 2.1f, 1);
         Check(frames.Snapshot.discoveryScans == 25 && frames.Snapshot.discoverySceneComponents == 340
-            && frames.Snapshot.discoveryLastMs == .7f && frames.Snapshot.discoveryWorstMs == 2.1f,
+            && frames.Snapshot.discoveryLastMs == .7f && frames.Snapshot.discoveryWorstMs == 2.1f
+            && frames.Snapshot.discoveryLastTypeCount == 1,
             "frame-discovery: actual scope timings were not carried into existing state");
         var noAlloc = new QuestFrameEvidence();
         noAlloc.Observe("MainMenu", true, true, .016f, 0, 0, true);

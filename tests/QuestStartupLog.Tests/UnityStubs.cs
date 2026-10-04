@@ -90,7 +90,7 @@ namespace GloomhavenVR.Quest
     public class QuestGameMenu { }
     public class QuestGameKeyboard { public bool Bound, Visible; public string Failure; }
     // These are lifecycle seams for the logging fixture, not a real mod execution proof.
-    public class QuestGameScope { public static int DiscoveryScans, SceneComponentCount; public static double DiscoveryLastMs, DiscoveryWorstMs; }
+    public class QuestGameScope { public static int DiscoveryScans, SceneComponentCount, DiscoveryLastTypeCount; public static double DiscoveryLastMs, DiscoveryWorstMs; }
     public class QuestGameModLifecycle
     {
         public bool Available, InitializationComplete, RigReady, InviteKeyboardVisible;

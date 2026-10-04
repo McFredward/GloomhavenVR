@@ -318,7 +318,7 @@ namespace GloomhavenVR.Quest
             mainThreadFrames++;
             bool frameDebug = GloomhavenVR.Core.QuestStandalonePlatform.DebugLogging;
             if (frameDebug) frames.RecordDiscovery(QuestGameScope.DiscoveryScans, QuestGameScope.SceneComponentCount,
-                QuestGameScope.DiscoveryLastMs, QuestGameScope.DiscoveryWorstMs);
+                QuestGameScope.DiscoveryLastMs, QuestGameScope.DiscoveryWorstMs, QuestGameScope.DiscoveryLastTypeCount);
             string frameReport = frames.Observe(lastScene, focused && !paused && nativeStartupComplete, frameDebug,
                 Time.unscaledDeltaTime, Time.unscaledTime,
                 frameDebug ? GC.CollectionCount(0) : 0, UnityEngine.Scripting.GarbageCollector.isIncremental);

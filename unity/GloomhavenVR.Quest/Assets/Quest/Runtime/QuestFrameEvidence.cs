@@ -11,7 +11,7 @@ namespace GloomhavenVR.Quest
         public string scene;
         public bool incrementalGc, sampling;
         public int frames, over40Ms, over100Ms, gcCollections, spikeCount, spikeCursor;
-        public int discoveryScans, discoverySceneComponents;
+        public int discoveryScans, discoverySceneComponents, discoveryLastTypeCount;
         public double discoveryLastMs, discoveryWorstMs;
         public double sampledSeconds;
         public float worstFrameMs, maxSnapshotWriteMs;
@@ -79,12 +79,14 @@ namespace GloomhavenVR.Quest
                 + " gcCollections=" + Snapshot.gcCollections + " incremental=" + incremental
                 + " maxSnapshotWriteMs=" + F(Snapshot.maxSnapshotWriteMs)
                 + " discoveryScans=" + Snapshot.discoveryScans + " discoveryLastMs=" + F(Snapshot.discoveryLastMs)
-                + " discoveryWorstMs=" + F(Snapshot.discoveryWorstMs) + " sceneComponents=" + Snapshot.discoverySceneComponents;
+                + " discoveryWorstMs=" + F(Snapshot.discoveryWorstMs) + " discoveryTypeCount=" + Snapshot.discoveryLastTypeCount
+                + " sceneComponents=" + Snapshot.discoverySceneComponents;
         }
-        internal void RecordDiscovery(int scans, int sceneComponents, double lastMs, double worstMs)
+        internal void RecordDiscovery(int scans, int sceneComponents, double lastMs, double worstMs, int typeCount)
         {
             Snapshot.discoveryScans = scans; Snapshot.discoverySceneComponents = sceneComponents;
             Snapshot.discoveryLastMs = lastMs; Snapshot.discoveryWorstMs = worstMs;
+            Snapshot.discoveryLastTypeCount = typeCount;
         }
         internal void RecordSnapshotWrite(double milliseconds)
         {
