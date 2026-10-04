@@ -27,6 +27,15 @@ without individual verification/file/step bars. Complete it only at observed
 native handover. This supersedes the earlier five-step progress presentation.
 The original native loaders retain their asset-load ownership.
 
+**Quest adaptation compatibility, clarified by the maintainer on 2026-10-04:**
+standalone-only behavior must not change the ordinary PC mod. Gate adaptations
+through `QuestStandalonePlatform.Enabled` or a centrally owned capability, use
+small seams in the shared current components, and retain desktop behavior tests.
+Do not fork menus/keyboards, pin an old mod binary or maintain a Quest option
+allowlist. The builder must include selected current source/art automatically;
+report genuine original/package ABI drift visibly rather than guessing bindings.
+Future settings remain available unless a specific Quest-only exclusion applies.
+
 **Quest cache hygiene, requested by the maintainer on 2026-10-04:** after a
 verified hardware handoff, archive compact diagnostic receipts and prune obsolete
 Quest worker checkouts, generated test copies and historical Unity/build caches.
