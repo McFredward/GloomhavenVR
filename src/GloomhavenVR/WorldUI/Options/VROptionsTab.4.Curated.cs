@@ -463,10 +463,10 @@ internal static partial class VROptionsTab
                     LocKey = "sec_graphics_profiles",
                     Entries = new CuratedEntry[]
                     {
-                        CuratedEntry.Press("graphics_standalone", () => ApplyGraphicsProfile(0)),
-                        CuratedEntry.Press("graphics_performance", () => ApplyGraphicsProfile(1)),
-                        CuratedEntry.Press("graphics_balanced", () => ApplyGraphicsProfile(2)),
-                        CuratedEntry.Press("graphics_highend", () => ApplyGraphicsProfile(3)),
+                        CuratedEntry.Press("graphics_standalone", () => GraphicsProfileActions.Apply(0)),
+                        CuratedEntry.Press("graphics_performance", () => GraphicsProfileActions.Apply(1)),
+                        CuratedEntry.Press("graphics_balanced", () => GraphicsProfileActions.Apply(2)),
+                        CuratedEntry.Press("graphics_highend", () => GraphicsProfileActions.Apply(3)),
                     },
                 },
                 new()

@@ -67,7 +67,7 @@ if result.returncode: raise SystemExit(result.returncode)
 # The UI is independently bound to four distinct actions, never to the retired config index.
 curated=(source/'WorldUI/Options/VROptionsTab.4.Curated.cs').read_text()
 for index in range(4):
-    if curated.count('() => ApplyGraphicsProfile('+str(index)+')') != 1: raise SystemExit('Missing unique profile button')
+    if curated.count('() => GraphicsProfileActions.Apply('+str(index)+')') != 1: raise SystemExit('Missing unique profile button')
 for key in ['CacheTickDelegates','MapIconCache','FigureScanCache','LeanLogStrings','TooltipScanGate','SharedWallReadCache','LightStabiliserWorkCache','SuspendUnusedCameras','AutomaticLodIdleSkip']:
     perf=(source/'Core/Perf/PerfConfig.cs').read_text()
     if not re.search(key+r' = _file.Bind\("Optimize", "'+key+r'",[^,]+,\s*"INERT',perf): raise SystemExit('Unretired optimization: '+key)
