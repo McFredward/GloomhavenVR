@@ -239,13 +239,31 @@ namespace GloomhavenVR.Quest.Editor
             // Serialize the shared world-space loading artwork, original logo,
             // progress bar and built-in font with its first camera owner. Later
             // content delivery uses the same helper under the existing VR head.
-            if (Resources.Load<Texture2D>(QuestLoadingView.LogoResource) == null)
-                throw new InvalidOperationException("The original GloomhavenVR loading logo is unavailable.");
+            PrepareLoadingLogo();
             bootstrap.AddComponent<QuestGameModLifecycle>().PrepareStartupView();
             Directory.CreateDirectory("Assets/Quest/Scenes");
             const string startupScene = "Assets/Quest/Scenes/QuestOriginalStartup.unity";
             EditorSceneManager.SaveScene(scene, startupScene);
             return new[] { startupScene }.Concat(evidence.selectedScenes).ToArray();
+        }
+
+        static void PrepareLoadingLogo()
+        {
+            const string path = "Assets/Quest/Resources/quest-loading-logo.png";
+            var importer = AssetImporter.GetAtPath(path) as TextureImporter;
+            if (importer == null) throw new InvalidOperationException("The original loading logo importer is unavailable.");
+            int sourceWidth, sourceHeight;
+            importer.GetSourceTextureWidthAndHeight(out sourceWidth, out sourceHeight);
+            // Unity's default NPOT scaling squashes this original 1024x179 wordmark to 1024x128.
+            importer.npotScale = TextureImporterNPOTScale.None;
+            importer.mipmapEnabled = false;
+            importer.wrapMode = TextureWrapMode.Clamp;
+            importer.alphaIsTransparency = true;
+            importer.SaveAndReimport();
+            Texture2D logo = Resources.Load<Texture2D>(QuestLoadingView.LogoResource);
+            if (logo == null || sourceWidth <= 0 || sourceHeight <= 0 ||
+                logo.width != sourceWidth || logo.height != sourceHeight)
+                throw new InvalidOperationException("Loading logo import did not preserve its original PNG dimensions.");
         }
 #endif
         sealed class AndroidToolsOverride : IDisposable
