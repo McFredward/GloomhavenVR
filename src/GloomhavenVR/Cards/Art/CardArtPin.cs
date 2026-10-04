@@ -58,11 +58,13 @@ namespace GloomhavenVR.Cards;
 /// than by card count or frames. Nothing is copied; the handles below are
 /// REFERENCES on assets the game will load, held a few seconds earlier and longer.</para>
 ///
-/// <para>WHAT IS DELIBERATELY NOT PINNED: the HIGHLIGHT / SELECTED / DISABLED state sprites that
+/// <para>WHAT THE ORDINARY FIRST-FAN PIN DOES NOT LOAD: the HIGHLIGHT / SELECTED / DISABLED state sprites that
 /// <c>SetSkin(selected: true)</c> swaps in. They are the same size again, four per half, and none of
 /// them is on screen when the fan opens — the defect is the card's FIRST drawn frame. Pinning them
 /// would triple the resident set to remove a hitch nobody has reported on a hover. If a state swap
-/// ever reads grey, this is the line to change and the reason it was not.</para>
+/// ever reads grey, this is the line to change and the reason it was not. ScenarioCardPreparation
+/// now additionally prepares those original states during the loading gate: the Build616 capture
+/// identifies a 172ms later class switch, beyond the original first-drawn-frame defect.</para>
 ///
 /// <para>MULTIPLAYER: nothing here goes near the wire, and no game state is written. It asks
 /// Addressables for an asset by GUID and releases it again; the game's own loaders, contexts and
@@ -181,9 +183,9 @@ internal static class CardArtPin
                           + "back to the game's own reference counting; nothing here held a copy.");
     }
 
-    private static void PinReference(ReferenceToSprite? reference)
+    internal static void PinReference(ReferenceToSprite? reference)
     {
-        if (reference == null)
+        if (s_disabled || reference == null)
             return;
         // A skin field can carry a plain Sprite instead of an addressable (ReferenceToSprite's
         // SetSpriteInsteadAddressable path, which the long-rest card uses). Already in memory by
@@ -209,6 +211,20 @@ internal static class CardArtPin
         }
         Held[guid] = handle;
         s_pinned++;
+    }
+
+    /// <summary>Observe only our own GUID handle or the native direct-sprite field. Never
+    /// call ReferenceToSprite.GetAsyncSprite: that mutates the game's loading request.</summary>
+    internal static Sprite? PreparedSprite(ReferenceToSprite reference, out bool pending)
+    {
+        pending = false;
+        if (reference.InitializedWithSpecialSprite) return reference.SpecialSprite;
+        AssetReferenceSprite assetRef = reference.SpriteReference;
+        if (assetRef == null || string.IsNullOrEmpty(assetRef.AssetGUID)
+            || !Held.TryGetValue(assetRef.AssetGUID, out AsyncOperationHandle<Sprite> handle)
+            || !handle.IsValid()) return null;
+        pending = !handle.IsDone;
+        return handle.IsDone && handle.Status == AsyncOperationStatus.Succeeded ? handle.Result : null;
     }
 
     private static void Disable(string doing, System.Exception ex)

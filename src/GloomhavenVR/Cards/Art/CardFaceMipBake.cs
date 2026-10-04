@@ -430,6 +430,12 @@ internal static class CardFaceMipBake
         if (s_replacementBySource.TryGetValue(id, out Sprite? cached))
             return cached;
 
+        // Build616's ordinary class switch spent 172ms inside Cards.Driver while new
+        // class strips and ConsumeDark appeared. Attribute actual cold work, including
+        // preparation, without adding another per-card/per-frame diagnostic stream.
+        using var scope = PerfMonitor.Scope("Cards.SpriteMipMiss");
+        PerfMonitor.Count("Cards.SpriteMipMisses");
+
         Sprite? made = null;
         Texture2D? srcTex = source.texture;
         if (srcTex != null && srcTex.mipmapCount <= 1) // already-mipped textures need nothing
@@ -470,6 +476,15 @@ internal static class CardFaceMipBake
 
         s_replacementBySource[id] = made;
         return made;
+    }
+
+    /// <summary>Load-time warming of one original sprite. Uses the very same cache as
+    /// local and remote faces, with no Image assignment or native widget activation.</summary>
+    internal static void WarmSprite(Sprite? sprite)
+    {
+        if (sprite == null || CardsConfig.FaceMipBake == null || !CardsConfig.FaceMipBake.Value)
+            return;
+        ReplacementFor(OriginalFor(sprite));
     }
 
     /// <summary>Pivot in normalized rect space, as Sprite.Create wants it.</summary>
@@ -806,6 +821,9 @@ internal static class CardFaceMipBake
         int id = tex.GetInstanceID();
         if (s_bakedByTexture.TryGetValue(id, out Texture2D? known))
             return known;
+
+        using var scope = PerfMonitor.Scope("Cards.AtlasMipMiss");
+        PerfMonitor.Count("Cards.AtlasMipMisses");
 
         // Content-identity dedupe: a SECOND Texture2D instance wrapping the same atlas
         // (the log's double ~85 MB bake of 'sactx-…-811e9640') reuses the first bake.
