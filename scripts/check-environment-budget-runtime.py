@@ -37,6 +37,11 @@ large_obj=next(x for x in env.objects if x.type.name=="Mesh" and x.read().m_Name
 large=large_obj.read(); lh=MeshHandler(large); lh.process()
 Path(sys.argv[2]).with_name("native-pillar-large.json").write_text(json.dumps({"name":large.m_Name,"vertices":vector(lh.m_Vertices,"xyz"),"normals":vector(lh.m_Normals,"xyz"),"uv":vector(lh.m_UV0,"xy"),"triangles":[i for triangle in lh.get_triangles()[0] for i in triangle]})+"\n")
 Path(sys.argv[3]).write_text(json.dumps({"bundle":str(p),"sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"mesh_path_id":obj.path_id,"name":mesh.m_Name,"native_readable":mesh.m_IsReadable,"submeshes":len(mesh.m_SubMeshes),"vertices":len(h.m_Vertices),"triangles":len(data["triangles"])/3,"second_mesh":{"name":large.m_Name,"path_id":large_obj.path_id,"vertices":len(lh.m_Vertices)},"transfer":"original vertex, normal, UV and index channels; no OBJ coordinate/winding conversion","limits":"native Windows shader, material/art textures and procedural controllers are NOT executed by this GL fixture"},indent=2)+"\n")
+floor_path=p.parent.parent.parent/"pcg_materials_assets_cv_floor_basic_m.bundle"
+floor_env=UnityPy.load(str(floor_path)); floor_obj=next(x for x in floor_env.objects if x.type.name=="Material" and x.read().m_Name=="CV_Floor_Basic_M")
+floor=floor_obj.read(); floats=dict(floor.m_SavedProperties.m_Floats); assert floats["_WallFade_On"]==1
+Path(sys.argv[2]).with_name("native-floor-material.json").write_text(json.dumps({"name":floor.m_Name,"wallFade":floats["_WallFade_On"],"cutoff":floats["_Cutoff"]})+"\n")
+Path(sys.argv[2]).with_name("native-floor-material-provenance.json").write_text(json.dumps({"bundle":str(floor_path),"sha256":hashlib.sha256(floor_path.read_bytes()).hexdigest(),"material_path_id":floor_obj.path_id,"name":floor.m_Name,"original_saved_floats":floats,"shader_keywords":floor.m_ShaderKeywords,"limits":"original authored floats imported into explicit GL native API surrogate; original Windows shader bytecode is not executed"},indent=2)+"\n")
 '''
     result = subprocess.run([str(python),"-c",code,str(bundle),str(run/"native-pillar.json"),str(run/"native-masonry-provenance.json")],capture_output=True,text=True)
     if result.returncode: raise SystemExit(result.stdout+result.stderr)
@@ -54,6 +59,20 @@ def material_repair_binding(source):
     assert positions == sorted(positions), 'Environment readiness must follow restored native material/enabled state and precede successful continuation'
 
 
+def wall_delivery(source):
+    """Bind complete original delivery/texture methods, including every native MPB write."""
+    assert source.count('OcclusionFade.StepFactor(AnimationDelta(frameDelta), FadeTauSeconds)') == 1, 'Actual wall tick must use the bounded presentation step'
+    methods = []
+    for signature in ('private void Apply(Segment seg)', 'private bool EnsureTextures()'):
+        assert source.count(signature) == 1, 'Wall delivery extraction drift: '+signature
+        start = source.index(signature)
+        end = source.index('\n        }', start) + len('\n        }')
+        methods.append(source[start:end])
+    return ('using System; using UnityEngine; namespace GloomhavenVR.Core; '
+        'internal static partial class WallSegmentFade { private sealed partial class FadeDriver { '
+        + '\n'.join(methods) + '\n} }\n')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root', type=Path, default=ROOT)
@@ -66,7 +85,13 @@ def main():
     shader_path = args.source_root/'unity/GloomhavenVR.Assets/Assets/Bundle/Environments/ScenarioSimpleEnvironment.shader'
     repair_path = args.source_root/'src/GloomhavenVR/Core/MaterialLoaderHeal.cs'
     floor_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallFloorTile.cs'
+    wall_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs'
+    clock_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.AnimationClock.cs'
+    occlusion_path = args.source_root/'src/GloomhavenVR/Core/OcclusionFade.cs'
     source, shader, repair, floor = source_path.read_text(), shader_path.read_text(), repair_path.read_text(), floor_path.read_text()
+    wall, clock, occlusion = wall_path.read_text(), clock_path.read_text(), occlusion_path.read_text()
+    delivery = wall_delivery(wall)
+    clock_variants, delivery_variants = {}, {}
     wall_writes = []
     for path in (args.source_root/'src/GloomhavenVR/Core/WallFade').glob('WallSegmentFade*.cs'):
         text = path.read_text()
@@ -83,7 +108,7 @@ def main():
         assert 'publish environment readiness' in str(error), 'Removed-edge control failed for an unrelated reason'
     else: raise SystemExit('Native material repair removed-edge negative control escaped')
     assert 'StaticBatchingUtility' not in source and 'SetStaticBatchInfo' not in source, 'Native sources must not acquire Unity internal static-batch state'
-    assert 'Camera.onPreCull += OnPreCull;' in source and 'Camera.onPostRender -= OnPostRender;' in source, 'Draw leases require paired real rendering hooks'
+    assert 'Camera.onPreCull += HandlePreCull;' in source and 'Camera.onPostRender -= HandlePostRender;' in source, 'Draw leases require paired real rendering hooks'
     variants = [('production',source,'')]
     if not args.production_only:
         changes = [
@@ -105,7 +130,9 @@ def main():
             ('elevated-pillar-name-bypass','return WallFloorTile.Judge(new WallFloorTile.Plate(min.y, max.y, max.x - min.x, max.z - min.z), 0f)\n            == WallFloorTile.Verdict.FloorTile;','return true;','native scope exclusions retain original rendering: CV_Floor_Base_Raised',1),
             ('structural-never-admitted','bool structural = !floor && StructuralIdentity(filter.sharedMesh) && !renderer.HasPropertyBlock();','bool structural = false;','audited native masonry creates a bounded structural render substitute',1),
             ('structural-command-renderer-masked','if (camera != null && camera.commandBufferCount > 0)','if (bool.Parse("false"))','native command-buffer DrawRenderer keeps the original structural renderer identity and geometry',1),
-            ('structural-effect-release-missing','InvalidateBatch(id);\n            if (_surfaces.TryGetValue(id, out Surface surface) && surface.Structural)','/* injected: substitute survives write */\n            if (_surfaces.TryGetValue(id, out Surface surface) && surface.Structural)','wall effect write restores structural sources and material synchronously',1),
+            ('structural-effect-release-missing','InvalidateBatch(id);\n            if (_surfaces.TryGetValue(id, out Surface surface))','/* injected: substitute survives write */\n            if (_surfaces.TryGetValue(id, out Surface surface))','wall effect write restores structural sources and material synchronously',1),
+            ('live-floor-dissolve-not-preserved','if (NativeWallFadeEnabled(material)) return false;','/* injected: native floor shader channel lost */','live native floor wall channels retain original shaders',1),
+            ('late-native-channel-not-retired','RetireChangedNativeMaterials();','/* injected: late original wall channel ignored */','late native material gate retires the simpler variant before actual camera culling',1),
             ('native-continuation-fault-guard-removed','try { _driver?.MaterialReady(renderer); }\n        catch (Exception error) { StopAfterFailure(error); }','_driver?.MaterialReady(renderer);','generated shader resolver fault',1),
         ]
         for name, before, after, expected, occurrences in changes:
@@ -118,6 +145,16 @@ def main():
         before = 'if (!identity) return false;'
         assert source.count(before) == 1, 'negative control binding drift: floor provenance'
         variants.append(('non-floor-substitute-admitted',source.replace(before,'/* injected: direct floor identity omitted */'),'non-floor opaque trim preserves native material'))
+        before = 'Mathf.Clamp(frameDelta, 0f, 1f / 30f)'
+        assert clock.count(before) == 1, 'Wall visual-clock mutation binding drift'
+        variants.append(('wall-hitch-finishes-animation',source,'stalled wall frame preserves rendered intermediate pixels'))
+        clock_variants['wall-hitch-finishes-animation'] = clock.replace(before,'frameDelta')
+        before = '_mpb.SetTexture(TilesOcclusionMapId, _noiseTex!);'
+        assert delivery.count(before) == 1, 'Original wall noise-map mutation binding drift'
+        variants.append(('wall-ramp-uses-binary-map',source,'stalled wall frame preserves rendered intermediate pixels'))
+        delivery_variants['wall-ramp-uses-binary-map'] = delivery.replace(before,'_mpb.SetTexture(TilesOcclusionMapId, _occludedTex!);')
+        variants.append(('invalid-unity-camera-messages',source.replace('HandlePreCull','OnPreCull').replace('HandlePostRender','OnPostRender'),
+            'actual Unity AddComponent produces no invalid engine callback messages'))
     if args.case:
         unknown = set(args.case)-{name for name,_,_ in variants}
         if unknown: raise SystemExit('Unknown selected case: '+', '.join(sorted(unknown)))
@@ -129,13 +166,17 @@ def main():
     (run/'wall-write-bindings.json').write_text(json.dumps({'mpb_writes':wall_writes,'count':len(wall_writes),'contract':'synchronous native source restoration immediately before each actual wall MPB setter; enable primitives and material swaps additionally hooked'},indent=2)+'\n')
     fixture = ROOT/'tests/environment-budget-runtime'
     manifest = {'result':str(run/'results.txt'),'cases':[]}
-    (run/'source-hashes.json').write_text(json.dumps({'root':str(args.source_root.resolve()),'sha256':{str(source_path):hashlib.sha256(source.encode()).hexdigest(),str(shader_path):hashlib.sha256(shader.encode()).hexdigest(),str(repair_path):hashlib.sha256(repair.encode()).hexdigest(),str(floor_path):hashlib.sha256(floor.encode()).hexdigest()},'coverage':'partial' if partial else 'production-and-negative-controls','cases':[name for name,_,_ in variants],'limits':['Native scene classes/config are boundary surrogates.','Actual Unity meshes, renderer masks, shaders, pixels, cloning and camera callbacks are executed.','Native material healer integration is source-bound; its native callbacks are not executed.','Native game scenes, OpenXR HMD images and FPS remain hardware-open.']},indent=2)+'\n')
+    bound_sources = {source_path:source,shader_path:shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,occlusion_path:occlusion}
+    (run/'source-hashes.json').write_text(json.dumps({'root':str(args.source_root.resolve()),'sha256':{str(path):hashlib.sha256(value.encode()).hexdigest() for path,value in bound_sources.items()},'coverage':'partial' if partial else 'production-and-negative-controls','cases':[name for name,_,_ in variants],'limits':['Native scene classes/config and empty wall attachment lists are explicit boundary surrogates.','Complete original wall Apply/EnsureTextures, shared ramp and wall-specific visual clock execute.','Actual Unity meshes, renderer masks, pixels, cloning and camera callbacks are executed.','Native wall fragment pixels use an explicit GL surrogate of the documented LOW above-foundation branch, not original Windows compiled shader programs.','Native material healer integration is source-bound; its native callbacks are not executed.','Native game scenes, OpenXR HMD images and FPS remain hardware-open.']},indent=2)+'\n')
     (run/'repair-binding.json').write_text(json.dumps({'native-success-order':'sharedMaterials / enabled / MaterialReady / return true','removed-edge-negative-control':'rejected'},indent=2)+'\n')
     dotnet = shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
     for name, value, expected in variants:
         build = run/name; production = build/'production'; production.mkdir(parents=True)
         (production/'Environment.cs').write_text(value)
         (production/'WallFloorTile.cs').write_text(floor)
+        (production/'WallDelivery.cs').write_text(delivery_variants.get(name,delivery))
+        (production/'WallClock.cs').write_text(clock_variants.get(name,clock))
+        (production/'OcclusionFade.cs').write_text(occlusion)
         project = build/'Environment.csproj'; shutil.copyfile(fixture/'Environment.csproj',project)
         assembly = 'EnvironmentBudget_'+name.replace('-','_')
         command = [dotnet,'build',str(project),'-c','Release','--nologo','--verbosity','quiet','-p:CaseName='+assembly,'-p:FixtureDir='+str(fixture),'-p:ProductionDir='+str(production),'-p:UnityManaged='+str(args.unity.parent/'Data/Managed')]

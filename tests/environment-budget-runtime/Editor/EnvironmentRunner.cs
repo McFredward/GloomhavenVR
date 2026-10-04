@@ -28,7 +28,9 @@ public static class EnvironmentRunner
         {
             output.WriteLine("Unity " + Application.unityVersion + "; graphics device: " + SystemInfo.graphicsDeviceName);
             Shader simple = Shader.Find("GloomhavenVR/ScenarioSimpleEnvironment");
-            if (simple == null || !simple.isSupported || ShaderUtil.ShaderHasError(simple))
+            Shader native = Shader.Find("Amp_Basic_N_MRAO");
+            if (simple == null || !simple.isSupported || ShaderUtil.ShaderHasError(simple)
+                || native == null || !native.isSupported || ShaderUtil.ShaderHasError(native))
             { output.WriteLine("FAIL: production shader import/graphics support"); EditorApplication.Exit(1); return; }
             foreach (var entry in manifest.cases)
             {

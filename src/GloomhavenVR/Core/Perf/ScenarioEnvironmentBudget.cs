@@ -133,6 +133,13 @@ internal static class ScenarioEnvironmentBudget
     private static bool Gate(Material material, string name) =>
         material.HasProperty(name) && material.GetFloat(name) > 0f;
 
+    private static bool NativeWallFadeEnabled(Material material) =>
+        (material.HasProperty("_WallFade_On") && material.GetFloat("_WallFade_On") != 0f)
+        || material.IsKeywordEnabled("_WALLFADE_ON_ON")
+        || Gate(material, "_ToggleWallfade") || Gate(material, "ToggleWallFade")
+        || (material.HasProperty("_ToggleWallFadeLocal")
+            && Mathf.Abs(material.GetFloat("_ToggleWallFadeLocal")) > 0.5f);
+
     private static bool CompatibleMaterial(Material material, bool floor)
     {
         if (!floor || material == null || material.shader == null) return false;
@@ -141,6 +148,14 @@ internal static class ScenarioEnvironmentBudget
             && shader != SimpleShader) return false;
         if (material.renderQueue > 2500 || Gate(material, "_AddVertexAnim")
             || Gate(material, "_UseEmissiveMap") || Gate(material, "_Diffuse_Emissive_On")) return false;
+        // Frame615 logs identify CV_Floor_Basic_M (VR simple environment) as
+        // "toggle-native" and include the cheap shader in Wall25's native fade set.
+        // CopyPropertiesFromMaterial also preserves saved properties absent from the
+        // new shader; HasProperty/GetFloat can therefore advertise a native dissolve
+        // which this shader does not render. An authored floor label does not prove
+        // that its material has no native wall channel. Preserve every live channel,
+        // even on floors, rather than replacing animation with a cutoff/enable pop.
+        if (NativeWallFadeEnabled(material)) return false;
         // Immediate native floor identity AND floor-plane geometry establish the native
         // never-fade veto. Broad ancestor names cannot promote mounted scenery into it.
         return true;
@@ -387,8 +402,8 @@ internal static class ScenarioEnvironmentBudget
         {
             SceneManager.sceneLoaded += OnSceneLoaded;
             SceneManager.sceneUnloaded += OnSceneUnloaded;
-            Camera.onPreCull += OnPreCull;
-            Camera.onPostRender += OnPostRender;
+            Camera.onPreCull += HandlePreCull;
+            Camera.onPostRender += HandlePostRender;
         }
         private void OnDisable() => RecoverRenderLeases();
         internal void RecoverRenderLeases()
@@ -402,8 +417,8 @@ internal static class ScenarioEnvironmentBudget
         {
             SceneManager.sceneLoaded -= OnSceneLoaded;
             SceneManager.sceneUnloaded -= OnSceneUnloaded;
-            Camera.onPreCull -= OnPreCull;
-            Camera.onPostRender -= OnPostRender;
+            Camera.onPreCull -= HandlePreCull;
+            Camera.onPostRender -= HandlePostRender;
             RestoreAll();
         }
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode) { if (VRSession.IsRunning) Seed(); }
@@ -592,6 +607,9 @@ internal static class ScenarioEnvironmentBudget
         private void ApplyMaterial(Surface surface)
         {
             if (!_simpleOn || (surface.Structural && !_structuralOn) || surface.Renderer == null) return;
+            if (surface.Renderer.HasPropertyBlock()) return;
+            foreach (Material original in surface.Original)
+                if (!CompatibleMaterial(original, surface.Floor || surface.Structural)) return;
             _shader ??= BundleShaders.Resolve(SimpleShader, Scope, "simpler scenario environment shader available", "original environment materials retained");
             if (_shader == null) return;
             var changed = new Material[surface.Original.Length];
@@ -692,11 +710,37 @@ internal static class ScenarioEnvironmentBudget
         {
             int id = renderer.GetInstanceID();
             InvalidateBatch(id);
-            if (_surfaces.TryGetValue(id, out Surface surface) && surface.Structural)
+            if (_surfaces.TryGetValue(id, out Surface surface))
             {
                 surface.RestoreMaterial();
                 _surfaces.Remove(id);
             }
+        }
+
+        private void RetireChangedNativeMaterials()
+        {
+            // Native code can enable a material keyword/property in-place without a
+            // MaterialLoader completion. Revalidate the original, not saved properties
+            // copied into our variant. No hierarchy query or material-array allocation
+            // is needed on the unchanged path. Restore before either eye is culled.
+            _dead.Clear();
+            foreach (var pair in _surfaces)
+            {
+                Surface surface = pair.Value;
+                if (surface.Applied == null || surface.Renderer == null) continue;
+                bool compatible = !surface.Renderer.HasPropertyBlock();
+                foreach (Material original in surface.Original)
+                    compatible &= CompatibleMaterial(original, surface.Floor || surface.Structural);
+                if (!compatible) _dead.Add(pair.Key);
+            }
+            foreach (int id in _dead)
+            {
+                Surface surface = _surfaces[id];
+                InvalidateBatch(id);
+                surface.RestoreMaterial();
+                _surfaces.Remove(id);
+            }
+            _dead.Clear();
         }
 
         private void InvalidateBatch(int sourceId)
@@ -761,14 +805,15 @@ internal static class ScenarioEnvironmentBudget
             }
             catch (Exception error) { StopAfterFailure(error); }
         }
-        private void OnPreCull(Camera camera)
+        private void HandlePreCull(Camera camera)
         {
-            if (!_active || (_batches.Count == 0 && _ambient.Count == 0)) return;
+            if (!_active || (_surfaces.Count == 0 && _batches.Count == 0 && _ambient.Count == 0)) return;
             // A native visibility callback can run after LateUpdate. Validation is idempotent
             // and precedes each camera's culling, including both eyes in MultiPass.
             using var scope = PerfMonitor.Scope("EnvironmentBudget.PreCull");
             try
             {
+                RetireChangedNativeMaterials();
                 _renderDepth++;
                 // DrawRenderer command buffers target exact native Renderer identities.
                 // Keep these sources available with native flags for command-buffer
@@ -780,7 +825,7 @@ internal static class ScenarioEnvironmentBudget
             }
             catch (Exception error) { StopAfterFailure(error); }
         }
-        private void OnPostRender(Camera camera)
+        private void HandlePostRender(Camera camera)
         {
             if (_renderDepth <= 0 || --_renderDepth > 0) return;
             foreach (Batch batch in _batches) batch.Unmask();

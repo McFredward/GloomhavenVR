@@ -2458,7 +2458,9 @@ internal static partial class WallSegmentFade
             _lastVisibleCount = visibleCount;
             bool reevalArmed = _perspective.Armed(now);
 
-            float fadeStep = OcclusionFade.StepFactor(Time.unscaledDeltaTime, FadeTauSeconds);
+            float frameDelta = Time.unscaledDeltaTime;
+            float fadeStep = OcclusionFade.StepFactor(AnimationDelta(frameDelta), FadeTauSeconds);
+            NoteAnimationClock(frameDelta, now);
             // The coverage EMA advances by the time since the last EVALUATION, not since the last
             // frame — otherwise skipping evaluations would silently stretch its time constant and
             // change the fade decision, which is exactly what the interval must NOT do.

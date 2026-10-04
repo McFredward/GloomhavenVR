@@ -9,6 +9,11 @@ using UnityEngine.SceneManagement;
 public static class EnvironmentProgram
 {
     private static int count;
+    private static readonly List<string> InvalidCallbackMessages = new();
+    private static void EngineMessage(string text, string stack, LogType type)
+    {
+        if(text.Contains("message may not have any parameters")) InvalidCallbackMessages.Add(text);
+    }
     private static void Check(bool condition, string message)
     { count++; if (!condition) throw new InvalidOperationException(message); }
     private static object Driver => typeof(ScenarioEnvironmentBudget).GetField("_driver", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
@@ -43,6 +48,8 @@ public static class EnvironmentProgram
             Generated = Child("Generated Content", tile.transform);
             Host = new GameObject("GloomhavenVR.RuntimeFixture.Driver");
             ScenarioEnvironmentBudget.Install(Host);
+            Check(InvalidCallbackMessages.Count == 0,
+                "actual Unity AddComponent produces no invalid engine callback messages");
             Original = Material();
             var camera = Child("RuntimeFixture.Camera", Root.transform);
             Camera = camera.AddComponent<Camera>();
@@ -335,14 +342,14 @@ public static class EnvironmentProgram
         finally { Camera.onPreCull -= nestedProbe; nested.targetTexture = null; nestedTarget.Release(); UnityEngine.Object.DestroyImmediate(nestedTarget); UnityEngine.Object.DestroyImmediate(nested.gameObject); }
         Check(nestedRan && innerMask && outerRetained && !first.forceRenderingOff && !chunk.enabled,
             "actual nested camera renders keep the outer lease and restore after the outer post callback");
-        Tick("OnPreCull",room.Camera);
+        Tick("HandlePreCull",room.Camera);
         Check(first.forceRenderingOff, "interrupted pre-cull establishes the production draw lease");
         object recovery = typeof(ScenarioEnvironmentBudget).GetField("_recovery",BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
         var order = (DefaultExecutionOrder)Attribute.GetCustomAttribute(recovery.GetType(),typeof(DefaultExecutionOrder))!;
         recovery.GetType().GetMethod("Update",BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(recovery,null);
         Check(order.order < 0 && !first.forceRenderingOff && !chunk.enabled,
             "early production recovery restores a missing post callback before native content creation");
-        Tick("OnPreCull",room.Camera); ((Behaviour)Driver).enabled = false;
+        Tick("HandlePreCull",room.Camera); ((Behaviour)Driver).enabled = false;
         Check(!first.forceRenderingOff && !chunk.enabled, "actual MonoBehaviour disable releases an interrupted camera mask");
         ((Behaviour)Driver).enabled = true;
 
@@ -413,10 +420,10 @@ public static class EnvironmentProgram
         Check(chunk.GetComponent<MeshFilter>().sharedMesh.vertexCount == 3035 && first.GetComponent<MeshFilter>().sharedMesh == mesh
             && first.transform.localToWorldMatrix == originalTransform && collider.enabled && !first.isPartOfStaticBatch,
             "native structural identity mesh collider transforms and non-static-batch state remain exact");
-        Tick("OnPreCull",room.Camera);
+        Tick("HandlePreCull",room.Camera);
         Check(first.forceRenderingOff && second.forceRenderingOff && chunk.enabled,
             "structural draw lease reduces two different native mesh submissions to one exact geometry chunk");
-        Tick("OnPostRender",room.Camera);
+        Tick("HandlePostRender",room.Camera);
         // Compare geometry using the SAME explicit quality-compromise material on both
         // paths. The original Windows shader itself is not executable on this GL host.
         Material simple = first.sharedMaterial;
@@ -446,7 +453,7 @@ public static class EnvironmentProgram
         Check(commandSourcesNative && sameCommand && green>15 && room.LastRenderedChunks == 0, "native command-buffer DrawRenderer keeps the original structural renderer identity and geometry: same="+sameCommand+", green="+green+", rendered chunks="+room.LastRenderedChunks);
         room.Camera.RemoveCommandBuffer(CameraEvent.BeforeImageEffects,command); command.Release();
         ScenarioEnvironmentBudget.Placed(room.Generated); ScenarioEnvironmentBudget.BeforeLoadingComplete();
-        Tick("OnPreCull",room.Camera);
+        Tick("HandlePreCull",room.Camera);
         ScenarioEnvironmentBudget.BeforeNativeRendererWrite(first);
         Check(!first.forceRenderingOff && !second.forceRenderingOff && first.sharedMaterial == room.Original && room.Chunks().Length == 0,
             "wall effect write restores structural sources and material synchronously inside an active camera lease");
@@ -456,7 +463,7 @@ public static class EnvironmentProgram
         first.SetPropertyBlock(null);
         first.sharedMaterial = room.Original; second.sharedMaterial = room.Original;
         ScenarioEnvironmentBudget.Placed(room.Generated); ScenarioEnvironmentBudget.BeforeLoadingComplete();
-        Tick("OnPreCull",room.Camera); ScenarioEnvironmentBudget.BeforeNativeContentChange();
+        Tick("HandlePreCull",room.Camera); ScenarioEnvironmentBudget.BeforeNativeContentChange();
         Check(!first.forceRenderingOff && !second.forceRenderingOff, "native reveal prefix releases structural render masks before visibility changes");
         second.gameObject.SetActive(false); room.Render();
         Check(room.LastRenderedChunks == 0 && !first.forceRenderingOff, "structural cull boundary invalidates the substitute before the next camera sees it");
@@ -568,10 +575,116 @@ public static class EnvironmentProgram
             "failed optional preparation remains disabled and reports its failure once");
     }
 
+    private static void NativeWallChannelsAndRenderedClock()
+    {
+        using var room = new Room();
+        string nativeFloorPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(
+            Environment.GetEnvironmentVariable("GHVR_ENVIRONMENT_NATIVE_MESH")!)!,"native-floor-material.json");
+        var native = JsonUtility.FromJson<NativeFloorMaterial>(System.IO.File.ReadAllText(nativeFloorPath));
+        var live = room.Material(); live.name = native.name;
+        live.SetFloat("_WallFade_On",native.wallFade); live.SetFloat("_Cutoff",native.cutoff);
+        Check(live.name=="CV_Floor_Basic_M" && live.GetFloat("_WallFade_On")==1,
+            "actual original CV_Floor_Basic_M authored wall-fade gate is imported verbatim: name="+live.name+", gate="+live.GetFloat("_WallFade_On"));
+        var saved = new Material(Shader.Find("GloomhavenVR/ScenarioSimpleEnvironment"));
+        saved.CopyPropertiesFromMaterial(live);
+        Debug.Log("Native material copy probe: shader="+saved.shader.name+", HasProperty(_WallFade_On)="
+            +saved.HasProperty("_WallFade_On")+", saved float="+saved.GetFloat("_WallFade_On"));
+        Check(saved.GetFloat("_WallFade_On")==1,
+            "actual Unity material copy retains original saved native wall-fade data even when the cheap shader lacks its fragment branch");
+        UnityEngine.Object.DestroyImmediate(saved);
+        var liveFloor = room.Surface("CV_Floor_Basic_Fade", material:live);
+        var keyword = room.Material(); keyword.EnableKeyword("_WALLFADE_ON_ON");
+        var keywordFloor = room.Surface("CV_Floor_Basic_Keyword", material:keyword);
+        var local = room.Material(); local.SetFloat("_ToggleWallFadeLocal",-1);
+        var localFloor = room.Surface("CV_Floor_Basic_Local", material:local);
+        Configure(true,true,100); ScenarioEnvironmentBudget.ConfigureStructuralBatching(() => true);
+        ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(liveFloor.sharedMaterial == live && keywordFloor.sharedMaterial == keyword
+            && localFloor.sharedMaterial == local,
+            "live native floor wall channels retain original shaders rather than copied inert shader properties");
+
+        var lateMaterial = room.Material(); var late = room.Surface("CV_Floor_Basic_Late",material:lateMaterial);
+        ScenarioEnvironmentBudget.Placed(room.Generated); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(late.sharedMaterial != lateMaterial, "inactive native channel can initially use explicit simpler floor shading");
+        lateMaterial.SetFloat("_WallFade_On",1);
+        room.Render();
+        Check(late.sharedMaterial == lateMaterial && !late.forceRenderingOff,
+            "late native material gate retires the simpler variant before actual camera culling");
+        lateMaterial.SetFloat("_WallFade_On",0);
+        ScenarioEnvironmentBudget.Placed(room.Generated); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(late.sharedMaterial != lateMaterial, "native channel closure permits a later safe re-admission");
+        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(late);
+        Check(late.sharedMaterial == lateMaterial, "native effect writes restore owned floor shaders before the original setter");
+
+        // Move all other surfaces out of this render. Above the native LOW foundation
+        // gate, use the actual wall MPB + original rank-flattened Perlin textures.
+        foreach (var renderer in room.Generated.GetComponentsInChildren<MeshRenderer>()) renderer.enabled = false;
+        var wall = room.Surface("CV_Wall_Fade_Runtime",x:1.5f,material:live);
+        Mesh mesh = wall.GetComponent<MeshFilter>().sharedMesh;
+        Vector3[] vertices = mesh.vertices;
+        for(int i=0;i<vertices.Length;i++) vertices[i].y = 1f;
+        mesh.vertices=vertices; mesh.RecalculateBounds();
+        using var fixture = new WallSegmentFade.Fixture(wall);
+        int Visible(Color32[] pixels) { int n=0; foreach(var p in pixels) if(p.r>15)n++; return n; }
+        fixture.Step(0f,false); int solid = Visible(room.Render());
+        Check(solid>20,"original wall geometry renders before its dissolve starts");
+        float first = fixture.Step(1f,true); int firstPixels = Visible(room.Render());
+        Check(first>0f && first<.3f && firstPixels>0 && firstPixels<=solid,
+            "stalled wall frame preserves rendered intermediate pixels instead of completing/binarizing the dissolve: fade="+first+", pixels="+firstPixels+"/"+solid);
+        var block = new MaterialPropertyBlock(); wall.GetPropertyBlock(block);
+        Debug.Log("Wall MPB probe: intGate="+block.GetInteger(Shader.PropertyToID("ToggleWallFade"))
+            +", floatGate="+block.GetFloat(Shader.PropertyToID("_WallFade_On"))+", floatToggle="+block.GetFloat(Shader.PropertyToID("_ToggleWallfade"))
+            +", cutoff="+block.GetFloat(Shader.PropertyToID("_Cutoff"))+", objectY="+mesh.vertices[0].y);
+        Check(block.GetTexture(Shader.PropertyToID("_TilesOcclusionMap")).name == "GloomhavenVR.WallFadeNoise",
+            "original wall setter uses the actual production noise texture during its visible transition");
+        int decreasing=0, last=firstPixels;
+        for(int i=0;i<30;i++)
+        {
+            float progress=fixture.Step(i==2 ? 2f : 1f/90f,true);
+            int pixels=Visible(room.Render());
+            Check(pixels<=last,"actual wall dissolve never resurrects pixels while progressing toward its held state");
+            if(pixels<last && pixels>0)decreasing++;
+            last=pixels;
+            if(progress==1f)break;
+        }
+        for(int i=0;i<70;i++) fixture.Step(1f/90f,true);
+        Check(decreasing>=5 && Visible(room.Render())==0,
+            "visible native wall delivery has multiple decreasing frames and a complete held endpoint: changing="+decreasing+", pixels="+Visible(room.Render())+"/"+solid);
+        wall.GetPropertyBlock(block);
+        Check(block.GetTexture(Shader.PropertyToID("_TilesOcclusionMap")).name == "GloomhavenVR.WallFadeOccluded",
+            "only the fully held original wall receives its binary occluded texture");
+        int growing=0; last=0;
+        for(int i=0;i<80;i++)
+        {
+            fixture.Step(i==0 ? 1f : 1f/90f,false);
+            int pixels=Visible(room.Render());
+            Check(pixels>=last,"actual wall return never loses pixels while its dissolve reverses");
+            if(pixels>last && pixels<solid) growing++;
+            last=pixels;
+        }
+        Check(growing>=5 && last==solid && !wall.HasPropertyBlock(),
+            "return after a stalled frame has visible intermediate samples and restores the original unblocked wall");
+        Configure(false,false,100); Tick();
+        Check(wall.sharedMaterial==live && !wall.forceRenderingOff,
+            "all environment optimizations off preserve native wall rendering and its authored live material");
+    }
+
+    [Serializable] private sealed class NativeFloorMaterial
+    {
+        public string name = "";
+        public float wallFade = 0f, cutoff = 0f;
+    }
+
     public static int Run()
     {
         count = 0;
-        ScopeAndMaterials(); AmbientScopes(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault(); StructuralChunks();
-        return count;
+        InvalidCallbackMessages.Clear();
+        Application.logMessageReceived += EngineMessage;
+        try
+        {
+            ScopeAndMaterials(); AmbientScopes(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault(); StructuralChunks(); NativeWallChannelsAndRenderedClock();
+            return count;
+        }
+        finally { Application.logMessageReceived -= EngineMessage; }
     }
 }

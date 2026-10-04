@@ -22,8 +22,9 @@ Shader "Amp_Basic_N_MRAO"
         _Diffuse_Emissive_On("Emissive",Float) = 0
         _WallFade_On("Wall fade",Float) = 0
         _ToggleWallfade("Wall fade toggle",Float) = 0
-        ToggleWallFade("Wall fade toggle 2",Float) = 0
+        ToggleWallFade("Wall fade toggle 2",Integer) = 0
         _ToggleWallFadeLocal("Wall fade local",Float) = 0
+        _TilesOcclusionMap("Native occlusion map boundary",2D) = "white" {}
     }
     SubShader
     {
@@ -37,12 +38,24 @@ Shader "Amp_Basic_N_MRAO"
             #pragma multi_compile __ _WALLFADE_ON_ON
             #include "UnityCG.cginc"
             sampler2D _MainTex;
+            sampler2D _TilesOcclusionMap;
             float4 _MainTex_ST, _Tint;
             float _UVTiling, _UV_Offset;
-            struct v2f { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; };
+            float _WallFade_On, _Cutoff;
+            int ToggleWallFade;
+            struct v2f { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; float4 screen:TEXCOORD1; float objY:TEXCOORD2; };
             v2f vert(appdata_base v)
-            { v2f o; o.pos=UnityObjectToClipPos(v.vertex); o.uv=TRANSFORM_TEX(v.texcoord*_UVTiling+_UV_Offset,_MainTex); return o; }
-            fixed4 frag(v2f i):SV_Target { return fixed4(tex2D(_MainTex,i.uv).rgb*_Tint.rgb,1); }
+            { v2f o; o.pos=UnityObjectToClipPos(v.vertex); float2 uv=v.texcoord.xy*_UVTiling+_UV_Offset; o.uv=TRANSFORM_TEX(uv,_MainTex); o.screen=ComputeScreenPos(o.pos); o.objY=v.vertex.y; return o; }
+            fixed4 frag(v2f i):SV_Target
+            {
+                // Explicit GL surrogate for the documented native LOW fragment branch.
+                // Original Windows compiled shader blobs cannot execute on this GL host.
+                // The fixture only models above-foundation, alpha-zero map samples:
+                // m=1-occ.r, clip(m-cutoff), with the original runtime MPB and textures.
+                if (_WallFade_On > 0.5 && ToggleWallFade > 0.5 && i.objY >= 0.4)
+                    clip(1-tex2D(_TilesOcclusionMap,i.screen.xy/i.screen.w).r-_Cutoff);
+                return fixed4(tex2D(_MainTex,i.uv).rgb*_Tint.rgb,1);
+            }
             ENDCG
         }
     }
