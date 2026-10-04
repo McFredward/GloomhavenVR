@@ -10,12 +10,21 @@ archive/file passes; movie writes total 2.868 seconds versus 179.583 seconds
 for their individual hashes. The ordinary FlatScreen is active in the synthetic
 startup scene, consistent with the reported empty rectangle; exact pixels have
 no supplied screenshot. Optimized native hashing, one delivery operation and
-observable overall/file/step progress are being implemented alongside a narrow
+observable overall/file/step progress are implemented alongside a narrow
 synthetic-scene flat-screen gate. Full-byte integrity, accepted logo, original
 presentation/rules/network semantics and concurrent `dev` work remain preserved.
-See [617 evidence and procedure](QUEST3-HARDWARE-617.md). Focused checks and a new
-signed native hardware handoff remain pending; no headset speedup/menu success
-is claimed.
+See [617 evidence and procedure](QUEST3-HARDWARE-617.md). Eight relevant Quest
+suites, all fourteen source checks, strict Release and 286,760 direct unchanged
+protocol/golden assertions pass; no complete unrelated local gate is claimed.
+The signed native ARM64 IL2CPP candidate succeeds from clean source `1d560e6d`,
+input `3481d60c…`, APK SHA `2c9f9e09…`, retaining signing/package identity.
+Independent actual SDK/stripped/native hash ABI and native presentation/order
+audits and the exact Windows package/source/dry-run checks pass. Seven historical
+Quest worktree/SDK directories and superseded B616 downloads/package staging are
+removed after compact evidence archival, preserving refs, captures and native
+inputs/symbols. Those historical cleanups reclaim approximately 8.0 GiB. Only
+the B617 APK, Windows ZIP and receipt remain in the download directory. Headset
+speedup, Intro/menu success and shipping startup performance remain unverified.
 
 **Quest B616 native-abort follow-up, 2026-10-04: isolated feature.**
 
