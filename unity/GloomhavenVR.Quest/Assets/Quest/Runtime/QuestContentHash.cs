@@ -95,10 +95,10 @@ namespace GloomhavenVR.Quest
             }
         }
 
-        // These identities have authority only inside one delivery operation,
-        // after a full byte hash. They are never serialized or trusted on a later
-        // launch. Android's inode/ctime catches replacement and same-size writes,
-        // including writes which restore mtime. Sandbox ownership is still assumed.
+        // Full verification establishes identity after hashing the bytes. The private
+        // installation receipt preserves that identity for later metadata-only reuse.
+        // Android's inode/ctime catches replacement and same-size writes, including
+        // writes which restore mtime. Sandbox ownership is still assumed.
         [StructLayout(LayoutKind.Sequential)]
         internal struct FileIdentity : IEquatable<FileIdentity>
         {

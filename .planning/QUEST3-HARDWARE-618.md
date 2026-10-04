@@ -69,6 +69,9 @@ the recovered original recipes. The Python builder acquires/extracts the package
 into a private cache without another executable/package dependency. Downloaded
 shader sources are not committed to the public repository. Android compilation
 is validated separately from that source-restoration proof.
+Unity's automatic vertex-helper upgrade is accepted only by its independently
+verified full-file fingerprint. The official source and imported source hashes
+are recorded separately; arbitrary edits still stop the build.
 
 The generic platform-user removal bridge returns only for a missing user. Its
 complete non-null original method body, events and default-user behavior remain
@@ -78,7 +81,8 @@ before emitting it; an incompatible future game input stops the build.
 The Intro's extra QuickTime timecode track is removed by a deterministic,
 lossless MP4 container adaptation. All 240 video and 375 audio packet payloads,
 codec descriptions, timestamps and durations remain identical. Native callbacks,
-the original eight-second sequence, audio and looping flags are retained. This
+the original four-second scene timer, audio and looping flags are retained. The
+media file itself lasts eight seconds. This
 is a compatibility hypothesis; the recorded error does not prove timecode was
 the sole decoder cause. The delivered SHA is recorded separately from the source.
 
