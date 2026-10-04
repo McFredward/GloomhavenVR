@@ -18,6 +18,15 @@ directory. Preserve supplied captures in `quest3_probleme/`. The initial loading
 view must use the existing GloomhavenVR logo, a real progress bar and percentage;
 keep the presentation reusable for later in-game loading.
 
+**Quest cache hygiene, requested by the maintainer on 2026-10-04:** after a
+verified hardware handoff, archive compact diagnostic receipts and prune obsolete
+Quest worker checkouts, generated test copies and historical Unity/build caches.
+Keep Git branch refs, active builds/worktrees, latest matching native symbols,
+canonical owned inputs, supplied captures and potentially unique dirty source
+snapshots. Check active process references and incoming symlinks before removal;
+never follow shared links into other agents' work or the read-only references.
+Record measured reclaimed space rather than summing potentially shared extents.
+
 The maintainer requested integration of `feature/immersive-town-services` into
 `dev`. All subsequent NPC, Steam Frame, and other development now integrates and
 pushes to `dev`; create worker worktrees from the current `dev` commit. The NPC

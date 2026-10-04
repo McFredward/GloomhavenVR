@@ -8,10 +8,21 @@ UnityMain SIGABRT: Debug performance instrumentation calls the Quest Harmony
 facade's broad runtime type scan, whose `Type.FullName` read aborts IL2CPP GC
 descriptor initialization. The exact unrelated type is not retained. Original
 Bootstrap has not yet been observed; the old saved state predates real-mod
-creation. Targeted lookup and immediate startup checkpoints are being prepared;
+creation. Targeted lookup and immediate startup checkpoints are implemented;
 [616 evidence and procedure](QUEST3-HARDWARE-616.md). Accepted loading artwork,
 original rules/save/network semantics and concurrent `dev` work remain unchanged.
-Native build, final checks and a new signed hardware handoff are pending.
+The signed native ARM64 IL2CPP candidate succeeds from clean source `36d3f2cb`,
+input `70d3fc52…`, APK SHA `14d421d1…`, retaining signing/package identity.
+Five relevant Quest suites, all 14 source checks, strict Release and 286,760
+unchanged protocol assertions pass; no complete unrelated gate is claimed.
+Independent actual SDK, stripped checkpoint, resource/native symbol, exact
+presentation and all 1,929 native script-order audits pass. The Windows handoff
+is verified. Authorized cleanup removes 28 historical Quest worktrees and 329
+obsolete generated cache roots, preserving branch refs, compact evidence,
+current native symbols/inputs, captures and other agents' work. Measured disk
+space reclaimed is 305,336,070,144 bytes (284.37 GiB). Only the B616 APK,
+Windows test ZIP and handoff receipt remain in the download directory.
+Hardware remains unverified.
 
 **Quest B615 hardware candidate, 2026-10-04: isolated feature.**
 

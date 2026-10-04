@@ -4,8 +4,12 @@ requested types without initializing unrelated runtime metadata; preserve
 short-name compatibility using generated aliases from current owned inputs.
 Persist startup phase/module observations at transitions so a synchronous
 initialization/crash cannot leave a misleading old delivery snapshot.
-See [616 evidence and procedure](QUEST3-HARDWARE-616.md). Native artifact and
-hardware confirmation remain pending.
+See [616 evidence and procedure](QUEST3-HARDWARE-616.md). The signed native
+candidate, scoped/actual artifact audits and Windows handoff verification pass.
+Historical Quest-cache cleanup removes 28 obsolete worktrees and 329 generated
+cache roots, reclaiming a measured 284.37 GiB while retaining branch refs,
+compact evidence and current artifacts/inputs. Hardware confirmation remains
+pending.
 
 # Quest implementation and hardware checkpoints
 

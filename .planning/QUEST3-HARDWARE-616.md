@@ -82,6 +82,74 @@ Relevant startup, lookup/weaver and builder checks are scoped to changed Quest
 boundaries. Strict Release and source checks remain separate from actual SDK,
 native Android and signed-artifact checks. Direct unchanged wire/golden vectors
 verify protocol compatibility without rerunning unrelated gameplay suites.
-The final artifact, input/source identity and focused-check receipts are recorded
-here after the native build completes. No headset success or complete unrelated
-local gate is claimed.
+The signed ARM64 IL2CPP Debug/O0 build succeeds from clean source
+`36d3f2cbf33d2f77368042622065682b11df16f5`, input
+`70d3fc52d29f344dd79482ec08c90eff4119f164b3e18b05e51de8cf39170b68`.
+APK size is 1,616,497,711 bytes, SHA256
+`14d421d118150969649a80ab47a3a0c902b4ddef412136a4dc1fb1bec687f9e7`.
+Package `dev.gloomhavenvr.quest` and signing certificate
+`1412542b0b4cac2f1bc4941cbb4b01a5556eb8da2c34709086ab9375fd33c012`
+retain installation identity. The profile remains explicitly DUMMY.
+
+Five relevant Quest suites pass: builder 79 tests, weaver 290 assertions
+(including 36 generated-facade lookup assertions), platform 3,057 assertions
+plus 11 controls, startup persistence 39 assertions plus nine controls, and
+startup delivery 164 assertions plus 12 controls. The first delivery-fixture
+compile exceeded its 90-second limit under concurrent host load; its separate
+serial rerun and compiled production execution pass. That mixed initial receipt
+is retained as failed, and only its independently passing logging suite is
+reused. All 14 source checks pass on the final source. Strict Release has zero
+warnings/errors; direct unchanged wire/golden vectors pass 286,760 assertions.
+No headset success or complete unrelated local gate is claimed.
+
+The actual Player SDK and deployment audit verifies 48 plugins and eight SDK
+assemblies, 535 referenced types and 1,441 members, with zero API issues.
+All 47 original game plugins, including rule/network/EOS libraries, are
+byte-identical to B615. The six immediate startup checkpoints and conditional
+module-observation checkpoint survive UnityLinker. The final packaged native
+library is byte-identical to its retained native output and matches the debug
+symbols at BuildId `318c1b47530eb423`.
+
+The generated alias table covers 171 assembly identities, 31,466 alias names
+and 35,536 string candidates. Its 2,391,351 payload bytes survive the actual
+resource index, UnityLinker and final signed APK exactly. All five lookup/reader
+method bodies, generated native definitions and symbol identities are retained.
+The requested name list is computed from current owned metadata; all 32 current
+caller names are accounted for, including the required Decal/Updater aliases.
+
+All 38 serialized native startup objects match accepted B615 after pointer-ID
+normalization. Logo pixels remain exactly 1024×179 with one mip; Arial bytes,
+progress geometry and one early stereo camera remain exact. Native script
+orders retain all 1,929 restored identities, 140 nonzero values and 643 referenced
+targets. All 62 duplicated aliases agree, and the full 2,581-MonoScript identity/
+order/multiplicity inventory matches B615. Movie manifests and the mod archive
+remain byte-identical; the rebuilt native Addressables filenames change only
+within their generated catalog/bundle closure. The Windows package is checked
+against these exact signed bytes before handoff. Its complete CRC check,
+embedded APK digest, all sixteen installer/collector dependency comparisons
+and isolated default installer dry run pass. All nine original movie files
+match their source and finished delivery archive, totaling 463,716,609 bytes.
+
+## Storage cleanup
+
+The download directory retains only the current B616 APK, Windows test ZIP and
+`handoff.json`. Validation receipts live separately under the main checkout's
+`.planning/debug/quest3-validation/B616/`.
+
+The maintainer's cache-cleanup request is completed against a reviewed exact
+allowlist: 28 historical clean Quest worktrees, 264 generated fixture runs,
+20 old Unity projects, 20 old builds, 13 clean reachable source snapshots and
+12 old weave caches. All 357 roots are removed, with zero skips/errors.
+Historical Git branch refs remain intact. Compact per-root archives are
+verified by payload SHA-256 and ZIP CRC before deletion; inventories record
+symlinks without following them. Active process and incoming-link guards are
+checked before each removal. No environment file is read or archived.
+
+Measured disk space reclaimed is 305,336,070,144 bytes (284.37 GiB), after
+preserving 2,347,455,366 bytes of compact historical archives. The execution
+receipt, source, inventories and archive hashes remain under
+`.planning/debug/quest3-validation/cache-archive-B616/`. Current B616 native
+artifacts/symbols and frozen inputs, exact B615 crash artifacts, canonical game
+and startup references, all supplied captures, eight potentially unique dirty
+source snapshots and other agents' work remain protected. This cleanup does
+not establish a headset outcome.
