@@ -189,7 +189,13 @@ namespace GloomhavenVR.Quest
 
         public void UpdateStartupView(string state, QuestGameContentProgress progress)
         {
-            if (deliveryViewRequested && loadingLabel == null) BeginDeliveryView();
+            if (deliveryViewRequested && loadingLabel == null)
+            {
+                // A native XR restart can temporarily remove the existing head.
+                // Resume the noninteractive label when its owner returns.
+                if (QuestStandalonePlatform.HeadCamera == null) return;
+                BeginDeliveryView();
+            }
             if (loadingLabel == null) return;
             bool german = Application.systemLanguage == SystemLanguage.German;
             string key = state == "failed" ? "startupFailed"
