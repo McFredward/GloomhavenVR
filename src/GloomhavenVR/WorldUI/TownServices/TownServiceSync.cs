@@ -139,7 +139,8 @@ internal sealed partial class TownServiceSync
             // their existing independent synchronization.
             foreach (ItemsPile.ItemChip chip in TownServiceMerchantHandoff.OwnedChips)
             {
-                if (chip == null || chip.NativeItemCard == null || chip.Item == null) continue;
+                if (chip == null || chip.NativeItemCard == null || chip.Item == null
+                    || ItemsPile.InspectionUsesAvatarTransport(chip)) continue;
                 Transform mount = chip.InspectionMount;
                 Transform face = chip.NativeItemCard.transform;
                 Transform? body = chip.InspectionBody;
@@ -175,27 +176,31 @@ internal sealed partial class TownServiceSync
             TownServiceRitual? ritual = TownServicePresentation.Ritual;
             if (ritual != null)
             {
-                // The explicit local-only exception covers CARD destination guides.
-                // The priestess' purse ghost and its original visual release feedback
-                // still belong to the shared presentation; haptics stay local input.
-                if (service == 2) Publish("ritual.purse", ritual.Zone);
+                // Maintainer ruling, 2026-10-04: all town pre-drop guides, including
+                // the temple purse ghost, are visitor-local. Actual held/donated
+                // originals and their effects remain shared through the piece modules.
                 Publish(prefix + ".counter", TownServicePresentation.CounterFurniture);
                 TownServiceEnhancementHandoff? handoff = ritual.Handoff;
                 if (handoff != null)
                 {
                     PriorityRoots.Add(handoff.Zone);
-                    if (handoff.Card != null && handoff.NativeSource != null && handoff.Face != null)
+                    if (handoff.Card != null && handoff.OfferedCardId > 0 && handoff.Face != null)
                     {
                         Transform? body = handoff.Card.transform.Find("Visual/Backing");
                         PriorityRoots.Add(handoff.Face);
                         if (body != null) PriorityRoots.Add(body);
-                        Publish("face." + handoff.NativeSource.CardID.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                            handoff.Face, handoff.NativeSource.fullAbilityCard.transform, handoff.CloneOf);
+                        TownServiceMirror.RegisterMotionOffering(handoff.Face, true);
+                        if (body != null) TownServiceMirror.RegisterMotionOffering(body, true);
+                        Publish("face." + handoff.OfferedCardId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                            handoff.Face, prewarm: true);
                         Publish("map.cardbody", body);
                     }
                 }
                 foreach (TownServiceCardSlots.Point point in ritual.CardSlots.Points)
-                    Publish("enchant.point", point.Content, point.Source, point.CloneOf);
+                {
+                    PriorityRoots.Add(point.Content);
+                    Publish("enchant.point", point.Content, point.Source, point.CloneOf, prewarm: true);
+                }
                 foreach (TownServiceRitual.Piece piece in ritual.Pieces)
                 {
                     if (service == 2)
@@ -233,14 +238,22 @@ internal sealed partial class TownServiceSync
                 {
                     Transform? tooltipRoot = NativeTemplates.Original("enchant.tooltip");
                     UITooltip? nativeTooltip = tooltipRoot != null ? tooltipRoot.GetComponent<UITooltip>() : null;
+                    if (tooltipRoot != null) PriorityRoots.Add(tooltipRoot);
                     Publish(nativeTooltip != null ? NativeTemplates.TooltipKey(nativeTooltip) : "enchant.tooltip", tooltipRoot);
                 }
                 foreach (TownServiceSurface surface in ritual.Surfaces)
+                {
+                    PriorityRoots.Add(surface.Panel.Target);
                     Publish(surface.Id switch { 10 => "enchant.inventory", 13 => "enchant.capacity",
                         14 => "enchant.information", 15 => "enchant.buy", 16 => "enchant.sell",
                         _ => "enchant.holder" }, surface.Panel.Target);
+                }
                 foreach (TownServiceRitual.Inscription inscription in ritual.Inscriptions)
-                    Publish(inscription.Key, inscription.Content, inscription.Source, inscription.CloneOf);
+                {
+                    if (inscription.Key == "enchant.row") PriorityRoots.Add(inscription.Content);
+                    Publish(inscription.Key, inscription.Content, inscription.Source, inscription.CloneOf,
+                        prewarm: inscription.Key == "enchant.row");
+                }
             }
 
             if (TownServicePresentation.WorkspaceProps != null)
@@ -318,16 +331,18 @@ internal sealed partial class TownServiceSync
     private void PublishCatalog(TownServiceCatalog catalog, Transform? furniture)
     {
         const string prefix = "merchant";
+                if (furniture != null) PriorityRoots.Add(furniture);
                 Publish(prefix + ".counter", furniture);
                 foreach (TownServiceMerchantDrawer rack in catalog.Drawers)
                 {
                     // Cranks and racks are owner-authored moving geometry. Cards are separate
                     // native modules; exclude the rack's Content root to avoid duplicate faces.
-                    if (rack.Moving) { PriorityRoots.Add(rack.Root); PriorityRoots.Add(rack.HousingRoot); }
+                    PriorityRoots.Add(rack.Root); PriorityRoots.Add(rack.HousingRoot);
                     Publish("merchant.crank", rack.Root);
                     Publish("merchant.rack", rack.HousingRoot);
                 }
-                foreach (TownServiceCatalogCategory category in catalog.Categories) Publish(category.Key, category.Root);
+                foreach (TownServiceCatalogCategory category in catalog.Categories)
+                { PriorityRoots.Add(category.Root); Publish(category.Key, category.Root); }
                 foreach (TownServiceMerchantCounter extension in catalog.Extensions)
                     Publish("merchant.return", extension.Root);
                 // Catalog drop guides are also visitor-local; cabinet mechanics and
@@ -335,11 +350,14 @@ internal sealed partial class TownServiceSync
                 // Mirror the actual counter, not the suppressed flat inventory. These widgets
                 // retain native template provenance but have the owner's physical layout.
                 foreach (TownServiceCatalog.Control control in catalog.Controls)
-                    Publish(control.Key, control.Surface.Panel.Target);
+                { PriorityRoots.Add(control.Surface.Panel.Target); Publish(control.Key, control.Surface.Panel.Target); }
 
                 foreach (TownServiceCatalog.Entry entry in catalog.Entries)
                 {
                     if (!entry.Current || !entry.Warm || entry.Sample.IsMoving) continue;
+                    PriorityRoots.Add(entry.MountRoot); PriorityRoots.Add(entry.FaceRoot);
+                    PriorityRoots.Add(entry.CardRoot); PriorityRoots.Add(entry.BodyRoot);
+                    if (entry.RowContent != null) PriorityRoots.Add(entry.RowContent);
                     Publish("merchant.cardmount", entry.MountRoot, prewarm: true);
                     // The native item root does not contain its original Face canvas or
                     // sold-out band. Capture that owner-authored shelf presentation too;

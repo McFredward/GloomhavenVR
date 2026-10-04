@@ -1397,6 +1397,9 @@ internal static class GuildmasterDestinations
     /// </summary>
     internal static EGuildmasterMode HomeSurface => HomeMode();
 
+    internal static void RememberMapSurface(EGuildmasterMode mode)
+    { if (IsMapSurfaceMode(mode)) _homeMode = mode; }
+
     /// <summary>Is this mode one of the two MAP SURFACES the room can be built on? Deliberately not
     /// <c>!IsWindowMode</c>: the enum also carries <c>None</c>, <c>QuestAccept</c>,
     /// <c>CityEncounter</c> and <c>MultiplayerQuest</c>, none of which is a surface and none of which

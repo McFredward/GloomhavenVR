@@ -146,6 +146,7 @@ internal static class TownServiceTemplateAssets
     {
         if (material == null || material.shader == null) return;
         Shader shader = material.shader;
+        assets.Key(shader);
         for (int i = 0; i < shader.GetPropertyCount(); i++)
             if (shader.GetPropertyType(i) == ShaderPropertyType.Texture)
                 Texture(assets, key + "|" + shader.GetPropertyName(i), material.GetTexture(shader.GetPropertyName(i)));

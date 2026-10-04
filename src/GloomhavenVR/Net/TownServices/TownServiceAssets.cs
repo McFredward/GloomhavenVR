@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using GloomhavenVR.Cards;
+using GloomhavenVR.Core;
 using TMPro;
 using UnityEngine;
 using Object = UnityEngine.Object;
@@ -106,7 +107,11 @@ internal sealed class TownServiceAssets
             // shader and preserves the subsequent complete property-contract validation.
             if (typeof(T) == typeof(Shader) && key.StartsWith("shader|", StringComparison.Ordinal))
             {
-                Shader shader = Shader.Find(key.Substring("shader|".Length));
+                string name = key.Substring("shader|".Length);
+                Shader? shader = name.StartsWith("GloomhavenVR/", StringComparison.Ordinal)
+                    ? BundleShaders.Resolve(name, "TownServices", "Original remote town material is available.",
+                        "Original remote town material is pending; retry after its asset bank loads.")
+                    : Shader.Find(name);
                 if (shader != null) { Register(key, shader); return (T)(Object)shader; }
             }
             Scan();

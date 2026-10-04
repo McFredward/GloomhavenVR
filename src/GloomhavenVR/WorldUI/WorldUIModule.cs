@@ -210,6 +210,7 @@ internal sealed class WorldUIModule : IVRModule
         // PartyPanelStackingHide.
         VRSession.Harmony?.PatchAll(typeof(Patches.PartyPanelStackingHide));
         VRSession.Harmony?.PatchAll(typeof(MapRoom.MapSelectionTransition));
+        VRSession.Harmony?.PatchAll(typeof(MapRoom.TownWindowMapSwitch));
 
         VREvents.UiLockChanged += OnUiLock;
         VREvents.SessionResumed += OnSessionResumed; // doff/don recovery sweep (test #17)

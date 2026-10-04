@@ -1667,6 +1667,17 @@
         "local"
       ],
       "weight": 20
+    },
+    {
+      "id": "town-window-map-switch",
+      "command": [
+        "bash",
+        "scripts/town-window-map-switch-tests.sh"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 5
     }
   ]
 }
