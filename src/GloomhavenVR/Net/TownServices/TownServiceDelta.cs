@@ -66,6 +66,7 @@ internal static class TownServiceDelta
     internal static TownServiceFrame Copy(TownServiceFrame source)
     {
         var result = Header(source); result.Nodes = new TownServiceNode[source.Nodes.Length];
+        result.CatalogBank = source.CatalogBank?.Copy();
         for (int i = 0; i < source.Nodes.Length; i++)
         {
             var node = new TownServiceNode { Binding = source.Nodes[i].Binding };
@@ -81,6 +82,7 @@ internal static class TownServiceDelta
     private static TownServiceFrame Header(TownServiceFrame f) => new()
     {
         VisitorStock = f.VisitorStock, PublicCatalog = f.PublicCatalog, PublicClaim = f.PublicClaim, Rack = f.Rack?.Copy(), RackMember = f.RackMember?.Copy(), Service = f.Service, Session = f.Session, Sequence = f.Sequence, BaseSequence = f.BaseSequence,
+        CatalogBank = f.CatalogBank?.Retain(),
         WorkspaceCloth = f.WorkspaceCloth == null ? null : (byte[])f.WorkspaceCloth.Clone(),
         TempleDonationKnown = f.TempleDonationKnown, TempleDonationAvailable = f.TempleDonationAvailable,
         TempleDonationRevision = f.TempleDonationRevision, TransactionActive = f.TransactionActive,

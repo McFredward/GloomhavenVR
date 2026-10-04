@@ -33,6 +33,8 @@ internal sealed class TownServiceFrame
     internal bool Visible;
     internal TownRackState? Rack;
     internal TownRackStamp? RackMember;
+    // Additive TLV102: exact original content required by this public rack clock.
+    internal TownCatalogBank? CatalogBank;
     // Reserved TLV90 legacy grammar. Build 582 authors null, so ordinary furniture
     // snapshots contain no simulated fabric controls; old vectors remain parseable.
     internal byte[]? WorkspaceCloth;

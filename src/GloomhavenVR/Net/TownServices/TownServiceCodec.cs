@@ -15,6 +15,7 @@ internal static class TownServiceCodec
     internal const byte DonationClockRecordId = NetProtocol.ExtIdTownDonationClock;
     internal const byte CatalogLayoutRecordId = NetProtocol.ExtIdTownCatalogLayout;
     internal const byte VisitorStockRecordId = NetProtocol.ExtIdTownVisitorStock;
+    internal const byte CatalogBankRecordId = NetProtocol.ExtIdTownCatalogBank;
     private static readonly UTF8Encoding Utf8 = new(false, true);
 
     internal static byte[] Write(TownServiceFrame frame)
@@ -71,9 +72,11 @@ internal static class TownServiceCodec
         int interactionBytes = (frame.TempleDonationKnown ? 8 : 0) + (frame.TransactionActive ? 3 : 0)
             + (frame.HasTempleDonationCommitAge ? 7 : 0);
         byte[] layout = frame.Rack?.Layout != null ? TownCatalogLayout.Write(frame.Rack.Layout) : Array.Empty<byte>();
+        byte[] bank = frame.CatalogBank?.Write(frame) ?? Array.Empty<byte>();
         int size = rollerBytes + mechanismBytes + clothBytes + interactionBytes + 6 + raw.Length + 2 * ((raw.Length + 254) / 255) + rack.Length + 2 * ((rack.Length + 254) / 255);
         int legacySize = size;
         size += layout.Length + 2 * ((layout.Length + 254) / 255) + (frame.VisitorStock ? 3 : 0);
+        size += bank.Length + 2 * ((bank.Length + 254) / 255);
         if (size > TownServiceFrame.MaxBytes) throw new InvalidDataException("Town-service module exceeds the bounded snapshot size.");
         var packet = new byte[size];
         // NetProtocol.Magic (0x47565231) is written little endian by every existing lane.
@@ -136,7 +139,7 @@ internal static class TownServiceCodec
         { packet[legacySize - 6] = TownCassetteMotion.RollerRecordId; packet[legacySize - 5] = 4; packet[legacySize - 4] = 1;
           packet[legacySize - 3] = unchecked((byte)frame.Rack!.ScrollDirection);
           packet[legacySize - 2] = (byte)frame.Rack.PageCount; packet[legacySize - 1] = (byte)(frame.Rack.PageCount >> 8); }
-int tail = legacySize;
+        int tail = legacySize;
         for (int offset = 0; offset < layout.Length;)
         {
             int count = Math.Min(255, layout.Length - offset);
@@ -144,11 +147,21 @@ int tail = legacySize;
             Buffer.BlockCopy(layout, offset, packet, tail, count); tail += count; offset += count;
         }
         if (frame.VisitorStock)
-        { packet[tail++] = VisitorStockRecordId; packet[tail++] = 1; packet[tail] = 1; }
+        { packet[tail++] = VisitorStockRecordId; packet[tail++] = 1; packet[tail++] = 1; }
+        for (int offset = 0; offset < bank.Length;)
+        {
+            int count = Math.Min(255, bank.Length - offset);
+            packet[tail++] = CatalogBankRecordId; packet[tail++] = (byte)count;
+            Buffer.BlockCopy(bank, offset, packet, tail, count); tail += count; offset += count;
+        }
         return packet;
     }
 
     internal static bool TryRead(byte[] packet, int length, out TownServiceFrame? frame)
+        => TryReadCore(packet, length, out frame, allowBank: true);
+
+    // Reject TLV102 before invoking its inflater when reading an original bank child.
+    internal static bool TryReadCore(byte[] packet, int length, out TownServiceFrame? frame, bool allowBank)
     {
         frame = null;
         if (packet == null || length < 8 || length > packet.Length || length > TownServiceFrame.MaxBytes
@@ -159,6 +172,7 @@ int tail = legacySize;
             using var body = new MemoryStream();
             using var rack = new MemoryStream();
             using var layout = new MemoryStream();
+            using var bank = new MemoryStream();
             bool visitorStock = false;
             byte[]? workspaceCloth = null;
             bool templeDonationKnown = false, templeDonationAvailable = false; uint templeDonationRevision = 0;
@@ -178,6 +192,11 @@ int tail = legacySize;
                 {
                     if (count == 0 || layout.Length + count > 3 + 6 * TownCatalogLayout.MaxLayout) return false;
                     layout.Write(packet, at, count);
+                }
+                if (record == CatalogBankRecordId)
+                {
+                    if (!allowBank || count == 0 || bank.Length + count > TownCatalogBank.MaxPayloadBytes) return false;
+                    bank.Write(packet, at, count);
                 }
                 if (record == VisitorStockRecordId)
                 {
@@ -311,6 +330,7 @@ int tail = legacySize;
             }
             result.VisitorStock = visitorStock;
             result.PublicCatalog = publicCatalog; result.PublicClaim = publicClaim;
+            if (bank.Length != 0) result.CatalogBank = TownCatalogBank.Read(bank.ToArray(), result);
             Validate(result); frame = result; return true;
         }
         catch (InvalidDataException) { return false; }
@@ -510,6 +530,7 @@ int tail = legacySize;
                         throw new InvalidDataException("Invalid town-service text.");
             }
         }
+        frame.CatalogBank?.Validate(frame);
     }
 
     // Public item inspection may outlive the visitor's private focus at another NPC.

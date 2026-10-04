@@ -10,6 +10,8 @@ internal static class Program
         string repoRoot = args.Length > 0 ? args[0] : FindRepoRoot();
 
         var t = new Harness();
+        if (args.Length > 1 && args[1] == "town-catalog-bank")
+        { TownCatalogBankVectors.Run(t); return t.Report(); }
         if (args.Length > 1 && args[1] == "town-item-held")
         { TownItemHeldVectors.Run(t); HeldFaceAtomicVectors.Run(t); ExtrasFragmentVectors.Run(t); TownResidentsVectors.Run(t); TownFaceVectors.Run(t); TownActivityVectors.Run(t); SharedWindowMotionVectors.Run(t); return t.Report(); }
         try
@@ -43,6 +45,7 @@ internal static class Program
             MapButtonTooltipVectors.Run(t);
             PresentationCompressionVectors.Run(t);
             TownServiceTransportVectors.Run(t);
+            TownCatalogBankVectors.Run(t);
             TownVisitorStockTransportVectors.Run(t);
             TownMotionVectors.Run(t);
             TownResidentsVectors.Run(t);

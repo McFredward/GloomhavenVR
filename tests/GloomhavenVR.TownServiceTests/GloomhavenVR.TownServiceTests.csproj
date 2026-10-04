@@ -14,6 +14,7 @@
     <Compile Include="../../src/GloomhavenVR/WorldUI/TownServices/TownServiceVoiceSchedule.cs" />
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownRackState.cs" />
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownCatalogLayout.cs" />
+    <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownCatalogBank.cs" />
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceFrame.cs" />
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceCodec.cs" />
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceDelta.cs" />
