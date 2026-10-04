@@ -97,8 +97,8 @@ def resource_roots(old_project, identities, new_project=None):
                     if newer is None or older is None or newer[1] != older[1]:
                         continue
                 roots.append((row["guid"], candidates[0], "original-Resources.Load:" + key + ":" + str(obj["classId"])))
-            elif len(candidates) > 1:
-                raise RecoveryError("Previous Resources.Load key/type is ambiguous: " + key)
+            # Duplicate native runtime resource keys cannot supply identity.
+            # Scene/other original graph roots may still prove these objects.
     # A runtime resource key shared by distinct original objects is not an
     # identity witness. Keep it unresolved rather than selecting the first.
     by_old = collections.defaultdict(set)

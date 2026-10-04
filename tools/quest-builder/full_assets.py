@@ -55,8 +55,8 @@ def _catalog_roots(canonical_startup, full_manifest):
     return roots
 
 
-def stage(source, game_data, output, tmp_archive, *, canonical_project,
-          canonical_startup, managed_types, cab_bundles, unitypy=None):
+def stage(source, game_data, output, tmp_archive, *, canonical_project=None,
+          canonical_startup=None, managed_types, cab_bundles, unitypy=None):
     """Return a full asset manifest/report; modify only the fresh output tree.
 
     ``source`` is bundle_recovery.py's completed project. ``canonical_project``
@@ -66,8 +66,9 @@ def stage(source, game_data, output, tmp_archive, *, canonical_project,
     """
     canonical, catalogs, identities_module, layouts, tmp, recover, startup = _modules()
     source, game_data, output = [Path(path).resolve() for path in (source, game_data, output)]
-    if output.exists() or any(root == output or root in output.parents or output in root.parents
-                              for root in (source, game_data, Path(canonical_project).resolve(), Path(canonical_startup).resolve())):
+    read_only = [source, game_data]
+    read_only.extend(Path(path).resolve() for path in (canonical_project, canonical_startup) if path is not None)
+    if output.exists() or any(root == output or root in output.parents or output in root.parents for root in read_only):
         raise BuildError("Full asset staging requires fresh private output outside read-only recovery/game inputs.")
     checkpoint = source / "quest-full-recovery-progress.json"
     progress = json.loads(checkpoint.read_text())
@@ -80,8 +81,14 @@ def stage(source, game_data, output, tmp_archive, *, canonical_project,
     owners = json.loads(Path(cab_bundles).read_text())
     rows = progress["identities"]
     original_catalog = catalogs.associate(catalog_path, source, rows, owners, types)
-    roots = _catalog_roots(canonical_startup, original_catalog)
-    guid_proof = canonical.witness(canonical_project, source, rows, roots)
+    if canonical_project is not None:
+        if canonical_startup is None:
+            raise BuildError("A previous canonical project requires its actual startup provenance report.")
+        roots = _catalog_roots(canonical_startup, original_catalog)
+        guid_proof = canonical.witness(canonical_project, source, rows, roots)
+    else:
+        import canonical_contracts
+        guid_proof = canonical_contracts.witness(game_data, source, rows, unitypy)
     output.mkdir(parents=True)
     copied = []
     for row in progress["files"]:
@@ -99,7 +106,8 @@ def stage(source, game_data, output, tmp_archive, *, canonical_project,
             raise BuildError("Recovered full project lost original managed assembly bytes: " + path.name)
     (output / "QuestRecovery").mkdir(exist_ok=True)
     shutil.copyfile(managed_types, output / "QuestRecovery/managed-types.json")
-    old_identity = Path(canonical_project) / "QuestRecovery/original-script-identities.json"
+    original_metadata = Path(canonical_project) if canonical_project is not None else source
+    old_identity = original_metadata / "QuestRecovery/original-script-identities.json"
     if old_identity.is_file():
         shutil.copyfile(old_identity, output / "QuestRecovery/original-script-identities.json")
     # All runtime-loaded rule/text inputs stay on disk; desktop Addressables
@@ -107,7 +115,7 @@ def stage(source, game_data, output, tmp_archive, *, canonical_project,
     rules = game_data / "StreamingAssets/Rulebase"
     if rules.is_dir():
         shutil.copytree(rules, output / "Assets/StreamingAssets/Rulebase")
-    for name in ("GloomData.dat", "Apparance"):
+    for name in ("GloomData.dat", "Apparance", "Procedures"):
         original = game_data / "StreamingAssets" / name
         target = output / "Assets/StreamingAssets" / name
         if original.is_file():
@@ -125,7 +133,7 @@ def stage(source, game_data, output, tmp_archive, *, canonical_project,
     index, paths = startup.asset_index(output)
     scripts, plugins = startup.script_index(output, types)
     selected = set(paths)
-    restored_tmp = tmp.restore(output, Path(canonical_project), selected, tmp_archive)
+    restored_tmp = tmp.restore(output, original_metadata, selected, tmp_archive)
     restored_paths = {row["assetPath"] for row in restored_tmp}
     bindings = startup.binding_manifest(output, selected, scripts, plugins)
     write_json(folder / "script-bindings.json", bindings)
@@ -140,7 +148,12 @@ def stage(source, game_data, output, tmp_archive, *, canonical_project,
                     "status": "official-compatible-TMP-source" if relative in restored_paths else "unresolved-original-dummy",
                     "originalShaderFidelity": False}
                    for relative in sorted(selected) if relative.endswith(".shader")]
-    old_report = json.loads((Path(canonical_startup) / "quest-startup-report.json").read_text())
+    if canonical_startup is not None:
+        old_report = json.loads((Path(canonical_startup) / "quest-startup-report.json").read_text())
+    else:
+        old_report = {"sourceFingerprint": progress["sourceFingerprint"],
+                      "sourceBuilderFingerprint": startup.builder_fingerprint(progress["sourceInventory"]),
+                      "originalBuildScenes": [{"index": index, "path": path} for index, path in enumerate(scenes)]}
     report = {"schema": 1, "target": "campaign", "fullGameReady": False,
               "sourceFingerprint": old_report["sourceFingerprint"],
               "sourceBuilderFingerprint": old_report["sourceBuilderFingerprint"],
