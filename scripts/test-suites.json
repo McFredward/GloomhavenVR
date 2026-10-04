@@ -1443,6 +1443,18 @@
       "weight": 2
     },
     {
+      "id": "quest-content-delivery",
+      "command": ["python3", "scripts/quest-content-delivery-tests.py"],
+      "groups": ["local", "ci"],
+      "weight": 2
+    },
+    {
+      "id": "quest-loading-view",
+      "command": ["python3", "scripts/quest-loading-view-tests.py"],
+      "groups": ["local", "ci"],
+      "weight": 2
+    },
+    {
       "id": "quest-probe-input",
       "command": [
         "python3",

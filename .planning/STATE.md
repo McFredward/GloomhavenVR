@@ -1,5 +1,22 @@
 # State — where the project stands
 
+**Quest B617 preparation follow-up, 2026-10-04: isolated feature.**
+
+The exact B616 capture verifies APK/input and a running real VR rig after
+27.234 seconds. Its current process has no native abort; the retained SIGABRT
+is historical B615. At 703.564 seconds it is still doing live file verification,
+before Addressables or original Bootstrap. Managed O0 SHA performs redundant
+archive/file passes; movie writes total 2.868 seconds versus 179.583 seconds
+for their individual hashes. The ordinary FlatScreen is active in the synthetic
+startup scene, consistent with the reported empty rectangle; exact pixels have
+no supplied screenshot. Optimized native hashing, one delivery operation and
+observable overall/file/step progress are being implemented alongside a narrow
+synthetic-scene flat-screen gate. Full-byte integrity, accepted logo, original
+presentation/rules/network semantics and concurrent `dev` work remain preserved.
+See [617 evidence and procedure](QUEST3-HARDWARE-617.md). Focused checks and a new
+signed native hardware handoff remain pending; no headset speedup/menu success
+is claimed.
+
 **Quest B616 native-abort follow-up, 2026-10-04: isolated feature.**
 
 The new exact B615 capture verifies the installed APK/input. The maintainer

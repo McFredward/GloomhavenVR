@@ -11,5 +11,6 @@
     <Compile Include="$(RuntimeSource)/QuestGameBootstrap.cs" Link="QuestGameBootstrap.cs" />
     <Compile Include="$(RuntimeSource)/QuestGameContent.cs" Link="QuestGameContent.cs" />
     <Compile Include="$(RuntimeSource)/QuestGameArchiveDelivery.cs" Link="QuestGameArchiveDelivery.cs" />
+    <Compile Include="$(RuntimeSource)/QuestContentHash.cs" Link="QuestContentHash.cs" />
   </ItemGroup>
 </Project>

@@ -1,4 +1,11 @@
-Current B616 follow-up targets the verified B615 native abort in the Quest
+Current B617 follow-up targets measured slow content delivery in B616, after
+its native-abort repair allows the real rig to run. Optimized hashing removes
+redundant current-operation passes while preserving full-byte warm checks;
+aggregate/file/step progress and a synthetic-scene FlatScreen gate clarify
+preparation. See [617 evidence and procedure](QUEST3-HARDWARE-617.md). Native
+handoff and actual headset startup/performance remain pending.
+
+Previous B616 follow-up targets the verified B615 native abort in the Quest
 Harmony type resolver, retaining the accepted branded loading view. Resolve
 requested types without initializing unrelated runtime metadata; preserve
 short-name compatibility using generated aliases from current owned inputs.

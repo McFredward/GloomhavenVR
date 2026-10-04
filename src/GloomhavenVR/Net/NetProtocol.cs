@@ -553,7 +553,26 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 616;
+    public const ushort ModBuild = 617;
+
+    // ModBuild 617 — bounded Quest preparation after measured B616 SHA amplification.
+    // The exact 095749Z capture verifies B616 APK/input, eleven real modules and
+    // a running rig after 27.234s. It has no current native abort: the user stops
+    // after 703.564s while file verification continues, before original Bootstrap.
+    // A 488 MB copy with managed O0 SHA takes 181.932s, then the same archive is
+    // hashed again for 189.076s. Individual movie writes total 2.868s while their
+    // hashes total 179.583s, followed by another full content check. Optimized
+    // native incremental SHA and one delivery owner retain full-byte integrity
+    // while avoiding duplicate same-operation reads. Reused files remain hashed;
+    // no persistent size-only trust or altered original game data is introduced.
+    // Measured aggregate delivery progress, file index/name and five completed
+    // preparation gates replace an endlessly resetting file-only main bar.
+    // Normal FlatScreen presentation is withheld only in QuestOriginalStartup,
+    // whose synthetic zero-mask camera has no original menu content. The native
+    // Intro/menu, accepted logo, real rig/input and desktop behavior are retained.
+    // Actual headset speed, Intro and menu readiness still require hardware;
+    // Debug native optimization for the full recovered game remains a separate
+    // release-performance gate. Campaign, saves and network behavior are unchanged.
 
     // ModBuild 616 — Quest native abort after the accepted branded loading view.
     // The exact B615 APK/input is verified in the 084759Z hardware capture. All

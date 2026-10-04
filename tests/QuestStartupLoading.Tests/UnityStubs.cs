@@ -17,7 +17,7 @@ internal static class Fixture
     internal static Action<string> OnDurableRecord;
     internal static string Root;
     internal static int MainUpdates, Activations, Addressables, Loads, WorkerApiCalls;
-    internal static bool ViewPrepared, ViewVisible, ModFailure, AddressablesFailure, SceneAvailable = true;
+    internal static bool ViewPrepared, ViewVisible, ModFailure, AddressablesFailure, SceneAvailable = true, HoldOriginalScene;
     internal static void RequireMain(string name)
     {
         if (Environment.CurrentManagedThreadId != MainThread)
@@ -34,6 +34,7 @@ internal static class Fixture
         OnLog = OnDurableRecord = null; MainUpdates = Activations = Addressables = Loads = WorkerApiCalls = 0;
         ViewPrepared = ViewVisible = ModFailure = AddressablesFailure = false;
         SceneAvailable = true;
+        HoldOriginalScene = false;
     }
 }
 namespace UnityEngine
@@ -59,7 +60,7 @@ namespace UnityEngine
             Fixture.RequireMain("GetComponent"); return components.TryGetValue(typeof(T), out object value) ? value as T : null;
         }
     }
-    public class AsyncOperation { }
+    public class AsyncOperation { public bool isDone = true; }
     public static class Time
     {
         internal static float Clock;
@@ -120,11 +121,25 @@ namespace UnityEngine.SceneManagement
     public static class SceneManager
     {
         public static event Action<Scene, LoadSceneMode> sceneLoaded;
+        static string pendingName;
+        static LoadSceneMode pendingMode;
+        static UnityEngine.AsyncOperation pendingOperation;
         public static UnityEngine.AsyncOperation LoadSceneAsync(string name, LoadSceneMode mode)
         {
             Fixture.RequireMain("LoadSceneAsync"); Fixture.Loads++; Fixture.Event("original-scene");
+            if (Fixture.HoldOriginalScene)
+            {
+                pendingName = name; pendingMode = mode;
+                return pendingOperation = new UnityEngine.AsyncOperation { isDone = false };
+            }
             sceneLoaded?.Invoke(new Scene { name = name }, mode);
             return new UnityEngine.AsyncOperation();
+        }
+        public static void CompleteOriginalScene()
+        {
+            Fixture.RequireMain("CompleteOriginalScene");
+            sceneLoaded?.Invoke(new Scene { name = pendingName }, pendingMode);
+            pendingOperation.isDone = true;
         }
     }
 }
@@ -169,9 +184,11 @@ namespace GloomhavenVR.Quest
         public void Observe() { Fixture.RequireMain("ModLifecycle.Observe"); }
         public void BeginDeliveryView() { Fixture.RequireMain("BeginDeliveryView"); Fixture.ViewVisible = true; Fixture.Event("delivery-view"); }
         public void EndDeliveryView() { Fixture.RequireMain("EndDeliveryView"); Fixture.ViewVisible = false; Fixture.Event("end-delivery-view"); }
-        public void UpdateStartupView(string state, QuestGameContentProgress progress)
+        public void UpdateStartupView(string state, QuestGameContentProgress progress, int completedSteps = 0, int totalSteps = 5)
         {
             Fixture.RequireMain("UpdateStartupView"); Fixture.MainUpdates++;
+            if (totalSteps != 5 || completedSteps < 0 || completedSteps > totalSteps)
+                throw new InvalidOperationException("preparation-progress: preparation gates must be bounded and distinct from current file bytes");
         }
         public IEnumerator Activate(string root)
         {

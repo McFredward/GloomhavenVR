@@ -18,7 +18,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime-source", type=Path, default=root / "unity/GloomhavenVR.Quest/Assets/Quest/Runtime")
     args = parser.parse_args()
-    names = ("QuestGameBootstrap.cs", "QuestGameContent.cs", "QuestGameArchiveDelivery.cs")
+    names = ("QuestGameBootstrap.cs", "QuestGameContent.cs", "QuestGameArchiveDelivery.cs", "QuestContentHash.cs")
     sources = {name: (args.runtime_source / name).read_text() for name in names}
     bootstrap = sources["QuestGameBootstrap.cs"]
     mutations = (
@@ -33,16 +33,22 @@ def main():
          "yield return modLifecycle.Activate(modRoot);\n            yield return modLifecycle.Activate(modRoot);", "one-owner"),
         ("stale-mod-checkpoint", "SaveState();\n            yield return modLifecycle.Activate(modRoot);",
          "yield return modLifecycle.Activate(modRoot);", "mod-checkpoint"),
-        ("synchronous-main-hash", "Task.Run(() => QuestGameContent.IsReady(manifest, root, ReportContentProgress))",
-         "Task.FromResult(QuestGameContent.IsReady(manifest, root, ReportContentProgress))", "main-hash"),
+        ("synchronous-main-hash", "Task.Run(() => QuestGameContent.Deliver(manifest, root, source, sourceIsApk, archive, expectedArchive, ReportContentProgress))",
+         "Task.FromResult(QuestGameContent.Deliver(manifest, root, source, sourceIsApk, archive, expectedArchive, ReportContentProgress))", "main-hash"),
         ("worker-unity-path", "void ReportContentProgress(QuestGameContentProgress progress)\n        {",
          "void ReportContentProgress(QuestGameContentProgress progress)\n        {\n            string forbiddenWorkerPath = Application.persistentDataPath;", "worker-api"),
         ("wrong-apk-source", "sourceIsApk ? Application.dataPath :", "sourceIsApk ? Application.streamingAssetsPath :", "startup-completes"),
         ("false-main-heartbeat", "mainThreadFrames++;", "// Missing main thread heartbeat", "main-frame-state"),
         ("progress-log-io-blocks-load", "catch (IOException) { contentLogWriteFailed = true; }",
          "catch (IOException) { throw; }", "startup-completes"),
-        ("wait-blocks-main-thread", "while (!delivery.IsCompleted) yield return null;",
-         "while (!delivery.IsCompleted) { Thread.Sleep(1); }", "yield-main-pump"),
+        ("wait-blocks-main-thread", "while (!delivery.IsCompleted)\n            {",
+         "delivery.GetAwaiter().GetResult();\n            while (!delivery.IsCompleted)\n            {", "yield-main-pump"),
+        ("premature-preparation-complete", 'State = "checking-" + phase;',
+         'preparationCompletedSteps = PreparationTotalSteps;\n            State = "checking-" + phase;', "preparation-held"),
+        ("missing-preparation-completion", 'preparationCompletedSteps = PreparationTotalSteps;',
+         '/* Missing observed preparation completion */', "preparation-complete"),
+        ("premature-scene-handover", 'AsyncOperation loading = SceneManager.LoadSceneAsync(originalScene, LoadSceneMode.Single);',
+         'modLifecycle.EndDeliveryView();\n            AsyncOperation loading = SceneManager.LoadSceneAsync(originalScene, LoadSceneMode.Single);', "handover-view"),
     )
     cases = [("production", bootstrap, ""),
              ("commented-defects-are-inert", "/* Missing early loading view; mod-before-content;\n"

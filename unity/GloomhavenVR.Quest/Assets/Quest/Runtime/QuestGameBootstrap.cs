@@ -19,7 +19,8 @@ namespace GloomhavenVR.Quest
             public int schema = 1, modBuild, originalErrors, loadedScenes, completedModules;
             public string inputKey, state, failureDetail, modStage, modFailure, inviteKeyboardFailure, lastScene, scope = "original-startup-real-vr-mod";
             public string utc, contentPhase, contentFile;
-            public long contentProcessedBytes, contentTotalBytes;
+            public long contentProcessedBytes, contentTotalBytes, contentOverallProcessedBytes, contentOverallTotalBytes;
+            public int contentFileIndex, contentFileCount, preparationCompletedSteps, preparationTotalSteps;
             public double elapsedSeconds, lastContentProgressAgeSeconds;
             public int mainThreadFrames;
             public bool loadingViewAvailable, contentLogWriteFailed;
@@ -49,9 +50,14 @@ namespace GloomhavenVR.Quest
         double lastContentProgress;
         int contentLogRecords, mainThreadFrames;
         string lastContentLogPhase;
+        string currentContentScope, currentContentSource;
         volatile bool destroyed;
         volatile bool contentLogWriteFailed;
         float nextLoadingView;
+        // This is an explicit count of completed preparation gates, not a time
+        // estimate or a claim that campaign/menu initialization has completed.
+        const int PreparationTotalSteps = 5;
+        int preparationCompletedSteps;
 
         void Awake()
         {
@@ -99,6 +105,9 @@ namespace GloomhavenVR.Quest
                 QuestGameContent.Validate(modManifest, stamp.inputKey, "quest-mod-content.zip");
                 if (modManifest.files.Length != 1 || modManifest.files[0].path != "StreamingAssets/gloomhavenvr.bundle")
                     throw new InvalidDataException("Real mod content must contain exactly the manifested Android gloomhavenvr.bundle.");
+                // Configure and validate the optimized native hash ABI before
+                // workers start; a missing Android plugin must fail explicitly.
+                QuestGameContent.ConfigureNativeHash();
                 UnityEngine.Debug.Log("[Quest startup] ModBuild=" + stamp.modBuild + " input=" + stamp.inputKey + " contentFiles=" + manifest.files.Length);
             }
             catch (Exception e) { Fail("manifest", e); }
@@ -108,10 +117,11 @@ namespace GloomhavenVR.Quest
             string modRoot = Path.Combine(Application.persistentDataPath, "quest-mod-resources");
             yield return EnsureContent(modManifest, modRoot, "quest-mod-content.zip", "mod-content");
             if (State == "failed") yield break;
-            // IsReady/Extract already verified every manifested file on their
+            // Delivery already verified every manifested file on its
             // worker. Repeating the 68 MB SHA on Unity's main thread would freeze
             // the first render before the real rig can be created.
             ModContentReady = true;
+            preparationCompletedSteps = 1;
             State = "starting-real-mod";
             // B615's native abort occurred in a Debug performance type lookup
             // after plugin creation. A periodic snapshot still said "checking
@@ -120,6 +130,7 @@ namespace GloomhavenVR.Quest
             SaveState();
             yield return modLifecycle.Activate(modRoot);
             if (!modLifecycle.Available) { Fail("real-mod-lifecycle", new InvalidOperationException(modLifecycle.Failure ?? "Original plugin did not reach its observed running rig.")); yield break; }
+            preparationCompletedSteps = 2;
             try { modLifecycle.BeginDeliveryView(); }
             catch (Exception error) { Fail("original-content-view", error); }
             if (State == "failed") yield break;
@@ -127,6 +138,7 @@ namespace GloomhavenVR.Quest
             yield return EnsureContent(manifest, root, "quest-startup-content.zip", "content");
             if (State == "failed") yield break;
             ContentReady = true;
+            preparationCompletedSteps = 3;
             UnityEngine.Debug.Log("[Quest startup] Owned file-backed content verified at " + root);
             try
             {
@@ -148,11 +160,11 @@ namespace GloomhavenVR.Quest
             addressables = new QuestGameAddressables();
             yield return addressables.Install(addressablesManifest, manifest, root, stamp.inputKey);
             if (!addressables.Ready) { Fail("native-addressables", addressables.Failure ?? new InvalidDataException("Native Addressables startup did not complete.")); yield break; }
+            preparationCompletedSteps = 4;
             UnityEngine.Debug.LogWarning("[Quest startup] real-mod lifecycle observed=" + ModLifecycleAvailable + "; fullGameReady=false. EOSAuthorised=false; crossplay unverified. proceduralRuntimeAvailable=false; native Apparance lifecycle disabled for menu-only target, campaign generation remains gated. voiceNativeAvailable=false; Android Opus remains gated.");
             if (!Application.CanStreamedLevelBeLoaded(originalScene)) { Fail("original-scene", new InvalidDataException("Required original scene is absent: " + originalScene)); yield break; }
             State = "loading-original-bootstrap";
             SaveState();
-            modLifecycle.EndDeliveryView();
             AsyncOperation loading = SceneManager.LoadSceneAsync(originalScene, LoadSceneMode.Single);
             if (loading == null) { Fail("original-scene", new InvalidOperationException("Unity refused original scene load.")); yield break; }
             yield return loading;
@@ -164,32 +176,38 @@ namespace GloomhavenVR.Quest
             lock (contentSync) contentProgress = null;
             UnityEngine.Debug.Log("[Quest startup] content check started phase=" + phase);
             SaveState();
-            Task<bool> ready = Task.Run(() => QuestGameContent.IsReady(manifest, root, ReportContentProgress));
-            while (!ready.IsCompleted) yield return null;
-            if (ready.IsFaulted) { Fail(phase + "-check", ready.Exception.GetBaseException()); yield break; }
-            if (ready.Result) { UnityEngine.Debug.Log("[Quest startup] verified existing content phase=" + phase); yield break; }
-            State = "copying-" + phase;
-            SaveState();
             string archive = Path.Combine(Application.persistentDataPath, expectedArchive + ".download");
             // Capture Unity paths on the main thread. Android's monolithic APK
             // is a local ZIP: worker-owned streaming avoids the jar/UWR completion
             // boundary and provides byte progress even before the first camera.
             bool sourceIsApk = Application.platform == RuntimePlatform.Android && !Application.isEditor;
             string source = sourceIsApk ? Application.dataPath : Path.Combine(Application.streamingAssetsPath, manifest.archive);
-            UnityEngine.Debug.Log("[Quest startup] archive copy started phase=" + phase + " source=" + (sourceIsApk ? "installed-apk" : "local-streaming-assets"));
-            Task delivery = Task.Run(() => QuestGameArchiveDelivery.Stage(manifest, source, archive, sourceIsApk, ReportContentProgress));
-            while (!delivery.IsCompleted) yield return null;
-            if (delivery.IsFaulted) { Fail(phase + "-archive-copy", delivery.Exception.GetBaseException()); yield break; }
-            State = "extracting-" + phase;
-            UnityEngine.Debug.Log("[Quest startup] verified archive copy completed phase=" + phase);
-            SaveState();
-            Task extraction = Task.Run(() => QuestGameContent.Extract(manifest, archive, root, expectedArchive, ReportContentProgress));
-            while (!extraction.IsCompleted) yield return null;
+            currentContentScope = phase;
+            currentContentSource = sourceIsApk ? "installed-apk" : "local-streaming-assets";
+            // B616 spent more than eleven minutes doing repeated O0 SHA passes.
+            // One worker owns verification, authenticated archive staging and
+            // inline-verified repair so it can retain current-operation proof
+            // and publish one workload plan instead of resetting for every file.
+            Task<QuestGameContentDeliveryResult> delivery = Task.Run(() => QuestGameContent.Deliver(manifest, root, source, sourceIsApk, archive, expectedArchive, ReportContentProgress));
+            while (!delivery.IsCompleted)
+            {
+                QuestGameContentProgress progress; lock (contentSync) progress = contentProgress;
+                string workerPhase = progress != null ? progress.Phase : null;
+                State = workerPhase == "copying-archive" ? "copying-" + phase
+                    : workerPhase == "extracting-file" || workerPhase == "verifying-file" || workerPhase == "verifying-archive" ? "extracting-" + phase
+                    : "checking-" + phase;
+                yield return null;
+            }
+            if (delivery.IsFaulted) { Fail(phase + "-delivery", delivery.Exception.GetBaseException()); yield break; }
             try { if (File.Exists(archive)) File.Delete(archive); }
             catch (Exception e) { Fail(phase + "-archive-cleanup", e); }
             if (State == "failed") yield break;
-            if (extraction.IsFaulted) { Fail(phase + "-extract", extraction.Exception.GetBaseException()); yield break; }
-            UnityEngine.Debug.Log("[Quest startup] extracted content verified phase=" + phase);
+            var result = delivery.Result;
+            UnityEngine.Debug.Log("[Quest startup] content delivery completed phase=" + phase
+                + " reusedContent=" + result.ReusedContent + " copiedArchive=" + result.CopiedArchive + " reusedArchive=" + result.ReusedArchive
+                + " verifiedFiles=" + result.VerifiedFiles + " extractedFiles=" + result.ExtractedFiles
+                + " verifiedBytes=" + result.VerifiedBytes + " copiedBytes=" + result.CopiedBytes + " extractedBytes=" + result.ExtractedBytes);
+            SaveState();
         }
 
         void ReportContentProgress(QuestGameContentProgress progress)
@@ -210,8 +228,13 @@ namespace GloomhavenVR.Quest
             // Managed-only sink: a worker never invokes Unity logging or APIs.
             if (record && log != null)
             {
-                try { log.Append("[Quest startup] content worker phase=" + progress.Phase
-                    + " bytes=" + progress.ProcessedBytes + "/" + progress.TotalBytes, null); }
+                try
+                {
+                    log.Append("[Quest startup] content worker phase=" + progress.Phase
+                        + " bytes=" + progress.ProcessedBytes + "/" + progress.TotalBytes, null);
+                    if (progress.Phase == "copying-archive")
+                        log.Append("[Quest startup] archive copy started phase=" + currentContentScope + " source=" + currentContentSource, null);
+                }
                 catch (IOException) { contentLogWriteFailed = true; }
                 catch (UnauthorizedAccessException) { contentLogWriteFailed = true; }
             }
@@ -222,7 +245,19 @@ namespace GloomhavenVR.Quest
             if (videos != null)
                 try { videos.BindScene(scene); }
                 catch (Exception error) { Fail("original-video-bindings", error); }
-            if (scene.name == originalScene) { OriginalBootstrapStarted = true; if (State != "failed") State = "original-bootstrap-loaded"; }
+            if (scene.name == originalScene)
+            {
+                OriginalBootstrapStarted = true;
+                if (State != "failed")
+                {
+                    State = "original-bootstrap-loaded";
+                    preparationCompletedSteps = PreparationTotalSteps;
+                    // Keep the preparation view during Unity's asynchronous
+                    // scene load. Retire it only at the observed native handover,
+                    // rather than creating another unexplained blank interval.
+                    if (modLifecycle != null) modLifecycle.EndDeliveryView();
+                }
+            }
             lastScene = scene.name; loadedScenes++; SaveState();
             UnityEngine.Debug.Log("[Quest startup] original scene loaded=" + scene.name + " mode=" + mode + " state=" + State + " fullGameReady=false");
         }
@@ -241,7 +276,7 @@ namespace GloomhavenVR.Quest
             {
                 nextLoadingView = Time.unscaledTime + .25f;
                 QuestGameContentProgress progress; lock (contentSync) progress = contentProgress;
-                if (modLifecycle != null) modLifecycle.UpdateStartupView(State, progress);
+                if (modLifecycle != null) modLifecycle.UpdateStartupView(State, progress, preparationCompletedSteps, PreparationTotalSteps);
             }
             if (Time.unscaledTime >= nextState)
             {
@@ -263,6 +298,10 @@ namespace GloomhavenVR.Quest
                 utc = DateTime.UtcNow.ToString("O"), elapsedSeconds = startupClock.Elapsed.TotalSeconds, mainThreadFrames = mainThreadFrames,
                 contentPhase = progress != null ? progress.Phase : null, contentFile = progress != null ? progress.File : null,
                 contentProcessedBytes = progress != null ? progress.ProcessedBytes : 0, contentTotalBytes = progress != null ? progress.TotalBytes : 0,
+                contentOverallProcessedBytes = progress != null ? progress.OverallProcessedBytes : 0,
+                contentOverallTotalBytes = progress != null ? progress.OverallTotalBytes : 0,
+                contentFileIndex = progress != null ? progress.FileIndex : 0, contentFileCount = progress != null ? progress.FileCount : 0,
+                preparationCompletedSteps = preparationCompletedSteps, preparationTotalSteps = PreparationTotalSteps,
                 lastContentProgressAgeSeconds = progress != null ? Math.Max(0, startupClock.Elapsed.TotalSeconds - progressTime) : 0,
                 loadingViewAvailable = modLifecycle != null && modLifecycle.StartupViewAvailable,
                 contentLogWriteFailed = contentLogWriteFailed,

@@ -87,9 +87,15 @@ internal static class Program
         {
             if (message.Contains("archive copy started phase=content ", StringComparison.Ordinal)) Fixture.Event("original-copy");
             if (message.Contains("archive copy started phase=mod-content ", StringComparison.Ordinal)) Fixture.Event("mod-copy");
+            // The durable progress sink may deliberately fail in one case;
+            // observed main-thread completion still records actual delivery.
+            if (message.Contains("content delivery completed phase=content ", StringComparison.Ordinal) && message.Contains("copiedArchive=True", StringComparison.Ordinal)) Fixture.Event("original-copy");
+            if (message.Contains("content delivery completed phase=mod-content ", StringComparison.Ordinal) && message.Contains("copiedArchive=True", StringComparison.Ordinal)) Fixture.Event("mod-copy");
         };
         Fixture.OnDurableRecord = message =>
         {
+            if (message.Contains("archive copy started phase=content ", StringComparison.Ordinal)) Fixture.Event("original-copy");
+            if (message.Contains("archive copy started phase=mod-content ", StringComparison.Ordinal)) Fixture.Event("mod-copy");
             if (message.Contains("content worker phase=", StringComparison.Ordinal) && Environment.CurrentManagedThreadId == Fixture.MainThread)
                 throw new InvalidOperationException("main-hash: content progress ran synchronously on the Unity main thread");
         };
@@ -112,18 +118,25 @@ internal static class Program
     {
         readonly Stack<IEnumerator> routines = new();
         readonly QuestGameBootstrap owner;
+        AsyncOperation? waiting;
         internal bool Complete => routines.Count == 0;
         internal Pump(QuestGameBootstrap component) { owner = component; routines.Push((IEnumerator)Call(owner, "Start")!); }
         internal void Tick()
         {
             Time.Frame++; Time.Clock += .25f;
             Call(owner, "Update");
+            if (waiting != null)
+            {
+                if (!waiting.isDone) return;
+                waiting = null;
+            }
             // Unity schedules nested IEnumerators until a null/async yield.
             for (int steps = 0; steps < 100 && routines.Count != 0; steps++)
             {
                 IEnumerator current = routines.Peek();
                 if (!current.MoveNext()) { routines.Pop(); (current as IDisposable)?.Dispose(); continue; }
                 if (current.Current is IEnumerator nested) { routines.Push(nested); continue; }
+                if (current.Current is AsyncOperation operation && !operation.isDone) waiting = operation;
                 return;
             }
         }
@@ -162,9 +175,11 @@ internal static class Program
         Check(File.ReadAllBytes(Path.Combine(Fixture.Root, "quest-owned-game", inputs.Original.files[0].path)).SequenceEqual(inputs.OriginalPayload), "verified-bytes", "installed original bytes differ");
         Check(!System.IO.Directory.EnumerateFiles(Fixture.Root, "*.download", SearchOption.AllDirectories).Any(), "archive-cleanup", "completed archives must be removed");
         Check(!System.IO.Directory.EnumerateFiles(Fixture.Root, "*.tmp", SearchOption.AllDirectories).Any(), "temp-cleanup", "no partial files after success");
-        Check(!Fixture.ViewVisible, "view-retired", "temporary loading presentation retired with mod activation");
+        Check(!Fixture.ViewVisible, "view-retired", "temporary loading presentation retires at the original scene handover");
         JsonElement state = State();
         Check(state.GetProperty("modBuild").GetInt32() == 614 && !state.GetProperty("fullGameReady").GetBoolean(), "state-boundary", "a started original scene does not prove full-game readiness");
+        Check(state.GetProperty("preparationCompletedSteps").GetInt32() == 5 && state.GetProperty("preparationTotalSteps").GetInt32() == 5,
+            "preparation-complete", "only the observed original Bootstrap scene may complete the five preparation gates");
         Call(owner, "OnDestroy");
     }
     static void HeldWorker()
@@ -198,6 +213,8 @@ internal static class Program
             Check(state.GetProperty("loadingViewAvailable").GetBoolean(), "early-view-state", "loading view missing during held content worker");
             Check(!string.IsNullOrEmpty(state.GetProperty("contentPhase").GetString()), "phase-state", "held worker phase not published");
             Check(state.GetProperty("contentTotalBytes").GetInt64() >= state.GetProperty("contentProcessedBytes").GetInt64(), "byte-state", "invalid byte snapshot");
+            Check(state.GetProperty("preparationCompletedSteps").GetInt32() == 0 && state.GetProperty("preparationTotalSteps").GetInt32() == 5,
+                "preparation-held", "held first content verification must not report later gates complete");
             Check(DateTime.TryParse(state.GetProperty("utc").GetString(), out _), "utc-state", "snapshot requires timestamp");
         }
         finally { release.Set(); }
@@ -206,6 +223,22 @@ internal static class Program
     static void Success(string name, bool editor = false, bool warm = false)
     {
         Inputs inputs = Setup(name, editor, warm); var owner = Owner(); new Pump(owner).Finish(); Successful(owner, inputs, warm);
+    }
+    static void HeldSceneHandover()
+    {
+        Inputs inputs = Setup("held-original-scene");
+        Fixture.HoldOriginalScene = true;
+        var owner = Owner(); var pump = new Pump(owner);
+        var clock = Stopwatch.StartNew();
+        while (Fixture.Loads == 0 && clock.Elapsed.TotalSeconds < 10) { pump.Tick(); Thread.Sleep(1); }
+        Check(Fixture.Loads == 1 && owner.State == "loading-original-bootstrap", "handover-requested", "verified preparation must request its original scene");
+        for (int i = 0; i < 30; i++) pump.Tick();
+        Check(!pump.Complete && Fixture.ViewVisible, "handover-view", "loading art must remain while native scene loading is pending");
+        Check(!owner.OriginalBootstrapStarted && State().GetProperty("preparationCompletedSteps").GetInt32() == 4,
+            "handover-gate", "a requested scene is not an observed completed preparation gate");
+        UnityEngine.SceneManagement.SceneManager.CompleteOriginalScene();
+        pump.Finish();
+        Successful(owner, inputs, false);
     }
     static void LogWriteFailure()
     {
@@ -231,6 +264,7 @@ internal static class Program
         if (defect == "original-archive" || defect == "mod-failure") Check(Fixture.Addressables == 0, "downstream-error-gate", "Addressables ran after prior failure");
         JsonElement state = State();
         Check(state.GetProperty("state").GetString() == "failed" && !state.GetProperty("fullGameReady").GetBoolean(), "failure-state", "retained snapshot must remain failed");
+        Check(state.GetProperty("preparationCompletedSteps").GetInt32() < 5, "failure-preparation", "failed preparation must never report all gates completed");
         Check(Fixture.ViewVisible || expectedActivations > 0, "failure-view", "failure before plugin must retain loading view");
         Call(owner, "OnDestroy");
     }
@@ -239,7 +273,7 @@ internal static class Program
         try
         {
             evidence = Path.GetFullPath(args[0]); System.IO.Directory.CreateDirectory(evidence);
-            HeldWorker(); Success("cold-editor", editor: true); Success("warm-android", warm: true); Success("warm-editor", editor: true, warm: true); LogWriteFailure();
+            HeldWorker(); HeldSceneHandover(); Success("cold-editor", editor: true); Success("warm-android", warm: true); Success("warm-editor", editor: true, warm: true); LogWriteFailure();
             foreach (string defect in new[] { "mod-archive", "payload", "missing-entry", "missing-manifest" }) Failure(defect);
             foreach (string defect in new[] { "original-archive", "mod-failure", "addressables-failure", "scene-unavailable" }) Failure(defect, 1);
             Console.WriteLine("PASS Quest startup loading: " + assertions + " assertions; actual Bootstrap/content/delivery, Unity/logger/downstream seams");
