@@ -91,6 +91,22 @@ try
             }
         }
     }
+    if(args.Length!=0)
+    {
+        using var resolver=new DefaultAssemblyResolver();resolver.AddSearchDirectory(Path.GetFullPath(args[0]));
+        using var owned=AssemblyDefinition.ReadAssembly(Path.Combine(args[0],"GH.Runtime.dll"),new ReaderParameters {AssemblyResolver=resolver});
+        using var nativeCompatibility=PathsCompatibility.Create(owned.MainModule);
+        string[] protectedSaveTypes={"RootSaveData","SaveOwner","GlobalData","PartyAdventureData","SaveData","SaveQueue","SerializationBinding"};
+        var originalFingerprints=protectedSaveTypes.ToDictionary(name=>name,name=>ProtectedTypes.Fingerprint(owned.MainModule.GetType(name)));
+        var actualChanged=new HashSet<string>();var actualModifications=new List<string>();
+        StandaloneStorage.Bind(owned,nativeCompatibility.MainModule,actualChanged,actualModifications);
+        Check(actualChanged.Count==2&&actualChanged.Contains("PlatformFileSystem")&&actualChanged.Any(name=>name.StartsWith("PlatformFileSystem/",StringComparison.Ordinal)),"Actual owned game writer adaptation did not target original sync/native nested worker.");
+        Check(actualModifications.Count==2&&protectedSaveTypes.All(name=>ProtectedTypes.Fingerprint(owned.MainModule.GetType(name))==originalFingerprints[name]),"Actual original save serializers/ownership/queue/binder were modified.");
+        using var modifiedBytes=new MemoryStream();owned.Write(modifiedBytes);modifiedBytes.Position=0;
+        using var reread=AssemblyDefinition.ReadAssembly(modifiedBytes);
+        Check(Discovery.AllTypes(reread.MainModule).Where(type=>type.FullName.StartsWith("PlatformFileSystem",StringComparison.Ordinal)).SelectMany(type=>type.Methods).Where(method=>method.HasBody).SelectMany(method=>method.Body.Instructions).Count(i=>i.Operand is MethodReference method&&method.DeclaringType.FullName=="QuestGame.Compatibility.SaveFiles"&&method.Name=="WriteAllBytes")==2,"Actual owned game adaptation was lost when written/re-read as real CIL.");
+        Console.WriteLine("Actual original GH.Runtime sync/async writer ABI and untouched original serializers/owner/binder/queue verified in memory; owned files never changed.");
+    }
 
     string persistent=Path.Combine(directory,"persistent");Directory.CreateDirectory(persistent);
     string root=Path.Combine(persistent,"GloomSaves");Directory.CreateDirectory(root);
@@ -111,6 +127,18 @@ try
     Check(Directory.Exists(root)&&File.ReadAllBytes(healthy).SequenceEqual(next)&&!File.Exists(Path.Combine(persistent,".quest-save-transfer.json")),"Interrupted snapshot root replacement failed rollback.");
     string poisoned=Path.Combine(persistent,".quest-save-transfer.json");File.WriteAllText(poisoned,"{\"schema\":1,\"format\":\"gloomhaven-native-dat-snapshot-v1\",\"saveRoot\":\"../foreign\"}");
     ResetRecovery();Check(Capture(()=>QuestGameSaveStorage.Initialize(persistent)) is InvalidDataException&&File.Exists(healthy),"Escaping recovery journal mutated native saves.");File.Delete(poisoned);
+    string first=Path.Combine(directory,"first-import");Directory.CreateDirectory(first);
+    string firstStage=Path.Combine(first,stage);Directory.CreateDirectory(firstStage);
+    var records=new[]{new{path="GlobalData.dat",bytes=original.Length,sha256=Convert.ToHexString(SHA256.HashData(original)).ToLowerInvariant()},new{path="GloomSaven.dat",bytes=next.Length,sha256=Convert.ToHexString(SHA256.HashData(next)).ToLowerInvariant()}};
+    File.WriteAllBytes(Path.Combine(firstStage,"GlobalData.dat"),original);File.WriteAllBytes(Path.Combine(firstStage,"GloomSaven.dat"),next);
+    File.WriteAllText(Path.Combine(firstStage,".quest-save-snapshot.json"),JsonSerializer.Serialize(new{schema=1,format="gloomhaven-native-dat-snapshot-v1",transferId=id,saveRoot="GloomSaves",files=records}));
+    File.WriteAllText(Path.Combine(first,".quest-save-transfer.json"),JsonSerializer.Serialize(new{schema=1,format="gloomhaven-native-dat-snapshot-v1",transferId=id,saveRoot="GloomSaves",staging=stage,backup=backupRelative}));
+    File.WriteAllBytes(Path.Combine(firstStage,"unexpected.dat"),new byte[]{1});ResetRecovery();
+    Check(Capture(()=>QuestGameSaveStorage.Initialize(first)) is InvalidDataException&&!Directory.Exists(Path.Combine(first,"GloomSaves")),"First-import recovery accepted unexpected bytes outside the hash-verified native snapshot.");
+    File.Delete(Path.Combine(firstStage,"unexpected.dat"));File.WriteAllBytes(Path.Combine(firstStage,"GlobalData.dat"),next);ResetRecovery();
+    Check(Capture(()=>QuestGameSaveStorage.Initialize(first)) is InvalidDataException&&!Directory.Exists(Path.Combine(first,"GloomSaves")),"First-import recovery promoted a corrupted native global file.");
+    File.WriteAllBytes(Path.Combine(firstStage,"GlobalData.dat"),original);ResetRecovery();QuestGameSaveStorage.Initialize(first);
+    Check(File.ReadAllBytes(Path.Combine(first,"GloomSaves/GlobalData.dat")).SequenceEqual(original)&&File.ReadAllBytes(Path.Combine(first,"GloomSaves/GloomSaven.dat")).SequenceEqual(next)&&!File.Exists(Path.Combine(first,".quest-save-transfer.json")),"Verified interrupted first import did not commit exactly its native bytes.");
     void Pause(QuestGameSaveLifecycle owner,bool paused)=>typeof(QuestGameSaveLifecycle).GetMethod("OnApplicationPause",BindingFlags.NonPublic|BindingFlags.Instance).Invoke(owner,new object[]{paused});
     SaveData NativeSave()
     {

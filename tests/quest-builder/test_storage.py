@@ -1,8 +1,12 @@
 """Offline provider entitlement and actual native-byte save transfer controls."""
 from pathlib import Path
 import hashlib
+import importlib.util
 import json
 import sys
+import shutil
+import shlex
+import subprocess
 import tempfile
 import types
 import unittest
@@ -15,6 +19,114 @@ import profile as identity
 import provider_metadata as providers
 import save_export as saves
 from storage import BuildError
+
+transfer_spec=importlib.util.spec_from_file_location("quest_save_transfers",Path(__file__).resolve().parents[2]/"scripts/quest-saves.py")
+transfers=importlib.util.module_from_spec(transfer_spec);transfer_spec.loader.exec_module(transfers)
+
+
+class NativeAdbFilesystem:
+    """Strict ADB process double executing the actual staged filesystem moves."""
+    def __init__(self,root):self.root=root;self.calls=[];self.stopped=False;self.damage=None;self.fail_commit=False
+    def path(self,remote):
+        if not remote.startswith(transfers.REMOTE):raise AssertionError("Unowned ADB path: "+remote)
+        relative=remote[len(transfers.REMOTE):].lstrip("/")
+        if ".." in Path(relative).parts:raise AssertionError("Escaping ADB path")
+        return self.root/relative
+    def __call__(self,command,**kwargs):
+        assert kwargs["shell"] is False
+        assert command[1:3]==["-s","IDENTITY-CHECKED-QUEST"]
+        action=command[3:];self.calls.append(action);raw="";code=0
+        if action==["shell","am","force-stop",transfers.installer.PACKAGE]:self.stopped=True
+        elif action[0]=="shell":
+            words=shlex.split(action[1])
+            if words[:2]==["if","test"]:
+                path=self.path(words[3].rstrip(";"));present=path.is_dir() if words[2]=="-d" else path.exists()
+                raw="PRESENT" if present else "ABSENT"
+            elif words[:2]==["mkdir","-p"]:self.path(words[2]).mkdir(parents=True,exist_ok=True)
+            elif words[0]=="mv":
+                source=self.path(words[1]);target=self.path(words[2])
+                if self.fail_commit and source.name.startswith(".quest-save-import-") and target.name=="GloomSaves":code=1;raw="simulated Wi-Fi interruption"
+                else:source.rename(target)
+            elif words[0]=="rm":
+                assert words[1]==transfers.REMOTE+"/"+saves.JOURNAL
+                self.path(words[1]).unlink()
+            else:raise AssertionError("Unexpected shell operation "+repr(words))
+        elif action[0]=="push":
+            assert self.stopped
+            source=Path(action[1]);target=self.path(action[2])/source.name
+            if source.is_dir():
+                shutil.copytree(source,target)
+                if self.damage=="payload":(target/"GlobalData.dat").write_bytes(b"bad")
+                if self.damage=="marker":(target/saves.MARKER).write_text("bad")
+                if self.damage=="extra":(target/"Unexpected.dat").write_bytes(b"bad")
+            else:shutil.copyfile(source,target)
+        elif action[0]=="pull":
+            assert self.stopped
+            source=self.path(action[1]);target=Path(action[2])/source.name
+            shutil.copytree(source,target)
+        else:raise AssertionError("Unexpected ADB operation "+repr(action))
+        return subprocess.CompletedProcess(command,code,raw,"")
+
+
+class QuestTransferTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary=tempfile.TemporaryDirectory();self.addCleanup(self.temporary.cleanup);self.root=Path(self.temporary.name)
+        self.pc=self.root/"PC/GloomSaves";self.pc.mkdir(parents=True)
+        self.native={"GlobalData.dat":b"original native global","GloomSaven.dat":b"original root","Campaign/Party.dat":b"original campaign/checkpoints"}
+        for name,data in self.native.items():
+            path=self.pc/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(data)
+        self.archive=self.root/"native-pc.zip";saves.export_snapshot(self.pc,self.archive)
+        self.remote=self.root/"Quest/files";self.remote.mkdir(parents=True);self.fake=NativeAdbFilesystem(self.remote)
+        self.args=types.SimpleNamespace(command="import-quest",config=self.root/"absent-config.json",adb=self.root/"fake-adb",output=self.root/"PC-backups",archive=self.archive,replace=False)
+    def transfer(self):
+        with mock.patch.object(transfers.installer,"adb_path",return_value=self.args.adb),mock.patch.object(transfers.collector,"choose_capture_device",return_value=("IDENTITY-CHECKED-QUEST","HARDWARE-QUEST","wifi")) as selection:
+            result=transfers.transfer_quest(self.args,self.fake)
+            self.assertEqual(selection.call_count,1);return result
+    def existing(self):
+        shutil.copytree(self.pc,self.remote/"GloomSaves");(self.remote/"GloomSaves/GlobalData.dat").write_bytes(b"newer existing global")
+    def test_first_quest_import_verifies_native_bytes_marker_and_keeps_adb_log(self):
+        receipt=self.transfer()
+        for name,data in self.native.items():self.assertEqual((self.remote/"GloomSaves"/name).read_bytes(),data)
+        self.assertTrue(Path(receipt["adbLog"]).is_file());self.assertFalse((self.remote/saves.JOURNAL).exists())
+        self.assertIsNone(receipt["remoteBackup"]);self.assertIsNone(receipt["pcBackup"])
+        self.assertTrue(self.fake.stopped);self.assertFalse(receipt["cloudServicesUsed"])
+    def test_existing_quest_saves_need_explicit_replace_before_any_mutation(self):
+        self.existing()
+        with self.assertRaises(BuildError):self.transfer()
+        self.assertFalse(self.fake.stopped);self.assertEqual((self.remote/"GloomSaves/GlobalData.dat").read_bytes(),b"newer existing global")
+    def test_replace_keeps_complete_pc_and_remote_backups(self):
+        self.existing();self.args.replace=True;receipt=self.transfer()
+        backup=self.fake.path(receipt["remoteBackup"]);self.assertEqual((backup/"GlobalData.dat").read_bytes(),b"newer existing global")
+        restored=self.root/"PC-backup-check/GloomSaves";saves.import_snapshot(Path(receipt["pcBackup"]),restored)
+        self.assertEqual((restored/"GlobalData.dat").read_bytes(),b"newer existing global")
+        self.assertEqual((self.remote/"GloomSaves/GlobalData.dat").read_bytes(),self.native["GlobalData.dat"])
+    def test_upload_payload_marker_or_extra_record_rejected_before_live_moves(self):
+        self.existing();self.args.replace=True
+        for damage in ("payload","marker","extra"):
+            with self.subTest(damage=damage):
+                self.fake.damage=damage
+                with self.assertRaises(BuildError):self.transfer()
+                self.assertEqual((self.remote/"GloomSaves/GlobalData.dat").read_bytes(),b"newer existing global")
+                self.assertFalse((self.remote/saves.JOURNAL).exists())
+                self.assertFalse(any(action[0]=="shell" and action[1].startswith("mv ") for action in self.fake.calls))
+    def test_interrupted_final_move_retains_original_backup_and_recovery_journal(self):
+        self.existing();self.args.replace=True;self.fake.fail_commit=True
+        with self.assertRaises(transfers.installer.InstallError):self.transfer()
+        journal=json.loads((self.remote/saves.JOURNAL).read_text());backup=self.remote/journal["backup"]
+        self.assertEqual((backup/"GlobalData.dat").read_bytes(),b"newer existing global")
+        self.assertTrue((self.remote/journal["staging"]/saves.MARKER).is_file());self.assertFalse((self.remote/"GloomSaves").exists())
+        self.assertEqual(len(list(self.args.output.glob("*.log"))),1)
+    def test_pending_quest_transaction_is_retained_before_new_upload(self):
+        self.existing();self.args.replace=True;(self.remote/saves.JOURNAL).write_text("pending")
+        with self.assertRaises(BuildError):self.transfer()
+        self.assertEqual((self.remote/saves.JOURNAL).read_text(),"pending")
+        self.assertFalse(any(action[0]=="push" for action in self.fake.calls))
+    def test_export_stops_game_preserves_remote_and_writes_complete_native_zip(self):
+        self.existing();self.args.command="export-quest";self.args.output=self.root/"Quest-export.zip";receipt=self.transfer()
+        returned=self.root/"export-verify/GloomSaves";saves.import_snapshot(self.args.output,returned)
+        self.assertEqual((returned/"GlobalData.dat").read_bytes(),b"newer existing global")
+        self.assertEqual((self.remote/"GloomSaves/GlobalData.dat").read_bytes(),b"newer existing global")
+        self.assertTrue(Path(receipt["adbLog"]).is_file())
 
 
 class StorageTests(unittest.TestCase):

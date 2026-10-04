@@ -82,7 +82,7 @@ namespace GloomhavenVR.Quest
 
         private static IEnumerable<string> Backups(string root)
         {
-            var directories = new Stack<string>(); directories.Push(root); int count = 0;
+            var directories = new Stack<string>(); directories.Push(root); int count = 0, directoryCount = 1;
             while (directories.Count != 0)
             {
                 string current = directories.Pop(); RequireNoLinks(current);
@@ -93,6 +93,7 @@ namespace GloomhavenVR.Quest
                 }
                 foreach (string child in Directory.GetDirectories(current))
                 {
+                    if (++directoryCount > 20000) throw new IOException("Quest native backup discovery exceeded its directory limit.");
                     RequireNoLinks(child); directories.Push(child);
                 }
             }
@@ -150,15 +151,18 @@ namespace GloomhavenVR.Quest
             if (transfer.schema != 1 || transfer.format != Format || transfer.transferId != journal.transferId
                 || transfer.saveRoot != journal.saveRoot || transfer.files == null || transfer.files.Length > 20000)
                 throw new InvalidDataException("Interrupted Quest save snapshot marker is inconsistent.");
-            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase); long total = 0;
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var exactNames = new HashSet<string>(StringComparer.Ordinal); long total = 0;
             foreach (SaveFile file in transfer.files)
             {
                 if (file == null || string.IsNullOrEmpty(file.path) || file.path.IndexOf('\\') >= 0
                     || file.path.IndexOf(':') >= 0 || file.path.StartsWith("/", StringComparison.Ordinal)
+                    || file.path == Marker || file.path == Journal || file.path.IndexOf(".ghvr-save-", StringComparison.Ordinal) >= 0
                     || Array.Exists(file.path.Split('/'), part => part.Length == 0 || part == "." || part == "..")
                     || !names.Add(file.path) || file.bytes < 0 || file.bytes > MaximumBytes
                     || !Regex.IsMatch(file.sha256 ?? "", "^[0-9a-f]{64}$") || (total += file.bytes) > 1024L * 1024L * 1024L)
                     throw new InvalidDataException("Interrupted Quest save snapshot contains invalid file metadata.");
+                exactNames.Add(file.path);
                 string path = Path.Combine(staging, file.path.Replace('/', Path.DirectorySeparatorChar)); RequireNoLinks(path);
                 if (!File.Exists(path) || new FileInfo(path).Length != file.bytes)
                     throw new InvalidDataException("Interrupted Quest save snapshot is incomplete.");
@@ -167,8 +171,28 @@ namespace GloomhavenVR.Quest
                     if (BitConverter.ToString(hasher.ComputeHash(stream)).Replace("-", "").ToLowerInvariant() != file.sha256)
                         throw new InvalidDataException("Interrupted Quest save snapshot payload hash failed.");
             }
-            if (!names.Contains("GlobalData.dat") || !names.Contains("GloomSaven.dat"))
+            if (!exactNames.Contains("GlobalData.dat") || !exactNames.Contains("GloomSaven.dat"))
                 throw new InvalidDataException("Interrupted Quest save snapshot lacks the original global/root records.");
+            exactNames.Add(Marker);
+            int count = 0;
+            var directories = new Stack<string>(); directories.Push(staging);
+            while (directories.Count != 0)
+            {
+                string current = directories.Pop();
+                foreach (string path in Directory.GetFiles(current))
+                {
+                    RequireNoLinks(path);
+                    string relative = path.Substring(staging.Length + 1).Replace(Path.DirectorySeparatorChar, '/');
+                    if (!exactNames.Remove(relative)) throw new InvalidDataException("Interrupted Quest save snapshot has an unexpected file.");
+                }
+                foreach (string child in Directory.GetDirectories(current))
+                {
+                    RequireNoLinks(child);
+                    if (++count > 20000) throw new InvalidDataException("Interrupted Quest save snapshot has too many directories.");
+                    directories.Push(child);
+                }
+            }
+            if (exactNames.Count != 0) throw new InvalidDataException("Interrupted Quest save snapshot is incomplete.");
         }
 
         private static void RestoreFile(string path, byte[] bytes)

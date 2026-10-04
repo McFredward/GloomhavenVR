@@ -84,7 +84,7 @@ def validate_identity(value: dict) -> dict:
         # separate from the full provider ID and grants no authentication.
         account = int.from_bytes(hashlib.sha256((provider + ":" + provider_id).encode()).digest()[:4], "big") or 1
     if "accountId" in value and (type(value["accountId"]) is not int or value["accountId"] != account):
-        raise ProfileError("accountId does not match the full Steam ID.")
+        raise ProfileError("accountId does not match the full provider identity.")
     name = value.get("displayName")
     if not isinstance(name, str) or not name.strip() or len(name.encode("utf-8")) > 256:
         raise ProfileError("displayName must be non-empty and at most 256 UTF-8 bytes.")

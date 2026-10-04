@@ -111,8 +111,8 @@ describe DLC content that can already be distributed with the base game.
 ## Focused evidence and remaining gates
 
 Run `python3 scripts/quest-storage-tests.py` for provider/snapshot controls and the
-real emitted writer/recovery/pause fixture. The current checkpoint passes 19
-Python cases and 46 actual filesystem/Cecil/lifecycle assertions. The old direct
+real emitted writer/recovery/pause fixture. The current checkpoint passes 26
+Python cases and 49 actual filesystem/Cecil/lifecycle assertions. The old direct
 writer interruption control demonstrates live-file truncation; the new helper
 preserves native bytes/previous backup. Delayed original-style queues, clients,
 foreign owners, unsupported phases and replaced save contexts are covered.
@@ -123,4 +123,8 @@ actual `SerializationBinding` on host CLR: 12 field/type/header assertions pass.
 Its private receipt includes the owned assembly/fixture hashes. This is not proof
 of full `GlobalData`/`PartyAdventureData` Unity context, Android IL2CPP generic/AOT
 closure, native campaign continuation, or atomic replace support on the headset.
-Those require the full native build and real save/resume/import/export test.
+An optional owned-managed-directory argument to `QuestStorage.Tests` also exercises
+the actual original writer ABI, writes/re-reads the changed CIL in memory, and
+verifies unchanged fingerprints of all original save/owner/queue/binder types
+(52 assertions total). No owned game DLL is overwritten. The full native build
+and real save/resume/import/export test remain required.
