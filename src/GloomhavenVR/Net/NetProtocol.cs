@@ -566,7 +566,25 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 620;
+    public const ushort ModBuild = 621;
+
+    // ModBuild 621 — whole-game small dressing, retained-arch flames and opt-in wrist board.
+    // Read-only original PCG provenance admits 276 exact small mesh identities and their
+    // proven decorative collision, including pages, skulls, shelf books/jugs and chains.
+    // Structural cores, native actors/controllers, large corpse/cross/coffin assemblies,
+    // lights and unknown collision remain protected; zero/low/full budgets are reversible.
+    // Actual native torch/candle-holder/frame attachment inherits persistent arch protection,
+    // even when authored emitters project beyond the arch rectangle. Prior wall-owned fades
+    // restore after pooling/reparenting; ordinary wall sconces keep the historical fade.
+    // Wrist attachment is settings-only and off by default. The same original board root
+    // follows the compensated tracked wrist; Advanced sets hand, offsets, angles and size.
+    // Normal follow/fixed placement and size survive tracking loss, rig/style rebuild and
+    // mode return. The complete follow/fixed control and grip bar hide while wrist-owned;
+    // unavailable grip-bar tutorial lessons are omitted without changing card lessons.
+    // Existing fast rig record70 carries the final owner pose/scale. Additive wire-v3
+    // record100 carries only hidden wrist controls; ordinary packets remain unchanged.
+    // Remote geometry and intermediate motion use the existing owner-authored board path.
+    // No gameplay ownership, native loading flags or card concealment rule changes.
 
     // ModBuild 620 — restore the original continuous wall/prop dissolve, broaden
     // whole-game decoration provenance and make VR options help player-facing.

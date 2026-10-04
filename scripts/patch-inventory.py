@@ -102,36 +102,8 @@ def strip_comments(text: str) -> str:
                 if i < n:
                     out[i] = ' '
                     i += 1
-        elif c == '@' and i + 1 < n and text[i + 1] == '"':
-            i += 2
-            while i < n:
-                if text[i] == '"':
-                    if i + 1 < n and text[i + 1] == '"':
-                        i += 2
-                        continue
-                    i += 1
-                    break
-                i += 1
-        elif c == '"':
-            i += 1
-            while i < n:
-                if text[i] == '\\':
-                    i += 2
-                    continue
-                if text[i] == '"':
-                    i += 1
-                    break
-                i += 1
-        elif c == "'":
-            i += 1
-            while i < n:
-                if text[i] == '\\':
-                    i += 2
-                    continue
-                if text[i] == "'":
-                    i += 1
-                    break
-                i += 1
+        elif c in ('"', "'"):
+            i = _literal_end(text, i)
         else:
             i += 1
     return ''.join(out)
@@ -151,11 +123,47 @@ class Decl:
     attrs: list[str] = field(default_factory=list)   # raw attribute texts
 
 
+def _literal_end(text: str, start: int) -> int:
+    """Skip one C# string/character literal; its brackets are not syntax."""
+    quote = text[start]
+    verbatim = quote == '"' and (text[max(0, start - 1):start] == '@'
+                                or text[max(0, start - 2):start] == '@$')
+    interpolated = quote == '"' and (text[max(0, start - 1):start] == '$'
+                                    or text[max(0, start - 2):start] in ('$@', '@$'))
+    i = start + 1
+    while i < len(text):
+        if interpolated and text[i] == '{':
+            i = i + 2 if i + 1 < len(text) and text[i + 1] == '{' else _matching(text, i, '{', '}')
+        elif text[i] == '\\' and not verbatim:
+            i += 2
+        elif text[i] == quote:
+            if verbatim and i + 1 < len(text) and text[i + 1] == quote:
+                i += 2
+            else:
+                return i + 1
+        else:
+            i += 1
+    raise ParseError(f"unclosed literal at offset {start}")
+
+
 def _matching(text: str, start: int, open_c: str, close_c: str) -> int:
     """Index just past the bracket that closes the one at `start`."""
     depth = 0
     i = start
     while i < len(text):
+        if text.startswith('//', i):
+            end = text.find('\n', i + 2)
+            i = end if end >= 0 else len(text)
+            continue
+        if text.startswith('/*', i):
+            end = text.find('*/', i + 2)
+            if end < 0:
+                raise ParseError(f"unclosed comment at offset {i}")
+            i = end + 2
+            continue
+        if text[i] in ('"', "'"):
+            i = _literal_end(text, i)
+            continue
         if text[i] == open_c:
             depth += 1
         elif text[i] == close_c:
@@ -187,6 +195,9 @@ def scan_file(path: Path) -> list[Decl]:
 
     while i < n:
         c = text[i]
+        if c in ('"', "'"):
+            i = _literal_end(text, i)
+            continue
         if c == '[':
             head = text[buf_start:i].strip()
             if head == '' or head.endswith(']'):
