@@ -28,6 +28,7 @@ def main():
         "Assets/Quest/Resources/QuestWorldScreen.shader",
         "Assets/Quest/Editor/QuestWorldScreenValidation.cs",
         "Assets/Quest/Editor/QuestUiAssetValidation.cs",
+        "Assets/Quest/Editor/QuestBlurValidation.cs",
     ]
     hashes = {}
     for relative in paths:

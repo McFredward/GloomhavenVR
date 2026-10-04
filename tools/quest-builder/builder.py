@@ -363,6 +363,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             restore_loading_sprite_geometry(project, game)
             stage_startup_audio(project, game)
             ui_assets.stage_startup_ui(project)
+            ui_assets.stage_startup_blur(project)
             dlcs.stage(project, inputs["profile"]["dlcOwnership"])
             package_startup_content(project, inputs["inputKey"])
             package_data = json.loads((project / "Packages/manifest.json").read_text(encoding="utf-8"))

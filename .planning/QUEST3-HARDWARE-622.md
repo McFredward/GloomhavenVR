@@ -35,6 +35,14 @@ zero suppresses the original blur even with `cullTransparentMesh=false` and
 `cull=false`. Those flags therefore do not establish a hidden opaque occluder.
 Authentic shader recovery is evaluated separately; native visibility is retained.
 
+B622 also restores that attached original blur from its five audited D3D programs,
+retaining three successive Grab/Draw pairs, nine-tap axes, homogeneous distortion,
+original uniforms/defaults and opaque render states. Genuine Android RGB and ASTC
+normal imports use the proven Unity encoding branches. Twelve real Canvas cases
+include three rendered defect controls; positive maximum pixel error is 0.00347.
+Native gates compile four GLES banks and keep separate source/Android receipts.
+Recovery does not establish that this blur caused the invisible Intro or preview.
+
 ## Scoped candidate
 
 The current shared mod selects the Quest world-screen shader only through its
@@ -60,10 +68,19 @@ widgets, including live `DontSave` owners. Exact typed queries preserve those
 semantics and avoid repeating managed classification over every scene behaviour.
 Seven batched typed queries were slower in local Mono (12.15 ms full scan versus
 6.00 ms original), so that burst is not shipped as a demonstrated optimization.
-Final scheduling and measured per-tick evidence are recorded with the native
-candidate below. Existing tracked widgets retain per-frame enforcement and native
-callback/availability behavior. Android frame-time improvement remains a hardware
-gate; local timings cannot establish it.
+Absolute one-second deadlines stagger the seven known families. Initial binding
+and catch-up after low FPS or clock jumps can query the bounded full set; ordinary
+frames query one family. In a genuine 14,346-behaviour Unity scene, mean production
+tick is 1.6063 ms and worst tick 1.7097 ms; whole-cycle mean remains 11.2441 ms,
+versus 5.8507 ms for the original full scan. Initial batch is 11.2516 ms and stalled
+catch-up 11.2642 ms. This reduces the local frame burst while retaining the larger
+whole-cycle cost honestly. Nine defect controls and 309 real-engine assertions
+cover discovery/cadence, all seven families, inactive late AddComponent, prefab
+exclusion, DontSave/DDOL, unload and clock jumps. Existing tracked widgets retain
+per-frame enforcement and native callback/availability behavior. Debug state
+records query-family count so batch and ordinary-tick measurements are distinct;
+its legacy component count now denotes matched owners. Android frame-time
+improvement remains a hardware gate; local timings cannot establish it.
 
 This is still an original startup/menu slice. Full campaign assets, actual DLC
 scenario recovery and authenticated Android crossplay remain separate port work.
