@@ -41,6 +41,9 @@ internal static class TownVoiceScheduleCases
         // working. The native shop does not yet have a visit and body Attention
         // remains zero, but the visible gaze must already start a greeting.
         var merchant = new TownServiceVoiceSchedule();
+        // A greeting may deliberately stay quiet. Pin the spoken branch here so
+        // the test checks gaze timing, rather than the optional speech lottery.
+        merchant.At(1).VariantState = 1;
         merchant.Visit(1, false, float.PositiveInfinity, 20f);
         merchant.Work(1, 3.1f, 0f, 0f, true, true, 20f);
         TownServiceVoiceSchedule.Entry greeting = merchant.At(1);
@@ -55,9 +58,20 @@ internal static class TownVoiceScheduleCases
             throw new Exception("Later body attention and native shop entry must not queue another greeting.");
 
         var departure = new TownServiceVoiceSchedule();
+        departure.At(1).VariantState = 1;
         departure.Work(1, 1f, 0f, 0f, true, true, 30f);
         departure.Work(1, 1.1f, 0f, 0f, false, true, 30.1f);
         if (departure.At(1).Pending)
             throw new Exception("A visitor who leaves before speech starts must cancel the gaze greeting.");
+
+        var quiet = new TownServiceVoiceSchedule();
+        quiet.At(1).VariantState = 2;
+        quiet.Work(1, 3.1f, 0f, 0f, true, true, 20f);
+        if (quiet.At(1).Pending || quiet.At(1).NextAllowed != 65f)
+            throw new Exception("An intentionally quiet gaze greeting must consume the same repeat interval.");
+        quiet.Work(1, 3.2f, 0f, 0f, false, true, 20.1f);
+        quiet.Work(1, 3.3f, 0f, 0f, true, true, 20.2f);
+        if (quiet.At(1).Pending)
+            throw new Exception("A quiet greeting must not be rerolled when the visitor briefly reenters gaze range.");
     }
 }
