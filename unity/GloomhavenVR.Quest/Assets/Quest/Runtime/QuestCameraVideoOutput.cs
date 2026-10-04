@@ -239,7 +239,10 @@ namespace GloomhavenVR.Quest
             if (evidence)
             {
                 evidenceSamples++;
-                nextEvidence = Time.realtimeSinceStartup + 1f;
+                // The original ambient movie begins with an authored dark fade.
+                // Keep two sets, but sample its second one after that first fade
+                // instead of spending both probes on its initial black frames.
+                nextEvidence = Time.realtimeSinceStartup + (farOutput ? 4f : 1f);
                 Probe(texture, "decoded");
                 Probe(captured, "native-capture-before-composition");
                 if (farOutput) Probe(cameraPixels, "native-far-composed-snapshot");
@@ -277,6 +280,16 @@ namespace GloomhavenVR.Quest
                     + " sourceDepth=" + camera.depth + " captureMips=" + captured.mipmapCount
                     + " captureFormat=" + captured.graphicsFormat + " captureDepth=" + captured.depth);
             if (consumer != null && consumer.mainTexture != null) Probe(consumer.mainTexture, "consumer-texture");
+            if (consumer != null && consumer.HasProperty("_RightTex"))
+            {
+                Texture right = consumer.GetTexture("_RightTex");
+                Debug.Log("[Quest startup] original movie consumer " + context
+                    + " actualUrl=" + (player == null ? "none" : player.url)
+                    + " stereoCapture=" + consumer.GetFloat("_StereoCapture")
+                    + " rightTexture=" + (right == null ? "none" : right.name)
+                    + " rightDimension=" + (right == null ? "none" : right.dimension.ToString()));
+                if (right != null && right != consumer.mainTexture) Probe(right, "consumer-right-texture");
+            }
         }
 
         void Probe(Texture source, string stage) => Probe(source, stage, !probeFailed && SystemInfo.supportsAsyncGPUReadback);
@@ -289,6 +302,8 @@ namespace GloomhavenVR.Quest
             RenderTexture sample = null;
             var clock = System.Diagnostics.Stopwatch.StartNew();
             string facts = context + " stage=" + stage + " frame=" + (player == null ? -1 : player.frame)
+                + " mediaTime=" + (player == null ? -1 : player.time)
+                + " actualUrl=" + (player == null ? "none" : player.url)
                 + " source=" + source.name + " dimensions=" + source.width + "x" + source.height
                 + " dimension=" + source.dimension + " format=" + source.graphicsFormat
                 + " readbackMode=" + (asynchronous ? "async" : "bounded-sync");

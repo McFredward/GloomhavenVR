@@ -6,8 +6,22 @@ using System.Collections;
 // classes are compiled unchanged; this does not simulate rendering/native OpenXR.
 namespace UnityEngine
 {
-    public class Material { }
     public class Texture { }
+    public class Shader { public string name; public bool isSupported = true; }
+    public class Material
+    {
+        public Shader shader;
+        public Dictionary<string, Texture> textures = new();
+        public Dictionary<string, float> floats = new();
+        public void SetTexture(string name, Texture value) => textures[name] = value;
+        public void SetFloat(string name, float value) => floats[name] = value;
+    }
+    public static class Resources
+    {
+        public static int Loads;
+        public static Shader ScreenShader = new Shader { name = "Hidden/GloomhavenVR/QuestWorldScreen" };
+        public static T Load<T>(string name) where T : class { Loads++; return ScreenShader as T; }
+    }
     public enum RuntimePlatform { WindowsPlayer, Android }
     public enum HideFlags { HideAndDontSave }
     public static class Application

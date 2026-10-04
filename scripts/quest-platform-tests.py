@@ -24,6 +24,7 @@ def main():
     run = Path(tempfile.mkdtemp(prefix="run-", dir=output))
     cases = [("production", original, "")]
     for name, target, before, after, expected in (
+        ("world-screen-desktop-gate-removed", "QuestStandalonePlatform.cs", "if (!Enabled) return desktopShader;", "if (Enabled && false) return desktopShader;", "desktop-screen"),
         ("android-dynamic-deps", "RuntimeDepsLoader.cs", "if (UnityEngine.Application.platform == UnityEngine.RuntimePlatform.Android)", "if (QuestStandalonePlatform.Enabled && UnityEngine.Application.platform == UnityEngine.RuntimePlatform.WindowsPlayer)", "android-deps"),
         ("owner-session-not-checked", "OpenXRBootstrap.cs", " || !QuestStandalonePlatform.SessionRunning", "", "owner-session-gate"),
         ("display-running-not-checked", "OpenXRBootstrap.cs", " || !displays.Any(d => d.running)", "", "display-running-gate"),
@@ -71,7 +72,7 @@ def main():
             print(next(line for line in result.stdout.splitlines() if line.startswith("PASS Quest platform/core lifecycle:")), flush=True)
         else:
             print("PASS rejected " + name + " at " + expected, flush=True)
-    print("PASS production core lifecycle and 11 platform defect controls")
+    print("PASS production core lifecycle and " + str(len(cases) - 1) + " platform defect controls")
 
 
 if __name__ == "__main__":

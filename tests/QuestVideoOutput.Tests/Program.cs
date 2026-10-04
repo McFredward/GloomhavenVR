@@ -9,11 +9,16 @@ using GloomhavenVR.WorldUI;
 
 namespace GloomhavenVR.Core
 {
-    internal static class QuestStandalonePlatform
+    internal static partial class QuestStandalonePlatform
     {
         internal static bool Enabled = true;
+        // Production material selection/binding methods are compiled by the runner.
         internal static bool IsFlatScreenVideoTarget(Camera camera) => Enabled && FlatScreen.OwnsVideoCapture(camera);
         internal static bool DebugLogging => false;
+    }
+    internal static class VRLog { internal static void Info(string area, string message) => Debug.Log(message); }
+    internal static partial class QuestStandalonePlatform
+    {
         internal static Camera? HeadCamera = null;
         internal static event Action? FlatScreenVideoSampling;
         internal static event Action? FlatScreenVideoSampled;
@@ -74,9 +79,115 @@ public static class InteractionProgram
             pixels[y * 16 + x] = new Color(x < 8 ? 1 : 0, y < 4 ? 1 : 0, .25f, 1);
         texture.SetPixels(pixels); texture.Apply(); return texture;
     }
+    static void ScreenStereoPixels()
+    {
+        var camera = new GameObject("real-world-screen-camera").AddComponent<Camera>();
+        camera.orthographic = true; camera.orthographicSize = 1;
+        camera.nearClipPlane = .1f; camera.farClipPlane = 10;
+        var screen = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        screen.transform.position = new Vector3(0, 0, 2);
+        screen.transform.localScale = new Vector3(2, 2, 1);
+        var left = Decoded();
+        var rightPixels = new Texture2D(16, 8, TextureFormat.RGBA32, false, true);
+        rightPixels.SetPixels(Enumerable.Repeat(new Color(.125f, .5f, .875f, 0), 128).ToArray()); rightPixels.Apply();
+        var leftCapture = new RenderTexture(16, 8, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear); leftCapture.Create(); Graphics.Blit(left, leftCapture);
+        var right = new RenderTexture(16, 8, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear); right.Create(); Graphics.Blit(rightPixels, right);
+        Shader originalShader = Shader.Find("Hidden/BlitCopy");
+        QuestStandalonePlatform.Enabled = false;
+        Check(QuestStandalonePlatform.SelectFlatScreenShader(originalShader) == originalShader,
+            "desktop world screen shader remains unchanged");
+        QuestStandalonePlatform.Enabled = true;
+        var material = new Material(QuestStandalonePlatform.SelectFlatScreenShader(originalShader)) { enableInstancing = true };
+        SharedEyeBindingFixture.Bind(material, false, leftCapture, right, suspended: false, shifted: true);
+        Check(material.mainTexture == leftCapture && material.GetTexture("_RightTex") == right,
+            "actual shared shifted-eye policy binds two current capture identities");
+        var eyes = new RenderTexture(64, 64, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear)
+            { dimension = TextureDimension.Tex2DArray, volumeDepth = 2, antiAliasing = 1 };
+        Check(eyes.Create(), "real array eye target created");
+        var planar = new RenderTexture(64, 64, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear); planar.Create();
+        // An actual XR provider supplies this built-in constant buffer. The
+        // fixture sets its real layout explicitly; individual global matrices
+        // do not populate UnityStereoGlobals on a non-XR editor camera.
+        var stereoData = new float[272];
+        Matrix4x4 stereoProjection = GL.GetGPUProjectionMatrix(camera.projectionMatrix, true);
+        Matrix4x4 stereoView = camera.worldToCameraMatrix;
+        Matrix4x4[] matrices = { stereoProjection, stereoView, stereoView.inverse,
+            stereoProjection * stereoView, stereoProjection, stereoProjection.inverse, stereoView, stereoView.inverse };
+        for (int kind = 0; kind < matrices.Length; kind++) for (int eye = 0; eye < 2; eye++)
+            for (int column = 0; column < 4; column++) for (int row = 0; row < 4; row++)
+                stereoData[(kind * 2 + eye) * 16 + column * 4 + row] = matrices[kind][row, column];
+        stereoData[264] = stereoData[265] = stereoData[268] = stereoData[269] = 1;
+        using var stereoGlobals = new ComputeBuffer(272, 4, ComputeBufferType.Constant);
+        stereoGlobals.SetData(stereoData);
+        void RenderEyes()
+        {
+            using var draw = new CommandBuffer();
+            draw.SetRenderTarget(new RenderTargetIdentifier(eyes, 0, CubemapFace.Unknown, -1));
+            draw.ClearRenderTarget(true, true, Color.gray);
+            Matrix4x4 projection = GL.GetGPUProjectionMatrix(camera.projectionMatrix, true);
+            Matrix4x4 view = camera.worldToCameraMatrix;
+            Matrix4x4 vp = projection * view;
+            draw.SetViewProjectionMatrices(view, projection);
+            draw.SetGlobalMatrixArray("unity_StereoMatrixVP", new[] { vp, vp });
+            draw.SetGlobalMatrixArray("unity_StereoMatrixP", new[] { projection, projection });
+            draw.SetGlobalMatrixArray("unity_StereoMatrixV", new[] { view, view });
+            draw.SetGlobalMatrixArray("unity_StereoWorldToCamera", new[] { view, view });
+            draw.SetGlobalConstantBuffer(stereoGlobals, Shader.PropertyToID("UnityStereoGlobals"), 0, 1088);
+            draw.EnableShaderKeyword("STEREO_INSTANCING_ON");
+            draw.SetSinglePassStereo(SinglePassStereoMode.Instancing);
+            Mesh mesh = screen.GetComponent<MeshFilter>().sharedMesh;
+            draw.DrawMeshInstanced(mesh, 0, material, 0,
+                new[] { screen.transform.localToWorldMatrix, screen.transform.localToWorldMatrix }, 2);
+            draw.SetSinglePassStereo(SinglePassStereoMode.None);
+            draw.DisableShaderKeyword("STEREO_INSTANCING_ON");
+            Graphics.ExecuteCommandBuffer(draw);
+        }
+        RenderEyes();
+        Graphics.CopyTexture(eyes, 0, 0, planar, 0, 0);
+        Color leftPixel = Pixel(planar, 8, 8);
+        Debug.Log("World screen fixture instanced left pixel=" + leftPixel + " shader=" + material.shader.name);
+        Close(leftPixel.b, .25f, "actual instanced left eye renders owned Tex2D screen pixels");
+        Close(leftPixel.r, 1, "world screen geometry projection and orientation retained");
+        Graphics.CopyTexture(eyes, 1, 0, planar, 0, 0);
+        Color rightPixel = Pixel(planar, 8, 8);
+        Debug.Log("World screen fixture instanced right pixel=" + rightPixel);
+        Close(rightPixel.b, .875f, "actual instanced right eye samples its distinct owned capture");
+        Close(rightPixel.g, .5f, "actual right eye keeps intended native disparity source");
+        Close(rightPixel.a, 1, "opaque background ignores captured zero alpha");
+        SharedEyeBindingFixture.Bind(material, true, leftCapture, right, suspended: true, shifted: true);
+        RenderEyes(); Graphics.CopyTexture(eyes, 1, 0, planar, 0, 0);
+        Close(Pixel(planar, 8, 8).b, .25f, "same persistent screen clears stale right capture on Intro suspension");
+        Check(material.mainTexture == leftCapture && material.GetTexture("_RightTex") == leftCapture,
+            "actual shared Intro suspended policy binds the same texture for both eyes");
+        Check(material.GetFloat("_StereoCapture") == 0, "suspended screen resets stereo routing state");
+        SharedEyeBindingFixture.Bind(material, false, leftCapture, right, suspended: false, shifted: false);
+        RenderEyes(); Graphics.CopyTexture(eyes, 1, 0, planar, 0, 0);
+        Close(Pixel(planar, 8, 8).b, .875f, "same persistent material resumes native right capture");
+        SharedEyeBindingFixture.Bind(material, false, leftCapture, right, suspended: false, shifted: false, map: true);
+        RenderEyes(); Graphics.CopyTexture(eyes, 0, 0, planar, 0, 0);
+        Close(Pixel(planar, 8, 8).b, .875f, "same material map handover shows current revealed map capture to left eye");
+        Graphics.CopyTexture(eyes, 1, 0, planar, 0, 0);
+        Close(Pixel(planar, 8, 8).b, .875f, "same material map handover clears prior stereo capture for right eye");
+        SharedEyeBindingFixture.Bind(material, false, leftCapture, right, suspended: false, shifted: false, map: true, revealed: false);
+        RenderEyes(); Graphics.CopyTexture(eyes, 1, 0, planar, 0, 0);
+        Close(Pixel(planar, 8, 8).b, 0, "same material unrevealed map retains native black reveal guard for both eyes");
+        SharedEyeBindingFixture.Bind(material, false, leftCapture, right, suspended: false, shifted: false);
+        SharedEyeBindingFixture.Deactivate(material, leftCapture);
+        RenderEyes(); Graphics.CopyTexture(eyes, 1, 0, planar, 0, 0);
+        Close(Pixel(planar, 8, 8).b, .25f, "shared stereo deactivation clears stale right-eye pixels on retained material");
+        Check(material.GetFloat("_StereoCapture") == 0, "shared deactivation resets stereo state before capture release");
+        QuestStandalonePlatform.Enabled = false;
+        QuestStandalonePlatform.SetFlatScreenEyes(material, right, right);
+        Check(material.mainTexture == leftCapture, "desktop never changes material stereo bindings");
+        QuestStandalonePlatform.Enabled = true;
+        UnityEngine.Object.DestroyImmediate(material); UnityEngine.Object.DestroyImmediate(left); UnityEngine.Object.DestroyImmediate(right); UnityEngine.Object.DestroyImmediate(rightPixels); UnityEngine.Object.DestroyImmediate(leftCapture);
+        UnityEngine.Object.DestroyImmediate(eyes); UnityEngine.Object.DestroyImmediate(planar);
+        UnityEngine.Object.DestroyImmediate(screen); UnityEngine.Object.DestroyImmediate(camera.gameObject);
+    }
     public static int Run()
     {
         checks = 0;
+        ScreenStereoPixels();
         var go = new GameObject("native-captured-camera");
         var camera = go.AddComponent<Camera>(); camera.enabled = true; camera.clearFlags = CameraClearFlags.SolidColor;
         camera.backgroundColor = Color.blue; camera.cullingMask = 0; camera.orthographic = true;
@@ -102,7 +213,7 @@ public static class InteractionProgram
             view.targetTexture.Create();
             var screen = GameObject.CreatePrimitive(PrimitiveType.Quad);
             screen.layer = 27; screen.transform.position = new Vector3(0, 0, 2); screen.transform.localScale = new Vector3(2, 2, 1);
-            var displayMaterial = new Material(Shader.Find("Hidden/BlitCopy")) { mainTexture = target };
+            var displayMaterial = new Material(QuestStandalonePlatform.SelectFlatScreenShader(Shader.Find("Hidden/BlitCopy"))) { mainTexture = target };
             FlatScreen.Consumer(camera, displayMaterial);
             screen.GetComponent<Renderer>().sharedMaterial = displayMaterial;
             view.Render();

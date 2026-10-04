@@ -22,6 +22,12 @@ def main():
     run = Path(tempfile.mkdtemp(prefix="run-", dir=output))
     runtime = ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestCameraVideoOutput.cs"
     original = runtime.read_text()
+    world_shader = ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestWorldScreen.shader"
+    world_original = world_shader.read_text()
+    platform = (ROOT / "src/GloomhavenVR/Core/QuestStandalonePlatform.cs").read_text()
+    shader_start = platform.index('    internal const string FlatScreenShaderName =')
+    shader_end = platform.index('    /// <summary>Quest output adapters', shader_start)
+    material_bridge = "using System; using UnityEngine;\nnamespace GloomhavenVR.Core { internal static partial class QuestStandalonePlatform {\n" + platform[shader_start:shader_end] + "\n} }\n"
     flat = ROOT / "src/GloomhavenVR/WorldUI/FlatScreen"
     bridge = (flat / "FlatScreen.6.VideoCapture.cs").read_text()
     stack = (flat / "FlatScreen.2.CameraStack.cs").read_text()
@@ -30,6 +36,10 @@ def main():
     routing = "using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class FlatScreen\n{\n" + stack[start:end] + "\n}\n"
     variants = [
         ("production", "", "", ""),
+        ("world-screen-array-sampler", "", "", "actual instanced left eye renders owned Tex2D screen pixels"),
+        ("world-screen-mono-reset-omitted", "", "", "same persistent screen clears stale right capture on Intro suspension"),
+        ("world-screen-left-only", "", "", "actual instanced right eye samples its distinct owned capture"),
+        ("world-screen-alpha-blended", "", "", "actual instanced left eye renders owned Tex2D screen pixels"),
         ("capture-ownership-ignored", "return GloomhavenVR.Core.QuestStandalonePlatform.IsFlatScreenVideoTarget(candidate);", "return true;", "desktop movie output remains untouched"),
         ("aspect-mapping-discarded", "return new Vector4(x, y, (1f - x) * .5f, (1f - y) * .5f);", "return new Vector4(1, 1, 0, 0);", "native fit-inside letterbox bars preserved"),
         ("alpha-discarded", 'material.SetFloat("_Alpha", Mathf.Clamp01(alpha));', 'material.SetFloat("_Alpha", 1f);', "completed near output follows native stack without changing alpha"),
@@ -42,6 +52,12 @@ def main():
         ("stereo-copy-before-composition", "", "", "current completed video reaches left shifted eye"),
         ("unrendered-snapshot-shown", "if (farOutput && snapshotGeneration < 0) return;", "if (farOutput && snapshotGeneration < -1) return;", "head before producer never samples an unrendered retained target"),
     ]
+    selected = os.environ.get("QUEST_VIDEO_TEST_CASES")
+    if selected:
+        requested = set(selected.split(",")) | {"production"}
+        if not requested.issubset({entry[0] for entry in variants}):
+            raise RuntimeError("Unknown diagnostic case selection.")
+        variants = [entry for entry in variants if entry[0] in requested]
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     unity = Path("/home/claw/unity-2021.3.5/Editor/Unity")
     fixture = ROOT / "tests/QuestVideoOutput.Tests"
@@ -62,6 +78,27 @@ def main():
                 raise RuntimeError("Mutation binding drift: " + name)
             source = source.replace(before, after)
         (production / "QuestCameraVideoOutput.cs").write_text(source)
+        screen_source = world_original
+        if name == "world-screen-array-sampler":
+            screen_source = screen_source.replace("sampler2D _MainTex, _RightTex;", "UNITY_DECLARE_SCREENSPACE_TEXTURE(_MainTex); UNITY_DECLARE_SCREENSPACE_TEXTURE(_RightTex);")
+            screen_source = screen_source.replace("tex2D(_MainTex, input.uv)", "UNITY_SAMPLE_SCREENSPACE_TEXTURE(_MainTex, input.uv)").replace("tex2D(_RightTex, input.uv)", "UNITY_SAMPLE_SCREENSPACE_TEXTURE(_RightTex, input.uv)")
+        elif name == "world-screen-left-only":
+            screen_source = screen_source.replace("eye = unity_StereoEyeIndex * _StereoCapture;", "eye = 0.0;")
+        elif name == "world-screen-alpha-blended":
+            screen_source = screen_source.replace("Blend One Zero", "Blend SrcAlpha OneMinusSrcAlpha").replace("tex2D(_RightTex, input.uv).rgb, eye), 1.0)", "tex2D(_RightTex, input.uv).rgb, eye), tex2D(_RightTex, input.uv).a)")
+        # Each compiled fixture has its own shader identity so controls cannot
+        # accidentally reuse the production variant loaded by a previous case.
+        screen_source = screen_source.replace("Hidden/GloomhavenVR/QuestWorldScreen", "Hidden/GloomhavenVR/QuestWorldScreen/" + name)
+        (case / "QuestWorldScreen.shader").write_text(screen_source)
+        case_material_bridge = material_bridge
+        if name == "world-screen-mono-reset-omitted":
+            mono_start = case_material_bridge.index("    internal static void SetFlatScreenMono(")
+            mono_end = case_material_bridge.index("    internal static void SetFlatScreenEyes(", mono_start)
+            mono_body = case_material_bridge[mono_start:mono_end]
+            no_reset = mono_body[:mono_body.index("        if (!Enabled")] + "        return;\n    }\n\n"
+            case_material_bridge = case_material_bridge[:mono_start] + no_reset + case_material_bridge[mono_end:]
+        bridge_source = case_material_bridge.replace('Resources.Load<Shader>("QuestWorldScreen")', 'Resources.Load<Shader>("QuestWorldScreen_' + name + '")').replace('Hidden/GloomhavenVR/QuestWorldScreen"', 'Hidden/GloomhavenVR/QuestWorldScreen/' + name + '"')
+        (production / "MaterialBridge.cs").write_text(bridge_source)
         (production / "Bridge.cs").write_text(bridge)
         (production / "Routing.cs").write_text(routing)
         per_eye = (flat / "FlatScreenStereo.4.PerEye.cs").read_text()
@@ -70,6 +107,17 @@ def main():
         consumer = per_eye[consumer_start:consumer_end]
         if name == "stereo-copy-before-composition":
             consumer = consumer.replace("        QuestStandalonePlatform.PrepareFlatScreenVideoSample();", "") + "        QuestStandalonePlatform.PrepareFlatScreenVideoSample();\n"
+        bind_start = per_eye.index("        RenderTexture? target;", consumer_end)
+        bind_end = per_eye.index("        QuestStandalonePlatform.ObserveFlatScreenVideoSample();", bind_start)
+        eye_binding = per_eye[bind_start:bind_end]
+        compositor = (flat / "FlatScreenStereo.2.Compositor.cs").read_text()
+        reset_start = compositor.index("        if (_quadMaterial != null && _leftRt != null && _quadMaterial.mainTexture != _leftRt)")
+        reset_end = compositor.index("        ReleaseRightRt();", reset_start)
+        reset_binding = compositor[reset_start:reset_end]
+        (production / "EyeBinding.cs").write_text("using UnityEngine; using GloomhavenVR.Core;\ninternal static class SharedEyeBindingFixture {\n"
+            + "static bool _mapBaseCapture,_mapFirstFrameRendered,_mapDrivenValid,MapRevealHoldElapsed,_mapRevealLogged,_videoSuspended,_videoShift; static RenderTexture? _mapRt,_leftRt,_rtRight,_rtLeftShifted; static int _mapEngageFrame; static float _mapEngageTime;\n"
+             + "static Material? _quadMaterial; internal static void Deactivate(Material material, RenderTexture left) { _quadMaterial=material; _leftRt=left;\n" + reset_binding + "}\n"
+            + "internal static void Bind(Material mat, bool right, RenderTexture left, RenderTexture other, bool suspended, bool shifted, bool map=false, bool revealed=true) { _mapBaseCapture=map; _mapFirstFrameRendered=revealed; _mapDrivenValid=revealed; MapRevealHoldElapsed=false; _mapRevealLogged=false; _mapRt=map?other:null; _mapEngageFrame=0; _mapEngageTime=0; _videoSuspended=suspended; _videoShift=shifted; _leftRt=left; _rtRight=other; _rtLeftShifted=left;\n" + eye_binding + "}\n}\n")
         state = (flat / "FlatScreenStereo.1.State.cs").read_text()
         overscan = next(line.strip() for line in state.splitlines() if "const float VideoOverscan =" in line)
         (production / "StereoSampling.cs").write_text("using UnityEngine; using GloomhavenVR.Core;\ninternal static class SharedStereoFixture {\n"
@@ -96,6 +144,9 @@ def main():
     shutil.copyfile(ROOT / "scripts/desktop-render-runtime/Editor/InteractionRunner.cs", editor / "InteractionRunner.cs")
     shader = ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestCameraVideo.shader"
     shutil.copyfile(shader, resources / shader.name)
+    for case in manifest["cases"]:
+        name = case["name"]
+        shutil.copyfile(run / name / "QuestWorldScreen.shader", resources / ("QuestWorldScreen_" + name + ".shader"))
     (project / "Packages").mkdir(); (project / "ProjectSettings").mkdir()
     (project / "Packages/manifest.json").write_text('{"dependencies":{}}\n')
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
@@ -103,8 +154,12 @@ def main():
     manifest_path.write_text(json.dumps(manifest, indent=2))
     (run / "source-hashes.json").write_text(json.dumps({"runtime": hashlib.sha256(runtime.read_bytes()).hexdigest(),
         "shader": hashlib.sha256(shader.read_bytes()).hexdigest(),
+        "worldShader": hashlib.sha256(world_shader.read_bytes()).hexdigest(),
+        "worldMaterialBridge": hashlib.sha256(material_bridge.encode()).hexdigest(),
         "captureOwnership": hashlib.sha256(bridge.encode()).hexdigest(), "actualCaptureRouting": hashlib.sha256(routing.encode()).hexdigest(),
         "sharedStereoSampling": hashlib.sha256(per_eye[consumer_start:consumer_end].encode()).hexdigest(),
+        "sharedEyeBinding": hashlib.sha256(eye_binding.encode()).hexdigest(),
+        "sharedDeactivateBinding": hashlib.sha256(reset_binding.encode()).hexdigest(),
         "fixture": hashlib.sha256((fixture / "Program.cs").read_bytes()).hexdigest(),
         "boundary": "Production completed-capture and camera-depth snapshot, actual shared eye-copy body, real head/world shader/mip/foreground pixels and bounded sync readback; controlled late write reproduces B620 but does not prove Android native ordering"}, indent=2))
     command = [str(unity), "-batchmode", "-force-glcore", "-projectPath", str(project),

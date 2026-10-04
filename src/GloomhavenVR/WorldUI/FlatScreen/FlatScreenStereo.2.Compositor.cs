@@ -242,6 +242,9 @@ internal sealed partial class FlatScreenStereo
         }
         if (_quadMaterial != null && _leftRt != null && _quadMaterial.mainTexture != _leftRt)
             _quadMaterial.mainTexture = _leftRt;
+        // A persistent screen can leave stereo without changing mainTexture.
+        // Clear the GPU right-eye binding BEFORE its capture is released.
+        QuestStandalonePlatform.SetFlatScreenMono(_quadMaterial, _leftRt);
         ReleaseRightRt();
         ReleaseShiftRt();
         ReleaseProbeRt();

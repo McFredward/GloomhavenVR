@@ -36,6 +36,14 @@ internal static class Program
         QuestStandalonePlatform.ObserveFlatScreenVideoSample();
         Check(videoPrepared == 0 && videoSampled == 0,
             "desktop-video: standalone sampling callbacks must not run on desktop");
+        var desktopScreen = new Shader { name = "Hidden/BlitCopy" };
+        Check(QuestStandalonePlatform.SelectFlatScreenShader(desktopScreen) == desktopScreen && Resources.Loads == 0,
+            "desktop-screen: desktop shader choice must remain unchanged without resource reads");
+        var desktopMaterial = new Material { shader = desktopScreen };
+        QuestStandalonePlatform.SetFlatScreenEyes(desktopMaterial, new Texture(), new Texture());
+        QuestStandalonePlatform.SetFlatScreenMono(desktopMaterial, new Texture());
+        Check(desktopMaterial.textures.Count == 0 && desktopMaterial.floats.Count == 0,
+            "desktop-screen: standalone stereo binding must not touch desktop materials");
         Reject(() => QuestStandalonePlatform.Configure(directory, _ => true, () => true, () => true), "desktop-gate: desktop accepted standalone configuration");
         Color desktop = QuestStandalonePlatform.MixedRealityClearColor(new Color(.1f, .9f, .2f, .25f));
         Check(desktop.r == .1f && desktop.g == .9f && desktop.b == .2f && desktop.a == 1, "desktop-key: existing chroma key RGB/opaque alpha changed");
@@ -78,6 +86,22 @@ internal static class Program
         Check(!QuestStandalonePlatform.Enabled, "resource-validation: failed configuration partially enabled standalone");
         QuestStandalonePlatform.Configure(directory, setNative, () => nativeActive, () => ownerRunning, () => sessionGeneration);
         Check(QuestStandalonePlatform.Enabled && QuestStandalonePlatform.ResourceDirectory == Path.GetFullPath(directory) && RuntimeDepsLoader.PluginDir == Path.GetFullPath(directory), "android-resource: player-owned resource root was not used");
+        Check(QuestStandalonePlatform.SelectFlatScreenShader(desktopScreen) == Resources.ScreenShader,
+            "quest-screen: enabled platform selects validated Tex2D world shader");
+        var eyeMaterial = new Material { shader = Resources.ScreenShader };
+        var left = new Texture(); var right = new Texture();
+        QuestStandalonePlatform.SetFlatScreenEyes(eyeMaterial, left, right);
+        Check(eyeMaterial.textures["_MainTex"] == left && eyeMaterial.textures["_RightTex"] == right && eyeMaterial.floats["_StereoCapture"] == 1,
+            "quest-screen: actual distinct capture identities must reach the GPU eye inputs");
+        QuestStandalonePlatform.SetFlatScreenEyes(eyeMaterial, left, null);
+        Check(eyeMaterial.textures["_RightTex"] == left, "quest-screen: unavailable right capture safely uses the current left input");
+        QuestStandalonePlatform.SetFlatScreenEyes(eyeMaterial, left, right);
+        QuestStandalonePlatform.SetFlatScreenMono(eyeMaterial, left);
+        Check(eyeMaterial.textures["_MainTex"] == left && eyeMaterial.textures["_RightTex"] == left && eyeMaterial.floats["_StereoCapture"] == 0,
+            "quest-screen: persistent material mono handover clears stale right-eye inputs and state");
+        Resources.ScreenShader.isSupported = false;
+        Reject(() => QuestStandalonePlatform.SelectFlatScreenShader(desktopScreen), "quest-screen: unsupported shader must fail visibly");
+        Resources.ScreenShader.isSupported = true;
         Reject(() => QuestStandalonePlatform.Configure(directory, setNative, () => nativeActive, () => ownerRunning), "single-config: live player callbacks were silently replaced");
         Color clear = QuestStandalonePlatform.MixedRealityClearColor(new Color(0, 1, 0, 1));
         Check(clear.r == 0 && clear.g == 0 && clear.b == 0 && clear.a == 0, "native-alpha: Quest MR retained an opaque/colored greenscreen clear");

@@ -311,6 +311,7 @@ internal sealed partial class FlatScreenStereo
         {
             if (!ReferenceEquals(mat.mainTexture, Texture2D.blackTexture))
                 mat.mainTexture = Texture2D.blackTexture;
+            QuestStandalonePlatform.SetFlatScreenMono(mat, Texture2D.blackTexture);
             return;
         }
 
@@ -346,6 +347,7 @@ internal sealed partial class FlatScreenStereo
             // scenario-overlay branch above; the UI glass keeps compositing on top).
             if (!ReferenceEquals(mat.mainTexture, Texture2D.blackTexture))
                 mat.mainTexture = Texture2D.blackTexture;
+            QuestStandalonePlatform.SetFlatScreenMono(mat, Texture2D.blackTexture);
             return;
         }
         else if (_videoSuspended || _mapBaseCapture)
@@ -358,6 +360,17 @@ internal sealed partial class FlatScreenStereo
             target = _leftRt;
         if (target != null && !ReferenceEquals(mat.mainTexture, target))
             mat.mainTexture = target;
+        // Desktop MultiPass keeps its original per-camera material swap above.
+        // Quest SinglePassInstanced draws both eyes together: bind the SAME live
+        // captures selected by that policy, then choose the eye in the GPU shader.
+        Texture? leftEye = _mapBaseCapture || _videoSuspended ? target
+            : _videoShift && _rtLeftShifted != null ? _rtLeftShifted : _leftRt;
+        Texture? rightEye = _mapBaseCapture || _videoSuspended ? target
+            : _rtRight != null ? _rtRight : _leftRt;
+        if (_mapBaseCapture || _videoSuspended)
+            QuestStandalonePlatform.SetFlatScreenMono(mat, target);
+        else
+            QuestStandalonePlatform.SetFlatScreenEyes(mat, leftEye, rightEye);
         QuestStandalonePlatform.ObserveFlatScreenVideoSample();
     }
 

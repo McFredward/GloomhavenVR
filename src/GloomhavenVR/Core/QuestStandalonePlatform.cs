@@ -38,6 +38,39 @@ public static class QuestStandalonePlatform
     public static bool IsFlatScreenVideoTarget(Camera camera) =>
         Enabled && WorldUI.FlatScreen.OwnsVideoCapture(camera);
 
+    internal const string FlatScreenShaderName = "Hidden/GloomhavenVR/QuestWorldScreen";
+
+    /// <summary>
+    /// Unity's internal screen-space blit shader changes its source sampler to an
+    /// XR texture array. Our captured world screens are ordinary Tex2D surfaces,
+    /// including their existing left/right depth captures. Keep those inputs 2D
+    /// and let the world vertex stage handle the headset's instanced eye output.
+    /// </summary>
+    internal static Shader? SelectFlatScreenShader(Shader? desktopShader)
+    {
+        if (!Enabled) return desktopShader;
+        Shader shader = Resources.Load<Shader>("QuestWorldScreen");
+        if (shader == null || shader.name != FlatScreenShaderName || !shader.isSupported)
+            throw new InvalidOperationException("Validated Quest world screen shader is unavailable.");
+        return shader;
+    }
+
+    internal static void SetFlatScreenMono(Material? material, Texture? texture)
+    {
+        if (!Enabled || material == null || material.shader.name != FlatScreenShaderName) return;
+        material.SetTexture("_MainTex", texture);
+        material.SetTexture("_RightTex", texture);
+        material.SetFloat("_StereoCapture", 0f);
+    }
+
+    internal static void SetFlatScreenEyes(Material material, Texture? left, Texture? right)
+    {
+        if (!Enabled || material == null || material.shader.name != FlatScreenShaderName) return;
+        material.SetTexture("_MainTex", left);
+        material.SetTexture("_RightTex", right != null ? right : left);
+        material.SetFloat("_StereoCapture", 1f);
+    }
+
     /// <summary>Quest output adapters prepare a completed capture before the shared eye sampler.</summary>
     public static event Action? FlatScreenVideoSampling;
     public static event Action? FlatScreenVideoSampled;
