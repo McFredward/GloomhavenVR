@@ -1431,6 +1431,12 @@
       "weight": 2
     },
     {
+      "id": "quest-scene-discovery",
+      "command": ["python3", "scripts/quest-scene-discovery-tests.py"],
+      "groups": ["local"],
+      "weight": 30
+    },
+    {
       "id": "quest-options",
       "command": ["python3", "scripts/quest-options-tests.py"],
       "groups": ["local", "ci"],

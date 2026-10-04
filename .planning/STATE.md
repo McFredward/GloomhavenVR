@@ -1,5 +1,18 @@
 # State — where the project stands
 
+**Quest B621 in progress, 2026-10-04: isolated feature.**
+
+The exact B620 capture verifies installed APK/input and native movie decoding.
+The maintainer confirms keyboard, Guildmaster explanation and options filter;
+Intro/ambient imagery and the recurring hitch remain defects. The native hidden
+promotion trailer is intentionally idle, separately proven against original and
+final stripped CIL. B621 targets completed camera-capture consumption with bounded
+pixel evidence and replaces active Quest scope's recurring global component sweep
+with scene-root discovery. Recent frame spikes and actual discovery costs survive
+in bounded Debug state. Headset outcomes remain unverified; preserve confirmed
+behavior. See [B621 hardware procedure](QUEST3-HARDWARE-621.md).
+
+
 **Quest B620 scoped menu follow-up, 2026-10-04: isolated feature.**
 
 The exact B619 package/input and supplied screenshot are verified. Audio is now

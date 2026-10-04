@@ -117,6 +117,8 @@ namespace GloomhavenVR.Quest
         {
             return message.StartsWith("[Quest startup] original movie state ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] original movie decoded frame ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] original movie pixels ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] original movie consumer ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] presentation ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] audio ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] frame ", StringComparison.Ordinal);

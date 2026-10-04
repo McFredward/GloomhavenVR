@@ -10,7 +10,9 @@ namespace GloomhavenVR.Quest
     {
         public string scene;
         public bool incrementalGc, sampling;
-        public int frames, over40Ms, over100Ms, gcCollections, spikeCount;
+        public int frames, over40Ms, over100Ms, gcCollections, spikeCount, spikeCursor;
+        public int discoveryScans, discoverySceneComponents;
+        public double discoveryLastMs, discoveryWorstMs;
         public double sampledSeconds;
         public float worstFrameMs, maxSnapshotWriteMs;
         public float[] spikeTimes = new float[24], spikeFrameMs = new float[24];
@@ -37,7 +39,7 @@ namespace GloomhavenVR.Quest
                 if (Snapshot.scene != scene)
                 {
                     Snapshot.scene = scene; Snapshot.frames = Snapshot.over40Ms = Snapshot.over100Ms = 0;
-                    Snapshot.gcCollections = Snapshot.spikeCount = 0; Snapshot.sampledSeconds = 0; Snapshot.worstFrameMs = 0;
+                    Snapshot.gcCollections = Snapshot.spikeCount = Snapshot.spikeCursor = 0; Snapshot.sampledSeconds = 0; Snapshot.worstFrameMs = 0;
                     reports = reportedSpikes = 0;
                 }
                 running = true; lastGc = collections; nextReport = now + 15;
@@ -57,13 +59,14 @@ namespace GloomhavenVR.Quest
             if (milliseconds >= 40)
             {
                 Snapshot.over40Ms++;
-                if (Snapshot.spikeCount < Snapshot.spikeTimes.Length)
-                {
-                    int index = Snapshot.spikeCount++;
-                    Snapshot.spikeTimes[index] = now;
-                    Snapshot.spikeFrameMs[index] = milliseconds;
-                    Snapshot.spikeGcDelta[index] = gcDelta;
-                }
+                // Retain the latest bounded window, so startup spikes cannot
+                // crowd out the sustained menu hitches reported after B620.
+                int index = Snapshot.spikeCursor;
+                Snapshot.spikeCursor = (index + 1) % Snapshot.spikeTimes.Length;
+                Snapshot.spikeCount = Math.Min(Snapshot.spikeCount + 1, Snapshot.spikeTimes.Length);
+                Snapshot.spikeTimes[index] = now;
+                Snapshot.spikeFrameMs[index] = milliseconds;
+                Snapshot.spikeGcDelta[index] = gcDelta;
                 if (reportedSpikes++ < 4)
                     return "[Quest startup] frame spike scene=" + scene + " ms=" + F(milliseconds)
                         + " gcDelta=" + gcDelta + " incremental=" + incremental;
@@ -74,7 +77,14 @@ namespace GloomhavenVR.Quest
                 + " seconds=" + F(Snapshot.sampledSeconds) + " worstMs=" + F(Snapshot.worstFrameMs)
                 + " over40Ms=" + Snapshot.over40Ms + " over100Ms=" + Snapshot.over100Ms
                 + " gcCollections=" + Snapshot.gcCollections + " incremental=" + incremental
-                + " maxSnapshotWriteMs=" + F(Snapshot.maxSnapshotWriteMs);
+                + " maxSnapshotWriteMs=" + F(Snapshot.maxSnapshotWriteMs)
+                + " discoveryScans=" + Snapshot.discoveryScans + " discoveryLastMs=" + F(Snapshot.discoveryLastMs)
+                + " discoveryWorstMs=" + F(Snapshot.discoveryWorstMs) + " sceneComponents=" + Snapshot.discoverySceneComponents;
+        }
+        internal void RecordDiscovery(int scans, int sceneComponents, double lastMs, double worstMs)
+        {
+            Snapshot.discoveryScans = scans; Snapshot.discoverySceneComponents = sceneComponents;
+            Snapshot.discoveryLastMs = lastMs; Snapshot.discoveryWorstMs = worstMs;
         }
         internal void RecordSnapshotWrite(double milliseconds)
         {

@@ -19,7 +19,7 @@ def main():
     run = Path(tempfile.mkdtemp(prefix="run-", dir=output))
     harness = run / "fixture"
     shutil.copytree(root / "tests/QuestStartupLog.Tests", harness, ignore=shutil.ignore_patterns("bin", "obj"))
-    cases = [("production", logger, bootstrap, "")]
+    cases = [("production", logger, bootstrap, frames, "")]
     mutations = (
         ("startup-reserve-missing", "logger", "if (startupCapped) return;", "if (startupCapped || capped) return;", 1, "startup-reserve"),
         ("main-thread-only", "bootstrap", "Application.logMessageReceivedThreaded", "Application.logMessageReceived", 2, "worker-callback"),
@@ -31,26 +31,28 @@ def main():
         ("spent-error-before-io", "logger", "File.AppendAllText(path, line, Utf8); errorBytes += length; errorsSeen.Add(key);", "errorsSeen.Add(key); File.AppendAllText(path, line, Utf8); errorBytes += length;", 1, "io-retry"),
         ("threaded-listener-leak", "bootstrap", "Application.logMessageReceivedThreaded -= CaptureLog;", "// Missing threaded unsubscription defect\n", 1, "unsubscribe"),
         ("presentation-spends-startup-reserve", "logger", "if (IsPresentationDetail(message))", "if (IsPresentationDetail(message) && message.Length < 0)", 1, "detail-reserve"),
+        ("early-spikes-only", "frames", "int index = Snapshot.spikeCursor;", "if (Snapshot.spikeCount == Snapshot.spikeTimes.Length) return null; int index = Snapshot.spikeCursor;", 1, "frame-window"),
     )
     for name, kind, before, after, count, expected in mutations:
-        source = logger if kind == "logger" else bootstrap
+        source = {"logger": logger, "bootstrap": bootstrap, "frames": frames}[kind]
         if source.count(before) != count:
             raise RuntimeError("Mutation binding drift: " + name)
         replacement = source.replace(before, after)
         cases.append((name, replacement if kind == "logger" else logger,
-                      replacement if kind == "bootstrap" else bootstrap, expected))
+                      replacement if kind == "bootstrap" else bootstrap,
+                      replacement if kind == "frames" else frames, expected))
     evidence = {"sources": {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
                              for path in (runtime / "QuestGameStartupLog.cs", runtime / "QuestGameBootstrap.cs", runtime / "QuestFrameEvidence.cs")}, "cases": []}
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     print("Quest startup logging evidence: " + str(run), flush=True)
-    for name, logger_source, bootstrap_source, expected in cases:
+    for name, logger_source, bootstrap_source, frame_source, expected in cases:
         case = run / name
         case.mkdir()
         case_harness = case / "fixture"
         shutil.copytree(harness, case_harness)
         (case / "QuestGameStartupLog.cs").write_text(logger_source)
         (case / "QuestGameBootstrap.cs").write_text(bootstrap_source)
-        (case / "QuestFrameEvidence.cs").write_text(frames)
+        (case / "QuestFrameEvidence.cs").write_text(frame_source)
         result = subprocess.run([dotnet, "run", "--project", str(case_harness / "QuestStartupLog.Tests.csproj"),
                                  "--configuration", "Release", "--property:RuntimeSource=" + str(case),
                                  "--", str(case / "files")], text=True, stdout=subprocess.PIPE,

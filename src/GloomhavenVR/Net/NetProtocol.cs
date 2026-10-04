@@ -553,7 +553,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 620;
+    public const ushort ModBuild = 621;
+
+    // ModBuild 621 — follow up verified B620 Quest video and recurring menu hitches.
+    // Move the scoped movie adapter to completed capture consumption and retain
+    // bounded Debug decoded/capture/consumer pixels; native playback stays owned.
+    // Replace Quest scope's all-loaded-component sweep with reusable scene-root
+    // discovery, including inactive/late widgets and persistent scene membership.
+    // Record actual scope costs and the latest bounded frame-spike window.
+    // Hardware-confirmed keyboard, Guildmaster/options and audio remain intact.
+    // Desktop GPU/CPU evidence does not establish headset pixels or hitch removal.
 
     // ModBuild 620 — Quest-only follow-up to the B619 menu hardware capture.
     // Compose native decoded camera-plane video in the actual owned FlatScreen

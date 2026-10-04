@@ -184,7 +184,7 @@ namespace GloomhavenVR.Quest
         }
         public void AppendOriginalError(string message, string stack) { OriginalErrors++; Append(message, stack); }
     }
-    public class QuestGameScope { }
+    public class QuestGameScope { public static int DiscoveryScans, SceneComponentCount; public static double DiscoveryLastMs, DiscoveryWorstMs; }
     public class QuestGameModLifecycle
     {
         public bool Available, InitializationComplete, RigReady, InviteKeyboardVisible;

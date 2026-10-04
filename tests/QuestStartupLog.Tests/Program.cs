@@ -135,6 +135,8 @@ internal static class Program
         for (int i = 0; i < 2000; i++)
         {
             details.Append("[Quest startup] original movie state unique=" + i);
+            details.Append("[Quest startup] original movie pixels unique=" + i);
+            details.Append("[Quest startup] original movie consumer unique=" + i);
             details.Append("[Quest startup] presentation camera unique=" + i);
             details.Append("[Quest startup] audio source unique=" + i);
             details.Append("[Quest startup] frame summary unique=" + i);
@@ -169,6 +171,12 @@ internal static class Program
         for (int i = 0; i < 2000; i++)
             if (frames.Observe("MainMenu", true, true, .1f, 52 + i, 2, true) != null) reports++;
         Check(reports <= 12 && frames.Snapshot.spikeCount == 24 && frames.Snapshot.over40Ms == 2003, "frame-bound: reports or retained spike arrays grew with test duration");
+        Check(frames.Snapshot.spikeTimes.Max() >= 2050 && frames.Snapshot.spikeCursor < 24,
+            "frame-window: retained samples lost sustained late-session hitches");
+        frames.RecordDiscovery(25, 340, .7f, 2.1f);
+        Check(frames.Snapshot.discoveryScans == 25 && frames.Snapshot.discoverySceneComponents == 340
+            && frames.Snapshot.discoveryLastMs == .7f && frames.Snapshot.discoveryWorstMs == 2.1f,
+            "frame-discovery: actual scope timings were not carried into existing state");
         var noAlloc = new QuestFrameEvidence();
         noAlloc.Observe("MainMenu", true, true, .016f, 0, 0, true);
         for (int i = 0; i < 100; i++) noAlloc.Observe("MainMenu", true, true, .016f, 1, 0, true);
