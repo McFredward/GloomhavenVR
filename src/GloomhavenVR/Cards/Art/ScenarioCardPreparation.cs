@@ -37,7 +37,9 @@ internal static class ScenarioCardPreparation
     private static VRCardFactory? s_factory;
     private static bool s_started;
     private static bool s_collected;
+    private static bool s_sharedCollected;
     private static float s_deadline;
+    private static int s_tickFrame = -1;
 
     internal static bool IsReady { get; private set; } = true;
     internal static int Classes => SeenSkins.Count;
@@ -68,15 +70,19 @@ internal static class ScenarioCardPreparation
         SeenSkins.Clear();
         s_started = false;
         s_collected = false;
+        s_sharedCollected = false;
         IsReady = true;
         SpritesPrepared = 0;
         BackingsTarget = 0;
         Failures = 0;
+        s_tickFrame = -1;
     }
 
     internal static void Tick()
     {
         if (!s_started || IsReady) return;
+        if (s_tickFrame == Time.frameCount) return;
+        s_tickFrame = Time.frameCount;
         using var scope = PerfMonitor.Scope("Cards.ScenarioPreparation");
         try
         {
@@ -91,7 +97,6 @@ internal static class ScenarioCardPreparation
                     return;
                 }
                 CollectRoster(players, tools);
-                CollectSpriteFields(tools, includeReferences: false);
                 s_collected = true;
                 // Bound only asynchronous waiting, not the amount of legitimate loading work.
                 s_deadline = Time.realtimeSinceStartup + WaitSeconds;
@@ -117,14 +122,22 @@ internal static class ScenarioCardPreparation
                 PerfMonitor.Count("Cards.PreparedSprites");
                 return;
             }
-            if (s_factory != null && s_factory.PreparedBlankCount < BackingsTarget)
-            {
-                s_factory.PrepareOneBlank();
-                return;
-            }
             if (References.Count > 0)
             {
                 PrepareReference();
+                return;
+            }
+            if (!s_sharedCollected)
+            {
+                // Party background/state art takes precedence in the existing finite cache.
+                // Do not let unrelated shared UI chrome consume its budget first.
+                if (UIInfoTools.Instance != null) CollectSpriteFields(UIInfoTools.Instance, includeReferences: false);
+                s_sharedCollected = true;
+                return;
+            }
+            if (s_factory != null && s_factory.PreparedBlankCount < BackingsTarget)
+            {
+                s_factory.PrepareOneBlank();
                 return;
             }
             Finish(unavailable: false);
