@@ -150,6 +150,38 @@ class Orders(unittest.TestCase):
         case.reference("Late")
         with self.assertRaisesRegex(BuildError, "Referenced original script"):case.stage()
 
+    def test_static_utility_exclusion_preserves_original_order_and_proof(self):
+        case = self.case(); item = case.metadata["Game.dll"]["types"][0]
+        item.update(attributes=385, baseAssemblyName="mscorlib", baseNamespace="System", baseName="Object")
+        case.stage(); manifest = case.manifest()
+        self.assertNotIn("Game.Late", [v["fullName"] for v in manifest["entries"]])
+        proof = next(v for v in manifest["excluded"] if v["fullName"] == "Game.Late")
+        self.assertEqual(proof["reason"], "original-static-utility")
+        self.assertEqual(proof["typeAttributes"], 385)
+        self.assertEqual(proof["baseName"], "Object")
+        self.assertEqual(proof["baseAssemblyName"], "mscorlib")
+        self.assertEqual(proof["executionOrder"], 32001)
+        self.assertEqual(proof["sourcePathIds"], ["1"])
+        self.assertFalse(proof["referenced"])
+        self.assertEqual(proof["pluginPath"], "Assets/Plugins/Game.dll")
+        self.assertEqual(proof["originalAssemblySha256"], production.digest(case.plugin))
+        self.assertIn(b'"Game.Late": 32001', case.meta.read_bytes())
+        case.reference("Late"); before = case.meta.read_bytes()
+        with self.assertRaisesRegex(BuildError, "static original utility"):case.stage()
+        self.assertEqual(before, case.meta.read_bytes())
+
+    def test_static_flags_do_not_exclude_components_or_unknown_bases(self):
+        for flags, namespace, name, assembly in ((128, "UnityEngine", "MonoBehaviour", "UnityEngine.CoreModule"),
+                                               (256, "UnityEngine", "MonoBehaviour", "UnityEngine.CoreModule"),
+                                               (385, "UnityEngine", "MonoBehaviour", "UnityEngine.CoreModule"),
+                                               (385, "System", "Object", "UnknownAssembly"),
+                                               (417, "System", "Object", "mscorlib"),
+                                               ("385", "System", "Object", "mscorlib")):
+            case = self.case(); case.metadata["Game.dll"]["types"][0].update(attributes=flags,
+                baseNamespace=namespace, baseName=name, baseAssemblyName=assembly)
+            case.reference("Late"); case.stage()
+            self.assertIn("Game.Late", [v["fullName"] for v in case.manifest()["entries"]])
+
     def test_unknown_pointer_and_duplicate_type_metadata_fail_before_mutation(self):
         case = self.case(); case.reference(identifier=987654321); before = case.meta.read_bytes()
         with self.assertRaisesRegex(BuildError, "absent from the original"):case.stage()

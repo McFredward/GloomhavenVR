@@ -52,8 +52,11 @@ def main():
         ("nested-type-invented", ' and not t["nested"]', ""),
         ("unknown-pointer-trusted", "if references - mapped:", "if False:"),
         ("package-any-disabled", '"package": plugin[3] in disabled', '\"package\": \"enabled: 0\" in plugin[2]'),
-        ("missing-original-allowed", "if referenced:\n", "if False:\n"),
+        ("missing-original-allowed", "if referenced:\n                raise BuildError(\"Referenced original script", "if False:\n                raise BuildError(\"Referenced original script"),
         ("duplicate-object-allowed", "path_id in ids or ", ""),
+        ("static-utility-required", "if _static_utility(matches[0]):", "if False:"),
+        ("referenced-static-trusted", "if referenced:\n                raise BuildError(\"A static original utility", "if False:\n                raise BuildError(\"A static original utility"),
+        ("static-importer-order-deleted", "by_plugin[assembly].append(entry)", "if not _static_utility(matches[0]): by_plugin[assembly].append(entry)"),
     )
     proof = {"schema": 1, "sourceSha256": hashlib.sha256(source.encode()).hexdigest(),
              "productionPassed": True, "negativeControls": [], "positiveControlPassed": False}

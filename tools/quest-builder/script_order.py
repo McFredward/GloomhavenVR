@@ -176,6 +176,16 @@ def _replace_orders(text: str, entries: list[dict]) -> str:
     return text[:match.start()] + replacement + text[match.end():]
 
 
+def _static_utility(type_record: dict) -> bool:
+    # ECMA-335 TypeAttributes.Abstract | Sealed identifies static classes only
+    # with a System.Object base. Do not infer lifecycle eligibility from a name
+    # or exclude an abstract/sealed component with an unknown base identity.
+    flags = type_record.get("attributes")
+    return (type(flags) is int and flags & 0x180 == 0x180 and flags & 0x20 == 0 and
+            type_record.get("baseNamespace") == "System" and type_record.get("baseName") == "Object" and
+            type_record.get("baseAssemblyName") in ("mscorlib", "System.Runtime", "System.Private.CoreLib"))
+
+
 def stage_script_orders(project: Path, game: Path, source: Path, cache: Path, dotnet: Path,
                         *, metadata: dict | None = None) -> dict:
     """Before weaving/import, stage all original orders and their exact identity proof.
@@ -268,7 +278,19 @@ def stage_script_orders(project: Path, game: Path, source: Path, cache: Path, do
         entry = {**base, "originalGuid": plugin[3], "originalFileId": str(identifier), "referenced": referenced,
                  "pluginPath": plugin[0].relative_to(project).as_posix(),
                  "package": plugin[3] in disabled}
-        entries.append(entry)
+        if _static_utility(matches[0]):
+            if referenced:
+                raise BuildError("A static original utility cannot be a serialized startup component: " + assembly + ":" + base["fullName"])
+            excluded.append({**base, "reason": "original-static-utility", "referenced": False,
+                             "typeAttributes": matches[0]["attributes"],
+                             "baseAssemblyName": matches[0]["baseAssemblyName"],
+                             "baseNamespace": matches[0]["baseNamespace"], "baseName": matches[0]["baseName"],
+                             "pluginPath": entry["pluginPath"], "originalAssemblySha256": digest(game / "Managed" / assembly)})
+        else:
+            entries.append(entry)
+        # Keep even a static utility's authored value in its original plugin
+        # importer. It has no instantiable Awake/Update target for Editor order
+        # verification, but deleting its original importer evidence is unnecessary.
         by_plugin[assembly].append(entry)
     if references - mapped:
         raise BuildError("Recovered startup contains script pointers absent from the original serialized script bank.")

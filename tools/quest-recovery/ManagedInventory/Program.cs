@@ -24,9 +24,12 @@ foreach (var path in Directory.EnumerateFiles(args[0], "*.dll").Order(StringComp
         if (name == "<Module>") continue;
         var ns = reader.GetString(type.Namespace);
         var declaring = type.GetDeclaringType();
+        var baseType = BaseIdentity(reader, type.BaseType, reader.GetString(definition.Name));
         // Nested types are not independent Unity MonoScript components. Keep the
         // declared metadata names nevertheless; never invent a top-level type.
-        types.Add(new { @namespace = ns, name, nested = !declaring.IsNil });
+        types.Add(new { @namespace = ns, name, nested = !declaring.IsNil,
+            attributes = (int)type.Attributes, baseAssemblyName = baseType.Assembly,
+            baseNamespace = baseType.Namespace, baseName = baseType.Name });
     }
     var references = reader.AssemblyReferences.Select(h => reader.GetString(reader.GetAssemblyReference(h).Name)).Order(StringComparer.Ordinal).ToArray();
     var nativeImports = new List<object>();
@@ -52,3 +55,23 @@ foreach (var path in Directory.EnumerateFiles(args[0], "*.dll").Order(StringComp
 }
 File.WriteAllText(args[1], JsonSerializer.Serialize(assemblies, new JsonSerializerOptions { WriteIndented = true }) + "\n");
 return 0;
+
+static (string Assembly, string Namespace, string Name) BaseIdentity(MetadataReader reader, EntityHandle handle, string assembly)
+{
+    // Only direct metadata identities are reported. Generic specifications stay
+    // unresolved; they must not become invented top-level/runtime base types.
+    if (handle.IsNil) return ("", "", "");
+    if (handle.Kind == HandleKind.TypeDefinition)
+    {
+        var type = reader.GetTypeDefinition((TypeDefinitionHandle)handle);
+        return (assembly, reader.GetString(type.Namespace), reader.GetString(type.Name));
+    }
+    if (handle.Kind == HandleKind.TypeReference)
+    {
+        var type = reader.GetTypeReference((TypeReferenceHandle)handle);
+        var owner = type.ResolutionScope.Kind == HandleKind.AssemblyReference
+            ? reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)type.ResolutionScope).Name) : "";
+        return (owner, reader.GetString(type.Namespace), reader.GetString(type.Name));
+    }
+    return ("", "", "");
+}
