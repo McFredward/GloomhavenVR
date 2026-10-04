@@ -762,11 +762,11 @@ public class Plugin : BaseUnityPlugin
             "misalignment this small is visually indistinguishable from a perfect aim.");
         DisablePostProcessing = Config.Bind(
             "Compat", "DisablePostProcessing", Defaults.DisablePostProcessing,
-            "Disable PostProcessing v2 (PostProcessLayer/PostProcessVolume) while VR is active. " +
+            "INERT — stereo-incompatible PostProcessing v2 is always disabled while VR is active. " +
             "Phase 1 default: true (PPv2 is unverified under stereo rendering).");
         DisableVolumetricFog = Config.Bind(
             "Compat", "DisableVolumetricFog", Defaults.DisableVolumetricFog,
-            "Disable the VolumetricFogAndMist.VolumetricFog image effect while VR is active.");
+            "INERT — the stereo-incompatible VolumetricFogAndMist.VolumetricFog image effect is always disabled in VR.");
         DisableComponents = Config.Bind(
             "Compat", "DisableComponents", Defaults.DisableComponents,
             "Extra comma-separated component type full names (optionally 'FullName, Assembly') " +

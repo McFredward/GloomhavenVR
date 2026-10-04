@@ -211,10 +211,10 @@ internal sealed class CompatModule : IVRModule
             + "locomotion, flat camera hints show VR movement text (tutorial scenarios only).");
 
         var names = new List<string>();
-        if (Plugin.DisablePostProcessing.Value)
-            names.AddRange(PostProcessingTypes);
-        if (Plugin.DisableVolumetricFog.Value)
-            names.Add(VolumetricFogType);
+        // Build619 graphics audit: unsafe stereo effects are compatibility fixes, not
+        // quality preferences. Keep their old config keys INERT for persisted profiles.
+        names.AddRange(PostProcessingTypes);
+        names.Add(VolumetricFogType);
         names.AddRange(Plugin.DisableComponents.Value
             .Split(',')
             .Select(n => n.Trim())

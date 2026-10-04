@@ -167,8 +167,11 @@ internal static class RenderQuality
     private const int DiagDelayFrames = 30;
 
     // ==========================================================================================
-    //  THE GRAPHICS PRESETS ARE GONE — the whole offering, not just its row
+    //  HISTORICAL DROPDOWN RETIREMENT — the legacy index remains inert
     // ==========================================================================================
+    // Build619: the maintainer requested four explicit profile buttons again. They live in
+    // GraphicsProfiles.cs and write the real controls only on a user press; this retired
+    // legacy index remains inert and no automatic preset-mirroring/latch is restored.
     // WHAT STOOD HERE, from 2026-08-23 to 2026-09-05: a `Preset` struct, a four-entry `Presets`
     // table (Qualität 8x/1.00x, Ausgewogen 4x/0.90x, Leistung 2x/0.80x, Schwache Hardware off/
     // 0.60x, all four with a per-pixel light cap of 0), `CustomPresetIndex`, and `PresetLocIds()`

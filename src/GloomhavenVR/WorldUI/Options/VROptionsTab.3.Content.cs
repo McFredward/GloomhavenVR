@@ -209,6 +209,8 @@ internal static partial class VROptionsTab
                 continue;
 
             BuildHeader(ContentRoot, section.Label);
+            if (section.LocKey == "sec_graphics_profiles")
+                BuildNote(ContentRoot, Loc.Mod("graphics_profile_note"));
             string? note = _sectionItems.Count > 0 ? VariantNote(_sectionItems) : null;
             if (note != null)
                 BuildNote(ContentRoot, note);

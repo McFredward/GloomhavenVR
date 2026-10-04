@@ -308,11 +308,11 @@ internal static partial class Loc
                 + "und Spielregeln bleiben erhalten. Die gewählte Detailstufe gilt auch für lokal und remote "
                 + "hochgehobene Figuren. Wirkt sofort; neue Frame-Profile 0%, PC 100%; gespeicherte Werte bleiben.",
             ["Optimize/ScenarioFigureEffectsDensityPercent"] =
-                "Dekorative Dauereffekte der Szenariofiguren, z. B. Partikel der Elementardämonen. "
-                + "0% entfernt geeignete Umgebungseffekte, 100% stellt die Originaldarstellung wieder her. "
-                + "Körpermodelle, Angriffe, Heilung und Spielindikatoren bleiben erhalten. "
-                + "Wirkt sofort, auch bei gehaltenen Figuren. Neue Standalone-Frame-Konfigurationen "
-                + "starten mit 0%, PC mit 100%; gespeicherte Einstellungen bleiben erhalten.",
+                "Dekorative Effekte der Originalfiguren: Helden, Beschwörungen, normale/Elite-Gegner und Bosse. "
+                + "0% entfernt nachgewiesene dekorative Partikel, Spuren und zusätzliche Leuchtflächen; "
+                + "100% stellt das Original wieder her. Körper, Angriffe, Heilung, Zustandsanzeigen und "
+                + "Lichtquellen bleiben erhalten. Auch für gehaltene Figuren; live anpassbar.",
+
             ["Optimize/ScenarioStaticBatching"] =
                 "Fasst geeignete statische Bodenflächen in kleinen Zeichen-Gruppen zusammen. "
                 + "Originalkollisionen, Zeigen, Raumsichtbarkeit und Spielabläufe bleiben erhalten. "

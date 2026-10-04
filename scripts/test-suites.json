@@ -1598,6 +1598,29 @@
         "ci"
       ],
       "weight": 4
+    },
+    {
+      "id": "graphics-profiles",
+      "command": [
+        "python3",
+        "scripts/check-graphics-profiles.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 5
+    },
+    {
+      "id": "actor-bar-depth-runtime",
+      "command": [
+        "python3",
+        "scripts/check-actor-bar-depth-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 90
     }
   ]
 }

@@ -614,6 +614,12 @@ NAME_DIFFERS_ON_PURPOSE = {
 # joining a curated family with no row and no line here. Added by hand rather than by --bless, so
 # that every addition had to be argued instead of blessed in a batch.
 KNOWN_ORPHANS = {
+    # Build619 graphics audit: cache work is unconditional and its persisted key INERT;
+    # batching/instancing are technical memory/render choices, offered only in Advanced.
+    ("Optimize", "FigureScanCache"),
+    ("Optimize", "ScenarioStaticBatching"),
+    ("Optimize", "ScenarioStructuralBatching"),
+    ("Optimize", "ScenarioStructuralInstancing"),
     ("Board", "TouchRange"),
     # 2026-09-05 - THREE DEMOTIONS THE USER RULED ON DIRECTLY, each a sibling of a family
     # whose everyday member stays curated. Asked whether "offsets etc. gehoeren da nicht hin"

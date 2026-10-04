@@ -868,7 +868,7 @@ internal static partial class Loc
         // the "Umgebung & Ton" tab below; what is left really is only the picture, so the label says
         // so. The KEY stays "cat_graphics" — a text-only rename, exactly like cat_debug →
         // "Erweitert" — so nothing that references the tab has to move.
-        ["cat_graphics"] = Pair("Picture", "Bild"),
+        ["cat_graphics"] = Pair("Graphics", "Grafik"),
         // THE NEW TAB (same audit, same question). Two lines, broken at the "&" for the same reason
         // cat_boardcards and cat_avatar_mp are: the 210 px sub-tab column fits its captions by
         // shrinking, and a long single line shrinks to the floor. "Umgebung &" / "Ton" reads as one
@@ -2085,6 +2085,17 @@ internal static partial class Loc
         ["upd_downloading"] = Pair("Downloading … {0} of {1} MB", "Lädt herunter … {0} von {1} MB"),
         ["upd_verifying"] = Pair("Checking the archive …", "Archiv wird geprüft …"),
         ["upd_extracting"] = Pair("Unpacking …", "Wird entpackt …"),
+        // Build619: four explicit one-shot graphics actions, never an automatic profile latch.
+        ["sec_graphics_profiles"] = Pair("Graphics profiles", "Grafikprofile"),
+        ["sec_graphics_details"] = Pair("Scene details", "Szenendetails"),
+        ["graphics_standalone"] = Pair("Standalone", "Standalone"),
+        ["graphics_performance"] = Pair("Performance PC", "Leistungsorientiert"),
+        ["graphics_balanced"] = Pair("Balanced PC", "Ausgewogen"),
+        ["graphics_highend"] = Pair("High-End PC", "High-End PC"),
+        ["graphics_profile_note"] = Pair(
+            "Applies VR and game graphics settings. Individual controls remain adjustable; scenario geometry changes at the next load.",
+            "Ändert VR- und Spielgrafik. Einzelne Werte bleiben anpassbar; Szenariogeometrie ändert sich beim nächsten Laden."),
+
         ["upd_restarting"] = Pair("Restarting the game …", "Spiel wird neu gestartet …"),
 
         // {0} the term that failed

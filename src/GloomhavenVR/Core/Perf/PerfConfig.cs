@@ -181,23 +181,23 @@ internal static class PerfConfig
     // ---- safe accessors ---------------------------------------------------------------------
     // Optimization sites live in per-frame code that can run BEFORE (or entirely without) a
     // successful Bind — a module whose Init threw, a hot-reload mid-frame, the flat-screen path.
-    // Each accessor therefore answers with the entry's DEFAULT while unbound, so an unbound config
-    // can never silently change behaviour in either direction.
+    // Quality tradeoffs retain their defaults while unbound. Build619 makes pure work-removal
+    // optimizations unconditional (maintainer graphics audit); their persisted keys stay INERT.
 
-    /// <summary>[Optimize] CacheTickDelegates, defaulting to on while unbound.</summary>
-    internal static bool CacheDelegates => CacheTickDelegates == null || CacheTickDelegates.Value;
+    /// <summary>Always active; [Optimize] CacheTickDelegates is retained as an INERT compatibility key.</summary>
+    internal static bool CacheDelegates => true;
 
-    /// <summary>[Optimize] MapIconCache, defaulting to on while unbound.</summary>
-    internal static bool MapIconCacheOn => MapIconCache == null || MapIconCache.Value;
+    /// <summary>Always active; [Optimize] MapIconCache is retained as an INERT compatibility key.</summary>
+    internal static bool MapIconCacheOn => true;
 
-    /// <summary>[Optimize] FigureScanCache, defaulting to on while unbound.</summary>
-    internal static bool FigureScanCacheOn => FigureScanCache == null || FigureScanCache.Value;
+    /// <summary>Always active; [Optimize] FigureScanCache is retained as an INERT compatibility key.</summary>
+    internal static bool FigureScanCacheOn => true;
 
-    /// <summary>[Optimize] LeanLogStrings, defaulting to on while unbound.</summary>
-    internal static bool LeanStrings => LeanLogStrings == null || LeanLogStrings.Value;
+    /// <summary>Always active; [Optimize] LeanLogStrings is retained as an INERT compatibility key.</summary>
+    internal static bool LeanStrings => true;
 
-    /// <summary>[Optimize] TooltipScanGate, defaulting to on while unbound.</summary>
-    internal static bool TooltipGateOn => TooltipScanGate == null || TooltipScanGate.Value;
+    /// <summary>Always active; [Optimize] TooltipScanGate is retained as an INERT compatibility key.</summary>
+    internal static bool TooltipGateOn => true;
 
     /// <summary>[Optimize] FanRelayoutMinInterval, defaulting to 0 (every frame) while unbound.</summary>
     internal static float FanRelayoutInterval =>
@@ -236,9 +236,8 @@ internal static class PerfConfig
     /// <summary>[Perf] LodCensus, defaulting to on while unbound.</summary>
     internal static bool LodCensusOn => LodCensus == null || LodCensus.Value;
 
-    /// <summary>[Optimize] AutomaticLodIdleSkip, defaulting to on while unbound.</summary>
-    internal static bool AutomaticLodIdleSkipOn =>
-        AutomaticLodIdleSkip == null || AutomaticLodIdleSkip.Value;
+    /// <summary>Always active; [Optimize] AutomaticLodIdleSkip is retained as an INERT compatibility key.</summary>
+    internal static bool AutomaticLodIdleSkipOn => true;
 
     /// <summary>[Perf] SummaryIntervalSeconds, clamped — the cadence of the FRAME/STEPS/SPLIT/GFX
     /// block. Promoted out of PerfMonitor on 2026-09-05: it was a bare Mathf.Clamp at the one place
@@ -275,8 +274,7 @@ internal static class PerfConfig
 
     internal static float ActorBarPoseCheckInterval => ActorBarPoseCheckIntervalSeconds == null
         ? 0f : Mathf.Clamp(ActorBarPoseCheckIntervalSeconds.Value, 0f, .2f);
-    internal static bool UnusedCamerasSuspended => SuspendUnusedCameras == null
-        ? Defaults.SuspendUnusedCameras : SuspendUnusedCameras.Value;
+    internal static bool UnusedCamerasSuspended => true;
     internal static float UiMaintenanceInterval => UiMaintenanceIntervalSeconds == null
         ? 0f : Mathf.Clamp(UiMaintenanceIntervalSeconds.Value, 0f, .2f);
     internal static bool OffscreenIdleAnimationOn => OffscreenIdleAnimation != null && OffscreenIdleAnimation.Value;
@@ -315,11 +313,9 @@ internal static class PerfConfig
         ReduceScenarioGenerationDetail == null ? Defaults.ReduceScenarioGenerationDetail
             : ReduceScenarioGenerationDetail.Value;
 
-    internal static bool SharedWallReadCacheOn =>
-        SharedWallReadCache == null || SharedWallReadCache.Value;
+    internal static bool SharedWallReadCacheOn => true;
 
-    internal static bool LightStabiliserWorkCacheOn =>
-        LightStabiliserWorkCache == null || LightStabiliserWorkCache.Value;
+    internal static bool LightStabiliserWorkCacheOn => true;
 
     // ---- [Optimize] HeadCullingMaskDrop: parsed once per distinct string, not per frame --------
     // The entry is human-written text ("Water, 14, TransparentFX") and it is read from the rig's
@@ -454,8 +450,7 @@ internal static class PerfConfig
             + "Fresh Frame 0.1 s, PC 0; works live.", new AcceptableValueRange<float>(0f, .2f)));
         SuspendUnusedCameras = _file.Bind("Optimize", "SuspendUnusedCameras",
             FrameDefaults.Active ? FrameDefaults.SuspendUnusedCameras : Defaults.SuspendUnusedCameras,
-            "Stop rendering from unused native cameras while preserving their projection and raycasting. "
-            + "Visible flat menus and required preview captures still render. Fresh Frame On, PC Off; works live.");
+            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Suspend unused native rendering cameras; retain projection, picking, visible menus and required preview captures.");
         OffscreenIdleAnimation = _file.Bind("Optimize", "OffscreenIdleAnimation",
             FrameDefaults.Active ? FrameDefaults.OffscreenIdleAnimation : Defaults.OffscreenIdleAnimation,
             "For audited native scenario figures only, skip offscreen idle bone-transform evaluation "
@@ -518,7 +513,8 @@ internal static class PerfConfig
         ScenarioFigureEffectsDensityPercent = _file.Bind("Optimize", "ScenarioFigureEffectsDensityPercent",
             FrameDefaults.Active ? FrameDefaults.ScenarioFigureEffectsDensityPercent : Defaults.ScenarioFigureEffectsDensityPercent,
             new ConfigDescription(
-                "Decorative idle effects on scenario figures, such as elemental demon particles. "
+                "Decorative resident effects on original heroes, summons, normal/elite monsters and bosses: "
+                + "identified particles, trails and supplementary glow planes. "
                 + "0% removes eligible ambient effects, 100% restores their original presentation. "
                 + "Body meshes, attacks, healing and gameplay indicators remain unchanged. Works live, "
                 + "including held figures; fresh standalone Frame defaults to 0%, PC to 100%. "
@@ -562,13 +558,9 @@ internal static class PerfConfig
             + "defaults to ON, PC to OFF; saved choices stay.");
 
         SharedWallReadCache = _file.Bind("Optimize", "SharedWallReadCache", Defaults.SharedWallReadCache,
-            "Reuse shared-material and nearest-figure-ancestor reads within synchronous wall "
-            + "preparation only. ON removes duplicate engine queries without changing wall appearance "
-            + "or ownership. OFF restores uncached reads. Available on every platform; works live.");
+            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Reuse unchanged material and ancestor queries during synchronous wall preparation; appearance and ownership are retained.");
         LightStabiliserWorkCache = _file.Bind("Optimize", "LightStabiliserWorkCache", Defaults.LightStabiliserWorkCache,
-            "Skip an unused scene-wide light diagnostic scan and exact unchanged Unity setters. "
-            + "ON removes redundant work without changing stabilized light values. OFF restores the "
-            + "original scan and write cadence. Available on every platform; works live.");
+            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Skip unused light diagnostic scans and exact unchanged setters; stabilized light values are retained.");
 
         // ---- [Perf] -------------------------------------------------------------------------
         Enabled = _file.Bind("Perf", "Enabled", Defaults.Perf_Enabled,
@@ -796,35 +788,15 @@ internal static class PerfConfig
 
         // ---- [Optimize] ----------------------------------------------------------------------
         CacheTickDelegates = _file.Bind("Optimize", "CacheTickDelegates", Defaults.CacheTickDelegates,
-            "Cache the Action delegates handed to TickGuard.Run instead of re-creating them from an "
-            + "instance method group every frame. Pure work removal — identical behaviour, just "
-            + "without ~7 delegate allocations per frame feeding the gen0 collector that causes "
-            + "head-turn hitches. OFF restores the old per-frame allocation (A/B only).");
+            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Cache unchanged tick delegates instead of allocating them each frame.");
         MapIconCache = _file.Bind("Optimize", "MapIconCache", Defaults.MapIconCache,
-            "Cache the campaign-map icon scan. The map-icon draw runs from Camera.onPreCull — once "
-            + "PER RENDERING CAMERA PER FRAME, and the stereo flat screen has two or three — and it "
-            + "used to redo a full-scene FindObjectOfType, two allocating component walks, a "
-            + "GetComponent per decal, a fresh MaterialPropertyBlock per decal and a long diagnostic "
-            + "string per decal every single time. The decal SET only changes with the map state, so "
-            + "it is scanned on an interval while every icon's pose is still read live each frame — "
-            + "panning and zooming are pixel-identical. OFF restores the per-frame scan (A/B).");
+            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Cache campaign-map icon discovery while reading each icon pose live.");
         FigureScanCache = _file.Bind("Optimize", "FigureScanCache", Defaults.FigureScanCache,
-            "Skip per-frame component walks the figure-grab driver does not need: an already-adopted "
-            + "figure is no longer re-resolved through GetComponentInChildren every frame, and the "
-            + "ring suppressor takes its 'nothing is held' early-out BEFORE it allocates the "
-            + "enumerators it would have iterated. Behaviour-identical work removal; OFF restores "
-            + "the unconditional walks.");
+            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Reuse adopted figure ownership and skip unnecessary empty-hand component walks.");
         LeanLogStrings = _file.Bind("Optimize", "LeanLogStrings", Defaults.LeanLogStrings,
-            "Do not BUILD diagnostic strings that the log then throws away. Several diagnostics are "
-            + "throttled or change-gated inside the callee, so the interpolated message (plus the "
-            + "UnityEngine.Object.name access, which allocates a fresh string every read) was paid "
-            + "for on every frame while only one line in hundreds was printed. The gates now sit in "
-            + "front of the string work instead of behind it. Identical log output either way.");
+            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Check diagnostic gates before constructing discarded messages; emitted log content is retained.");
         TooltipScanGate = _file.Bind("Optimize", "TooltipScanGate", Defaults.TooltipScanGate,
-            "Gate the world-tooltip subsystem's per-frame work on whether a tooltip is actually "
-            + "shown: the full canvas subtree walk used to run before that check, and the fallback "
-            + "search for the game's CanvasManager retried a full-scene FindObjectOfType every frame "
-            + "for as long as it stayed unresolved. Identical tooltips, far fewer scans.");
+            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Skip empty tooltip work and bound unresolved canvas discovery; active tooltips remain live.");
         FanRelayoutMinInterval = _file.Bind("Optimize", "FanRelayoutMinInterval", Defaults.FanRelayoutMinInterval, new ConfigDescription(
             "Minimum seconds between two GAZE-driven re-layouts of the open card fan. 0 = re-lay out "
             + "on every frame the gaze gate trips, which is today's behaviour and what a fast head "
@@ -925,18 +897,7 @@ internal static class PerfConfig
         // OnWillRenderObject's only product (m_renderCamera) is read nowhere but the Update that
         // returns before it.
         AutomaticLodIdleSkip = _file.Bind("Optimize", "AutomaticLodIdleSkip", Defaults.AutomaticLodIdleSkip,
-            "ON by default, VR only. Take the game's AutomaticLOD behaviours off Unity's per-frame "
-            + "Update list when — and only when — the sweep has just read their own LODSwitchMode as "
-            + "UnityLODGroup, which is the exact condition under which AutomaticLOD.Update returns on "
-            + "its first statement. On the 2026-08-22 hardware log that is 2560 of the 2986 entries "
-            + "on that list, i.e. 86% of everything Unity calls every frame, each paying a Mono "
-            + "dispatch plus two UnityEngine.Object alive-checks in order to decide to do nothing. "
-            + "Level of detail is unaffected: it is chosen by the 1277 LODGroup components, which "
-            + "this does not touch. Every instance it disables is recorded and switched back on at "
-            + "teardown, on hot-reload, and the moment this entry is set to false. The measurement is "
-            + "the [Perf] SIM line's Update count in the next window — if it does not fall by the "
-            + "number the [Perf] LOD line says was disabled, this did not do what it claims and "
-            + "should be switched off. OFF restores today's behaviour exactly.");
+            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Suspend only native AutomaticLOD callbacks whose own UnityLODGroup branch immediately returns; actual Unity LOD selection is retained.");
         AutomaticLodSweepSeconds = _file.Bind("Optimize", "AutomaticLodSweepSeconds", Defaults.AutomaticLodSweepSeconds, new ConfigDescription(
             "Seconds between AutomaticLOD sweeps. A sweep is one typed FindObjectsOfType, which the "
             + "[Perf] LOD line TIMES and prints; it exists because revealing a room instantiates new "

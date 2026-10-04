@@ -402,7 +402,7 @@ internal static class ConfigCatalog
     /// map-capture knobs ([WorldUI] Map*) carry that prefix instead of "LEGACY — no effect"
     /// and were sitting in Menüs &amp; Tafeln as twenty dead rows.</para>
     /// </summary>
-    private static readonly string[] RetiredMarkers = { "LEGACY — no effect", "RESERVED —", "DEPRECATED —" };
+    private static readonly string[] RetiredMarkers = { "LEGACY — no effect", "RESERVED —", "DEPRECATED —", "INERT —" };
 
     /// <summary>Entries left out of the catalog because they are marked retired.</summary>
     internal static int RetiredEntries { get; private set; }
@@ -897,6 +897,12 @@ internal static class ConfigCatalog
     /// </summary>
     private static ConfigTopic TopicOf(string module, string section, string key)
     {
+        // Graphics tuning belongs with its visible tradeoffs in Advanced, not the diagnostic
+        // counters. Pure work removal is retired by its INERT description before TopicOf runs.
+        if (section == "Optimize" && (key == "FigureDistanceLod" || key == "SkinningBoneLimit"
+            || key == "UiMaintenanceIntervalSeconds" || key == "ActorBarPoseCheckIntervalSeconds"
+            || key == "InitiativeDepthEvalInterval" || key == "LodBias"))
+            return ConfigTopic.Visual;
         // This is a visible quality trade, unlike the perf module's diagnostic switches.
         if (section == "Optimize" && (key == "ScenarioSceneryDensityPercent"
                                      || key == "ScenarioDecorationDensityPercent"

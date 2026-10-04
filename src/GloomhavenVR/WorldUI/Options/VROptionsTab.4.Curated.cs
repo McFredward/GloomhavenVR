@@ -219,7 +219,7 @@ internal static partial class VROptionsTab
     /// <i>"b) In den Nicht-Erweitert Kategorien sind wieder viel zu viele detaillierte
     /// Einstellungen gelandet. Sowas wie Offsets etc. gehört da nicht hin - Denke immer daran das
     /// die einfachen Spieler die Zielgruppe sind. 'Power-User' können dann in 'Erweitert' gehen."</i>
-    /// and <i>"d) Entferne die Graphik-Profile wieder in den VR-Einstellungen, die mag ich
+    /// and the historical profile removal, <i>"d) Entferne die Graphik-Profile wieder in den VR-Einstellungen, die mag ich
     /// nicht."</i> The word "wieder" is the finding: this list drifts back the same way every time,
     /// by a row being curated at the moment somebody asks about the thing it tunes.</para>
     /// <list type="bullet">
@@ -460,184 +460,41 @@ internal static partial class VROptionsTab
             {
                 new()
                 {
+                    LocKey = "sec_graphics_profiles",
+                    Entries = new CuratedEntry[]
+                    {
+                        CuratedEntry.Press("graphics_standalone", () => ApplyGraphicsProfile(0)),
+                        CuratedEntry.Press("graphics_performance", () => ApplyGraphicsProfile(1)),
+                        CuratedEntry.Press("graphics_balanced", () => ApplyGraphicsProfile(2)),
+                        CuratedEntry.Press("graphics_highend", () => ApplyGraphicsProfile(3)),
+                    },
+                },
+                new()
+                {
                     LocKey = "sec_presentation",
                     Entries = new CuratedEntry[]
                     {
-                        // "Grafik-Voreinstellung" ([RenderQuality] QualityPreset) STOOD HERE, FIRST,
-                        // from 2026-08-23 to 2026-09-05 — Qualität / Ausgewogen / Leistung /
-                        // Schwache Hardware / Eigene, as a localized dropdown, writing MSAA, eye
-                        // resolution and the per-pixel light cap in one press.
-                        //
-                        // THE WHOLE OFFERING IS RETIRED, by user ruling (2026-09-05, verbatim):
-                        // "Entferne die Graphik-Profile wieder in den VR-Einstellungen, die mag ich
-                        // nicht." THIS IS THE ONE DEMOTION IN THIS FILE THAT IS NOT ALSO A DOOR ONE
-                        // LEVEL DEEPER: deleting the row alone would have left the dropdown on
-                        // Erweitert ▸ Bild & Darstellung, which does not satisfy "entferne". So the
-                        // ENTRY left the catalog too, by the marker ConfigCatalog.IsRetired reads —
-                        // its bound description opens "LEGACY — no effect" now (Rig/RenderQuality.cs)
-                        // — and every apply path went with it, so nothing can write the three dials
-                        // below except the player.
-                        //
-                        // THE THREE DIALS ARE UNCHANGED AND ARE THE AUTHORITY, which is the half of
-                        // this that matters: no shipped value moved, Defaults.PixelLightCount stays
-                        // 0, and the preset's own key stays bound at its old default so an existing
-                        // dev.gloomhavenvr.rig.cfg is not rewritten. Do not re-create the row.
-                        // The two dials every headset owner looks for first (audit 03: the
-                        // Grafik tab had NO render-quality row at all since the old panel's
-                        // preset cycle lost its caller) — plus the two pure quality raises.
-                        //
-                        // THE RESOLUTION ROW IS REACHABLE AND WAS ALL ALONG — checked against the
-                        // ModBuild 226 log rather than assumed, because the report above reads like
-                        // a missing row and is not one. It has sat on this page, second from the
-                        // top of the mod's most prominent settings tab, since the 2026-08 overhaul.
-                        // What his session shows is that the row never MOVED: [RenderQuality]
-                        // EyeResolutionScale read 1.00 in all thirty EYE-TARGET DIAG blocks and the
-                        // log carries zero "Eye render resolution scale asserted" lines. Whatever
-                        // resolution he changed was upstream of the mod (the game's own options
-                        // page, or Virtual Desktop's slider), and until this build the log had no
-                        // sentence that could tell him so. It has one now, on every rig build.
                         new("RenderQuality", "EyeResolutionScale", "vr_o_eyeres"),
                         new("RenderQuality", "MsaaLevel", "vr_o_msaa"),
                         new("RenderQuality", "ForceAnisotropic", "vr_o_aniso"),
+                        new("Optimize", "ScenarioSimpleEnvironmentShading", ""),
+                    },
+                },
+                new()
+                {
+                    LocKey = "sec_graphics_details",
+                    Entries = new CuratedEntry[]
+                    {
                         new("Optimize", "ScenarioDecorationDensityPercent", ""),
                         new("Optimize", "ScenarioSceneryDensityPercent", ""),
                         new("Optimize", "ScenarioVegetationDensityPercent", ""),
                         new("Optimize", "ScenarioPlayerFigureDetailPercent", ""),
                         new("Optimize", "ScenarioEnemyFigureDetailPercent", ""),
                         new("Optimize", "FigureDistanceLod", ""),
-                        new("Optimize", "FigureScanCache", ""),
-                        new("Optimize", "SkinningBoneLimit", ""),
-                        new("Optimize", "SuspendUnusedCameras", ""),
-                        new("Optimize", "UiMaintenanceIntervalSeconds", ""),
-                        new("Optimize", "ActorBarPoseCheckIntervalSeconds", ""),
-                        new("Optimize", "OffscreenIdleAnimation", ""),
-                        new("Optimize", "ScenarioStructuralInstancing", ""),
-                        new("Optimize", "ScenarioStructuralBatching", ""),
                         new("Optimize", "ScenarioFigureEffectsDensityPercent", ""),
                         new("Optimize", "ScenarioEnvironmentEffectsDensityPercent", ""),
-                        new("Optimize", "ScenarioStaticBatching", ""),
-                        new("Optimize", "ScenarioSimpleEnvironmentShading", ""),
                         new("Optimize", "ScenarioFigureClothSimulation", ""),
                         new("Optimize", "ReduceScenarioGenerationDetail", ""),
-                        // [RenderQuality] PixelLightCount STOOD HERE under ruling 19 ("the
-                        // pixel-light cap is a visible look-vs-frames trade the game itself never
-                        // exposes in VR"). IT IS OFF THE CURATED PAGE SINCE 2026-08-23, by a newer
-                        // ruling from the same player, verbatim: "Die Pixellichter option ist zu
-                        // gefährlich für normale Nutzer, sie sollte in Erweitert verschwinden und
-                        // per default auch in allen Graphik-Voreinstellungen auf 0 geschaltet sein."
-                        // Both halves shipped together: Defaults.PixelLightCount is 0 now and all
-                        // four entries of RenderQuality.Presets carried 0, so the everyday player
-                        // already HAS the cheap setting and never has to find this row — while
-                        // raising it, which is the dangerous direction, costs one navigation level.
-                        // THE SECOND HALF IS NOW SATISFIED BY THERE BEING NO PRESETS AT ALL (user
-                        // ruling 2026-09-05, the tombstone at the top of this section): the preset
-                        // table is deleted, so nothing but the player can hand out a pixel light.
-                        // THE FIRST HALF IS UNTOUCHED AND MUST STAY SO — Defaults.PixelLightCount
-                        // is still 0 and that is what the shipped install runs.
-                        //
-                        // NOTHING IS LOST AND NOTHING HAD TO MOVE, and unlike the notes below this
-                        // was VERIFIED rather than trusted: ConfigCatalog enumerates every BOUND
-                        // entry of every module file (Rebuild → Describe) and filters on exactly two
-                        // things, IsRetired (a description prefix marker this entry does not carry)
-                        // and the NotOffered table (which holds no RenderQuality key). The module is
-                        // "rig" — [RenderQuality] rides dev.gloomhavenvr.rig.cfg — so TopicOf sends
-                        // it to ConfigTopic.Visual, i.e. Erweitert ▸ "Bild & Darstellung", under the
-                        // "cfg_sec_renderquality" heading its six siblings already produce (well
-                        // past ConfigCatalog.MinClusterSize, so it is a heading of its own and not
-                        // the "Allgemein" collector). Its stepper is unchanged: ConfigSteps keeps
-                        // ["RenderQuality/PixelLightCount"] = 1d, a light at a time.
-                        // FOUR ROWS, ONE FAMILY, AND THAT IS THE WHOLE SECTION NOW. Everything
-                        // below this line used to be in it; see the tab header for where each part
-                        // went and why.
-                        //
-                        // "Post-Processing aus" ([Compat] DisablePostProcessing) and
-                        // "Volumennebel aus" ([Compat] DisableVolumetricFog) stood here. They are
-                        // OFF THE CURATED PAGE since the 2026-08-22 settings audit, by the user's
-                        // ruling on its open question 4. Both are START-UP-ONLY, so flipping one
-                        // appears to do nothing — which reads as a broken row on the most
-                        // prominent page in the menu — and both sit on the stereo-hazard side of a
-                        // trade a player has no way to see (PPv2 is unverified under stereo
-                        // rendering; the fog is a known stereo hazard). NOTHING IS LOST AND
-                        // NOTHING HAD TO MOVE: Erweitert is the catalog's own index, so both are
-                        // on Erweitert ▸ "Bild & Darstellung" the moment this list stops naming
-                        // them. Same shape as the [MapRoom] size dials below.
-                        //
-                        // THE WHOLE WORLD BLOCK MOVED ONE TAB DOWN (audit question (c)):
-                        // [Compat] WallFade, [Sky] Style, the campaign-map switch ([Rig]
-                        // Vanilla2DMap since ModBuild 230, Experimental3DMap before it), [WorldUI]
-                        // MapRoomHand, [Elements] ×2, [Haunt] ×2 and [EnvSound] ×2 are the
-                        // "Umgebung & Ton" tab now, under headings that name what they are. They
-                        // are the same ConfigEntries and the same order; only the page changed.
-                        // THE MAP ROOM'S FIVE SIZE DIALS USED TO SIT HERE — [MapRoom] IconScale /
-                        // CityIconScale / GloomhavenIconScale / PartyMarkerScale / PathWidthScale,
-                        // promoted onto this page at ModBuild 193 and 194 so the "separat
-                        // justieren" report could compare them side by side.
-                        //
-                        // THEY ARE GONE FROM THE CURATED PAGE AGAIN (user ruling, hardware:
-                        // "Symbolgrößen gehören ins ERWEITERT Menü!"). Nothing is lost by it and
-                        // nothing had to move: Erweitert is the catalog's own index, so every one of
-                        // the five is on Erweitert ▸ "Bild & Darstellung" the moment this list stops
-                        // naming them — and now that [MapRoom] contributes FIVE entries it clears
-                        // ConfigCatalog.MinClusterSize and gets its own heading there instead of
-                        // being swept into the "Allgemein" collector, which is what made a curated
-                        // row the rescue back at 193. The five stay adjacent, in the same reading
-                        // order, one navigation level deeper.
-                        //
-                        // They still fold under the campaign-map switch wherever they are shown
-                        // ([Rig] Vanilla2DMap == Off since ModBuild 230; VROptionsTab.8
-                        // .Dependencies, DependentSections claims the whole [MapRoom] section), so
-                        // on a flat-map install they are off screen exactly as before — note that
-                        // "a flat-map install" is now the OPT-OUT rather than the default, so these
-                        // five are on screen for most players where before they were hidden.
-                        //
-                        // DO NOT RE-PROMOTE without a fresh ruling: this is the second placement of
-                        // the same family, and the user named the destination himself.
-                        //
-                        // THE TRAVEL-CONFIRM BUTTON'S TWO PLACEMENT DIALS (ModBuild 194) STOOD
-                        // HERE AND ARE GONE FROM THE CURATED PAGE — because that is where he asked
-                        // for them, and this page was never it. His words, both halves: "Geb mir
-                        // dann IM DEBUG MENU die offsets um ihm zu verschieben - ich stell es
-                        // selber ein." The 194 build put them on the most prominent curated page
-                        // in the mod instead; that is the same misplacement the "Symbolgrößen
-                        // gehören ins ERWEITERT Menü!" ruling corrected two entries above, on the
-                        // same feature, in the same build.
-                        //
-                        // WHAT IS UNTOUCHED, and must stay untouched: both DEFAULTS are 0 and both
-                        // RANGES are unchanged. Three solved placements were rejected in a row
-                        // (191/192/193), the mod ships the ModBuild 190 pose — which 0/0
-                        // reproduces exactly — and he does the moving. Only the LOCATION of the
-                        // rows was ever on the table.
-                        //
-                        // AND THEY ARE NOT LOST: Erweitert ▸ Menüs & Tafeln lists both by hand
-                        // under a "Karte 3D" heading beside [WorldUI] MapRoomHand
-                        // (VROptionsTab.7.TopicTrees.cs), and they keep their ◀/▶ stepper —
-                        // PrefersStepper below is unchanged, per his other ruling on these two
-                        // ("nicht Schieberegler, sondern die Pfeile").
-                        //
-                        // ELEMENT MOOD, HAUNT AND ENV SOUND stood here too and are the new
-                        // "Umgebung & Ton" tab's Umgebung / Grusel / Ton sections. The reason is
-                        // question (c) and it is the sharpest single finding of the whole audit:
-                        // the mod's ENTIRE audio surface was filed under "Grafik".
-                        //
-                        // THE ROOM TONE ROWS ARE GONE ALTOGETHER, and this note is here so nobody
-                        // re-adds them from the ModBuild 154 request. "EnvSound/AmbienceBed" and
-                        // "EnvSound/AmbienceBedGain" sat here from 154 to 222 and were deleted at
-                        // ModBuild 223 with the two continuous room tones they switched and scaled
-                        // — user, 2026-08-22: "Im Keller hören sich die Geräusche an wie Rauschen
-                        // bei nem Fernseher" and "Statt generrell durchgehende sounds zu machen
-                        // lieber die Tierrufe". The ruling and the measurements are in
-                        // Core/EnvSound.cs's THE ROOM TONES, DELETED.
-                        // "Forward-Rendering" ([Rig] ForwardRendering) stood here — the single
-                        // most dangerous row the 2026-08-22 settings audit found, because it was
-                        // CURATED. Its off state reinstated the documented see-through-walls
-                        // defect the forward path exists to fix AND silently killed the MSAA row
-                        // above it, at the next start, from a page that looks like quality
-                        // sliders. The user's ruling on the audit's open question 4 was to delete
-                        // it outright: it is a constant now (Plugin.ForwardRendering), so this is
-                        // not a row that moved to Erweitert — there is no key left to show.
-                        // "Hauptmenü in VR" ([Rig] MenuRig) is GONE with its dial (user ruling
-                        // 2026-08-13): off built no rig at all outside a scenario — the main
-                        // menu had nothing to hang on. Unconditional now.
                     },
                 },
                 new()
