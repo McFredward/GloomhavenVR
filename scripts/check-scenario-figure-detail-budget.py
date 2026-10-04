@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Guard the scenario-figure compromise boundaries; Unity runtime proof is a separate gate."""
 from pathlib import Path
+import json
 import re
 import sys
 
@@ -75,8 +76,9 @@ for property in ('sharedMesh', 'sharedMaterials'):
 for token in ('P_WindDemon_Idle', 'P_SunDemon_Idle', 'P_NightDemon_Idle', 'P_FlameDemon',
               'MO_WindDemon_Alpha_MAT', 'MO_FlameDemon_Alpha_MAT',
               'nativeBody.sharedMesh.vertexCount > 0',
-              'system.main.stopAction != ParticleSystemStopAction.None',
-              'system.collision.enabled || system.trigger.enabled',
+              'system.main.stopAction == ParticleSystemStopAction.None',
+              '&& !system.collision.enabled && !system.trigger.enabled',
+              'MayPause && System.isPlaying && !System.isPaused',
               'System.Pause(false); Paused = true;', 'if (System.isPaused) System.Play(false);',
               'Mask?.Apply(reduce);', 'if (!Renderer.forceRenderingOff)',
               'if (Renderer.emitting) { Renderer.emitting = false; OwnedEmission = true; }'):
@@ -85,6 +87,33 @@ require('name.EndsWith("(Instance)", StringComparison.Ordinal)' in effects,
         'Native renderer material instancing must retain authored alpha provenance')
 require('if (density == 100 && _density == 100) return;' in effects,
         'Restored FX must bypass per-frame particle and renderer reads while LOD/cloth remains active')
+# Independent read-only original asset metadata covers all exported model variants, not a
+# test graph assembled from the production dictionary. Every model/effect admission must
+# occur in a shipped prefab, and all known noncombat resident containers must be admitted.
+provenance = json.loads((ROOT/'tests/GloomhavenVR.ScenarioSceneryBudgetTests/NativeDetailProvenance.json').read_text())
+catalog = {model: set(json.loads('['+names+']')) for model, names in
+           re.findall(r'\["([^"]+)"\] = new\(StringComparer.Ordinal\) \{ (.*?) \},', effects)}
+native = {record['model']: record for record in provenance['models']}
+combat = re.compile(r'attack|condition|invisib|projectile|hit|heal|ranged|release|buildup', re.I)
+for model, record in native.items():
+    authored = {name.rstrip() for part in record['particles'] for name in part['path'].split('/')[1:]}
+    expected = {name for name in authored if (name.startswith(('P_', 'p_')) or 'idle' in name.lower()
+                or name in ('ManaSphere_FX', 'Hail_FX', 'Hail_Censer_FX')) and not combat.search(name)}
+    if model == 'SU_HealingSprite_PR': expected.add('P_HealingSprite')
+    require(catalog.get(model, set()) == expected, 'Original resident FX coverage/provenance differs for '+model)
+for model, names in catalog.items():
+    require(model in native, 'Unknown model added to cosmetic provenance: '+model)
+    require(not any(name.startswith('P_Gain') for name in names), 'Combat buff prefab admitted as resident cosmetic')
+require(len(native) == 190 and len(provenance['actor_bundles']) == 188,
+        'Original actor census must retain every hero/NPC bundle and exported normal/elite/summon model')
+mesh_catalog = dict(re.findall(r'\["([^"|]+\|[^\"]+)"\] = "([^"]+)",', effects))
+native_meshes = {record['model']+'|'+part['path'].split('/')[-1]: part['materials'][0]
+                for record in native.values() for part in record['mesh_fx']
+                if part['kind'] in ('MeshRenderer', 'SkinnedMeshRenderer', 'LineRenderer')
+                and len(part['materials']) == 1 and part['materials'][0] != '<external>'}
+require(mesh_catalog == native_meshes, 'Optional mesh-material pairs must exactly match original resident FX provenance')
+require('!supplemental && !KnownAmbientMesh(renderer, root.transform)' in effects,
+        'Mesh FX require exact original model/effect/material provenance rather than a blanket shader rule')
 for forbidden in ('System.Stop(', 'System.Clear(', '.Simulate(', '.SetActive(',
                   '.collision.enabled =', '.trigger.enabled =', '.loop =', '.StopAction ='):
     require(forbidden not in effects, 'Ambient reduction must preserve native clocks/gameplay/callbacks: '+forbidden)

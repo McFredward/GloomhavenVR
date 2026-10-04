@@ -586,6 +586,40 @@ public static class InteractionProgram
             int remainingOwners=((IDictionary)typeof(ScenarioSceneryBudget).GetField("TreeColliderOwners",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null)!).Count;
             Check(remainingOwners==0,"scene exit releases all tree collision claims without cross-scene retention");
 
+            var allBiome=new List<MeshRenderer>();
+            foreach(string name in new[]{"CR_RU_Floor_Foliage_01_PR_Low","CR_TC_Floor_Moss",
+                "FR_DFG_Geranium_01_PR","FR_DFG_Clutter_Large_LongGrass_01_PR"})
+            {
+                var member=NativeLeaf(generated.transform,name,name);
+                Check(Classify(member,tile)=="Eligible","all-biome original vegetation admits "+name);
+                allBiome.Add(member);
+            }
+            var allBiomeProps=new List<MeshRenderer>();
+            foreach(string name in new[]{"ST_Cult_Clutter_01","SB_01_ElementalPower_Clutter_Pages_03_PR",
+                "SE_Rot_Clutter_01_PR","CS_02_GuardCamp_Clutter_Floor_01_PR","CT_01_Ship_Floor_Clutter_01_PR",
+                "TO_INT_Candlestick_01","DLC_SB_Arena_Banners_04"})
+            {
+                var member=NativeLeaf(generated.transform,name,name,false);
+                Check(Classify(member,tile)=="Eligible","original biome and DLC dressing admits "+name);
+                allBiome.Add(member);
+                var native=NativeLeaf(generated.transform,name,name,false);native.gameObject.AddComponent<ProceduralProp>();
+                Check(Classify(native,tile)=="Ancestry","all-biome native gameplay props remain protected: "+name);
+                allBiomeProps.Add(native);
+            }
+            var mossWall=NativeLeaf(generated.transform,"CV_Wall_Mossy_01","CV_Wall_Mossy_01",false);
+            Check(Classify(mossWall,tile)=="Structural","moss naming never admits a solid native wall core");
+            VRSession.IsRunning=true;
+            PerfConfig.ScenarioSceneryDensityPercentValue=0;PerfConfig.ScenarioVegetationDensityPercentValue=0;PerfConfig.ScenarioDecorationDensityPercentValue=0;
+            Tick(driver,100);ScenarioSceneryBudget.ContentShown(tile.gameObject);
+            Check(ScenarioSceneryBudget.IsPreparingPresentation,"new-room queued scenery exposes actual presentation preparation");
+            ScenarioSceneryBudget.BeforeLoadingComplete();
+            Check(allBiome.All(r=>r.forceRenderingOff),"complete driver masks original all-biome and DLC cosmetics at zero");
+            Check(allBiomeProps.All(r=>!r.forceRenderingOff)&&!mossWall.forceRenderingOff,"complete all-biome driver preserves native gameplay and solid wall geometry");
+            Check(!ScenarioSceneryBudget.IsPreparingPresentation,"drained loading work does not include ongoing ancestry monitoring or diagnostics");
+            PerfConfig.ScenarioSceneryDensityPercentValue=100;PerfConfig.ScenarioVegetationDensityPercentValue=100;PerfConfig.ScenarioDecorationDensityPercentValue=100;
+            Tick(driver,100);
+            Check(allBiome.All(r=>!r.forceRenderingOff),"original all-biome and DLC cosmetics restore at full detail");
+
             ScenarioSceneryBudget.Shutdown(); driver=null;
             Check(!late.forceRenderingOff&&!separateGrass.forceRenderingOff,"explicit teardown is reversible and idempotent");
             ScenarioSceneryBudget.Shutdown();

@@ -53,10 +53,14 @@ def main():
             ('keep-alpha-shell', 'Effects.cs', 'foreach (Mask item in _shells) item.Apply(index++ >= keep);', 'foreach (Mask item in _shells) item.Apply(false);', 'late native alpha material completion admits'),
             ('admit-pooled-ability-under-idle', 'Effects.cs', 'if (name.StartsWith("P_", StringComparison.Ordinal)', 'if (false', 'pooled ability under Idle remains'),
             ('admit-unverified-alpha-body', 'Effects.cs', 'else return false;', 'else return true;', 'only original native body is admitted'),
-            ('lose-fx-restoration', 'Effects.cs', 'internal void Restore() => Apply(100);', 'internal void Restore() => Apply(0);', '100 percent restores only owned native ambient'),
+            ('lose-fx-restoration', 'Effects.cs', 'internal void Restore() => Apply(100);', 'internal void Restore() => Apply(0);', 'LivingSpirit mesh and native particle state restore at original quality'),
             ('ignore-late-native-material', 'Figures.cs', 'if (renderer != null && renderer.enabled) ScenarioFigureDetailBudget.MaterialReady(renderer);', 'if (renderer != null && renderer.enabled && PerfConfig.FigureEffectsDensityPercent < 0) ScenarioFigureDetailBudget.MaterialReady(renderer);', 'late native alpha material completion admits'),
             ('reject-native-instance-material', 'Effects.cs', 'else if (name.EndsWith("(Instance)", StringComparison.Ordinal))', 'else if (name.EndsWith("(NotNativeInstance)", StringComparison.Ordinal))', 'late native alpha material completion admits'),
             ('adopt-incomplete-native-material', 'Figures.cs', 'if (renderer != null && renderer.enabled) ScenarioFigureDetailBudget.MaterialReady(renderer);', 'if (renderer != null) ScenarioFigureDetailBudget.MaterialReady(renderer);', 'unfinished native material load cannot adopt'),
+            ('omit-spirit-catalog', 'Effects.cs', '["MO_LivingSpirit_PR"] = new', '["MO_LivingSpirit_NotOriginal"] = new', 'complete original prefab family suppresses resident cosmetics: MO_LivingSpirit_PR'),
+            ('retain-spirit-mesh', 'Effects.cs', 'if (!supplemental && !KnownAmbientMesh(renderer, root.transform)) return false;', 'if (!supplemental) return false;', 'LivingSpirit original mesh eye bands obey zero density'),
+            ('pause-native-callbacks', 'Effects.cs', 'if (MayPause && System.isPlaying && !System.isPaused)', 'if (System.isPlaying && !System.isPaused)', 'native callbacks collision and card UI are excluded from ambient suppression'),
+            ('admit-unknown-mesh-material', 'Effects.cs', '&& OriginalName(materials[0].name) == material)', '&& materials[0] != null)', 'LivingSpirit mesh name alone cannot suppress unknown material/body geometry'),
         ]
     if args.case:
         selected = set(args.case)

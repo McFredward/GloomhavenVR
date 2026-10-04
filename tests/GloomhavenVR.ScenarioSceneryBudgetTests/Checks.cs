@@ -216,6 +216,22 @@ internal static partial class ScenarioSceneryBudget
         SetHidden(record,false);Check(!grass.forceRenderingOff&&!record.Owned,"owned mask is reversible");
         grass.forceRenderingOff=true;record.Owned=false;writes=grass.Writes;SetHidden(record,true);SetHidden(record,false);
         Check(grass.forceRenderingOff&&grass.Writes==writes&&!record.Owned,"foreign renderer mask cannot be restored");
+        foreach(string name in new[]{"CR_RU_Floor_Foliage_01_PR_Low","CR_TC_Floor_Moss",
+            "FR_DFG_Geranium_01_PR","FR_DFG_Clutter_Large_LongGrass_01_PR"})
+            Check(Inspect(Leaf(generated.transform,name),tile)==Verdict.Eligible,
+                "all-biome original foliage moss geranium and long grass receive a budget: "+name);
+        foreach(string name in new[]{"ST_Cult_Clutter_01","SB_01_ElementalPower_Clutter_Pages_03_PR",
+            "SE_Rot_Clutter_01_PR","CS_02_GuardCamp_Clutter_Floor_01_PR",
+            "CT_01_Ship_Floor_Clutter_01_PR","TO_INT_Candlestick_01","DLC_SB_Arena_Banners_04"})
+        {
+            var member=Leaf(generated.transform,name,false);
+            member.GetComponent<MeshFilter>()!.sharedMesh!.name=name;
+            Check(Inspect(member,tile)==Verdict.Eligible,"original town campaign guildmaster and DLC dressing is admitted: "+name);
+            member.gameObject.AddComponent<ProceduralProp>();
+            Check(Inspect(member,tile)==Verdict.Ancestry,"all-biome native gameplay props remain protected: "+name);
+        }
+        Check(Inspect(Leaf(generated.transform,"CV_Wall_Mossy_01",false),tile)==Verdict.Structural,
+            "moss naming never admits a solid native wall core");
         return _checks;
     }
 }

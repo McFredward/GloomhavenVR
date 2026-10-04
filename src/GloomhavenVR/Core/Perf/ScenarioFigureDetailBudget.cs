@@ -83,6 +83,7 @@ internal static class ScenarioFigureDetailBudget
     // A scalar stamp from the completed late enforcement pass. The monitor must not
     // census actors/meshes every frame merely to know when a quality change is applied.
     internal static bool MeasurementReady => _driver == null || _driver.MeasurementReady;
+    internal static bool IsPreparingPresentation => _driver != null && _driver.IsPreparingPresentation;
 
     /// <summary>Read the native fine mesh only while its exact renderer still belongs to our
     /// detail record. Pose envelopes must not change when a player chooses a derivative.</summary>
@@ -323,6 +324,7 @@ internal static class ScenarioFigureDetailBudget
         private bool _reportPending;
         private bool _faulted;
         private bool _measurementApplied;
+        internal bool IsPreparingPresentation => _running && !_faulted && _pending.Count != 0;
         internal bool MeasurementReady => !_running || (!_faulted && !_wasLoading
             && _pending.Count == 0 && _measurementApplied
             && _players == PerfConfig.PlayerFigureDetailPercent
@@ -333,6 +335,7 @@ internal static class ScenarioFigureDetailBudget
             && _bones == PerfConfig.MaximumSkinningBones);
         private int _rejectedScope, _nativeCandidates;
         private bool _scopeAnomalyReported;
+        private int _effectsCoverageReports;
 
         private bool IsScenarioActorRoot(GameObject root, Scene scene)
         {
@@ -647,6 +650,13 @@ internal static class ScenarioFigureDetailBudget
             }
             record.RootId = root.GetInstanceID(); _roots[record.RootId] = record;
             _actors.Add(record); _lods.AddRange(record.Lods); record.Apply(); _reportPending = true;
+            if (VRLog.WantsDebug && record.Effects.Count > 0 && _effectsCoverageReports++ < 12)
+                VRLog.Debug(Scope, "FIGURE FX COVERAGE: original model=" + record.Effects.CatalogModel
+                    + "; authored optional parts=" + record.Effects.Count
+                    + "; native particle systems examined=" + record.Effects.ExaminedParticles
+                    + "; owned renderer masks=" + record.Effects.MaskedRenderers
+                    + "; owned paused solvers=" + record.Effects.PausedParticles
+                    + ". Unknown/combat/callback simulation remains native; no model body or light is hidden.");
             _reportAt = Mathf.Max(_reportAt, Time.unscaledTime + 1f);
         }
 
@@ -698,6 +708,7 @@ internal static class ScenarioFigureDetailBudget
             _lods.Clear(); _ownershipCursor = 0;
             _reportPending = false; _wasLoading = false; _rejectedScope = 0;
             _nativeCandidates = 0; _scopeAnomalyReported = false;
+            _effectsCoverageReports = 0;
         }
         private void OnDestroy() => RestoreAll();
     }

@@ -139,6 +139,10 @@ internal static class ScenarioSceneryBudget
 
     internal static void BeforeLoadingComplete() => _driver?.PrepareLoadingCompletion();
 
+    // A scalar view of real queued work, for the existing presentation loading indicator.
+    // Permanent ancestry/ownership monitoring and delayed diagnostic summaries are not loads.
+    internal static bool IsPreparingPresentation => _driver != null && _driver.IsPreparingPresentation;
+
     /// <summary>Only masks owned by this reversible, purely decorative budget qualify.
     /// Structural facts and foreign masks are not evidence that a wall can be discarded.
     /// </summary>
@@ -806,15 +810,27 @@ internal static class ScenarioSceneryBudget
         name.StartsWith("FR_", StringComparison.Ordinal)
         || name.StartsWith("CR_", StringComparison.Ordinal)
         || name.StartsWith("CV_", StringComparison.Ordinal)
-        || name.StartsWith("EN_", StringComparison.Ordinal);
+        || name.StartsWith("EN_", StringComparison.Ordinal)
+        || name.StartsWith("TO_", StringComparison.Ordinal)
+        || name.StartsWith("ST_", StringComparison.Ordinal)
+        || name.StartsWith("SB_", StringComparison.Ordinal)
+        || name.StartsWith("SE_", StringComparison.Ordinal)
+        || name.StartsWith("CS_", StringComparison.Ordinal)
+        || name.StartsWith("CT_", StringComparison.Ordinal)
+        || name.StartsWith("DLC_", StringComparison.Ordinal)
+        || name.StartsWith("PR_", StringComparison.Ordinal)
+        || name.StartsWith("GH_", StringComparison.Ordinal);
 
     private static Kind NamedKind(string name)
     {
-        // These are original asset families observed in scenario census paths, not arbitrary
-        // names of containers. Generic floor/wall/prop shader matching would erase game geometry.
+        // Build619's complete original PCG-database census covers every biome/DLC, rather than
+        // the forest/cave hardware sample. Named cosmetics still pass the full gameplay,
+        // structural mesh, collision and generated-content checks. A new token is not permission
+        // to mask an enclosing procedural wall or a native interactable tree/obstacle.
         if (IsNativeWallPlantLeaf(name))
             return Kind.Vegetation;
         if (name.IndexOf("_Grass", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_LongGrass", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_Grassy", StringComparison.OrdinalIgnoreCase) >= 0)
             return Kind.Grass;
         if (name.IndexOf("_Tree", StringComparison.OrdinalIgnoreCase) >= 0
@@ -829,6 +845,9 @@ internal static class ScenarioSceneryBudget
             || name.IndexOf("_Shrub", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_Reed", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_Flower", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Foliage", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Geranium", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Moss", StringComparison.OrdinalIgnoreCase) >= 0
             || (IsNativeWallPlantLeaf(name) && name.IndexOf("_Log", StringComparison.OrdinalIgnoreCase) >= 0))
             return Kind.Vegetation;
         if (name.IndexOf("_Floor_Scatter_", StringComparison.OrdinalIgnoreCase) >= 0
@@ -836,6 +855,19 @@ internal static class ScenarioSceneryBudget
             || name.IndexOf("_Floor_Clutter_", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_Floor_Stalagmites_", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_Crystal_", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Clutter_", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Scatter_", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Debris_", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_SmallRock", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Stones_", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Vase", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Urn", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Pot", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Barrel", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Bottle", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Candle", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Book", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Banner", StringComparison.OrdinalIgnoreCase) >= 0
             || name.StartsWith("FR_Stones_", StringComparison.Ordinal)
             || name.StartsWith("CR_FR_Stones_", StringComparison.Ordinal)
             || name.StartsWith("geranium ", StringComparison.Ordinal))
@@ -986,6 +1018,10 @@ internal static class ScenarioSceneryBudget
         // An operation count, not a timer: runtime regression checks prove unrelated hidden
         // scenery is never traversed when a player merely holds one prop.
         private int _heldMeshChecks;
+
+        internal bool IsPreparingPresentation => _inScenarioScene
+            && (_pending.Count != 0 || _nodes.Count != 0 || _materialNodes.Count != 0
+                || _retuneIndex >= 0);
 
         internal bool IsOwnedHidden(Renderer renderer) =>
             _byId.TryGetValue(renderer.GetInstanceID(), out Record? record)

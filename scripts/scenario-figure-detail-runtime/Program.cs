@@ -159,6 +159,72 @@ public static class InteractionProgram
         typeof(MaterialLoaderData_CheckAllMaterialLoaded_FigureEffectsPatch).GetMethod("Postfix",BindingFlags.Static|BindingFlags.NonPublic)!
             .Invoke(null,new object[]{data});
     }
+    private static void AllGameEffectsProof(Scene scenario,Camera camera)
+    {
+        var created=new System.Collections.Generic.List<GameObject>();
+        // These model/effect identities come from independently exported prefab metadata;
+        // they are not read from the production dictionary. Different hierarchy families
+        // cover heroes, bosses, ordinary/elite monsters and summons beyond the old demons.
+        string[,] identities={
+            {"MO_LivingSpirit_PR","P_Living_Spirit_Idle (1)"},
+            {"MO_LivingSpirit_Elite_PR","P_Living_Spirit_Idle (1)"},
+            {"HE_Elementalist_PR","Elementalist_Idle_FX"},
+            {"MO_SavvasIceStorm_PR","Savvas_Icestorm_Idle_FX"},
+            {"MO_Ooze_PR","P_Ooze_Idle"},
+            {"MO_PrimeDemon_PR","PrimeDemon_IdleFX"},
+            {"MO_TheGloom_PR","P_TheGloom_Idle"},
+            {"MO_Harrower_Infester_Elite_PR","P_HarrowerInfester_Idle (1)"},
+            {"SU_HealingSprite_PR","P_HealingSprite"},
+            {"SU_ManaSphere_PR","ManaSphere_FX"},
+            {"SU_PlagueRat_PR","p_PlagueRat_Idle"},
+        };
+        for(int i=0;i<identities.GetLength(0);i++)
+        {
+            var figure=Build(scenario,CActor.EType.Enemy,false,false);
+            created.Add(figure.Root);
+            var model=Node(figure.Root.transform,identities[i,0]+"(Clone)");
+            var idle=Node(model.transform,identities[i,1]);
+            var nativeBody=FlatBody(model.transform,"Native original core",new Vector3(15,0,0),Solid(Color.green,"Body"));
+            var ambient=StaticParticle(idle.transform,"Fog",new Vector3(15,0,0),Color.red);
+            var combat=StaticParticle(idle.transform,"P_GainStrengthen",new Vector3(15,0,0),Color.blue);
+            var light=Node(idle.transform,"Native unchanged light").AddComponent<Light>();light.intensity=.12f;
+            Tick();
+            for(int frame=0;frame<64&&ScenarioFigureDetailBudget.IsPreparingPresentation;frame++)Tick();
+            Check(ambient.isPaused&&ambient.GetComponent<ParticleSystemRenderer>().forceRenderingOff,
+                "complete original prefab family suppresses resident cosmetics: "+identities[i,0]);
+            Check(combat.isPlaying&&!combat.isPaused&&!combat.GetComponent<ParticleSystemRenderer>().forceRenderingOff,
+                "all-game effect catalog never captures pooled combat under resident cosmetics: "+identities[i,0]);
+            Check(!nativeBody.forceRenderingOff&&light.enabled&&Mathf.Approximately(light.intensity,.12f),
+                "all-game effect compromise retains every core silhouette and original light");
+            if(i<2)
+            {
+                var meshNode=Node(idle.transform,"geo_bendyband");
+                meshNode.layer=25;meshNode.transform.position=new Vector3(3,2,0);
+                var quad=new Mesh { name="geo_bendyband" };
+                quad.vertices=new[]{new Vector3(-.4f,-.4f,0),new Vector3(.4f,-.4f,0),new Vector3(.4f,.4f,0),new Vector3(-.4f,.4f,0)};
+                quad.triangles=new[]{0,2,1,0,3,2};quad.RecalculateBounds();
+                meshNode.AddComponent<MeshFilter>().sharedMesh=quad;
+                var band=meshNode.AddComponent<MeshRenderer>();
+                band.sharedMaterial=Solid(Color.magenta,i==0?"LivingSpirit_EyeBand_Mat":"LivingSpirit_Elite_EyeBand_Mat");
+                Check(Colored(Render(camera,"spirit"+i+"-mesh-before"),Color.magenta)>100,
+                    "real Unity camera draws original-identity LivingSpirit mesh cosmetics before admission");
+                MaterialReady(new MaterialLoaderData { Renderer=band });Tick();
+                Check(band.forceRenderingOff,"LivingSpirit original mesh eye bands obey zero density after late material completion");
+                Check(Colored(Render(camera,"spirit"+i+"-mesh-zero"),Color.magenta)==0,
+                    "LivingSpirit mesh cosmetic admission suppresses actual pixels at zero density");
+                var foreign=Node(idle.transform,"geo_bendyband (1)");foreign.AddComponent<MeshFilter>().sharedMesh=Mesh(4);
+                var unverified=foreign.AddComponent<MeshRenderer>();unverified.sharedMaterial=Solid(Color.magenta,"Unverified body material");
+                MaterialReady(new MaterialLoaderData { Renderer=unverified });Tick();
+                Check(!unverified.forceRenderingOff,"LivingSpirit mesh name alone cannot suppress unknown material/body geometry");
+                PerfConfig.FigureEffectsDensityPercent=100;Tick();
+                Check(!band.forceRenderingOff&&ambient.isPlaying,"LivingSpirit mesh and native particle state restore at original quality");
+                PerfConfig.FigureEffectsDensityPercent=0;Tick();
+                for(int frame=0;frame<64&&ScenarioFigureDetailBudget.IsPreparingPresentation;frame++)Tick();
+            }
+        }
+        foreach(GameObject root in created)UnityEngine.Object.DestroyImmediate(root);
+        Tick();
+    }
     private static void EffectsProof(Scene scenario,Scene map)
     {
         PerfConfig.PlayerFigureDetailPercent=100;PerfConfig.EnemyFigureDetailPercent=100;
@@ -230,8 +296,12 @@ public static class InteractionProgram
             "actual opaque body and gameplay effect pixels survive zero density unchanged");
         Check(VRLog.Messages.Exists(message=>message.Contains("last-frame visible unmasked body meshes/vertices")),
             "visible mesh diagnostics explicitly describe any-camera last-frame evidence rather than projected LOD savings");
-        Check(VRLog.Messages.Exists(message=>message.Contains("Ambient FX density=0%; 6 owned renderer(s) masked, 3 particle solver(s) paused")),
+        Check(VRLog.Messages.Exists(message=>message.Contains("Ambient FX density=0%; 8 owned renderer(s) masked, 3 particle solver(s) paused")),
             "bounded Debug evidence counts actual optional renderer masks and paused solvers: "+string.Join(" | ",VRLog.Messages.FindAll(message=>message.Contains("Ambient FX density=0%"))));
+        Check(callback.GetComponent<ParticleSystemRenderer>().forceRenderingOff
+              && collision.GetComponent<ParticleSystemRenderer>().forceRenderingOff
+              && callback.isPlaying && collision.isPlaying,
+            "authored cosmetics with callbacks and collisions suppress only pixels while native side effects keep running");
         var lateAmbient=StaticParticle(idle.transform,"Late native ambient fog",new Vector3(9,0,0),Color.red);
         var lateRenderer=lateAmbient.GetComponent<ParticleSystemRenderer>();lateRenderer.enabled=false;
         var lateData=new MaterialLoaderData { Renderer=lateRenderer };MaterialReady(lateData);
@@ -261,6 +331,7 @@ public static class InteractionProgram
             Check((eliteAlpha==null||eliteAlpha.forceRenderingOff)&&!eliteBody.forceRenderingOff&&!retained.forceRenderingOff,
                 "verified "+kind+" elite alpha is optional while original body horns and halo remain rendered");
         }
+        AllGameEffectsProof(scenario,camera);
         HeldFigures.Held=figure.Actor;figure.Root.transform.SetParent(null);Tick();
         Check(ambient.isPaused&&alpha.forceRenderingOff,"local hold retains zero ambient density without reintroducing cosmetics");
         HeldFigures.Held=null;NetHeldFigures.Held=figure.Actor;Tick();
