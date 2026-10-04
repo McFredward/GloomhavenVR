@@ -1,5 +1,19 @@
 # State — where the project stands
 
+**Quest B619 menu follow-up, 2026-10-04: isolated feature.**
+
+The exact latest B618 capture and three screenshots are inspected. The maintainer
+confirms menu loading, input and native MR; audio, Intro, spinner geometry, UI
+materials and aliasing remain defects. B619 restores original audio channels and
+lengths, native movie paths, spinner padding/pivot and Quest menu mip sampling.
+Local DLC ownership becomes part of the build input; native ads remain with grey
+PC-purchase/rebuild hints. The private test selects the confirmed Jaws of the Lion
+and Solo Scenarios and checks their source content, using the authorized dummy
+identity. See [619 evidence and hardware procedure](QUEST3-HARDWARE-619.md).
+Native compilation and the next headset outcome are pending; full campaign and
+authenticated Android crossplay remain separate gates. No unrelated full local
+test run is required for this Quest follow-up.
+
 **Quest B618 longer Intro/menu follow-up, 2026-10-04: isolated feature.**
 
 The longer supplied captures reach original Intro and MainMenu and expose native

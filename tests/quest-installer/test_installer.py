@@ -529,8 +529,10 @@ class InstallerTests(unittest.TestCase):
                 installer.adb_path(self.root / "missing-adb.exe")
 
     def test_builder_import_preserves_preexisting_profile_storage_and_startup_modules(self):
-        profile, storage, startup = (types.ModuleType("existing_" + name) for name in ("profile", "storage", "startup"))
-        with mock.patch.dict(sys.modules, {"profile": profile, "storage": storage, "startup": startup}):
+        names = ("profile", "storage", "script_order", "startup", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets")
+        previous = {name: types.ModuleType("existing_" + name) for name in names}
+        profile, storage, startup = (previous[name] for name in ("profile", "storage", "startup"))
+        with mock.patch.dict(sys.modules, previous):
             module = installer.builder_module()
             self.assertTrue(callable(module.verified_latest_build))
             self.assertIs(sys.modules["profile"], profile)
@@ -538,15 +540,17 @@ class InstallerTests(unittest.TestCase):
             self.assertIs(sys.modules["startup"], startup)
             self.assertIsNot(module.startup, startup)
             self.assertIs(module.startup.BuildError, module.BuildError)
+            for name, value in previous.items(): self.assertIs(sys.modules[name], value)
 
     def test_builder_import_does_not_leave_new_global_dependency_aliases(self):
         with mock.patch.dict(sys.modules):
-            for name in ("profile", "storage", "startup"):
+            names = ("profile", "storage", "script_order", "startup", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets")
+            for name in names:
                 sys.modules.pop(name, None)
             module = installer.builder_module()
             self.assertTrue(callable(module.startup.inspect_project))
             self.assertIs(module.startup.BuildError, module.BuildError)
-            self.assertTrue(all(name not in sys.modules for name in ("profile", "storage", "startup")))
+            self.assertTrue(all(name not in sys.modules for name in names))
 
     def test_builder_startup_import_failure_restores_preexisting_dependency_modules(self):
         repo = self.root / "isolated builder repo"

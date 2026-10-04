@@ -31,8 +31,8 @@ IDS = {row[3] for row in CATALOG}
 
 
 def manifest(steam_id: str, installed_ids: list[int], source: str) -> dict:
-    if (not isinstance(installed_ids, list) or len(installed_ids) != len(set(installed_ids))
-            or any(type(i) is not int or i not in IDS for i in installed_ids)):
+    if (not isinstance(installed_ids, list) or any(type(i) is not int or i not in IDS for i in installed_ids)
+            or len(installed_ids) != len(set(installed_ids))):
         raise BuildError("DLC ownership contains duplicate or unsupported app IDs.")
     mask = sum(row[2] for row in CATALOG if row[3] in installed_ids)
     return {"schema": 1, "provider": "steam", "appId": APP_ID,
@@ -50,8 +50,8 @@ def declaration(path: Path, steam_id: str) -> dict:
     except (ValueError, OSError) as error:
         raise BuildError("DLC ownership JSON is invalid.") from error
     if (not isinstance(data, dict) or set(data) != {"schema", "provider", "appId", "steamId", "installedAppIds"}
-            or data.get("schema") != 1 or data.get("provider") != "steam"
-            or data.get("appId") != APP_ID or data.get("steamId") != steam_id):
+            or type(data.get("schema")) is not int or data.get("schema") != 1 or data.get("provider") != "steam"
+            or type(data.get("appId")) is not int or data.get("appId") != APP_ID or data.get("steamId") != steam_id):
         raise BuildError("DLC ownership declaration must match the selected Steam account and Gloomhaven app.")
     value = manifest(steam_id, data["installedAppIds"], "explicit-local-declaration")
     value["declarationSha256"] = digest(path)
@@ -146,7 +146,12 @@ def capture(args, game: Path, profile: dict) -> dict:
 
 def stage(project: Path, ownership: dict) -> dict:
     """Exclude unavailable DLC rules while retaining native promotional assets."""
+    project = project.absolute()
+    if any(parent.is_symlink() for parent in (project, *project.parents)):
+        raise BuildError("Generated DLC filtering must not follow links.")
     generated = project / "Assets/StreamingAssets/Rulebase/DLC"
+    if any(parent.is_symlink() for parent in (generated, *generated.parents)):
+        raise BuildError("Generated DLC filtering must not follow links.")
     removed = []
     for _, key, _, app, folder in CATALOG:
         path = generated / folder

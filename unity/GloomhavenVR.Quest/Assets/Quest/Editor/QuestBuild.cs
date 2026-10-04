@@ -237,9 +237,13 @@ namespace GloomhavenVR.Quest.Editor
             // before any original scene runs. Unsupported references remain a build error.
             QuestOriginalScriptBindings.RemapAndValidate();
             QuestOriginalScriptOrders.RestoreAndVerify();
+            QuestAudioValidation.Validate();
+            QuestSpriteGeometryValidation.ValidateStartupAssets();
+            QuestUiAssetValidation.Validate(false);
             QuestPostEffectValidation.Validate(false);
             QuestStartupAddressablesBuild.Build();
             QuestPostEffectValidation.Validate(true);
+            QuestUiAssetValidation.Validate(true);
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             GameObject bootstrap = new GameObject("Original Gloomhaven startup diagnostic");
             bootstrap.AddComponent<QuestGameBootstrap>();

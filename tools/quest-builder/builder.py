@@ -23,6 +23,9 @@ import zipfile
 import startup
 import shaders as post_effects
 import dlcs
+from sprites import restore_loading_sprite_geometry
+from audio import stage_startup_audio, REPORT as AUDIO_REPORT, RESOURCE as AUDIO_RESOURCE
+import ui_assets
 
 from profile import discover_steam_root, dummy_identity, load_profile, read_logo, ProfileError
 from storage import (BuildError, Stages, canonical, digest, ensure_output, inventory,
@@ -357,6 +360,9 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             shutil.copyfile(loading_logo, resources / "quest-loading-logo.png")
             shutil.copyfile(recovered / startup.REPORT, resources / startup.REPORT)
             startup.stage_startup_movies(project, game)
+            restore_loading_sprite_geometry(project, game)
+            stage_startup_audio(project, game)
+            ui_assets.stage_startup_ui(project)
             dlcs.stage(project, inputs["profile"]["dlcOwnership"])
             package_startup_content(project, inputs["inputKey"])
             package_data = json.loads((project / "Packages/manifest.json").read_text(encoding="utf-8"))
@@ -397,11 +403,18 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
         if args.target == "startup":
             contracts.extend([resources / "quest-loading-logo.png", resources / startup.REPORT, resources / startup.MOVIES_REPORT, resources / "quest-startup-content.json",
                               resources / "quest-dlc-ownership.json", project / "QuestStartupEvidence/dlc-content-selection.json",
+                              project / "QuestStartupEvidence/loading-sprite-geometry.json",
+                              project / AUDIO_RESOURCE, project / AUDIO_REPORT,
+                              project / ui_assets.RECEIPT,
                               project / "Assets/StreamingAssets/quest-startup-content.zip",
                               project / "QuestStartupEvidence/compute-source-restoration.json",
                               project / "Assets/QuestOriginalStartup/script-orders.json",
                               project / "QuestStartupEvidence/script-orders-source.json"])
             contracts.extend(startup_shader_contracts(project))
+            contracts.extend(project / row["assetPath"] for row in
+                             json.loads((project / ui_assets.RECEIPT).read_text(encoding="utf-8"))["shaders"])
+            contracts.extend(project / row["assetPath"] for row in
+                             json.loads((project / AUDIO_REPORT).read_text(encoding="utf-8"))["clips"])
             contracts.extend([project / "QuestStartupEvidence/ugui-layout-gate.json",
                               project / "Packages/com.unity.ugui/Runtime/UI/Core/Layout/LayoutRebuilder.cs"])
             contracts.extend([resources / "quest-mod-content.json", resources / "quest-mod-bundles.json",

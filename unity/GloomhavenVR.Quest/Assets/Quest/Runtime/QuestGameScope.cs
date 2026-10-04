@@ -13,7 +13,15 @@ namespace GloomhavenVR.Quest
     [DefaultExecutionOrder(10000)]
     public sealed class QuestGameScope : MonoBehaviour
     {
-        sealed class Entry { internal Component button; internal string key, tooltipText; internal bool workshop; internal object model; internal Component tooltip; }
+        sealed class Entry
+        {
+            internal Component button, owner, tooltip;
+            internal GameObject tooltipHost;
+            internal string key, tooltipText, previousTooltipText;
+            internal bool workshop, previousInteractable, interactionChanged, tooltipCreated, previousTooltipEnabled;
+            internal object model;
+            internal int purchaseMode;
+        }
         readonly List<Entry> entries = new List<Entry>();
         readonly HashSet<string> reported = new HashSet<string>(StringComparer.Ordinal);
         float nextScan;
@@ -31,6 +39,8 @@ namespace GloomhavenVR.Quest
                 try
                 {
                     if (entry.workshop && !ReferenceEquals(WorkshopModel(entry.button), entry.model)) { entries.RemoveAt(i); continue; }
+                    if (entry.purchaseMode != 0 && !IsPurchase(entry.owner, entry.purchaseMode))
+                    { ReleasePurchase(entry); entries.RemoveAt(i); continue; }
                     Disable(entry);
                 }
                 catch (Exception error) { Report("scope-button:" + entry.button.GetType().FullName, error); }
@@ -68,6 +78,18 @@ namespace GloomhavenVR.Quest
                         object button = RequiredField(behaviour, "button");
                         if (button is Component) Add((Component)button, "dlcPurchaseOnPc", false, null);
                     }
+                    else if (type == "GLOOM.MainMenu.UILoadGameSlot" && IsPurchase(behaviour, 1))
+                    {
+                        Add((Component)RequiredField(behaviour, "loadButton"), "dlcPurchaseOnPc", false, null, behaviour, 1);
+                    }
+                    else if (type == "UIDLCSelectorOption" && IsPurchase(behaviour, 2))
+                    {
+                        // The native mouse toggle is hidden in purchase mode.
+                        // Retain the promotion panel and use its active surface
+                        // for the original hover renderer; owned DLC toggles stay native.
+                        Add((Component)RequiredField(behaviour, "_gamepadToggle"), "dlcPurchaseOnPc", false, null,
+                            behaviour, 2, (GameObject)RequiredField(behaviour, "_dlcPurchaseablePanel"));
+                    }
                     else if (type == "GLOOM.MainMenu.UIMainMenuSuboption")
                     {
                         object model = WorkshopModel(behaviour);
@@ -78,10 +100,11 @@ namespace GloomhavenVR.Quest
             }
         }
 
-        void Add(Component button, string key, bool workshop, object model)
+        void Add(Component button, string key, bool workshop, object model, Component owner = null, int purchaseMode = 0, GameObject tooltipHost = null)
         {
             foreach (Entry existing in entries) if (existing.button == button && ReferenceEquals(existing.model, model)) return;
-            var entry = new Entry { button = button, key = key, workshop = workshop, model = model };
+            var entry = new Entry { button = button, key = key, workshop = workshop, model = model, owner = owner,
+                purchaseMode = purchaseMode, tooltipHost = tooltipHost, previousInteractable = button is Selectable && ((Selectable)button).interactable };
             entries.Add(entry);
             if (reported.Add("bound:" + button.GetType().FullName + ":" + (workshop ? "Workshop" : key)))
                 UnityEngine.Debug.Log("[Quest startup] original excluded entry retained with native hover tooltip=" + (workshop ? "Workshop" : key));
@@ -93,6 +116,7 @@ namespace GloomhavenVR.Quest
             if (entry.button is Selectable selectable)
             {
                 changed = selectable.interactable;
+                if (changed) entry.interactionChanged = true;
                 selectable.interactable = false;
             }
             else
@@ -120,13 +144,51 @@ namespace GloomhavenVR.Quest
                 MethodInfo setText = nativeType.GetMethod("SetText", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(string), typeof(bool), typeof(string) }, null);
                 if (enabled == null || enabled.PropertyType != typeof(bool) || !enabled.CanWrite || setText == null || setText.ReturnType != typeof(void))
                     throw new InvalidOperationException("Original tooltip text/enabled ABI is missing.");
-                if (entry.tooltip == null) entry.tooltip = entry.button.GetComponent(nativeType) ?? entry.button.gameObject.AddComponent(nativeType);
+                if (entry.tooltip == null)
+                {
+                    GameObject host = entry.tooltipHost != null ? entry.tooltipHost : entry.button.gameObject;
+                    entry.tooltip = host.GetComponent(nativeType);
+                    if (entry.tooltip != null)
+                    {
+                        entry.previousTooltipEnabled = (bool)enabled.GetValue(entry.tooltip);
+                        entry.previousTooltipText = nativeType.GetProperty("ShownTooltipText", BindingFlags.Public | BindingFlags.Instance)?.GetValue(entry.tooltip) as string;
+                    }
+                    else { entry.tooltip = host.AddComponent(nativeType); entry.tooltipCreated = true; }
+                }
                 if (entry.tooltip == null) throw new InvalidOperationException("Unity refused the original tooltip component.");
                 enabled.SetValue(entry.tooltip, true);
                 setText.Invoke(entry.tooltip, new object[] { text, true, null });
             }
             else throw new InvalidOperationException("Original excluded entry has no native tooltip method.");
             entry.tooltipText = text;
+        }
+
+        static bool IsPurchase(Component owner, int mode)
+        {
+            if (owner == null) return false;
+            if (mode == 1)
+            {
+                // Exact original mode identity assigned by UILoadGameSlot.SetData;
+                // this is never inferred from rendered/localized text.
+                return RequiredField(RequiredField(owner, "loadButton"), "textLanguageKey") as string == "Consoles/LEARN_MORE";
+            }
+            return ((GameObject)RequiredField(owner, "_dlcPurchaseablePanel")).activeSelf;
+        }
+
+        static void ReleasePurchase(Entry entry)
+        {
+            // Missing-DLC save rows and selector options are pooled. Undo only
+            // this purchase presentation when native binding returns to loading
+            // or selecting an owned DLC; callbacks were never replaced.
+            if (entry.interactionChanged && entry.button is Selectable selectable && !selectable.interactable)
+                selectable.interactable = entry.previousInteractable;
+            if (entry.tooltip == null) return;
+            if (entry.tooltipCreated) { UnityEngine.Object.Destroy(entry.tooltip); return; }
+            Type type = entry.tooltip.GetType();
+            if (type.GetProperty("ShownTooltipText", BindingFlags.Public | BindingFlags.Instance)?.GetValue(entry.tooltip) as string != entry.tooltipText) return;
+            type.GetProperty("TooltipEnabled", BindingFlags.Public | BindingFlags.Instance).SetValue(entry.tooltip, entry.previousTooltipEnabled);
+            type.GetMethod("SetText", new[] { typeof(string), typeof(bool), typeof(string) }).Invoke(entry.tooltip,
+                new object[] { entry.previousTooltipText, true, null });
         }
 
         static object WorkshopModel(Component row)
@@ -160,7 +222,7 @@ namespace GloomhavenVR.Quest
         {
             FieldInfo field = null;
             for (Type type = owner.GetType(); type != null && field == null; type = type.BaseType)
-                field = type.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                field = type.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.DeclaredOnly);
             if (field == null) throw new InvalidOperationException("Original scope field ABI is missing: " + name);
             return field.GetValue(owner);
         }

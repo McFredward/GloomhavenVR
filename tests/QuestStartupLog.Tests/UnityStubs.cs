@@ -128,6 +128,7 @@ namespace GloomhavenVR.Quest
         public static string ResolveVerifiedPath(QuestGameContentManifest manifest, string root, string relative) { return relative; }
     }
     public class QuestGamePresentationEvidence { public void Observe(string scene) { } }
+    public class QuestGameAudioEvidence { public void Observe(string scene) { } }
     public class QuestGameMovieManifest { }
     public class QuestGameVideos : IDisposable
     {

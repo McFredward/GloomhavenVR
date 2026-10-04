@@ -39,6 +39,7 @@ namespace GloomhavenVR.Quest
         QuestGameAddressables addressables;
         QuestGameVideos videos;
         readonly QuestGamePresentationEvidence presentation = new QuestGamePresentationEvidence();
+        readonly QuestGameAudioEvidence audio = new QuestGameAudioEvidence();
         QuestGameModLifecycle modLifecycle;
         BuildStamp build;
         string lastScene;
@@ -319,7 +320,7 @@ namespace GloomhavenVR.Quest
                 nextState = Time.unscaledTime + 5;
                 if (modLifecycle != null) modLifecycle.Observe();
                 if (videos != null) videos.Observe();
-                if (OriginalBootstrapStarted) presentation.Observe(lastScene);
+                if (OriginalBootstrapStarted) { presentation.Observe(lastScene); audio.Observe(lastScene); }
                 SaveState();
             }
         }

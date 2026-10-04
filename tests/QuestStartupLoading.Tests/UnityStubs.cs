@@ -224,6 +224,7 @@ namespace GloomhavenVR.Quest
     }
     public static class QuestPassthroughFeature { public static bool Active; }
     public class QuestGamePresentationEvidence { public void Observe(string scene) { } }
+    public class QuestGameAudioEvidence { public void Observe(string scene) { } }
     public class QuestGameMovieManifest { }
     public class QuestGameVideos : IDisposable
     {

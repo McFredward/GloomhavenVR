@@ -553,7 +553,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 618;
+    public const ushort ModBuild = 619;
+
+    // ModBuild 619 — follow up the first successful Quest menu/MR hardware run.
+    // Restore original quad audio frames and streamed WAV lengths without pitch,
+    // mixer or timing changes. Use native movie paths and bounded actual-source
+    // evidence. Preserve original spinner padding/pivot and put its two authored
+    // layers on one stereo plane; filter minified Quest menu captures with mips.
+    // Local PC DLC capture bakes only selected ownership into the player; original
+    // ads remain, while store actions are grey with the PC-purchase/rebuild hint.
+    // Source/import tests do not establish headset video, sound or readability.
 
     // ModBuild 618 — Quest Intro/menu recovery from the longer hardware capture.
     // Native scenes reach MainMenu; video opening, rejected redirected UI-camera

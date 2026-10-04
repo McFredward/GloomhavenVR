@@ -1425,6 +1425,12 @@
       "weight": 2
     },
     {
+      "id": "quest-menu-sampling",
+      "command": ["python3", "scripts/quest-menu-sampling-tests.py"],
+      "groups": ["local"],
+      "weight": 30
+    },
+    {
       "id": "quest-menu-presentation",
       "command": ["python3", "scripts/quest-menu-presentation-tests.py"],
       "groups": ["local", "ci"],
