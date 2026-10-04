@@ -205,7 +205,7 @@ internal sealed partial class TownServiceSync
                 }
                 foreach (TownServiceCardSlots.Point point in ritual.CardSlots.Points)
                 {
-                    PriorityRoots.Add(point.Content);
+                    if (point.Content != null) PriorityRoots.Add(point.Content);
                     Publish("enchant.point", point.Content, point.Source, point.CloneOf, prewarm: true);
                 }
                 foreach (TownServiceRitual.Piece piece in ritual.Pieces)
@@ -369,7 +369,8 @@ internal sealed partial class TownServiceSync
                 {
                     if (!entry.Current || !entry.Warm || entry.Sample.IsMoving) continue;
                     PriorityRoots.Add(entry.MountRoot); PriorityRoots.Add(entry.FaceRoot);
-                    PriorityRoots.Add(entry.CardRoot); PriorityRoots.Add(entry.BodyRoot);
+                    PriorityRoots.Add(entry.CardRoot);
+                    if (entry.BodyRoot != null) PriorityRoots.Add(entry.BodyRoot);
                     if (entry.RowContent != null) PriorityRoots.Add(entry.RowContent);
                     Publish("merchant.cardmount", entry.MountRoot, prewarm: true);
                     // The native item root does not contain its original Face canvas or
