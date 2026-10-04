@@ -563,8 +563,10 @@ internal static class NetProtocol
     // avoiding failed Linux MP4 imports without replacing authored playback.
     // Early input guards wait for native singleton readiness; static hook lookups
     // accept their publicized AOT methods. Camera event handlers avoid Unity message
-    // signature collisions. A progress canvas uses the existing head during movie
-    // delivery, and bounded startup evidence survives ordinary mod trace saturation.
+    // signature collisions. Original serialized script execution orders are
+    // restored rather than leaving native singleton/controller order at zero.
+    // A reusable logo/progress-bar/percentage view uses the existing head during
+    // movie delivery, and bounded startup evidence survives mod trace saturation.
     // Original rule/save/transport semantics remain unchanged. Native menu execution,
     // video decoding and reported binocular spinner overlap still require hardware.
 

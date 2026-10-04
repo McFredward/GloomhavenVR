@@ -55,8 +55,14 @@ or native presentation change is made.
 Independent captured defects are corrected: input enforcement waits for native
 singletons, woven self-hook lookup accepts its actual public visibility, and
 camera event handlers avoid Unity's reserved parameterless message names.
-The `UIMultiplayerPlayerOption.Awake` null reference remains unexplained and is
-not suppressed. The next original scene run may expose further Android gaps.
+The original binary assigns `UIMultiplayerSelectPlayerScreen` order -51 and its
+player slots order 0, `PlatformLayer` -10100 and `KeyActionHandlerController` 3.
+The actual B614 APK instead assigned each order 0. This export defect removes
+the singleton-before-slots guarantee. The builder restores the original script
+execution metadata rather than suppressing native callbacks. The exact null
+operand in the captured `UIMultiplayerPlayerOption.Awake` stack is unavailable;
+the ordering defect is independently proven, while its hardware repair still
+needs verification. The next original scene run may expose further Android gaps.
 
 ## One hardware round
 
