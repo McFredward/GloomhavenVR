@@ -118,9 +118,12 @@ public static class SpikePreparationFixture
             Choreographer.s_Choreographer=new Choreographer{m_ProcGenScene=proc};
             ScenarioInteractionPreparation.Reset();
             int begins=ScenarioCardPreparation.Begins;
+            int wallPreparationCalls=WallSegmentFade.PreparationCalls;
+            int coldPreparationTicks=FigureInteractionPreparation.Ticks+ScenarioCardPreparation.Ticks;
             SceneController.Instance.ScenarioIsLoading=true;
             ScenarioInteractionPreparation.Tick();
-            Check(ScenarioControllerLoading()&&ScenarioCardPreparation.Begins==begins,
+            Check(ScenarioControllerLoading()&&ScenarioCardPreparation.Begins==begins
+                &&WallSegmentFade.PreparationCalls==wallPreparationCalls&&!ScenarioInteractionPreparation.IsPreparing,
                 "preparation waits for native loading without writing native flags");
             SceneController.Instance.ScenarioIsLoading=false;
             ScenarioSceneryBudget.IsPreparingPresentation=true;
@@ -129,7 +132,11 @@ public static class SpikePreparationFixture
                 "initial preparation defers finite resource deadlines until native visual queues settle");
             ScenarioSceneryBudget.IsPreparingPresentation=false;
             ScenarioInteractionPreparation.Tick();
-            Check(ScenarioInteractionPreparation.IsPreparing&&FigureInteractionPreparation.Ticks+ScenarioCardPreparation.Ticks==1,
+            Check(ScenarioInteractionPreparation.IsPreparing&&WallSegmentFade.PreparationCalls==wallPreparationCalls+1
+                &&WallSegmentFade.CalledUnderSpinner&&FigureInteractionPreparation.Ticks+ScenarioCardPreparation.Ticks==coldPreparationTicks,
+                "native wall masks prepare once under the spinner before heavy card or figure jobs");
+            ScenarioInteractionPreparation.Tick();
+            Check(ScenarioInteractionPreparation.IsPreparing&&FigureInteractionPreparation.Ticks+ScenarioCardPreparation.Ticks==coldPreparationTicks+1,
                 "one cold preparation job per frame keeps the spinner visible");
             ScenarioInteractionPreparation.Tick();
             Check(!ScenarioInteractionPreparation.IsPreparing&&FigureInteractionPreparation.IsReady&&ScenarioCardPreparation.IsReady,
@@ -167,6 +174,8 @@ public static class SpikePreparationFixture
             for(int i=0;i<3;i++)ScenarioInteractionPreparation.Tick();
             Check(!ScenarioInteractionPreparation.IsPreparing&&!ScenarioRoomLoading.HasPendingReveal
                 &&ScenarioCardPreparation.Begins==begins,"room completion preserves shared card preparation and closes the visual gate");
+            Check(WallSegmentFade.PreparationCalls==wallPreparationCalls+1,
+                "ordinary play and room reveals reuse the already prepared native wall mask bank");
             UnityEngine.Object.DestroyImmediate(room.gameObject);UnityEngine.Object.DestroyImmediate(material);
             SceneController.Instance.Current=oldScene;ScenarioInteractionPreparation.Tick();
             Check(!ScenarioInteractionPreparation.IsPreparing,
