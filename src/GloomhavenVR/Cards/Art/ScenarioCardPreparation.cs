@@ -42,7 +42,7 @@ internal static class ScenarioCardPreparation
     private static int s_tickFrame = -1;
 
     internal static bool IsReady { get; private set; } = true;
-    internal static int Classes => SeenSkins.Count;
+    internal static int Classes { get; private set; }
     internal static int SpritesPrepared { get; private set; }
     internal static int SpritesTotal => SeenSprites.Count;
     internal static int ReferencesPending => References.Count;
@@ -75,7 +75,23 @@ internal static class ScenarioCardPreparation
         SpritesPrepared = 0;
         BackingsTarget = 0;
         Failures = 0;
+        Classes = 0;
         s_tickFrame = -1;
+    }
+
+    /// <summary>Stop unfinished preparation on a coordinator fault/timeout. The spinner
+    /// is display-only and the player may already own cards, so cancellation must not
+    /// retire live content, shared pins/mips, or successfully prepared unused backings.
+    /// Scene/VR teardown still uses Reset to release unused reservations.</summary>
+    internal static void CancelPreparation()
+    {
+        Sprites.Clear();
+        References.Clear();
+        SeenReferences.Clear();
+        StartedReferences.Clear();
+        SeenSkins.Clear();
+        s_started = false;
+        IsReady = true;
     }
 
     internal static void Tick()
@@ -179,7 +195,11 @@ internal static class ScenarioCardPreparation
         {
             if (card == null) continue;
             AbilityCardUISkin? skin = tools.GetCardSkin(card.ClassModel, card.ClassCharacterConfig);
-            if (skin != null && SeenSkins.Add(skin)) CollectSpriteFields(skin, includeReferences: true);
+            if (skin != null && SeenSkins.Add(skin))
+            {
+                Classes++;
+                CollectSpriteFields(skin, includeReferences: true);
+            }
         }
     }
 
