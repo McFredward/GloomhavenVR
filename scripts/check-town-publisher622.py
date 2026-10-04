@@ -87,7 +87,7 @@ def main():
             ("native-window-priority", "PublisherTick.cs", "foreach (TownServiceSurface surface in ritual.Surfaces)\n                {\n                    PriorityRoots.Add(surface.Panel.Target);",
              "foreach (TownServiceSurface surface in ritual.Surfaces)\n                {\n                    // original native surface priority omitted",
              "every actual native enhancement inventory holder and decision is prioritized"),
-            ("cabinet-page-priority", "PublisherTick.cs", "PriorityRoots.Add(entry.MountRoot); PriorityRoots.Add(entry.FaceRoot);\n                    PriorityRoots.Add(entry.CardRoot); PriorityRoots.Add(entry.BodyRoot);\n                    if (entry.RowContent != null) PriorityRoots.Add(entry.RowContent);",
+            ("cabinet-page-priority", "PublisherTick.cs", "PriorityRoots.Add(entry.MountRoot); PriorityRoots.Add(entry.FaceRoot);\n                    PriorityRoots.Add(entry.CardRoot);\n                    if (entry.BodyRoot != null) PriorityRoots.Add(entry.BodyRoot);\n                    if (entry.RowContent != null) PriorityRoots.Add(entry.RowContent);",
              "// actual page priority omitted", "every actual current from and to cabinet page receives original artwork priority"),
             ("temple-row-before-body", "PublisherTick.cs", "Publish(service == 2 && piece.Token.IsHeld ? \"ritual.purse.held\" : piece.BodyKey,\n                        piece.Body);\n                    Publish(piece.Key, piece.Content, piece.Source.transform, piece.CloneOf);",
              "Publish(piece.Key, piece.Content, piece.Source.transform, piece.CloneOf);\n                    Publish(service == 2 && piece.Token.IsHeld ? \"ritual.purse.held\" : piece.BodyKey, piece.Body);",
