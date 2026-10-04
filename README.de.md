@@ -93,10 +93,11 @@ Wer kein Headset hat, spielt am flachen Bildschirm in derselben Partie mit.
 
 ## Karten, Kontrollbrett und Tisch
 
-Das Kontrollbrett ist ein Tisch, der vor dir steht: zwei Fächer für die Karten dieser Runde, Tasten,
+Das Kontrollbrett hat zwei Fächer für die Karten dieser Runde, Tasten,
 die du mit der Fingerspitze eindrückst, und darunter eine Stange zum Tragen. Im
 [Spielhandbuch](docs/PLAYING.de.md#karten-und-kontrollbrett) ist jedes Teil davon auf einem Bild
 beschriftet.
+Es kann dir folgen, fest im Raum stehen oder über **VR Optionen** am Handgelenk befestigt werden.
 
 <p align="center">
   <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" width="720" controls muted loop></video>

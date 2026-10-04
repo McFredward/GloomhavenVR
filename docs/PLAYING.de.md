@@ -58,6 +58,12 @@ Das Brett **folgt dir standardmäßig**; über **Folgen/Fixiert** kannst du umsc
 halten, um dich neu zu zentrieren und das Brett neben dir zurückzusetzen. Fremde Bretter werden
 standardmäßig durchsichtig, wenn sie das Szenario verdecken. Gespeicherte Einstellungen gelten weiter.
 
+**Handgelenk-Brett:** Aktiviere **VR Optionen ▸ Brett & Karten ▸ Steuerbrett am Handgelenk**, um
+dasselbe Brett am Handgelenk deiner Nebenhand zu tragen. Unter **Erweitert** stellst du Hand,
+Versatz, Winkel und Größe ein. Greifleiste und Folgen/Fixiert-Taste verschwinden dabei; beim
+Abschalten kehren die vorherige Position und Folgen/Fixiert-Auswahl zurück. Mitspieler sehen das
+befestigte Brett ebenfalls.
+
 Die Stapel für **abgeworfene Karten**, **verbrannte Karten** und **Gegenstände** öffnen sich als
 Fächer. Auf dem Brett liegen auch **aktive Karten**, **Rückgängig**, **Überspringen**, Rast-Tasten
 und der Entscheidungsbereich.

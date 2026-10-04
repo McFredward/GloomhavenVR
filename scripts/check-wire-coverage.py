@@ -100,6 +100,11 @@ EXEMPT = {
     ("Cards", "TrayScale"): ("DERIVED", "seats the board; the resulting SCALE is synced"),
     ("Cards", "BoardApparentWidth_{board}"): ("DERIVED", "the same size as TrayScale, recorded in the unit it was SEEN in (apparent metres) instead of as a localScale; it seats the board and the resulting SCALE is synced"),
     ("Cards", "TrayFollow"): ("DERIVED", "an anchor MODE; the pin cap's label rides record 13 and the pose rides the board transform"),
+    ("Cards", "WristBoardEnabled"): ("DERIVED", "the owner's actual board pose and scale ride rig record 70; wrist-specific hidden controls ride additive rig record 100"),
+    ("Cards", "WristBoardHand"): ("DERIVED", "chooses the owner's tracked wrist; the resulting original board pose rides rig record 70"),
+    ("Cards", "WristBoardOffsetMeters"): ("DERIVED", "wrist-local placement recipe; the resulting owner position rides rig record 70"),
+    ("Cards", "WristBoardAnglesDegrees"): ("DERIVED", "wrist-local rotation recipe; the resulting owner rotation rides rig record 70"),
+    ("Cards", "WristBoardScale"): ("DERIVED", "wrist size recipe; the resulting original board world scale rides rig record 70"),
     ("Cards", "BoardMoveMode"): ("DERIVED", "its own bind says it: local cosmetics only, peers see the resulting board pose"),
     # ("Cards", "SlotCardFill") is GONE with its dial (retired 2026-08-11). It was DERIVED because
     # the product it fed rode record 11 — true while the card was the only thing it sized. Its

@@ -57,6 +57,11 @@ The board **follows you by default**; use its **Follow/Fixed** control to change
 **Y + B** to recenter yourself and reset the board beside you. Other players' boards become
 transparent by default while covering the scenario. Existing saved settings remain in effect.
 
+**Wrist board:** enable **VR Options ▸ Board & cards ▸ Wrist-mounted control board** to carry
+the same board on your non-main wrist. **Advanced** provides the hand, offset, angle and size
+settings. Its grab bar and Follow/Fixed control disappear while attached; switching the setting
+off restores your previous placement and Follow/Fixed choice. Other players see the attached board.
+
 The **discard**, **burnt** and **item** piles open as fans. The board also holds **active cards**,
 **Undo**, **Skip**, rest buttons and the decision area.
 

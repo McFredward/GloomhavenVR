@@ -93,9 +93,10 @@ People without a headset join the same game on a flat screen.
 
 ## Cards, the control board and the table
 
-The control board is a desk that stands in front of you: two recesses for this round's cards, keys
+The control board has two recesses for this round's cards, keys
 you press with a fingertip, and a rod underneath for moving the whole thing. There is a labelled
 picture of every part of it in the [playing guide](docs/PLAYING.md#cards-and-the-control-board).
+It can follow you, stay fixed in the room, or attach to your wrist through **VR Options**.
 
 <p align="center">
   <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" width="720" controls muted loop></video>
