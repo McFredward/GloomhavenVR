@@ -1,22 +1,28 @@
 # State — where the project stands
 
-**Quest captured rule-load failure, 2026-10-04: isolated feature, ModBuild 615.**
+**Quest B615 hardware candidate, 2026-10-04: isolated feature.**
 
-The exact B614 capture verifies a running real rig and the first YML failure:
-the redirected StreamingAssets getter queries Unity's persistent path from an
-original worker. B615 publishes immutable managed paths on the main thread before
-initializers and preserves the original screenshot coroutine with a mobile
-filename bridge. Owned startup movie delivery and exact native VideoPlayer URL
-bindings restore omitted/failed-import content. Temporary progress reuses the
-real head; bounded diagnostics preserve startup and camera/video evidence.
-Captured early input, public self-hook and Unity-message signature defects are
-corrected. Binocular loading alignment and the original multiplayer widget null
-reference remain unverified. Nine focused Quest suites pass; the affected
-order/builder checks and additional recovery suite are rerun after the import
-classification correction;
-no unrelated full gate is claimed. Native packaging is pending at this source
-checkpoint. [B615 evidence and procedure](QUEST3-HARDWARE-615.md).
-Work remains solely on `feature/quest3-standalone`.
+The exact B614 capture identifies the first original YML failure as a Unity path
+read from a worker. B615 publishes managed paths on the main thread before
+initializers, preserves the original screenshot coroutine with a mobile filename
+bridge, and delivers nine owned movies with original native URL playback. The
+original script ordering is restored and independently checked against source.
+Input readiness, public hook lookup and camera message signatures are corrected.
+Reusable world-space loading artwork uses the existing GloomhavenVR logo, a real
+bar and measured percentage. Its actual import preserves the original 1024×179
+aspect; the real rig owns the later loading view. Bounded diagnostics retain first
+failures and camera/video evidence. Binocular loading alignment, Android rule/menu
+execution and the captured multiplayer widget failure still need hardware.
+
+The signed 1,615,998,254-byte native ARM64 IL2CPP startup APK succeeds from clean
+runtime/tool source `911fc23f`, input `44c066b3…`, retaining package and signing
+identity. Ten scoped Quest suites pass at the preceding runtime-identical source;
+the three affected suites, all 14 source checks and strict Release pass after the
+Editor-only logo fix. Direct protocol vectors pass 286,760 assertions. Actual SDK,
+1,929 imported script orders (140 nonzero), deployed assembly and generated scene
+checks pass. Exact APK retention and Windows handoff verification are recorded in
+[B615 evidence and procedure](QUEST3-HARDWARE-615.md); no headset success or complete
+unrelated local gate is claimed. Work remains solely on `feature/quest3-standalone`.
 
 **Quest loading follow-up, 2026-10-03: isolated feature, ModBuild 614.**
 

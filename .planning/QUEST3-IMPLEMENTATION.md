@@ -1,14 +1,18 @@
 # Quest implementation and hardware checkpoints
 
-Current B615 source checkpoint follows the exact B614 hardware capture: the real
-mod/rig runs, but a Unity path read on the original YML worker causes the loading
-error. Cached main-thread paths, original menu movie delivery/URL binding,
-native-input readiness, AOT hook visibility and camera callback naming are
-corrected. Progress stays on the existing head; bounded camera/video evidence
-does not claim to fix the binocular loading defect. See
-[615 evidence and procedure](QUEST3-HARDWARE-615.md). Native packaging and hardware
-outcomes are pending. Only affected Quest/source/build/protocol checks are run;
-concurrent `dev` work remains separate.
+Current B615 hardware candidate follows the exact B614 capture: cached main-thread
+paths repair the captured YML worker boundary; owned movie delivery and exact URL
+bindings restore missing/failed-import content. Original script execution orders,
+native-input readiness, public AOT hook lookup and camera callback naming are
+corrected. Reusable loading artwork presents the existing logo, an actual bar and
+measured percentage; its importer preserves the original PNG aspect. Debug camera
+and video records do not claim a fix for the reported binocular loading defect.
+See [615 evidence and procedure](QUEST3-HARDWARE-615.md). The signed native APK
+succeeds from clean runtime/tool source `911fc23f` / input `44c066b3…`; deployment,
+actual SDK and generated scene/order evidence pass. Exact APK/Windows handoff
+verification is documented there. Headset image, original menu, campaign/saves
+and Android crossplay remain gates. Only scoped Quest/source/build/protocol checks
+are claimed; concurrent `dev` work remains separate.
 
 Current isolated follow-up: ModBuild614 adds observable cold loading after the
 verified B613 logo-only capture. The old gate cannot distinguish transfer from
