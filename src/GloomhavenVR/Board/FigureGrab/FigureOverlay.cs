@@ -105,7 +105,8 @@ internal static class FigureOverlay
     /// The matching selection-ring subtree retains original materials and home visibility.
     /// </summary>
     internal static GameObject? BuildFrozenGhost(GameObject animatedRoot, Vector3 worldPos, Quaternion worldRot,
-        Vector3 worldScale, Material ghostMat, out string report, Transform? preserveOriginal = null)
+        Vector3 worldScale, Material ghostMat, out string report, Transform? preserveOriginal = null,
+        bool activate = true)
     {
         // Pickup includes snapshot baking, cloned native render slots and optional FX
         // sanitisation. Separate it from the registry distance/hover callbacks in STEPS.
@@ -127,7 +128,7 @@ internal static class FigureOverlay
         var depthExcluded = new List<string>(4);
 
         GameObject ghost = FigureVisualMirror.CloneVisual(animatedRoot, worldPos, worldRot,
-            worldScale, out FigureVisualMirror mirror);
+            worldScale, out FigureVisualMirror mirror, activate);
         Transform? ringTwin = preserveOriginal != null
             ? FindTwin(animatedRoot.transform, preserveOriginal, ghost.transform)
             : null;
@@ -1288,7 +1289,9 @@ internal sealed class OverlayMaterialOwner : MonoBehaviour
 
     internal void Init(Material mat) => _mat = mat;
 
-    private void OnDestroy()
+    // A prepared ghost can be retired without ever activating. Unity does not invoke
+    // OnDestroy on a component whose Awake never ran; explicit release covers that path.
+    internal void Release()
     {
         if (_mat != null)
         {
@@ -1296,6 +1299,8 @@ internal sealed class OverlayMaterialOwner : MonoBehaviour
             _mat = null;
         }
     }
+
+    private void OnDestroy() => Release();
 }
 
 /// <summary>

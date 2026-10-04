@@ -51,12 +51,41 @@ internal sealed class FigureVisualMirror : MonoBehaviour
     private readonly List<(Renderer Source, Renderer Copy, int Shapes, bool Visibility, bool Masks, bool Ready)> _renderers = new();
     private readonly List<Material> _readyMaterials = new(4);
     private bool _home;
+    private GameObject? _preparedSource;
+    private readonly List<(Transform Node, Transform? Parent, int Children, Renderer[] Renderers)> _preparedNodes = new();
+    private readonly struct PreparedSlot
+    {
+        internal PreparedSlot(Renderer renderer)
+        {
+            Renderer = renderer; Mesh = FigureOverlay.SourceMesh(renderer);
+            Vertices = Mesh != null ? Mesh.vertexCount : 0;
+            Submeshes = Mesh != null ? Mesh.subMeshCount : 0;
+            Shapes = Mesh != null ? Mesh.blendShapeCount : 0;
+            Sprite = renderer is SpriteRenderer sprite ? sprite.sprite : null;
+            SkinnedMeshRenderer? skin = renderer as SkinnedMeshRenderer;
+            RootBone = skin?.rootBone; Bones = skin != null ? skin.bones : System.Array.Empty<Transform>();
+            Materials = renderer.sharedMaterials; Shaders = new Shader?[Materials.Length];
+            for (int i = 0; i < Materials.Length; i++) Shaders[i] = Materials[i] != null ? Materials[i].shader : null;
+        }
+        internal readonly Renderer Renderer;
+        internal readonly Mesh? Mesh;
+        internal readonly int Vertices, Submeshes, Shapes;
+        internal readonly Sprite? Sprite;
+        internal readonly Transform? RootBone;
+        internal readonly Transform[] Bones;
+        internal readonly Material[] Materials;
+        internal readonly Shader?[] Shaders;
+    }
+    private readonly List<PreparedSlot> _preparedSlots = new();
+    private readonly List<Renderer> _slotScratch = new(2);
+    private readonly List<Material> _materialScratch = new(4);
+    private readonly List<(Transform Source, Transform Copy)> _homeRing = new();
     internal AnimatorPose[] InitialAnimatorPoses { get; private set; } = System.Array.Empty<AnimatorPose>();
 
     /// <summary>A complete visual hierarchy with original sibling order/bone references. It has
     /// no native component whose Awake, animation callback or physics could affect gameplay.</summary>
     internal static GameObject CloneVisual(GameObject source, Vector3 position, Quaternion rotation,
-                                            Vector3 scale, out FigureVisualMirror mirror)
+                                            Vector3 scale, out FigureVisualMirror mirror, bool activate = true)
     {
         var root = new GameObject("VRFigureGhost");
         root.SetActive(false);
@@ -100,15 +129,127 @@ internal sealed class FigureVisualMirror : MonoBehaviour
                 group.enabled = original.enabled;
             }
         }
+        mirror.CaptureAnimatorPoses(source);
+        mirror.Sync();
+        root.SetActive(activate);
+        return root;
+    }
+
+    private void CaptureAnimatorPoses(GameObject source)
+    {
         Animator[] animators = source.GetComponentsInChildren<Animator>(true);
         var poses = new List<AnimatorPose>(animators.Length);
         foreach (Animator animator in animators)
             if (animator.runtimeAnimatorController != null && animator.isInitialized)
                 poses.Add(new AnimatorPose(animator));
-        mirror.InitialAnimatorPoses = poses.ToArray();
-        mirror.Sync();
-        root.SetActive(true);
-        return root;
+        InitialAnimatorPoses = poses.ToArray();
+    }
+
+    /// <summary>Receipt for the exact original topology/material/bone identities used to prepare
+    /// this inert ghost. Mod-owned hover/reach children are not native source identity.</summary>
+    internal void SealPreparedSource(GameObject source)
+    {
+        _preparedSource = source;
+        _preparedNodes.Clear(); _preparedSlots.Clear();
+        CapturePreparedNode(source.transform, source.transform);
+    }
+
+    private void CapturePreparedNode(Transform node, Transform root)
+    {
+        if (node != root && ModOwned(node, root)) return;
+        node.GetComponents(_slotScratch);
+        Renderer[] renderers = _slotScratch.ToArray();
+        _preparedNodes.Add((node, node == root ? null : node.parent, NativeChildCount(node), renderers));
+        foreach (Renderer renderer in renderers)
+            _preparedSlots.Add(new PreparedSlot(renderer));
+        for (int i = 0; i < node.childCount; i++) CapturePreparedNode(node.GetChild(i), root);
+    }
+
+    private static int NativeChildCount(Transform node)
+    {
+        int count = 0;
+        for (int i = 0; i < node.childCount; i++)
+            if (!node.GetChild(i).name.StartsWith(Core.VRLayers.ModOwnedNamePrefix, System.StringComparison.Ordinal)) count++;
+        return count;
+    }
+
+    internal bool MatchesPreparedSource(GameObject source)
+    {
+        if (source == null || source != _preparedSource || _preparedNodes.Count == 0) return false;
+        foreach (var node in _preparedNodes)
+        {
+            if (node.Node == null || (node.Node != source.transform && node.Node.parent != node.Parent)
+                || NativeChildCount(node.Node) != node.Children) return false;
+            node.Node.GetComponents(_slotScratch);
+            if (_slotScratch.Count != node.Renderers.Length) return false;
+            for (int i = 0; i < _slotScratch.Count; i++) if (_slotScratch[i] != node.Renderers[i]) return false;
+        }
+        foreach (var slot in _preparedSlots)
+        {
+            if (slot.Renderer == null || FigureOverlay.SourceMesh(slot.Renderer) != slot.Mesh) return false;
+            if (slot.Mesh != null && (slot.Mesh.vertexCount != slot.Vertices
+                || slot.Mesh.subMeshCount != slot.Submeshes || slot.Mesh.blendShapeCount != slot.Shapes)) return false;
+            if (slot.Renderer is SpriteRenderer sprite && sprite.sprite != slot.Sprite) return false;
+            slot.Renderer.GetSharedMaterials(_materialScratch);
+            if (_materialScratch.Count != slot.Materials.Length) return false;
+            for (int i = 0; i < _materialScratch.Count; i++)
+                if (_materialScratch[i] != slot.Materials[i]
+                    || (_materialScratch[i] != null ? _materialScratch[i].shader : null) != slot.Shaders[i]) return false;
+            if (slot.Renderer is SkinnedMeshRenderer skin)
+            {
+                if (skin.rootBone != slot.RootBone) return false;
+                Transform[] bones = skin.bones;
+                if (bones.Length != slot.Bones.Length) return false;
+                for (int i = 0; i < bones.Length; i++) if (bones[i] != slot.Bones[i]) return false;
+            }
+        }
+        return true;
+    }
+
+    /// <summary>Run while inactive immediately before pickup. Nothing plays an Animator or a
+    /// native callback: the current evaluated bones, masks and blend shapes are the authority.</summary>
+    internal void RefreshPreparedPose(GameObject source)
+    {
+        CaptureAnimatorPoses(source);
+        foreach (var pair in _homeRing)
+        {
+            if (pair.Source == null || pair.Copy == null) continue;
+            Transform original = pair.Source, twin = pair.Copy;
+            twin.localPosition = original.localPosition;
+            twin.localRotation = original.localRotation;
+            twin.localScale = original.localScale;
+            twin.gameObject.SetActive(original.gameObject.activeSelf);
+        }
+        foreach (var pair in _renderers)
+        {
+            if (pair.Source == null || pair.Copy == null) continue;
+            if (pair.Source is SkinnedMeshRenderer sourceSkin && pair.Copy is SkinnedMeshRenderer copySkin)
+            {
+                copySkin.localBounds = sourceSkin.localBounds;
+                copySkin.quality = sourceSkin.quality;
+                copySkin.updateWhenOffscreen = sourceSkin.updateWhenOffscreen;
+            }
+            if (pair.Source is SpriteRenderer sourceSprite && pair.Copy is SpriteRenderer copySprite)
+            {
+                copySprite.color = sourceSprite.color; copySprite.flipX = sourceSprite.flipX;
+                copySprite.flipY = sourceSprite.flipY; copySprite.drawMode = sourceSprite.drawMode;
+                copySprite.size = sourceSprite.size; copySprite.tileMode = sourceSprite.tileMode;
+                copySprite.adaptiveModeThreshold = sourceSprite.adaptiveModeThreshold;
+                copySprite.maskInteraction = sourceSprite.maskInteraction;
+                copySprite.spriteSortPoint = sourceSprite.spriteSortPoint;
+            }
+            if (!pair.Visibility)
+            {
+                // Preserve the CURRENT home ring before its source is suppressed in the hand.
+                pair.Copy.sharedMaterials = pair.Source.sharedMaterials;
+                pair.Copy.enabled = pair.Source.enabled;
+                pair.Copy.forceRenderingOff = pair.Source.forceRenderingOff;
+            }
+            if (!pair.Masks) continue;
+            pair.Source.GetSharedMaterials(_materialScratch);
+            FigureOverlayMasks.Apply(pair.Source, pair.Copy, _materialScratch);
+        }
+        Sync();
     }
 
     private static void CopyTree(Transform source, Transform copy, Dictionary<Transform, Transform> map)
@@ -201,6 +342,9 @@ internal sealed class FigureVisualMirror : MonoBehaviour
             _renderers[i] = (pair.Source, pair.Copy, pair.Shapes, !preserve, !preserve, pair.Ready);
         }
         // A preserved home ring must not follow suppression of the live in-hand ring.
+        if (ring != null)
+            foreach (var pair in _transforms)
+                if (pair.Copy != null && (pair.Copy == ring || pair.Copy.IsChildOf(ring))) _homeRing.Add(pair);
         _transforms.RemoveAll(pair => pair.Copy == null || ModOwned(pair.Copy, transform)
             || (ring != null && (pair.Copy == ring || pair.Copy.IsChildOf(ring))));
     }

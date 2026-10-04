@@ -178,6 +178,70 @@ internal sealed class StatPanelSurface
     /// no ActorStatPanel component at all), never null.</summary>
     private static ActorStatPanel? _realPanel;
 
+    // Build617: cache only already-authored original imagery while the scenario loader is up.
+    // Never Show a made-up actor, instantiate a live singleton or create a preview camera.
+    // Portraits which do not yet exist retain their normal live arrival path.
+    private readonly struct PreparationArt
+    {
+        internal PreparationArt(Sprite sprite) { Sprite = sprite; Texture = null; }
+        internal PreparationArt(Texture2D texture) { Sprite = null; Texture = texture; }
+        internal readonly Sprite? Sprite;
+        internal readonly Texture2D? Texture;
+    }
+    private static readonly List<PreparationArt> Preparation = new();
+    private static int _preparedArt, _preparationFailures;
+    internal static int InteractionPreparationTotal => Preparation.Count;
+    internal static int InteractionPreparationCompleted => _preparedArt;
+    internal static bool InteractionPreparationReady => _preparedArt >= Preparation.Count;
+
+    internal static void BeginInteractionPreparation()
+    {
+        ResetInteractionPreparation();
+        if (WorldUIConfig.PanelMipBake == null || !WorldUIConfig.PanelMipBake.Value) return;
+        var sprites = new HashSet<Sprite>();
+        var textures = new HashSet<Texture2D>();
+        if (Singleton<ActorStatPanel>.IsInitialized)
+            CollectPreparationArt(ActorStatPanel.Instance, sprites, textures);
+        if (Singleton<EnemyCurrentTurnStatPanel>.IsInitialized)
+            CollectPreparationArt(EnemyCurrentTurnStatPanel.Instance, sprites, textures);
+    }
+
+    private static void CollectPreparationArt(Component? root, HashSet<Sprite> sprites, HashSet<Texture2D> textures)
+    {
+        if (root == null) return;
+        foreach (Image image in root.GetComponentsInChildren<Image>(includeInactive: true))
+            if (image != null && image.sprite != null && sprites.Add(image.sprite))
+                Preparation.Add(new PreparationArt(image.sprite));
+        foreach (RawImage raw in root.GetComponentsInChildren<RawImage>(includeInactive: true))
+            if (raw != null && raw.texture is Texture2D texture && texture != null && textures.Add(texture))
+                Preparation.Add(new PreparationArt(texture));
+    }
+
+    internal static void TickInteractionPreparation()
+    {
+        if (InteractionPreparationReady) return;
+        PreparationArt art = Preparation[_preparedArt++];
+        if (WorldUIConfig.PanelMipBake == null || !WorldUIConfig.PanelMipBake.Value) return;
+        using var timing = VRLog.WantsDebug ? PerfMonitor.Scope("FigurePreparation.StatArt") : default;
+        try
+        {
+            // Populate the existing shared cache; original UI assignments and lifetime stay live.
+            if (art.Sprite != null) Cards.CardFaceMipBake.ReplacementFor(art.Sprite);
+            else if (art.Texture != null && art.Texture.mipmapCount <= 1)
+                Cards.CardFaceMipBake.BakedTextureFor(art.Texture);
+        }
+        catch (System.Exception ex)
+        {
+            if (++_preparationFailures <= 2)
+                VRLog.Warn("WorldUI", $"Stat imagery preparation skipped ({ex.GetType().Name}: {ex.Message}); original live stat preview remains available (report {_preparationFailures}/2).");
+        }
+    }
+
+    internal static void ResetInteractionPreparation()
+    {
+        Preparation.Clear(); _preparedArt = _preparationFailures = 0;
+    }
+
     /// <summary>Viewer-relative dock side for a hand: RIGHT hand → viewer-LEFT (-1), LEFT hand →
     /// viewer-RIGHT (+1), so the holding hand never occludes its own panel (item 5).
     ///
@@ -979,6 +1043,7 @@ internal sealed class StatPanelSurface
 
     public void Shutdown()
     {
+        ResetInteractionPreparation();
         VREvents.MiniaturePoked -= OnMiniaturePoked;
         _actorPanel.Detach();
         _enemyTurnPanel.Detach();

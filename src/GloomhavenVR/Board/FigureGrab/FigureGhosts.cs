@@ -104,6 +104,15 @@ internal static class FigureGhosts
         if (animated == null)
             return;
 
+        if (FigureInteractionPreparation.TryAcquire(actor, animated, homePos, homeRot,
+            out GameObject? prepared, out string preparedReport) && prepared != null)
+        {
+            _ghosts[actor] = new Ghost(prepared, homePos, homeRot);
+            VRLog.Note("FigureGrab", $"ghost spawned at home for {Describe(actor)} ({_ghosts.Count} active) — {preparedReport}");
+            OverlayVisibilityProbe.Attach(prepared, $"{Describe(actor)}/ghost", $"GHOST of {Describe(actor)}");
+            return;
+        }
+
         Material? mat = FigureOverlay.MakeOverlayMaterial(GhostTint, additive: false); // alpha-blended
         if (mat == null)
             return; // bundle missing the Overlay shader — no ghost rather than a wall-piercing one
@@ -125,6 +134,7 @@ internal static class FigureGhosts
             return;
         }
         _ghosts[actor] = new Ghost(ghost, homePos, homeRot);
+        FigureInteractionPreparation.Remember(actor, animated, ghost, report);
 
         // THE LINE MEASURES THE GHOST, NOT THE DECISION TO BUILD ONE (ModBuild 336). The user's
         // report is "hinterlaesst er keinen Geist" and the ModBuild 335 log answered "ghost spawned
@@ -184,6 +194,7 @@ internal static class FigureGhosts
                 Object.Destroy(ghost.Go);
         }
         _ghosts.Clear();
+        FigureInteractionPreparation.Reset();
         OverlayVisibilityProbe.Reset(); // a new scenario re-reports its first hover of every figure
         OverlayPulse.ResetPeak();       // ...and re-bases the overlay high-water mark to this board
     }
@@ -204,7 +215,10 @@ internal static class FigureGhosts
         if (_ghosts.TryGetValue(actor, out Ghost ghost))
         {
             if (ghost.Go != null)
-                Object.Destroy(ghost.Go); // the shared ghost material dies with its renderers' owner
+            {
+                if (!FigureInteractionPreparation.Return(actor, ghost.Go))
+                    Object.Destroy(ghost.Go); // unprepared fallback owns its material as before
+            }
             _ghosts.Remove(actor);
         }
     }

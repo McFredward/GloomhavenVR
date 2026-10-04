@@ -25,6 +25,13 @@ public sealed class NativeStateProbe : StateMachineBehaviour
 namespace GloomhavenVR.Cards
 {
     internal static class PlayTray { internal static Shader? Shader; internal static Shader? OverlayShader() => Shader; }
+    internal static class CardFaceMipBake
+    {
+        internal static readonly HashSet<Sprite> Sprites = new();
+        internal static readonly HashSet<Texture2D> Textures = new();
+        internal static Sprite? ReplacementFor(Sprite sprite) { Sprites.Add(sprite); return sprite; }
+        internal static Texture2D? BakedTextureFor(Texture2D texture) { Textures.Add(texture); return texture; }
+    }
 }
 namespace GloomhavenVR.Core
 {
@@ -36,7 +43,21 @@ namespace GloomhavenVR.Core
     }
     internal static class ScenarioEnvironmentBudget { internal static void BeforeNativeRendererWrite(Renderer renderer) { } }
     internal static class VRLayers { internal const int ModLayer = 26; internal const string ModOwnedNamePrefix = "VR", ModOwnedQualifiedPrefix = "GloomhavenVR."; }
-    internal static class VRLog { internal static void Note(string area, string text) { } internal static void Alert(string area, string text) { } }
+    internal static class VRLog { internal static bool WantsDebug => true; internal static void Warn(string area, string text) { } internal static void Note(string area, string text) { } internal static void Alert(string area, string text) { } }
+}
+public sealed class ActorStatPanel : MonoBehaviour
+{ public static ActorStatPanel? Instance => Singleton<ActorStatPanel>.Instance; public static int Shows; public void Show() => Shows++; }
+public sealed class EnemyCurrentTurnStatPanel : MonoBehaviour
+{ public static EnemyCurrentTurnStatPanel? Instance => Singleton<EnemyCurrentTurnStatPanel>.Instance; public static int Shows; public void Show() => Shows++; }
+internal static class Singleton<T> where T : class
+{
+    internal static T? Instance;
+    internal static bool IsInitialized => Instance != null;
+}
+namespace GloomhavenVR.WorldUI
+{
+    internal sealed class Entry<T> { internal Entry(T value) { Value=value; } internal T Value; }
+    internal static class WorldUIConfig { internal static Entry<bool> PanelMipBake = new(true); }
 }
 namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Camera? HeadCamera => null; } }
 namespace GloomhavenVR.Board.FigureGrab

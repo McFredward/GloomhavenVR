@@ -9,6 +9,7 @@ using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
 public static class InteractionProgram
@@ -87,6 +88,54 @@ public static class InteractionProgram
         Check(Mathf.Abs(Lit(Picture("shared-alpha-submesh-material"))-alpha)<400,"last native cutout material reused on remaining submeshes");
         Object.DestroyImmediate(mixed.gameObject);Object.DestroyImmediate(mixedOverlay.gameObject);
 
+        // Exercise the actual extracted production stat preparation with real Unity UI images.
+        // The shared sprite/mip cache is an explicit external boundary; no fake native Show or
+        // actor identity is used to construct content that is not already present in the UI.
+        var statRoot=new GameObject("original stat panel",typeof(RectTransform));statRoot.SetActive(false);
+        var realStat=statRoot.AddComponent<ActorStatPanel>();Singleton<ActorStatPanel>.Instance=realStat;
+        var authoredSprite=Sprite.Create(mask,new Rect(0,0,32,32),Vector2.one*.5f);
+        var image=statRoot.AddComponent<Image>();image.sprite=authoredSprite;
+        var statRaw=new GameObject("original stat raw",typeof(RectTransform));statRaw.transform.SetParent(statRoot.transform,false);
+        var raw=statRaw.AddComponent<RawImage>();raw.texture=mask;
+        var enemyRoot=new GameObject("original enemy panel",typeof(RectTransform));enemyRoot.SetActive(false);
+        Singleton<EnemyCurrentTurnStatPanel>.Instance=enemyRoot.AddComponent<EnemyCurrentTurnStatPanel>();
+        enemyRoot.AddComponent<Image>().sprite=authoredSprite; // shared original art is queued once
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.BeginInteractionPreparation();
+        Check(GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationTotal==2,
+            "loading stat preparation deduplicates original inactive UI resources");
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.TickInteractionPreparation();
+        Check(GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationCompleted==1
+            &&!GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationReady,
+            "stat preparation performs only one resource per loader tick");
+        Check(CardFaceMipBake.Sprites.Contains(authoredSprite),
+            "original stat sprite cache is ready before preview");
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.TickInteractionPreparation();
+        Check(GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationReady
+            &&CardFaceMipBake.Textures.Contains(mask),"original raw stat texture uses the same shared cache");
+        Check(image.sprite==authoredSprite&&raw.texture==mask&&!statRoot.activeSelf&&!enemyRoot.activeSelf
+            &&ActorStatPanel.Shows==0&&EnemyCurrentTurnStatPanel.Shows==0,
+            "stat warming never mutates original UI, activates panels or executes native Show");
+        CardFaceMipBake.Sprites.Clear();CardFaceMipBake.Textures.Clear();
+        GloomhavenVR.WorldUI.WorldUIConfig.PanelMipBake.Value=false;
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.BeginInteractionPreparation();
+        Check(GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationTotal==0
+            &&GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationReady,
+            "disabled mip setting adds no loading resource work");
+        GloomhavenVR.WorldUI.WorldUIConfig.PanelMipBake.Value=true;
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.BeginInteractionPreparation();
+        GloomhavenVR.WorldUI.WorldUIConfig.PanelMipBake.Value=false;
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.TickInteractionPreparation();
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.TickInteractionPreparation();
+        Check(GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationReady
+            &&CardFaceMipBake.Sprites.Count==0&&CardFaceMipBake.Textures.Count==0,
+            "mip setting disabled mid-preparation drains without stale work or spinner");
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.ResetInteractionPreparation();
+        Check(GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationTotal==0,
+            "stat reset releases every queued original image reference");
+        GloomhavenVR.WorldUI.WorldUIConfig.PanelMipBake.Value=true;
+        Singleton<ActorStatPanel>.Instance=null;Singleton<EnemyCurrentTurnStatPanel>.Instance=null;
+        Object.DestroyImmediate(statRoot);Object.DestroyImmediate(enemyRoot);Object.DestroyImmediate(authoredSprite);
+
         // Native asset provenance is required. These are the shipped SpittingDrake rig, meshes
         // and sleeping/flying clips, with a fixture controller to isolate state from game rules.
         AssetBundle bundle=AssetBundle.LoadFromFile(Arg("-nativeDrakeBundle"));Check(bundle!=null,"native drake bundle loads");
@@ -127,6 +176,75 @@ public static class InteractionProgram
         animator.Play("Base Layer.Sleeping",0,.37f);animator.Update(.001f);yield return null;
         Color32[] sleepingImage=Picture("native-sleeping-source");Check(Lit(sleepingImage)>300,"native sleeping source renders real skinned body");
         Check(Difference(flyingImage,sleepingImage)>300,"native sleeping and flying states have visibly distinct evaluated poses");
+        // Real imported native sleeping/flying bones exercise the same prepared cache used by
+        // local and remote holds. Prepare in a DIFFERENT state to catch stale loader poses.
+        animator.Play("Base Layer.Flying",0,.11f);animator.Update(0);
+        shape.sharedMaterial=original;
+        int preparationAwakes=NativeCallbackProbe.Awakes, preparationEnters=NativeStateProbe.Enters;
+        FigureInteractionPreparation.Begin();
+        for(int tick=0;tick<1000&&!FigureInteractionPreparation.IsReady;tick++)FigureInteractionPreparation.Tick();
+        Check(FigureInteractionPreparation.IsReady&&FigureInteractionPreparation.PreparedCount==1,
+            "loading preparation completes one inert original actor visual");
+        Check(FigureInteractionPreparation.CompletedCount==FigureInteractionPreparation.TotalCount,
+            "preparation progress drains with finite original resource work");
+        Check(NativeCallbackProbe.Awakes==preparationAwakes&&NativeStateProbe.Enters==preparationEnters,
+            "preparation does not execute original native callbacks or advance Animator");
+        var neverActivated=Resources.FindObjectsOfTypeAll<FigureVisualMirror>()
+            .Single(m=>m.gameObject.name=="VRFigureGhost"&&!m.gameObject.activeSelf);
+        Material unusedTint=neverActivated.GetComponentsInChildren<SkinnedMeshRenderer>(true)
+            .First(r=>r.sharedMesh.vertexCount>1000).sharedMaterial;
+        FigureInteractionPreparation.Reset();yield return null;
+        Check(neverActivated==null&&unusedTint==null,
+            "reset releases owned material of a prepared ghost that never activated");
+        FigureInteractionPreparation.Begin();
+        for(int tick=0;tick<1000&&!FigureInteractionPreparation.IsReady;tick++)FigureInteractionPreparation.Tick();
+        animator.Play("Base Layer.Sleeping",0,.63f);animator.Update(0);
+        shape.SetBlendShapeWeight(0,66);original.SetTextureOffset("_Diffuse",new Vector2(.125f,0));
+        HeldFigures.Actors.Add(actor);FigureGhosts.NotifyHeld(actor,Vector3.zero,Quaternion.identity);
+        GameObject firstPrepared=FigureGhosts.GhostFor(actor)!;
+        var preparedMirror=firstPrepared.GetComponent<FigureVisualMirror>();
+        Check(preparedMirror.InitialAnimatorPoses[0].States[0].fullPathHash==Animator.StringToHash("Base Layer.Sleeping")
+            &&Mathf.Abs(preparedMirror.InitialAnimatorPoses[0].States[0].normalizedTime-.63f)<.001,
+            "prepared acquire binds current sleeping pose rather than loader flying pose");
+        var preparedShape=firstPrepared.GetComponentsInChildren<SkinnedMeshRenderer>(true)
+            .First(r=>r.sharedMesh==shapeMesh);
+        var currentMask=new MaterialPropertyBlock();preparedShape.GetPropertyBlock(currentMask,0);
+        Check(Mathf.Abs(preparedShape.GetBlendShapeWeight(0)-66)<.001
+            &&Mathf.Abs(currentMask.GetVector("_AlphaMaskTex_ST").z-.125f)<.001,
+            "prepared acquire refreshes current blend weights and same-material native mask UVs");
+        HeldFigures.Actors.Clear();FigureGhosts.ReleaseIfUnheld(actor);
+        Check(!firstPrepared.activeSelf&&FigureGhosts.GhostFor(actor)==null,
+            "released prepared ghost parks immediately without rendering");
+        yield return null; // Pool lifetime must survive deferred destruction before next pickup.
+        animator.Play("Base Layer.Flying",0,.41f);animator.Update(0);
+        NetHeldFigures.Actors.Add(actor);FigureGhosts.NotifyHeld(actor,Vector3.one,Quaternion.Euler(0,17,0));
+        GameObject remotePrepared=FigureGhosts.GhostFor(actor)!;
+        Check(remotePrepared==firstPrepared,"local and remote pickup reuse the same original visual cache");
+        Check(preparedMirror.InitialAnimatorPoses[0].States[0].fullPathHash==Animator.StringToHash("Base Layer.Flying")
+            &&Mathf.Abs(preparedMirror.InitialAnimatorPoses[0].States[0].normalizedTime-.41f)<.001,
+            "pooled remote acquire refreshes current native state and phase");
+        Check(remotePrepared.transform.position==Vector3.one,
+            "pooled acquire uses current authoritative home pose");
+        Shader sourceShader=original.shader;original.shader=plain.shader;
+        Check(!preparedMirror.MatchesPreparedSource(source),
+            "same material with changed shader invalidates prepared surface classification");
+        original.shader=sourceShader;
+        Check(preparedMirror.MatchesPreparedSource(source),
+            "original shader restoration preserves the exact prepared identity receipt");
+        NetHeldFigures.Actors.Clear();FigureGhosts.ReleaseIfUnheld(actor);
+        Renderer replaced=source.GetComponentsInChildren<SkinnedMeshRenderer>().First(r=>r.sharedMesh.vertexCount>1000);
+        var replacementSkin=(SkinnedMeshRenderer)replaced;
+        Mesh initialMesh=replacementSkin.sharedMesh;
+        Mesh replacementMesh=Object.Instantiate(initialMesh);replacementSkin.sharedMesh=replacementMesh;
+        HeldFigures.Actors.Add(actor);FigureGhosts.NotifyHeld(actor,Vector3.zero,Quaternion.identity);
+        Check(FigureGhosts.GhostFor(actor)!=firstPrepared,
+            "changed original mesh invalidates prepared identity and preserves immediate fallback");
+        HeldFigures.Actors.Clear();FigureGhosts.ReleaseIfUnheld(actor);
+        replacementSkin.sharedMesh=initialMesh;FigureGhosts.Clear();yield return null;
+        Check(firstPrepared==null&&FigureInteractionPreparation.PreparedCount==0,
+            "scene reset releases every prepared visual and native source reference");
+        Object.DestroyImmediate(replacementMesh);
+        shape.sharedMaterial=plain;shape.SetBlendShapeWeight(0,35);original.SetTextureOffset("_Diffuse",Vector2.zero);
         foreach(bool remote in new[]{false,true})
         {
             ring.gameObject.SetActive(true);ring.enabled=true;
@@ -209,6 +327,8 @@ public static class InteractionProgram
             Check(FigureGhosts.GhostFor(actor)==null&&!ghost.activeSelf,"action release disables ghost immediately before deferred destroy");
             int ghostId=ghostBody.GetInstanceID();
             ownership.Survey(ghostBody);
+            // Release now pools an inert prepared twin; reset is the genuine destruction edge.
+            FigureInteractionPreparation.Reset();
             yield return null;
             var deadRow=ownership.Survey(ghostBody);
             Check(ghostBody==null&&deadRow.Exempt&&deadRow.ExemptRows==1&&deadRow.Folded==0
