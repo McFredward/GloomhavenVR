@@ -421,6 +421,26 @@ class DevelopmentAndDeploymentTests(Temporary):
             "prepare", "--repo-root", str(self.repo), "--game-root", str(self.data),
             "--output-root", str(self.output), "--target", "probe", "--dummy-profile", "--steam-logo", str(self.logo)])
 
+    def test_startup_restores_post_effects_before_movie_or_native_staging(self):
+        inputs = builder.inspect_inputs(self.args, self.repo, self.output, self.data)
+        source, game = builder.snapshot_inputs(inputs, self.output, self.repo, self.data)
+        self.args.target = "startup"
+        inputs["startupProject"] = {"key": "a" * 64}
+        (self.output / "inputs/startup" / inputs["startupProject"]["key"] / "Assets").mkdir(parents=True)
+        with patch.object(builder.startup, "inspect_project") as inspect, \
+                patch.object(builder.post_effects, "restore_post_effects", side_effect=storage.BuildError("shader-adapter-boundary")) as restore, \
+                patch.object(builder.startup, "stage_startup_movies") as movies:
+            with self.assertRaisesRegex(storage.BuildError, "shader-adapter-boundary"):
+                builder.prepare(self.args, inputs, self.output, source, game)
+            inspect.assert_called_once()
+            self.assertTrue(inspect.call_args.kwargs["snapshot_receipt"])
+            restore.assert_called_once()
+            self.assertEqual(restore.call_args.args[1], self.output / "tool-cache/legacy-post-effects")
+            self.assertTrue((restore.call_args.args[0] / "Assets/Quest").is_dir())
+            movies.assert_not_called()
+            key = storage.value_hash({"input": inputs["inputKey"], "recipe": builder.RECIPE})
+            self.assertIsNone(storage.Stages(self.output).valid("prepare", key))
+
     def test_n_to_n_plus_one_captures_new_code_art_config_without_recipe_edit(self):
         first = builder.inspect_inputs(self.args, self.repo, self.output, self.data)
         source, game = builder.snapshot_inputs(first, self.output, self.repo, self.data)
