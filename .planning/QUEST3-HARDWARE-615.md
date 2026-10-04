@@ -44,8 +44,10 @@ only after proving their complete serialized reference closure. Other campaign
 movies remain outside this startup slice. No video transcoding or replacement
 content is introduced.
 
-The existing real VR head renders a temporary noninteractive progress canvas
-while the larger content archive is verified. It adds no camera, controls or
+The existing real VR head renders reusable noninteractive world-space loading
+artwork while the larger content archive is verified: the existing GloomhavenVR
+logo, a gold bar and a percentage for measured phase/file bytes. The same helper
+is serialized into the very early startup scene. It adds no camera, controls or
 alternate rig, and is removed before the original Bootstrap loads. Startup
 records have their own bounded reserve alongside original-error evidence.
 Bounded Debug records report actual cameras, active native overlays, mod loading
@@ -72,7 +74,7 @@ dummy-identity startup diagnostic, without store/cloud services. Campaign and
 authenticated Android EOS crossplay are not enabled.
 
 The first launch must copy and verify almost 464 MB of additional original
-movies. Allow several minutes while phase and MiB values advance; Debug/O0
+movies. Allow several minutes while phase and percentage advance; Debug/O0
 verification can be slow. A warm launch still verifies installed content.
 Wait time alone does not establish a hang. If progress stops, collect logs while
 the app remains open so state includes main-thread frames and worker progress.
