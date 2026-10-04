@@ -115,6 +115,12 @@ internal static class Standalone
             il.Emit(OpCodes.Ldloca, inputUser); il.Emit(OpCodes.Initobj, inputUser.VariableType); il.Emit(OpCodes.Ldloc, inputUser);
             il.Emit(OpCodes.Newobj, userCtor); il.Emit(OpCodes.Callvirt, addUser); il.Emit(OpCodes.Ret);
         });
+        // XR devices need not have a paired generic user. Original disconnect
+        // routing can pass null when pairing is disabled. Preserve every original
+        // non-null removal/event/logging path, adding only the absent-user return.
+        MethodDefinition removeUser = Method(platforms, "Platforms.Generic.UserManagementGeneric", "RemovePlatformUser", "System.Void", "Platforms.IPlatformUserData");
+        GuardMissingPlatformUser(removeUser);
+        changedTypes.Add(removeUser.DeclaringType.FullName); report.Modifications.Add(removeUser.FullName);
         MethodDefinition initialize = Method(game, "PlatformLayer", "Initialize", "System.Void", "Platforms.IPlatform");
         if (!initialize.Body.Instructions.Any(i => i.Operand is MethodReference call && (call.DeclaringType.FullName == "Steamworks.SteamClient" || call.DeclaringType.FullName == "PlatformLayer" && call.Name == "Init")))
             throw new InvalidDataException("Platform initialization no longer contains the expected desktop service seam.");
@@ -303,6 +309,28 @@ internal static class Standalone
     private static void EmitConstant(ILProcessor il, object? value)
     {
         switch (value) { case bool b: il.Emit(b ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0); break; case int i: il.Emit(OpCodes.Ldc_I4, i); break; case string s: il.Emit(OpCodes.Ldstr, s); break; default: il.Emit(OpCodes.Ldnull); break; }
+    }
+    internal static void GuardMissingPlatformUser(MethodDefinition method)
+    {
+        if (method.DeclaringType.FullName != "Platforms.Generic.UserManagementGeneric" || method.Name != "RemovePlatformUser"
+            || method.IsStatic || !method.HasThis || method.ExplicitThis || method.HasGenericParameters
+            || method.ReturnType.FullName != "System.Void" || method.Parameters.Count != 1
+            || method.Parameters[0].ParameterType.FullName != "Platforms.IPlatformUserData" || method.Parameters[0].ParameterType.Resolve()?.IsInterface != true
+            || !method.HasBody || method.Body.Instructions.Count == 0 || Discovery.Protected(method.DeclaringType))
+            throw new InvalidDataException("Original generic user-removal ABI changed.");
+        FieldDefinition[] userLists = method.DeclaringType.Fields.Where(field => field.Name == "_users" && !field.IsStatic
+            && field.FieldType.FullName == "System.Collections.Generic.List`1<Platforms.IPlatformUserData>").ToArray();
+        if (userLists.Length != 1 || !method.Body.Instructions.Any(instruction => instruction.OpCode == OpCodes.Callvirt
+            && instruction.Operand is MethodReference call && call.DeclaringType.FullName == "Platforms.IPlatformUserData"
+            && call.Name == "GetUnityInputUser" && call.HasThis && call.Parameters.Count == 0
+            && call.ReturnType.FullName == "UnityEngine.InputSystem.Users.InputUser"))
+            throw new InvalidDataException("Original generic user-removal body seam changed.");
+        Instruction first = method.Body.Instructions[0];
+        ILProcessor il = method.Body.GetILProcessor();
+        il.InsertBefore(first, il.Create(OpCodes.Ldarg_1));
+        il.InsertBefore(first, il.Create(OpCodes.Brtrue, first));
+        il.InsertBefore(first, il.Create(OpCodes.Ret));
+        method.Body.MaxStackSize = Math.Max(1, method.Body.MaxStackSize);
     }
     private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
 }
