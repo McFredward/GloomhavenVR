@@ -13,8 +13,8 @@ import sys
 s=(Path(sys.argv[1])/'src/GloomhavenVR/WorldUI/MapRoom/TownWindowMapSwitch.cs').read_text()
 changes={
 'exit':('return false;\n    }','return true;\n    }'),
-'scoped-mode':('___currentMode = newMode;','// mutation: native map visibility sees service mode'),
-'restore':('___currentMode = service;','// mutation: map steals the active service'),
+'scoped-mode':('currentMode = newMode;','// mutation: native map visibility sees service mode'),
+'restore':('currentMode = service;','// mutation: map steals the active service'),
 'live':('!ModalFallback.FloatIsLive(window)','false'),
 }
 a,b=changes[sys.argv[3]]

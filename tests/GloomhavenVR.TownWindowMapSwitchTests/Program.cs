@@ -75,7 +75,7 @@ public sealed class MapChoreographer
 }
 namespace GloomhavenVR.Core
 {
-    internal static class VRLog { internal static bool WantsDebug => true; internal static void Debug(string scope, string value) {} internal static void Note(string scope, string value) {} }
+    internal static class VRLog { internal static bool WantsDebug => true; internal static void Debug(string scope, string value) {} internal static void Note(string scope, string value) {} internal static void Alert(string scope, string value) {} }
 }
 namespace GloomhavenVR.WorldUI
 {

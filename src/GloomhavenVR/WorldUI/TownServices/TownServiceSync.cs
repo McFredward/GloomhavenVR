@@ -255,9 +255,7 @@ internal sealed partial class TownServiceSync
                 }
                 foreach (TownServiceRitual.Inscription inscription in ritual.Inscriptions)
                 {
-                    if (inscription.Key == "enchant.row") PriorityRoots.Add(inscription.Content);
-                    Publish(inscription.Key, inscription.Content, inscription.Source, inscription.CloneOf,
-                        prewarm: inscription.Key == "enchant.row");
+                    Publish(inscription.Key, inscription.Content, inscription.Source, inscription.CloneOf);
                 }
             }
 
@@ -297,7 +295,15 @@ internal sealed partial class TownServiceSync
             {
                 Transform source = Dynamic[i]; if (source == null) continue;
                 string? key = DynamicKey(source);
-                if (key != null) Publish(key, source);
+                if (key != null)
+                {
+                    bool enhancementRow = key == "enchant.row";
+                    if (enhancementRow) PriorityRoots.Add(source);
+                    // A pool-row root can lie outside the viewport while its native
+                    // child graphics are visible. Publish the complete original; its
+                    // inherited RectMask2D, not this coarse root test, owns clipping.
+                    Publish(key, source, prewarm: enhancementRow);
+                }
             }
             foreach (TownServiceToken sample in TownServicePresentation.Samples)
             {

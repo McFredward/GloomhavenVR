@@ -18,21 +18,32 @@ internal static class TownWindowMapSwitch
     internal static bool Prefix(UIGuildmasterHUD __instance, EGuildmasterMode newMode,
                                 ref EGuildmasterMode ___currentMode)
     {
-        if (_switchDepth != 0 && ___currentMode == newMode
+        try { return Switch(__instance, newMode, ref ___currentMode); }
+        catch (Exception ex)
+        {
+            ReportFailure(ex);
+            return true; // Discovery failed before any mutation; retain native handling.
+        }
+    }
+
+    private static bool Switch(UIGuildmasterHUD hud, EGuildmasterMode newMode,
+                               ref EGuildmasterMode currentMode)
+    {
+        if (_switchDepth != 0 && currentMode == newMode
             && GuildmasterDestinations.IsMapSurfaceMode(newMode)) return false;
         if (!MapRoomDriver.Active || !WorldUIConfig.ConversionActive
             || !GuildmasterDestinations.IsMapSurfaceMode(newMode)
-            || ___currentMode is not (EGuildmasterMode.Merchant or EGuildmasterMode.Temple
+            || currentMode is not (EGuildmasterMode.Merchant or EGuildmasterMode.Temple
                 or EGuildmasterMode.Enchantress)) return true;
-        var window = GuildmasterDestinations.ModeWindow(___currentMode);
+        var window = GuildmasterDestinations.ModeWindow(currentMode);
         if (window == null || !window.IsOpen || !ModalFallback.FloatIsLive(window)) return true;
         MapChoreographer? choreographer = MapRoomDriver.Choreographer;
         if (choreographer == null) return true;
-        EGuildmasterMode service = ___currentMode;
+        EGuildmasterMode service = currentMode;
         _switchDepth++;
         try
         {
-            ___currentMode = newMode;
+            currentMode = newMode;
             if (newMode == EGuildmasterMode.City) choreographer.OpenCityMap(transition: false);
             else choreographer.OpenWorldMap(transition: false);
             GuildmasterDestinations.RememberMapSurface(newMode);
@@ -42,17 +53,20 @@ internal static class TownWindowMapSwitch
         }
         catch (Exception ex)
         {
-            if (!_reportedFailure)
-            {
-                _reportedFailure = true;
-                VRLog.Note("WorldUI", "Map surface switch failed; the open town service was retained: " + ex);
-            }
+            ReportFailure(ex);
         }
         finally
         {
-            ___currentMode = service;
+            currentMode = service;
             _switchDepth--;
         }
         return false;
+    }
+
+    private static void ReportFailure(Exception ex)
+    {
+        if (_reportedFailure) return;
+        _reportedFailure = true;
+        VRLog.Alert("WorldUI", "Map surface switch failed; the open town service was retained: " + ex);
     }
 }
