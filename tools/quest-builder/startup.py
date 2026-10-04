@@ -5,10 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path, PurePosixPath
 import re
-import shutil
-import uuid
 
-from storage import BuildError, digest, inventory, record_file, value_hash, write_json
+from storage import BuildError, digest, inventory, value_hash, write_json
 
 
 REPORT = "quest-startup-report.json"
@@ -131,22 +129,11 @@ def _copy_movie(source: Path, target: Path, relative: str) -> dict:
     for parent in source.parents:
         if parent.is_symlink():
             raise BuildError("Original movie parents must not be symbolic links: " + relative)
-    record = record_file(source, relative)
     for parent in (target, *target.parents):
         if parent.is_symlink():
             raise BuildError("Generated movie destinations must not be symbolic links: " + relative)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if target.is_file() and target.stat().st_size == record["size"] and digest(target) == record["sha256"]:
-        return record
-    temporary = target.with_name(target.name + ".tmp-" + uuid.uuid4().hex)
-    try:
-        shutil.copyfile(source, temporary)
-        if temporary.stat().st_size != record["size"] or digest(temporary) != record["sha256"]:
-            raise BuildError("An original movie changed while copied: " + relative)
-        temporary.replace(target)
-    finally:
-        temporary.unlink(missing_ok=True)
-    return record
+    from media import stage_media
+    return stage_media(source, target, relative)
 
 
 def stage_startup_movies(project: Path, game: Path) -> dict:
@@ -154,7 +141,9 @@ def stage_startup_movies(project: Path, game: Path) -> dict:
 
     B614 successfully starts the real rig, but its capture reports the absent native
     Movies/Ambient directory. Its recovered MP4 VideoClips also fail import under our
-    Linux Unity2021.3 editor. Preserve the original H264 bytes as file-backed media;
+    Linux Unity2021.3 editor. Preserve authored AV packets as file-backed media;
+    ancillary tmcd tracks are losslessly removed and MP4 metadata placed first.
+    Original and delivered SHA256 values identify any derived container explicitly;
     runtime scene binding supplies the verified extracted URL before native Start.
     Only generated VideoPlayer data-source fields change. Native timing, rendering,
     audio and callbacks remain authored. Narrative movies are outside this menu

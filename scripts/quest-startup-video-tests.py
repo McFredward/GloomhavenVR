@@ -32,6 +32,8 @@ def main():
         ("callback-leak", "QuestGameVideos.cs", "bound.Player.prepareCompleted -= Prepared;", "/* no unhook */", "dispose-unhooks-only-router"),
         ("duplicate-main-hash", "QuestGameVideos.cs", "if (!File.Exists(absolute) || new FileInfo(absolute).Length != file.size)", "if (!File.Exists(absolute) || new FileInfo(absolute).Length != file.size || QuestGameContent.Hash(absolute) != file.sha256)", "duplicate-main-thread-hash"),
         ("worker-unity-api", "QuestGameContent.cs", "public static bool IsReady(QuestGameContentManifest manifest, string root, Action<QuestGameContentProgress> progress = null)\n        {", "public static bool IsReady(QuestGameContentManifest manifest, string root, Action<QuestGameContentProgress> progress = null)\n        {\n            UnityEngine.Debug.Log(\"forbidden worker Unity call\");", "worker-api"),
+        ("unchecked-delivery-provenance", "QuestGameVideos.cs", "ValidateProvenance(clip);", "/* unvalidated provenance */", "invalid-derived-provenance"),
+        ("derived-claims-original-hash", "QuestGameVideos.cs", "clip.originalSha256 != clip.sha256", "clip.originalSha256.Length == 64", "invalid-derived-provenance"),
     )
     cases = [("production", sources, ""), ("commented-defects-are-inert", dict(sources, **{
         "QuestGameVideos.cs": "/* selected.Play(); selected.playOnAwake = true; */\n" + sources["QuestGameVideos.cs"]}), "")]

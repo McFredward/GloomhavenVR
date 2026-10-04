@@ -19,6 +19,8 @@ namespace GloomhavenVR.Quest
     {
         public string guid = null, name = null, path = null, sha256 = null;
         public long size = 0;
+        public string delivery = null, originalSha256 = null;
+        public long originalSize = 0;
         public QuestGameMovieBinding[] bindings = null;
     }
     [Serializable] public sealed class QuestGameMovieBinding
@@ -34,6 +36,8 @@ namespace GloomhavenVR.Quest
         {
             public VideoPlayer Player;
             public string Context;
+            public string Path;
+            public long ExpectedSize;
             public bool Prepared, Started, Frame;
             public int Errors;
         }
@@ -56,9 +60,11 @@ namespace GloomhavenVR.Quest
                     || clip.path == null || !clip.path.StartsWith("StreamingAssets/QuestOriginalMovies/", StringComparison.Ordinal)
                     || clip.size <= 0 || clip.bindings == null || clip.bindings.Length == 0 || clip.bindings.Length > 32)
                     throw new InvalidDataException("Original startup movie entry is invalid.");
+                ValidateProvenance(clip);
                 // Content was hashed on the delivery worker. Require the exact same
                 // manifested bytes, without another main-thread movie hash. Linux
-                // cannot import these MP4s as VideoClips; Android reads original files.
+                // cannot import these MP4s as VideoClips. Delivered bytes may be
+                // an explicitly recorded, lossless Android container adaptation.
                 QuestGameContentFile file = null;
                 foreach (var candidate in content.files)
                     if (candidate.path == clip.path) { if (file != null) throw new InvalidDataException("Duplicate movie content path."); file = candidate; }
@@ -79,6 +85,24 @@ namespace GloomhavenVR.Quest
             }
             manifest = movies;
             Debug.Log("[Quest startup] verified original movie sources installed clips=" + movies.clips.Length);
+        }
+
+        static bool Sha256(string value)
+        {
+            if (value == null || value.Length != 64) return false;
+            foreach (char digit in value) if (!(digit >= '0' && digit <= '9') && !(digit >= 'a' && digit <= 'f')) return false;
+            return true;
+        }
+        static void ValidateProvenance(QuestGameMovie clip)
+        {
+            // Legacy manifests delivered original files before provenance fields
+            // existed. New manifests explicitly distinguish source and delivery.
+            if (string.IsNullOrEmpty(clip.delivery) && string.IsNullOrEmpty(clip.originalSha256) && clip.originalSize == 0) return;
+            if (!Sha256(clip.originalSha256) || clip.originalSize <= 0)
+                throw new InvalidDataException("Movie original provenance is invalid: " + clip.name);
+            if (clip.delivery == "original" && clip.originalSha256 == clip.sha256 && clip.originalSize == clip.size) return;
+            if (clip.delivery == "android-mp4-tmcd-remux-v1" && clip.originalSha256 != clip.sha256 && clip.originalSize > clip.size) return;
+            throw new InvalidDataException("Movie delivery recipe or provenance is inconsistent: " + clip.name);
         }
 
         public void BindScene(Scene scene)
@@ -105,7 +129,8 @@ namespace GloomhavenVR.Quest
                 selected.clip = null;
                 selected.source = VideoSource.Url;
                 selected.url = new Uri(paths[clip.guid]).AbsoluteUri;
-                var record = new BoundPlayer { Player = selected, Context = scene.name + "/" + binding.playerPath + " source=" + clip.name };
+                var record = new BoundPlayer { Player = selected, Path = paths[clip.guid], ExpectedSize = clip.size,
+                    Context = scene.name + "/" + binding.playerPath + " source=" + clip.name + " delivery=" + (clip.delivery ?? "original-legacy") };
                 players.Add(record);
                 selected.prepareCompleted += Prepared;
                 selected.started += Started;
@@ -135,7 +160,12 @@ namespace GloomhavenVR.Quest
         void Error(VideoPlayer player, string error)
         {
             var bound = Find(player); if (bound == null || bound.Errors++ >= 2) return;
-            Debug.LogError("[Quest startup] original movie failed " + bound.Context + " detail=" + error);
+            string fileState;
+            try { fileState = File.Exists(bound.Path) ? "exists=true bytes=" + new FileInfo(bound.Path).Length : "exists=false"; }
+            catch (IOException) { fileState = "stat=io-failed"; }
+            catch (UnauthorizedAccessException) { fileState = "stat=access-denied"; }
+            Debug.LogError("[Quest startup] original movie failed " + bound.Context + " " + fileState
+                + " expectedBytes=" + bound.ExpectedSize + " detail=" + error);
         }
         public void Observe()
         {

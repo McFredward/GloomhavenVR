@@ -9,6 +9,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/quest-builder"))
 import startup
 import storage
+from test_media import fixture
 
 
 class StartupMovieDeliveryTests(unittest.TestCase):
@@ -86,12 +87,32 @@ MonoBehaviour:
         staged = self.project / "Assets" / clip["path"]
         self.assertEqual(staged.read_bytes(), source)
         self.assertEqual(storage.digest(staged), clip["sha256"])
+        self.assertEqual(clip["delivery"], "original")
+        self.assertEqual(clip["originalSha256"], clip["sha256"])
+        self.assertEqual(clip["originalSize"], clip["size"])
         self.assertFalse(self.clip.exists())
         self.assertFalse(Path(str(self.clip) + ".meta").exists())
         self.assertEqual([row["path"] for row in result["externalMovies"]], ["StreamingAssets/Movies/Ambient/menu.mov"])
         self.assertFalse((self.project / "Assets/StreamingAssets/Movies/CP_Intro").exists())
         self.assertEqual(json.loads((self.project / "Assets/Quest/Resources" / startup.MOVIES_REPORT).read_text()), result)
         self.assertEqual({path: path.read_bytes() for path in self.originals}, self.originals)
+
+    def test_derived_movie_manifest_names_actual_delivery_and_original_provenance(self):
+        source = fixture()
+        self.clip.write_bytes(source)
+        before = (self.project / self.scenes[1]).read_text()
+        result = startup.stage_startup_movies(self.project, self.game)
+        clip = result["clips"][0]
+        staged = self.project / "Assets" / clip["path"]
+        self.assertEqual(clip["delivery"], "android-mp4-tmcd-remux-v1")
+        self.assertEqual(clip["sha256"], storage.digest(staged))
+        self.assertNotEqual(clip["sha256"], clip["originalSha256"])
+        self.assertEqual(clip["originalSize"], len(source))
+        self.assertEqual(clip["size"], staged.stat().st_size)
+        self.assertTrue(clip["mediaProof"]["mediaPayloadUnchanged"])
+        expected = before.replace("m_VideoClip: {fileID: 32900000, guid: " + "a" * 32 + ", type: 3}", "m_VideoClip: {fileID: 0}").replace("m_DataSource: 0", "m_DataSource: 1")
+        self.assertEqual((self.project / self.scenes[1]).read_text(), expected)
+        self.assertEqual(result["totalBytes"], clip["size"] + self.ambient.stat().st_size)
 
     def test_native_menu_alternatives_and_promotion_bindings_are_complete(self):
         other = self.ambient.with_name("alternative.mov")

@@ -149,6 +149,8 @@ internal static class Program
         Check(Fixture.Logs.Count(x => x.Contains("original movie prepared")) == 1, "bounded-prepared");
         Check(Fixture.Logs.Count(x => x.Contains("original movie started")) == 1, "bounded-started");
         Check(Fixture.Logs.Count(x => x.Contains("original movie failed")) == 2, "bounded-errors");
+        Check(Fixture.Logs.Where(x => x.Contains("original movie failed")).All(x => x.Contains("exists=true bytes=" + c.Movies.clips[0].size)
+            && x.Contains("expectedBytes=" + c.Movies.clips[0].size)), "failure-file-facts");
         c.Router.Observe();
         Check(!Fixture.Logs.Any(x => x.Contains("decoded frame")), "no-false-frame-proof");
         c.Player.frame = 0; c.Router.Observe();
@@ -166,6 +168,49 @@ internal static class Program
         Check(c.Player.StopCalls == 0, "dispose-does-not-stop-native-player");
         Reject(() => c.Router.BindScene(c.Scene), "disposed-no-bind");
         Reject(c.Install, "disposed-no-install");
+    }
+    static void DeliveryProvenance()
+    {
+        foreach (bool derived in new[] { false, true })
+        {
+            using var c = new Case(); var clip = c.Movies.clips[0];
+            clip.delivery = derived ? "android-mp4-tmcd-remux-v1" : "original";
+            clip.originalSha256 = derived ? new string('b', 64) : clip.sha256;
+            clip.originalSize = clip.size + (derived ? 452 : 0);
+            Check(Task.Run(() => QuestGameContent.IsReady(c.Content, c.Root)).GetAwaiter().GetResult(), "derived-content-worker-verification");
+            c.Install(); c.Router.BindScene(c.Scene);
+            Check(c.Player.url == new Uri(Path.Combine(c.Root, clip.path)).AbsoluteUri, "derived-exact-content-url");
+            Check(c.Player.PlayCalls == 0 && c.Player.PrepareCalls == 0 && c.Player.StopCalls == 0, "derived-native-lifecycle");
+            Check(c.Player.Writes.SequenceEqual(new[] { "clip", "source", "url" }), "derived-only-source-properties");
+            c.Player.EmitError("native codec failure");
+            Check(Fixture.Logs.Any(x => x.Contains("delivery=" + clip.delivery) && x.Contains("native codec failure")), "delivery-failure-context");
+            File.Delete(Path.Combine(c.Root, clip.path)); c.Player.EmitError("file removed");
+            Check(Fixture.Logs.Any(x => x.Contains("exists=false") && x.Contains("file removed")), "failure-missing-file-facts");
+        }
+        foreach (var mutation in new Action<QuestGameMovie>[] {
+            clip => clip.delivery = "unknown-recipe",
+            clip => clip.originalSha256 = "invalid",
+            clip => clip.originalSha256 = new string('B', 64),
+            clip => clip.originalSize = 0,
+            clip => clip.originalSize = clip.size,
+            clip => clip.originalSha256 = clip.sha256,
+            clip => clip.delivery = "original",
+            clip => clip.delivery = null! })
+        {
+            using var c = new Case(); var clip = c.Movies.clips[0];
+            clip.delivery = "android-mp4-tmcd-remux-v1"; clip.originalSha256 = new string('b', 64); clip.originalSize = clip.size + 452;
+            mutation(clip); Reject(c.Install, "invalid-derived-provenance");
+            Check(c.Player.Writes.Count == 0, "invalid-derived-provenance-does-not-bind");
+        }
+        foreach (var mutation in new Action<QuestGameMovie>[] {
+            clip => clip.originalSha256 = new string('b', 64),
+            clip => clip.originalSize++,
+            clip => clip.delivery = "android-mp4-tmcd-remux-v1" })
+        {
+            using var c = new Case(); var clip = c.Movies.clips[0];
+            clip.delivery = "original"; clip.originalSha256 = clip.sha256; clip.originalSize = clip.size;
+            mutation(clip); Reject(c.Install, "inconsistent-original-provenance");
+        }
     }
     static void MissingAndAmbiguousPlayers()
     {
@@ -213,7 +258,7 @@ internal static class Program
         try
         {
             files = Path.GetFullPath(args[0]); Directory.CreateDirectory(files);
-            InvalidManifests(); Fixture.Logs.Clear(); BindingAndNativeLifecycle(); MissingAndAmbiguousPlayers();
+            InvalidManifests(); Fixture.Logs.Clear(); BindingAndNativeLifecycle(); MissingAndAmbiguousPlayers(); DeliveryProvenance();
             Check(Fixture.WorkerApiCalls == 0, "worker-api");
             Console.WriteLine($"PASS Quest startup videos: {assertions} assertions; actual movie/content source, Unity video/scene seams; no codec/stereo proof");
             return 0;
