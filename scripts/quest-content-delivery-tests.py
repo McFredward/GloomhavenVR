@@ -72,7 +72,7 @@ def main():
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     root = Path(__file__).resolve().parents[1]
     runtime = root / "unity/GloomhavenVR.Quest/Assets/Quest/Runtime"
-    names = ("QuestGameContent.cs", "QuestGameArchiveDelivery.cs", "QuestContentHash.cs")
+    names = ("QuestGameContent.cs", "QuestGameContent.Delivery.cs", "QuestGameArchiveDelivery.cs", "QuestContentHash.cs")
     sources = {name: (runtime / name).read_text() for name in names}
     native = root / "tools/quest-native"
     native_source = (native / "content_hash.cpp").read_text()
@@ -95,6 +95,16 @@ def main():
         ("native-abi-drift", "content_hash.cpp", "int ghvr_content_hash_abi() { return 1; }", "int ghvr_content_hash_abi() { return 2; }", "ABI is incompatible"),
         ("native-digest-corruption", "content_hash.cpp", "0x428a2f98,0x71374491", "0x428a2f99,0x71374491", "self-test failed"),
         ("native-ctime-ignored", "content_hash.cpp", "identity->changed_seconds = status.st_ctim.tv_sec; identity->changed_nanoseconds = status.st_ctim.tv_nsec;", "identity->changed_seconds = 0; identity->changed_nanoseconds = 0;", "accepted-hash-final-restored-mtime"),
+        ("receipt-key-source-build", "QuestGameContent.Delivery.cs", "writer.Write(InstallationReceiptSchema); WriteReceiptString(writer, manifest.archive);",
+         "writer.Write(InstallationReceiptSchema); WriteReceiptString(writer, manifest.archive); WriteReceiptString(writer, manifest.inputKey);", "receipt-source-only-update-reuse"),
+        ("receipt-key-zip-packaging", "QuestGameContent.Delivery.cs", "writer.Write(InstallationReceiptSchema); WriteReceiptString(writer, manifest.archive);",
+         "writer.Write(InstallationReceiptSchema); WriteReceiptString(writer, manifest.archive); WriteReceiptString(writer, manifest.archiveSha256);", "receipt-source-only-update-reuse"),
+        ("receipt-stat-bypass", "QuestGameContent.Delivery.cs", "return saved.Identity.Equals(QuestContentHash.Identity(target));", "return true;", "receipt-detect-changed-metadata"),
+        ("receipt-checksum-bypass", "QuestGameContent.Delivery.cs", "if (checksum[i] != bytes[payload + i]) return null;", "if (payload < 0) return null;", "receipt-invalid-checksum"),
+        ("receipt-warm-byte-scan", "QuestGameContent.Delivery.cs", "if (existing != null) return existing;",
+         "if (existing != null) { Hash(Target(root, manifest.files[0].path)); return existing; }", "receipt-warm-no-content-reads"),
+        ("receipt-namespace-bypass", "QuestGameContent.Delivery.cs", "if (receipt == null || receipt.ContentKey != key) return null;",
+         "if (receipt == null) return null;", "receipt-archive-namespace"),
     )
     cases = [("managed", sources, native_source, False, ""), ("native", sources, native_source, True, "")]
     for name, filename, before, after, expected in mutations:

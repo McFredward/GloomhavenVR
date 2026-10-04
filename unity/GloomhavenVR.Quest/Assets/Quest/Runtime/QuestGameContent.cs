@@ -46,6 +46,11 @@ namespace GloomhavenVR.Quest
         public long VerifiedBytes { get; internal set; }
         public long CopiedBytes { get; internal set; }
         public long ExtractedBytes { get; internal set; }
+        public string ContentKey { get; internal set; }
+        public string InstallationState { get; internal set; }
+        public bool InstallationReceiptReused { get; internal set; }
+        public bool InstallationReceiptPublished { get; internal set; }
+        public int MetadataCheckedFiles { get; internal set; }
     }
 
     /// <summary>File-backed original content delivery. No rule or save interpretation.</summary>

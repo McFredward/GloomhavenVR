@@ -8,6 +8,7 @@
   <ItemGroup>
     <Compile Include="$(RuntimeSource)/QuestContentHash.cs" Link="QuestContentHash.cs" />
     <Compile Include="$(RuntimeSource)/QuestGameContent.cs" Link="QuestGameContent.cs" />
+    <Compile Include="$(RuntimeSource)/QuestGameContent.Delivery.cs" Link="QuestGameContent.Delivery.cs" />
     <Compile Include="$(RuntimeSource)/QuestGameArchiveDelivery.cs" Link="QuestGameArchiveDelivery.cs" />
   </ItemGroup>
 </Project>

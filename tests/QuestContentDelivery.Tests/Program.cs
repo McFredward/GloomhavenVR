@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using GloomhavenVR.Quest;
 
-static class Program
+static partial class Program
 {
     static int checks, sequence;
     static string root = "";
@@ -68,7 +68,7 @@ static class Program
         Reject(() => QuestGameContent.Hash(unconfigured), "unconfigured-native");
 #endif
         QuestGameContent.ConfigureNativeHash(); QuestGameContent.ConfigureNativeHash();
-        Golden(); ColdWarm(); RepairAndResume(); Integrity(); ProgressInterruption();
+        Golden(); ColdWarm(); RepairAndResume(); Integrity(); ProgressInterruption(); InstallationCache();
         Console.WriteLine("PASS Quest content delivery: " + checks + " assertions; real worker/file/hash code, no headset timing claim.");
     }
     static void Golden()
