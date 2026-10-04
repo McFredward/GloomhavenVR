@@ -95,6 +95,16 @@ def main():
     # The existing runner owns actual Unity frame progression, with nested preparation
     # enumerators supported here just as Unity's real coroutine pump supports them.
     runner = (ROOT/'scripts/card-diagnostic-runtime/Editor/DiagnosticRunner.cs').read_text()
+    # This single mutation forces GPU work while mip preparation is disabled. Depending
+    # on the native atlas' cold/warm state, either the earlier frame budget assertion or
+    # the exact disabled-mip assertion catches it. Accept only these two causal outcomes;
+    # unrelated exceptions and compiler/bootstrap failures are still failures.
+    if runner.count("error.Message.Contains(entry.expected)") != 1:
+        raise SystemExit('Diagnostic negative-control expectation binding drift')
+    runner = runner.replace("error.Message.Contains(entry.expected)",
+        '(error.Message.Contains(entry.expected) || (entry.name == "ignore-temporary-mip-toggle" '
+        '&& error.Message == "loading preparation performs at most one expensive sprite or backing per frame"))')
+
     runner = runner.replace('private static IEnumerator steps;', 'private static UnityEngine.U2D.SpriteAtlas originalAreaAtlas; private static IEnumerator steps;')
     runner = runner.replace('EditorApplication.update += Tick;', '''originalAreaAtlas = new UnityEngine.U2D.SpriteAtlas();
         AssetDatabase.CreateAsset(originalAreaAtlas, "Assets/OriginalArea.spriteatlas");
