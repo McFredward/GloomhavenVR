@@ -2104,14 +2104,24 @@ internal static partial class WallSegmentFade
         private bool _failureLogged;
         private bool _heartbeatLogged;
 
-        private void OnEnable() => SceneManager.sceneLoaded += OnSceneLoaded;
+        private void OnEnable()
+        {
+            SceneManager.sceneLoaded += OnSceneLoaded;
+            Camera.onPreRender += HandleWallDrawTrace;
+        }
 
-        private void OnDisable() => SceneManager.sceneLoaded -= OnSceneLoaded;
+        private void OnDisable()
+        {
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+            Camera.onPreRender -= HandleWallDrawTrace;
+            ClearWallDrawTrace();
+        }
 
         private void OnDestroy() => Teardown();
 
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
+            ClearWallDrawTrace();
             // Scenario scenes are additive; walls/volumes stream in — rescan promptly. Old
             // renderers die with their scene, so blocks need no explicit clearing here.
             _nextRescan = 0f;
@@ -4623,6 +4633,7 @@ internal static partial class WallSegmentFade
                         {
                             ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                             r.SetPropertyBlock(null);
+                            NoteWallDrawWrite(seg, r, null);
                         }
                     }
                 }
@@ -4756,6 +4767,7 @@ internal static partial class WallSegmentFade
                     continue;
                 ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                 r.SetPropertyBlock(_mpb);
+                NoteWallDrawWrite(seg, r, _mpb);
             }
             if (lostRenderer)
                 _nextRescan = 0f; // wall regenerated mid-fade — re-collect promptly

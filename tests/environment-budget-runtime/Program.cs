@@ -41,6 +41,7 @@ public static class EnvironmentProgram
         {
             VRSession.IsRunning = true;
             VRLog.Faults.Clear();
+            VRLog.DebugLines.Clear(); VRLog.DebugEnabled = true; PerfMonitor.ThrowDrawTrace = false;
             Configure(false, false, 100);
             ScenarioEnvironmentBudget.ConfigureStructuralBatching(() => false);
             Root = new GameObject("RuntimeFixture.Scenario"); Root.AddComponent<ProceduralScenario>();
@@ -675,6 +676,105 @@ public static class EnvironmentProgram
         public float wallFade = 0f, cutoff = 0f;
     }
 
+    private static List<string> WallDrawLines() => VRLog.DebugLines.FindAll(line => line.StartsWith("DRAW DELIVERY:"));
+
+    private static void WallDrawDeliveryTrace()
+    {
+        using var room = new Room();
+        var wall = room.Surface("WallTrace.NativeFixture");
+        var native = wall.sharedMaterial;
+        native.SetFloat("_WallFade_On", 1f); native.EnableKeyword("_WALLFADE_ON_ON");
+        var block = new MaterialPropertyBlock();
+        int cut = Shader.PropertyToID("_Cutoff");
+        GloomhavenVR.Rig.VRRigDriver.HeadCamera = room.Camera;
+        try
+        {
+            using (var fixture = new WallSegmentFade.Fixture(wall))
+            {
+                VRLog.DebugEnabled = false;
+                fixture.Step(1f/90f, true); room.Render();
+                Check(WallDrawLines().Count == 0, "normal logging performs no wall draw capture");
+                wall.GetPropertyBlock(block);
+                Check(wall.HasPropertyBlock() && block.GetTexture(Shader.PropertyToID("_TilesOcclusionMap")) != null,
+                    "disabled diagnostic leaves original wall delivery intact");
+            }
+            VRLog.DebugEnabled = true; VRLog.DebugLines.Clear();
+            using (var fixture = new WallSegmentFade.Fixture(wall))
+            {
+                fixture.Step(1f/90f,true);
+                var foreign = Room.Child("WallTrace.ForeignCamera", room.Root.transform).AddComponent<Camera>();
+                foreign.enabled = false;
+                GloomhavenVR.Rig.VRRigDriver.HeadCamera = foreign;
+                room.Render();
+                Check(WallDrawLines().Count == 0, "only the actual head camera captures wall delivery");
+                GloomhavenVR.Rig.VRRigDriver.HeadCamera = room.Camera;
+                room.Render();
+                Check(WallDrawLines().Count == 1 && WallDrawLines()[0].Contains("lateToDrawChanged=False")
+                    && WallDrawLines()[0].Contains("kw=[_WALLFADE_ON_ON]") && WallDrawLines()[0].Contains("route=toggle-native"),
+                    "actual head-camera callback reads the delivered native renderer, shader and keyword");
+                room.Render();
+                Check(WallDrawLines().Count == 1, "same-frame additional eyes cannot duplicate wall draw samples");
+
+                fixture.TraceWrite(wall, 0, .26f);
+                room.ObserveRender = () => { wall.GetPropertyBlock(block); block.SetFloat(cut,-.3333f); wall.SetPropertyBlock(block); };
+                room.Render(); room.ObserveRender = null;
+                Check(WallDrawLines().Count == 2 && WallDrawLines()[1].Contains("lateToDrawChanged=True")
+                    && WallDrawLines()[1].Contains("cutoff=-0.3333"),
+                    "draw capture reads an intervening native MPB write between actual Apply and camera submission");
+                wall.GetPropertyBlock(block);
+                Check(Mathf.Abs(block.GetFloat(cut)+.3333f)<.00001f && wall.enabled && !wall.forceRenderingOff,
+                    "read-only draw diagnostic preserves the intervening native renderer effect");
+                fixture.TraceWrite(wall,0,.19f);
+                room.ObserveRender = () => { native.DisableKeyword("_WALLFADE_ON_ON"); native.SetFloat("_WallFade_On",0f); wall.forceRenderingOff = true; };
+                room.Render(); room.ObserveRender = null;
+                Check(WallDrawLines().Count == 3 && WallDrawLines()[2].Contains("lateToDrawChanged=True")
+                    && WallDrawLines()[2].Contains("forceOff=True") && WallDrawLines()[2].Contains("kw=[]")
+                    && WallDrawLines()[2].Contains("wallOn=0.00"),
+                    "draw capture exposes native keyword, authored material-gate and renderer-mask changes after Apply");
+                Check(wall.forceRenderingOff && !native.IsKeywordEnabled("_WALLFADE_ON_ON") && native.GetFloat("_WallFade_On") == 0f,
+                    "draw diagnostic preserves native keyword and render-mask writes");
+                wall.forceRenderingOff = false; native.EnableKeyword("_WALLFADE_ON_ON"); native.SetFloat("_WallFade_On",1f);
+            }
+            VRLog.DebugLines.Clear();
+            using (var fixture = new WallSegmentFade.Fixture(wall))
+            {
+                fixture.Step(1f/90f,true);
+                var indexed = new MaterialPropertyBlock(); indexed.SetFloat(cut,.8123f);
+                wall.SetPropertyBlock(indexed,0);
+                room.Render();
+                Check(WallDrawLines().Count == 1 && WallDrawLines()[0].Contains("slotBlock={cutoff=0.8123"),
+                    "draw capture exposes material-index overrides with precedence over the renderer block");
+                wall.GetPropertyBlock(block,0);
+                Check(Mathf.Abs(block.GetFloat(cut)-.8123f)<.00001f, "draw diagnostic never clears native material-index overrides");
+                wall.SetPropertyBlock(null,0);
+            }
+            VRLog.DebugLines.Clear();
+            using (var fixture = new WallSegmentFade.Fixture(wall))
+            {
+                for(int id=0;id<10;id++) { fixture.TraceWrite(wall,id,.09f); room.Render(); }
+                Check(WallDrawLines().Count == 6, "wall draw episodes are bounded for a whole scene");
+            }
+            VRLog.DebugLines.Clear();
+            using (var fixture = new WallSegmentFade.Fixture(wall))
+            {
+                fixture.Step(1f/90f,true); PerfMonitor.ThrowDrawTrace = true;
+                room.Render(); room.Render(); PerfMonitor.ThrowDrawTrace = false;
+                Check(VRLog.DebugLines.FindAll(line => line.StartsWith("DRAW DELIVERY disabled")).Count == 1,
+                    "a diagnostic fault is contained once without interrupting native rendering");
+                fixture.Step(1f/90f,true); room.Render();
+                Check(WallDrawLines().Count == 0 && wall.HasPropertyBlock(),
+                    "failed diagnostic stays disabled while native wall delivery continues");
+            }
+            VRLog.DebugLines.Clear(); room.Render();
+            Check(WallDrawLines().Count == 0, "actual disable lifecycle removes the head-camera diagnostic callback");
+        }
+        finally
+        {
+            GloomhavenVR.Rig.VRRigDriver.HeadCamera = null;
+            VRLog.DebugEnabled = true; PerfMonitor.ThrowDrawTrace = false; room.ObserveRender = null;
+        }
+    }
+
     public static int Run()
     {
         count = 0;
@@ -683,6 +783,7 @@ public static class EnvironmentProgram
         try
         {
             ScopeAndMaterials(); AmbientScopes(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault(); StructuralChunks(); NativeWallChannelsAndRenderedClock();
+            WallDrawDeliveryTrace();
             return count;
         }
         finally { Application.logMessageReceived -= EngineMessage; }

@@ -48,14 +48,21 @@ namespace GloomhavenVR.Core
     internal static class VRLog
     {
         internal static readonly List<string> Faults = new List<string>();
-        internal static bool Wants(VRLogLevel level) => true;
-        internal static void Debug(string scope, string message) { }
+        internal static readonly List<string> DebugLines = new List<string>();
+        internal static bool DebugEnabled = true;
+        internal static bool Wants(VRLogLevel level) => DebugEnabled;
+        internal static void Debug(string scope, string message) { DebugLines.Add(message); }
         internal static void Note(string scope, string message) { Faults.Add(message); }
     }
     internal static class PerfMonitor
     {
         private readonly struct QuietScope : IDisposable { public void Dispose() { } }
-        internal static IDisposable Scope(string name) => new QuietScope();
+        internal static bool ThrowDrawTrace;
+        internal static IDisposable Scope(string name)
+        {
+            if (ThrowDrawTrace && name == "WallFade.DrawTrace") throw new InvalidOperationException("fixture diagnostic fault");
+            return new QuietScope();
+        }
     }
     internal static class BundleShaders
     {

@@ -63,12 +63,12 @@ def wall_delivery(source):
     """Bind complete original delivery/texture methods, including every native MPB write."""
     assert source.count('OcclusionFade.StepFactor(AnimationDelta(frameDelta), FadeTauSeconds)') == 1, 'Actual wall tick must use the bounded presentation step'
     methods = []
-    for signature in ('private void Apply(Segment seg)', 'private bool EnsureTextures()'):
+    for signature in ('private void Apply(Segment seg)', 'private bool EnsureTextures()', 'private void OnEnable()', 'private void OnDisable()'):
         assert source.count(signature) == 1, 'Wall delivery extraction drift: '+signature
         start = source.index(signature)
         end = source.index('\n        }', start) + len('\n        }')
         methods.append(source[start:end])
-    return ('using System; using UnityEngine; namespace GloomhavenVR.Core; '
+    return ('using System; using UnityEngine; using UnityEngine.SceneManagement; namespace GloomhavenVR.Core; '
         'internal static partial class WallSegmentFade { private sealed partial class FadeDriver { '
         + '\n'.join(methods) + '\n} }\n')
 
@@ -87,11 +87,13 @@ def main():
     floor_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallFloorTile.cs'
     wall_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs'
     clock_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.AnimationClock.cs'
+    trace_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.DrawTrace.cs'
     occlusion_path = args.source_root/'src/GloomhavenVR/Core/OcclusionFade.cs'
     source, shader, repair, floor = source_path.read_text(), shader_path.read_text(), repair_path.read_text(), floor_path.read_text()
     wall, clock, occlusion = wall_path.read_text(), clock_path.read_text(), occlusion_path.read_text()
+    trace = trace_path.read_text()
     delivery = wall_delivery(wall)
-    clock_variants, delivery_variants = {}, {}
+    clock_variants, delivery_variants, trace_variants = {}, {}, {}
     wall_writes = []
     for path in (args.source_root/'src/GloomhavenVR/Core/WallFade').glob('WallSegmentFade*.cs'):
         text = path.read_text()
@@ -155,6 +157,17 @@ def main():
         delivery_variants['wall-ramp-uses-binary-map'] = delivery.replace(before,'_mpb.SetTexture(TilesOcclusionMapId, _occludedTex!);')
         variants.append(('invalid-unity-camera-messages',source.replace('HandlePreCull','OnPreCull').replace('HandlePostRender','OnPostRender'),
             'actual Unity AddComponent produces no invalid engine callback messages'))
+        trace_changes = [
+            ('wall-trace-normal-level-sampled', '!VRLog.Wants(VRLogLevel.Debug)', 'false', 'normal logging performs no wall draw capture', 2),
+            ('wall-trace-foreign-camera-sampled', 'camera != Rig.VRRigDriver.HeadCamera', 'false', 'only the actual head camera captures wall delivery', 1),
+            ('wall-trace-actual-block-not-read', 'r.GetPropertyBlock(_drawBlock);', '_drawBlock.Clear();', 'actual head-camera callback reads the delivered native renderer, shader and keyword', 1),
+            ('wall-trace-slot-overrides-not-read', 'r.GetPropertyBlock(_drawSlotBlock, i);', '_drawSlotBlock.Clear();', 'draw capture exposes material-index overrides', 1),
+            ('wall-trace-episode-bound-missing', '_drawEpisodeCount >= DrawTraceEpisodes && !existingSegment', 'false', 'wall draw episodes are bounded for a whole scene', 1),
+        ]
+        for name, before, after, expected, occurrences in trace_changes:
+            assert trace.count(before) == occurrences, 'Wall trace negative control binding drift: '+name
+            variants.append((name,source,expected))
+            trace_variants[name] = trace.replace(before,after)
     if args.case:
         unknown = set(args.case)-{name for name,_,_ in variants}
         if unknown: raise SystemExit('Unknown selected case: '+', '.join(sorted(unknown)))
@@ -166,8 +179,8 @@ def main():
     (run/'wall-write-bindings.json').write_text(json.dumps({'mpb_writes':wall_writes,'count':len(wall_writes),'contract':'synchronous native source restoration immediately before each actual wall MPB setter; enable primitives and material swaps additionally hooked'},indent=2)+'\n')
     fixture = ROOT/'tests/environment-budget-runtime'
     manifest = {'result':str(run/'results.txt'),'cases':[]}
-    bound_sources = {source_path:source,shader_path:shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,occlusion_path:occlusion}
-    (run/'source-hashes.json').write_text(json.dumps({'root':str(args.source_root.resolve()),'sha256':{str(path):hashlib.sha256(value.encode()).hexdigest() for path,value in bound_sources.items()},'coverage':'partial' if partial else 'production-and-negative-controls','cases':[name for name,_,_ in variants],'limits':['Native scene classes/config and empty wall attachment lists are explicit boundary surrogates.','Complete original wall Apply/EnsureTextures, shared ramp and wall-specific visual clock execute.','Actual Unity meshes, renderer masks, pixels, cloning and camera callbacks are executed.','Native wall fragment pixels use an explicit GL surrogate of the documented LOW above-foundation branch, not original Windows compiled shader programs.','Native material healer integration is source-bound; its native callbacks are not executed.','Native game scenes, OpenXR HMD images and FPS remain hardware-open.']},indent=2)+'\n')
+    bound_sources = {source_path:source,shader_path:shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,trace_path:trace,occlusion_path:occlusion}
+    (run/'source-hashes.json').write_text(json.dumps({'root':str(args.source_root.resolve()),'sha256':{str(path):hashlib.sha256(value.encode()).hexdigest() for path,value in bound_sources.items()},'coverage':'partial' if partial else 'production-and-negative-controls','cases':[name for name,_,_ in variants],'limits':['Native scene classes/config and empty wall attachment lists are explicit boundary surrogates.','Complete original wall Apply/EnsureTextures, shared ramp and wall-specific visual clock execute.', 'Original enable/disable subscription bodies and complete draw sampler execute against actual Camera.Render events; Time.frameCount alone is aliased to a deterministic fixture clock. Native scene-loaded bookkeeping is an explicit boundary.','Actual Unity meshes, renderer masks, pixels, cloning and camera callbacks are executed.','Native wall fragment pixels use an explicit GL surrogate of the documented LOW above-foundation branch, not original Windows compiled shader programs.','Native material healer integration is source-bound; its native callbacks are not executed.','Native game scenes, OpenXR HMD images and FPS remain hardware-open.']},indent=2)+'\n')
     (run/'repair-binding.json').write_text(json.dumps({'native-success-order':'sharedMaterials / enabled / MaterialReady / return true','removed-edge-negative-control':'rejected'},indent=2)+'\n')
     dotnet = shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
     for name, value, expected in variants:
@@ -176,6 +189,7 @@ def main():
         (production/'WallFloorTile.cs').write_text(floor)
         (production/'WallDelivery.cs').write_text(delivery_variants.get(name,delivery))
         (production/'WallClock.cs').write_text(clock_variants.get(name,clock))
+        (production/'WallDrawTrace.cs').write_text('using Time = GloomhavenVR.Core.WallFixtureClock;\n'+trace_variants.get(name,trace))
         (production/'OcclusionFade.cs').write_text(occlusion)
         project = build/'Environment.csproj'; shutil.copyfile(fixture/'Environment.csproj',project)
         assembly = 'EnvironmentBudget_'+name.replace('-','_')
