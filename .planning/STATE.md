@@ -10,9 +10,31 @@ Local DLC ownership becomes part of the build input; native ads remain with grey
 PC-purchase/rebuild hints. The private test selects the confirmed Jaws of the Lion
 and Solo Scenarios and checks their source content, using the authorized dummy
 identity. See [619 evidence and hardware procedure](QUEST3-HARDWARE-619.md).
-Native compilation and the next headset outcome are pending; full campaign and
-authenticated Android crossplay remain separate gates. No unrelated full local
-test run is required for this Quest follow-up.
+The signed ARM64 IL2CPP candidate succeeds from clean source `61c83b30`, input
+`3a4df7911d12…`, APK SHA `86bc11630daa…`, size 2,587,817,335 bytes. Fifteen focused
+Quest suites, fourteen source checks, strict Release and 286,760 direct unchanged
+protocol/golden assertions pass. Actual Android audio/sprite imports, all original
+post-effect and restored UI shader banks, final stripped CIL/AOT and packaged
+media are verified. The complete Windows archive passes CRC, exact file/hash
+checks and the isolated installer dry-run. The next headset outcome, full campaign
+and authenticated Android crossplay remain separate gates. No unrelated full
+local test gate was run for this Quest follow-up.
+
+The maintainer additionally requires Steam, Epic and GOG PC input support, with
+local installation metadata preferred for DLC discovery. GOG documents installed
+`goggame-<DLC-product-ID>.info` mini-manifests, including offline installers. Our
+provided Steam copy contains no verified Gloomhaven GOG/Epic metadata fixture;
+ordinary bundled DLC assets cannot establish purchase. Separate future provider
+discovery and offline profile adapters from DLC content validation. The current
+B619 builder's automatic account/DLC path is Steam-specific; it does not establish
+GOG/Epic support. The maintainer prioritized handing off B619 before that expansion.
+
+Five obsolete Quest worker/project roots were removed after compact proof archival
+and matching B618 native-symbol retention, measuring 35,268,067,328 additional free
+bytes. Retiring duplicate B618 downloads and the verified B619 packaging stage
+measured another 5,782,380,544 free bytes. Latest B619 project/native output, Git
+refs, canonical source inputs, supplied captures and parallel dev worktrees remain.
+The current download directory contains only B619 APK, Windows archive and handoff.
 
 **Quest B618 longer Intro/menu follow-up, 2026-10-04: isolated feature.**
 
