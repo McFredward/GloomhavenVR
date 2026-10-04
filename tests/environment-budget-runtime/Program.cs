@@ -334,14 +334,14 @@ public static class EnvironmentProgram
         finally { Camera.onPreCull -= nestedProbe; nested.targetTexture = null; nestedTarget.Release(); UnityEngine.Object.DestroyImmediate(nestedTarget); UnityEngine.Object.DestroyImmediate(nested.gameObject); }
         Check(nestedRan && innerMask && outerRetained && !first.forceRenderingOff && !chunk.enabled,
             "actual nested camera renders keep the outer lease and restore after the outer post callback");
-        Tick("OnPreCull",room.Camera);
+        Tick("OnCameraPreCull",room.Camera);
         Check(first.forceRenderingOff, "interrupted pre-cull establishes the production draw lease");
         object recovery = typeof(ScenarioEnvironmentBudget).GetField("_recovery",BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
         var order = (DefaultExecutionOrder)Attribute.GetCustomAttribute(recovery.GetType(),typeof(DefaultExecutionOrder))!;
         recovery.GetType().GetMethod("Update",BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(recovery,null);
         Check(order.order < 0 && !first.forceRenderingOff && !chunk.enabled,
             "early production recovery restores a missing post callback before native content creation");
-        Tick("OnPreCull",room.Camera); ((Behaviour)Driver).enabled = false;
+        Tick("OnCameraPreCull",room.Camera); ((Behaviour)Driver).enabled = false;
         Check(!first.forceRenderingOff && !chunk.enabled, "actual MonoBehaviour disable releases an interrupted camera mask");
         ((Behaviour)Driver).enabled = true;
 

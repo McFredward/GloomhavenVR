@@ -1,5 +1,15 @@
 # Quest implementation and hardware checkpoints
 
+Current B615 source checkpoint follows the exact B614 hardware capture: the real
+mod/rig runs, but a Unity path read on the original YML worker causes the loading
+error. Cached main-thread paths, original menu movie delivery/URL binding,
+native-input readiness, AOT hook visibility and camera callback naming are
+corrected. Progress stays on the existing head; bounded camera/video evidence
+does not claim to fix the binocular loading defect. See
+[615 evidence and procedure](QUEST3-HARDWARE-615.md). Native packaging and hardware
+outcomes are pending. Only affected Quest/source/build/protocol checks are run;
+concurrent `dev` work remains separate.
+
 Current isolated follow-up: ModBuild614 adds observable cold loading after the
 verified B613 logo-only capture. The old gate cannot distinguish transfer from
 verification. An early serialized stereo view and managed APK delivery retain

@@ -553,7 +553,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 614;
+    public const ushort ModBuild = 615;
+
+    // ModBuild 615 — original Quest rules and videos after verified B614 hardware.
+    // The real plugin completed all eleven modules and the rig ran. Original YML
+    // loading failed when a worker used our uncached Unity persistent path getter;
+    // immutable managed roots now initialize before plugin/original Bootstrap.
+    // Original menu videos are delivered byte-exact as verified local files,
+    // avoiding failed Linux MP4 imports without replacing authored playback.
+    // Early input guards wait for native singleton readiness; static hook lookups
+    // accept their publicized AOT methods. Camera event handlers avoid Unity message
+    // signature collisions. A progress canvas uses the existing head during movie
+    // delivery, and bounded startup evidence survives ordinary mod trace saturation.
+    // Original rule/save/transport semantics remain unchanged. Native menu execution,
+    // video decoding and reported binocular spinner overlap still require hardware.
 
     // ModBuild 614 — observable Quest loading after the verified B613 logo-only capture.
     // B613 stops before real-mod creation, with no retained managed exception;

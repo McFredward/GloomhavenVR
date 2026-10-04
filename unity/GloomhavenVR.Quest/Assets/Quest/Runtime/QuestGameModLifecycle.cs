@@ -30,9 +30,11 @@ namespace GloomhavenVR.Quest
         [SerializeField] Canvas loadingCanvas;
         [SerializeField] Text loadingLabel;
         string lastLoadingText;
-        public bool StartupViewAvailable { get { return startupAnchor != null && startupAnchor.isActiveAndEnabled && loadingCanvas != null; } }
+        public bool StartupViewAvailable { get { return loadingCanvas != null && loadingCanvas.gameObject.activeInHierarchy
+            && loadingCanvas.worldCamera != null && loadingCanvas.worldCamera.isActiveAndEnabled; } }
         string lastObservation;
         bool activated;
+        bool deliveryViewRequested;
 
         public IEnumerator Activate(string resourceRoot)
         {
@@ -187,13 +189,17 @@ namespace GloomhavenVR.Quest
 
         public void UpdateStartupView(string state, QuestGameContentProgress progress)
         {
+            if (deliveryViewRequested && loadingLabel == null) BeginDeliveryView();
             if (loadingLabel == null) return;
             bool german = Application.systemLanguage == SystemLanguage.German;
             string key = state == "failed" ? "startupFailed"
                 : state.StartsWith("checking-mod-", StringComparison.Ordinal) ? "startupCheckingMod"
                 : state.StartsWith("copying-mod-", StringComparison.Ordinal) ? "startupCopyingMod"
                 : state.StartsWith("extracting-mod-", StringComparison.Ordinal) ? "startupExtractingMod"
-                : state == "starting-real-mod" ? "startupStartingMod" : "startupPending";
+                : state == "starting-real-mod" ? "startupStartingMod"
+                : state == "checking-content" || state == "copying-content" ? "startupCheckingContent"
+                : state == "extracting-content" ? "startupExtractingContent"
+                : state == "initializing-native-addressables" ? "startupAddressables" : "startupPending";
             string value = QuestText.Get("title", german) + "\n\n" + QuestText.Get(key, german);
             if (progress != null && progress.TotalBytes > 0)
                 value += "\n" + (progress.ProcessedBytes / 1048576f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)
@@ -207,6 +213,38 @@ namespace GloomhavenVR.Quest
             loadingCanvas = null; loadingLabel = null;
             if (startupAnchor != null) { startupAnchor.cullingMask = 0; startupAnchor.stereoTargetEye = StereoTargetEyeMask.None; }
         }
+
+        public void BeginDeliveryView()
+        {
+            deliveryViewRequested = true;
+            if (loadingCanvas != null) return;
+            var head = QuestStandalonePlatform.HeadCamera;
+            if (head == null) throw new InvalidOperationException("Original content delivery requires the observed real VR camera.");
+            // The large original menu movies need worker verification too. Reuse
+            // the existing rig for this temporary, noninteractive status canvas;
+            // never add a second XR camera or a separate input/controller path.
+            var panel = new GameObject("Quest original content status", typeof(RectTransform), typeof(Canvas));
+            panel.layer = QuestStandalonePlatform.PresentationLayer;
+            panel.transform.SetParent(head.transform, false);
+            panel.transform.localPosition = new Vector3(0, -.05f, 1.5f);
+            panel.transform.localScale = Vector3.one * .001f;
+            panel.GetComponent<RectTransform>().sizeDelta = new Vector2(1300, 260);
+            loadingCanvas = panel.GetComponent<Canvas>();
+            loadingCanvas.renderMode = RenderMode.WorldSpace;
+            loadingCanvas.worldCamera = head;
+            var label = new GameObject("Quest original content progress", typeof(RectTransform), typeof(Text));
+            label.layer = panel.layer; label.transform.SetParent(panel.transform, false);
+            var rectangle = label.GetComponent<RectTransform>();
+            rectangle.anchorMin = Vector2.zero; rectangle.anchorMax = Vector2.one;
+            rectangle.offsetMin = rectangle.offsetMax = Vector2.zero;
+            loadingLabel = label.GetComponent<Text>();
+            loadingLabel.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            if (loadingLabel.font == null) throw new InvalidDataException("Original delivery font is unavailable.");
+            loadingLabel.fontSize = 40; loadingLabel.alignment = TextAnchor.MiddleCenter;
+            loadingLabel.color = Color.white; loadingLabel.raycastTarget = false;
+            lastLoadingText = null;
+        }
+        public void EndDeliveryView() { deliveryViewRequested = false; StopLoadingView(); }
 
         void RetireStartupAnchor()
         {

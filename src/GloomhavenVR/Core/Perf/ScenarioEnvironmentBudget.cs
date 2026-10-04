@@ -351,8 +351,10 @@ internal static class ScenarioEnvironmentBudget
         {
             SceneManager.sceneLoaded += OnSceneLoaded;
             SceneManager.sceneUnloaded += OnSceneUnloaded;
-            Camera.onPreCull += OnPreCull;
-            Camera.onPostRender += OnPostRender;
+            // Event handlers take a Camera. Avoid Unity message names, whose
+            // parameterless signatures are validated during AddComponent (B614).
+            Camera.onPreCull += OnCameraPreCull;
+            Camera.onPostRender += OnCameraPostRender;
         }
         private void OnDisable() => RecoverRenderLeases();
         internal void RecoverRenderLeases()
@@ -366,8 +368,8 @@ internal static class ScenarioEnvironmentBudget
         {
             SceneManager.sceneLoaded -= OnSceneLoaded;
             SceneManager.sceneUnloaded -= OnSceneUnloaded;
-            Camera.onPreCull -= OnPreCull;
-            Camera.onPostRender -= OnPostRender;
+            Camera.onPreCull -= OnCameraPreCull;
+            Camera.onPostRender -= OnCameraPostRender;
             RestoreAll();
         }
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode) { if (VRSession.IsRunning) Seed(); }
@@ -705,7 +707,7 @@ internal static class ScenarioEnvironmentBudget
             }
             catch (Exception error) { StopAfterFailure(error); }
         }
-        private void OnPreCull(Camera camera)
+        private void OnCameraPreCull(Camera camera)
         {
             if (!_active || (_batches.Count == 0 && _ambient.Count == 0)) return;
             // A native visibility callback can run after LateUpdate. Validation is idempotent
@@ -718,7 +720,7 @@ internal static class ScenarioEnvironmentBudget
             }
             catch (Exception error) { StopAfterFailure(error); }
         }
-        private void OnPostRender(Camera camera)
+        private void OnCameraPostRender(Camera camera)
         {
             if (_renderDepth <= 0 || --_renderDepth > 0) return;
             foreach (Batch batch in _batches) batch.Unmask();

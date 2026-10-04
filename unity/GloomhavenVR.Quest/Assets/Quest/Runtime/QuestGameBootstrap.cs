@@ -35,6 +35,8 @@ namespace GloomhavenVR.Quest
         string logPath;
         QuestGameStartupLog log;
         QuestGameAddressables addressables;
+        QuestGameVideos videos;
+        readonly QuestGamePresentationEvidence presentation = new QuestGamePresentationEvidence();
         QuestGameModLifecycle modLifecycle;
         BuildStamp build;
         string lastScene;
@@ -54,6 +56,10 @@ namespace GloomhavenVR.Quest
         void Awake()
         {
             DontDestroyOnLoad(gameObject);
+            // The original YML loader runs on a worker. B614 failed because its
+            // redirected StreamingAssets getter queried a main-thread-only Unity
+            // property. Publish immutable managed paths before any original/mod
+            // initializer can access them; getters never call Unity afterwards.
             logPath = Path.Combine(Application.persistentDataPath, "quest-startup.log");
             try { log = new QuestGameStartupLog(logPath, "Unity=" + Application.unityVersion + " platform=" + Application.platform + " scope=original-startup-real-vr-mod fullGameReady=false"); }
             catch (Exception e) { UnityEngine.Debug.LogWarning("[Quest startup] diagnostic log initialization failed: " + e.Message); }
@@ -61,6 +67,8 @@ namespace GloomhavenVR.Quest
             // thread. Persist immediately in the thread-safe managed-only sink.
             Application.logMessageReceivedThreaded += CaptureLog;
             SceneManager.sceneLoaded += SceneLoaded;
+            try { QuestGame.Compatibility.Paths.Initialize(Application.persistentDataPath); }
+            catch (Exception error) { Fail("original-paths", error); }
             modLifecycle = GetComponent<QuestGameModLifecycle>() ?? gameObject.AddComponent<QuestGameModLifecycle>();
             // B613 had no rendering camera until after the 68 MB bank was copied
             // and checked. Its capture stops inside that opaque delivery gate;
@@ -107,11 +115,23 @@ namespace GloomhavenVR.Quest
             State = "starting-real-mod";
             yield return modLifecycle.Activate(modRoot);
             if (!modLifecycle.Available) { Fail("real-mod-lifecycle", new InvalidOperationException(modLifecycle.Failure ?? "Original plugin did not reach its observed running rig.")); yield break; }
+            try { modLifecycle.BeginDeliveryView(); }
+            catch (Exception error) { Fail("original-content-view", error); }
+            if (State == "failed") yield break;
             string root = Path.Combine(Application.persistentDataPath, "quest-owned-game");
             yield return EnsureContent(manifest, root, "quest-startup-content.zip", "content");
             if (State == "failed") yield break;
             ContentReady = true;
             UnityEngine.Debug.Log("[Quest startup] Owned file-backed content verified at " + root);
+            try
+            {
+                var moviesAsset = Resources.Load<TextAsset>("quest-startup-movies");
+                if (moviesAsset == null) throw new InvalidDataException("Original startup movie manifest is missing.");
+                videos = new QuestGameVideos();
+                videos.Install(JsonUtility.FromJson<QuestGameMovieManifest>(moviesAsset.text), manifest, root, stamp.inputKey);
+            }
+            catch (Exception error) { Fail("original-videos", error); }
+            if (State == "failed") yield break;
             var addressablesAsset = Resources.Load<TextAsset>("quest-startup-addressables");
             if (addressablesAsset == null) { Fail("native-addressables", new InvalidDataException("Native startup Addressables manifest is missing.")); yield break; }
             QuestGameAddressablesManifest addressablesManifest = null;
@@ -125,6 +145,7 @@ namespace GloomhavenVR.Quest
             UnityEngine.Debug.LogWarning("[Quest startup] real-mod lifecycle observed=" + ModLifecycleAvailable + "; fullGameReady=false. EOSAuthorised=false; crossplay unverified. proceduralRuntimeAvailable=false; native Apparance lifecycle disabled for menu-only target, campaign generation remains gated. voiceNativeAvailable=false; Android Opus remains gated.");
             if (!Application.CanStreamedLevelBeLoaded(originalScene)) { Fail("original-scene", new InvalidDataException("Required original scene is absent: " + originalScene)); yield break; }
             State = "loading-original-bootstrap";
+            modLifecycle.EndDeliveryView();
             AsyncOperation loading = SceneManager.LoadSceneAsync(originalScene, LoadSceneMode.Single);
             if (loading == null) { Fail("original-scene", new InvalidOperationException("Unity refused original scene load.")); yield break; }
             yield return loading;
@@ -191,7 +212,10 @@ namespace GloomhavenVR.Quest
 
         void SceneLoaded(Scene scene, LoadSceneMode mode)
         {
-            if (scene.name == originalScene) { OriginalBootstrapStarted = true; State = "original-bootstrap-loaded"; }
+            if (videos != null)
+                try { videos.BindScene(scene); }
+                catch (Exception error) { Fail("original-video-bindings", error); }
+            if (scene.name == originalScene) { OriginalBootstrapStarted = true; if (State != "failed") State = "original-bootstrap-loaded"; }
             lastScene = scene.name; loadedScenes++; SaveState();
             UnityEngine.Debug.Log("[Quest startup] original scene loaded=" + scene.name + " mode=" + mode + " state=" + State + " fullGameReady=false");
         }
@@ -212,7 +236,14 @@ namespace GloomhavenVR.Quest
                 QuestGameContentProgress progress; lock (contentSync) progress = contentProgress;
                 if (modLifecycle != null) modLifecycle.UpdateStartupView(State, progress);
             }
-            if (Time.unscaledTime >= nextState) { nextState = Time.unscaledTime + 5; if (modLifecycle != null) modLifecycle.Observe(); SaveState(); }
+            if (Time.unscaledTime >= nextState)
+            {
+                nextState = Time.unscaledTime + 5;
+                if (modLifecycle != null) modLifecycle.Observe();
+                if (videos != null) videos.Observe();
+                if (OriginalBootstrapStarted) presentation.Observe(lastScene);
+                SaveState();
+            }
         }
         void OnApplicationPause(bool value) { paused = value; SaveState(); }
         void OnApplicationFocus(bool value) { focused = value; SaveState(); }
@@ -265,7 +296,7 @@ namespace GloomhavenVR.Quest
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }
-        void OnDestroy() { destroyed = true; Application.logMessageReceivedThreaded -= CaptureLog; SceneManager.sceneLoaded -= SceneLoaded; if (addressables != null) addressables.Dispose(); }
+        void OnDestroy() { destroyed = true; Application.logMessageReceivedThreaded -= CaptureLog; SceneManager.sceneLoaded -= SceneLoaded; if (videos != null) videos.Dispose(); if (addressables != null) addressables.Dispose(); }
     }
 }
 #endif

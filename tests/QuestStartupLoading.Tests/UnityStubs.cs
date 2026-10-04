@@ -128,6 +128,18 @@ namespace UnityEngine.SceneManagement
         }
     }
 }
+namespace QuestGame.Compatibility
+{
+    public static class Paths
+    {
+        public static void Initialize(string root)
+        {
+            Fixture.RequireMain("OriginalPaths.Initialize");
+            if (!Path.IsPathRooted(root)) throw new InvalidDataException("Original path root is not absolute.");
+            Fixture.Event("original-paths");
+        }
+    }
+}
 namespace GloomhavenVR.Quest
 {
     public sealed class QuestGameStartupLog
@@ -155,6 +167,8 @@ namespace GloomhavenVR.Quest
             Fixture.RequireMain("PrepareStartupView"); Fixture.ViewPrepared = Fixture.ViewVisible = true; Fixture.Event("early-view");
         }
         public void Observe() { Fixture.RequireMain("ModLifecycle.Observe"); }
+        public void BeginDeliveryView() { Fixture.RequireMain("BeginDeliveryView"); Fixture.ViewVisible = true; Fixture.Event("delivery-view"); }
+        public void EndDeliveryView() { Fixture.RequireMain("EndDeliveryView"); Fixture.ViewVisible = false; Fixture.Event("end-delivery-view"); }
         public void UpdateStartupView(string state, QuestGameContentProgress progress)
         {
             Fixture.RequireMain("UpdateStartupView"); Fixture.MainUpdates++;
@@ -173,6 +187,15 @@ namespace GloomhavenVR.Quest
         }
     }
     public static class QuestPassthroughFeature { public static bool Active; }
+    public class QuestGamePresentationEvidence { public void Observe(string scene) { } }
+    public class QuestGameMovieManifest { }
+    public class QuestGameVideos : IDisposable
+    {
+        public void Install(QuestGameMovieManifest movies, QuestGameContentManifest content, string root, string key) { }
+        public void BindScene(UnityEngine.SceneManagement.Scene scene) { }
+        public void Observe() { }
+        public void Dispose() { }
+    }
     public class QuestGameAddressablesManifest { public int schema; }
     public class QuestGameAddressables : IDisposable
     {

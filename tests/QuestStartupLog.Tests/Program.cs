@@ -60,6 +60,9 @@ internal static class Program
         text = File.ReadAllText(path);
         Check(text.Contains("first original loader failure after lifecycle cap") && text.Contains("retained first cause stack"), "lifecycle-reserve: routine lifecycle saturation swallowed original loader evidence");
         Check(text.Contains("retained build/input provenance") && new FileInfo(path).Length <= QuestGameStartupLog.MaxBytes, "combined-bound: lifecycle/error partition lost provenance or exceeded total bound");
+        reserved.Append("[Quest startup] original movie decoded frame source=fixture", "unused routine stack");
+        text = File.ReadAllText(path);
+        Check(text.Contains("original movie decoded frame") && !text.Contains("unused routine stack"), "startup-reserve: mod trace cap swallowed native startup evidence");
 
         path = Path.Combine(root, "causes.log"); var causes = new QuestGameStartupLog(path, "cause cap");
         for (int i = 0; i < QuestGameStartupLog.MaxOriginalErrors * 2; i++) causes.AppendOriginalError("cause " + i, "stack " + i);

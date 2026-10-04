@@ -1407,6 +1407,12 @@
       "weight": 2
     },
     {
+      "id": "quest-startup-video",
+      "command": ["python3", "scripts/quest-startup-video-tests.py"],
+      "groups": ["local", "ci"],
+      "weight": 40
+    },
+    {
       "id": "quest-startup-loading",
       "command": ["python3", "scripts/quest-startup-loading-tests.py"],
       "groups": ["local", "ci"],

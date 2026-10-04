@@ -13,16 +13,21 @@ namespace GloomhavenVR.Quest
     {
         internal const int MaxBytes = 256 * 1024, MaxRecords = 512;
         internal const int MaxOriginalErrors = 64;
-        const int LifecycleBytes = MaxBytes / 2, ErrorBytes = MaxBytes - LifecycleBytes;
-        const int LifecycleRecords = MaxRecords - MaxOriginalErrors - 2;
+        const int StartupBytes = 32 * 1024, StartupRecords = 96;
+        const int LifecycleBytes = MaxBytes / 2 - StartupBytes, ErrorBytes = MaxBytes / 2;
+        const int LifecycleRecords = MaxRecords - MaxOriginalErrors - StartupRecords - 3;
         // Retain the existing grep token; it now caps only lifecycle records.
         const string LifecycleLimit = "[Quest startup] diagnostic log limit reached; further records suppressed.\n";
         const string ErrorLimit = "[Quest startup] original error log limit reached; further distinct causes suppressed.\n";
+        const string StartupLimit = "[Quest startup] startup lifecycle log limit reached; further records suppressed.\n";
         static readonly Encoding Utf8 = new UTF8Encoding(false);
         readonly string path;
         readonly object sync = new object();
         readonly HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
         readonly HashSet<string> errorsSeen = new HashSet<string>(StringComparer.Ordinal);
+        readonly HashSet<string> startupSeen = new HashSet<string>(StringComparer.Ordinal);
+        int startupBytes, startupRecords;
+        bool startupCapped;
         int bytes, records;
         int errorBytes, originalErrors;
         bool capped, errorsCapped;
@@ -54,6 +59,24 @@ namespace GloomhavenVR.Quest
         {
             lock (sync)
             {
+                // B614's real mod initialization filled the ordinary log budget
+                // before native cameras/video/scene edges appeared. Reserve a
+                // small bounded lifecycle lane independently of mod Debug traces
+                // and the existing first-error reserve. It never stores stacks.
+                if (message != null && message.StartsWith("[Quest startup]", StringComparison.Ordinal))
+                {
+                    if (startupCapped) return;
+                    string startupKey = Clip(message, 4096);
+                    if (startupSeen.Contains(startupKey)) return;
+                    string startupLine = Line(startupKey, null);
+                    int startupLength = Utf8.GetByteCount(startupLine);
+                    if (startupRecords >= StartupRecords || startupBytes + startupLength + Utf8.GetByteCount(StartupLimit) > StartupBytes)
+                    {
+                        File.AppendAllText(path, StartupLimit, Utf8); startupBytes += Utf8.GetByteCount(StartupLimit); startupCapped = true; return;
+                    }
+                    File.AppendAllText(path, startupLine, Utf8); startupBytes += startupLength; startupRecords++; startupSeen.Add(startupKey);
+                    return;
+                }
                 if (capped) return;
                 string key = Clip(message ?? "", 4096);
                 if (seen.Contains(key)) return;

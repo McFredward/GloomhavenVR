@@ -82,6 +82,7 @@ internal static class Program
         Resources.Assets["quest-mod-content"] = new TextAsset(JsonSerializer.Serialize(inputs.Mod, Json));
         Resources.Assets["quest-startup-content"] = new TextAsset(JsonSerializer.Serialize(inputs.Original, Json));
         Resources.Assets["quest-startup-addressables"] = new TextAsset("{\"schema\":1}");
+        Resources.Assets["quest-startup-movies"] = new TextAsset("{\"schema\":1}");
         Fixture.OnLog = message =>
         {
             if (message.Contains("archive copy started phase=content ", StringComparison.Ordinal)) Fixture.Event("original-copy");
@@ -151,6 +152,8 @@ internal static class Program
         Check(owner.ModContentReady && owner.ContentReady && owner.OriginalBootstrapStarted, "verified-order", "ready flags must follow actual successful files and original scene");
         Check(Fixture.Activations == 1 && Fixture.Addressables == 1 && Fixture.Loads == 1, "one-owner", "one downstream activation is required");
         string[] events = Fixture.Events.ToArray();
+        Check(Array.IndexOf(events, "original-paths") >= 0 && Array.IndexOf(events, "original-paths") < Array.IndexOf(events, "real-mod"),
+            "cached-original-paths", "original managed paths must be initialized before the plugin or native loader starts");
         Check(Array.IndexOf(events, "early-view") < Array.IndexOf(events, "real-mod"), "early-view", "temporary view precedes mod");
         Check(Array.IndexOf(events, "real-mod") < Array.IndexOf(events, "addressables") && Array.IndexOf(events, "addressables") < Array.IndexOf(events, "original-scene"), "verified-order", "mod, original content, Addressables and native scene order changed");
         Check(warm || Array.IndexOf(events, "real-mod") < Array.IndexOf(events, "original-copy"), "mod-before-original", "cold original archive must wait until mod activation");

@@ -22,6 +22,8 @@ def main():
     sources = {name: (args.runtime_source / name).read_text() for name in names}
     bootstrap = sources["QuestGameBootstrap.cs"]
     mutations = (
+        ("missing-original-path-cache", "QuestGame.Compatibility.Paths.Initialize(Application.persistentDataPath);",
+         "/* Missing original path initialization */", "cached-original-paths"),
         ("late-loading-view", "modLifecycle.PrepareStartupView();", "/* Missing early loading view */", "early-view"),
         ("mod-before-files", 'yield return EnsureContent(modManifest, modRoot, "quest-mod-content.zip", "mod-content");',
          "yield return null;", "mod-before-content"),

@@ -91,6 +91,8 @@ namespace GloomhavenVR.Quest
         public bool StartupViewAvailable;
         public void PrepareStartupView() { StartupViewAvailable = true; }
         public void UpdateStartupView(string state, QuestGameContentProgress progress) { }
+        public void BeginDeliveryView() { }
+        public void EndDeliveryView() { }
         public IEnumerator Activate(string root) { yield break; }
         public void Observe() { }
     }
@@ -109,6 +111,15 @@ namespace GloomhavenVR.Quest
         public static void Extract(QuestGameContentManifest manifest, string archive, string root, string expectedArchive = "quest-startup-content.zip", Action<QuestGameContentProgress> progress = null) { }
         public static string ResolveVerifiedPath(QuestGameContentManifest manifest, string root, string relative) { return relative; }
     }
+    public class QuestGamePresentationEvidence { public void Observe(string scene) { } }
+    public class QuestGameMovieManifest { }
+    public class QuestGameVideos : IDisposable
+    {
+        public void Install(QuestGameMovieManifest movies, QuestGameContentManifest content, string root, string key) { }
+        public void BindScene(UnityEngine.SceneManagement.Scene scene) { }
+        public void Observe() { }
+        public void Dispose() { }
+    }
     public class QuestGameAddressablesManifest { }
     public class QuestGameAddressables : IDisposable
     {
@@ -116,4 +127,9 @@ namespace GloomhavenVR.Quest
         public IEnumerator Install(QuestGameAddressablesManifest value, QuestGameContentManifest manifest, string root, string key) { yield break; }
         public void Dispose() { }
     }
+}
+
+namespace QuestGame.Compatibility
+{
+    public static class Paths { public static void Initialize(string root) { } }
 }

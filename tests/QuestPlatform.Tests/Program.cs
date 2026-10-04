@@ -86,8 +86,14 @@ internal static class Program
         Check(GameObject.AddedComponents.Contains(typeof(VRHeartbeat)) && GameObject.AddedComponents.Contains(typeof(VRPresenceWatch)), "core-lifecycle: running-session heartbeat/presence integration was bypassed");
         Check(!QuestStandalonePlatform.RigReady, "rig-ready: session existence was mislabeled as a built mod rig");
         VRRigDriver.HeadCamera = new Camera(); Check(QuestStandalonePlatform.RigReady, "rig-ready: real mod head camera did not publish rig availability");
+        Check(ReferenceEquals(QuestStandalonePlatform.HeadCamera, VRRigDriver.HeadCamera) && QuestStandalonePlatform.PresentationLayer == 27,
+            "delivery-head: temporary delivery UI must use the running original mod camera and layer");
+        Check(!QuestStandalonePlatform.DebugLogging, "presentation-debug: detailed startup census must remain disabled without Debug logging");
+        VRLog.WantsDebug = true;
+        Check(QuestStandalonePlatform.DebugLogging, "presentation-debug: Debug startup census did not follow the actual logging gate");
         VRRigDriver.HeadCamera.enabled = false;
         Check(!QuestStandalonePlatform.RigReady, "active-head-gate: disabled head camera was reported as a running rig");
+        Check(QuestStandalonePlatform.HeadCamera == null, "delivery-head: disabled camera cannot own the delivery view");
         VRRigDriver.HeadCamera.enabled = true; VRRigDriver.HeadCamera.gameObject.activeInHierarchy = false;
         Check(!QuestStandalonePlatform.RigReady, "active-head-gate: inactive head camera object was reported as a running rig");
         VRRigDriver.HeadCamera.gameObject.activeInHierarchy = true;

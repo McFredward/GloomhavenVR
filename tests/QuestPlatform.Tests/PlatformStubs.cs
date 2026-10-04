@@ -136,6 +136,8 @@ namespace UnityEngine.XR.OpenXR.Features.Interactions
 namespace GloomhavenVR.Rig { public static class VRRigDriver { public static UnityEngine.Camera HeadCamera; } }
 namespace GloomhavenVR.Core
 {
+    internal enum VRLogLevel { Debug }
+    internal static class VRLayers { internal static int ModLayer => 27; }
     internal static class VRSession
     {
         internal static bool IsRunning;
@@ -152,6 +154,8 @@ namespace GloomhavenVR.Core
     }
     internal static class VRLog
     {
+        internal static bool WantsDebug;
+        internal static bool Wants(VRLogLevel level) => WantsDebug;
         internal static List<string> Lines = new();
         internal static void Info(string area, string value) { Lines.Add("Info " + area + " " + value); }
         internal static void Warn(string area, string value) { Lines.Add("Warn " + area + " " + value); }

@@ -26,6 +26,9 @@ public static class QuestStandalonePlatform
     public static string ResourceDirectory => Enabled ? _resourceDirectory! : throw new InvalidOperationException("Quest standalone platform is not configured.");
     public static bool ModRunning => Enabled && VRSession.IsRunning;
     public static bool RigReady => ModRunning && VRRigDriver.HeadCamera != null && VRRigDriver.HeadCamera.isActiveAndEnabled;
+    public static Camera? HeadCamera => RigReady ? VRRigDriver.HeadCamera : null;
+    public static int PresentationLayer => VRLayers.ModLayer;
+    public static bool DebugLogging => Enabled && VRLog.Wants(VRLogLevel.Debug);
 
     /// <summary>Called by the player before plugin creation, with its verified local resource root.</summary>
     public static void Configure(string pluginDirectory, Func<bool, bool> setPassthrough,

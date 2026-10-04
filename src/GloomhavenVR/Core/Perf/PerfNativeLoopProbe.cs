@@ -169,9 +169,9 @@ internal static class PerfNativeLoopProbe
         _installed = true;
         long started = Stopwatch.GetTimestamp();
         MethodInfo? prefix = typeof(PerfNativeLoopProbe).GetMethod(nameof(Prefix),
-            BindingFlags.Static | BindingFlags.NonPublic);
+            BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
         MethodInfo? postfix = typeof(PerfNativeLoopProbe).GetMethod(nameof(Postfix),
-            BindingFlags.Static | BindingFlags.NonPublic);
+            BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
         if (prefix == null || postfix == null)
             return;
         foreach (Target target in Targets)

@@ -20,6 +20,7 @@ def main():
     shutil.copytree(root / "tests/QuestStartupLog.Tests", harness, ignore=shutil.ignore_patterns("bin", "obj"))
     cases = [("production", logger, bootstrap, "")]
     mutations = (
+        ("startup-reserve-missing", "logger", "if (startupCapped) return;", "if (startupCapped || capped) return;", 1, "startup-reserve"),
         ("main-thread-only", "bootstrap", "Application.logMessageReceivedThreaded", "Application.logMessageReceived", 2, "worker-callback"),
         ("duplicate-budget", "logger", "if (errorsSeen.Contains(key)) return;", "if (errorsSeen.Contains(key)) { Volatile.Write(ref originalErrors, originalErrors + 1); return; }", 1, "distinct-budget"),
         ("same-message-lost-stack", "logger", 'string key = clippedMessage + "\\n" + clippedStack;', "string key = clippedMessage;", 1, "stack-identity"),
@@ -61,7 +62,7 @@ def main():
             print(next(line for line in result.stdout.splitlines() if line.startswith("PASS Quest startup logging:")), flush=True)
         else:
             print("PASS rejected " + name + " at " + expected, flush=True)
-    print("PASS production startup callback and 8 diagnostic defect controls")
+    print("PASS production startup callback and " + str(len(mutations)) + " diagnostic defect controls")
 
 
 if __name__ == "__main__":

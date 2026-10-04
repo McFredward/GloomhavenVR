@@ -48,7 +48,8 @@ def main():
         assert 'publish environment readiness' in str(error), 'Removed-edge control failed for an unrelated reason'
     else: raise SystemExit('Native material repair removed-edge negative control escaped')
     assert 'StaticBatchingUtility' not in source and 'SetStaticBatchInfo' not in source, 'Native sources must not acquire Unity internal static-batch state'
-    assert 'Camera.onPreCull += OnPreCull;' in source and 'Camera.onPostRender -= OnPostRender;' in source, 'Draw leases require paired real rendering hooks'
+    assert 'Camera.onPreCull += OnCameraPreCull;' in source and 'Camera.onPostRender -= OnCameraPostRender;' in source, 'Draw leases require paired real rendering hooks'
+    assert 'void OnPreCull(Camera' not in source and 'void OnPostRender(Camera' not in source, 'Camera events must not collide with parameterless Unity messages'
     variants = [('production',source,'')]
     if not args.production_only:
         changes = [

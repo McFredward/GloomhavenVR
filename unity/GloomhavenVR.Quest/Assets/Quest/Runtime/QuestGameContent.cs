@@ -124,6 +124,10 @@ namespace GloomhavenVR.Quest
             if (!IsReady(manifest, root, progress)) throw new InvalidDataException("Extracted startup content failed its final verification.");
         }
 
+        // Routing already verified content must retain the same containment and
+        // symlink checks without repeating large media hashes on Unity's thread.
+        internal static string ResolvePath(string root, string relative) => Target(root, relative);
+
         static string Target(string root, string relative)
         {
             if (!SafePath(relative)) throw new InvalidDataException("Unsafe content path.");

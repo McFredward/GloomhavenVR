@@ -220,7 +220,10 @@ internal sealed class FfsNetTransport : INetTransport
                 return;
             }
             var prefix = new HarmonyMethod(typeof(FfsNetTransport).GetMethod(
-                nameof(ReceivePrefix), BindingFlags.Static | BindingFlags.NonPublic));
+                // Static integration exposes hooks to the original assembly.
+                // B614 retained ReceivePrefix as public; NonPublic alone then
+                // returns null even though the exact woven hook is present.
+                nameof(ReceivePrefix), BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public));
             _harmony.Patch(target, prefix: prefix);
 
             // Pre-box the constant SendSideAction args once (only slot [1], the token, changes

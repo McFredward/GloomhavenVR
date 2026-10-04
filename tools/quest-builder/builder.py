@@ -344,6 +344,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             shutil.copyfile(identity / name, resources / name)
         if args.target == "startup":
             shutil.copyfile(recovered / startup.REPORT, resources / startup.REPORT)
+            startup.stage_startup_movies(project, game)
             package_startup_content(project, inputs["inputKey"])
             package_data = json.loads((project / "Packages/manifest.json").read_text(encoding="utf-8"))
             package_data.setdefault("dependencies", {})["com.unity.addressables"] = "1.19.19"
@@ -379,7 +380,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
         # contract and Resources instead of receipts over import-generated .meta files.
         contracts = [settings, manifest, resources / "quest-profile.json", resources / "quest-steam-logo.png"]
         if args.target == "startup":
-            contracts.extend([resources / startup.REPORT, resources / "quest-startup-content.json",
+            contracts.extend([resources / startup.REPORT, resources / startup.MOVIES_REPORT, resources / "quest-startup-content.json",
                               project / "Assets/StreamingAssets/quest-startup-content.zip",
                               project / "QuestStartupEvidence/compute-source-restoration.json"])
             contracts.extend(startup_shader_contracts(project))
