@@ -57,8 +57,13 @@ public static partial class MirrorProgram
         TownServiceMirror.CommitPublicVisibility = TownServicePublicMerchant.FixtureCommitVisibility;
         TownServiceSync.UseProductionPublish = true;
         drawer.Select(1, false);
+        int advancedFrame = -1;
         for (float until = Time.unscaledTime + TownRackState.TurnDuration + .03f; Time.unscaledTime < until;)
-        { drawer.FixtureTick(); foreach (var key in catalog.Categories) key.Tick(1f); yield return null; }
+        {
+            if (advancedFrame == Time.frameCount) { yield return null; continue; }
+            advancedFrame = Time.frameCount;
+            drawer.FixtureTick(); foreach (var key in catalog.Categories) key.Tick(1f); yield return null;
+        }
         TownServiceSync.TickPublic(owner, owner, catalog, 882, 1f);
         List<byte[]> initial = Capture();
         Check(initial.Any(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out var f) && f!.Rack != null),
@@ -84,8 +89,16 @@ public static partial class MirrorProgram
             "peer physical category button adopts the public page despite missing artwork and a separate merchant transaction");
         float start = Time.unscaledTime;
         bool sampled = false;
+        advancedFrame = -1;
         while (Time.unscaledTime - start < TownRackState.TurnDuration + .05f)
         {
+            // EditorApplication.update can resume this IEnumerator more than once in one
+            // play-mode frame. Native Tick consumes Time.unscaledDeltaTime, while capture/
+            // retry/received clocks use Time.unscaledTime. Advancing only the drawer again
+            // invented a fast owner clock and sampled before the corresponding real frame.
+            // Match its actual production once-per-frame owner; preserve every parity term.
+            if (advancedFrame == Time.frameCount) { yield return null; continue; }
+            advancedFrame = Time.frameCount;
             identities.Switch(2);
             drawer.FixtureTick(); foreach (var key in catalog.Categories) key.Tick(1f);
             TownServiceSync.TickPublic(owner, owner, catalog, 882, 1f);
@@ -96,13 +109,15 @@ public static partial class MirrorProgram
             {
                 ushort housingId = TownServiceSync.PublicModuleId(housing);
                 Transform remoteHousing = Remote(-2, housingId)!.Root;
-                Check(TownServiceMirror.HasReadyPublicPresentation && state.From == 256 && state.To == 0
-                    && Vector3.Distance(housing.Find("Cassette").localPosition, remoteHousing.Find("Cassette").localPosition) < .005f,
+                bool matches = TownServiceMirror.HasReadyPublicPresentation && state.From == 256 && state.To == 0
+                    && Vector3.Distance(housing.Find("Cassette").localPosition, remoteHousing.Find("Cassette").localPosition) < .005f;
+                Check(matches,
                     "actual peer category callback preserves the same intermediate authored cassette motion remotely"
                     + ": ready=" + TownServiceMirror.HasReadyPublicPresentation + " from=" + state.From + " to=" + state.To
                     + " direction=" + state.ScrollDirection + " ownerClock=" + drawer.FixtureFollowClock + " remoteClock=" + state.Elapsed
                     + " owner=" + housing.Find("Cassette").localPosition.ToString("F6")
-                    + " remote=" + remoteHousing.Find("Cassette").localPosition.ToString("F6"));
+                    + " remote=" + remoteHousing.Find("Cassette").localPosition.ToString("F6")
+                    + (matches ? "" : " readiness=" + NavigationReadiness(state)));
                 foreach (var key in catalog.Categories)
                     Check(Vector3.Distance(key.Root.position, Remote(-2, TownServiceSync.PublicModuleId(key.Root))!.Root.position) < .003f,
                         "actual category key depression survives original capture and cross-client playback: owner=" + key.Root.position
@@ -125,8 +140,13 @@ public static partial class MirrorProgram
         catalog.Categories[1].OnPoke(hand);
         Check(TownServiceMirror.IsPublicAuthor && drawer.FromPage == 0 && drawer.ToPage == 256 && hand.Haptics == 2,
             "a subsequent different peer category press adopts the shared page before beginning its own return animation");
+        advancedFrame = -1;
         for (float until = Time.unscaledTime + TownRackState.TurnDuration + .03f; Time.unscaledTime < until;)
-        { drawer.FixtureTick(); yield return null; }
+        {
+            if (advancedFrame == Time.frameCount) { yield return null; continue; }
+            advancedFrame = Time.frameCount;
+            drawer.FixtureTick(); yield return null;
+        }
         drawer.PageCount = 2;
         Check(TownServicePublicMerchant.TryTurnPage(drawer, 1) && TownServiceMirror.IsPublicAuthor
             && drawer.FromPage == 256 && drawer.ToPage == 257,
@@ -137,6 +157,34 @@ public static partial class MirrorProgram
         TownServicePublicMerchant.Catalog = null; TownServicePublicMerchant.FixtureResetVisibility();
         drawer.FixtureDisposeFollower(); NativeTemplates.BoundaryRoots.Clear(); TownServiceCatalog.CardMounts.Clear();
         TownServiceMirror.Shutdown(); Baselines.Clear();
+    }
+
+    private static string NavigationReadiness(TownRackState state)
+    {
+        int peer = -TownServiceMirror.PublicAuthor;
+        var remote = (IDictionary)typeof(TownServiceMirror).GetField("Remote", PrivateStatic)!.GetValue(null)!;
+        var pending = (IDictionary)typeof(TownServiceMirror).GetField("Pending", PrivateStatic)!.GetValue(null)!;
+        if (!TownServiceMirror.PublicSessions.TryGetValue(peer, out var session)
+            || !remote.Contains(peer) || !pending.Contains(peer)) return "session/group absent";
+        object modules = remote[peer]!;
+        bool Controls() => (bool)typeof(TownServiceMirror).GetMethod("PublicControlsReady", PrivateStatic)!
+            .Invoke(null, new object[] { session, state, modules })!;
+        bool Page(ushort page) => (bool)typeof(TownServiceMirror).GetMethod("PublicPageReady", PrivateStatic)!
+            .Invoke(null, new object[] { (ushort)TownServiceSync.PublicModuleId(TownServicePublicMerchant.Catalog!.ObserverRoot!), state, page, session, modules })!;
+        var parts = new List<string>();
+        foreach (ushort id in session.Modules)
+        {
+            var module = ((IDictionary)modules)[id];
+            var received = ((IDictionary)pending[peer]!)[id] as TownServiceFrame;
+            TownServiceFrame? applied = module == null ? null
+                : module.GetType().GetField("LastFrame", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(module) as TownServiceFrame;
+            parts.Add(id + ":" + (received?.TemplateAddress ?? "no packet") + ":"
+                + (received?.RackMember?.Turn.ToString() ?? "-") + ":"
+                + (applied?.RackMember?.Turn.ToString() ?? "no applied")
+                + ":seq=" + (received?.Sequence.ToString() ?? "-") + "/" + (applied?.Sequence.ToString() ?? "-"));
+        }
+        return "controls=" + Controls() + " from=" + Page(state.From) + " to=" + Page(state.To)
+            + " modules=" + string.Join(",", parts);
     }
 
     // This Unity fixture executes clients sequentially. The local player adapter
