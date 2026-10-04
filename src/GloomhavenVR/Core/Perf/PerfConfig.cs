@@ -790,7 +790,7 @@ internal static class PerfConfig
         CacheTickDelegates = _file.Bind("Optimize", "CacheTickDelegates", Defaults.CacheTickDelegates,
             "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Cache unchanged tick delegates instead of allocating them each frame.");
         MapIconCache = _file.Bind("Optimize", "MapIconCache", Defaults.MapIconCache,
-            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Cache campaign-map icon discovery while reading each icon pose live.");
+            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Cache campaign-map icon discovery instead of repeating it PER RENDERING CAMERA PER FRAME; read each icon pose live.");
         FigureScanCache = _file.Bind("Optimize", "FigureScanCache", Defaults.FigureScanCache,
             "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Reuse adopted figure ownership and skip unnecessary empty-hand component walks.");
         LeanLogStrings = _file.Bind("Optimize", "LeanLogStrings", Defaults.LeanLogStrings,
