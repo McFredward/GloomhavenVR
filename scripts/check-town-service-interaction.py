@@ -196,7 +196,9 @@ def mutations():
         ("paid-purse-never-returns", "Token.cs", "_physical.SetParent(_homeParent, false);", "_physical.SetParent(_mat, false);", "paid purse restores the inspectable fan prop only after its completed bowl sink"),
         ("purse-own-hand", "Token.cs", "(_handAllowed?.Invoke(hand) ?? true)", "true", "unowned or unavailable purse cannot be grabbed or donated"),
         ("purse-visible-body", "Token.cs", "_physical.TransformPoint(_physicalBounds.center)", "_physical.TransformPoint(Vector3.up * .0625f)", "bowl release samples the original visible purse midpoint"),
-        ("flat-purse", "Token.cs", "if (_uprightProp)", "if (!_uprightProp)", "physical original follows either tracked hand"),
+        # The native bounds path uses TickPursePose; mutating its legacy OnGrab
+        # rotation offset no longer changes the displayed purse orientation.
+        ("flat-purse", "Token.cs", "forward.y = 0f;", "forward = forward.normalized;", "held original purse stays upright while the tracked hand pitches and rolls"),
         ("purse-depth", "Token.cs", "Vector3.Scale(_physicalBounds.size, new Vector3(", "Vector3.Scale(_physicalBounds.size * .1f, new Vector3(", "purse collider encloses the original body independently of inscriptions"),
         ("purse-label-pick", "Token.cs", "if (_uprightProp && _physical != null)\n        {\n            // Only original mesh", "if (false && _physical != null)\n        {\n            // Only original mesh", "purse collider encloses the original body independently of inscriptions"),
         ("purse-double-scale", "Token.cs", "physical.TransformVector(neck)", "physical.TransformDirection(neck)", "original purse neck stays at the tracked pinch through map scales"),
