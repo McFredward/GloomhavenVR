@@ -71,6 +71,17 @@ The integrated gate and compiled comparison are recorded in `.planning/STATE.md`
 and `.planning/debug/frame618-implementation/`; individual successful worker runs
 alone are partial evidence.
 
+The integrated local attempt recorded 121/121 suites in 829 seconds: 120 passed
+directly. The remaining MR suite's original production assertions passed but its
+text binding expected the previous wall-owner spelling; its bounded corrected
+79-assertion/six-control resume passed without a runtime source change. Original
+failures and early runner-inventory corrections are retained. Passing suites were
+not rerun. Fourteen source gates, golden vectors, strict zero-warning Release,
+five i18n pairs, bundle/figure-bank and surface checks also passed. Compiled review
+against Build617 found eleven intended changed types, four additions and eight
+build/branch stamp differences only. The continuation of the guard's unchanged
+post-wire phases and raw ledger are retained with the evidence.
+
 The next Frame run should revisit ordinary movement/attacks, first fan display,
 first figure/stat pickup and later summons after loading has finished. Existing
 Debug configuration is sufficient. Compare wall publication reasons/costs,

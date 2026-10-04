@@ -25,8 +25,22 @@ budgets. The whole 207 ms callback and unassigned native work are not claimed fi
 
 Focused worker/root evidence is retained under
 `.planning/debug/frame618-implementation/` and
-`.planning/debug/frame618-review/wall-implementation/`. Final integrated gate
-and compiled-comparison results will be recorded here before pushing. All changes
+`.planning/debug/frame618-review/wall-implementation/`. The integrated attempt
+recorded all 121 local suites: 120 passed directly, and `mr-scenario` passed its
+bounded 79-assertion/six-control resume after updating a legacy source-only owner
+binding. Runtime source was unchanged; passing suites were not rerun. All 14 source
+gates, golden vectors, strict Release (zero warnings/errors), five i18n pairs,
+bundle/figure-bank and surface checks passed. The two early runner-inventory
+failures and original MR failure remain in the evidence; inventory/partition
+self-tests passed after registering the added local-only native-card suite.
+
+Compiled comparison against immutable 7ddf0d41 / Build617 has eleven intended
+changed types and four additions. Eight other differences are only the build
+constant's propagation or worktree branch stamp; there are no removed types or
+unexplained runtime changes. All 655 configuration keys remain; two geometry
+patches and one Debug marker were added. The unchanged guard's post-wire phases
+were executed separately after the bounded resume, with the exact extracted
+script and validation ledger retained. All changes
 apply generally; Frame settings/defaults, network records, 2D map and original
 non-NPC paths are unchanged. See
 [FRAME-618-IMPLEMENTATION](../docs/performance/FRAME-618-IMPLEMENTATION.md).
