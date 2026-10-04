@@ -1,0 +1,5495 @@
+{
+  "bundles": [
+    [
+      "pcg_databases_assets_assets/pcg/pcg_city.asset.bundle",
+      "518fc10dce054b1e4d342dbe9f521bac7959b2a5d32d77287b2aaa1a965ee4a0"
+    ],
+    [
+      "pcg_databases_assets_assets/pcg/pcg_citywalls.asset.bundle",
+      "d59eace681c8fd39bb621ef26c1b93c23d613691e76adea702f02bc843111ba4"
+    ],
+    [
+      "pcg_databases_assets_assets/pcg/pcg_dlc_sb_custom_01.asset.bundle",
+      "ec3bb73fdf3ba0fb4339f4f5a2525d0d8b9011834dcd5ddcc7a2e10a1ee46ffd"
+    ],
+    [
+      "pcg_databases_assets_assets/pcg/pcg_dlc_sb_custom_02.asset.bundle",
+      "24eac55a224ac62591b35968a916d783bc7d33a31530d3b680d9cf52cba397ee"
+    ],
+    [
+      "pcg_databases_assets_assets/pcg/pcg_dlc_sb_platform.asset.bundle",
+      "8dd9ca8d6a417e60435f16acbb887eb1eef394815b29fe5087e86f72d99b8530"
+    ],
+    [
+      "pcg_databases_assets_assets/pcg/pcg_dlc_sb_ship.asset.bundle",
+      "be9c477646f17a193eb6bddea809e2fe569b4b2edf3d3f746e5c2276c1272657"
+    ],
+    [
+      "pcg_databases_assets_assets/pcg/pcg_dlc_sb_tunnels.asset.bundle",
+      "548f26ea5ffc53b715affc6773adc111605fc21623b7a8cdf89146d2dc8efda6"
+    ],
+    [
+      "pcg_databases_assets_assets/pcg/pcg_dlc_sb_void.asset.bundle",
+      "2aaa592b24e08baea0d6dedc97525a8d133b70220f4e65d693b8d2a0a9dcf1fa"
+    ],
+    [
+      "pcg_databases_assets_assets/pcg/pcg_dungeon.asset.bundle",
+      "18ccc1e52b6060a7bd1569ef1b35241ef4094909f6da24afbcda3ec3f4832c7a"
+    ],
+    [
+      "pcg_databases_assets_assets/pcg/pcg_rot.asset.bundle",
+      "a29e9752436fed2677aa2dc5be55716d1e565146112de95d87c09ccd0ceb64bb"
+    ],
+    [
+      "pcg_databases_assets_assets/pcg/pcg_sewers.asset.bundle",
+      "61abbf7d57b3918688b0dab4bcfdd4616c2a2980f3c6a4c86907e87b228134dd"
+    ],
+    [
+      "pcg_databases_assets_assets/pcg/pcg_shack.asset.bundle",
+      "38f0f80f09ec74df6ce74be0bc444dfdaa87755df539446c461355dc77083d08"
+    ],
+    [
+      "pcg_databases_assets_assets/pcg/pcg_stonerooms.asset.bundle",
+      "d9a1f668ec1a7640d91281970733aa3e37408f91077e37f7cd54e6259707b180"
+    ],
+    [
+      "pcg_databases_assets_assets/pcg/pcg_stonewoodenrooms.asset.bundle",
+      "009d48ae6beedc85cf775fb422e92119c2a0d10e49f9e3c4fa402abbaa1a73d3"
+    ],
+    [
+      "pcg_databases_assets_assets/pcg/pcg_subbiome_01.asset.bundle",
+      "1c5f3071d8be71307c6de68b64117734f9fd8ad557f169929c5d4652307cd8b1"
+    ],
+    [
+      "pcg_databases_assets_assets/pcg/pcg_subbiome_02.asset.bundle",
+      "03708a87f5d99f41e682537227ab6d1525ec864fd7a75f38bedbab8b82c41ec6"
+    ],
+    [
+      "pcg_databases_assets_assets/pcg/pcg_subbiome_05.asset.bundle",
+      "51302726791ef367939485545d85c7b4c231984bbe6e3214f64494e1eb774948"
+    ]
+  ],
+  "roots": [
+    "CR_Dungeon_Doorway_01_PR",
+    "CR_Dungeon_Doorway_01_Thin_PR",
+    "DLC_SB_Platform_Doorway_01_PR",
+    "DLC_SB_Platform_Doorway_01_Thin_PR",
+    "DLC_SB_Ship_Doorway_01_Thick_PR",
+    "DLC_SB_Ship_Doorway_01_Thick_Split_PR",
+    "DLC_SB_Ship_Doorway_01_Thin_PR",
+    "SB_01_ElementalPower_Entrance_Thin_PR",
+    "SB_02_Fort_Entrance_Thin_PR",
+    "SE_Rot_Sewer_Doorway_01_PR",
+    "SE_Rot_Sewer_Doorway_01_Thin_PR",
+    "ST_Vermling_DoorFrame_PR",
+    "TO_EXT_Stone_Doorway_01_FRAME_Split_PR",
+    "TO_EXT_Stone_Doorway_02_FRAME_Split_PR",
+    "TO_EXT_Wood_Doorway_02_FRAME_PR",
+    "TO_INT_Cathedral_Doorway_01_PR",
+    "TO_INT_Cathedral_Doorway_01_Split_PR",
+    "TO_INT_Cathedral_Doorway_01_Thin_PR",
+    "TO_INT_Stone_Doorway_01_FRAME_Split_PR",
+    "TO_INT_Stone_Doorway_02_FRAME_Split_PR",
+    "TO_INT_Wood_Doorway_01_FRAME_PR",
+    "TO_INT_Wood_Doorway_01_FRAME_Split_PR",
+    "TO_INT_Wood_Doorway_02_FRAME_PR",
+    "TO_INT_Wood_Doorway_02_FRAME_Split_PR",
+    "TO_INT_Wood_Shack_Doorway_01_PR",
+    "TO_INT_Wood_Shack_Doorway_01_Split_PR",
+    "TO_INT_Wood_Shack_Doorway_01_Thin_PR",
+    "TO_INT_Wood_Shack_EXIT_Thin_PR",
+    "TO_INT_Wood_Shack_Entrance_Thin_PR",
+    "TO_SB_GothicTunnels_Doorway_01_PR",
+    "TO_SB_GothicTunnels_Doorway_01_Split_PR",
+    "TO_SB_GothicTunnels_Doorway_01_Thin_PR",
+    "TO_Sewer_Doorway_01_PR"
+  ],
+  "frame_meshes": [
+    "CR_INT_Stone_Door_Single",
+    "CR_INT_Stone_Doorway_02_FRAME_Split",
+    "CR_INT_Wooden_Doorway_01",
+    "CR_INT_Wooden_Doorway_01_Split",
+    "SE_Doorway_Thick",
+    "SE_Gothic_Door_Frame_Thick",
+    "SE_Gothic_Door_Frame_Thick_Split",
+    "SE_Gothic_Door_Frame_Thick_Top_Half",
+    "TO_EXT_DoorMarker",
+    "TO_EXT_House_Door_trim",
+    "TO_INT_Shack_Doorway_Frame",
+    "TO_INT_Shack_Doorway_Frame_Thin",
+    "TO_INT_Shack_Doorway_Split",
+    "DLC_TH_Vermling_Door_Frame"
+  ],
+  "mount_meshes": [
+    "EN_CR_WallTorch_01",
+    "CR_INT_Wall_Candles_01",
+    "CR_INT_Wall_Candles_02"
+  ],
+  "records": [
+    {
+      "root": "TO_INT_Stone_Doorway_02_FRAME_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_city.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Stone_Doorway_02_FRAME_Split_PR/CR_INT_Stone_Doorway_02_FRAME_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            -0.19300000369548798
+          ],
+          "mesh": "CR_INT_Stone_Doorway_02_FRAME_Split"
+        },
+        {
+          "path": "TO_INT_Stone_Doorway_02_FRAME_Split_PR/CR_St_WallTorch_Fire",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.1720000505447388,
+            1.8969999551773071,
+            0.14999999105930328
+          ],
+          "mesh": "EN_CR_WallTorch_01"
+        },
+        {
+          "path": "TO_INT_Stone_Doorway_02_FRAME_Split_PR/CR_St_WallTorch_Fire (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.1410000324249268,
+            1.8969999551773071,
+            0.15199999511241913
+          ],
+          "mesh": "EN_CR_WallTorch_01"
+        },
+        {
+          "path": "TO_INT_Stone_Doorway_02_FRAME_Split_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.9386000633239746,
+            -0.015200000256299973
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Stone_Doorway_01_FRAME_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_city.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Stone_Doorway_01_FRAME_Split_PR/CR_INT_Stone_Doorway_02_FRAME_Split/CR_St_WallTorch_Fire",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.7549999952316284,
+            1.5190000534057617,
+            -0.19499999284744263
+          ],
+          "mesh": "EN_CR_WallTorch_01"
+        },
+        {
+          "path": "TO_INT_Stone_Doorway_01_FRAME_Split_PR/CR_INT_Stone_Doorway_02_FRAME_Split/CR_St_WallTorch_Fire (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.7400000095367432,
+            1.5299999713897705,
+            -0.2029999941587448
+          ],
+          "mesh": "EN_CR_WallTorch_01"
+        },
+        {
+          "path": "TO_INT_Stone_Doorway_01_FRAME_Split_PR/CR_INT_Stone_Doorway_02_FRAME_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mesh": "CR_INT_Stone_Doorway_02_FRAME_Split"
+        },
+        {
+          "path": "TO_INT_Stone_Doorway_01_FRAME_Split_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.004999999888241291,
+            2.930000066757202,
+            0.1899999976158142
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Stone_Doorway_01_FRAME_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_city.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Stone_Doorway_01_FRAME_Split_PR/CR_INT_Stone_Doorway_02_FRAME_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mesh": "CR_INT_Stone_Doorway_02_FRAME_Split"
+        }
+      ]
+    },
+    {
+      "root": "TO_EXT_Wood_Doorway_02_FRAME_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_citywalls.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_EXT_Wood_Doorway_02_FRAME_PR/CR_INT_Wooden_Doorway_01",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mesh": "CR_INT_Wooden_Doorway_01"
+        },
+        {
+          "path": "TO_EXT_Wood_Doorway_02_FRAME_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.9310998916625977,
+            0.14499999582767487
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_EXT_Wood_Doorway_02_FRAME_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.9430999755859375,
+            -0.1889999955892563
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_EXT_Wood_Doorway_02_FRAME_PR/CR_INT_Wall_Candles_02/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -0.02952772006392479,
+            0.21844685077667236,
+            0.16235403716564178
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_EXT_Wood_Doorway_02_FRAME_PR/CR_INT_Wall_Candles_02",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.2648999691009521,
+            1.9639999866485596,
+            0.328000009059906
+          ],
+          "mesh": "CR_INT_Wall_Candles_02"
+        },
+        {
+          "path": "TO_EXT_Wood_Doorway_02_FRAME_PR/CR_INT_Wall_Candles_02 (1)/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -0.02952772006392479,
+            0.21844685077667236,
+            0.16235403716564178
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_EXT_Wood_Doorway_02_FRAME_PR/CR_INT_Wall_Candles_02 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.2649999856948853,
+            1.9639999866485596,
+            0.328000009059906
+          ],
+          "mesh": "CR_INT_Wall_Candles_02"
+        },
+        {
+          "path": "TO_EXT_Wood_Doorway_02_FRAME_PR/CR_INT_Wall_Candles_02 (2)/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -0.02952772006392479,
+            0.21844685077667236,
+            0.16235403716564178
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_EXT_Wood_Doorway_02_FRAME_PR/CR_INT_Wall_Candles_02 (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.2859047651290894,
+            1.9639999866485596,
+            -0.30412614345550537
+          ],
+          "mesh": "CR_INT_Wall_Candles_02"
+        },
+        {
+          "path": "TO_EXT_Wood_Doorway_02_FRAME_PR/CR_INT_Wall_Candles_02 (3)/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -0.02952772006392479,
+            0.21844685077667236,
+            0.16235403716564178
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_EXT_Wood_Doorway_02_FRAME_PR/CR_INT_Wall_Candles_02 (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.243967890739441,
+            1.9639999866485596,
+            -0.3160000145435333
+          ],
+          "mesh": "CR_INT_Wall_Candles_02"
+        },
+        {
+          "path": "TO_EXT_Wood_Doorway_02_FRAME_PR/TO_EXT_House_Door_trim (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.1974999904632568,
+            0.5260000228881836,
+            -0.3937000036239624
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_EXT_Wood_Doorway_02_FRAME_PR/TO_EXT_House_Door_trim (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.2630000114440918,
+            0.5260000228881836,
+            -0.3937000036239624
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_EXT_Wood_Doorway_02_FRAME_PR/TO_EXT_House_Door_trim (4)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.1974999904632568,
+            0.5260000228881836,
+            0.4449999928474426
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_EXT_Wood_Doorway_02_FRAME_PR/TO_EXT_House_Door_trim (5)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.2630000114440918,
+            0.5260000228881836,
+            0.445000022649765
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_EXT_Wood_Doorway_02_FRAME_PR/TO_EXT_DoorMarker",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.02314000017940998,
+            -0.0037734999787062407,
+            0.5422800183296204
+          ],
+          "mesh": "TO_EXT_DoorMarker"
+        },
+        {
+          "path": "TO_EXT_Wood_Doorway_02_FRAME_PR/TO_EXT_DoorMarker (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.0018599999602884054,
+            -0.0037734999787062407,
+            -0.5082799792289734
+          ],
+          "mesh": "TO_EXT_DoorMarker"
+        }
+      ]
+    },
+    {
+      "root": "TO_EXT_Stone_Doorway_01_FRAME_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_citywalls.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_EXT_Stone_Doorway_01_FRAME_Split_PR/CR_INT_Stone_Doorway_02_FRAME_Split/CR_St_WallTorch_Fire",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.7549999952316284,
+            1.5190000534057617,
+            -0.19499999284744263
+          ],
+          "mesh": "EN_CR_WallTorch_01"
+        },
+        {
+          "path": "TO_EXT_Stone_Doorway_01_FRAME_Split_PR/CR_INT_Stone_Doorway_02_FRAME_Split/CR_St_WallTorch_Fire (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.7400000095367432,
+            1.5299999713897705,
+            -0.2029999941587448
+          ],
+          "mesh": "EN_CR_WallTorch_01"
+        },
+        {
+          "path": "TO_EXT_Stone_Doorway_01_FRAME_Split_PR/CR_INT_Stone_Doorway_02_FRAME_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mesh": "CR_INT_Stone_Doorway_02_FRAME_Split"
+        },
+        {
+          "path": "TO_EXT_Stone_Doorway_01_FRAME_Split_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.9030001163482666,
+            0.16699999570846558
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_EXT_Stone_Doorway_01_FRAME_Split_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.8989999890327454,
+            2.5950000286102295,
+            0.16699999570846558
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_EXT_Stone_Doorway_01_FRAME_Split_PR/TO_EXT_House_Door_trim (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.8769999742507935,
+            2.5950000286102295,
+            0.16699999570846558
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_EXT_Stone_Doorway_01_FRAME_Split_PR/TO_EXT_DoorMarker",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.02199999988079071,
+            0.006796100176870823,
+            0.4860000014305115
+          ],
+          "mesh": "TO_EXT_DoorMarker"
+        }
+      ]
+    },
+    {
+      "root": "TO_EXT_Stone_Doorway_02_FRAME_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_citywalls.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_EXT_Stone_Doorway_02_FRAME_Split_PR/CR_INT_Stone_Doorway_02_FRAME_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            -0.19300000369548798
+          ],
+          "mesh": "CR_INT_Stone_Doorway_02_FRAME_Split"
+        },
+        {
+          "path": "TO_EXT_Stone_Doorway_02_FRAME_Split_PR/CR_St_WallTorch_Fire",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.1720000505447388,
+            1.8969999551773071,
+            0.14999999105930328
+          ],
+          "mesh": "EN_CR_WallTorch_01"
+        },
+        {
+          "path": "TO_EXT_Stone_Doorway_02_FRAME_Split_PR/CR_St_WallTorch_Fire (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.1410000324249268,
+            1.8969999551773071,
+            0.15199999511241913
+          ],
+          "mesh": "EN_CR_WallTorch_01"
+        },
+        {
+          "path": "TO_EXT_Stone_Doorway_02_FRAME_Split_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.947000026702881,
+            0.003000000026077032
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_EXT_Stone_Doorway_02_FRAME_Split_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.7300000190734863,
+            1.6829999685287476,
+            0.07400000095367432
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_EXT_Stone_Doorway_02_FRAME_Split_PR/TO_EXT_House_Door_trim (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.7160000205039978,
+            1.6770000457763672,
+            0.032999999821186066
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_EXT_Stone_Doorway_02_FRAME_Split_PR/TO_EXT_DoorMarker",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.02199999988079071,
+            0.005815899930894375,
+            0.39399999380111694
+          ],
+          "mesh": "TO_EXT_DoorMarker"
+        }
+      ]
+    },
+    {
+      "root": "ST_Vermling_DoorFrame_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_custom_01.asset.bundle",
+      "rows": [
+        {
+          "path": "ST_Vermling_DoorFrame_PR/ST_Vermling_Door_Split/DLC_TH_Vermling_Door_Frame",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.009420356713235378,
+            1.7043551206588745,
+            0.08381839841604233
+          ],
+          "mesh": "DLC_TH_Vermling_Door_Frame"
+        },
+        {
+          "path": "ST_Vermling_DoorFrame_PR/CR_St_WallTorch_Fire",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.3899999856948853,
+            2.010999917984009,
+            0.2280000001192093
+          ],
+          "mesh": "EN_CR_WallTorch_01"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Shack_EXIT_Thin_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_custom_02.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.253000020980835,
+            1.8899999856948853,
+            -1.1970000267028809
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0119999647140503,
+            2.1540000438690186,
+            -1.2170000076293945
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -2.5290000438690186
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/CR_INT_Stone_Door_Single (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.6570000052452087,
+            0.0,
+            0.28700000047683716
+          ],
+          "mesh": "CR_INT_Stone_Door_Single"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/CR_INT_Stone_Door_Single (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.7820000052452087,
+            -0.16699999570846558,
+            0.397386759519577
+          ],
+          "mesh": "CR_INT_Stone_Door_Single"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.032999999821186066,
+            3.1519999504089355,
+            -0.18700000643730164
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_EXT_House_Door_trim (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.3669999837875366,
+            2.0360000133514404,
+            -0.3370000123977661
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_EXT_House_Door_trim (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.312999963760376,
+            1.9459999799728394,
+            -0.4189999997615814
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Shack_Entrance_Thin_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_custom_02.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Shack_Entrance_Thin_PR/CR_INT_Stone_Door_Single",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.621999979019165,
+            0.0,
+            2.446000099182129
+          ],
+          "mesh": "CR_INT_Stone_Door_Single"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Entrance_Thin_PR/CR_INT_Stone_Door_Single (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.5070000290870667,
+            0.1379999965429306,
+            2.9010000228881836
+          ],
+          "mesh": "CR_INT_Stone_Door_Single"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.253000020980835,
+            1.8899999856948853,
+            -1.1970000267028809
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0119999647140503,
+            2.1540000438690186,
+            -1.2170000076293945
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -2.3980000019073486
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Shack_Doorway_01_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_custom_02.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.253000020980835,
+            1.8899999856948853,
+            -1.1970000267028809
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0119999647140503,
+            2.1540000438690186,
+            -1.2170000076293945
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -2.3980000019073486
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Shack_Doorway_01_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_custom_02.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.253000020980835,
+            1.8899999856948853,
+            -1.1970000267028809
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0119999647140503,
+            2.1540000438690186,
+            -1.2170000076293945
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -2.5290000438690186
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Shack_EXIT_Thin_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_platform.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.253000020980835,
+            1.8899999856948853,
+            -1.1970000267028809
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0119999647140503,
+            2.1540000438690186,
+            -1.2170000076293945
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -2.5290000438690186
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/CR_INT_Stone_Door_Single (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.6570000052452087,
+            0.0,
+            0.28700000047683716
+          ],
+          "mesh": "CR_INT_Stone_Door_Single"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/CR_INT_Stone_Door_Single (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.7820000052452087,
+            -0.16699999570846558,
+            0.397386759519577
+          ],
+          "mesh": "CR_INT_Stone_Door_Single"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.032999999821186066,
+            3.1519999504089355,
+            -0.18700000643730164
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_EXT_House_Door_trim (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.3669999837875366,
+            2.0360000133514404,
+            -0.3370000123977661
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_EXT_House_Door_trim (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.312999963760376,
+            1.9459999799728394,
+            -0.4189999997615814
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Shack_Entrance_Thin_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_platform.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Shack_Entrance_Thin_PR/CR_INT_Stone_Door_Single",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.621999979019165,
+            0.0,
+            2.446000099182129
+          ],
+          "mesh": "CR_INT_Stone_Door_Single"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Entrance_Thin_PR/CR_INT_Stone_Door_Single (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.5070000290870667,
+            0.1379999965429306,
+            2.9010000228881836
+          ],
+          "mesh": "CR_INT_Stone_Door_Single"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.253000020980835,
+            1.8899999856948853,
+            -1.1970000267028809
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0119999647140503,
+            2.1540000438690186,
+            -1.2170000076293945
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -2.3980000019073486
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Shack_Doorway_01_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_platform.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.253000020980835,
+            1.8899999856948853,
+            -1.1970000267028809
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0119999647140503,
+            2.1540000438690186,
+            -1.2170000076293945
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -2.3980000019073486
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Shack_Doorway_01_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_platform.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.253000020980835,
+            1.8899999856948853,
+            -1.1970000267028809
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0119999647140503,
+            2.1540000438690186,
+            -1.2170000076293945
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -2.5290000438690186
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        }
+      ]
+    },
+    {
+      "root": "DLC_SB_Platform_Doorway_01_Thin_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_platform.asset.bundle",
+      "rows": [
+        {
+          "path": "DLC_SB_Platform_Doorway_01_Thin_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.802000045776367,
+            -0.17533999681472778
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "DLC_SB_Platform_Doorway_01_Thin_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.7909998893737793,
+            0.18523000180721283
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "DLC_SB_Platform_Doorway_01_Thin_PR/TO_INT_Shack_Doorway_Thin",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Frame_Thin"
+        },
+        {
+          "path": "DLC_SB_Platform_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.0729999542236328,
+            2.0980000495910645,
+            0.20399999618530273
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "DLC_SB_Platform_Doorway_01_Thin_PR/CandleFlame (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.0800000429153442,
+            2.3550000190734863,
+            0.4232100248336792
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "DLC_SB_Platform_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.0770000219345093,
+            2.0979998111724854,
+            0.20600000023841858
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "DLC_SB_Platform_Doorway_01_Thin_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0715998411178589,
+            2.3550000190734863,
+            0.4232100248336792
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "DLC_SB_Platform_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.0982848405838013,
+            2.0980000495910645,
+            -0.21030989289283752
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "DLC_SB_Platform_Doorway_01_Thin_PR/CandleFlame (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.105546474456787,
+            2.3550000190734863,
+            -0.4295102655887604
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "DLC_SB_Platform_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.0517112016677856,
+            2.0980000495910645,
+            -0.21487894654273987
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "DLC_SB_Platform_Doorway_01_Thin_PR/CandleFlame (4)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.0460516214370728,
+            2.3550000190734863,
+            -0.43208208680152893
+          ],
+          "mesh": "<external>"
+        }
+      ]
+    },
+    {
+      "root": "DLC_SB_Platform_Doorway_01_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_platform.asset.bundle",
+      "rows": [
+        {
+          "path": "DLC_SB_Platform_Doorway_01_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.128000020980835,
+            2.1430001258850098,
+            0.3059999942779541
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "DLC_SB_Platform_Doorway_01_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.121999979019165,
+            2.4070000648498535,
+            0.5479999780654907
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "DLC_SB_Platform_Doorway_01_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.947999954223633,
+            -0.3199999928474426
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "DLC_SB_Platform_Doorway_01_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.9539999961853027,
+            0.3230000138282776
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "DLC_SB_Platform_Doorway_01_PR/TO_INT_Shack_Doorway_Thick",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            -8.75792771637407e-10
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Frame"
+        },
+        {
+          "path": "DLC_SB_Platform_Doorway_01_PR/CR_INT_Wall_Candles_01 (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.2039999961853027,
+            2.1430001258850098,
+            0.3059999942779541
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "DLC_SB_Platform_Doorway_01_PR/CandleFlame (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.2100000381469727,
+            2.4070000648498535,
+            0.5479999780654907
+          ],
+          "mesh": "<external>"
+        }
+      ]
+    },
+    {
+      "root": "DLC_SB_Ship_Doorway_01_Thick_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_ship.asset.bundle",
+      "rows": [
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thick_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.128000020980835,
+            2.1430001258850098,
+            0.3059999942779541
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thick_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.121999979019165,
+            2.4070000648498535,
+            0.5479999780654907
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thick_PR/TO_INT_Shack_Doorway_Thick",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            -8.75792771637407e-10
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Frame"
+        },
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thick_PR/CR_INT_Wall_Candles_01 (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.2039999961853027,
+            2.1430001258850098,
+            0.3059999942779541
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thick_PR/CandleFlame (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.2100000381469727,
+            2.4070000648498535,
+            0.5479999780654907
+          ],
+          "mesh": "<external>"
+        }
+      ]
+    },
+    {
+      "root": "DLC_SB_Ship_Doorway_01_Thick_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_ship.asset.bundle",
+      "rows": [
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thick_Split_PR/CR_INT_Wall_Candles_01",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.0670000314712524,
+            2.0309998989105225,
+            0.28999999165534973
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thick_Split_PR/CandleFlame (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.0679999589920044,
+            2.294999837875366,
+            0.5320000052452087
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thick_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.0889999866485596,
+            2.0309998989105225,
+            0.28999999165534973
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thick_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0829999446868896,
+            2.294999837875366,
+            0.5320000052452087
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thick_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Shack_Doorway_01_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_ship.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.253000020980835,
+            1.8899999856948853,
+            -1.1970000267028809
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0119999647140503,
+            2.1540000438690186,
+            -1.2170000076293945
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -2.3980000019073486
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        }
+      ]
+    },
+    {
+      "root": "DLC_SB_Ship_Doorway_01_Thin_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_ship.asset.bundle",
+      "rows": [
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thin_PR/TO_INT_Shack_Doorway_Thin",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Frame_Thin"
+        },
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.0729999542236328,
+            2.0980000495910645,
+            0.20399999618530273
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thin_PR/CandleFlame (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.0800000429153442,
+            2.3550000190734863,
+            0.4232100248336792
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.0770000219345093,
+            2.0979998111724854,
+            0.20600000023841858
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thin_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0715998411178589,
+            2.3550000190734863,
+            0.4232100248336792
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.0982848405838013,
+            2.0980000495910645,
+            -0.21030989289283752
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thin_PR/CandleFlame (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.105546474456787,
+            2.3550000190734863,
+            -0.4295102655887604
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.0517112016677856,
+            2.0980000495910645,
+            -0.21487894654273987
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "DLC_SB_Ship_Doorway_01_Thin_PR/CandleFlame (4)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.0460516214370728,
+            2.3550000190734863,
+            -0.43208208680152893
+          ],
+          "mesh": "<external>"
+        }
+      ]
+    },
+    {
+      "root": "SB_02_Fort_Entrance_Thin_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_ship.asset.bundle",
+      "rows": [
+        {
+          "path": "SB_02_Fort_Entrance_Thin_PR/CR_INT_Stone_Door_Single",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.621999979019165,
+            0.0,
+            2.446000099182129
+          ],
+          "mesh": "CR_INT_Stone_Door_Single"
+        },
+        {
+          "path": "SB_02_Fort_Entrance_Thin_PR/CR_INT_Stone_Door_Single (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.5070000290870667,
+            0.1379999965429306,
+            2.9010000228881836
+          ],
+          "mesh": "CR_INT_Stone_Door_Single"
+        },
+        {
+          "path": "SB_02_Fort_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.253000020980835,
+            1.8899999856948853,
+            -1.1970000267028809
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "SB_02_Fort_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0119999647140503,
+            2.1540000438690186,
+            -1.2170000076293945
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "SB_02_Fort_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "SB_02_Fort_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -2.3980000019073486
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        }
+      ]
+    },
+    {
+      "root": "TO_SB_GothicTunnels_Doorway_01_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_tunnels.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -0.006000041961669922,
+            0.26399993896484375,
+            0.24199993908405304
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.1165999174118042,
+            1.9500000476837158,
+            0.22649997472763062
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Split_PR/SE_Gothic_Door_Frame_Thick_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            -0.1980000138282776
+          ],
+          "mesh": "SE_Gothic_Door_Frame_Thick_Split"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Split_PR/SE_Gothic_Door_Frame_Thick_Top_Half",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            3.1480000019073486,
+            -0.005000010132789612
+          ],
+          "mesh": "SE_Gothic_Door_Frame_Thick_Top_Half"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -0.006000041961669922,
+            0.26399993896484375,
+            0.24199993908405304
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.1280999183654785,
+            1.9500000476837158,
+            0.2199999988079071
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Split_PR/DLC_SB_Gothic_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            3.2360000610351562,
+            0.18299999833106995
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "TO_SB_GothicTunnels_Doorway_01_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_tunnels.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_PR/SE_Gothic_Door_Frame_Thick",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mesh": "SE_Gothic_Door_Frame_Thick"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_PR/DLC_TH_Gothic_Clutter_StoneBlock_01/CR_INT_Wall_Candles_01 (1)/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -0.006000041961669922,
+            0.26399993896484375,
+            0.24199993908405304
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_PR/DLC_TH_Gothic_Clutter_StoneBlock_01/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.002014745259657502,
+            0.11600048840045929,
+            0.10476341843605042
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_PR/DLC_TH_Gothic_Clutter_StoneBlock_01 (1)/CR_INT_Wall_Candles_01 (1)/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -0.006000041961669922,
+            0.26399993896484375,
+            0.24199993908405304
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_PR/DLC_TH_Gothic_Clutter_StoneBlock_01 (1)/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.002014745259657502,
+            0.11600048840045929,
+            0.10476341843605042
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_PR/DLC_SB_Gothic_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            3.1338000297546387,
+            0.22290000319480896
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_PR/DLC_SB_Gothic_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            3.1338000297546387,
+            -0.25459998846054077
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "TO_SB_GothicTunnels_Doorway_01_Thin_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_tunnels.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (2)/CandleFlame (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -0.006000161170959473,
+            0.2740001678466797,
+            0.24199984967708588
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.2109999656677246,
+            1.9736000299453735,
+            0.14839999377727509
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (3)/CandleFlame (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -0.006000161170959473,
+            0.2740001678466797,
+            0.24199984967708588
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.2100000381469727,
+            1.9736000299453735,
+            0.14839999377727509
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Thin_PR/DLC_SB_Gothic_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            3.1448001861572266,
+            0.2549999952316284
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Thin_PR/DLC_SB_Gothic_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            3.1448001861572266,
+            -0.25699999928474426
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "TO_SB_GothicTunnels_Doorway_01_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_void.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -0.006000041961669922,
+            0.26399993896484375,
+            0.24199993908405304
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.1165999174118042,
+            1.9500000476837158,
+            0.22649997472763062
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Split_PR/SE_Gothic_Door_Frame_Thick_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            -0.1980000138282776
+          ],
+          "mesh": "SE_Gothic_Door_Frame_Thick_Split"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Split_PR/SE_Gothic_Door_Frame_Thick_Top_Half",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            3.1480000019073486,
+            -0.005000010132789612
+          ],
+          "mesh": "SE_Gothic_Door_Frame_Thick_Top_Half"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -0.006000041961669922,
+            0.26399993896484375,
+            0.24199993908405304
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.1280999183654785,
+            1.9500000476837158,
+            0.2199999988079071
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Split_PR/DLC_SB_Gothic_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            3.2360000610351562,
+            0.18299999833106995
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "TO_SB_GothicTunnels_Doorway_01_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_void.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_PR/SE_Gothic_Door_Frame_Thick",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mesh": "SE_Gothic_Door_Frame_Thick"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_PR/DLC_TH_Gothic_Clutter_StoneBlock_01/CR_INT_Wall_Candles_01 (1)/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -0.006000041961669922,
+            0.26399993896484375,
+            0.24199993908405304
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_PR/DLC_TH_Gothic_Clutter_StoneBlock_01/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.002014745259657502,
+            0.11600048840045929,
+            0.10476341843605042
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_PR/DLC_TH_Gothic_Clutter_StoneBlock_01 (1)/CR_INT_Wall_Candles_01 (1)/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -0.006000041961669922,
+            0.26399993896484375,
+            0.24199993908405304
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_PR/DLC_TH_Gothic_Clutter_StoneBlock_01 (1)/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.002014745259657502,
+            0.11600048840045929,
+            0.10476341843605042
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_PR/DLC_SB_Gothic_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            3.1338000297546387,
+            0.22290000319480896
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_PR/DLC_SB_Gothic_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            3.1338000297546387,
+            -0.25459998846054077
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "TO_SB_GothicTunnels_Doorway_01_Thin_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dlc_sb_void.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (2)/CandleFlame (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -0.006000161170959473,
+            0.2740001678466797,
+            0.24199984967708588
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.2109999656677246,
+            1.9736000299453735,
+            0.14839999377727509
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (3)/CandleFlame (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -0.006000161170959473,
+            0.2740001678466797,
+            0.24199984967708588
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.2100000381469727,
+            1.9736000299453735,
+            0.14839999377727509
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Thin_PR/DLC_SB_Gothic_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            3.1448001861572266,
+            0.2549999952316284
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_SB_GothicTunnels_Doorway_01_Thin_PR/DLC_SB_Gothic_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            3.1448001861572266,
+            -0.25699999928474426
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "CR_Dungeon_Doorway_01_Thin_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dungeon.asset.bundle",
+      "rows": [
+        {
+          "path": "CR_Dungeon_Doorway_01_Thin_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.802000045776367,
+            -0.17533999681472778
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "CR_Dungeon_Doorway_01_Thin_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.7909998893737793,
+            0.18523000180721283
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "CR_Dungeon_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.0729999542236328,
+            2.0980000495910645,
+            0.20399999618530273
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "CR_Dungeon_Doorway_01_Thin_PR/CandleFlame (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.0800000429153442,
+            2.3550000190734863,
+            0.4232100248336792
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "CR_Dungeon_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.0770000219345093,
+            2.0979998111724854,
+            0.20600000023841858
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "CR_Dungeon_Doorway_01_Thin_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0715998411178589,
+            2.3550000190734863,
+            0.4232100248336792
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "CR_Dungeon_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.0982848405838013,
+            2.0980000495910645,
+            -0.21030989289283752
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "CR_Dungeon_Doorway_01_Thin_PR/CandleFlame (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.105546474456787,
+            2.3550000190734863,
+            -0.4295102655887604
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "CR_Dungeon_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.0517112016677856,
+            2.0980000495910645,
+            -0.21487894654273987
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "CR_Dungeon_Doorway_01_Thin_PR/CandleFlame (4)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.0460516214370728,
+            2.3550000190734863,
+            -0.43208208680152893
+          ],
+          "mesh": "<external>"
+        }
+      ]
+    },
+    {
+      "root": "CR_Dungeon_Doorway_01_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_dungeon.asset.bundle",
+      "rows": [
+        {
+          "path": "CR_Dungeon_Doorway_01_PR/CR_INT_Wall_Candles_01",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.215000033378601,
+            1.944000005722046,
+            0.35600000619888306
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "CR_Dungeon_Doorway_01_PR/CandleFlame (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.215999960899353,
+            2.2079999446868896,
+            0.5849999785423279
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "CR_Dungeon_Doorway_01_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.2399998903274536,
+            1.944000005722046,
+            0.34299999475479126
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "CR_Dungeon_Doorway_01_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.2339998483657837,
+            2.2079999446868896,
+            0.5849999785423279
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "CR_Dungeon_Doorway_01_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.947999954223633,
+            -0.1860000044107437
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "CR_Dungeon_Doorway_01_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.9539999961853027,
+            0.19599999487400055
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "SE_Rot_Sewer_Doorway_01_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_rot.asset.bundle",
+      "rows": [
+        {
+          "path": "SE_Rot_Sewer_Doorway_01_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.4329999685287476,
+            2.0320000648498535,
+            0.2740000784397125
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "SE_Rot_Sewer_Doorway_01_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.4269999265670776,
+            2.2960000038146973,
+            0.5160000324249268
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "SE_Rot_Sewer_Doorway_01_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.004000000189989805,
+            2.8510000705718994,
+            -0.31299999356269836
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "SE_Rot_Sewer_Doorway_01_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.8529999256134033,
+            0.36399999260902405
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "SE_Rot_Sewer_Doorway_01_PR/SE_Doorway_Thick",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.15243200957775116
+          ],
+          "mesh": "SE_Doorway_Thick"
+        },
+        {
+          "path": "SE_Rot_Sewer_Doorway_01_PR/CR_INT_Wall_Candles_01 (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.4459999799728394,
+            2.0190000534057617,
+            0.26499998569488525
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "SE_Rot_Sewer_Doorway_01_PR/CandleFlame (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.4520001411437988,
+            2.2829999923706055,
+            0.5069999694824219
+          ],
+          "mesh": "<external>"
+        }
+      ]
+    },
+    {
+      "root": "SE_Rot_Sewer_Doorway_01_Thin_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_rot.asset.bundle",
+      "rows": [
+        {
+          "path": "SE_Rot_Sewer_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.3849999904632568,
+            2.0190000534057617,
+            0.27400004863739014
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "SE_Rot_Sewer_Doorway_01_Thin_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.378999948501587,
+            2.290299892425537,
+            0.515999972820282
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "SE_Rot_Sewer_Doorway_01_Thin_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.004000000189989805,
+            2.8510003089904785,
+            -0.20000000298023224
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "SE_Rot_Sewer_Doorway_01_Thin_PR/SE_Doorway_Thick",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.19699999690055847
+          ],
+          "mesh": "SE_Doorway_Thick"
+        },
+        {
+          "path": "SE_Rot_Sewer_Doorway_01_Thin_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.8530001640319824,
+            0.37599998712539673
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "SE_Rot_Sewer_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.4249999523162842,
+            2.0190000534057617,
+            0.27400004863739014
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "SE_Rot_Sewer_Doorway_01_Thin_PR/CandleFlame (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.4310001134872437,
+            2.2930002212524414,
+            0.5159999132156372
+          ],
+          "mesh": "<external>"
+        }
+      ]
+    },
+    {
+      "root": "TO_Sewer_Doorway_01_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_sewers.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_Sewer_Doorway_01_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.4329999685287476,
+            2.0320000648498535,
+            0.2740000784397125
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_Sewer_Doorway_01_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.4269999265670776,
+            2.2960000038146973,
+            0.5160000324249268
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_Sewer_Doorway_01_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.004000000189989805,
+            2.8510000705718994,
+            -0.31299999356269836
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_Sewer_Doorway_01_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.8529999256134033,
+            0.36399999260902405
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_Sewer_Doorway_01_PR/SE_Doorway_Thick",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.15243200957775116
+          ],
+          "mesh": "SE_Doorway_Thick"
+        },
+        {
+          "path": "TO_Sewer_Doorway_01_PR/CR_INT_Wall_Candles_01 (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.4459999799728394,
+            2.0190000534057617,
+            0.26499998569488525
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_Sewer_Doorway_01_PR/CandleFlame (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.4520001411437988,
+            2.2829999923706055,
+            0.5069999694824219
+          ],
+          "mesh": "<external>"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Shack_EXIT_Thin_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_shack.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.253000020980835,
+            1.8899999856948853,
+            -1.1970000267028809
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0119999647140503,
+            2.1540000438690186,
+            -1.2170000076293945
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -2.5290000438690186
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/CR_INT_Stone_Door_Single (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.6570000052452087,
+            0.0,
+            0.28700000047683716
+          ],
+          "mesh": "CR_INT_Stone_Door_Single"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/CR_INT_Stone_Door_Single (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.7820000052452087,
+            -0.16699999570846558,
+            0.397386759519577
+          ],
+          "mesh": "CR_INT_Stone_Door_Single"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.032999999821186066,
+            3.1519999504089355,
+            -0.18700000643730164
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_EXT_House_Door_trim (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.3669999837875366,
+            2.0360000133514404,
+            -0.3370000123977661
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_EXIT_Thin_PR/TO_EXT_House_Door_trim (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.312999963760376,
+            1.9459999799728394,
+            -0.4189999997615814
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Shack_Entrance_Thin_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_shack.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Shack_Entrance_Thin_PR/CR_INT_Stone_Door_Single",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.621999979019165,
+            0.0,
+            2.446000099182129
+          ],
+          "mesh": "CR_INT_Stone_Door_Single"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Entrance_Thin_PR/CR_INT_Stone_Door_Single (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.5070000290870667,
+            0.1379999965429306,
+            2.9010000228881836
+          ],
+          "mesh": "CR_INT_Stone_Door_Single"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.253000020980835,
+            1.8899999856948853,
+            -1.1970000267028809
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0119999647140503,
+            2.1540000438690186,
+            -1.2170000076293945
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -2.3980000019073486
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Shack_Doorway_01_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_shack.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.253000020980835,
+            1.8899999856948853,
+            -1.1970000267028809
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0119999647140503,
+            2.1540000438690186,
+            -1.2170000076293945
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -2.3980000019073486
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Shack_Doorway_01_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_shack.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.253000020980835,
+            1.8899999856948853,
+            -1.1970000267028809
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0119999647140503,
+            2.1540000438690186,
+            -1.2170000076293945
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -2.5290000438690186
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Shack_Doorway_01_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_shack.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.0670000314712524,
+            2.0309998989105225,
+            0.28999999165534973
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.0679999589920044,
+            2.294999837875366,
+            0.5320000052452087
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.0889999866485596,
+            2.0309998989105225,
+            0.28999999165534973
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0829999446868896,
+            2.294999837875366,
+            0.5320000052452087
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.867000102996826,
+            0.16300000250339508
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Shack_Doorway_01_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_shack.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.128000020980835,
+            2.1430001258850098,
+            0.3059999942779541
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.121999979019165,
+            2.4070000648498535,
+            0.5479999780654907
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.947999954223633,
+            -0.3199999928474426
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.9539999961853027,
+            0.3230000138282776
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_PR/TO_INT_Shack_Doorway_Thick",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            -8.75792771637407e-10
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Frame"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_PR/CR_INT_Wall_Candles_01 (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.2039999961853027,
+            2.1430001258850098,
+            0.3059999942779541
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_PR/CandleFlame (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.2100000381469727,
+            2.4070000648498535,
+            0.5479999780654907
+          ],
+          "mesh": "<external>"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Shack_Doorway_01_Thin_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_shack.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Thin_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.802000045776367,
+            -0.17533999681472778
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Thin_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.7909998893737793,
+            0.18523000180721283
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Thin_PR/TO_INT_Shack_Doorway_Thin",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Frame_Thin"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.0729999542236328,
+            2.0980000495910645,
+            0.20399999618530273
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Thin_PR/CandleFlame (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.0800000429153442,
+            2.3550000190734863,
+            0.4232100248336792
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.0770000219345093,
+            2.0979998111724854,
+            0.20600000023841858
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Thin_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0715998411178589,
+            2.3550000190734863,
+            0.4232100248336792
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.0982848405838013,
+            2.0980000495910645,
+            -0.21030989289283752
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Thin_PR/CandleFlame (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.105546474456787,
+            2.3550000190734863,
+            -0.4295102655887604
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.0517112016677856,
+            2.0980000495910645,
+            -0.21487894654273987
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Thin_PR/CandleFlame (4)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.0460516214370728,
+            2.3550000190734863,
+            -0.43208208680152893
+          ],
+          "mesh": "<external>"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Cathedral_Doorway_01_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_stonerooms.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_Split_PR/CR_INT_Wall_Candles_01",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.0670000314712524,
+            2.0309998989105225,
+            0.28999999165534973
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_Split_PR/CandleFlame (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.0679999589920044,
+            2.294999837875366,
+            0.5320000052452087
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.0889999866485596,
+            2.0309998989105225,
+            0.28999999165534973
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0829999446868896,
+            2.294999837875366,
+            0.5320000052452087
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_Split_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.944000005722046,
+            0.10199999809265137
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Cathedral_Doorway_01_Thin_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_stonerooms.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_Thin_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.802000045776367,
+            -0.17533999681472778
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_Thin_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.7909998893737793,
+            0.18523000180721283
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.0729999542236328,
+            2.0980000495910645,
+            0.20399999618530273
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_Thin_PR/CandleFlame (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.0800000429153442,
+            2.3550000190734863,
+            0.4232100248336792
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.0770000219345093,
+            2.0979998111724854,
+            0.20600000023841858
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_Thin_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0715998411178589,
+            2.3550000190734863,
+            0.4232100248336792
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.0982848405838013,
+            2.0980000495910645,
+            -0.21030989289283752
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_Thin_PR/CandleFlame (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.105546474456787,
+            2.3550000190734863,
+            -0.4295102655887604
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_Thin_PR/CR_INT_Wall_Candles_01 (3)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.0517112016677856,
+            2.0980000495910645,
+            -0.21487894654273987
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_Thin_PR/CandleFlame (4)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.0460516214370728,
+            2.3550000190734863,
+            -0.43208208680152893
+          ],
+          "mesh": "<external>"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Cathedral_Doorway_01_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_stonerooms.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_PR/CR_INT_Wall_Candles_01",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.215000033378601,
+            1.944000005722046,
+            0.35600000619888306
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_PR/CandleFlame (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.215999960899353,
+            2.2079999446868896,
+            0.5849999785423279
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.2399998903274536,
+            1.944000005722046,
+            0.34299999475479126
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.2339998483657837,
+            2.2079999446868896,
+            0.5849999785423279
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.947999954223633,
+            -0.1860000044107437
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_INT_Cathedral_Doorway_01_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.9539999961853027,
+            0.19599999487400055
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Doorway_02_FRAME_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_stonewoodenrooms.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Doorway_02_FRAME_PR/CR_INT_Wooden_Doorway_01",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mesh": "CR_INT_Wooden_Doorway_01"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_02_FRAME_PR/CR_INT_Wall_Candles_01",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.215000033378601,
+            1.944000005722046,
+            0.34299999475479126
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_02_FRAME_PR/CandleFlame (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.215999960899353,
+            2.2079999446868896,
+            0.5849999785423279
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_02_FRAME_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.2399998903274536,
+            1.944000005722046,
+            0.34299999475479126
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_02_FRAME_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.2339998483657837,
+            2.2079999446868896,
+            0.5849999785423279
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_02_FRAME_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.9539999961853027,
+            -0.2370000034570694
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_02_FRAME_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.9539999961853027,
+            0.17100000381469727
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Doorway_01_FRAME_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_stonewoodenrooms.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Doorway_01_FRAME_PR/CR_INT_Wooden_Doorway_01",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "BoxCollider"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mesh": "CR_INT_Wooden_Doorway_01"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_01_FRAME_PR/CR_INT_Wall_Candles_01",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.0290000438690186,
+            1.944000005722046,
+            0.21699999272823334
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_01_FRAME_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.0609999895095825,
+            1.944000005722046,
+            0.21699999272823334
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_01_FRAME_PR/CandleFlame (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.0299999713897705,
+            2.2079999446868896,
+            0.45899999141693115
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_01_FRAME_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0549999475479126,
+            2.2079999446868896,
+            0.45899999141693115
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_01_FRAME_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.937000036239624,
+            -0.13950000703334808
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_01_FRAME_PR/TO_EXT_House_Door_trim (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.937000036239624,
+            0.1979999989271164
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Doorway_01_FRAME_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_stonewoodenrooms.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Doorway_01_FRAME_Split_PR/CR_INT_Wall_Candles_01",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.0290000438690186,
+            1.944000005722046,
+            0.3050000071525574
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_01_FRAME_Split_PR/CandleFlame (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.0299999713897705,
+            2.2079999446868896,
+            0.546999990940094
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_01_FRAME_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.0609999895095825,
+            1.944000005722046,
+            0.3050000071525574
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_01_FRAME_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0549999475479126,
+            2.2079999446868896,
+            0.546999990940094
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_01_FRAME_Split_PR/CR_INT_Wooden_Doorway_01_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mesh": "CR_INT_Wooden_Doorway_01_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_01_FRAME_Split_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.8320000171661377,
+            0.1290999948978424
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Doorway_02_FRAME_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_stonewoodenrooms.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Doorway_02_FRAME_Split_PR/CR_INT_Stone_Doorway_02_FRAME_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            -0.19300000369548798
+          ],
+          "mesh": "CR_INT_Stone_Doorway_02_FRAME_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_02_FRAME_Split_PR/CR_INT_Wall_Candles_01",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.1920000314712524,
+            1.944000005722046,
+            0.16700001060962677
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_02_FRAME_Split_PR/CandleFlame (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            -1.1929999589920044,
+            2.2079999446868896,
+            0.4090000092983246
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_02_FRAME_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.153999924659729,
+            1.944000005722046,
+            0.16700001060962677
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_02_FRAME_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.147999882698059,
+            2.2079999446868896,
+            0.4090000092983246
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Doorway_02_FRAME_Split_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.944000005722046,
+            -0.009999999776482582
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Shack_Doorway_01_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_subbiome_01.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.253000020980835,
+            1.8899999856948853,
+            -1.1970000267028809
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0119999647140503,
+            2.1540000438690186,
+            -1.2170000076293945
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -2.3980000019073486
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        }
+      ]
+    },
+    {
+      "root": "SB_01_ElementalPower_Entrance_Thin_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_subbiome_01.asset.bundle",
+      "rows": [
+        {
+          "path": "SB_01_ElementalPower_Entrance_Thin_PR/CR_INT_Stone_Door_Single",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.621999979019165,
+            0.0,
+            2.446000099182129
+          ],
+          "mesh": "CR_INT_Stone_Door_Single"
+        },
+        {
+          "path": "SB_01_ElementalPower_Entrance_Thin_PR/CR_INT_Stone_Door_Single (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.5070000290870667,
+            0.1379999965429306,
+            2.9010000228881836
+          ],
+          "mesh": "CR_INT_Stone_Door_Single"
+        },
+        {
+          "path": "SB_01_ElementalPower_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.253000020980835,
+            1.8899999856948853,
+            -1.1970000267028809
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "SB_01_ElementalPower_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0119999647140503,
+            2.1540000438690186,
+            -1.2170000076293945
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "SB_01_ElementalPower_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "SB_01_ElementalPower_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -2.3980000019073486
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Wood_Shack_Doorway_01_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_subbiome_02.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.253000020980835,
+            1.8899999856948853,
+            -1.1970000267028809
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0119999647140503,
+            2.1540000438690186,
+            -1.2170000076293945
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -2.3980000019073486
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        }
+      ]
+    },
+    {
+      "root": "SB_02_Fort_Entrance_Thin_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_subbiome_02.asset.bundle",
+      "rows": [
+        {
+          "path": "SB_02_Fort_Entrance_Thin_PR/CR_INT_Stone_Door_Single",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.621999979019165,
+            0.0,
+            2.446000099182129
+          ],
+          "mesh": "CR_INT_Stone_Door_Single"
+        },
+        {
+          "path": "SB_02_Fort_Entrance_Thin_PR/CR_INT_Stone_Door_Single (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.5070000290870667,
+            0.1379999965429306,
+            2.9010000228881836
+          ],
+          "mesh": "CR_INT_Stone_Door_Single"
+        },
+        {
+          "path": "SB_02_Fort_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/CR_INT_Wall_Candles_01 (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.253000020980835,
+            1.8899999856948853,
+            -1.1970000267028809
+          ],
+          "mesh": "CR_INT_Wall_Candles_01"
+        },
+        {
+          "path": "SB_02_Fort_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/CandleFlame (2)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour",
+            "MonoBehaviour"
+          ],
+          "position": [
+            1.0119999647140503,
+            2.1540000438690186,
+            -1.2170000076293945
+          ],
+          "mesh": "<external>"
+        },
+        {
+          "path": "SB_02_Fort_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -0.17800000309944153
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        },
+        {
+          "path": "SB_02_Fort_Entrance_Thin_PR/TO_INT_Wood_Shack_Doorway_01_Split_PR/TO_INT_Shack_Doorway_Split (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.03200000151991844,
+            0.0,
+            -2.3980000019073486
+          ],
+          "mesh": "TO_INT_Shack_Doorway_Split"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Stone_Doorway_02_FRAME_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_subbiome_05.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Stone_Doorway_02_FRAME_Split_PR/CR_INT_Stone_Doorway_02_FRAME_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            -0.19300000369548798
+          ],
+          "mesh": "CR_INT_Stone_Doorway_02_FRAME_Split"
+        },
+        {
+          "path": "TO_INT_Stone_Doorway_02_FRAME_Split_PR/CR_St_WallTorch_Fire",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -1.1720000505447388,
+            1.8969999551773071,
+            0.14999999105930328
+          ],
+          "mesh": "EN_CR_WallTorch_01"
+        },
+        {
+          "path": "TO_INT_Stone_Doorway_02_FRAME_Split_PR/CR_St_WallTorch_Fire (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            1.1410000324249268,
+            1.8969999551773071,
+            0.15199999511241913
+          ],
+          "mesh": "EN_CR_WallTorch_01"
+        },
+        {
+          "path": "TO_INT_Stone_Doorway_02_FRAME_Split_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.0,
+            2.9386000633239746,
+            -0.015200000256299973
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    },
+    {
+      "root": "TO_INT_Stone_Doorway_01_FRAME_Split_PR",
+      "bundle": "pcg_databases_assets_assets/pcg/pcg_subbiome_05.asset.bundle",
+      "rows": [
+        {
+          "path": "TO_INT_Stone_Doorway_01_FRAME_Split_PR/CR_INT_Stone_Doorway_02_FRAME_Split/CR_St_WallTorch_Fire",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.7549999952316284,
+            1.5190000534057617,
+            -0.19499999284744263
+          ],
+          "mesh": "EN_CR_WallTorch_01"
+        },
+        {
+          "path": "TO_INT_Stone_Doorway_01_FRAME_Split_PR/CR_INT_Stone_Doorway_02_FRAME_Split/CR_St_WallTorch_Fire (1)",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            -0.7400000095367432,
+            1.5299999713897705,
+            -0.2029999941587448
+          ],
+          "mesh": "EN_CR_WallTorch_01"
+        },
+        {
+          "path": "TO_INT_Stone_Doorway_01_FRAME_Split_PR/CR_INT_Stone_Doorway_02_FRAME_Split",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer",
+            "MonoBehaviour"
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mesh": "CR_INT_Stone_Doorway_02_FRAME_Split"
+        },
+        {
+          "path": "TO_INT_Stone_Doorway_01_FRAME_Split_PR/TO_EXT_House_Door_trim",
+          "components": [
+            "Transform",
+            "MeshFilter",
+            "MeshRenderer"
+          ],
+          "position": [
+            0.004999999888241291,
+            2.930000066757202,
+            0.1899999976158142
+          ],
+          "mesh": "TO_EXT_House_Door_trim"
+        }
+      ]
+    }
+  ],
+  "primitive_frame_pairs": [
+    [
+      "CR_Dungeon_Doorway_01_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "CR_Dungeon_Doorway_01_Thin_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "DLC_SB_Platform_Doorway_01_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "DLC_SB_Platform_Doorway_01_PR",
+      "TO_INT_Shack_Doorway_Frame"
+    ],
+    [
+      "DLC_SB_Platform_Doorway_01_Thin_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "DLC_SB_Platform_Doorway_01_Thin_PR",
+      "TO_INT_Shack_Doorway_Frame_Thin"
+    ],
+    [
+      "DLC_SB_Ship_Doorway_01_Thick_PR",
+      "TO_INT_Shack_Doorway_Frame"
+    ],
+    [
+      "DLC_SB_Ship_Doorway_01_Thick_Split_PR",
+      "TO_INT_Shack_Doorway_Split"
+    ],
+    [
+      "DLC_SB_Ship_Doorway_01_Thin_PR",
+      "TO_INT_Shack_Doorway_Frame_Thin"
+    ],
+    [
+      "SE_Rot_Sewer_Doorway_01_PR",
+      "SE_Doorway_Thick"
+    ],
+    [
+      "SE_Rot_Sewer_Doorway_01_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "SE_Rot_Sewer_Doorway_01_Thin_PR",
+      "SE_Doorway_Thick"
+    ],
+    [
+      "SE_Rot_Sewer_Doorway_01_Thin_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "ST_Vermling_DoorFrame_PR",
+      "DLC_TH_Vermling_Door_Frame"
+    ],
+    [
+      "TO_EXT_Stone_Doorway_01_FRAME_Split_PR",
+      "CR_INT_Stone_Doorway_02_FRAME_Split"
+    ],
+    [
+      "TO_EXT_Stone_Doorway_01_FRAME_Split_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "TO_EXT_Stone_Doorway_02_FRAME_Split_PR",
+      "CR_INT_Stone_Doorway_02_FRAME_Split"
+    ],
+    [
+      "TO_EXT_Stone_Doorway_02_FRAME_Split_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "TO_EXT_Wood_Doorway_02_FRAME_PR",
+      "CR_INT_Wooden_Doorway_01"
+    ],
+    [
+      "TO_EXT_Wood_Doorway_02_FRAME_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "TO_INT_Cathedral_Doorway_01_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "TO_INT_Cathedral_Doorway_01_Split_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "TO_INT_Cathedral_Doorway_01_Thin_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "TO_INT_Stone_Doorway_01_FRAME_Split_PR",
+      "CR_INT_Stone_Doorway_02_FRAME_Split"
+    ],
+    [
+      "TO_INT_Stone_Doorway_01_FRAME_Split_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "TO_INT_Stone_Doorway_02_FRAME_Split_PR",
+      "CR_INT_Stone_Doorway_02_FRAME_Split"
+    ],
+    [
+      "TO_INT_Stone_Doorway_02_FRAME_Split_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "TO_INT_Wood_Doorway_01_FRAME_PR",
+      "CR_INT_Wooden_Doorway_01"
+    ],
+    [
+      "TO_INT_Wood_Doorway_01_FRAME_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "TO_INT_Wood_Doorway_01_FRAME_Split_PR",
+      "CR_INT_Wooden_Doorway_01_Split"
+    ],
+    [
+      "TO_INT_Wood_Doorway_01_FRAME_Split_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "TO_INT_Wood_Doorway_02_FRAME_PR",
+      "CR_INT_Wooden_Doorway_01"
+    ],
+    [
+      "TO_INT_Wood_Doorway_02_FRAME_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "TO_INT_Wood_Doorway_02_FRAME_Split_PR",
+      "CR_INT_Stone_Doorway_02_FRAME_Split"
+    ],
+    [
+      "TO_INT_Wood_Doorway_02_FRAME_Split_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "TO_INT_Wood_Shack_Doorway_01_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "TO_INT_Wood_Shack_Doorway_01_PR",
+      "TO_INT_Shack_Doorway_Frame"
+    ],
+    [
+      "TO_INT_Wood_Shack_Doorway_01_Split_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "TO_INT_Wood_Shack_Doorway_01_Split_PR",
+      "TO_INT_Shack_Doorway_Split"
+    ],
+    [
+      "TO_INT_Wood_Shack_Doorway_01_Thin_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "TO_INT_Wood_Shack_Doorway_01_Thin_PR",
+      "TO_INT_Shack_Doorway_Frame_Thin"
+    ],
+    [
+      "TO_SB_GothicTunnels_Doorway_01_PR",
+      "SE_Gothic_Door_Frame_Thick"
+    ],
+    [
+      "TO_SB_GothicTunnels_Doorway_01_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "TO_SB_GothicTunnels_Doorway_01_Split_PR",
+      "SE_Gothic_Door_Frame_Thick_Split"
+    ],
+    [
+      "TO_SB_GothicTunnels_Doorway_01_Split_PR",
+      "SE_Gothic_Door_Frame_Thick_Top_Half"
+    ],
+    [
+      "TO_SB_GothicTunnels_Doorway_01_Split_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "TO_SB_GothicTunnels_Doorway_01_Thin_PR",
+      "TO_EXT_House_Door_trim"
+    ],
+    [
+      "TO_Sewer_Doorway_01_PR",
+      "SE_Doorway_Thick"
+    ],
+    [
+      "TO_Sewer_Doorway_01_PR",
+      "TO_EXT_House_Door_trim"
+    ]
+  ]
+}

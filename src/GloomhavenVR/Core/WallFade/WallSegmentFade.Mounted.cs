@@ -2029,6 +2029,15 @@ internal static partial class WallSegmentFade
                             _mountedOwned.Remove(p.Renderer);
                             continue;
                         }
+                        // Native pool/attachment changes can move an already carried
+                        // effect onto a retained arch. Release our previous fade before
+                        // the sticky lane can hide it for the neighbouring wall again.
+                        if (IsArchMountedEffect(p.Renderer))
+                        {
+                            RestoreProp(p);
+                            _mountedOwned.Remove(p.Renderer);
+                            continue;
+                        }
                         // Figures are NEVER carried, sticky or not (round-7 ruling).
                         //
                         // MODBUILD 268 — THE FIFTH SITE. ModBuild 266 lifted this same refusal
@@ -2400,7 +2409,7 @@ internal static partial class WallSegmentFade
                     // would be tested under its old name for at most one cycle; nothing in this
                     // tileset renames a GameObject at runtime, and the arch rect's own name test
                     // is a "Door" substring on a prefab name.
-                    if (IsArchProtected(archProbe, f.Name ?? c.name))
+                    if (IsArchProtected(archProbe, f.Name ?? c.name) || IsArchMountedEffect(c, f.Name))
                         continue; // the doorway's arch stays solid (user ruling 2026-08-07)
                     // WATER FEATURE (user ruling 2026-08-09, brunnen.png): the fountain's own
                     // waterfall/spark emitters sit inside its basin — they must not be mounted
