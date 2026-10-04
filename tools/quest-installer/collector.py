@@ -253,11 +253,11 @@ def local_provenance(config_path, capture):
             value = installer.read_json(path)
             details = value.get("details", value)
             row = {"kind": kind, "sourceFile": path.name}
-            for key in ("apkSha256", "certificateSha256", "package", "isDiagnostic", "isDummy", "completedUtc"):
+            for key in ("apkSha256", "certificateSha256", "package", "isDiagnostic", "isDummy", "completedUtc", "modBuild", "installedVersionCode"):
                 if key in details:
                     row[key] = details[key]
             report = details.get("buildReport", {})
-            row["inputKey"] = report.get("inputKey")
+            row["inputKey"] = details.get("inputKey") or report.get("inputKey")
             rows.append(row)
         except (OSError, ValueError, KeyError, TypeError, AttributeError, installer.InstallError) as error:
             capture.failure(kind, error)
@@ -296,6 +296,10 @@ def collect(capture, config_path):
         capture.failure("package", error)
     manifest["app"]["versionName"] = next(iter(re.findall(r"\bversionName=([^\s]+)", package)), None)
     manifest["app"]["versionCode"] = next(iter(re.findall(r"\bversionCode=(\d+)", package)), None)
+    stamp = re.fullmatch(r"0\.1\.0\.B(\d+)\.([0-9a-f]{12})", manifest["app"]["versionName"] or "")
+    if stamp and stamp.group(1) == manifest["app"]["versionCode"]:
+        manifest["app"]["modBuild"] = int(stamp.group(1))
+        manifest["app"]["inputKeyPrefix"] = stamp.group(2)
     paths, error = capture.read("shell", "pm", "path", installer.PACKAGE)
     if error:
         capture.failure("installed-apk-path", error)
@@ -341,6 +345,8 @@ def collect(capture, config_path):
     for row in manifest["localProvenance"]:
         row["matchesInstalledApkHash"] = bool(row.get("apkSha256") and any(item.get("sha256") == row["apkSha256"] for item in manifest["app"]["installedApks"]))
         row["matchesObservedBannerInput"] = bool(row.get("inputKey") and any(item["inputKey"] == row["inputKey"] for item in banners))
+        row["matchesInstalledAndroidBuild"] = (row.get("modBuild") == manifest["app"].get("modBuild")
+            and bool(row.get("inputKey")) and row["inputKey"].startswith(manifest["app"].get("inputKeyPrefix", "unavailable")))
     manifest["provenanceNote"] = "Local receipts describe PC artifacts. Observed log banners can be historical; installed APK hashes are queried separately."
 
 
@@ -384,6 +390,9 @@ def main(argv=None, runner=None):
                 for path in sorted(directory.iterdir()):
                     zipped.write(path, path.name)
         print("Private Quest capture saved: " + str(archive))
+        if manifest.get("app", {}).get("modBuild"):
+            print("Observed installed Android build: B" + str(manifest["app"]["modBuild"])
+                  + " (input " + manifest["app"]["inputKeyPrefix"] + ")")
         print("Collection: " + manifest["status"] + "; " + str(len(manifest["errors"])) + " reported errors; " + str(len(manifest.get("optionalFilesUnavailable", []))) + " optional files unavailable. No upload was made.")
         return 0 if usable else 1
     except (installer.InstallError, OSError, ValueError, TypeError, KeyError, AttributeError, RuntimeError) as error:

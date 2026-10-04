@@ -34,6 +34,7 @@ class FakeAdb:
         self.launch_output = "Starting: Intent { ... }\nStatus: ok\nActivity: " + installer.ACTIVITY
         self.on_connect = None
         self.timeout_command = None
+        self.package_output = None
 
     def wireless(self, address="192.168.1.42:5555", hardware="HARDWARE-1", model="Quest 3"):
         self.connections[address] = True
@@ -77,6 +78,11 @@ class FakeAdb:
             elif action[:2] == ["install", "-r"]:
                 self.installed = Path(action[2]).read_bytes()
                 raw = self.install_output
+            elif action == ["shell", "dumpsys", "package", installer.PACKAGE]:
+                identity = installer.apk_identity(Path(next(call[4] for call in reversed(self.calls) if call[2:4] == ["install", "-r"])))
+                raw = self.package_output if self.package_output is not None else (
+                    "versionCode=" + str(identity["modBuild"]) + " minSdk=29\nversionName=0.1.0.B"
+                    + str(identity["modBuild"]) + "." + identity["inputKey"][:12])
             elif action == ["shell", "am", "start", "-W", "-n", installer.ACTIVITY]:
                 raw = self.launch_output
             else:
@@ -380,6 +386,74 @@ class InstallerTests(unittest.TestCase):
         args = installer.parser().parse_args(["--config", str(self.config)])
         result = installer.select_source(args, json.loads(self.config.read_text()))
         self.assertEqual(result.path, self.handoff)
+
+    def stamped_apk(self, name, build, key="a" * 64):
+        apk = self.root / name
+        with zipfile.ZipFile(apk, "w") as archive:
+            archive.writestr("AndroidManifest.xml", b"fixture manifest")
+            archive.writestr("assets/Quest/input-manifest.json", json.dumps({"schema": 1,
+                "inputKey": key, "mod": {"modBuild": build}, "profile": {"isDummy": True}}))
+        return apk
+
+    def test_merged_archives_choose_newest_embedded_build_over_remembered_handoff(self):
+        old = self.stamped_apk("GloomhavenVR-Quest-B999.apk", 616)
+        new = self.stamped_apk("GloomhavenVR-Quest-B001.apk", 618)
+        self.write(self.handoff, {**self.metadata, "apk": old.name, "apkSha256": installer.digest(old)})
+        self.remember()
+        args = installer.parser().parse_args(["--config", str(self.config)])
+        with mock.patch.object(installer, "REPO", self.root / "repository"):
+            result = installer.select_source(args, json.loads(self.config.read_text()))
+        self.assertEqual((result.apk, result.mod_build, result.input_key, result.dummy), (new, 618, "a" * 64, True))
+
+    def test_fresh_default_handoff_supersedes_remembered_older_build(self):
+        old = self.stamped_apk("old.apk", 616)
+        self.write(self.handoff, {**self.metadata, "apk": old.name, "apkSha256": installer.digest(old)})
+        self.remember()
+        repo = self.root / "repository"
+        directory = repo / ".planning/debug/quest3"
+        directory.mkdir(parents=True)
+        new = self.stamped_apk("new.apk", 618)
+        target = directory / new.name
+        target.write_bytes(new.read_bytes())
+        self.write(directory / "handoff.json", {**self.metadata, "apk": target.name, "apkSha256": installer.digest(target)})
+        args = installer.parser().parse_args(["--config", str(self.config)])
+        with mock.patch.object(installer, "REPO", repo):
+            result = installer.select_source(args, json.loads(self.config.read_text()))
+        self.assertEqual((result.apk, result.mod_build), (target, 618))
+
+    def test_explicit_selection_preserves_intended_older_build(self):
+        old = self.stamped_apk("old.apk", 616)
+        self.stamped_apk("GloomhavenVR-Quest-B618.apk", 618)
+        args = installer.parser().parse_args(["--apk", str(old)])
+        self.assertEqual(installer.select_source(args, {}).apk, old)
+
+    def test_confirmed_android_build_and_input_are_saved_before_success(self):
+        self.apk = self.stamped_apk("GloomhavenVR-Quest-B618.apk", 618)
+        self.write(self.handoff, {**self.metadata, "apk": self.apk.name, "apkSha256": installer.digest(self.apk)})
+        self.assertEqual(self.run_cli(), 0, self.error)
+        receipt = json.loads((self.config.parent / "wireless-last-install.json").read_text())
+        self.assertEqual((receipt["modBuild"], receipt["installedVersionCode"], receipt["inputKey"]), (618, 618, "a" * 64))
+        self.assertIn("Confirmed installed build: B618", self.output)
+        commands = self.fake.calls
+        self.assertLess(next(i for i, row in enumerate(commands) if "dumpsys" in row), next(i for i, row in enumerate(commands) if "start" in row))
+
+    def test_wrong_installed_build_or_input_does_not_launch_or_save_success(self):
+        self.apk = self.stamped_apk("GloomhavenVR-Quest-B618.apk", 618)
+        self.write(self.handoff, {**self.metadata, "apk": self.apk.name, "apkSha256": installer.digest(self.apk)})
+        for package in ("versionCode=616\nversionName=0.1.0", "versionCode=618\nversionName=0.1.0.B618.bbbbbbbbbbbb", ""):
+            self.fake = FakeAdb()
+            self.fake.package_output = package
+            self.assertEqual(self.run_cli(), 1)
+            self.assertFalse(any("start" in call for call in self.fake.calls))
+            self.assertFalse(self.config.exists())
+            self.assertFalse((self.config.parent / "wireless-last-install.json").exists())
+
+    def test_handoff_cannot_claim_different_embedded_build(self):
+        self.apk = self.stamped_apk("build.apk", 618)
+        self.write(self.handoff, {**self.metadata, "apk": self.apk.name, "apkSha256": installer.digest(self.apk), "modBuild": 617})
+        self.assertEqual(self.run_cli(), 1)
+        self.assertFalse(self.fake.calls)
+        self.assertIn("embedded build differs", self.error)
 
     def test_settings_cannot_overwrite_selected_source(self):
         self.assertEqual(self.run_cli("--config", str(self.handoff)), 1)

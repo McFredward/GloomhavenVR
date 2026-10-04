@@ -51,6 +51,7 @@ class CaptureAdb:
         self.apk_sha = APK_SHA
         self.oversized = False
         self.fail_metadata = False
+        self.package_info = "Package [dev.gloomhavenvr.quest]\nversionCode=609 minSdk=29\nversionName=0.1-probe\n"
 
     def wifi(self, hardware="HARDWARE-1", model="Quest 3"):
         address = "192.168.1.42:5555"
@@ -97,7 +98,7 @@ class CaptureAdb:
             elif action == ["shell", "dumpsys", "package", collector.installer.PACKAGE]:
                 if self.fail_metadata:
                     raise OSError("fixture metadata unavailable")
-                out = "Package [dev.gloomhavenvr.quest]\nversionCode=609 minSdk=29\nversionName=0.1-probe\n"
+                out = self.package_info
             elif action == ["shell", "pm", "path", collector.installer.PACKAGE]:
                 out = self.apk_path
             elif action[:4] == ["shell", "stat", "-c", "%s"]:
@@ -664,6 +665,30 @@ class CollectorTests(unittest.TestCase):
         self.assertNotIn("doNotCopy", row)
         self.assertIn("can be historical", manifest["provenanceNote"])
         self.assertFalse(any(name.endswith(".apk") for name in files))
+
+    def test_android_build_identity_and_flat_install_input_are_separate_from_old_banners(self):
+        self.fake.package_info = "versionCode=618 minSdk=29\nversionName=0.1.0.B618." + KEY[:12] + "\n"
+        self.config.parent.mkdir()
+        receipt = {"schema": 1, "apkSha256": APK_SHA, "package": collector.installer.PACKAGE,
+                   "modBuild": 618, "installedVersionCode": 618, "inputKey": KEY}
+        (self.config.parent / "wireless-last-install.json").write_text(json.dumps(receipt))
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, _ = self.capture()
+        self.assertEqual((manifest["app"]["modBuild"], manifest["app"]["inputKeyPrefix"]), (618, KEY[:12]))
+        row = manifest["localProvenance"][0]
+        self.assertEqual((row["modBuild"], row["inputKey"]), (618, KEY))
+        self.assertTrue(row["matchesInstalledAndroidBuild"])
+        self.assertTrue(all(row["modBuild"] == 609 for row in manifest["observedAppBanners"]))
+        for archive in self.output.glob("quest-capture-*.zip"):
+            archive.unlink()
+        self.fake.package_info = "versionCode=618\nversionName=0.1.0.B618.ffffffffffff\n"
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        self.assertFalse(self.capture()[0]["localProvenance"][0]["matchesInstalledAndroidBuild"])
+
+    def test_inconsistent_android_stamp_does_not_claim_an_installed_mod_build(self):
+        self.fake.package_info = "versionCode=617\nversionName=0.1.0.B618." + KEY[:12] + "\n"
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        self.assertNotIn("modBuild", self.capture()[0]["app"])
 
     def test_oversized_app_files_are_not_pulled(self):
         self.fake.oversized = True

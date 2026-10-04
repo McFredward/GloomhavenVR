@@ -46,13 +46,17 @@ namespace GloomhavenVR.Quest.Editor
                 throw new InvalidOperationException("Game target is gated until recovered assets, platform adapter and complete AOT conversion pass.");
             string apk = Required("GHVR_QUEST_OUTPUT_APK");
             string package = Required("GHVR_QUEST_PACKAGE");
+            var manifest = JsonUtility.FromJson<InputManifest>(File.ReadAllText(Required("GHVR_QUEST_MANIFEST_PATH")));
+            if (manifest == null || manifest.mod == null || manifest.mod.modBuild <= 0)
+                throw new InvalidDataException("Android build identity is missing.");
             ConfigureAndroid(package, target == "startup");
+            PlayerSettings.bundleVersion = "0.1.0.B" + manifest.mod.modBuild + "." + manifest.inputKey.Substring(0, 12);
+            PlayerSettings.Android.bundleVersionCode = manifest.mod.modBuild;
             ConfigureNativePlugin();
             ConfigureXr();
             PrepareDiagnosticMaterials();
             PrepareDiagnosticResources();
             if (target == "probe") ValidateOwnedModel();
-            var manifest = JsonUtility.FromJson<InputManifest>(File.ReadAllText(Required("GHVR_QUEST_MANIFEST_PATH")));
             File.WriteAllText("Assets/Quest/Resources/quest-build.json", JsonUtility.ToJson(new BuildStamp
             {
                 modBuild = manifest.mod.modBuild, inputKey = manifest.inputKey

@@ -52,12 +52,19 @@ def builder_module():
     # The builder's historical profile/storage/startup imports must neither consume
     # nor replace an application's existing stdlib profile or cached test module.
     missing = object()
-    previous = {name: sys.modules.get(name, missing) for name in ("profile", "storage", "startup")}
+    names = ["profile", "storage"]
+    names += [name for name in ("media", "shaders") if (REPO / "tools/quest-builder" / (name + ".py")).is_file()]
+    names += ["startup", "builder"]
+    aliases = [name for name in names if name != "builder"] + ["_ghvr_wireless_" + name for name in names]
+    previous = {name: sys.modules.get(name, missing) for name in aliases}
     try:
-        for name in ("profile", "storage", "startup", "builder"):
+        for name in names:
             spec = importlib.util.spec_from_file_location(
                 "_ghvr_wireless_" + name, REPO / "tools/quest-builder" / (name + ".py"))
             module = importlib.util.module_from_spec(spec)
+            # Dataclasses resolve postponed annotations through their defining
+            # module while executing; retain that alias only during this load.
+            sys.modules[spec.name] = module
             spec.loader.exec_module(module)
             if name == "builder":
                 return module
@@ -79,9 +86,29 @@ class Source:
     evidence: str
     diagnostic: bool
     dummy: bool
+    mod_build: int | None = None
+    input_key: str | None = None
 
     def setting(self):
         return {"kind": self.kind, "path": str(self.path)}
+
+
+def apk_identity(apk):
+    """Read the stamped build from the APK itself, never from its filename."""
+    with zipfile.ZipFile(apk) as archive:
+        name = "assets/Quest/input-manifest.json"
+        if name not in archive.namelist():
+            return {}
+        info = archive.getinfo(name)
+        if info.file_size > 8 * 1024 * 1024:
+            raise InstallError("The APK build stamp exceeds its bounded manifest size.")
+        value = json.loads(archive.read(name))
+        build = value.get("mod", {}).get("modBuild")
+        key = value.get("inputKey")
+        if value.get("schema") != 1 or type(build) is not int or build <= 0 or not re.fullmatch(r"[0-9a-f]{64}", str(key)):
+            raise InstallError("The APK has an invalid embedded Quest build stamp.")
+        return {"modBuild": build, "inputKey": key,
+                "isDummy": bool(value.get("profile", {}).get("isDummy"))}
 
 
 def resolve_source(kind, path, check_zip=True):
@@ -129,8 +156,16 @@ def resolve_source(kind, path, check_zip=True):
         with zipfile.ZipFile(apk) as archive:
             if "AndroidManifest.xml" not in archive.namelist() or archive.testzip():
                 raise InstallError("The APK ZIP payload is incomplete or corrupt.")
+    identity = apk_identity(apk)
+    report = details.get("buildReport", {})
+    expected_key = details.get("inputKey") or report.get("inputKey")
+    expected_build = details.get("modBuild")
+    if identity and ((expected_key and identity["inputKey"] != expected_key)
+                     or (expected_build and identity["modBuild"] != expected_build)):
+        raise InstallError("The APK embedded build differs from its handoff evidence.")
     return Source(kind, path, apk, actual, evidence,
-                  bool(details.get("isDiagnostic")), bool(details.get("isDummy")))
+                  bool(details.get("isDiagnostic", identity)), bool(details.get("isDummy", identity.get("isDummy"))),
+                  identity.get("modBuild"), identity.get("inputKey"))
 
 
 def select_source(args, config):
@@ -139,14 +174,46 @@ def select_source(args, config):
         if explicit:
             return resolve_source(kind, explicit)
     remembered = config.get("source")
-    if remembered:
-        return resolve_source(remembered["kind"], remembered["path"])
+    candidates = []
     output = REPO / ".planning/quest3-local"
     if (output / "latest-build.json").is_file():
-        return resolve_source("output-root", output)
+        candidates.append(("output-root", output))
     handoff = REPO / ".planning/debug/quest3/handoff.json"
     if handoff.is_file():
-        return resolve_source("handoff", handoff)
+        candidates.append(("handoff", handoff))
+    if remembered:
+        candidates.append((remembered["kind"], Path(remembered["path"])))
+    # Merging successive Windows archives intentionally leaves older APKs in
+    # place. A remembered path must not pin the installer to yesterday's build.
+    directories = {handoff.parent}
+    for kind, path in candidates:
+        if kind in ("handoff", "apk"):
+            directories.add(path.parent)
+    known = {(kind, path.resolve()) for kind, path in candidates}
+    for directory in sorted(directories):
+        if directory.is_dir():
+            for apk in sorted(directory.glob("GloomhavenVR-Quest-*.apk")):
+                if ("apk", apk.resolve()) not in known and apk_identity(apk):
+                    candidates.append(("apk", apk))
+    # Inspect small embedded manifests first; hash/CRC only the selected APK.
+    ranked = []
+    for index, (kind, path) in enumerate(candidates):
+        if kind == "handoff":
+            value = read_json(path)
+            apk = path.parent / value["apk"]
+        elif kind == "output-root":
+            # Builder evidence has additional content-addressed path checks.
+            source = resolve_source(kind, path)
+            ranked.append((source.mod_build or 0, -index, source))
+            continue
+        else:
+            apk = path
+        if apk.is_file():
+            identity = apk_identity(apk)
+            ranked.append((identity.get("modBuild", 0), -index, (kind, path)))
+    if ranked:
+        chosen = max(ranked, key=lambda row: row[:2])[2]
+        return chosen if isinstance(chosen, Source) else resolve_source(*chosen)
     raise InstallError("No local Quest build found. Supply --handoff, --output-root or --apk.")
 
 
@@ -350,6 +417,7 @@ def main(argv=None, runner=None):
             raise InstallError("Installer settings/receipt must not overwrite the APK or its build evidence.")
         address = endpoint(args.host or config["endpoint"]) if args.host or config.get("endpoint") else None
         print("Selected local APK: " + str(source.apk))
+        print("Embedded build: " + ("B" + str(source.mod_build) + " (input " + source.input_key[:12] + ")" if source.mod_build else "legacy unstamped local APK"))
         print("SHA-256: " + source.sha256 + (" (DIAGNOSTIC)" if source.diagnostic else "")
               + (" (DUMMY IDENTITY)" if source.dummy else ""))
         if args.dry_run:
@@ -372,6 +440,20 @@ def main(argv=None, runner=None):
         transfer_seconds = (source.apk.stat().st_size + 1024 * 1024 - 1) // (1024 * 1024)
         install_timeout = min(1800, max(180, 120 + transfer_seconds))
         adb.run("-s", address, "install", "-r", source.apk, timeout=install_timeout, positive=r"^Success\s*$")
+        # B618+ uses its build number as Android versionCode. Querying that
+        # small package record confirms installation without another multi-GB
+        # hash/read of the headset's APK before every hardware test.
+        installed_version = None
+        if source.mod_build and source.mod_build >= 618:
+            package_info = adb.run("-s", address, "shell", "dumpsys", "package", PACKAGE, timeout=30)
+            versions = re.findall(r"\bversionCode=(\d+)\b", package_info)
+            names = re.findall(r"\bversionName=([^\s]+)", package_info)
+            expected_name = "0.1.0.B" + str(source.mod_build) + "." + source.input_key[:12]
+            if versions != [str(source.mod_build)] or names != [expected_name]:
+                raise InstallError("Installed Android build is " + str(versions or "unknown")
+                                   + "; expected B" + str(source.mod_build) + ". No launch or success receipt was written.")
+            installed_version = int(versions[0])
+            print("Confirmed installed build: B" + str(installed_version) + " (input " + source.input_key[:12] + ")")
         if not args.no_launch:
             adb.run("-s", address, "shell", "am", "start", "-W", "-n", ACTIVITY,
                     timeout=45, positive=r"^Status:\s*ok\s*$")
@@ -381,6 +463,8 @@ def main(argv=None, runner=None):
         write_json(receipt, {**settings, "apk": str(source.apk), "apkSha256": source.sha256,
                              "package": PACKAGE, "launched": not args.no_launch,
                              "isDiagnostic": source.diagnostic, "isDummy": source.dummy,
+                             "modBuild": source.mod_build, "inputKey": source.input_key,
+                             "installedVersionCode": installed_version,
                              "completedUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
         print("Installed with app data retained" + (" and launched" if not args.no_launch else "")
               + ": " + address + ". Device behavior remains for hardware testing.")
