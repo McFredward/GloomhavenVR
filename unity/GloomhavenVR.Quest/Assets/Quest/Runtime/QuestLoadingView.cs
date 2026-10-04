@@ -117,9 +117,11 @@ namespace GloomhavenVR.Quest
             if (totalSteps <= 0) return -1;
             int completed = Math.Max(0, Math.Min(totalSteps, completedSteps));
             if (completed == totalSteps) return 100;
-            double fraction = total > 0 && processed > 0 ? Math.Min(1d, (double)processed / total) : 0d;
-            int nextBoundary = (int)Math.Ceiling(100d * (completed + 1) / totalSteps) - 1;
-            return Math.Min(nextBoundary, (int)Math.Floor(100d * (completed + fraction) / totalSteps));
+            // Decimal preserves exact whole percentages such as (2 + .3) / 5;
+            // binary floating arithmetic can round 46 down to 45 before Floor.
+            decimal fraction = total > 0 && processed > 0 ? Math.Min(1m, (decimal)processed / total) : 0m;
+            int nextBoundary = (int)(((long)(completed + 1) * 100 + totalSteps - 1) / totalSteps - 1);
+            return Math.Min(nextBoundary, (int)decimal.Floor(100m * (completed + fraction) / totalSteps));
         }
 
         /// <summary>Show one stable total plus caller-localized step and file details.</summary>
