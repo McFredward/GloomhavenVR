@@ -35,10 +35,12 @@ def main():
     shutil.copyfile(ROOT / 'scripts/town-merchant-badge-runtime/Program.cs', fixture / 'OriginalMerchantBadge.cs')
     publisher = fixture / 'Publisher.cs'
     text = publisher.read_text()
-    boundary = 'internal static bool IsBoundary(Transform source) => BoundaryRoots.Contains(source);'
+    # Preserve the common harness's conditional dynamic-boundary branch. The badge
+    # adds its native item/card-mount seams to the expression, not a stale whole line.
+    boundary = 'internal static bool IsBoundary(Transform source) => BoundaryRoots.Contains(source)'
     if text.count(boundary) != 1:
         raise SystemExit('Native boundary seam drift')
-    text = text.replace(boundary, 'internal static bool IsBoundary(Transform source) => BoundaryRoots.Contains(source) || source.GetComponent<ItemCardUI>() != null || source.parent != null && TownServiceCatalog.CardMounts.ContainsKey(source.parent);')
+    text = text.replace(boundary, boundary + ' || source.GetComponent<ItemCardUI>() != null || source.parent != null && TownServiceCatalog.CardMounts.ContainsKey(source.parent)')
     text = text.replace('NativeTemplates.Originals[key] = source;', 'NativeTemplates.Originals[key] = key == "merchant.cardface" ? NativeTemplates.BadgeTemplate : source;')
     publisher.write_text(text)
     program = fixture / 'Program.cs'
