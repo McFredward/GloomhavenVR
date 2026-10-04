@@ -6,6 +6,7 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="$(RuntimeSource)/QuestContentHash.cs" Link="QuestContentHash.cs" />
     <Compile Include="Program.cs" /><Compile Include="UnityStubs.cs" />
     <Compile Include="$(RuntimeSource)/QuestGameVideos.cs" Link="QuestGameVideos.cs" />
     <Compile Include="$(RuntimeSource)/QuestGameContent.cs" Link="QuestGameContent.cs" />

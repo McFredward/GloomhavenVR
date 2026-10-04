@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
-using System.Security.Cryptography;
 
 namespace GloomhavenVR.Quest
 {
@@ -23,14 +22,37 @@ namespace GloomhavenVR.Quest
         public string File { get; }
         public long ProcessedBytes { get; }
         public long TotalBytes { get; }
+        public long OverallProcessedBytes { get; }
+        public long OverallTotalBytes { get; }
+        public int FileIndex { get; }
+        public int FileCount { get; }
 
-        public QuestGameContentProgress(string phase, string file, long processedBytes, long totalBytes)
-        { Phase = phase; File = file; ProcessedBytes = processedBytes; TotalBytes = totalBytes; }
+        public QuestGameContentProgress(string phase, string file, long processedBytes, long totalBytes,
+            long overallProcessedBytes = 0, long overallTotalBytes = -1, int fileIndex = 0, int fileCount = 0)
+        {
+            Phase = phase; File = file; ProcessedBytes = processedBytes; TotalBytes = totalBytes;
+            OverallProcessedBytes = overallProcessedBytes; OverallTotalBytes = overallTotalBytes;
+            FileIndex = fileIndex; FileCount = fileCount;
+        }
+    }
+
+    public sealed class QuestGameContentDeliveryResult
+    {
+        public bool ReusedContent { get; internal set; }
+        public bool CopiedArchive { get; internal set; }
+        public bool ReusedArchive { get; internal set; }
+        public int VerifiedFiles { get; internal set; }
+        public int ExtractedFiles { get; internal set; }
+        public long VerifiedBytes { get; internal set; }
+        public long CopiedBytes { get; internal set; }
+        public long ExtractedBytes { get; internal set; }
     }
 
     /// <summary>File-backed original content delivery. No rule or save interpretation.</summary>
-    public static class QuestGameContent
+    public static partial class QuestGameContent
     {
+        public static void ConfigureNativeHash() => QuestContentHash.Configure();
+
         public static void Validate(QuestGameContentManifest manifest, string inputKey, string expectedArchive = "quest-startup-content.zip")
         {
             if (expectedArchive != "quest-startup-content.zip" && expectedArchive != "quest-mod-content.zip")
@@ -159,22 +181,24 @@ namespace GloomhavenVR.Quest
 
         public static string Hash(string path, Action<QuestGameContentProgress> progress = null, string phase = "hash", string relative = null)
         {
-            using (var sha = SHA256.Create())
+            using (var sha = QuestContentHash.Create())
             using (var file = File.OpenRead(path))
             {
-                if (progress == null) return BitConverter.ToString(sha.ComputeHash(file)).Replace("-", "").ToLowerInvariant();
-                byte[] buffer = new byte[65536]; long processed = 0, reported = 0; int count;
+                QuestContentHash.FileIdentity before = QuestContentHash.Identity(path);
+                byte[] buffer = new byte[QuestContentHash.BufferSize]; long processed = 0, reported = 0; int count;
                 long total = file.Length;
                 Report(progress, phase, relative ?? Path.GetFileName(path), 0, total);
                 while ((count = file.Read(buffer, 0, buffer.Length)) != 0)
                 {
-                    sha.TransformBlock(buffer, 0, count, buffer, 0);
+                    sha.Update(buffer, count);
                     processed += count;
                     if (processed - reported >= 1048576) { Report(progress, phase, relative ?? Path.GetFileName(path), processed, total); reported = processed; }
                 }
-                sha.TransformFinalBlock(buffer, 0, 0);
+                string digest = sha.Finish();
+                if (processed != total || !before.Equals(QuestContentHash.Identity(path)))
+                    throw new InvalidDataException("Content changed while it was being hashed: " + path);
                 if (processed != reported || processed == 0) Report(progress, phase, relative ?? Path.GetFileName(path), processed, total);
-                return BitConverter.ToString(sha.Hash).Replace("-", "").ToLowerInvariant();
+                return digest;
             }
         }
     }

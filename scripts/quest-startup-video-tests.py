@@ -18,7 +18,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime-source", type=Path, default=root / "unity/GloomhavenVR.Quest/Assets/Quest/Runtime")
     args = parser.parse_args()
-    sources = {name: (args.runtime_source / name).read_text() for name in ("QuestGameVideos.cs", "QuestGameContent.cs")}
+    sources = {name: (args.runtime_source / name).read_text() for name in ("QuestGameVideos.cs", "QuestGameContent.cs", "QuestContentHash.cs")}
     mutations = (
         ("wrong-owned-url", "QuestGameVideos.cs", "new Uri(paths[clip.guid]).AbsoluteUri", 'new Uri("/unowned/wrong.mp4").AbsoluteUri', "exact-owned-url"),
         ("skip-inactive-player", "QuestGameVideos.cs", "GetComponentsInChildren<VideoPlayer>(true)", "GetComponentsInChildren<VideoPlayer>(false)", "Required original movie player is missing"),
