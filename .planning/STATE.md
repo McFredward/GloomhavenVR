@@ -1,5 +1,45 @@
 # State — where the project stands
 
+**Original NPC meshes and Frame hardware follow-up, 2026-10-04: 1.1.0 / ModBuild 616.**
+
+The supplied Frame logs identify 615 / 64db88dc9, with a real CampaignMap visit
+followed by the scenario. Seven fully loaded scenario windows average 49.60ms
+versus 53.20ms in 612 (6.8% observed improvement). They skip 24/24 stable wall
+publications and 18.5% of health-bar bone checks. Newly culled Animator counts
+and structural chunk counts are both zero here. Pickup 105.12ms, nested ghost
+construction 48.32ms and stat-panel previews 68–79ms identify cold interaction
+bursts; most of the longest frames remain outside named mod scopes. No GPU busy
+counter or memory-leak attribution is established. See [the hardware audit](../docs/performance/FRAME-616-PERF-AUDIT.md)
+and [implementation boundaries](../docs/performance/FRAME-616-IMPLEMENTATION.md).
+
+Remove the immersive resident body-detail slider and all twelve simplified NPC
+meshes in parts 17–28: 53,762,395 bytes. Keep the three original resident bodies,
+faces/materials/bones, per-renderer skinning and shared animation/audio clocks.
+Scenario detail/distance controls retain 1594 derivative entries and 66 identical
+parts. The retired NPC key remains inert/hidden for config compatibility. Fresh
+or missing-key Frame standalone profiles default immersive residents off;
+PC profiles still default on, and explicit saved choices remain untouched.
+Existing Frame profiles with true must disable the Environment toggle once.
+This is a full installation with a smaller indexed asset set, not DLL-only.
+
+The wall pop is a defect: native wall gates on a floor-labelled material admitted
+the cheap shader, which cannot render its native dissolve. Active channels now
+veto cheap shading, and later native writes restore originals before drawing.
+A separate wall-only timestep bound preserves rendered intermediate states after
+stalls. Native gameplay, coverage/dwell and shared card/UI fade clocks remain.
+Refresh-only display changes now retain incremental diagnostic jobs while closing
+the old FRAME pacing window; actual scene/load/config/debug invalidation stays.
+Existing bounded Debug progress gains traversal/capture-span counters, without a
+per-frame normal-level stream. Attached camera handlers also stop invalid automatic
+Unity message-signature errors, retaining their explicit event subscriptions.
+Hardware must verify appearance and completed census.
+
+Focused native and options/packaging controls pass. Integrated validation is in
+progress; final counts and immutable615 compiled scope will be recorded here
+before pushing. Receipts are under `.planning/debug/frame616-review/`.
+
+---
+
 **Frame CPU/render implementation checkpoint, 2026-10-04: 1.1.0 / ModBuild 615.**
 
 All five ranked tracks in FRAME-612-ANALYSIS now have integrated source changes:

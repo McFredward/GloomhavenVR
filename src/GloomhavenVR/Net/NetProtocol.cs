@@ -566,7 +566,37 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 615;
+    public const ushort ModBuild = 616;
+
+    // ModBuild 616 — original town NPC meshes and the Build 615 Frame hardware review.
+    // Remove the three immersive residents' twelve simplified body derivatives and
+    // their dedicated distance parts 17–28 (53,762,395 bytes). Original resident bodies,
+    // faces, materials, bones and shared pose/audio clocks remain; scenario figure
+    // detail/distance variants retain all 1594 records and 66 byte-identical parts.
+    // Retire the NPC body-detail slider in curated and advanced options; its saved
+    // configuration key remains inert. Scoped per-renderer skinning stays separate.
+    // Fresh/missing-key Frame standalone profiles disable immersive town residents;
+    // PC profiles still enable them. Explicit saved choices are never overwritten.
+    // Preserve native wall fade channels before cheap environment shading, including
+    // floor-classified surfaces with live native wall gates. Native writes restore
+    // owned materials before drawing. Bound only the wall visual fade step so a
+    // stalled frame cannot skip its rendered intermediate states; shared UI/card
+    // fade semantics remain unchanged. Structural chunks were zero in this capture.
+    // Rename attached MonoBehaviour Camera event handlers to avoid invalid automatic
+    // Unity OnPreCull/OnPostRender message signatures; explicit subscriptions remain.
+    // Adaptive display refresh changes close FRAME pacing windows without repeatedly
+    // discarding the separate incremental scene census. Real scene/load/config/debug
+    // lifecycle changes still invalidate it. Bounded Debug progress reports work,
+    // slices and capture span; no routine per-frame normal-level stream is added.
+    // Actual Build 615 loaded scenario mean 49.60ms versus 53.20ms in 612 is an observed
+    // 6.8% improvement, not isolated per-change savings or headset/compositor FPS.
+    // Stable wall publications are skipped 24/24; cold pickup/preview spikes remain,
+    // and most work/waits in the longest frames remain unattributed by these logs.
+    // Native game state, gameplay callbacks and the multiplayer wire grammar stay
+    // unchanged. This is a full install because the indexed asset part set shrinks.
+    // Original Unity runtime/pixel controls and the complete integrated gate prove
+    // source boundaries; the next headset capture must verify final appearance.
+    //
 
     // ModBuild 615 — all five remaining CPU/render tracks from FRAME-612-ANALYSIS.
     // Scene-signature churn ignores only active native actor-owned non-water particle

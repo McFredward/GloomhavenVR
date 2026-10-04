@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-04 for Build 615 after the NPC parity integration and Frame CPU/render work. This directory holds internal
+Updated 2026-10-04 for Build616 original NPC geometry, animated walls and the Frame615 hardware audit. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -11,6 +11,10 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [../docs/performance/FRAME-616-IMPLEMENTATION.md](../docs/performance/FRAME-616-IMPLEMENTATION.md) | Original NPC meshes, Frame native-window defaults, wall fade correction and refresh-safe diagnostics |
+| [../docs/performance/FRAME-616-PERF-AUDIT.md](../docs/performance/FRAME-616-PERF-AUDIT.md) | Actual Build615 loaded improvement, applied/inactive optimizations and remaining attributed/unattributed stalls |
+| [../docs/performance/FRAME-616-NPC-ORIGINALS.md](../docs/performance/FRAME-616-NPC-ORIGINALS.md) | Removed NPC-only derivatives, unchanged scenario parts and saved-profile boundaries |
+| [../docs/performance/FRAME-616-WALLS.md](../docs/performance/FRAME-616-WALLS.md) | Native floor wall gates, cheap shader retirement and rendered transition controls |
 | [TOWN-MP-614.md](TOWN-MP-614.md) | Original NPC card/UI assets, fair numeric/cold delivery, public cabinet input, shared focus/audio/blessing and the explicit local card-guide exception |
 | [../docs/performance/FRAME-615-IMPLEMENTATION.md](../docs/performance/FRAME-615-IMPLEMENTATION.md) | All five Frame612 follow-ups, reversible settings, fresh profile defaults and hardware comparison boundaries |
 | [../docs/performance/FRAME-615-WALLS.md](../docs/performance/FRAME-615-WALLS.md) | Actor particle signatures, exact synchronous geometry reads, audited structural chunks and native camera fallbacks |

@@ -109,7 +109,8 @@ $figurePartNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::
 foreach ($entry in $figureEntries) {
     if ($entry.mesh -notmatch '^figure-[0-9a-f]{16}-(5|20|45|75)$') { Write-Error "Invalid figure mesh identity." }
     $figureTier = $Matches[1]
-    # Build612 adds tier5 and mixed-tier distance parts, including NPC body meshes.
+    # Build612 adds tier5 and mixed-tier distance parts. Build616 removes NPC bodies;
+    # the same identity grammar remains for the retained scenario derivatives.
     # Keep the same grammar as check-figure-mesh-bank.py; legacy numeric parts must
     # still match the indexed mesh tier. Distance parts intentionally contain any tier.
     if ($entry.bank -notmatch '^ghvr-figure-meshes-(5|20|45|75|distance)-[0-9]{2}\.bundle$' -or
