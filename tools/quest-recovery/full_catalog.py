@@ -42,6 +42,7 @@ def prefab_root(project, candidates):
 
 def associate(catalog_path, project, identities, cab_bundles, managed_types):
     project, catalog_path = Path(project).resolve(), Path(catalog_path).resolve()
+    cab_bundles = {key.casefold(): value for key, value in cab_bundles.items()}
     decoded = decode_catalog(json.loads(catalog_path.read_text(encoding="utf-8-sig")))
     scripts, _ = script_index(project, managed_types)
     native_cache = {}

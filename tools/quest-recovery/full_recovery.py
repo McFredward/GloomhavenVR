@@ -139,6 +139,20 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
               "privateB614CacheRequired": False, "androidPlayerBuilt": False,
               "faithfulGraphicsVerified": False, "playableCampaignVerified": False}
     write_json(workspace / "full-recovery.json", result)
+    # The merged checkpoint is independently hashed and complete. Temporary
+    # per-batch project exports are no longer required for reproducible resume;
+    # retain native input hashes, identity rows, recipes and exporter logs.
+    batches = Path(bundle_workspace).resolve() if bundle_workspace else workspace / "BundleRecovery"
+    deleted = []
+    for index in progress["completedGroups"]:
+        exported = batches / ("batch-" + str(index).zfill(3)) / "Export"
+        if exported.is_dir():
+            size = sum(path.stat().st_size for path in exported.rglob("*") if path.is_file())
+            shutil.rmtree(exported)
+            deleted.append({"path": str(exported), "bytes": size})
+    write_json(workspace / "obsolete-export-cleanup.json", {"schema": 1,
+               "verifiedRecoveryReceipt": str(workspace / "full-recovery.json"), "removed": deleted,
+               "originalInputsAndIdentityEvidenceRetained": True})
     return result
 
 
