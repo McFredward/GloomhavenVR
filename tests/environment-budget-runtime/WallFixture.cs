@@ -35,8 +35,17 @@ namespace GloomhavenVR.Core
             public readonly List<MeshRenderer> Renderers = new();
             public readonly List<object> Foliage = new(), Siblings = new(), Mounted = new(), Stacked = new(), Body = new();
             public float Fade;
+            public bool VariantHigh;
+            public bool NativeHighTransition=true;
             public bool HasBlock, DissolveCensusLogged;
             public float HeldCutoff => 0.5f;
+        }
+        private sealed class MountedProp
+        {
+            public Renderer Renderer=null!;
+            public bool NativeHighTransition;
+            public int CutoffId=-1;
+            public float BaseCutoff=.5f;
         }
         private sealed partial class FadeDriver
         {
@@ -47,7 +56,7 @@ namespace GloomhavenVR.Core
                 TilesOcclusionMapId = Shader.PropertyToID("_TilesOcclusionMap"),
                 CutoffId = Shader.PropertyToID("_Cutoff");
             private Texture2D? _noiseTex, _occludedTex;
-            private MaterialPropertyBlock? _mpb;
+            private MaterialPropertyBlock? _mpb, _mountedMpb;
             private float _nextRescan;
             private enum TickPhase { ApplyFoliage, ApplySiblings, ApplyMounted, ApplyStacked, ApplyBody, ApplyWall }
             private readonly struct EmptyScope : IDisposable { public void Dispose() { } }
@@ -76,9 +85,18 @@ namespace GloomhavenVR.Core
                 Apply(FixtureSegment);
                 return FixtureSegment.Fade;
             }
+            internal void SetHigh(bool high) => FixtureSegment.VariantHigh = high;
+            internal void SetKnown(bool known) => FixtureSegment.NativeHighTransition=known;
+            internal void PresentMounted(Renderer renderer,float fade,bool known)
+            {DriveNativeProp(new MountedProp {Renderer=renderer,NativeHighTransition=known},fade);}
+            internal bool KnownShader(string name) => NativeHighTransitionShaderName(name);
+            internal void WarmMaps() => PrepareNativeTransitionMaps();
+            internal void Present(float fade)
+            { WallFixtureClock.frameCount++; FixtureSegment.Fade=fade; Apply(FixtureSegment); }
             internal void DisposeFixture()
             {
                 OnDisable();
+                ReleaseNativeTransitionMaps();
                 if (_noiseTex != null) UnityEngine.Object.DestroyImmediate(_noiseTex);
                 if (_occludedTex != null) UnityEngine.Object.DestroyImmediate(_occludedTex);
                 GC.KeepAlive(_nextRescan);
@@ -98,6 +116,12 @@ namespace GloomhavenVR.Core
             internal Fixture(MeshRenderer renderer)
             { driver.FixtureSegment.Renderers.Add(renderer); driver.EnableFixture(); }
             internal float Step(float delta, bool target) => driver.Step(delta, target);
+            internal void SetHigh(bool high) => driver.SetHigh(high);
+            internal void SetKnown(bool known) => driver.SetKnown(known);
+            internal void PresentMounted(Renderer renderer,float fade,bool known=true) => driver.PresentMounted(renderer,fade,known);
+            internal bool KnownShader(string name) => driver.KnownShader(name);
+            internal void WarmMaps() => driver.WarmMaps();
+            internal void Present(float fade) => driver.Present(fade);
             internal void TraceWrite(MeshRenderer renderer, int segment, float fade) => driver.TraceWrite(renderer, segment, fade);
             public void Dispose() => driver.DisposeFixture();
         }

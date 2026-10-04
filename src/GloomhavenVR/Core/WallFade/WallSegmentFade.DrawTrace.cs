@@ -33,7 +33,7 @@ internal static partial class WallSegmentFade
             internal Segment Segment = null!;
             internal Renderer Renderer = null!;
             internal int Number, WriteFrame, LastDrawFrame = -1, Samples, LastBucket = -1;
-            internal float ExpectedCutoff, ExpectedToggle, ExpectedOn, PreviousFade;
+            internal float ExpectedCutoff, ExpectedToggle, ExpectedOn, ExpectedMapEnable, PreviousFade;
             internal int ExpectedGate;
             internal Texture? ExpectedMap;
             internal bool ExpectedBlock, WasReturning, Complete, HasFade;
@@ -140,6 +140,7 @@ internal static partial class WallSegmentFade
             episode.ExpectedGate = block != null ? block.GetInteger(ToggleWallFadeId) : 0;
             episode.ExpectedToggle = block != null ? block.GetFloat(ToggleWallfadeMatId) : 0f;
             episode.ExpectedOn = block != null ? block.GetFloat(WallFadeOnMatId) : 0f;
+            episode.ExpectedMapEnable = block != null ? block.GetFloat(NativeMapEnableId) : 0f;
             episode.WrittenMaterial = renderer.sharedMaterial;
             episode.WrittenShader = episode.WrittenMaterial != null ? episode.WrittenMaterial.shader : null;
             episode.WrittenEnabled = renderer.enabled;
@@ -241,7 +242,8 @@ internal static partial class WallSegmentFade
                     || cutoff != episode.ExpectedCutoff
                     || _drawBlock.GetInteger(ToggleWallFadeId) != episode.ExpectedGate
                     || _drawBlock.GetFloat(ToggleWallfadeMatId) != episode.ExpectedToggle
-                    || _drawBlock.GetFloat(WallFadeOnMatId) != episode.ExpectedOn;
+                    || _drawBlock.GetFloat(WallFadeOnMatId) != episode.ExpectedOn
+                    || _drawBlock.GetFloat(NativeMapEnableId) != episode.ExpectedMapEnable;
                 VRLog.Debug(Name, "DRAW DELIVERY: episode=" + episode.Number + "/" + DrawTraceEpisodes
                     + " sample=" + episode.Samples + "/" + DrawTraceSamples + " frame=" + Time.frameCount
                     + " eye=" + camera.stereoActiveEye + " renderer=" + r.name + "#" + r.GetInstanceID()
@@ -252,6 +254,8 @@ internal static partial class WallSegmentFade
                     + " gateInt=" + _drawBlock.GetInteger(ToggleWallFadeId)
                     + " toggle=" + _drawBlock.GetFloat(ToggleWallfadeMatId).ToString("F2")
                     + " wallOn=" + _drawBlock.GetFloat(WallFadeOnMatId).ToString("F2")
+                    + " enableMap=" + _drawBlock.GetFloat(NativeMapEnableId).ToString("F2")
+                    + " globalEnableMap=" + Shader.GetGlobalFloat(NativeMapEnableId).ToString("F2")
                     + " lateToDrawChanged=" + changed + " materialSlots=" + _drawMaterials.Count
                     + " [" + slots + "] named=" + count + "/" + _drawMaterials.Count
                     + "; native shader pixels remain unmeasured.");

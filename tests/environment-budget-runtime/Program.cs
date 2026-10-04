@@ -27,6 +27,31 @@ public static class EnvironmentProgram
     private static void Configure(bool batch, bool simple, int effects)
     { PerfConfig.StaticScenarioBatchesOn = batch; PerfConfig.SimpleEnvironmentShadingOn = simple; PerfConfig.EnvironmentEffectsDensityPercent = effects; }
 
+    private static void PresentationPreparationVisibility()
+    {
+        using var room = new Room();
+        Check(!ScenarioEnvironmentBudget.IsPreparingPresentation,
+            "all environment budgets off never request a preparation spinner");
+        room.Floor(); room.Floor();
+        Configure(true, true, 100);
+        ScenarioEnvironmentBudget.Placed(room.Generated);
+        Check(ScenarioEnvironmentBudget.IsPreparingPresentation,
+            "new native room discovery requests preparation before its first work tick");
+        ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(!ScenarioEnvironmentBudget.IsPreparingPresentation,
+            "finished discovery and substitute construction release preparation immediately");
+        Tick("HandlePreCull", room.Camera);
+        Check(!ScenarioEnvironmentBudget.IsPreparingPresentation,
+            "ordinary camera leases never extend asset preparation");
+        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(room.Generated.GetComponentInChildren<MeshRenderer>());
+        Check(!ScenarioEnvironmentBudget.IsPreparingPresentation,
+            "normal wall invalidation without queued work never creates a loading spinner");
+        Tick("HandlePostRender", room.Camera);
+        Configure(false, false, 100); Tick();
+        Check(!ScenarioEnvironmentBudget.IsPreparingPresentation,
+            "disabled budget cleanup cannot leave preparation latched");
+    }
+
     private sealed class Room : IDisposable
     {
         internal readonly GameObject Root, Host, Generated;
@@ -670,6 +695,111 @@ public static class EnvironmentProgram
             "all environment optimizations off preserve native wall rendering and its authored live material");
     }
 
+    private static void NativeHighRenderedContinuity(bool toggleNative=false,bool mounted=false)
+    {
+        using var room = new Room();
+        Shader shader = Shader.Find("Fixture/NativeHighWall");
+        Check(shader != null && shader.isSupported, "documented native HIGH fragment branch imports on real graphics");
+        var material = new Material(shader);
+        material.SetColor("_Tint",new Color(.8f,.4f,.2f,1));
+        material.SetFloat("_NativeToggleVariant",toggleNative?1f:0f);
+        // Model a suspended native flat producer: the actual map-enable binding
+        // starts disabled, and only the bound production MPB may open it.
+        material.SetFloat("_EnableOcclusionMap",0f);
+        var wall = room.Surface("NativeHigh.UpperWall",x:1.1f,material:material);
+        // Cover the screen-space native map, rather than a tiny central sample of
+        // the low-frequency rank field, so every coverage step reaches fragments.
+        room.Camera.orthographicSize=.55f;
+        room.Camera.transform.position=new Vector3(1.1f,8f,0);
+        Mesh mesh = wall.GetComponent<MeshFilter>().sharedMesh;
+        Vector3[] vertices=mesh.vertices;
+        for(int i=0;i<vertices.Length;i++)vertices[i].y=1.5f;
+        mesh.vertices=vertices;mesh.RecalculateBounds();
+        using var fixture = new WallSegmentFade.Fixture(wall);
+        fixture.SetHigh(true);
+        fixture.WarmMaps(); fixture.WarmMaps();
+        Check(!wall.HasPropertyBlock(),"prewarming cached native maps never touches a renderer");
+        Check(fixture.KnownShader("Amp_Basic_WallFade")&&fixture.KnownShader("Amp_Basic_N_MRAO")
+            &&fixture.KnownShader("Amp_Basic_N_MRAO(toggle-native)")
+            &&!fixture.KnownShader("Amp_Basic_WallFade_Low")&&!fixture.KnownShader("Amp_Unknown_WallFade"),
+            "only exact native DXBC HIGH branches use the new map delivery");
+        void Present(float fade)
+        {
+            // Prop restoration is owned by DriveProp/RestoreProp outside this bound
+            // fragment-delivery method. Its solid endpoint here exercises the rank-0
+            // map; wall restoration executes the complete production Apply method.
+            if(mounted)fixture.PresentMounted(wall,fade); else fixture.Present(fade);
+        }
+        string evidence=Environment.GetEnvironmentVariable("GHVR_ENVIRONMENT_EVIDENCE")!;
+        string caseName=typeof(EnvironmentProgram).Assembly.GetName().Name+"-"+(toggleNative?"toggle":"high")+(mounted?"-prop":"-wall");
+        int Visible(Color32[] pixels)
+        {
+            int n=0;foreach(var pixel in pixels)if(pixel.r>15)n++;
+            System.IO.File.AppendAllText(System.IO.Path.Combine(evidence,caseName+"-pixels.txt"),n+"\n");
+            return n;
+        }
+        void Capture(string stage)
+        {
+            var pixels=room.Render();var image=new Texture2D(48,48,TextureFormat.RGBA32,false);
+            image.SetPixels32(pixels);image.Apply();
+            System.IO.File.WriteAllBytes(System.IO.Path.Combine(evidence,caseName+"-"+stage+".png"),image.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(image);
+        }
+        var block = new MaterialPropertyBlock();
+        Present(0);int solid=Visible(room.Render());
+        Capture("solid");
+        Check(solid>20,"original HIGH upper geometry paints before native map transition");
+        int last=solid,changes=0;
+        bool progressiveOut=true,progressiveIn=true,pointRepeat=true,authoredCutoff=true,nativeEnable=true;
+        var outPixels=new List<int>();var inPixels=new List<int>();
+        var identities=new Dictionary<int,int>();
+        foreach(float fade in new[]{.0625f,.125f,.25f,.375f,.5f,.625f,.75f,.875f,.9375f,.984375f})
+        {
+            Present(fade);int visible=Visible(room.Render());wall.GetPropertyBlock(block);
+            var map=block.GetTexture(Shader.PropertyToID("_TilesOcclusionMap"));
+            // Retain the complete OUT and IN curves before a causal control fails;
+            // an unchanged early sample alone would not prove an endpoint pop.
+            outPixels.Add(visible);progressiveOut&=visible>0&&visible<last;
+            nativeEnable&=block.GetFloat(Shader.PropertyToID("_EnableOcclusionMap"))==1f;
+            pointRepeat&=map.filterMode==FilterMode.Point&&map.wrapMode==TextureWrapMode.Repeat;
+            authoredCutoff&=block.GetFloat(Shader.PropertyToID("_Cutoff"))==.5f;
+            if(fade==.5f)Capture("mid");
+            if(visible<last)changes++;last=visible;
+            identities[(int)(fade*64)]=map.GetInstanceID();
+        }
+        Present(1);int held=Visible(room.Render());
+        Capture("held");
+        outPixels.Add(held);
+        int growing=0;last=0;
+        foreach(float fade in new[]{.9375f,.75f,.5f,.25f,.125f,.0625f})
+        {
+            Present(fade);int visible=Visible(room.Render());wall.GetPropertyBlock(block);
+            inPixels.Add(visible);progressiveIn&=visible>last&&visible<solid;
+            Check(block.GetTexture(Shader.PropertyToID("_TilesOcclusionMap")).GetInstanceID()==identities[(int)(fade*64)],
+                "return reuses unchanged native maps without per-frame texture allocation");
+            if(visible>last&&visible<solid)growing++;last=visible;
+        }
+        Present(0);
+        Capture("returned");
+        inPixels.Add(Visible(room.Render()));
+        Check(progressiveOut&&progressiveIn&&held==0&&changes>=8&&growing>=5,
+            "original HIGH branch progressively reveals its native held geometry: OUT="+string.Join(",",outPixels)+"; IN="+string.Join(",",inPixels));
+        Check(nativeEnable,"actual original shader binding pins native map scale independently of global writers");
+        Check(pointRepeat,"native rank map uses exact binary point-filtered texels");
+        Check(authoredCutoff,"native HIGH transition preserves the original authored cutoff");
+        Check(growing>=5&&Visible(room.Render())==solid&&(mounted||!wall.HasPropertyBlock()),"native HIGH solid endpoint restores the unchanged native material and removes only its owned block");
+        // Preserve native foundation with the same native authored geometry, not an
+        // arbitrary wall-height cutoff. Both branches are from the native fragment.
+        vertices=mesh.vertices;for(int i=0;i<vertices.Length;i++)vertices[i].y=0;
+        mesh.vertices=vertices;mesh.RecalculateBounds();
+        Present(0);int foundation=Visible(room.Render());
+        foreach(float fade in new[]{.125f,.5f,.9375f,1f})
+        {Present(fade);Check(Visible(room.Render())==foundation,"native HIGH foundation remains solid through transition and held state");}
+        Capture("foundation");
+        Check(wall.sharedMaterial==material,"native wall shader and original material identity are never substituted");
+        Present(0);UnityEngine.Object.DestroyImmediate(material);
+    }
+
     [Serializable] private sealed class NativeFloorMaterial
     {
         public string name = "";
@@ -836,8 +966,11 @@ public static class EnvironmentProgram
         Application.logMessageReceived += EngineMessage;
         try
         {
-            ScopeAndMaterials(); AmbientScopes(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault(); StructuralChunks(); NativeWallChannelsAndRenderedClock();
-            WallDrawDeliveryTrace();
+            PresentationPreparationVisibility(); ScopeAndMaterials(); AmbientScopes(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault(); StructuralChunks(); NativeWallChannelsAndRenderedClock();
+            NativeHighRenderedContinuity();
+        NativeHighRenderedContinuity(toggleNative:true);
+        NativeHighRenderedContinuity(mounted:true);
+        NativeHighRenderedContinuity(toggleNative:true,mounted:true); WallDrawDeliveryTrace();
             return count;
         }
         finally { Application.logMessageReceived -= EngineMessage; }

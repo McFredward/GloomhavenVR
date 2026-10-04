@@ -880,7 +880,7 @@ internal static class WallFadeTuning
 ///   fades); then <c>m = (occ.a &gt;= fragDepth) ? 1 : (1-occ.r)</c>,
 ///   <c>discard if m - _Cutoff &lt; 0</c> (<c>_Cutoff</c> = "Mask Clip Value", cb0[4].y).</item>
 /// <item>HIGH variant (<c>Amp_Basic_WallFade</c>, misc_high_shaders), blob216 lines 165-229:
-///   same map term <c>m</c>, <c>M = m·_ToggleWallfade</c> (material float, cb0[6].x);
+///   same map term <c>m</c>, <c>M = m·_EnableOcclusionMap</c> (runtime float, cb0[6].x);
 ///   <c>S = smoothstep(sat(3.33·((0.02·dist + screenRadial)^8 + (1-worldY)/3)))</c> — the
 ///   world-Y foundation ramp and the screen-edge vignette are SUMMED INSIDE one scalar;
 ///   <c>n</c> = time-drifting world-space simplex noise; <c>A = max(M,S) + 42n·(1-max(M,S))</c>;
@@ -890,15 +890,16 @@ internal static class WallFadeTuning
 /// Unity property precedence is MPB &gt; material &gt; global, so a per-renderer
 /// MaterialPropertyBlock can open the gate (<c>ToggleWallFade=1</c>), substitute the map
 /// (<c>_TilesOcclusionMap</c> = a small CONSTANT texture) and set <c>_Cutoff</c> /
-/// <c>_ToggleWallfade</c>. Concretely:
+/// <c>_EnableOcclusionMap</c>. Build619 verifies this binding from the original program
+/// tail; the historical _ToggleWallfade alias is retained for other shader families.
+/// Concretely:
 /// <list type="bullet">
-/// <item>TRANSITION (0&lt;fade&lt;1): map = low-frequency VALUE-NOISE texture (r in [0.06,1],
-///   a=0 — fails the reversed-Z depth compare, so <c>m = 1-noise</c>),
-///   <c>_Cutoff = lerp(-0.05, 1, fade)</c> → progressive dissolve; the high variant
-///   additionally dithers/vignettes with its own view terms. The noise is sampled at SCREEN
-///   UV by the shader itself, so the pattern slides under head motion — confined to the
-///   ~0.35s dissolve, cosmetic (under conventional-Z it would degrade to an end-of-sweep
-///   pop; the rig is D3D11 reversed-Z).</item>
+/// <item>TRANSITION (0&lt;fade&lt;1), Build619: verified HIGH/N_MRAO routes use cached,
+///   point-filtered binary solid/held texels with progressive ranked coverage and the
+///   authored cutoff. This avoids the original M&gt;0 multiplier switching across the
+///   whole wall at the endpoint. LOW/unknown routes retain their continuous value-noise
+///   cutoff sweep. Original native clip branches, geometry and materials stay intact.
+///   See FRAME-619-BARS-WALLS.md for original bytecode and causal real pixel proof.</item>
 /// <item>HELD FADED (fade=1) — R3 (foundation-band fix; the R2 held state below deleted
 ///   the base course, the user's bug): drive EXACTLY the value the flat game's own
 ///   occlusion map delivers over a revealed room. The game never touches <c>_Cutoff</c>
@@ -914,7 +915,7 @@ internal static class WallFadeTuning
 ///   the degenerate exact far/near-plane pixel), <c>_Cutoff</c> = the material's
 ///   AUTHORED "Mask Clip Value" (clamped 0.05–0.95; with m = 0 any 0&lt;c&lt;1 yields
 ///   the same held geometry — the authored value only shapes the HIGH dither density,
-///   matching the flat game exactly), <c>_ToggleWallfade=1</c>. LOW (blob264 lines
+///   matching the flat game exactly), <c>_EnableOcclusionMap=1</c>. LOW (blob264 lines
 ///   46-49, 69-71): <c>clip = 0 - c &lt; 0</c> → constant discard wherever objY ≥ 0.4;
 ///   the base course below the shader's hard object-Y gate stays solid. HIGH (blob216
 ///   lines 216-229): <c>M = 0</c> → <c>B = S</c>, <c>A = S + 42n(1-S)</c>, so at the
@@ -1083,6 +1084,15 @@ internal static partial class WallSegmentFade
             "map/cutoff fade path.");
     }
 
+    /// <summary>Prepare the bounded native mask bank while the scenario loading symbol
+    /// is visible. Idempotent; leaves all renderers, materials and property blocks alone.</summary>
+    internal static void PreparePresentationMasks()
+    {
+        if (!VRSession.IsRunning || !Enabled || _driver == null) return;
+        try { _driver.PrepareNativeTransitionMaps(); }
+        catch (System.Exception error) { VRLog.Warn(Name, "native fade preparation deferred: " + error.Message); }
+    }
+
     /// <summary>Clear every property block and destroy the driver (hot-reload safe).</summary>
     public static void Uninstall()
     {
@@ -1232,6 +1242,8 @@ internal static partial class WallSegmentFade
         /// <summary>R2 diag: which fade-shader variant(s) this segment's renderers carry.</summary>
         public bool VariantHigh;
         public bool VariantLow;
+        /// <summary>All slots use a native HIGH clip branch verified from game DXBC.</summary>
+        public bool NativeHighTransition = true;
         /// <summary>Distinct fade-shader name(s) seen on the renderers ("+"-joined).</summary>
         public string ShaderNames = "?";
         /// <summary>How many renderers joined via the round-8 TOGGLE-NATIVE path (materials
@@ -4650,10 +4662,10 @@ internal static partial class WallSegmentFade
             _mpb ??= new MaterialPropertyBlock();
             _mpb.Clear();
             _mpb.SetInteger(ToggleWallFadeId, 1);
-            // HIGH-variant map scale M = m·_ToggleWallfade (cb0[6].x) — pin to 1 so the held
-            // math below holds regardless of the material's authored value; the LOW shader
-            // has no such property (MPB entry simply unused there).
+            // Preserve historical aliases for themed routes, and drive the actual native
+            // HIGH/N_MRAO map-scale binding verified from their original program tails.
             _mpb.SetFloat(ToggleWallfadeMatId, 1f);
+            _mpb.SetFloat(NativeMapEnableId, 1f);
             // TOGGLE-NATIVE materials (round 8, Amp_Basic_N_MRAO masonry): open their gate
             // too — the same fade subgraph behind a differently-named material switch.
             // Unused entry on the classic WallFade shaders, exactly like _ToggleWallfade on
@@ -4662,33 +4674,18 @@ internal static partial class WallSegmentFade
             // the material becomes the shader-swap candidate — the toggle diag line plus the
             // next hardware round adjudicate.
             _mpb.SetFloat(WallFadeOnMatId, 1f);
-            // THE NOISE MAP IS THE DISSOLVE. THE OCCLUDED MAP IS A SWITCH. (ModBuild 255 —
-            // reverting my own ModBuild 252 change, which was wrong and is the primary cause of
-            // the report "das aufploppen und verschwinden der Wände ist jetzt plötzlich keine
-            // smoothe animation mehr" — note "jetzt plötzlich", i.e. since that build.)
-            //
-            // 252 replaced the noise ramp with a sweep of _Cutoff against the OCCLUDED map, on
-            // the reasoning that the HIGH shader's world-Y term S is a gradient, so a rising c
-            // would dissolve the wall top-down. That reasoning ignored the clause written three
-            // lines further down in this very file: with M = 0 the shader multiplies the
-            // NOISE BY ZERO. Removing the noise removes the only per-pixel variation the cutoff
-            // had to sweep across, which leaves clip = -c for the whole upper wall: solid while
-            // c < 0, discarded the instant c > 0. With c = Lerp(-0.05, 0.50, Fade) that crossing
-            // happens at Fade ≈ 0.09 — one frame into a 0.35 s ramp. It was never a gradient
-            // sweep; it was a one-frame switch wearing a ramp's clothes.
-            //
-            // HARDWARE CONFIRMS IT, in both directions. Frame-by-frame on the user's 30 fps
-            // capture (wände_probleme.mp4): pop-OUT at #148→#149 (t 4.900→4.933) and pop-IN at
-            // #349→#350 (t 11.600→11.633, camera shift measured at exactly (0,0)), each a single
-            // 33 ms step with flat patch means on both sides and ZERO intermediate samples. A
-            // 0.35 s ramp would have produced about ten.
-            //
-            // So the noise path is restored for every variant. Its cost is the known step at the
-            // Fade == 1 boundary — the foundation band winks as the map swaps — which is real,
-            // is what 252 set out to fix, and is a band at the wall's base rather than the whole
-            // wall. It is the pre-252 behaviour that drew no complaint for many builds. The
-            // ANIMATION line reports it as the residual rather than claiming it away.
-            if (seg.Fade >= 1f)
+            // HIGH/toggle-native branches require progressive native solid/held pixels:
+            // continuous positive M otherwise retains B=1 until the held map abruptly
+            // changes B to the foundation/vignette term. See NativeTransitionMap and the
+            // original DXBC/pixel evidence in FRAME-619-BARS-WALLS.md. LOW keeps its
+            // already-proven continuous cutoff sweep. No material/shader is substituted.
+            if (seg.VariantHigh && seg.NativeHighTransition && seg.Fade < 1f)
+            {
+                _mpb.SetTexture(TilesOcclusionMapId, NativeTransitionMap(seg.Fade));
+                _mpb.SetFloat(CutoffId, seg.HeldCutoff);
+                NoteAnimationPath(seg, smooth: true);
+            }
+            else if (seg.Fade >= 1f)
             {
                 // Held fully faded (R3, foundation-band fix): constant r=1,a=0 map → map
                 // term m = 1-r = 0 view-independently (a=0 fails the depth compare for
@@ -4708,7 +4705,7 @@ internal static partial class WallSegmentFade
             {
                 // Dissolve: sweep the clip threshold across the noise texture's value range
                 // (screen-space pattern — cosmetic, confined to the ~0.35s transition). This is
-                // the ONLY path in this method that produces intermediate pixels: m = 1-r varies
+                // the proven LOW path: m = 1-r varies
                 // per texel across the noise, so a rising c retires the wall progressively.
                 _mpb.SetTexture(TilesOcclusionMapId, _noiseTex!);
                 // THE RAMP STARTS BELOW ZERO ON PURPOSE (ModBuild 256). seg.Fade cannot be
@@ -8191,8 +8188,9 @@ internal static partial class WallSegmentFade
         /// audit — all known gate spellings, each with its liveness rule)? Requires
         /// <c>_Cutoff</c> (the clip the fade sweeps), then:
         /// <list type="bullet">
-        /// <item><c>_ToggleWallfade</c> — a runtime float uniform (DXBC-verified on the HIGH
-        ///   variant + ParticleMaster): always driveable → native.</item>
+        /// <item><c>_ToggleWallfade</c> — historical material gate alias: when exposed,
+        ///   treated as a driveable native family. Build619 original HIGH/N_MRAO bindings
+        ///   instead verify runtime <c>_EnableOcclusionMap</c>, supplied by their MPBs.</item>
         /// <item><c>_WallFade_On</c> — a compile-time switch (keyword
         ///   <c>_WALLFADE_ON_ON</c>; ModBuild-65 adjudication): native only when the
         ///   authored value is 1 or the keyword is enabled — otherwise the fade branch is
@@ -9982,6 +9980,7 @@ internal static partial class WallSegmentFade
             seg.RunPassenger = false;      // ditto — a dial turned off mid-session must not stick
             seg.VariantHigh = false;
             seg.VariantLow = false;
+            seg.NativeHighTransition = true;
             seg.ToggleNative = 0;
             seg.ShaderNames = "?";
             seg.HeldCutoff = 0.5f;
@@ -10126,6 +10125,7 @@ internal static partial class WallSegmentFade
                 if (!material.Valid || (!material.ByName && !material.ByToggle))
                     continue;
                 string shaderName = material.Name;
+                if (!NativeHighTransitionShaderName(shaderName)) seg.NativeHighTransition = false;
                 any = true;
                 if (material.ByToggle)
                 {
@@ -10196,6 +10196,7 @@ internal static partial class WallSegmentFade
                 order[i] = i;
             }
             Array.Sort(order, (a, b) => values[a].CompareTo(values[b]));
+            _nativeNoiseOrder = order;
             var pixels = new Color32[n];
             for (int rank = 0; rank < n; rank++)
             {
@@ -10317,6 +10318,7 @@ internal static partial class WallSegmentFade
             AbandonRescanCycle();
             _shaderWaterVerdict.Clear();
             _shaderFadeName.Clear();
+            ReleaseNativeTransitionMaps();
             if (_noiseTex != null)
             {
                 try { Destroy(_noiseTex); } catch { /* already gone */ }

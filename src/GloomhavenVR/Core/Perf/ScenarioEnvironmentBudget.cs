@@ -32,6 +32,11 @@ internal static class ScenarioEnvironmentBudget
     internal static void ConfigureStructuralBatching(Func<bool> enabled) => _structuralEnabled = enabled;
     private static bool StructuralEnabled => _structuralEnabled?.Invoke() == true;
 
+    // Actual queued discovery/substitute construction only. Ongoing cull leases and
+    // material revalidation are steady presentation, not a reason to keep a spinner up.
+    internal static bool IsPreparingPresentation => !_failed && VRSession.IsRunning
+        && _driver != null && _driver.IsPreparingPresentation;
+
     // A renderer write can occur inside a nested render callback. Drop its substitute
     // synchronously, before native/wall effects can encounter an old chunk or mask.
     internal static void BeforeNativeRendererWrite(Renderer renderer)
@@ -397,6 +402,8 @@ internal static class ScenarioEnvironmentBudget
         private bool _batchOn, _structuralOn, _simpleOn, _active, _buildPending;
         private int _effects = 100, _unreadable, _renderDepth;
         private Shader? _shader;
+
+        internal bool IsPreparingPresentation => _pending.Count > 0 || _parts.Count > 0;
 
         private void Awake()
         {

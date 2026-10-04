@@ -4,6 +4,7 @@ using GloomhavenVR.Board.FigureGrab;
 using GloomhavenVR.Core;
 using HarmonyLib;
 using ScenarioRuleLibrary;
+using TMPro;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.UI;
@@ -201,6 +202,9 @@ internal static class ActorBars
 
         /// <summary>Instance IDs of graphics already given the selected ZTest material.</summary>
         public readonly HashSet<int> DepthMatIds = new();
+
+        /// <summary>Index of the owned clone record; native material replacement is re-adopted.</summary>
+        public readonly Dictionary<int, int> DepthMatRecords = new();
 
         /// <summary>The material mode installed on this host. Both sides use explicit ZTest
         /// overrides: restoring the game's material for the show-through mode left LEqual in
@@ -2581,13 +2585,27 @@ internal static class ActorBars
                 }
             }
 
-            if (adopted.DepthMatIds.Contains(id))
-                continue;
             try
             {
-                Material src = g.material;
+                // Build619: TMP's actual draw uses m_sharedMaterial. Graphic.material is a
+                // different inherited field, so assigning it treated bar images but left the
+                // circled number and inline glyph/sprite submeshes depth-tested. Read/write
+                // the same passive native binding as the existing panel material collector;
+                // never read fontMaterial/submesh.material (their getter allocates instances).
+                Material? src = PanelGraphicMaterial.Read(g);
                 if (src == null)
                     continue; // not wired yet — retried next scan
+                int record = -1;
+                if (adopted.DepthMatRecords.TryGetValue(id, out int existing))
+                {
+                    if (ReferenceEquals(src, adopted.DepthMats[existing].inst))
+                        continue;
+                    // Native health/effect updates may replace a font/sprite material after
+                    // adoption. The new native source wins; retire only our detached clone.
+                    record = existing;
+                    Material previous = adopted.DepthMats[record].inst;
+                    if (previous != null) Object.Destroy(previous);
+                }
                 var inst = new Material(src);
                 // Not a declared shader Property (bracket lookup only) ⇒ HasProperty is false;
                 // SetInt still creates the per-material override that wins over the global.
@@ -2595,9 +2613,14 @@ internal static class ActorBars
                 inst.SetInt("unity_GUIZTestMode", (int)mode);
                 if (inst.HasProperty("_ZTestMode"))
                     inst.SetInt("_ZTestMode", (int)mode);
-                g.material = inst;
+                AssignBarMaterial(g, inst);
                 adopted.DepthMatIds.Add(id);
-                adopted.DepthMats.Add((g, src, inst));
+                if (record >= 0) adopted.DepthMats[record] = (g, src, inst);
+                else
+                {
+                    adopted.DepthMatRecords[id] = adopted.DepthMats.Count;
+                    adopted.DepthMats.Add((g, src, inst));
+                }
                 added++;
             }
             catch
@@ -2631,6 +2654,13 @@ internal static class ActorBars
         }
     }
 
+    private static void AssignBarMaterial(Graphic graphic, Material material)
+    {
+        if (graphic is TMP_SubMeshUI submesh) submesh.sharedMaterial = material;
+        else if (graphic is TMP_Text text) text.fontSharedMaterial = material;
+        else graphic.material = material;
+    }
+
     /// <summary>
     /// Mirror of the adopted-state restore: give every touched Graphic its original material back
     /// and destroy our per-instance copies. Called on release, shutdown (ReleaseAll) and a live
@@ -2643,7 +2673,11 @@ internal static class ActorBars
             (Graphic g, Material orig, Material inst) = adopted.DepthMats[i];
             if (g != null)
             {
-                try { g.material = orig; }
+                try
+                {
+                    // A native material replaced since our last scan is not ours to restore.
+                    if (ReferenceEquals(PanelGraphicMaterial.Read(g), inst)) AssignBarMaterial(g, orig);
+                }
                 catch { /* graphic destroyed under us */ }
             }
             if (inst != null)
@@ -2654,6 +2688,7 @@ internal static class ActorBars
         }
         adopted.DepthMats.Clear();
         adopted.DepthMatIds.Clear();
+        adopted.DepthMatRecords.Clear();
         adopted.DepthLogged = false;
         adopted.NextDepthScan = 0f;
         // A live config flip calls this for EVERY bar in one frame, which would re-synchronise the

@@ -198,6 +198,8 @@ internal static partial class WallSegmentFade
         /// <summary>Drive this piece through the wall's NATIVE map/_Cutoff MPB ramp (round 15).
         /// True for toggle-native materials AND for swapped copies.</summary>
         public bool NativeFade;
+        /// <summary>Every native/swapped slot uses a verified HIGH clip branch.</summary>
+        public bool NativeHighTransition;
         /// <summary>The renderer's authored sharedMaterials array (restored on unfade).</summary>
         public Material[]? SwapOriginals;
         /// <summary>The array currently assigned to the renderer while swapped: our fade-shader
