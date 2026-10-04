@@ -108,5 +108,31 @@ test, with the clearly labelled dummy identity.
 
 ## Native candidate validation
 
-Native build, final focused gates, packaging and cleanup receipts are added after
-the clean source freeze completes. No observed B622 headset result is claimed.
+Signed ARM64 IL2CPP build succeeds from clean native freeze
+`4c10c034ad97b39971269e0031799bd45d4ec9cd`, input
+`9d148c7036f2c08ece6c4f0518873a51a91faf62b4c75e30aa2c739ede946a00`.
+APK SHA-256 is
+`dd61d996dc7502c838fdc9518f48a1343ac13db5a9701146bb519d36b72becb0`,
+size 2,587,919,101 bytes. Android code is 622; incremental GC remains enabled.
+All 957 current mod C# files are selected automatically. Actual native compiler
+gates verify six world-screen stages, two camera-video stages, four original blur
+banks, the retained original UI banks and 36 legacy post-effect stages. Compiler
+banks are distinct from variants retained in the baked Android resource.
+
+Twenty-one final affected Quest suites, fourteen source checks, strict Release
+with zero errors/warnings and 286,760 direct unchanged protocol/golden assertions
+pass. The loading-view test initially lacked Shader/Material type seams for the
+new central helper; its corrected affected rerun passes. Initial failed receipts
+remain archived. This test-only change does not alter native frozen application
+code. No unrelated complete wrapper gate is claimed.
+
+The independent native scope proof verifies seven preserved original owner ABIs,
+28 actual ARM64 functions, source/CIL/generated C++ and exact compiled/package
+library bytes. It records 531 assertions plus archive CRC, native Build ID
+`9a2274f00b636520` and packaged library SHA
+`8d9be364f18f03de45743afb14c7d4afc88c93914eb58fcdf710854e10bb3e93`.
+Only actual method equalities are claimed; player lowering differences and the
+native `Math.Floor` intrinsic are recorded explicitly.
+
+Final screen/resource audit, Windows packaging and measured cleanup receipts
+are added after verification. No observed B622 headset result is claimed.

@@ -14,8 +14,14 @@ and known-owner enforcement. Local whole-cycle regression is retained honestly;
 per-tick cost and Android improvement remain distinct evidence. Original hidden
 UI alpha does suppress the actual blur draw, so no guessed visibility workaround
 is applied. Audio, keyboard and confirmed hint/options behavior are preserved.
-Final native build/packaging evidence is pending; visible B622 results remain
-unverified. See [B622 hardware procedure](QUEST3-HARDWARE-622.md).
+Signed ARM64 native build succeeds from clean freeze `4c10c034`, input `9d148c7036f2…`,
+APK SHA `dd61d996dc75…`, size 2,587,919,101 bytes. Twenty-one affected Quest suites,
+fourteen source checks, strict Release and direct unchanged wire/golden assertions
+pass; the corrected loading test fixture and original failure are retained.
+Seven native original types and 28 scoped functions pass exact compiled/package
+linkage. Final screen/resource audit, Windows packaging and cleanup are pending;
+visible B622 results remain unverified.
+See [B622 hardware procedure](QUEST3-HARDWARE-622.md).
 
 **Quest B621 hardware candidate ready, 2026-10-04: isolated feature.**
 
