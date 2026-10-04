@@ -126,6 +126,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-root", type=Path, default=repo)
     parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-service-mirror")
+    parser.add_argument("--fixture-dir", type=Path, default=repo / "scripts/town-service-mirror-runtime",
+                        help="Runtime fixture to bind when resuming an integrated checkout's control")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
     parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock", "catalog-lifetime", "public-catalog", "voice-relay", "shared-interaction", "item-transfer", "motion-fast"), default="full")
     parser.add_argument("--no-negative-controls", action="store_true")
@@ -137,13 +139,13 @@ def main():
     args.source_root = args.source_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
-    fixture = Path(__file__).resolve().parent / "town-service-mirror-runtime"
+    fixture = args.fixture_dir.resolve()
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     managed = args.source_root / "ressources/GH_Data/Managed"
     bound, hashes = sources(args.source_root)
     native_python = Path(os.environ.get('UNITYPY_PYTHON', str(Path.home() / 'unitypy-venv/bin/python')))
     native_purse = run / 'native-purse.json'
-    subprocess.run([str(native_python), str(repo / 'scripts/town-purse-runtime/export-native.py'),
+    subprocess.run([str(native_python), str(fixture.parent / 'town-purse-runtime/export-native.py'),
         str(args.source_root), str(native_purse)], check=True)
     (run / "source-hashes.json").write_text(json.dumps({"root": str(args.source_root.resolve()), "sha256": hashes}, indent=2) + "\n")
     manifest = {"result": str(run / "results.txt"), "evidence": str(run), "suite": args.suite, "cases": []}
@@ -219,9 +221,9 @@ def main():
         if not args.no_negative_controls:
             variants += [
                 ("rack-dead-host", "TownServiceMirror.cs", "RetireDestroyedRemoteModules(entry.Key, standing);", "// disabled dead-host recovery", "destroyed rack and child recover from retained owner frames"),
-                ("rack-phase-alias", "TownServiceMirror.Racks.cs", "float displayed=replaying?TownRackState.Progress(clock.Elapsed):1f;", "float displayed=1f;", "clock reconstructs the full revolution after coalesced owner poses"),
-                ("rack-incomplete-page", "TownServiceMirror.Racks.cs", "bool ready=toReady&&(completeOwner||fromReady);", "bool ready=true;", "missing one dependency keeps the complete outgoing page at rest"),
-                ("rack-owner-age-loss", "TownServiceMirror.Racks.cs", "float ownerAge=Mathf.Clamp(state.Elapsed+Mathf.Max(0f,now-clock.ReceivedTime)", "float ownerAge=Mathf.Clamp(Mathf.Max(0f,now-clock.ReceivedTime)", "late cabinet dependencies seek the current owner age without restarting the revolution"),
+                ("rack-phase-alias", "TownServiceMirror.Racks.cs", "float displayed=replaying?TownRackState.Progress(clock.Elapsed):1f;", "float displayed=1f;", "missing one dependency preserves the owner's current intermediate rack pose"),
+                ("rack-incomplete-page", "TownServiceMirror.Racks.cs", "bool complete=RackPageReady(pair.Key,clock.DisplayPage==clock.FromPage?clock.Outgoing??state:state,clock.DisplayPage,modules);", "bool complete=true;", "owner replacement boundary hides the obsolete page and every incomplete target fragment"),
+                ("rack-owner-age-loss", "TownServiceMirror.Racks.cs", "float ownerAge=Mathf.Clamp(state.Elapsed+Mathf.Max(0f,now-clock.ReceivedTime)", "float ownerAge=Mathf.Clamp(Mathf.Max(0f,now-clock.ReceivedTime)", "missing one dependency preserves the owner's current intermediate rack pose"),
                 ("rack-native-fade", "TownServiceMirror.Racks.cs", "shown?stamp.Alpha:0f", "shown?1f:0f", "page gate preserves independent native ancestor fades"),
                 ("rack-hidden-body", "TownServiceMirror.Racks.cs", "renderer.forceRenderingOff=!shown;", "renderer.forceRenderingOff=true;", "incoming physical body appears with its face"),
                 ("rack-idle-crank", "TownServiceMirror.Racks.cs", "out var crank)&&crank.Alive&&replaying)", "out var crank)&&crank.Alive&&state.Turn!=0)", "idle manual lead pull is not overwritten by the previous clock"),
@@ -246,7 +248,11 @@ def main():
                  "a manual crank grab prevents a competing page input from stealing authority"),
                 ("foley-mutates-rack", "TownServiceCabinetAudio.cs", "host.transform.SetParent(_anchor.parent, false);", "host.transform.SetParent(_anchor, false);", "first category sound does not change original rack topology"),
                 ("catalog-layout-wire-loss", "TownServiceCodec.cs", "byte[] layout = frame.Rack?.Layout != null ? TownCatalogLayout.Write(frame.Rack.Layout) : Array.Empty<byte>();", "byte[] layout = Array.Empty<byte>();", "full owner cabinet layout survives original public module capture and additive wire records"),
-                ("pending-rack-input-lock", "TownServiceMirror.cs", "if (clock.Waiting && clock.Latest != null)", "if (false && clock.Latest != null)", "missing observer artwork never permanently disables the local public input proxy"),
+                # Category input no longer consumes the legacy clock Accessible field. Lock the
+                # real production callback on incomplete public artwork to reproduce the defect.
+                ("pending-rack-input-lock", "PublicMerchantClaim.cs", "if (!_available() || Time.unscaledTime - _lastPressed < .3f) return;",
+                 "if (!_available() || !TownServiceMirror.HasReadyPublicPresentation || Time.unscaledTime - _lastPressed < .3f) return;",
+                 "peer physical category button adopts the public page despite missing artwork and a separate merchant transaction"),
                 ("donation-received-clock", "TownServiceMirror.cs", "? Time.unscaledTime - frame.TempleDonationCommitAge", "? Time.unscaledTime", "remote donation keeps its owner's commit age instead of starting a new blessing on receipt"),
                 ("async-cabinet-epoch-spent", "TownServiceCabinetAudio.cs", "else StartPending();", "else _pending = false;", "late-loaded cabinet clip joins its pending owner epoch at the current sound phase"),
                 ("decision-step", "TownServiceMotion.cs", "? Mathf.Clamp(sampleInterval * 1.1f, 1f / 90f, .25f)",

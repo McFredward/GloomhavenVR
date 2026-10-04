@@ -192,18 +192,13 @@ def main():
                 if name == "merchant-stock-private-relay":
                     text = text.replace("private static bool StockInspectionNear()", "private static bool PrivateReactionControl(TownVoiceReaction reaction) { TownServiceVoice.RequestReaction(1, reaction); return true; }\n    private static bool StockInspectionNear()", 1)
                 if name == "historical-census":
-                    text = (fixture / "ItemsPile.Merchant.pre-optimization.fixture").read_text()
-                    # Preserve the historical quadratic census, adapting only its new parked-card API.
-                    text = text.replace("if (chip.Holder == null && (", "if (chip.Holder == null && !chip.TownOffering && (")
-                    return_methods = method(bound["ItemsPile.Merchant.cs"], "internal void ResumeInspection(ItemChip chip)") + "\n" + \
-                        method(bound["ItemsPile.Merchant.cs"], "internal void PrepareInspectionReclaim(ItemChip chip)")
-                    text = text.replace("    private void RetireInspectionAt", return_methods + "\n    private void RetireInspectionAt")
-                    text = text.replace("TickInspection(IReadOnlyList<CItem> items)", "TickInspection(IReadOnlyList<CItem> items, uint revision)")
-                    text = text.replace("Action<ItemChip, Vector3>", "Action<ItemChip, Vector3, VRHand>")
-                    text = text.replace("chip.BeginEmerge(Vector3.zero, 0f, _chips.Count % 2 == 0 ? -1f : 1f);",
-                                        "chip.BeginInspectionEmerge(Vector3.zero, _chips.Count % 2 == 0 ? -1f : 1f);")
-                    # Compatibility-only field consumed by the unchanged release boundary.
-                    text = text.replace("private VRHand? _inspectionGateHand;", "private VRHand? _inspectionGateHand; private bool _inspectionCensusDirty;")
+                    historical = (fixture / "ItemsPile.Merchant.pre-optimization.fixture").read_text()
+                    # Isolate the historical per-frame quadratic membership census. Keep the
+                    # current provenance, offering/return, artwork and layout APIs unchanged.
+                    text = replace_once(text, "if (_inspectionRevision != revision)", "if (true)")
+                    text = replace_once(text, "!_inspectionDesired.Contains(chip.Item)", "!Contains(items, chip.Item)")
+                    contains = method(historical, "private static bool Contains(IReadOnlyList<CItem> items, CItem? item)")
+                    text = replace_once(text, "    private void RetireInspectionAt", "    " + contains + "\n\n    private void RetireInspectionAt")
                 else:
                     text = replace_once(text, before, after)
             (production / path).write_text(text)
