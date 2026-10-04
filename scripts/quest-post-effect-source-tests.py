@@ -47,9 +47,14 @@ def synthetic_sources():
         # This is test-owned syntax, not any downloaded Unity shader source.
         source = ('Shader "Hidden/' + name + '" {\n#include "UnityCG.cginc"\n' +
                   '\n'.join('float4 ' + field + ';' for field in spec['uniforms']) + '\n' +
+                  '\n'.join('float4 fixtureVertex' + str(index) + ' = mul(UNITY_MATRIX_MVP, v.vertex);'
+                            for index in range(spec['objectToClipPosReplacements'])) + '\n' +
                   '\n'.join('Pass {\n#pragma fragment ' + frag + '\n}' for frag in spec['fragments']) + '\n}').encode()
         dummy = ('//DummyShaderTextExporter\n//fixture ' + name).encode()
         spec['sourceSha256'], spec['sourceBytes'], spec['dummySha256'] = sha(source), len(source), sha(dummy)
+        upgrade = (b"// Upgrade NOTE: replaced 'mul(UNITY_MATRIX_MVP,*)' with 'UnityObjectToClipPos(*)'\n\n" +
+                   source.replace(b'mul(UNITY_MATRIX_MVP, v.vertex)', b'UnityObjectToClipPos(v.vertex)'))
+        spec['importUpgradeSha256'] = sha(upgrade)
         sources[name], dummies[name] = source, dummy
     return specs, sources, dummies
 
@@ -117,6 +122,25 @@ def run_tests(root):
             target = project / ('Assets/Shader/Hidden_' + name + '.shader')
             check(target.read_bytes() == content, 'selected source bytes retained')
             check(Path(str(target) + '.meta').read_bytes() == meta_before[name], 'metadata byte-for-byte retained')
+        # Unity's pinned automatic API upgrade may occur after first import.
+        # A header alone or arbitrary edits must never authorize changed payloads.
+        for name, content in sources.items():
+            target = project / ('Assets/Shader/Hidden_' + name + '.shader')
+            upgraded = (b"// Upgrade NOTE: replaced 'mul(UNITY_MATRIX_MVP,*)' with 'UnityObjectToClipPos(*)'\n\n" +
+                        content.replace(b'mul(UNITY_MATRIX_MVP, v.vertex)', b'UnityObjectToClipPos(v.vertex)'))
+            target.write_bytes(upgraded)
+            check(shaders.restore_post_effects(project, root / 'offline') == receipt,
+                  'exact upgraded payload accepted offline: ' + name)
+            check(target.read_bytes() == upgraded, 'upgraded payload reuse remains read-only: ' + name)
+            check(Path(str(target) + '.meta').read_bytes() == meta_before[name], 'upgrade retains original metadata: ' + name)
+            for bad in [upgraded + b'\n// unknown edit', upgraded.replace(b'UnityObjectToClipPos(v.vertex)', b'float4(0,0,0,1)', 1)]:
+                target.write_bytes(bad)
+                before = fingerprint(project)
+                reject(lambda: shaders.restore_post_effects(project, root / 'offline'),
+                       'upgrade header cannot authorize unknown or semantic changes: ' + name)
+                check(fingerprint(project) == before, 'rejected upgraded change remains untouched: ' + name)
+            target.write_bytes(upgraded)
+        check(fingerprint(cache) == cache_before, 'upgrader handling never changes pinned official cache')
         with patch.object(shaders.urllib.request, 'urlopen', return_value=io.BytesIO(b'wrong official source')):
             reject(lambda: shaders.acquire(root / 'bad-download'), 'download SHA/length mismatch rejected')
         check(not list((root / 'bad-download').rglob('*.download')), 'failed download temporary file removed')
