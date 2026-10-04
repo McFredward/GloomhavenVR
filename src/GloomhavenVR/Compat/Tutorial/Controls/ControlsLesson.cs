@@ -409,7 +409,11 @@ internal static class ControlsLesson
                     + "([Hands] PrimaryHand -> " + DominantSide() + ")");
 
             case ControlAction.BoardCarry:
-                // Checked rather than assumed: the board's bar has no on/off dial. [Cards]
+                // Wrist attachment removes the physical bar. Teach only controls that the
+                // chosen placement actually exposes; the ordinary lessons remain unchanged.
+                if (Cards.CardsConfig.WristBoardEnabled?.Value == true)
+                    return Off("[Cards] WristBoardEnabled = true (the attached board has no grip bar)");
+                // Checked rather than assumed: the ordinary board's bar has no on/off dial. [Cards]
                 // BoardMoveMode only chooses HOW a carry may rotate the board (Frei / Begrenzt /
                 // Begrenzt mit Neigung — PlayTray's IPanelGrabOwner.CarryMode), every mode moves
                 // it; PanelGrabHandle.GrabWithGrip is a constant true; and the bar itself is built
@@ -419,6 +423,8 @@ internal static class ControlsLesson
                     + "mode) — either hand's GRIP takes it");
 
             case ControlAction.BoardScale:
+                if (Cards.CardsConfig.WristBoardEnabled?.Value == true)
+                    return Off("[Cards] WristBoardEnabled = true (wrist size is adjusted in Advanced)");
                 // The pinch itself has no on/off dial either, but its RESULT is clamped into the
                 // [Cards] BoardMinWidthMeters..BoardMaxWidthMeters apparent-width band
                 // (PlayTray's GrabScaleLimits, live every resize frame). A band whose span is below

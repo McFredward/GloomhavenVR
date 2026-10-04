@@ -21,9 +21,10 @@ Build 621's headset picture, remote wrist result or a matched performance gain.
 
 ## Small decoration across the original asset catalogue
 
-The original PCG census is checked against every source-bundle hash before reuse;
+The original PCG census (47,754 mesh renderers) is checked against all 2,144
+source-bundle hashes before reuse;
 small candidate hierarchies are read again from the read-only game bundles.
-The runtime admits exact original small mesh identities, including native floor
+The runtime admits 276 exact original small mesh identities, including native floor
 pages/skulls/debris, shelf books/jugs and wall chains across biomes and DLC.
 Inert native Animators without controllers no longer classify those exact leaves
 as figures. Real controllers, actors, gameplay callbacks, lights, rigidbodies,
@@ -53,7 +54,9 @@ and ordinary board placement remain saved. The complete original board follows
 the selected tracked wrist, without parenting it under replaceable hand visuals.
 The default is the non-main hand; Advanced exposes hand, metre offsets, degree
 angles and uniform size. Entry/exit use the existing short grab-bar tween timing.
-The attached board hides its complete Follow/Fixed control and grab bar.
+The attached board hides its complete Follow/Fixed control and grab bar. The VR
+controls lesson omits the unavailable grip-bar carry/resize tasks in this mode;
+card handling and all other available lessons retain their original flow.
 
 The existing fast rig-board record 70 sends the actual owner-authored pose and
 world scale. Additive v3 TLV 100 carries only the attachment visibility flag;

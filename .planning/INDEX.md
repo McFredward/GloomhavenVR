@@ -1,8 +1,8 @@
 # Planning index
 
-Updated 2026-10-04 for Build620's PC graphics follow-up: original wall animation,
-whole-game decoration admissions, readable graphics notes, player-facing VR help
-and room loading tied to actual unfinished native jobs. Hardware outcomes remain
+Updated 2026-10-04 for Build621: whole-game small decoration coverage, retained
+arch-mounted flames and optional wrist-mounted control board. Build620's room
+loading and historical continuous wall animation remain the preceding baseline. Hardware outcomes remain
 separate from source/runtime evidence. This directory holds internal engineering
 records, historical decisions and current status; it is not the player manual.
 
@@ -14,6 +14,10 @@ records, historical decisions and current status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [../docs/performance/FRAME-621-IMPLEMENTATION.md](../docs/performance/FRAME-621-IMPLEMENTATION.md) | Integrated small-clutter, actual arch attachment and wrist-board scope/evidence |
+| [../docs/performance/FRAME-621-SCENERY.md](../docs/performance/FRAME-621-SCENERY.md) | Exact original small mesh/collider census, large-decor protection and causal controls |
+| [../docs/performance/FRAME-621-ARCH-FLAMES.md](../docs/performance/FRAME-621-ARCH-FLAMES.md) | Whole-game original doorway attachment provenance and sticky-fade restoration |
+| [../docs/design/WRIST-BOARD.md](../docs/design/WRIST-BOARD.md) | Opt-in wrist placement, lifecycle, settings and owner-authored fast remote state |
 | [../docs/performance/FRAME-620-IMPLEMENTATION.md](../docs/performance/FRAME-620-IMPLEMENTATION.md) | Integrated graphics/menu/loading changes, verification and hardware limits |
 | [../docs/performance/FRAME-620-LOADING.md](../docs/performance/FRAME-620-LOADING.md) | Actual async room completion, preserved-cache false readiness and spinner lifetime |
 | [../docs/performance/FRAME-620-SCENERY.md](../docs/performance/FRAME-620-SCENERY.md) | Full original PCG census, exact ornament/core/collision hierarchy and projector masks |

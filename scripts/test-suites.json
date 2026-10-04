@@ -1645,6 +1645,28 @@
         "local"
       ],
       "weight": 60
+    },
+    {
+      "id": "arch-mounted-runtime",
+      "command": [
+        "python3",
+        "scripts/check-arch-mounted-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 5
+    },
+    {
+      "id": "wrist-board-runtime",
+      "command": [
+        "python3",
+        "scripts/check-wrist-board-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 20
     }
   ]
 }

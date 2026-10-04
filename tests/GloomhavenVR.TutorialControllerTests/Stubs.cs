@@ -111,6 +111,6 @@ internal static class ComfortSettings {
 }
 internal static class LocalTurnControl { public static Hands.HandSide Resolve(Hands.HandSide side)=>side; }
 }
-namespace GloomhavenVR.Cards { internal sealed class VRCard {} internal static class ItemsPile { internal sealed class ItemChip {} } internal static class HeldCardGrip { public static bool Enabled=true; public static bool InHand(Hands.HandSide hand)=>false; } internal static class CardsConfig { public static Rig.Setting<float> BoardMinWidthMeters=new(.18f),BoardMaxWidthMeters=new(1.4f); } }
+namespace GloomhavenVR.Cards { internal sealed class VRCard {} internal static class ItemsPile { internal sealed class ItemChip {} } internal static class HeldCardGrip { public static bool Enabled=true; public static bool InHand(Hands.HandSide hand)=>false; } internal static class CardsConfig { public static Rig.Setting<bool> WristBoardEnabled=new(false); public static Rig.Setting<float> BoardMinWidthMeters=new(.18f),BoardMaxWidthMeters=new(1.4f); } }
 namespace GloomhavenVR.Board { internal static class BoardConfig { public static Rig.Setting<bool> TouchTilesWithFingertip=new(true); } }
 namespace GloomhavenVR.Compat { internal static class ControlsProgress { internal static float Accumulated=>0; internal static void Notify(ControlAction action,float amount=1) {} } }

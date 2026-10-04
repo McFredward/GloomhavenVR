@@ -96,6 +96,18 @@ static class Program {
         }
     }
     static void Main() {
+        foreach (bool wrist in new[] { false, true }) {
+            GloomhavenVR.Cards.CardsConfig.WristBoardEnabled.Value = wrist;
+            foreach (var action in new[] { ControlAction.BoardCarry, ControlAction.BoardScale }) {
+                var step = ControlsLesson.Steps[Index(action)];
+                Check(ControlsLesson.Availability(in step).Available == !wrist,
+                    "Wrist placement must omit unavailable grip-bar lessons and restore them when disabled");
+            }
+            var card = ControlsLesson.Steps[Index(ControlAction.CardTake)];
+            Check(ControlsLesson.Availability(in card).Available,
+                "Wrist placement must keep the card-handling lesson available");
+        }
+        GloomhavenVR.Cards.CardsConfig.WristBoardEnabled.Value = false;
         DeviceIdentity();
         ControlsTutorial.Apply(0); Frames(15);HandPair();
         ControlsTutorial.Apply(Index(ControlAction.WorldDrag)); Frames(1);VisiblePair();
