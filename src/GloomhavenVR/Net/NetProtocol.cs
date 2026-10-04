@@ -566,7 +566,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 618;
+    public const ushort ModBuild = 619;
+
+    // ModBuild 619 — bounded original preparation, native room-load indication and
+    // whole-game cosmetic coverage after Build618's two preparation timeouts.
+    // Cheap cached jobs are batched; portrait waits share an absolute deadline.
+    // Original room generation/material requests and actual presentation queues
+    // re-arm the existing spinner without writing game loading or input state.
+    // Original character/PCG provenance covers heroes, summons, bosses and ordinary/
+    // elite enemies, including LivingSpirit resident particles and mesh eye bands.
+    // Native HIGH wall transitions retain original materials/endpoints while using
+    // progressively ranked native solid/held mask pixels. TMP bar numbers/submeshes
+    // receive the same depth policy as ordinary bar graphics. Hardware verification
+    // remains distinct from native-bytecode and Unity runtime/pixel evidence.
+    // Four explicit graphics actions use native quality callbacks and current Frame
+    // defaults; later manual edits remain authoritative. Technical controls move to
+    // Advanced, pure work-removal/stereo-safety legacy keys remain bound but INERT.
+    // No wire grammar, gameplay authority or local/remote card permissions change.
 
     // ModBuild 618 — reduce the three ordinary-play hitch paths confirmed in Build617.
     // Original published waypoint/combat-FX ownership is shared by wall signatures and
