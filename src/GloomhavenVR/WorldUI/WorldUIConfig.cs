@@ -599,9 +599,11 @@ internal static class WorldUIConfig
             "START of a scenario, not a master switch: whatever it says, the VR options row " +
             "'Kampflog jetzt einblenden' brings the panel up at any time, and the panel's own X " +
             "closes it again. Off = it simply is not there until you ask for it.");
-        ImmersiveTownServices = _file.Bind("WorldUI", "ImmersiveTownServices", Defaults.ImmersiveTownServices,
+        ImmersiveTownServices = _file.Bind("WorldUI", "ImmersiveTownServices",
+            FrameDefaults.Active ? FrameDefaults.ImmersiveTownServices : Defaults.ImmersiveTownServices,
             "Show the merchant, temple and enchantress as immersive residents in the 3D map room. " +
-            "Approach their stations and handle physical offerings. " +
+            "Approach their stations and handle physical offerings. Fresh PC profiles enable them; " +
+            "fresh Steam Frame standalone profiles use the original windows. Saved preferences stay. " +
             "Off restores the original service windows and their " +
             "controls, including an already open visit. Other players retain their chosen presentation.");
         ImmersiveTownSpeech = _file.Bind("WorldUI", "ImmersiveTownSpeech", Defaults.ImmersiveTownSpeech,

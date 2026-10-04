@@ -18,6 +18,7 @@ FILES = {
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-root", type=Path, default=ROOT)
+    parser.add_argument("--case", action="append", help="Resume only named controls plus production.")
     args = parser.parse_args()
     sources = {name: (args.source_root / source).read_text() for name, source in FILES.items()}
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
@@ -43,9 +44,13 @@ def main():
         ("remote scale misses light update", {"Station.cs": sources["Station.cs"].replace('changed || lightScale != _lightScale', 'changed || false && lightScale != _lightScale')}),
         ("late card property block corruption", {"Station.cs": sources["Station.cs"].replace('foreach (Renderer renderer in _renderers)', 'foreach (Renderer renderer in _root.GetComponentsInChildren<Renderer>(true))')}),
         ("constructor resource acquisition before anchor validation", {"Station.cs": sources["Station.cs"].replace(anchor, '').replace(
-            '            _detail.Dispose(); _lighting.Dispose(); _grounding.Dispose(); throw;\n        }',
-            '            _detail.Dispose(); _lighting.Dispose(); _grounding.Dispose(); throw;\n        }\n' + anchor)}),
+            '            _skinning.Dispose(); _lighting.Dispose(); _grounding.Dispose(); throw;\n        }',
+            '            _skinning.Dispose(); _lighting.Dispose(); _grounding.Dispose(); throw;\n        }\n' + anchor)}),
     ]
+    if args.case:
+        unknown = set(args.case) - {name for name, _ in variants}
+        if unknown: parser.error("Unknown controls: " + ", ".join(sorted(unknown)))
+        variants = [variant for variant in variants if variant[0] == "baseline" or variant[0] in args.case]
     with tempfile.TemporaryDirectory(prefix="ghvr-setting-") as scratch:
         folder = Path(scratch)
         (folder / "Test.csproj").write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup></Project>')

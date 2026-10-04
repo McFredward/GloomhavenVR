@@ -51,7 +51,22 @@ bind = config[start:config.index(';', last)+1]
 defaults_source = read('Defaults/Defaults.WorldUI.cs')
 defaults = '\n'.join(re.search(r'    internal const bool '+key+r' = .*?;', defaults_source).group(0)
                      for key in ('ImmersiveTownServices','ImmersiveTownSpeech','ImmersiveTownSoundEffects'))
+defaults += '\n' + re.search(r'    internal const int TownNpcDetailPercent = .*?;', read('Defaults/Defaults.Core.cs')).group(0)
+frame_source = read('Core/Startup/FrameDefaults.cs')
+frame_default = re.search(r'    internal const bool ImmersiveTownServices = .*?;', frame_source).group(0)
+s += 'namespace GloomhavenVR { internal static partial class FrameDefaults {\n' + frame_default + '\n} }\n'
 s += 'namespace GloomhavenVR.WorldUI { internal static class Defaults {\n' + defaults + '\n} internal static class WorldUIConfig { internal static Entry<bool> ImmersiveTownServices = null!, ImmersiveTownSpeech = null!, ImmersiveTownSoundEffects = null!; internal static ConfigFile _file = new(); internal static void Bind() {\n' + bind + '\n} } }\n'
+# Compile the original retirement predicate and the actual retained NPC Bind. This
+# proves the advanced catalog omits it too, rather than just removing a curated row.
+catalog = read('WorldUI/Options/ConfigCatalog.cs')
+start = catalog.index('    private static readonly string[] RetiredMarkers')
+s += 'namespace GloomhavenVR.WorldUI { internal static partial class ConfigCatalog {\n'
+s += catalog[start:catalog.index(';', start) + 1] + '\n'
+s += method(catalog, 'private static bool IsRetired(ConfigEntryBase entry)').replace('private static bool', 'internal static bool', 1) + '\n}\n'
+perf = read('Core/Perf/PerfConfig.cs')
+start = perf.index('        TownNpcDetailPercent = _file.Bind(')
+retired_bind = perf[start:perf.index('        SkinningBoneLimit = _file.Bind(', start)]
+s += 'internal static class RetiredNpcConfig { internal static Entry<int> TownNpcDetailPercent = null!; internal static ConfigFile _file = new(); internal static void Bind() {\n' + retired_bind + '\n} } }\n'
 loc = read('Core/Loc/Loc.cs')
 keys = ['cat_environment','sec_map3d','vr_o_immersivetown','vr_o_townspeech','vr_o_townsfx',
         'h_vr_o_immersivetown','h_vr_o_townspeech','h_vr_o_townsfx']
@@ -68,7 +83,7 @@ cp "$repo_root/tests/GloomhavenVR.TownOptionsTests/"*.cs "$test_dir/"
 cp "$repo_root/tests/GloomhavenVR.TownOptionsTests/"*.csproj "$test_dir/"
 project="$test_dir/GloomhavenVR.TownOptionsTests.csproj"
 dotnet run --project "$project" --configuration Release --property:OptionsSource="$test_dir/Options.fixture"
-for mutation in missing-entry bool-dispatch value-inversion callback-disabled off-hidden default-disabled donor-callback map-gate; do
+for mutation in missing-entry bool-dispatch value-inversion callback-disabled off-hidden default-disabled donor-callback map-gate retired-slider-visible; do
     python3 - "$test_dir" "$mutation" <<'PY'
 from pathlib import Path
 import sys
@@ -82,6 +97,7 @@ a,b = {
     'default-disabled': ('internal const bool ImmersiveTownServices = true;', 'internal const bool ImmersiveTownServices = false;'),
     'donor-callback': ('toggle.onValueChanged.RemoveAllListeners();', ''),
     'map-gate': ('["WorldUI/ImmersiveTownServices"] = new("Rig", "Vanilla2DMap", Off)', '["WorldUI/ImmersiveTownServices"] = new("Rig", "Vanilla2DMap", On)'),
+    'retired-slider-visible': ('DEPRECATED — INERT. Kept only', 'Active. Kept only'),
 }[sys.argv[2]]
 assert a in s, sys.argv[2]
 (out / 'Options.mutant').write_text(s.replace(a,b,1))

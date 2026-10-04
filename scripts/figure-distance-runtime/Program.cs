@@ -183,25 +183,30 @@ public static class InteractionProgram
                     }
             LODGroup[] groups=root.GetComponentsInChildren<LODGroup>(true);var groupFlags=new bool[groups.Length];for(int i=0;i<groups.Length;i++)groupFlags[i]=groups[i].enabled;
             Skinning(skin);
-            var helper=new TownNpcDistanceDetail(root.transform);Bounds bounds=skin.bounds;float radius=Mathf.Max(bounds.extents.magnitude,.1f);
-            camera.transform.position=bounds.center+Vector3.forward*radius*3;camera.transform.LookAt(bounds.center);helper.Tick();
-            Check(skin.sharedMesh==original,"NPC near100 uses exact original body");
-            camera.transform.position=bounds.center+Vector3.forward*radius*12;camera.transform.LookAt(bounds.center);helper.Tick();Mesh mid=skin.sharedMesh;
-            Check(mid!=original&&Triangles(mid)<Triangles(original)*.85f,"NPC mid actually reduces original 100k body");
-
-            camera.transform.position=bounds.center+Vector3.forward*radius*30;camera.transform.LookAt(bounds.center);helper.Tick();Mesh far=skin.sharedMesh;
-            Check(far!=original&&Triangles(far)<Triangles(mid)*.85f,"NPC far additionally reduces mid body");
-            Check(far.blendShapeCount==original.blendShapeCount,"all original NPC expression channels survive");
-            for(int i=0;i<original.blendShapeCount;i++)Check(original.GetBlendShapeName(i)==far.GetBlendShapeName(i),"native NPC facial expression binding stays stable");
-            Check(far.subMeshCount==original.subMeshCount&&far.bindposes.Length==original.bindposes.Length,"native NPC material slots and skeleton are retained");
-            for(int i=0;i<materials.Length;i++)Check(skin.sharedMaterials[i]==materials[i],"materials never change across distance tiers");
-            for(int i=0;i<bones.Length;i++)Check(skin.bones[i]==bones[i],"bones never change across distance tiers");
-            for(int i=0;i<groups.Length;i++)Check(groups[i].enabled==groupFlags[i],"native LOD groups are never enabled or modified");
-            camera.transform.position=bounds.center+Vector3.forward*radius*3;helper.Tick();Check(skin.sharedMesh==original,"NPC returning near restores full body");
-            PerfConfig.TownNpcMeshDetailPercent=45;helper.Tick();Check(skin.sharedMesh==mid,"near NPC obeys user cap rather than forcing100");
-            PerfConfig.TownNpcMeshDetailPercent=100;PerfConfig.FigureDistanceLodEnabled=false;helper.Tick();Check(skin.sharedMesh==original,"Off restores original NPC mesh");
-            PerfConfig.FigureDistanceLodEnabled=true;camera.transform.position=bounds.center+Vector3.forward*radius*30;helper.Tick();helper.Dispose();Check(skin.sharedMesh==original,"NPC teardown restores original body");
-            Debug.Log("NPC DISTANCE "+prefab.name+": original="+Triangles(original)+" mid45="+Triangles(mid)+" far="+Triangles(far));
+            var helper=new TownNpcSkinningQuality(root.transform);Bounds bounds=skin.bounds;float radius=Mathf.Max(bounds.extents.magnitude,.1f);
+            var flags=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+            int ResidentParts() => ((ICollection)typeof(ScenarioFigureMeshBank).GetField("Banks",flags)!.GetValue(null)).Count;
+            int SourceSignatures() => ((ICollection)typeof(ScenarioFigureMeshBank).GetField("SourceKeys",flags)!.GetValue(null)).Count;
+            int partsBefore=ResidentParts(), signaturesBefore=SourceSignatures();
+            // Exercise both proximity and saved retired cap values. Production no longer
+            // reads the retired key, and never opens a derivative part for these residents.
+            foreach(float distance in new[] {3f,12f,30f,3f})
+            foreach(int retiredCap in new[] {0,45,100})
+            {
+                PerfConfig.TownNpcMeshDetailPercent=retiredCap;
+                camera.transform.position=bounds.center+Vector3.forward*radius*distance;
+                camera.transform.LookAt(bounds.center);helper.Tick();
+                Check(skin.sharedMesh==original,"NPC retains exact original mesh at every distance");
+                Check(skin.sharedMesh.blendShapeCount==original.blendShapeCount,"original NPC expression channels remain unchanged");
+                for(int i=0;i<materials.Length;i++)Check(skin.sharedMaterials[i]==materials[i],"NPC materials retain original identity");
+                for(int i=0;i<bones.Length;i++)Check(skin.bones[i]==bones[i],"NPC bones retain original identity");
+            }
+            Check(ResidentParts()==partsBefore&&SourceSignatures()==signaturesBefore,
+                "NPC lifecycle never prewarms scenario mesh identities or derivative parts");
+            for(int i=0;i<groups.Length;i++)Check(groups[i].enabled==groupFlags[i],"legacy LOD groups remain locked to the original surface");
+            PerfConfig.FigureDistanceLodEnabled=false;helper.Tick();Check(skin.sharedMesh==original,"distance setting never changes an NPC mesh");
+            PerfConfig.FigureDistanceLodEnabled=true;helper.Tick();helper.Dispose();Check(skin.sharedMesh==original,"NPC teardown preserves exact original mesh");
+            Debug.Log("NPC ORIGINAL "+prefab.name+": triangles="+Triangles(original)+"; no derivative identity or bank prepared");
             PreviewPrefabs.Add(prefab); UnityEngine.Object.DestroyImmediate(root);actors++;
         }
         Check(actors==3,"all three actual shipped NPC bodies are verified");VRCameraPolicy.AllowedHead=null;
@@ -219,14 +224,13 @@ public static class InteractionProgram
             GameObject root=UnityEngine.Object.Instantiate(prefab.transform.Find("Actor").gameObject); root.SetActive(true);
             StationDetail.PreserveActorDetail(root.transform);
             SkinnedMeshRenderer skin=root.GetComponentInChildren<SkinnedMeshRenderer>(true);
-            var helper=new TownNpcDistanceDetail(root.transform); Bounds bounds=skin.bounds; float radius=Mathf.Max(bounds.extents.magnitude,.1f);
+            var helper=new TownNpcSkinningQuality(root.transform); Bounds bounds=skin.bounds; float radius=Mathf.Max(bounds.extents.magnitude,.1f);
             string[] labels={"near","mid","far","returned-near"}; float[] distances={3,12,30,3};
             for(int tier=0;tier<labels.Length;tier++)
             {
                 camera.transform.position=bounds.center+Vector3.forward*radius*distances[tier]; camera.transform.LookAt(bounds.center); helper.Tick();
-                // Unity prepares GPU skin buffers once per player frame. Camera.Render after
-                // several differently sized mesh swaps in ONE frame uses stale buffers; the
-                // real game always has a player-loop boundary before the next headset draw.
+                // Render original shipped residents across actual player-loop boundaries.
+                // No distance or retired detail choice may replace their mesh.
                 yield return null;
                 for(int frame=0;frame<2;frame++)
                 {

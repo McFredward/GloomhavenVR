@@ -18,7 +18,7 @@ internal sealed class TownServiceStation : IDisposable
     private readonly TownServiceGrounding _grounding;
     private readonly TownServiceFace _face;
     private readonly TownServiceActivityRig _activity;
-    private readonly TownNpcDistanceDetail _detail;
+    private readonly TownNpcSkinningQuality _skinning;
     private readonly TownServiceActivityAudio _audio;
     private readonly TownServiceSleeveLining _sleeves;
     private TownServiceTempleBowlMarker? _templeBlessing;
@@ -56,7 +56,7 @@ internal sealed class TownServiceStation : IDisposable
         _grounding = new TownServiceGrounding(root.transform);
         _face = new TownServiceFace(root.transform, service);
         _activity = new TownServiceActivityRig(root.transform, service);
-        _detail = new TownNpcDistanceDetail(root.transform.Find("Actor") ?? root.transform);
+        _skinning = new TownNpcSkinningQuality(root.transform.Find("Actor") ?? root.transform);
         _audio = new TownServiceActivityAudio(root.transform, service);
         _lighting = new TownServiceLighting(root.transform, service);
         try { _decor = new TownServiceDecor(root.transform, service, _lighting);
@@ -66,7 +66,7 @@ internal sealed class TownServiceStation : IDisposable
         catch
         {
             _templeBlessing?.Dispose(); _sleeves?.Dispose(); _decor?.Dispose();
-            _detail.Dispose(); _lighting.Dispose(); _grounding.Dispose(); throw;
+            _skinning.Dispose(); _lighting.Dispose(); _grounding.Dispose(); throw;
         }
     }
 
@@ -156,7 +156,7 @@ internal sealed class TownServiceStation : IDisposable
         { _lighting.Refresh(Root, authorPose); _lightScale = lightScale; _room = room; _placed = true; }
         _authorPose = authorPose;
         _decor.Tick();
-        _detail.Tick();
+        _skinning.Tick();
     }
 
     /// <summary>Ground geometry is part of the author's presentation, not a viewer preference.</summary>
@@ -270,7 +270,7 @@ internal sealed class TownServiceStation : IDisposable
     public void Dispose()
     {
         _templeBlessing?.Dispose(); _templeBlessing = null;
-        _detail.Dispose();
+        _skinning.Dispose();
         _sleeves.Dispose();
         _audio.Dispose();
         _grounding.Dispose();

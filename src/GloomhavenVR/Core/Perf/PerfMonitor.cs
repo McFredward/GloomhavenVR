@@ -822,7 +822,7 @@ internal static partial class PerfMonitor
         // could not be distinguished from an unchanged/non-applicable map-only setting.
         if (VRLog.WantsDebug)
             VRLog.Info(Scope0, $"QUALITY-CONTROLS end-of-window snapshot: "
-                + $"distanceLOD={PerfConfig.FigureDistanceLodEnabled} npcBody={PerfConfig.TownNpcMeshDetailPercent}% "
+                + $"distanceLOD={PerfConfig.FigureDistanceLodEnabled} npcBody=original100% "
                 + $"boneLimit={PerfConfig.MaximumSkinningBones} "
                 + $"idleBarInterval={PerfConfig.ActorBarPoseCheckInterval:F3}s "
                 + $"panelInterval={PerfConfig.UiMaintenanceInterval:F3}s; not a latched A/B boundary.");

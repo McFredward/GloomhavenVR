@@ -62,7 +62,7 @@ namespace GloomhavenVR.Hands
 namespace GloomhavenVR
 {
     internal static class Plugin { internal static WorldUI.Entry<Hands.HandStyle> HandStyle = new(Hands.HandStyle.Glove); }
-    internal static class FrameDefaults { internal static bool Active { get; set; } }
+    internal static partial class FrameDefaults { internal static bool Active { get; set; } }
 }
 namespace GloomhavenVR.WorldUI.Surfaces
 {
@@ -70,7 +70,14 @@ namespace GloomhavenVR.WorldUI.Surfaces
 }
 namespace GloomhavenVR.WorldUI
 {
-    internal class Entry
+    internal class ConfigEntryBase { internal ConfigDescription? Description; }
+    internal sealed class ConfigDescription
+    {
+        internal readonly string Description;
+        internal ConfigDescription(string text, object? range = null) { Description = text; }
+    }
+    internal sealed class AcceptableValueRange<T> { internal AcceptableValueRange(T min,T max) { } }
+    internal class Entry : ConfigEntryBase
     {
         private object _value = true;
         internal int Writes;
@@ -84,9 +91,16 @@ namespace GloomhavenVR.WorldUI
     }
     internal sealed class ConfigFile
     {
-        internal Entry<T> Bind<T>(string section, string key, T value, string description) => new(value);
+        internal readonly Dictionary<string, Entry> Saved = new();
+        internal Entry<T> Bind<T>(string section, string key, T value, string description) => Bind(section,key,value,new ConfigDescription(description));
+        internal Entry<T> Bind<T>(string section, string key, T value, ConfigDescription description)
+        {
+            string id = section + "/" + key;
+            if (Saved.TryGetValue(id, out Entry saved)) return (Entry<T>)saved;
+            var result = new Entry<T>(value) { Description = description }; Saved[id] = result; return result;
+        }
     }
-    internal static class ConfigCatalog
+    internal static partial class ConfigCatalog
     {
         internal enum ConfigKind { Bool, Number }
         internal enum ConfigTopic { Panels }
@@ -164,7 +178,22 @@ namespace GloomhavenVR.WorldUI
         internal static void Run()
         {
             Cards.CardsConfig.CurrentBoard = Cards.ControlBoard.Oak;
-            WorldUIConfig.Bind();
+            RetiredNpcConfig.Bind();
+            Check(ConfigCatalog.IsRetired(RetiredNpcConfig.TownNpcDetailPercent),
+                "actual advanced catalog retirement predicate hides the inert NPC key");
+            RetiredNpcConfig.TownNpcDetailPercent.Value = 17; RetiredNpcConfig.Bind();
+            Check(RetiredNpcConfig.TownNpcDetailPercent.Value == 17,
+                "retiring the NPC slider preserves its existing persisted key value");
+            FrameDefaults.Active = true;
+            WorldUIConfig._file = new(); WorldUIConfig.Bind();
+            Check(!WorldUIConfig.ImmersiveTownServices.Value, "fresh Frame uses original service windows");
+            Check(WorldUIConfig.ImmersiveTownSpeech.Value && WorldUIConfig.ImmersiveTownSoundEffects.Value,
+                "Frame master preference leaves saved child audio defaults independent");
+            WorldUIConfig.ImmersiveTownServices.Value = true; WorldUIConfig.Bind();
+            Check(WorldUIConfig.ImmersiveTownServices.Value, "Frame preserves explicit saved NPC opt-in");
+            WorldUIConfig.ImmersiveTownServices.Value = false; FrameDefaults.Active = false; WorldUIConfig.Bind();
+            Check(!WorldUIConfig.ImmersiveTownServices.Value, "profile detection never rewrites saved NPC opt-out");
+            WorldUIConfig._file = new(); WorldUIConfig.Bind();
             Entry<bool> mode = WorldUIConfig.ImmersiveTownServices;
             Entry<bool> speech = WorldUIConfig.ImmersiveTownSpeech;
             Entry<bool> effects = WorldUIConfig.ImmersiveTownSoundEffects;
@@ -178,6 +207,8 @@ namespace GloomhavenVR.WorldUI
                 { "ImmersiveTownServices", "ImmersiveTownSpeech", "ImmersiveTownSoundEffects" }),
                 "three town switches follow the 2D-map switch in Environment");
             var declared = Curated.SelectMany(c => c.Sections).SelectMany(s => s.Entries).Where(e => !e.IsAction).ToArray();
+            Check(!declared.Any(e => e.Section == "Optimize" && e.Key == "TownNpcDetailPercent"),
+                "removed NPC detail slider has no curated home");
             foreach (string key in new[] { "ImmersiveTownServices", "ImmersiveTownSpeech", "ImmersiveTownSoundEffects" })
                 Check(declared.Count(e => e.Section == "WorldUI" && e.Key == key) == 1, "town setting has one curated home: " + key);
             foreach (CuratedEntry declaredEntry in declared)

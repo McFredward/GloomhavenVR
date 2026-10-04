@@ -282,14 +282,14 @@ internal static partial class Loc
                 + "Erstellen, Aufdecken, Greifen und Spiel-Callbacks bleiben sofort wirksam. "
                 + "Neue Frame-Profile 0,05 s, PC 0; wirkt sofort.",
             ["Optimize/FigureDistanceLod"] =
-                "Verringert die Körperdetails mit dem Betrachtungsabstand, auch bei immersiven Map-NPCs. "
+                "Verringert die Körperdetails von Szenariofiguren mit dem Betrachtungsabstand. Immersive Map-NPCs behalten ihre Original-Meshes. "
                 + "Nahe und hochgehobene Figuren behalten die gewählte Detailgrenze; entfernte Figuren "
                 + "werden stärker vereinfacht. Material, Knochen, Animation und Spielregeln bleiben erhalten. "
                 + "Wirkt sofort; neue Frame-Profile Ein, PC Aus; gespeicherte Werte bleiben.",
             ["Optimize/TownNpcDetailPercent"] =
-                "Körperdetails immersiver Map-NPCs. 100% erhält das originale Mesh, niedrigere Werte "
-                + "nutzen vorbereitete Meshes mit originalem Material, Knochengewichten und Gesichtsausdrücken. "
-                + "Augen und separat animierte Gesichter bleiben original. Neue Frame-Profile 45%, PC 100%.",
+                "STILLGELEGT — ohne Wirkung. Erhält nur den gespeicherten Konfigurationsschlüssel. "
+                + "Immersive NPCs behalten immer ihre vollständigen Original-Meshes. Die fehlerhaften "
+                + "vereinfachten Varianten und der NPC-Detailregler wurden in Build616 entfernt.",
             ["Optimize/SkinningBoneLimit"] =
                 "Maximale Knocheneinflüsse pro Vertex bei Szenariofiguren und immersiven NPC-Körpern. "
                 + "0 erhält die Spielqualität; 1, 2 oder 4 begrenzen den Skinning-Aufwand. Niedrige Werte "
@@ -2481,9 +2481,10 @@ internal static partial class Loc
                 + "\"Kampflog jetzt einblenden\" die Tafel jederzeit hervor, und das X oben rechts an "
                 + "der Tafel schließt sie wieder. Aus = sie ist einfach nicht da, bis du sie holst.",
             ["WorldUI/ImmersiveTownServices"] =
-                "Händler, Tempel und Verzauberin bleiben in der Kartenumgebung sichtbar. Zum Besuchen "
-                + "mit dem Laser anklicken oder den NPC berühren. Händlerkarten lassen sich ohne Kauf "
-                + "in die Hand nehmen. Aus stellt die bisherigen Fenster und ihre Bedienung "
+                "Händler, Tempel und Verzauberin erscheinen als immersive Bewohner der 3D-Kartenumgebung. "
+                + "Nähere dich ihren Ständen und interagiere mit physischen Angeboten. Neue PC-Profile "
+                + "aktivieren sie; neue Steam-Frame-Standalone-Profile nutzen die bisherigen Fenster. "
+                + "Gespeicherte Einstellungen bleiben erhalten. Aus stellt die bisherigen Fenster und ihre Bedienung "
                 + "wieder her, auch bei einem bereits geöffneten Besuch. Andere Spieler behalten ihre "
                 + "gewählte Darstellung.",
             ["WorldUI/ImmersiveTownSpeech"] =

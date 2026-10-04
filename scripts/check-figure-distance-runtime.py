@@ -28,7 +28,7 @@ def main():
         subprocess.run([str(Path.home() / 'unitypy-venv/bin/python'), str(root / 'tools/figure-mesh/export-native.py'),
                         '--source-root', str(root), '--output-dir', str(native), '--only',
                         'hero_berserker_assets_all', 'npc_spittingdrake_assets_all', 'npc_sundemon_assets_all'], check=True)
-    files = ['FigureDistanceLodPolicy.cs', 'ScenarioFigureMeshBank.cs', 'FigureSkinningBudget.cs', 'TownNpcDistanceDetail.cs']
+    files = ['FigureDistanceLodPolicy.cs', 'ScenarioFigureMeshBank.cs', 'FigureSkinningBudget.cs', 'TownNpcSkinningQuality.cs']
     source = {name: (root / 'src/GloomhavenVR/Core/Perf' / name).read_text() for name in files}
     station = (root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceStation.cs').read_text()
     start = station.index('    private static void PreserveActorDetail(Transform? actor)')
@@ -46,7 +46,10 @@ def main():
         'private sealed class HandSide { internal float WorldScale = 1f; }\n' + hand_guard + '} }\n')
     source['NativeFigureMeshStream.cs'] = (root / 'tools/figure-mesh/NativeFigureMeshStream.cs').read_text()
     variants = [('production', '', '', '', ''),
-                ('skip-npc-reduction', 'TownNpcDistanceDetail.cs', 'mesh.Apply(wanted);', 'mesh.Apply(100);', 'NPC mid actually reduces original 100k body'),
+                ('swap-npc-original', 'TownNpcSkinningQuality.cs',
+                 'skin.Apply(!VRSession.IsRunning);',
+                 '{ skin.Apply(!VRSession.IsRunning); ((SkinnedMeshRenderer)skin.Renderer).sharedMesh = UnityEngine.Object.Instantiate(((SkinnedMeshRenderer)skin.Renderer).sharedMesh); }',
+                 'NPC retains exact original mesh at every distance'),
                 ('keep-explicit-four-bones', 'FigureSkinningBudget.cs', 'Renderer.quality = _applied;', 'Renderer.quality = live;', 'explicit original FourBones renderer is capped'),
                 ('global-hand-fight', 'FigureSkinningBudget.cs', 'internal static void Tick() { }',
                  'internal static void Tick() { if (VRSession.IsRunning && PerfConfig.MaximumSkinningBones > 0) QualitySettings.skinWeights = (SkinWeights)PerfConfig.MaximumSkinningBones; }',

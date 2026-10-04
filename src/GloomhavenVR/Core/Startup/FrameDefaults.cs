@@ -50,7 +50,9 @@ internal static class FrameDefaults
     internal const bool ScenarioStructuralInstancing = false;
     internal const bool ScenarioStructuralBatching = true;
     internal const bool FigureDistanceLod = true;
-    internal const int TownNpcDetailPercent = 45;
+    // Build616: broken simplified residents are removed. New standalone profiles use
+    // the original service windows; Bind preserves an explicit existing NPC preference.
+    internal const bool ImmersiveTownServices = false;
     internal const int SkinningBoneLimit = 2;
     internal const int ScenarioPlayerFigureDetailPercent = 0;
     internal const int ScenarioEnemyFigureDetailPercent = 0;

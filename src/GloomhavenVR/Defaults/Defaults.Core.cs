@@ -77,7 +77,7 @@ internal static partial class Defaults
     internal const int SceneProfileObjectsPerFrame = 64;    // => [Perf] SceneProfileObjectsPerFrame
     internal const float UiMaintenanceIntervalSeconds = 0f;
     internal const bool FigureDistanceLod = false;
-    internal const int TownNpcDetailPercent = 100;
+    internal const int TownNpcDetailPercent = 100;          // => [Optimize] TownNpcDetailPercent (INERT compatibility key; original NPC meshes only)
     internal const int SkinningBoneLimit = 0;
     internal const int ScenarioPlayerFigureDetailPercent = 100; // => [Optimize] ScenarioPlayerFigureDetailPercent
     internal const int ScenarioEnemyFigureDetailPercent = 100; // => [Optimize] ScenarioEnemyFigureDetailPercent

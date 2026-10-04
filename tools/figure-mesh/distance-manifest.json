@@ -1,7 +1,6 @@
 {
   "format": 1,
   "editor": "2021.3.5f1",
-  "original_town_bundle_sha256": "d2cd2afc7060a687358e48a838c33d06c8156fc76df33794842abcab70dda976",
   "banks": {
     "ghvr-figure-meshes-distance-00.bundle": "cef8f35d7708510b7534b318eedc14402263c4856d2d2c97a2722561b795a9e2",
     "ghvr-figure-meshes-distance-01.bundle": "4a39390636dabcc5a275a1b32f6cbe74129d61c96ecf30d929701ca22034709b",
@@ -19,19 +18,7 @@
     "ghvr-figure-meshes-distance-13.bundle": "a48725af5f3a23d26f94fe84bae7aaac5b53f0586f8616b623376a86b385269c",
     "ghvr-figure-meshes-distance-14.bundle": "6c64b6fd8c8fbaf965a1c45d2c8420084774a4780fd551335c202339497599d0",
     "ghvr-figure-meshes-distance-15.bundle": "a9f6280cf6f388e73dc2a85e0486b1a81d55d7d749eaba2a6e672bf91a3415fc",
-    "ghvr-figure-meshes-distance-16.bundle": "54bd07b1782f0191fa49e7d16178552fba2e98a2769dce4bf06da3769b7fd916",
-    "ghvr-figure-meshes-distance-17.bundle": "fcad8ed902bfc771f3098fcddea18cf6cc48fc42e9228c0be43a2a6b244ce15d",
-    "ghvr-figure-meshes-distance-18.bundle": "aeee5165dd64664fa7b565e269393b3d54ad6c5832aa3bedce5825807c855f84",
-    "ghvr-figure-meshes-distance-19.bundle": "ec26195cbf6ee3f507bcd7d16a611d0a63ab8dc1494c82e58797b80eac675c8e",
-    "ghvr-figure-meshes-distance-20.bundle": "ef82527814eded913de0acbca6435abc48b42a5ade30417d0d86e137e40d61e2",
-    "ghvr-figure-meshes-distance-21.bundle": "8dcfc15ecd71ae86fdf7a8d08bff363f8d87162acd87927ed751098a85b7c445",
-    "ghvr-figure-meshes-distance-22.bundle": "1d1c401bac8bb8b581a5f407049cc2b7dfab5ecc83496e3f58dc599e28bc1bc4",
-    "ghvr-figure-meshes-distance-23.bundle": "fd6eef85f5e8c6b6e95cb9e1dc37c21ac5adf2f1907e83982712fd105f709931",
-    "ghvr-figure-meshes-distance-24.bundle": "9ca680d7e94fec37ba9dd5371c295fba357c5d0fd438e069d8b8d8bc0152db01",
-    "ghvr-figure-meshes-distance-25.bundle": "2e06a34ad924a3ce9a1e181a7ad7e46258840ac188b8e7d0097746aaf1e41229",
-    "ghvr-figure-meshes-distance-26.bundle": "bf70b3a7c571d1f2cad54a47091a191080e9ce43d05eaa26006b6d380ae7e62c",
-    "ghvr-figure-meshes-distance-27.bundle": "77616ca5252961b5f36f61af189882d2cb779f4ea4fa6c7cfed5cebd5d460e68",
-    "ghvr-figure-meshes-distance-28.bundle": "96d82dc98748fe42bc1d892f47fcae3791e5f850e1547b20033eb3305be158bd"
+    "ghvr-figure-meshes-distance-16.bundle": "54bd07b1782f0191fa49e7d16178552fba2e98a2769dce4bf06da3769b7fd916"
   },
   "meshes": [
     {
@@ -4466,138 +4453,7 @@
       "triangles": 712,
       "blendShapes": 0,
       "protectedBones": 0
-    },
-    {
-      "source": "LOD0_0",
-      "key": "figure-08fde96f1cd755f1",
-      "tier": 75,
-      "sourceVertices": 102476,
-      "vertices": 88493,
-      "sourceTriangles": 135910,
-      "triangles": 111565,
-      "blendShapes": 11,
-      "protectedBones": 1
-    },
-    {
-      "source": "LOD0_0",
-      "key": "figure-08fde96f1cd755f1",
-      "tier": 45,
-      "sourceVertices": 102476,
-      "vertices": 72429,
-      "sourceTriangles": 135910,
-      "triangles": 82352,
-      "blendShapes": 11,
-      "protectedBones": 1
-    },
-    {
-      "source": "LOD0_0",
-      "key": "figure-08fde96f1cd755f1",
-      "tier": 20,
-      "sourceVertices": 102476,
-      "vertices": 52846,
-      "sourceTriangles": 135910,
-      "triangles": 58008,
-      "blendShapes": 11,
-      "protectedBones": 1
-    },
-    {
-      "source": "LOD0_0",
-      "key": "figure-08fde96f1cd755f1",
-      "tier": 5,
-      "sourceVertices": 102476,
-      "vertices": 49505,
-      "sourceTriangles": 135910,
-      "triangles": 54755,
-      "blendShapes": 11,
-      "protectedBones": 1
-    },
-    {
-      "source": "LOD0_0",
-      "key": "figure-2c6503b1e156226f",
-      "tier": 75,
-      "sourceVertices": 107754,
-      "vertices": 92338,
-      "sourceTriangles": 136798,
-      "triangles": 112271,
-      "blendShapes": 11,
-      "protectedBones": 1
-    },
-    {
-      "source": "LOD0_0",
-      "key": "figure-2c6503b1e156226f",
-      "tier": 45,
-      "sourceVertices": 107754,
-      "vertices": 75292,
-      "sourceTriangles": 136798,
-      "triangles": 82840,
-      "blendShapes": 11,
-      "protectedBones": 1
-    },
-    {
-      "source": "LOD0_0",
-      "key": "figure-2c6503b1e156226f",
-      "tier": 20,
-      "sourceVertices": 107754,
-      "vertices": 54078,
-      "sourceTriangles": 136798,
-      "triangles": 58313,
-      "blendShapes": 11,
-      "protectedBones": 1
-    },
-    {
-      "source": "LOD0_0",
-      "key": "figure-2c6503b1e156226f",
-      "tier": 5,
-      "sourceVertices": 107754,
-      "vertices": 51190,
-      "sourceTriangles": 136798,
-      "triangles": 55569,
-      "blendShapes": 11,
-      "protectedBones": 1
-    },
-    {
-      "source": "LOD0_0",
-      "key": "figure-a0057e45d5165bcf",
-      "tier": 75,
-      "sourceVertices": 114332,
-      "vertices": 98983,
-      "sourceTriangles": 141114,
-      "triangles": 116096,
-      "blendShapes": 11,
-      "protectedBones": 1
-    },
-    {
-      "source": "LOD0_0",
-      "key": "figure-a0057e45d5165bcf",
-      "tier": 45,
-      "sourceVertices": 114332,
-      "vertices": 81372,
-      "sourceTriangles": 141114,
-      "triangles": 86072,
-      "blendShapes": 11,
-      "protectedBones": 1
-    },
-    {
-      "source": "LOD0_0",
-      "key": "figure-a0057e45d5165bcf",
-      "tier": 20,
-      "sourceVertices": 114332,
-      "vertices": 59120,
-      "sourceTriangles": 141114,
-      "triangles": 61055,
-      "blendShapes": 11,
-      "protectedBones": 1
-    },
-    {
-      "source": "LOD0_0",
-      "key": "figure-a0057e45d5165bcf",
-      "tier": 5,
-      "sourceVertices": 114332,
-      "vertices": 56656,
-      "sourceTriangles": 141114,
-      "triangles": 58909,
-      "blendShapes": 11,
-      "protectedBones": 1
     }
-  ]
+  ],
+  "scope": "Original scenario actor bodies only; immersive NPC derivatives retired in Build616."
 }

@@ -284,8 +284,6 @@ internal static class PerfConfig
     internal static bool StructuralInstancingOn => ScenarioStructuralInstancing != null && ScenarioStructuralInstancing.Value;
     internal static bool FigureDistanceLodEnabled => FigureDistanceLod == null
         ? Defaults.FigureDistanceLod : FigureDistanceLod.Value;
-    internal static int TownNpcMeshDetailPercent => TownNpcDetailPercent == null
-        ? Defaults.TownNpcDetailPercent : Mathf.Clamp(TownNpcDetailPercent.Value, 0, 100);
     internal static int MaximumSkinningBones => SkinningBoneLimit == null
         ? Defaults.SkinningBoneLimit : SkinningBoneLimit.Value is 1 or 2 or 4 ? SkinningBoneLimit.Value : 0;
 
@@ -482,15 +480,15 @@ internal static class PerfConfig
             + "Fresh Frame 0.05 s, PC 0; works live.", new AcceptableValueRange<float>(0f, .2f)));
         FigureDistanceLod = _file.Bind("Optimize", "FigureDistanceLod",
             FrameDefaults.Active ? FrameDefaults.FigureDistanceLod : Defaults.FigureDistanceLod,
-            "Reduce figure body mesh detail with viewing distance, including immersive map NPCs. "
+            "Reduce scenario figure body mesh detail with viewing distance. Immersive map NPCs retain their original meshes. "
             + "Near figures retain the selected mesh-detail cap; distant figures use stronger prepared "
             + "simplification. Materials, bones, animation and gameplay stay original. Held figures keep "
             + "their selected near detail. Works live; fresh Frame On, PC Off; saved choices stay.");
         TownNpcDetailPercent = _file.Bind("Optimize", "TownNpcDetailPercent",
-            FrameDefaults.Active ? FrameDefaults.TownNpcDetailPercent : Defaults.TownNpcDetailPercent,
-            new ConfigDescription("Immersive map NPC body mesh detail. 100% retains the original mesh; "
-            + "lower values use prepared meshes with original materials, skin weights and expressions. "
-            + "Eyes and separately animated faces stay original. Fresh Frame 45%, PC 100%; works live.",
+            Defaults.TownNpcDetailPercent,
+            new ConfigDescription("DEPRECATED — INERT. Kept only to preserve the saved configuration key. "
+            + "Immersive NPCs always retain their exact original full-detail meshes; their broken "
+            + "simplified variants and the NPC detail control were removed in Build616.",
                 new AcceptableValueRange<int>(0, 100)));
         SkinningBoneLimit = _file.Bind("Optimize", "SkinningBoneLimit",
             FrameDefaults.Active ? FrameDefaults.SkinningBoneLimit : Defaults.SkinningBoneLimit,

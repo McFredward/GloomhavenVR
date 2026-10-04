@@ -506,7 +506,6 @@ internal static partial class VROptionsTab
                         new("Optimize", "ScenarioEnemyFigureDetailPercent", ""),
                         new("Optimize", "FigureDistanceLod", ""),
                         new("Optimize", "FigureScanCache", ""),
-                        new("Optimize", "TownNpcDetailPercent", ""),
                         new("Optimize", "SkinningBoneLimit", ""),
                         new("Optimize", "SuspendUnusedCameras", ""),
                         new("Optimize", "UiMaintenanceIntervalSeconds", ""),

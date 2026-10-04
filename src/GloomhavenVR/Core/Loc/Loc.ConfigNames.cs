@@ -711,7 +711,7 @@ internal static partial class Loc
             ["Perf/SceneProfileObjectsPerFrame"] = Pair("Scene inventory work items per frame", "Arbeitsschritte der Szenen-Inventur pro Frame"),
             ["Optimize/UiMaintenanceIntervalSeconds"] = Pair("Panel maintenance interval (s)", "Fenster-Wartungsintervall (s)"),
             ["Optimize/FigureDistanceLod"] = Pair("Distance-based figure detail", "Figurendetails nach Abstand"),
-            ["Optimize/TownNpcDetailPercent"] = Pair("Immersive NPC body detail (%)", "Immersive NPC-Körperdetails (%)"),
+            ["Optimize/TownNpcDetailPercent"] = Pair("Retired NPC body detail", "Stillgelegte NPC-Körperdetails"),
             ["Optimize/SkinningBoneLimit"] = Pair("Bone influences per vertex", "Knocheneinflüsse pro Vertex"),
             ["Optimize/ScenarioPlayerFigureDetailPercent"] = Pair("Player figure detail (%)", "Detail der Spielfiguren (%)"),
             ["Optimize/ScenarioEnemyFigureDetailPercent"] = Pair("Enemy figure detail (%)", "Detail der Gegnerfiguren (%)"),
