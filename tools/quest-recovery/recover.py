@@ -252,13 +252,14 @@ def export_script_identities(base, output):
     return entries
 
 
-def run_export(executable, stage, export, log_path, shader_root, settings):
+def run_export(executable, stage, export, log_path, shader_root, settings, require_scene_settings=True):
     with socket.socket() as available:
         available.bind(("127.0.0.1", 0))
         port = available.getsockname()[1]
     base = f"http://127.0.0.1:{port}"
     with log_path.with_suffix(".console.log").open("wb") as console:
-        process = subprocess.Popen([str(executable), "--headless", "--port", str(port),
+        command = list(executable) if isinstance(executable, (list, tuple)) else [str(executable)]
+        process = subprocess.Popen(command + ["--headless", "--port", str(port),
                                     "--log-path", str(log_path)], stdout=console, stderr=subprocess.STDOUT,
                                    cwd=stage.parent)
         try:
@@ -278,8 +279,10 @@ def run_export(executable, stage, export, log_path, shader_root, settings):
             request(base, "/LoadFolder", {"Path": str(stage)})
             request(base, "/Export/UnityProject", {"Path": str(export)})
             project = export / "ExportedProject"
-            if not (project / "ProjectSettings/EditorBuildSettings.asset").is_file():
+            if require_scene_settings and not (project / "ProjectSettings/EditorBuildSettings.asset").is_file():
                 raise RecoveryError(f"Export did not produce original scene settings; see {log_path}.")
+            if not (project / "Assets").is_dir():
+                raise RecoveryError(f"Export did not produce an asset tree; see {log_path}.")
             recipes = export_shader_recipes(base, shader_root)
             identities = export_script_identities(base, shader_root)
             return project, recipes, identities
