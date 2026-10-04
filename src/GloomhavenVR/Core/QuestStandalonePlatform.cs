@@ -30,6 +30,15 @@ public static class QuestStandalonePlatform
     public static int PresentationLayer => VRLayers.ModLayer;
     public static bool DebugLogging => Enabled && VRLog.Wants(VRLogLevel.Debug);
 
+    /// <summary>
+    /// The player-owned preparation scene contains only a neutral camera anchor,
+    /// not an original menu composite. Never capture that empty anchor into the
+    /// mod's floating desktop surface. Original Bootstrap, Intro and menu scenes
+    /// immediately resume the existing visibility policy; desktop is unaffected.
+    /// </summary>
+    public static bool SuppressStartupScreen(string activeSceneName) =>
+        Enabled && string.Equals(activeSceneName, "QuestOriginalStartup", StringComparison.Ordinal);
+
     /// <summary>Called by the player before plugin creation, with its verified local resource root.</summary>
     public static void Configure(string pluginDirectory, Func<bool, bool> setPassthrough,
         Func<bool> isPassthroughActive, Func<bool> isSessionRunning,

@@ -42,6 +42,9 @@ public static class QuestText
             case "loadingVerifyingFile": return german ? "Aktuelle Datei prüfen" : "Checking current file";
             case "loadingVerifying": return german ? "Inhalte prüfen" : "Checking content";
             case "loadingStarting": return german ? "Spiel starten" : "Starting the game";
+            case "loadingOverall": return german ? "Vorbereitung" : "Preparation";
+            case "loadingStep": return german ? "Schritt {0} von {1}" : "Step {0} of {1}";
+            case "loadingFile": return german ? "Datei {0} von {1}" : "File {0} of {1}";
             case "startupCheckingMod": return german ? "VR-Dateien werden geprüft" : "Checking VR resources";
             case "startupCopyingMod": return german ? "VR-Dateien werden aus der APK gelesen" : "Reading VR resources from the APK";
             case "startupExtractingMod": return german ? "VR-Dateien werden bereitgestellt und geprüft" : "Preparing and verifying VR resources";
