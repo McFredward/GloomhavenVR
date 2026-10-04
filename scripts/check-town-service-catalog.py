@@ -59,7 +59,15 @@ def sources(root):
     # cabinet fixture keeps the native gate open to exercise only the scroll-hover route.
     bound["CabinetAvailability.cs"] = "namespace GloomhavenVR.WorldUI; internal static class TownServiceAvailability { internal static bool NativeUnlocked(byte service) => service == 1; }"
     bound["TownItemHeldSource.cs"] = (root / "src/GloomhavenVR/Net/TownItemHeldSource.cs").read_text()
+    # Token's upright offering uses the authored native bowl seat. Bind its real
+    # declarations (including Center dependency), without the unrelated ritual owner.
+    bowl = (base / "TownServiceTempleBowl.cs").read_text()
+    seat = "\n".join(next(line.strip() for line in bowl.splitlines()
+        if "internal static readonly Vector3 " + field + " =" in line)
+        for field in ("Center", "PurseSeat"))
+    bound["TempleBowlSeat.cs"] = "using UnityEngine; namespace GloomhavenVR.WorldUI; internal static class TownServiceTempleBowl {\n" + seat + "\n}"
     hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
+    hashes["TownServiceTempleBowl.cs"] = hashlib.sha256(bowl.encode()).hexdigest()
     return bound, hashes
 
 
