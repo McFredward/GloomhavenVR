@@ -19,7 +19,7 @@ modified. The review and hashes are retained in `NativeDetailProvenance.json` an
 the immutable debug evidence; developer reproduction is:
 
 ```sh
-python scripts/audit-scenario-detail-assets.py --scenery-only --scenery-renderers \
+python3 scripts/audit-scenario-detail-assets.py --scenery-only --scenery-renderers \
   --output .planning/debug/scenery-review.json
 ```
 

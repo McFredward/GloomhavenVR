@@ -1634,6 +1634,17 @@
         "ci"
       ],
       "weight": 5
+    },
+    {
+      "id": "options-notes-runtime",
+      "command": [
+        "python3",
+        "scripts/check-options-notes-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
     }
   ]
 }

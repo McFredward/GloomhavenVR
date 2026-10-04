@@ -160,11 +160,11 @@ runtime, which is why a runtime audit could never do this job (see
 | `PlatformSetting_Apparance_GenerationDetailPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioGenerationDetail.cs:175</sub> | `PlatformSetting.GetApparenceSettingByCurrentLevel()` | postfix | `ScenarioGenerationDetail`:52 |
 | `ScenarioIdleAnimationPlayPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioIdleAnimationBudget.cs:184</sub> | `MF.AnimatorPlay()` | prefix | `ScenarioIdleAnimationBudget`:31 |
 | `ScenarioIdleAnimationLocomotionPatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioIdleAnimationBudget.cs:191</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `ScenarioIdleAnimationBudget`:32 |
-| `ProceduralBase_ContentPlaced_SceneryBudgetPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioSceneryBudget.cs:1633</sub> | `ProceduralBase.NotifyContentPlacementComplete()` | postfix | `ScenarioSceneryBudget`:72 |
-| `ProceduralMapTile_ShowContent_SceneryBudgetPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioSceneryBudget.cs:1644</sub> | `ProceduralMapTile.ShowContent()` | prefix | `ScenarioSceneryBudget`:73 |
+| `ProceduralBase_ContentPlaced_SceneryBudgetPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioSceneryBudget.cs:2070</sub> | `ProceduralBase.NotifyContentPlacementComplete()` | postfix | `ScenarioSceneryBudget`:73 |
+| `ProceduralMapTile_ShowContent_SceneryBudgetPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioSceneryBudget.cs:2081</sub> | `ProceduralMapTile.ShowContent()` | prefix | `ScenarioSceneryBudget`:74 |
 | &nbsp; | `ProceduralMapTile.ShowContent()` | postfix | &nbsp; |
-| `MaterialLoaderData_Ready_SceneryBudgetPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioSceneryBudget.cs:1660</sub> | `MaterialLoaderData.CheckAllMaterialLoaded()` *(private)* | postfix | `ScenarioSceneryBudget`:74 |
-| `SceneController_LoadingComplete_SceneryBudgetPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioSceneryBudget.cs:1671</sub> | `SceneController.DisableLoadingScreen()` | prefix | `ScenarioSceneryBudget`:75 |
+| `MaterialLoaderData_Ready_SceneryBudgetPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioSceneryBudget.cs:2097</sub> | `MaterialLoaderData.CheckAllMaterialLoaded()` *(private)* | postfix | `ScenarioSceneryBudget`:75 |
+| `SceneController_LoadingComplete_SceneryBudgetPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioSceneryBudget.cs:2108</sub> | `SceneController.DisableLoadingScreen()` | prefix | `ScenarioSceneryBudget`:76 |
 | `StructuralInstancing_PlacedPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioStructuralInstancing.cs:252</sub> | `ProceduralBase.NotifyContentPlacementComplete()` | postfix | `ScenarioStructuralInstancing`:37 |
 | `StructuralInstancing_ShownPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioStructuralInstancing.cs:258</sub> | `ProceduralMapTile.ShowContent()` | postfix | `ScenarioStructuralInstancing`:38 |
 | `StructuralInstancing_MaterialPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioStructuralInstancing.cs:264</sub> | `MaterialLoaderData.CheckAllMaterialLoaded()` *(private)* | postfix | `ScenarioStructuralInstancing`:39 |
