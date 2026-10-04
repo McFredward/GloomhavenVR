@@ -18,13 +18,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime-source", type=Path, default=root / "unity/GloomhavenVR.Quest/Assets/Quest/Runtime")
     args = parser.parse_args()
-    names = ("QuestGameBootstrap.cs", "QuestGameContent.cs", "QuestGameArchiveDelivery.cs", "QuestContentHash.cs")
+    names = ("QuestGameBootstrap.cs", "QuestGameContent.cs", "QuestGameContent.Delivery.cs", "QuestGameArchiveDelivery.cs", "QuestContentHash.cs")
     sources = {name: (args.runtime_source / name).read_text() for name in names}
     bootstrap = sources["QuestGameBootstrap.cs"]
     mutations = (
         ("missing-original-path-cache", "QuestGame.Compatibility.Paths.Initialize(Application.persistentDataPath);",
          "/* Missing original path initialization */", "cached-original-paths"),
-        ("late-loading-view", "modLifecycle.PrepareStartupView();", "/* Missing early loading view */", "early-view"),
+        ("late-loading-view", "modLifecycle.PrepareStartupView();", "/* Missing early loading view */", "early-anchor"),
         ("mod-before-files", 'yield return EnsureContent(modManifest, modRoot, "quest-mod-content.zip", "mod-content");',
          "yield return null;", "mod-before-content"),
         ("missing-mod-error-gate", 'yield return EnsureContent(modManifest, modRoot, "quest-mod-content.zip", "mod-content");\n            if (State == "failed") yield break;',
@@ -33,8 +33,8 @@ def main():
          "yield return modLifecycle.Activate(modRoot);\n            yield return modLifecycle.Activate(modRoot);", "one-owner"),
         ("stale-mod-checkpoint", "SaveState();\n            yield return modLifecycle.Activate(modRoot);",
          "yield return modLifecycle.Activate(modRoot);", "mod-checkpoint"),
-        ("synchronous-main-hash", "Task.Run(() => QuestGameContent.Deliver(manifest, root, source, sourceIsApk, archive, expectedArchive, ReportContentProgress))",
-         "Task.FromResult(QuestGameContent.Deliver(manifest, root, source, sourceIsApk, archive, expectedArchive, ReportContentProgress))", "main-hash"),
+        ("synchronous-main-hash", "Task.Run(() => QuestGameContent.Install(manifest, root, source, sourceIsApk, archive, expectedArchive, ReportContentProgress))",
+         "Task.FromResult(QuestGameContent.Install(manifest, root, source, sourceIsApk, archive, expectedArchive, ReportContentProgress))", "main-hash"),
         ("worker-unity-path", "void ReportContentProgress(QuestGameContentProgress progress)\n        {",
          "void ReportContentProgress(QuestGameContentProgress progress)\n        {\n            string forbiddenWorkerPath = Application.persistentDataPath;", "worker-api"),
         ("wrong-apk-source", "sourceIsApk ? Application.dataPath :", "sourceIsApk ? Application.streamingAssetsPath :", "startup-completes"),
@@ -49,6 +49,13 @@ def main():
          '/* Missing observed preparation completion */', "preparation-complete"),
         ("premature-scene-handover", 'AsyncOperation loading = SceneManager.LoadSceneAsync(originalScene, LoadSceneMode.Single);',
          'modLifecycle.EndDeliveryView();\n            AsyncOperation loading = SceneManager.LoadSceneAsync(originalScene, LoadSceneMode.Single);', "handover-view"),
+        ("warm-repeats-byte-hash", "QuestGameContent.Install(manifest, root, source, sourceIsApk, archive, expectedArchive, ReportContentProgress)",
+         "QuestGameContent.Deliver(manifest, root, source, sourceIsApk, archive, expectedArchive, ReportContentProgress)", "warm-no-content-reads"),
+        ("warm-requests-loading-artwork", 'State = "checking-" + phase;',
+         'contentWorkRequested = true;\n            State = "checking-" + phase;', "one-cold-view"),
+        ("actual-install-artwork-missing", "modLifecycle.BeginDeliveryView();", "/* Missing actual installation view */", "early-view-state"),
+        ("global-startup-completes-before-native", "modLifecycle.UpdateStartupView(State, startupOverallPercent);",
+         "modLifecycle.UpdateStartupView(State, 100);", "handover-percent"),
     )
     cases = [("production", bootstrap, ""),
              ("commented-defects-are-inert", "/* Missing early loading view; mod-before-content;\n"

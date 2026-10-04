@@ -21,19 +21,23 @@ namespace UnityEngine
     {
         public GameObject gameObject;
         public Transform transform => gameObject.transform;
+        public string name => gameObject.name;
+        public bool CompareTag(string tag) => gameObject.tag == tag;
         public T GetComponent<T>() where T : Component => gameObject.GetComponent<T>();
     }
     public class MonoBehaviour : Component { }
     public class GameObject : Object
     {
+        public static readonly List<GameObject> All = new();
         readonly Dictionary<Type, Component> components = new();
-        public string name;
+        public string name, tag;
+        public UnityEngine.SceneManagement.Scene scene = new();
         public int layer;
         public bool activeInHierarchy = true;
         public Transform transform;
         public GameObject(string name, params Type[] types)
         {
-            this.name = name;
+            this.name = name; All.Add(this);
             transform = (Transform)Add(types.Contains(typeof(RectTransform)) ? typeof(RectTransform) : typeof(Transform));
             foreach (Type type in types) if (type != transform.GetType()) Add(type);
         }
@@ -50,14 +54,29 @@ namespace UnityEngine
     {
         public readonly List<Transform> children = new();
         public Transform parent;
-        public Vector3 localPosition, localScale;
-        public void SetParent(Transform owner, bool stays) { parent = owner; owner.children.Add(this); }
+        public Vector3 localPosition, localScale, position;
+        public int childCount => children.Count;
+        public Transform GetChild(int index) => children[index];
+        public void SetParent(Transform owner, bool stays) { parent?.children.Remove(this); parent = owner; owner.children.Add(this); }
     }
     public class RectTransform : Transform
     {
         public Vector2 anchorMin, anchorMax, offsetMin, offsetMax, sizeDelta, anchoredPosition;
     }
-    public class Camera : Component { public bool isActiveAndEnabled = true; }
+    public enum CameraClearFlags { SolidColor }
+    public enum StereoTargetEyeMask { None, Both }
+    public class Camera : Component
+    {
+        public bool enabled = true;
+        public bool isActiveAndEnabled => Alive && enabled && gameObject.activeInHierarchy;
+        public string tag { get => gameObject.tag; set => gameObject.tag = value; }
+        public int cullingMask;
+        public CameraClearFlags clearFlags;
+        public Color backgroundColor;
+        public StereoTargetEyeMask stereoTargetEye;
+        public float depth;
+        public Texture targetTexture;
+    }
     public class Texture : Object { }
     public class Texture2D : Texture { public int width = 1024, height = 179; }
     public class Font : Object { }
@@ -89,9 +108,23 @@ namespace UnityEngine
         public static readonly Font Font = new();
         public static T Load<T>(string name) where T : Object => Logo as T;
         public static T GetBuiltinResource<T>(string name) where T : Object => Font as T;
+        public static T[] FindObjectsOfTypeAll<T>() where T : Component => GameObject.All.Select(g => g.GetComponent<T>()).Where(c => c != null).ToArray();
     }
     public enum RuntimePlatform { Android, WindowsPlayer }
-    public static class Application { public static RuntimePlatform platform = RuntimePlatform.WindowsPlayer; }
+    public enum SystemLanguage { English, German }
+    public static class Application
+    {
+        public static RuntimePlatform platform = RuntimePlatform.WindowsPlayer;
+        public static SystemLanguage systemLanguage;
+        public static string persistentDataPath;
+    }
+    public static class Time { public static float realtimeSinceStartup; }
+    public static class Debug
+    {
+        public static readonly List<string> Logs = new();
+        public static void Log(object value) => Logs.Add(value.ToString());
+        public static void LogError(object value) => Logs.Add(value.ToString());
+    }
 }
 namespace UnityEngine.UI
 {
@@ -122,4 +155,54 @@ namespace GloomhavenVR.Core
     }
     public static class VRSession { public static bool IsRunning; }
     public static class VRLayers { public static int ModLayer = 27; }
+}
+
+namespace UnityEngine.SceneManagement
+{
+    public struct Scene { public bool IsValid() => true; public bool isLoaded => true; }
+}
+namespace UnityEngine.XR
+{
+    public class XRDisplaySubsystem { public bool running = true; }
+    public class XRInputSubsystem { public bool running = true; }
+}
+namespace UnityEngine.XR.Management
+{
+    public class XRLoader
+    {
+        public T GetLoadedSubsystem<T>() where T : new() => new T();
+    }
+    public class XRManagerSettings { public XRLoader activeLoader = new(); }
+    public class XRGeneralSettings { public static XRGeneralSettings Instance = new(); public XRManagerSettings Manager = new(); }
+}
+namespace BepInEx
+{
+    [AttributeUsage(AttributeTargets.Class)] public sealed class BepInPlugin : Attribute { public string GUID => "fixture.plugin"; }
+}
+namespace GloomhavenVR
+{
+    [BepInEx.BepInPlugin] public class Plugin : UnityEngine.Component
+    {
+        public Plugin() { Core.VRSession.IsRunning = true; }
+    }
+}
+namespace GloomhavenVR.Core
+{
+    public static class QuestStandaloneModuleHealth
+    {
+        public static bool InitializationComplete = true, InviteKeyboardVisible;
+        public static int CompletedModules = 1;
+        public static string Failure;
+        public static void InstallUnityLogListener() { }
+    }
+}
+namespace GloomhavenVR.Quest
+{
+    public class QuestGameBootstrap : UnityEngine.Component { internal void SaveState() { } }
+    public static class QuestPassthroughFeature
+    {
+        public static bool Active;
+        public static long SessionGeneration;
+        public static bool SetEnabled(bool requested) => Active = requested;
+    }
 }

@@ -89,23 +89,39 @@ namespace GloomhavenVR.Quest
         public int CompletedModules;
         public string Stage, Failure;
         public bool StartupViewAvailable;
-        public void PrepareStartupView() { StartupViewAvailable = true; }
-        public void UpdateStartupView(string state, QuestGameContentProgress progress) { }
+        public void PrepareStartupView() { }
+        public void UpdateStartupView(string state, int overallPercent) { }
         public void BeginDeliveryView() { }
         public void EndDeliveryView() { }
         public IEnumerator Activate(string root) { yield break; }
         public void Observe() { }
     }
     public static class QuestPassthroughFeature { public static bool Active; }
-    public class QuestGameContentFile { public string path; }
+    public class QuestGameContentFile { public string path; public long size; }
     public class QuestGameContentManifest { public string archive; public QuestGameContentFile[] files; }
-    public class QuestGameContentProgress { public string Phase, File; public long ProcessedBytes, TotalBytes; }
+    public class QuestGameContentProgress
+    {
+        public string Phase, File;
+        public long ProcessedBytes, TotalBytes, OverallProcessedBytes, OverallTotalBytes;
+        public int FileIndex, FileCount;
+    }
+    public class QuestGameContentDeliveryResult
+    {
+        public bool ReusedContent, CopiedArchive, ReusedArchive, InstallationReceiptReused;
+        public int VerifiedFiles, ExtractedFiles, MetadataCheckedFiles;
+        public long VerifiedBytes, CopiedBytes, ExtractedBytes;
+        public string InstallationState;
+    }
     public static class QuestGameArchiveDelivery
     {
         public static void Stage(QuestGameContentManifest manifest, string source, string destination, bool sourceIsApk, Action<QuestGameContentProgress> progress = null) { }
     }
     public static class QuestGameContent
     {
+        public static void ConfigureNativeHash() { }
+        public static QuestGameContentDeliveryResult Install(QuestGameContentManifest manifest, string root, string source,
+            bool sourceIsApk, string archive, string expectedArchive, Action<QuestGameContentProgress> progress)
+        { return new QuestGameContentDeliveryResult(); }
         public static void Validate(QuestGameContentManifest manifest, string key, string expectedArchive = "quest-startup-content.zip") { }
         public static bool IsReady(QuestGameContentManifest manifest, string root, Action<QuestGameContentProgress> progress = null) { return true; }
         public static void Extract(QuestGameContentManifest manifest, string archive, string root, string expectedArchive = "quest-startup-content.zip", Action<QuestGameContentProgress> progress = null) { }

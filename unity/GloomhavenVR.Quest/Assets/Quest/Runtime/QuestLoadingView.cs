@@ -14,15 +14,12 @@ namespace GloomhavenVR.Quest
         [SerializeField] Canvas canvas;
         [SerializeField] Text phaseLabel;
         [SerializeField] Text percentageLabel;
-        [SerializeField] Text stepLabel;
-        [SerializeField] Text fileLabel;
-        [SerializeField] Text fileNameLabel;
         [SerializeField] RectTransform fill;
         string lastLabel;
-        string lastPercentage, lastStep, lastFile, lastFileName;
+        string lastPercentage;
         int lastPercent = int.MinValue;
-        int lastPreparationPercent = -1;
-        public bool Available { get { return canvas != null && phaseLabel != null && percentageLabel != null && stepLabel != null && fileLabel != null && fileNameLabel != null && fill != null && gameObject != null && gameObject.activeInHierarchy
+        int overallPercent;
+        public bool Available { get { return canvas != null && phaseLabel != null && percentageLabel != null && fill != null && gameObject != null && gameObject.activeInHierarchy
             && canvas.worldCamera != null && canvas.worldCamera.isActiveAndEnabled; } }
 
         public static QuestLoadingView Create(Camera owner, int layer)
@@ -54,13 +51,9 @@ namespace GloomhavenVR.Quest
             view.fill.anchorMin = Vector2.zero; view.fill.anchorMax = new Vector2(0, 1);
             view.fill.offsetMin = view.fill.offsetMax = Vector2.zero;
             view.percentageLabel = AddText(panel.transform, layer, "Progress percentage", new Vector2(0, -167), new Vector2(1100, 50), font, 30);
-            // Keep the accepted wordmark, phase and bar geometry. Only the UI
-            // backing extends down to distinguish the preparation total from
-            // its current file, without a second camera or interactive surface.
-            view.stepLabel = AddText(panel.transform, layer, "Preparation step", new Vector2(0, -211), new Vector2(1100, 42), font, 26);
-            view.fileLabel = AddText(panel.transform, layer, "Current file progress", new Vector2(0, -253), new Vector2(1100, 42), font, 25);
-            view.fileNameLabel = AddText(panel.transform, layer, "Current file name", new Vector2(0, -297), new Vector2(1100, 42), font, 23);
-            view.UpdatePhase("", 0, 0);
+            // A single startup bar belongs to this view. File names, integrity
+            // phases and internal gate counters remain developer telemetry.
+            view.UpdateOverall("", 0);
             return view;
         }
 
@@ -100,79 +93,33 @@ namespace GloomhavenVR.Quest
             return Math.Min(99, (int)Math.Floor(100d * processed / total));
         }
 
-        /// <summary>Present the caller's localized phase and its actual byte counts.</summary>
-        public void UpdatePhase(string label, long processed, long total)
+        /// <summary>Move the same artwork to the observed rig without a new camera or canvas.</summary>
+        public void Retarget(Camera owner, int layer)
         {
-            lastPreparationPercent = -1;
-            Render(label, Percent(processed, total), "", "", "", "");
+            if (owner == null) throw new InvalidOperationException("Loading artwork requires an observed camera owner.");
+            transform.SetParent(owner.transform, false);
+            canvas.worldCamera = owner;
+            SetLayer(transform, layer);
+        }
+        static void SetLayer(Transform node, int layer)
+        {
+            node.gameObject.layer = layer;
+            for (int i = 0; i < node.childCount; ++i) SetLayer(node.GetChild(i), layer);
         }
 
-        /// <summary>
-        /// Overall measured preparation, independent of any startup/content DTO.
-        /// Unmeasured work contributes only completed steps. Byte completion does
-        /// not assert that its surrounding gate has committed successfully.
-        /// </summary>
-        public static int PreparationPercent(int completedSteps, int totalSteps, long processed, long total)
+        /// <summary>One monotonic startup percentage; 100 requires the native scene handover.</summary>
+        public void UpdateOverall(string label, int percent, bool nativeHandover = false)
         {
-            if (totalSteps <= 0) return -1;
-            int completed = Math.Max(0, Math.Min(totalSteps, completedSteps));
-            if (completed == totalSteps) return 100;
-            // Decimal preserves exact whole percentages such as (2 + .3) / 5;
-            // binary floating arithmetic can round 46 down to 45 before Floor.
-            decimal fraction = total > 0 && processed > 0 ? Math.Min(1m, (decimal)processed / total) : 0m;
-            int nextBoundary = (int)(((long)(completed + 1) * 100 + totalSteps - 1) / totalSteps - 1);
-            return Math.Min(nextBoundary, (int)decimal.Floor(100m * (completed + fraction) / totalSteps));
-        }
-
-        /// <summary>Show one stable total plus caller-localized step and file details.</summary>
-        public void UpdateProgress(string label, string overallCaption, int completedSteps, int totalSteps,
-            long processed, long total, string step, string file, string fileName)
-        {
-            int percent = PreparationPercent(completedSteps, totalSteps, processed, total);
-            // A new phase or a temporarily unavailable measurement never rewinds
-            // work already observed in this view. A new operation uses Create or
-            // UpdatePhase to reset this preparation history explicitly.
-            if (percent >= 0) lastPreparationPercent = Math.Max(lastPreparationPercent, percent);
-            Render(label, lastPreparationPercent, overallCaption, step, file, fileName);
-        }
-
-        /// <summary>Readable plain basename; never show a storage path or text markup.</summary>
-        public static string Basename(string path)
-        {
-            if (string.IsNullOrEmpty(path)) return "";
-            int start = Math.Max(path.LastIndexOf('/'), path.LastIndexOf('\\')) + 1;
-            string name = path.Substring(start);
-            const int limit = 56;
-            if (name.Length > limit)
-            {
-                int length = limit - 1;
-                if (char.IsHighSurrogate(name[length - 1])) length--;
-                name = name.Substring(0, length) + "…";
-            }
-            char[] cleaned = null;
-            for (int i = 0; i < name.Length; i++)
-                if (char.IsControl(name[i]))
-                {
-                    if (cleaned == null) cleaned = name.ToCharArray();
-                    cleaned[i] = ' ';
-                }
-            return cleaned == null ? name : new string(cleaned);
-        }
-
-        void Render(string label, int percent, string overallCaption, string step, string file, string fileName)
-        {
+            int bounded = nativeHandover ? 100 : Math.Max(0, Math.Min(99, percent));
+            overallPercent = Math.Max(overallPercent, bounded);
             if (label != lastLabel) { lastLabel = label; phaseLabel.text = label; }
-            string percentage = (string.IsNullOrEmpty(overallCaption) ? "" : overallCaption + ": ")
-                + (percent < 0 ? "—" : percent.ToString(CultureInfo.InvariantCulture) + " %");
+            string percentage = overallPercent.ToString(CultureInfo.InvariantCulture) + " %";
             if (percentage != lastPercentage) { lastPercentage = percentage; percentageLabel.text = percentage; }
-            if (percent != lastPercent)
+            if (overallPercent != lastPercent)
             {
-                lastPercent = percent;
-                fill.anchorMax = new Vector2(percent < 0 ? 0 : percent / 100f, 1);
+                lastPercent = overallPercent;
+                fill.anchorMax = new Vector2(overallPercent / 100f, 1);
             }
-            if (step != lastStep) { lastStep = step; stepLabel.text = step; }
-            if (file != lastFile) { lastFile = file; fileLabel.text = file; }
-            if (fileName != lastFileName) { lastFileName = fileName; fileNameLabel.text = fileName; }
         }
 
         public void Retire() { gameObject.SetActive(false); Destroy(gameObject); }

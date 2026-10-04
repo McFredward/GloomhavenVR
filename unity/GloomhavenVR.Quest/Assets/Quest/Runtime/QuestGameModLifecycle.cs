@@ -2,7 +2,6 @@
 #if GHVR_QUEST_STARTUP
 using System;
 using System.Collections;
-using System.Globalization;
 using System.IO;
 using System.Reflection;
 using GloomhavenVR.Core;
@@ -33,12 +32,10 @@ namespace GloomhavenVR.Quest
         bool activated;
         bool deliveryViewRequested;
         string viewState = "pending";
-        QuestGameContentProgress viewProgress;
-        int preparationSteps, preparationTotal = 5;
+        int viewPercent;
         QuestLoadingView renderedView;
-        QuestGameContentProgress renderedProgress;
         string renderedState;
-        int renderedSteps, renderedTotal;
+        int renderedPercent;
         bool renderedGerman;
 
         public IEnumerator Activate(string resourceRoot)
@@ -64,7 +61,6 @@ namespace GloomhavenVR.Quest
                 PrepareDiagnosticConfig(bepRoot);
                 QuestStandaloneModuleHealth.InstallUnityLogListener();
                 PrepareStartupView();
-                StopLoadingView();
                 Stage = "creating-real-plugin";
                 plugin = gameObject.AddComponent<Plugin>();
                 if (plugin == null) throw new InvalidOperationException("Unity refused the original GloomhavenVR.Plugin component.");
@@ -95,6 +91,7 @@ namespace GloomhavenVR.Quest
             if (!PluginCreated) return;
             string moduleFailure = QuestStandaloneModuleHealth.Failure;
             if (!string.IsNullOrEmpty(moduleFailure) && Failure == null) Block("Original module initialization: " + moduleFailure);
+            RetargetLoadingView();
             RetireStartupAnchor();
             string observation = "modules=" + CompletedModules + " complete=" + InitializationComplete + " rig=" + RigReady
                 + " UnityXR=" + UnitySessionRunning() + " stage=" + Stage;
@@ -163,62 +160,44 @@ namespace GloomhavenVR.Quest
             // The initial scene must submit frames while bank delivery runs.
             // This camera renders only its temporary artwork; the plugin adopts
             // the same neutral reference once its verified assets are available.
-            startupAnchor.cullingMask = 1 << 31;
+            startupAnchor.cullingMask = 0;
             startupAnchor.clearFlags = CameraClearFlags.SolidColor;
             startupAnchor.backgroundColor = new Color(.025f, .03f, .045f, 1f);
             startupAnchor.stereoTargetEye = StereoTargetEyeMask.Both;
             startupAnchor.depth = -100;
             startupAnchor.enabled = true;
-            loadingView = QuestLoadingView.Create(startupAnchor, 31);
-            // No GraphicRaycaster, input actions, buttons, hands or pointer are
-            // introduced here. Remove this artwork before original mod creation.
-            UpdateStartupView(viewState, viewProgress, preparationSteps, preparationTotal);
-            UnityEngine.Debug.Log("[Quest startup] temporary stereo loading view available before content delivery; neutral anchor retained for original VR rig.");
+            // The warm path submits neutral XR frames but creates no loading
+            // canvas. Actual copy/extraction or an explicit failure owns artwork.
+            UnityEngine.Debug.Log("[Quest startup] neutral stereo anchor available before content work; no loading artwork requested.");
         }
 
-        public void UpdateStartupView(string state, QuestGameContentProgress progress, int completedSteps = 0, int totalSteps = 5)
+        public void UpdateStartupView(string state, int overallPercent)
         {
             viewState = state;
-            viewProgress = progress;
-            preparationSteps = completedSteps;
-            preparationTotal = totalSteps;
-            if (deliveryViewRequested && (loadingView == null || !loadingView.Available))
-            {
-                // A native XR restart can temporarily remove the existing head.
-                // Resume the noninteractive artwork when its owner returns.
-                if (QuestStandalonePlatform.HeadCamera == null) return;
-                if (loadingView != null) loadingView.Retire();
-                loadingView = null;
-                BeginDeliveryView();
-            }
+            viewPercent = overallPercent;
+            if (state == "failed" && !deliveryViewRequested) BeginDeliveryView();
+            // A genuine XR owner destruction can also destroy its child canvas.
+            // Recreate only that lost object when an observed head returns;
+            // ordinary anchor-to-rig handover always retains the same artwork.
+            if (deliveryViewRequested && loadingView == null && QuestStandalonePlatform.HeadCamera != null) BeginDeliveryView();
+            if (deliveryViewRequested) RetargetLoadingView();
             if (loadingView == null) return;
             bool german = Application.systemLanguage == SystemLanguage.German;
-            if (loadingView == renderedView && ReferenceEquals(progress, renderedProgress) && state == renderedState
-                && completedSteps == renderedSteps && totalSteps == renderedTotal && german == renderedGerman) return;
-            // Worker packets are immutable and bounded. Reformat only a new
-            // packet/state or a recreated owner, rather than every Unity frame.
-            renderedView = loadingView; renderedProgress = progress; renderedState = state;
-            renderedSteps = completedSteps; renderedTotal = totalSteps; renderedGerman = german;
-            bool measuring = progress != null && (state.StartsWith("checking-", StringComparison.Ordinal)
-                || state.StartsWith("copying-", StringComparison.Ordinal) || state.StartsWith("extracting-", StringComparison.Ordinal));
-            string phase = measuring ? progress.Phase : state;
-            string key = state == "failed" ? "startupFailed"
-                : phase == "copying-archive" ? "loadingReading"
-                : phase == "extracting-file" ? "loadingUnpackingFile"
-                : phase == "checking-files" || phase == "verifying-file" ? "loadingVerifyingFile"
-                : phase == "verifying-archive" ? "loadingVerifying"
-                : state == "starting-real-mod" || state == "loading-original-bootstrap" ? "loadingStarting"
-                : state == "initializing-native-addressables" ? "loadingReading" : "loadingPreparing";
-            int filePercent = measuring ? QuestLoadingView.Percent(progress.ProcessedBytes, progress.TotalBytes) : -1;
-            bool selectedFile = measuring && progress.FileIndex > 0 && progress.FileIndex <= progress.FileCount;
-            string file = selectedFile ? string.Format(CultureInfo.InvariantCulture, QuestText.Get("loadingFile", german),
-                progress.FileIndex, progress.FileCount) : "";
-            if (selectedFile && filePercent >= 0) file += " · " + filePercent.ToString(CultureInfo.InvariantCulture) + " %";
-            string step = totalSteps > 0 ? string.Format(CultureInfo.InvariantCulture, QuestText.Get("loadingStep", german),
-                Math.Min(totalSteps, Math.Max(0, completedSteps) + (completedSteps < totalSteps ? 1 : 0)), totalSteps) : "";
-            loadingView.UpdateProgress(QuestText.Get(key, german), QuestText.Get("loadingOverall", german),
-                completedSteps, totalSteps, measuring ? progress.OverallProcessedBytes : 0, measuring ? progress.OverallTotalBytes : -1,
-                step, file, selectedFile ? QuestLoadingView.Basename(progress.File) : "");
+            if (loadingView == renderedView && state == renderedState && overallPercent == renderedPercent && german == renderedGerman) return;
+            renderedView = loadingView; renderedState = state; renderedPercent = overallPercent; renderedGerman = german;
+            // Keep phase names, paths and file counts out of the product flow.
+            // This one global bar continues across content and native startup.
+            loadingView.UpdateOverall(QuestText.Get(state == "failed" ? "startupFailed" : "loadingPreparing", german),
+                overallPercent, state == "original-bootstrap-loaded");
+        }
+
+        void RetargetLoadingView()
+        {
+            if (loadingView == null) return;
+            var head = QuestStandalonePlatform.HeadCamera;
+            if (head == null || loadingView.transform.parent == head.transform) return;
+            loadingView.Retarget(head, QuestStandalonePlatform.PresentationLayer);
+            if (startupAnchor != null) { startupAnchor.cullingMask = 0; startupAnchor.stereoTargetEye = StereoTargetEyeMask.None; }
         }
 
         void StopLoadingView()
@@ -231,20 +210,25 @@ namespace GloomhavenVR.Quest
         public void BeginDeliveryView()
         {
             deliveryViewRequested = true;
-            if (loadingView != null) return;
-            var head = QuestStandalonePlatform.HeadCamera;
-            if (head == null) throw new InvalidOperationException("Original content delivery requires the observed real VR camera.");
-            // The large original menu movies need worker verification too. Reuse
-            // the existing rig for this temporary, noninteractive status canvas;
-            // never add a second XR camera or a separate input/controller path.
-            loadingView = QuestLoadingView.Create(head, QuestStandalonePlatform.PresentationLayer);
-            UpdateStartupView(viewState, viewProgress, preparationSteps, preparationTotal);
+            if (loadingView == null)
+            {
+                var owner = QuestStandalonePlatform.HeadCamera ?? startupAnchor;
+                if (owner == null) throw new InvalidOperationException("Content installation requires its startup or observed real VR camera.");
+                bool temporary = owner == startupAnchor;
+                if (temporary) startupAnchor.cullingMask = 1 << 31;
+                loadingView = QuestLoadingView.Create(owner, temporary ? 31 : QuestStandalonePlatform.PresentationLayer);
+            }
+            RetargetLoadingView();
+            UpdateStartupView(viewState, viewPercent);
         }
         public void EndDeliveryView() { deliveryViewRequested = false; StopLoadingView(); }
 
         void RetireStartupAnchor()
         {
             if (startupAnchor == null) return;
+            // Do not destroy the current canvas parent until it has moved to
+            // the observed real head. There is only one artwork owner throughout.
+            if (loadingView != null && loadingView.transform.parent == startupAnchor.transform) return;
             foreach (Camera camera in Resources.FindObjectsOfTypeAll<Camera>())
             {
                 if (camera == null || camera == startupAnchor || !camera.isActiveAndEnabled

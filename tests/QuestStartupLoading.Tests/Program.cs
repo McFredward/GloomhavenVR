@@ -36,7 +36,7 @@ internal static class Program
         internal QuestGameContentManifest Mod = null!, Original = null!;
         internal byte[] ModPayload = null!, OriginalPayload = null!, ModZip = null!, OriginalZip = null!;
     }
-    static Inputs Setup(string name, bool editor = false, bool warm = false, string defect = "")
+    static Inputs Setup(string name, bool editor = false, bool warm = false, string defect = "", bool legacy = false, bool keepSource = false)
     {
         Fixture.Reset();
         string root = Path.Combine(evidence, name); System.IO.Directory.CreateDirectory(root);
@@ -74,9 +74,19 @@ internal static class Program
         {
             WriteWarm(persistent, "quest-mod-resources", inputs.Mod.files[0].path, inputs.ModPayload);
             WriteWarm(persistent, "quest-owned-game", inputs.Original.files[0].path, inputs.OriginalPayload);
+            if (!legacy)
+            {
+                QuestGameContent.Install(inputs.Mod, Path.Combine(persistent, "quest-mod-resources"), "unused", false,
+                    Path.Combine(persistent, "unused-mod.zip"), "quest-mod-content.zip");
+                QuestGameContent.Install(inputs.Original, Path.Combine(persistent, "quest-owned-game"), "unused", false,
+                    Path.Combine(persistent, "unused-original.zip"));
+            }
             // A ready installation must not read its delivery source again.
-            File.Delete(Application.Data);
-            File.Delete(Path.Combine(streaming, inputs.Mod.archive)); File.Delete(Path.Combine(streaming, inputs.Original.archive));
+            if (!keepSource)
+            {
+                File.Delete(Application.Data);
+                File.Delete(Path.Combine(streaming, inputs.Mod.archive)); File.Delete(Path.Combine(streaming, inputs.Original.archive));
+            }
         }
         Resources.Assets["quest-build"] = new TextAsset(JsonSerializer.Serialize(new { schema = 1, modBuild = 614, inputKey = key }));
         Resources.Assets["quest-mod-content"] = new TextAsset(JsonSerializer.Serialize(inputs.Mod, Json));
@@ -150,7 +160,7 @@ internal static class Program
     static QuestGameBootstrap Owner()
     {
         var owner = new QuestGameBootstrap(); Call(owner, "Awake");
-        Check(Fixture.ViewPrepared && Fixture.ViewVisible, "early-view", "loading view must be prepared in Awake before worker content starts");
+        Check(Fixture.ViewPrepared && !Fixture.ViewVisible && Fixture.ViewCreations == 0, "early-anchor", "Awake submits neutral XR frames without a loading canvas");
         return owner;
     }
     static JsonElement State()
@@ -167,7 +177,7 @@ internal static class Program
         string[] events = Fixture.Events.ToArray();
         Check(Array.IndexOf(events, "original-paths") >= 0 && Array.IndexOf(events, "original-paths") < Array.IndexOf(events, "real-mod"),
             "cached-original-paths", "original managed paths must be initialized before the plugin or native loader starts");
-        Check(Array.IndexOf(events, "early-view") < Array.IndexOf(events, "real-mod"), "early-view", "temporary view precedes mod");
+        Check(Array.IndexOf(events, "early-anchor") < Array.IndexOf(events, "real-mod"), "early-anchor", "neutral camera anchor precedes mod");
         Check(Array.IndexOf(events, "real-mod") < Array.IndexOf(events, "addressables") && Array.IndexOf(events, "addressables") < Array.IndexOf(events, "original-scene"), "verified-order", "mod, original content, Addressables and native scene order changed");
         Check(warm || Array.IndexOf(events, "real-mod") < Array.IndexOf(events, "original-copy"), "mod-before-original", "cold original archive must wait until mod activation");
         Check(!warm || !events.Contains("mod-copy") && !events.Contains("original-copy"), "warm-no-delivery", "warm content must avoid archive transfer");
@@ -176,6 +186,9 @@ internal static class Program
         Check(!System.IO.Directory.EnumerateFiles(Fixture.Root, "*.download", SearchOption.AllDirectories).Any(), "archive-cleanup", "completed archives must be removed");
         Check(!System.IO.Directory.EnumerateFiles(Fixture.Root, "*.tmp", SearchOption.AllDirectories).Any(), "temp-cleanup", "no partial files after success");
         Check(!Fixture.ViewVisible, "view-retired", "temporary loading presentation retires at the original scene handover");
+        Check(Fixture.ViewCreations == (warm ? 0 : 1), "one-cold-view", "warm start must have no artwork, actual delivery one continuous canvas");
+        Check(Fixture.LastStartupPercent == 100, "handover-percent", "only completed native handover may finish total startup progress");
+        Check(State().GetProperty("startupOverallPercent").GetInt32() == 100, "single-progress-state", "durable state must identify observed total startup handover");
         JsonElement state = State();
         Check(state.GetProperty("modBuild").GetInt32() == 614 && !state.GetProperty("fullGameReady").GetBoolean(), "state-boundary", "a started original scene does not prove full-game readiness");
         Check(state.GetProperty("preparationCompletedSteps").GetInt32() == 5 && state.GetProperty("preparationTotalSteps").GetInt32() == 5,
@@ -220,9 +233,21 @@ internal static class Program
         finally { release.Set(); }
         pump.Finish(); Fixture.OnDurableRecord = null; Successful(owner, inputs, false);
     }
-    static void Success(string name, bool editor = false, bool warm = false)
+    static void Success(string name, bool editor = false, bool warm = false, bool legacy = false)
     {
-        Inputs inputs = Setup(name, editor, warm); var owner = Owner(); new Pump(owner).Finish(); Successful(owner, inputs, warm);
+        Inputs inputs = Setup(name, editor, warm, legacy: legacy); var owner = Owner();
+        // A receipt-warm launch can stat the private files but must not open any
+        // content bytes. Exclusive handles turn a repeated managed hash into a
+        // concrete runtime failure instead of trusting source text alone.
+        using (var mod = warm && !legacy ? new FileStream(Path.Combine(Fixture.Root, "quest-mod-resources", inputs.Mod.files[0].path), FileMode.Open, FileAccess.ReadWrite, FileShare.None) : null)
+        using (var original = warm && !legacy ? new FileStream(Path.Combine(Fixture.Root, "quest-owned-game", inputs.Original.files[0].path), FileMode.Open, FileAccess.ReadWrite, FileShare.None) : null)
+        {
+            new Pump(owner).Finish();
+            if (warm && !legacy) Check(owner.State != "failed", "warm-no-content-reads", "receipt-warm content must remain readable by its owner without a repeated startup hash: " + owner.FailureDetail);
+        }
+        if (legacy)
+            Check(File.ReadAllText(Path.Combine(Fixture.Root, "quest-startup.log")).Contains("installation=adopted"), "legacy-adoption", "legacy bytes must be adopted once without a visible verification phase");
+        Successful(owner, inputs, warm);
     }
     static void HeldSceneHandover()
     {
@@ -234,10 +259,23 @@ internal static class Program
         Check(Fixture.Loads == 1 && owner.State == "loading-original-bootstrap", "handover-requested", "verified preparation must request its original scene");
         for (int i = 0; i < 30; i++) pump.Tick();
         Check(!pump.Complete && Fixture.ViewVisible, "handover-view", "loading art must remain while native scene loading is pending");
+        Check(Fixture.LastStartupPercent < 100, "handover-percent", "pending original scene must not complete global startup progress");
         Check(!owner.OriginalBootstrapStarted && State().GetProperty("preparationCompletedSteps").GetInt32() == 4,
             "handover-gate", "a requested scene is not an observed completed preparation gate");
         UnityEngine.SceneManagement.SceneManager.CompleteOriginalScene();
         pump.Finish();
+        Successful(owner, inputs, false);
+    }
+    static void RepairOnlyChangedBank()
+    {
+        Inputs inputs = Setup("changed-original-bank", warm: true, keepSource: true);
+        string target = Path.Combine(Fixture.Root, "quest-owned-game", inputs.Original.files[0].path);
+        byte[] corrupt = (byte[])inputs.OriginalPayload.Clone(); corrupt[43] ^= 1; File.WriteAllBytes(target, corrupt);
+        var owner = Owner();
+        using (var held = new FileStream(Path.Combine(Fixture.Root, "quest-mod-resources", inputs.Mod.files[0].path), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            new Pump(owner).Finish();
+        Check(Fixture.Events.Contains("original-copy") && !Fixture.Events.Contains("mod-copy"), "repair-only-needed-bank", "changed game bytes must not reinstall a receipt-warm mod bank");
+        Check(Fixture.ViewCreations == 1, "one-repair-view", "changed bank must request one global startup canvas");
         Successful(owner, inputs, false);
     }
     static void LogWriteFailure()
@@ -265,7 +303,7 @@ internal static class Program
         JsonElement state = State();
         Check(state.GetProperty("state").GetString() == "failed" && !state.GetProperty("fullGameReady").GetBoolean(), "failure-state", "retained snapshot must remain failed");
         Check(state.GetProperty("preparationCompletedSteps").GetInt32() < 5, "failure-preparation", "failed preparation must never report all gates completed");
-        Check(Fixture.ViewVisible || expectedActivations > 0, "failure-view", "failure before plugin must retain loading view");
+        Check(Fixture.ViewVisible, "failure-view", "explicit failure must be visible even on a previously quiet warm path");
         Call(owner, "OnDestroy");
     }
     static int Main(string[] args)
@@ -273,7 +311,7 @@ internal static class Program
         try
         {
             evidence = Path.GetFullPath(args[0]); System.IO.Directory.CreateDirectory(evidence);
-            HeldWorker(); HeldSceneHandover(); Success("cold-editor", editor: true); Success("warm-android", warm: true); Success("warm-editor", editor: true, warm: true); LogWriteFailure();
+            HeldWorker(); HeldSceneHandover(); Success("cold-editor", editor: true); Success("warm-android", warm: true); Success("warm-editor", editor: true, warm: true); Success("legacy-android", warm: true, legacy: true); RepairOnlyChangedBank(); LogWriteFailure();
             foreach (string defect in new[] { "mod-archive", "payload", "missing-entry", "missing-manifest" }) Failure(defect);
             foreach (string defect in new[] { "original-archive", "mod-failure", "addressables-failure", "scene-unavailable" }) Failure(defect, 1);
             Console.WriteLine("PASS Quest startup loading: " + assertions + " assertions; actual Bootstrap/content/delivery, Unity/logger/downstream seams");

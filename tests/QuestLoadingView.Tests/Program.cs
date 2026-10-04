@@ -1,4 +1,5 @@
-using System.Globalization;
+using System.Reflection;
+using System.Reflection.Emit;
 using GloomhavenVR.Core;
 using GloomhavenVR.Quest;
 using UnityEngine;
@@ -7,102 +8,112 @@ using UnityEngine.UI;
 static class Program
 {
     static int checks;
-    static void Check(bool value, string message)
-    {
-        checks++; if (!value) throw new InvalidOperationException(message);
-    }
-    static Transform Find(Transform parent, string name)
+    static void Check(bool value, string message) { checks++; if (!value) throw new InvalidOperationException(message); }
+    static Transform? Find(Transform parent, string name)
     {
         if (parent.gameObject.name == name) return parent;
         foreach (Transform child in parent.children)
-        {
-            Transform? found = TryFind(child, name); if (found is not null) return found;
-        }
-        throw new InvalidOperationException("Missing actual production child " + name);
-    }
-    static Transform? TryFind(Transform parent, string name)
-    {
-        if (parent.gameObject.name == name) return parent;
-        foreach (Transform child in parent.children)
-        {
-            Transform? found = TryFind(child, name); if (found is not null) return found;
-        }
+        { Transform? found = Find(child, name); if (found is not null) return found; }
         return null;
     }
-    static string Text(QuestLoadingView view, string name) => Find(view.transform, name).GetComponent<Text>().text;
+    static string Text(QuestLoadingView view, string name) => Find(view.transform, name)!.GetComponent<Text>().text;
     static Camera Head(string name) => new GameObject(name).AddComponent<Camera>();
+    static QuestLoadingView View(QuestGameModLifecycle life) => (QuestLoadingView)typeof(QuestGameModLifecycle)
+        .GetField("loadingView", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(life)!;
+    static void BepInExInitializerSeam()
+    {
+        // Only BepInEx's already-tested initializer is a seam. The actual
+        // lifecycle's reflection signature, ordering and view ownership run.
+        var assembly = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("BepInEx"), AssemblyBuilderAccess.Run);
+        var type = assembly.DefineDynamicModule("BepInEx").DefineType("BepInEx.QuestStandalone", TypeAttributes.Public);
+        var method = type.DefineMethod("Initialize", MethodAttributes.Public | MethodAttributes.Static, typeof(void), new[] { typeof(string) });
+        method.GetILGenerator().Emit(OpCodes.Ret); type.CreateType();
+        AppDomain.CurrentDomain.AssemblyResolve += (_, name) => new AssemblyName(name.Name).Name == "BepInEx" ? assembly : null;
+    }
     static void Main()
     {
-        Check(QuestLoadingView.Percent(5, 0) == -1, "unmeasured phase invented a percentage");
+        Check(QuestLoadingView.Percent(5, 0) == -1, "unmeasured byte phase invented a percentage");
         Check(QuestLoadingView.Percent(-1, 100) == 0, "negative bytes escaped bounds");
-        Check(QuestLoadingView.Percent(100, 100) == 100, "verified byte completion lost");
-        Check(QuestLoadingView.Percent(long.MaxValue - 1, long.MaxValue) == 99, "floating rounding prematurely completed byte phase");
-        Check(QuestLoadingView.PreparationPercent(0, 0, 42, 100) == -1, "unknown preparation plan became measurable");
-        for (int step = 0; step <= 5; step++)
-            Check(QuestLoadingView.PreparationPercent(step, 5, 0, -1) == step * 20, "unknown native phase changed verified step total");
-        Check(QuestLoadingView.PreparationPercent(2, 5, 50, 100) == 50, "actual aggregate was not mapped into current step");
-        Check(QuestLoadingView.PreparationPercent(2, 5, 100, 100) == 59, "byte packet completed unobserved gate");
-        Check(QuestLoadingView.PreparationPercent(4, 5, long.MaxValue, long.MaxValue) == 99, "unobserved final gate claimed readiness");
-        Check(QuestLoadingView.PreparationPercent(-9, 5, -1, -1) == 0, "negative step escaped bounds");
-        Check(QuestLoadingView.PreparationPercent(999, 5, 0, -1) == 100, "observed complete plan lost completion");
-        Check(QuestLoadingView.Basename(@"C:\private\owned\original.rules") == "original.rules", "Windows storage path leaked");
-        Check(QuestLoadingView.Basename("StreamingAssets/Movies/Ambient/Ambient_Crypt_01.mov") == "Ambient_Crypt_01.mov", "original basename lost");
-        Check(QuestLoadingView.Basename("a/line\nname.rules") == "line name.rules", "file could create extra product rows");
-        Check(QuestLoadingView.Basename("") == "", "empty filename gained invented text");
-        string longName = QuestLoadingView.Basename("a/" + new string('x', 54) + "😀rest.rules");
-        Check(longName.Length <= 56 && longName.EndsWith("…", StringComparison.Ordinal), "filename bound missing");
-        Check(!char.IsHighSurrogate(longName[^2]), "filename truncation split a surrogate pair");
-
-        Camera head = Head("existing real head");
-        QuestLoadingView view = QuestLoadingView.Create(head, 27);
-        Check(view.Available, "actual owner/view did not become available");
-        Check(view.transform.parent == head.transform, "view escaped existing camera owner");
-        view.UpdateProgress("Checking content", "Preparation", 2, 5, 30, 100,
-            "Step 3 of 5", "File 2 of 4 · 30 %", "original.rules");
-        Check(Text(view, "Progress percentage") == "Preparation: 46 %", "total confused with current file");
-        Check(Text(view, "Preparation step") == "Step 3 of 5", "step count disappeared");
-        Check(Text(view, "Current file progress") == "File 2 of 4 · 30 %", "file index/count/progress disappeared");
-        Check(Text(view, "Current file name") == "original.rules", "readable file disappeared");
-        Check(Math.Abs(((RectTransform)Find(view.transform, "Progress")).anchorMax.x - .46f) < .00001f, "bar differs from displayed total");
-        view.UpdateProgress("Checking next file", "Preparation", 2, 5, 10, 100,
-            "Step 3 of 5", "File 3 of 4 · 0 %", "next.rules");
-        Check(Text(view, "Progress percentage") == "Preparation: 46 %", "file reset rewound persistent total");
-        Check(Text(view, "Current file progress") == "File 3 of 4 · 0 %", "file reset was concealed instead of distinguished");
-        view.UpdateProgress("Starting the game", "Preparation", 3, 5, 0, -1, "Step 4 of 5", "", "");
-        Check(Text(view, "Progress percentage") == "Preparation: 60 %", "unknown native work reset/invented total");
-        Check(Text(view, "Current file progress") == "" && Text(view, "Current file name") == "", "stale file survived native phase");
-        view.UpdateProgress("Starting the game", "Preparation", 5, 5, 0, -1, "Step 5 of 5", "", "");
-        Check(Text(view, "Progress percentage") == "Preparation: 100 %", "observed preparation completion lost");
-        view.UpdatePhase("Another operation", 0, 0);
-        Check(Text(view, "Progress percentage") == "—" && Text(view, "Preparation step") == "", "reusable phase API retained previous operation");
-        view.UpdateProgress("Inhalte prüfen", QuestText.Get("loadingOverall", true), 2, 5, 50, 100,
-            string.Format(CultureInfo.InvariantCulture, QuestText.Get("loadingStep", true), 3, 5),
-            string.Format(CultureInfo.InvariantCulture, QuestText.Get("loadingFile", true), 1, 474), "<b>original.rules");
-        Check(Text(view, "Progress percentage") == "Vorbereitung: 50 %", "German preparation missing");
-        Check(Text(view, "Preparation step") == "Schritt 3 von 5" && Text(view, "Current file progress") == "Datei 1 von 474", "German step/file missing");
-        Check(!Find(view.transform, "Current file name").GetComponent<Text>().supportRichText, "original filename became UI markup");
-        head.Alive = false;
-        Check(!view.Available, "destroyed Unity head stayed available through managed reference");
-        QuestLoadingView replacement = QuestLoadingView.Create(Head("recovered real head"), 27);
-        replacement.UpdateProgress("Recovered", "Preparation", 2, 5, 50, 100, "Step 3 of 5", "", "");
-        Check(replacement.Available && Text(replacement, "Progress percentage") == "Preparation: 50 %", "recreated existing owner lost actual progress");
-        replacement.Retire(); Check(!replacement.Available, "retired artwork stayed available");
-
-        Check(!QuestStandalonePlatform.SuppressStartupScreen("QuestOriginalStartup"), "desktop synthetic name altered flat screen policy");
-        Application.platform = RuntimePlatform.Android;
-        Check(!QuestStandalonePlatform.SuppressStartupScreen("QuestOriginalStartup"), "unconfigured Android altered native presentation");
+        Check(QuestLoadingView.Percent(long.MaxValue - 1, long.MaxValue) == 99, "rounded partial count claimed byte completion");
+        var head = Head("existing real head"); var view = QuestLoadingView.Create(head, 27);
+        Check(view.Available && view.transform.parent == head.transform, "actual owner/view unavailable");
+        view.UpdateOverall("Preparing game startup", 46);
+        Check(Text(view, "Progress percentage") == "46 %", "single total differs from caller");
+        Check(Math.Abs(((RectTransform)Find(view.transform, "Progress")!).anchorMax.x - .46f) < .00001f, "bar differs from total");
+        view.UpdateOverall("Preparing game startup", 10);
+        Check(Text(view, "Progress percentage") == "46 %", "single total rewound on file/phase change");
+        view.UpdateOverall("Preparing game startup", 100);
+        Check(Text(view, "Progress percentage") == "99 %", "unobserved handover claimed 100 percent");
+        view.UpdateOverall("Preparing game startup", 100, true);
+        Check(Text(view, "Progress percentage") == "100 %", "observed native handover lost completion");
+        Check(Find(view.transform, "Preparation step") == null && Find(view.transform, "Current file progress") == null
+            && Find(view.transform, "Current file name") == null, "developer file/stage rows leaked into startup");
+        Check(!Find(view.transform, "Loading phase")!.GetComponent<Text>().supportRichText, "startup label became markup");
+        var canvas = view.GetComponent<Canvas>(); var logo = Find(view.transform, "Original GloomhavenVR logo")!.GetComponent<RawImage>();
+        var replacement = Head("observed replacement head"); int cameras = GameObject.All.Count(g => g.GetComponent<Camera>() != null);
+        view.Retarget(replacement, 24);
+        Check(ReferenceEquals(canvas, view.GetComponent<Canvas>()) && ReferenceEquals(logo.texture, Resources.Logo), "retarget recreated original artwork");
+        Check(canvas.worldCamera == replacement && view.transform.parent == replacement.transform && view.gameObject.layer == 24
+            && logo.gameObject.layer == 24 && Find(view.transform, "Progress")!.gameObject.layer == 24, "retarget owner/layer not adopted");
+        Check(!head.transform.children.Contains(view.transform), "retarget retained previous camera parent");
+        Check(cameras == GameObject.All.Count(g => g.GetComponent<Camera>() != null), "artwork added a second XR camera");
+        Check(Text(view, "Progress percentage") == "100 %", "retarget reset progress");
+        replacement.Alive = false; Check(!view.Available, "dead camera remained available"); view.Retire();
         string root = Path.Combine(Path.GetTempPath(), "quest-loading-view-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
+        Directory.CreateDirectory(Path.Combine(root, "StreamingAssets")); Application.persistentDataPath = root;
         try
         {
-            QuestStandalonePlatform.Configure(root, _ => true, () => true, () => true);
-            Check(QuestStandalonePlatform.SuppressStartupScreen("QuestOriginalStartup"), "synthetic Quest scene allowed empty capture");
+            Check(!QuestStandalonePlatform.SuppressStartupScreen("QuestOriginalStartup"), "desktop policy changed");
+            Application.platform = RuntimePlatform.Android;
+            Check(!QuestStandalonePlatform.SuppressStartupScreen("QuestOriginalStartup"), "unconfigured Android policy changed");
+            var warm = new GameObject("warm real startup").AddComponent<QuestGameModLifecycle>();
+            warm.PrepareStartupView(); warm.UpdateStartupView("checking-mod-content", 0);
+            Check(!warm.StartupViewAvailable && View(warm) == null, "warm preparation created a canvas");
+            warm.UpdateStartupView("initializing-native-addressables", 98);
+            Check(View(warm) == null, "warm native phase created a canvas");
+            warm.UpdateStartupView("original-bootstrap-loaded", 100); warm.EndDeliveryView();
+            Check(View(warm) == null, "warm handover created artwork");
+            var cold = new GameObject("cold real startup").AddComponent<QuestGameModLifecycle>();
+            cold.PrepareStartupView(); cold.UpdateStartupView("copying-mod-content", 5); cold.BeginDeliveryView();
+            var retained = View(cold); var retainedCanvas = retained.GetComponent<Canvas>();
+            Check(retained.Available && Text(retained, "Progress percentage") == "5 %", "actual installation did not request artwork");
+            var retainedOwner = retained.transform.parent.gameObject.GetComponent<Camera>();
+            Check(retainedOwner.stereoTargetEye == StereoTargetEyeMask.Both, "cold artwork lacks initial stereo owner");
+            GloomhavenVR.Rig.VRRigDriver.HeadCamera = Head("GloomhavenVR.VRHeadCamera");
+            BepInExInitializerSeam(); var activation = cold.Activate(root);
+            for (int count = 0; activation.MoveNext(); ++count) if (count > 5) throw new InvalidOperationException("actual lifecycle did not observe fixture rig");
+            Check(cold.Available, "actual plugin/session lifecycle unavailable: " + cold.Failure);
+            Check(ReferenceEquals(View(cold), retained) && retained.Alive && retained.Available
+                && ReferenceEquals(retained.GetComponent<Canvas>(), retainedCanvas), "plugin activation retired or recreated cold view");
+            Check(retained.transform.parent == QuestStandalonePlatform.HeadCamera!.transform
+                && retainedCanvas.worldCamera == QuestStandalonePlatform.HeadCamera, "real rig did not adopt same artwork");
+            Check(retainedOwner.stereoTargetEye == StereoTargetEyeMask.None && retainedOwner.cullingMask == 0, "startup camera still double-rendered artwork");
+            cold.UpdateStartupView("copying-content", 40); cold.BeginDeliveryView();
+            Check(ReferenceEquals(View(cold), retained) && Text(retained, "Progress percentage") == "40 %", "game bank restarted loading view");
+            cold.UpdateStartupView("extracting-content", 3);
+            Check(Text(retained, "Progress percentage") == "40 %", "second bank reset single progress");
+            Application.systemLanguage = SystemLanguage.German; cold.UpdateStartupView("initializing-native-addressables", 98);
+            Check(Text(retained, "Loading phase") == QuestText.Get("loadingPreparing", true), "generic localized startup label lost");
+            Check(Text(retained, "Progress percentage") == "98 %", "native startup progress changed");
+            cold.UpdateStartupView("loading-original-bootstrap", 100);
+            Check(Text(retained, "Progress percentage") == "99 %", "requested scene claimed actual handover");
+            retained.Alive = false; retained.gameObject.SetActive(false); cold.UpdateStartupView("loading-original-bootstrap", 99);
+            var recovered = View(cold);
+            Check(!ReferenceEquals(recovered, retained) && recovered.Available && Text(recovered, "Progress percentage") == "99 %",
+                "destroyed XR child did not recover on observed head");
+            cold.UpdateStartupView("original-bootstrap-loaded", 100);
+            Check(Text(recovered, "Progress percentage") == "100 %", "observed scene failed to complete total");
+            cold.EndDeliveryView(); Check(!recovered.Available && View(cold) == null, "observed handover retained artwork");
+            warm.UpdateStartupView("failed", 40);
+            Check(warm.StartupViewAvailable && Text(View(warm), "Loading phase") == QuestText.Get("startupFailed", true), "quiet warm failure was hidden");
+            warm.EndDeliveryView();
+            Check(QuestStandalonePlatform.SuppressStartupScreen("QuestOriginalStartup"), "synthetic Quest scene captured empty anchor");
             foreach (string scene in new[] { "Bootstrap", "Intro", "Gloomhaven_unified", "MainMenu", "", "QuestOriginalStartupExtra" })
                 Check(!QuestStandalonePlatform.SuppressStartupScreen(scene), "genuine original scene suppressed: " + scene);
             Application.platform = RuntimePlatform.WindowsPlayer;
             Check(!QuestStandalonePlatform.SuppressStartupScreen("QuestOriginalStartup"), "configured bridge changed desktop visibility");
         }
-        finally { Directory.Delete(root); }
-        Console.WriteLine($"Quest loading view: {checks} production checks passed; native layout/headset image unverified.");
+        finally { Directory.Delete(root, true); }
+        Console.WriteLine($"Quest loading view: {checks} production checks passed; actual lifecycle/artwork ownership; native layout/headset image unverified.");
     }
 }

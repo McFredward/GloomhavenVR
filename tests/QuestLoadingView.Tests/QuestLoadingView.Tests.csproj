@@ -11,6 +11,7 @@
   <ItemGroup>
     <Compile Include="Program.cs" /><Compile Include="UnityStubs.cs" />
     <Compile Include="$(QuestRuntimeSource)/QuestLoadingView.cs" Link="QuestLoadingView.cs" />
+    <Compile Include="$(QuestRuntimeSource)/QuestGameModLifecycle.cs" Link="QuestGameModLifecycle.cs" />
     <Compile Include="$(PlatformSource)/QuestStandalonePlatform.cs" Link="QuestStandalonePlatform.cs" />
     <Compile Include="$(PlatformSource)/Loc/QuestText.cs" Link="QuestText.cs" />
   </ItemGroup>

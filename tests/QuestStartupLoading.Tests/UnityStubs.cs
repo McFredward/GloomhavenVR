@@ -16,7 +16,9 @@ internal static class Fixture
     internal static Action<string> OnLog;
     internal static Action<string> OnDurableRecord;
     internal static string Root;
-    internal static int MainUpdates, Activations, Addressables, Loads, WorkerApiCalls;
+    internal static int MainUpdates, Activations, Addressables, Loads, WorkerApiCalls, ViewCreations, ViewRetargets, LastStartupPercent;
+    internal static bool NativeHandover;
+    internal static readonly List<int> Percentages = new();
     internal static bool ViewPrepared, ViewVisible, ModFailure, AddressablesFailure, SceneAvailable = true, HoldOriginalScene;
     internal static void RequireMain(string name)
     {
@@ -32,7 +34,8 @@ internal static class Fixture
         MainThread = Environment.CurrentManagedThreadId;
         while (Events.TryDequeue(out _)) { }
         OnLog = OnDurableRecord = null; MainUpdates = Activations = Addressables = Loads = WorkerApiCalls = 0;
-        ViewPrepared = ViewVisible = ModFailure = AddressablesFailure = false;
+        ViewPrepared = ViewVisible = ModFailure = AddressablesFailure = NativeHandover = false;
+        ViewCreations = ViewRetargets = LastStartupPercent = 0; Percentages.Clear();
         SceneAvailable = true;
         HoldOriginalScene = false;
     }
@@ -132,12 +135,14 @@ namespace UnityEngine.SceneManagement
                 pendingName = name; pendingMode = mode;
                 return pendingOperation = new UnityEngine.AsyncOperation { isDone = false };
             }
+            Fixture.NativeHandover = true;
             sceneLoaded?.Invoke(new Scene { name = name }, mode);
             return new UnityEngine.AsyncOperation();
         }
         public static void CompleteOriginalScene()
         {
             Fixture.RequireMain("CompleteOriginalScene");
+            Fixture.NativeHandover = true;
             sceneLoaded?.Invoke(new Scene { name = pendingName }, pendingMode);
             pendingOperation.isDone = true;
         }
@@ -179,16 +184,24 @@ namespace GloomhavenVR.Quest
         public bool StartupViewAvailable { get { Fixture.RequireMain("StartupViewAvailable"); return Fixture.ViewVisible; } }
         public void PrepareStartupView()
         {
-            Fixture.RequireMain("PrepareStartupView"); Fixture.ViewPrepared = Fixture.ViewVisible = true; Fixture.Event("early-view");
+            Fixture.RequireMain("PrepareStartupView"); Fixture.ViewPrepared = true; Fixture.Event("early-anchor");
         }
         public void Observe() { Fixture.RequireMain("ModLifecycle.Observe"); }
-        public void BeginDeliveryView() { Fixture.RequireMain("BeginDeliveryView"); Fixture.ViewVisible = true; Fixture.Event("delivery-view"); }
+        public void BeginDeliveryView()
+        {
+            Fixture.RequireMain("BeginDeliveryView");
+            if (!Fixture.ViewVisible) { Fixture.ViewCreations++; Fixture.ViewVisible = true; Fixture.Event("delivery-view"); }
+        }
         public void EndDeliveryView() { Fixture.RequireMain("EndDeliveryView"); Fixture.ViewVisible = false; Fixture.Event("end-delivery-view"); }
-        public void UpdateStartupView(string state, QuestGameContentProgress progress, int completedSteps = 0, int totalSteps = 5)
+        public void UpdateStartupView(string state, int percent)
         {
             Fixture.RequireMain("UpdateStartupView"); Fixture.MainUpdates++;
-            if (totalSteps != 5 || completedSteps < 0 || completedSteps > totalSteps)
-                throw new InvalidOperationException("preparation-progress: preparation gates must be bounded and distinct from current file bytes");
+            if (percent < Fixture.LastStartupPercent || percent < 0 || percent > 100)
+                throw new InvalidOperationException("single-progress: total must remain bounded and monotonic");
+            if (percent == 100 && !Fixture.NativeHandover)
+                throw new InvalidOperationException("handover-percent: only the observed native scene may complete startup");
+            Fixture.LastStartupPercent = percent; Fixture.Percentages.Add(percent);
+            if (state == "failed") BeginDeliveryView();
         }
         public IEnumerator Activate(string root)
         {
@@ -206,7 +219,7 @@ namespace GloomhavenVR.Quest
             if (Fixture.ModFailure) { Failure = "fixture module failure"; Stage = "failed"; yield break; }
             yield return null;
             Available = InitializationComplete = RigReady = true; CompletedModules = 1; Stage = "real-mod-running";
-            Fixture.ViewVisible = false;
+            if (Fixture.ViewVisible) { Fixture.ViewRetargets++; Fixture.Event("retarget-same-view"); }
         }
     }
     public static class QuestPassthroughFeature { public static bool Active; }
