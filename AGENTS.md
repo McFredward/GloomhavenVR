@@ -56,9 +56,11 @@ to Codex and record the user's instructions of 2026-09-08.
 
 The user's 2026-10-03 NPC review explicitly makes town **card pre-drop guides**
 visitor-local: do not synchronize the merchant/enchantress "place card here"
-guide. This exception does not cover purse ghosts, actual held/offered cards,
-resident offered-hand poses, options, confirmations, return flights or audio.
-Those remain shared; scenario board guides keep their existing synchronization.
+guide. The user's 2026-10-04 paired-log review extends this exception to the
+temple purse pre-drop ghost: display each visitor's guide locally, never a second
+observer copy. Actual wrist-preview/held/donated purses, held/offered cards,
+resident offered-hand poses, options, confirmations, return flights and audio
+remain shared; scenario board guides keep their existing synchronization.
 
 The user's 2026-09-09 review instruction covers everything the owner sees: original widgets,
 content, appearance, order, geometry, state, effects and intermediate animation. Only an

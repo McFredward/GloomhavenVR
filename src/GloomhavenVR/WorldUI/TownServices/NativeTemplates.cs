@@ -247,6 +247,15 @@ internal static class NativeTemplates
         if (!Entries.TryGetValue(key, out Entry? entry)) throw new InvalidDataException("Missing original town widget: " + key);
         return entry.Parts;
     }
+    internal static void PreparePhysicalPurses()
+    {
+        if (_bank == null || TownServiceDecor.MoneyBagTemplate == null) return;
+        // Fixed original props are ready before wrist reveal. Do not defer their
+        // geometry/material dependencies to the visitor's first private manifest.
+        EnsureNativeProp("ritual.purse");
+        EnsureNativeProp("ritual.purse.held");
+    }
+
     private static void PrepareInertGeometry(string key, GameObject clone)
     {
         TownServiceCardBody.RebindClone(key == "merchant.heldstock.body|" || key == "merchant.heldstock.body"

@@ -18,7 +18,8 @@ internal static class TownWindowMapSwitch
     internal static bool Prefix(UIGuildmasterHUD __instance, EGuildmasterMode newMode,
                                 ref EGuildmasterMode ___currentMode)
     {
-        if (_switchDepth != 0) return false;
+        if (_switchDepth != 0 && ___currentMode == newMode
+            && GuildmasterDestinations.IsMapSurfaceMode(newMode)) return false;
         if (!MapRoomDriver.Active || !WorldUIConfig.ConversionActive
             || !GuildmasterDestinations.IsMapSurfaceMode(newMode)
             || ___currentMode is not (EGuildmasterMode.Merchant or EGuildmasterMode.Temple

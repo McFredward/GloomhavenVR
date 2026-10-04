@@ -55,21 +55,21 @@ public sealed class UIGuildmasterHUD
     public void UpdateCurrentMode(EGuildmasterMode next) => Update(next);
     public void Update(EGuildmasterMode next)
     {
-        if (!TownWindowMapSwitch.Prefix(this, next, ref Mode)) return;
+        if (!TownWindowMapSwitch.Prefix(this, next, ref Mode) || Mode == next) return;
         Exits++; Enters++; Mode = next;
         if (GuildmasterDestinations.Window is {} window) { window.Title = next.ToString(); window.RowCount = 0; }
     }
 }
 public sealed class MapChoreographer
 {
-    private readonly UIGuildmasterHUD _hud; public bool Throw;
+    private readonly UIGuildmasterHUD _hud; private int _switchCalls; public bool Throw;
     public EGuildmasterMode Surface, VisibleLocationsMode;
     public MapChoreographer(UIGuildmasterHUD hud) { _hud = hud; }
     public void OpenCityMap(bool transition) => Open(EGuildmasterMode.City);
     public void OpenWorldMap(bool transition) => Open(EGuildmasterMode.WorldMap);
     private void Open(EGuildmasterMode map)
     {
-        if (Throw) throw new Exception("native switch failure");
+        if (Throw || ++_switchCalls > 4) throw new Exception("native switch failure");
         Surface = map; _hud.Update(map); VisibleLocationsMode = _hud.Mode;
     }
 }

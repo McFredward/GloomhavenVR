@@ -74,7 +74,11 @@ internal sealed partial class TownServiceSync
     {
         if (!MapRoomDriver.Active || Time.unscaledTime < _prepareAfter) return;
         if (!WorldUIConfig.ImmersiveTownServices.Value && !TownServicePopulation.HasRemoteVisitors) return;
-        try { NativeTemplates.Initialize(); TownServiceNativeAssets.Tick(); }
+        try
+        {
+            NativeTemplates.Initialize(); TownServiceNativeAssets.Tick();
+            NativeTemplates.PreparePhysicalPurses();
+        }
         catch (Exception e) { _prepareAfter = Time.unscaledTime + 2f; Report("prepare", e); }
     }
     private void TickCore(Transform sharedFrame, Transform? stationRoot)
@@ -219,12 +223,13 @@ internal sealed partial class TownServiceSync
                         PriorityRoots.Add(piece.Body);
                         if (piece.Content != null) PriorityRoots.Add(piece.Content);
                     }
+                    Publish(service == 2 && piece.Token.IsHeld ? "ritual.purse.held" : piece.BodyKey,
+                        piece.Body);
                     Publish(piece.Key, piece.Content, piece.Source.transform, piece.CloneOf);
                     // The priestess has one shared stand but each visitor can hold their
                     // own purse. A distinct held address lets observers keep that prop
                     // from a non-elected visitor without cloning the rest of the stand.
-                    Publish(service == 2 && piece.Token.IsHeld ? "ritual.purse.held" : piece.BodyKey,
-                        piece.Body);
+
                     if (piece.DetailContent != null && piece.DetailSource != null)
                     {
                         UITooltip? detailTooltip = piece.DetailSource.GetComponent<UITooltip>();
