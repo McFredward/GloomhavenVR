@@ -19,8 +19,13 @@ confirmed a running rig. Android records a UnityMain SIGABRT at 08:47:42 UTC,
 with IL2CPP library BuildId `9149e2d9252dcbe6`. Its stack reaches
 `PerfMonitor.Sample`, `PerfFrameSplit.RollFrame`, `PerfNativeLoopProbe.Install`,
 `HarmonyLib.AccessTools.TypeByName`, and a predicate reading `Type.FullName`.
-IL2CPP aborts while initializing a GC descriptor for an enumerated type.
-The exact offending type is not retained in the supplied crash record.
+The APK library is byte-identical to the retained 433,468,896-byte native
+output, whose full digest is retained in the private audit receipt, and carries that
+same BuildId. Retained symbols/disassembly identify the actual
+abort helper at `Assert.cpp:13`; Android's adjacent `CpuInfo::Create` label is
+misleading. The caller is `Class.cpp:1987`, the GC reference-field alignment
+assertion `0 == (offset % sizeof(void*))`. The exact offending type/final field
+offset is not retained in the supplied crash record.
 This is an observed native abort; it is not the prior YML worker exception,
 an original loading-error dialog, or evidence of a video decoder failure.
 No original Bootstrap/Intro load has been observed in this run.
