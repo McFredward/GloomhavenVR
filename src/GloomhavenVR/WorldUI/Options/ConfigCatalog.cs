@@ -1750,7 +1750,8 @@ internal static class ConfigCatalog
     /// </summary>
     internal static string Hint(ConfigItem item)
     {
-        string? desc = Loc.ConfigDescription(item.Section, item.Key)
+        string? desc = Loc.ConfigHelpForPlayers(item.Section, item.Key)
+                       ?? Loc.ConfigDescription(item.Section, item.Key)
                        ?? item.Entry.Description?.Description;
         return string.IsNullOrEmpty(desc) ? string.Empty : Clip(Collapse(desc!), MaxDescriptionChars);
     }
@@ -1774,7 +1775,8 @@ internal static class ConfigCatalog
         sb.Append('[').Append(item.Section).Append("] ").Append(item.Key).Append('\n');
         sb.Append(FileNameOf(item)).Append('\n');
 
-        string? desc = Loc.ConfigDescription(item.Section, item.Key)
+        string? desc = Loc.ConfigHelpForPlayers(item.Section, item.Key)
+                       ?? Loc.ConfigDescription(item.Section, item.Key)
                        ?? item.Entry.Description?.Description;
         if (!string.IsNullOrEmpty(desc))
             sb.Append('\n').Append(Clip(Collapse(desc!), MaxDescriptionChars)).Append('\n');

@@ -622,7 +622,7 @@ internal static partial class VROptionsTab
             {
                 // Loc.Mod hands the id back when a key is absent — the "no hint" signal HintFor
                 // already relies on; never show a raw key as a tooltip.
-                string hint = Loc.Mod(hintKey!);
+                string hint = Loc.ModHelpForPlayers(hintKey!) ?? Loc.Mod(hintKey!);
                 if (!string.Equals(hint, hintKey, StringComparison.Ordinal))
                     AttachHoverHint(title, hint, caption);
             }
@@ -2295,12 +2295,12 @@ internal static partial class VROptionsTab
     /// </summary>
     private static string HintFor(ConfigCatalog.ConfigItem item, string? hintKey)
     {
-        string text = string.Empty;
+        string text = Loc.ConfigHelpForPlayers(item.Section, item.Key) ?? string.Empty;
 
-        if (!string.IsNullOrEmpty(hintKey))
+        if (text.Length == 0 && !string.IsNullOrEmpty(hintKey))
         {
             // Loc.Mod hands the id back when a key is absent — that is the "no curated hint" signal.
-            string curated = Loc.Mod(hintKey!);
+            string curated = Loc.ModHelpForPlayers(hintKey!) ?? Loc.Mod(hintKey!);
             if (!string.Equals(curated, hintKey, StringComparison.Ordinal))
                 text = curated;
         }

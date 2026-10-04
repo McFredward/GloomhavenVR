@@ -1621,6 +1621,19 @@
         "local"
       ],
       "weight": 90
+    },
+    {
+      "id": "player-settings-help",
+      "command": [
+        "python3",
+        "scripts/check-player-settings-help.py",
+        "--self-test"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 5
     }
   ]
 }
