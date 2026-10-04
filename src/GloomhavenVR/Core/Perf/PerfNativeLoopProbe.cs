@@ -93,8 +93,10 @@ internal static class PerfNativeLoopProbe
     {
         bool enabled = on && VRLog.WantsDebug && VRSession.Harmony != null;
         if (!enabled && !_spikeCapture) return;
+        // Install calibrates the hook bodies with synthetic calls. Finish that setup before
+        // enabling the first real-frame ledger; calibration is never a native callback frame.
+        if (enabled && !_installed) Install();
         _spikeCapture = enabled;
-        if (_spikeCapture && !_installed) Install();
         foreach (Target target in Targets)
         {
             target.LastFrameTicks = _spikeCapture ? target.FrameTicks : 0;

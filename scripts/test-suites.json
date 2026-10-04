@@ -1572,8 +1572,7 @@
         "scripts/check-scenario-card-preparation.py"
       ],
       "groups": [
-        "local",
-        "ci"
+        "local"
       ],
       "weight": 90
     },

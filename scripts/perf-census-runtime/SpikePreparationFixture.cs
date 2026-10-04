@@ -55,6 +55,9 @@ public static class SpikePreparationFixture
         try
         {
             PerfSpikeDetails.RollFrame(true);
+            var text=new StringBuilder();PerfSpikeDetails.Append(text);
+            Check(text.ToString().Contains("n/a (no selected callback completed)"),
+                "first native frame excludes synthetic hook calibration");
             PerfNativeLoopProbe.Start();
             Type actorType=AccessTools.TypeByName("ActorBehaviour");
             object actor=Activator.CreateInstance(actorType)!;
@@ -65,7 +68,7 @@ public static class SpikePreparationFixture
                 PerfSpikeDetails.RollFrame(true);
                 if(frame==119)PerfNativeLoopProbe.Stop(120);
             }
-            var text=new StringBuilder();PerfSpikeDetails.Append(text);
+            text.Clear();PerfSpikeDetails.Append(text);
             Check(text.ToString().Contains("ActorBehaviour.Update ")&&text.ToString().Contains("1 call(s)"),
                 "callbacks after summary cap still reach exact frame attribution");
             Check((int)actorType.GetField("Calls")!.GetValue(actor)! ==155,

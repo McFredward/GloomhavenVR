@@ -23,6 +23,7 @@ FILES["PerfSpikeDetails.cs"] = "src/GloomhavenVR/Core/Perf/PerfSpikeDetails.cs"
 FILES["ScenarioInteractionPreparation.cs"] = "src/GloomhavenVR/Core/ScenarioInteractionPreparation.cs"
 FILES["IGrabbable.cs"] = "src/GloomhavenVR/Hands/Interact/IGrabbable.cs"
 CONTROLS = (
+    ("calibration-as-native-frame", "PerfNativeLoopProbe.cs", "if (enabled && !_installed) Install();\n        _spikeCapture = enabled;", "_spikeCapture = enabled;\n        if (enabled && !_installed) Install();", "first native frame excludes synthetic hook calibration"),
     ("stop-spike-at-summary-cap", "PerfNativeLoopProbe.cs", "if (!_sampling && !_spikeCapture)", "if (!_sampling)", "callbacks after summary cap still reach exact frame attribution"),
     ("retain-native-previous-frame", "PerfNativeLoopProbe.cs", "target.FrameCalls = 0;", "// retain prior frame", "callbacks after summary cap still reach exact frame attribution"),
     ("ignore-spike-debug", "PerfSpikeDetails.cs", "on &= VRLog.WantsDebug;", "on &= true;", "ordinary logging leaves spike resources disabled"),

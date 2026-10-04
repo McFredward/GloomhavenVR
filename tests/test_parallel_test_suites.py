@@ -223,13 +223,15 @@ class ParallelSuitesTests(unittest.TestCase):
         npc614_local = {'town-donation-replay', 'town-native-peer'}
         frame615_local = {'ui-inventory-runtime', 'perf-census-runtime',
                           'native-actor-audit-runtime', 'structural-instancing-runtime'}
+        frame617_local = {'scenario-card-preparation'}
+        frame617_shared = {'wall-maintenance-trace'}
         quest609_shared = {'quest-builder', 'quest-recovery', 'quest-native', 'quest-weaver'}
-        self.assertEqual(local, LOCAL_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-service-lighting", "town-residents", "town-face", "town-activity", "town-voice", "town-native-audio", "town-native-veil"} | physical_town | frame600 | frame601_local | town602_local | frame603_shared | frame603_local | frame604_local | frame605_local | frame606_local | frame606_shared | frame607_shared | quest609_shared | frame608_local | frame610_local | npc611_shared | npc611_local | frame612_local | npc614_local | frame615_local)
-        self.assertEqual(ci, CI_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-residents", "town-service-lighting", "town-activity-portable", "town-native-audio", "town-native-veil"} | frame600 | frame603_shared | frame606_shared | frame607_shared | quest609_shared | npc611_shared)
+        self.assertEqual(local, LOCAL_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-service-lighting", "town-residents", "town-face", "town-activity", "town-voice", "town-native-audio", "town-native-veil"} | physical_town | frame600 | frame601_local | town602_local | frame603_shared | frame603_local | frame604_local | frame605_local | frame606_local | frame606_shared | frame607_shared | quest609_shared | frame608_local | frame610_local | npc611_shared | npc611_local | frame612_local | npc614_local | frame615_local | frame617_local | frame617_shared)
+        self.assertEqual(ci, CI_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-residents", "town-service-lighting", "town-activity-portable", "town-native-audio", "town-native-veil"} | frame600 | frame603_shared | frame606_shared | frame607_shared | quest609_shared | npc611_shared | frame617_shared)
         self.assertEqual({s['id'] for s in runner.selected_suites(suites, 'source', (0, 1))}, SOURCE_INVENTORY)
-        self.assertEqual(len(local), 118)
-        self.assertEqual(len(ci), 78)
-        self.assertEqual(local-ci, {'presentation-send', 'town-face', 'town-activity', 'town-voice'} | physical_town | frame601_local | town602_local | frame603_local | frame604_local | frame605_local | frame606_local | frame608_local | frame610_local | npc611_local | frame612_local | npc614_local | frame615_local)
+        self.assertEqual(len(local), 120)
+        self.assertEqual(len(ci), 79)
+        self.assertEqual(local-ci, {'presentation-send', 'town-face', 'town-activity', 'town-voice'} | physical_town | frame601_local | town602_local | frame603_local | frame604_local | frame605_local | frame606_local | frame608_local | frame610_local | npc611_local | frame612_local | npc614_local | frame615_local | frame617_local)
         self.assertEqual(ci-local, {'self-update-dialog', 'banner-pose', 'quest-seat', 'town-activity-portable'})
         self.assertEqual(len(runner.selected_suites(suites, 'source', (0, 1))), 14)
         partition = [s['id'] for i in range(4) for s in runner.selected_suites(suites, 'ci', (i, 4))]
