@@ -3,6 +3,8 @@ using System.Reflection;
 using GloomhavenVR.Quest;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.SceneManagement;
+using GloomhavenVR.Core;
 
 static class Program
 {
@@ -10,6 +12,8 @@ static class Program
     static QuestGameScope Reset(SystemLanguage language = SystemLanguage.English)
     {
         Resources.All.Clear(); Debug.Logs.Clear(); Debug.Errors.Clear();
+        Resources.GlobalEnumerations = 0; SceneManager.Reset();
+        QuestStandalonePlatform.Enabled = true; QuestStandalonePlatform.DebugLogging = false;
         Application.systemLanguage = language; Time.unscaledTime = 0;
         return new QuestGameScope();
     }
@@ -165,11 +169,63 @@ static class Program
             "changed Guildmaster scene binding emits one explicit original ABI failure");
         Check(Tooltip(options.Guildmaster.gameObject) == null, "changed Guildmaster scene does not create substitute tooltip");
     }
+    static void DiscoveryBoundaries()
+    {
+        var scope = Reset();
+        var asset = new UIPromotionDLCSlot(); asset.gameObject.scene = new Scene(false, false);
+        var inactive = new UIPromotionDLCSlot(); inactive.gameObject.SetActive(false);
+        var future = new FutureNativeOption(); future.NativeButton.interactable = false;
+        object futureCallback = new object(); future.Callback = futureCallback;
+        Tick(scope);
+        Check(Resources.GlobalEnumerations == 0, "scope never enumerates imported asset population");
+        Check(asset.NativeButton.interactable, "non-scene prefab purchase content remains untouched");
+        Check(!inactive.NativeButton.interactable, "inactive original purchase widget discovered");
+        Check(!future.NativeButton.interactable && ReferenceEquals(future.Callback, futureCallback), "future native option stays under original ownership");
+
+        var late = new UIPromotionDLCSlot(); Tick(scope, .5f);
+        Check(late.NativeButton.interactable, "discovery cadence remains one second");
+        Tick(scope, 1.01f);
+        Check(!late.NativeButton.interactable, "delayed native widget discovered on next ordinary scan");
+        var roots = new System.Collections.Generic.List<MonoBehaviour>();
+        var scratch = new System.Collections.Generic.List<MonoBehaviour>();
+        var discovery = new QuestSceneObjects(scope); discovery.Collect(roots, scratch);
+        Check(roots.Contains(inactive) && !roots.Contains(asset), "scene discovery includes inactive and excludes imported assets");
+        int once = roots.FindAll(item => ReferenceEquals(item, scope)).Count;
+        Check(once == 1, "anchor scene is not enumerated twice");
+        Scene extra = SceneManager.AddScene(); var extraWidget = new FutureNativeOption(); extraWidget.gameObject.MoveToScene(extra);
+        discovery.Collect(roots, scratch); Check(roots.Contains(extraWidget), "additive scene native widget discovered");
+        SceneManager.Unload(extra); discovery.Collect(roots, scratch);
+        Check(!roots.Contains(extraWidget), "unloaded scene no longer participates in discovery");
+        scope.gameObject.MoveToScene(SceneManager.Persistent);
+        var persistentWidget = new FutureNativeOption(); persistentWidget.gameObject.MoveToScene(SceneManager.Persistent);
+        discovery.Collect(roots, scratch);
+        Check(roots.Contains(scope) && roots.Contains(persistentWidget), "persistent native roots discovered without global assets scan");
+        for (int i = 0; i < 8; i++) discovery.Collect(roots, scratch);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 2000; i++) discovery.Collect(roots, scratch);
+        Check(GC.GetAllocatedBytesForCurrentThread() == before, "steady loaded-scene discovery reuses root and component buffers");
+
+        scope = Reset(); var desktop = new UIPromotionDLCSlot(); QuestStandalonePlatform.Enabled = false;
+        Tick(scope); Check(desktop.NativeButton.interactable && Resources.GlobalEnumerations == 0,
+            "ordinary desktop scope leaves native UI and discovery untouched");
+        QuestStandalonePlatform.Enabled = true; int scans = QuestGameScope.DiscoveryScans;
+        Tick(scope, 1); Check(QuestGameScope.DiscoveryScans == scans, "normal logging does not sample discovery clocks");
+        QuestStandalonePlatform.DebugLogging = true; Tick(scope, 2.01f);
+        Check(QuestGameScope.DiscoveryScans == scans + 1 && QuestGameScope.SceneComponentCount > 0
+            && QuestGameScope.DiscoveryWorstMs >= QuestGameScope.DiscoveryLastMs, "Debug discovery timing prices actual scoped work only");
+        QuestStandalonePlatform.DebugLogging = false;
+        NoErrors("scene discovery");
+    }
+    public sealed class FutureNativeOption : MonoBehaviour
+    {
+        public Button NativeButton = new Button();
+        public object? Callback;
+    }
     public static int Main()
     {
         try
         {
-            AdsAndLocalization(); SavePooling(); ExistingTooltipOwnership(); SelectorPooling(); ExactExistingScope(); GuildmasterAttachedTooltip();
+            AdsAndLocalization(); SavePooling(); ExistingTooltipOwnership(); SelectorPooling(); ExactExistingScope(); GuildmasterAttachedTooltip(); DiscoveryBoundaries();
             Console.WriteLine("PASS Quest native purchase scope: " + assertions + " behavioral assertions");
             return 0;
         }

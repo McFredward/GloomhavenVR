@@ -24,11 +24,39 @@ namespace GloomhavenVR.Quest
         }
         readonly List<Entry> entries = new List<Entry>();
         readonly HashSet<string> reported = new HashSet<string>(StringComparer.Ordinal);
+        readonly List<MonoBehaviour> sceneBehaviours = new List<MonoBehaviour>();
+        readonly List<MonoBehaviour> behaviourScratch = new List<MonoBehaviour>();
+        readonly Dictionary<Type, string> typeNames = new Dictionary<Type, string>();
+        QuestSceneObjects sceneObjects;
         float nextScan;
+
+        // Scalars only: the existing startup snapshot can price this actual
+        // discovery on hardware without another scene census or log stream.
+        public static int DiscoveryScans { get; private set; }
+        public static int SceneComponentCount { get; private set; }
+        public static double DiscoveryLastMs { get; private set; }
+        public static double DiscoveryWorstMs { get; private set; }
 
         void LateUpdate()
         {
-            if (Time.unscaledTime >= nextScan) { nextScan = Time.unscaledTime + 1; Scan(); }
+            if (!QuestStandalonePlatform.Enabled) return;
+            if (Time.unscaledTime >= nextScan)
+            {
+                nextScan = Time.unscaledTime + 1;
+                bool measure = QuestStandalonePlatform.DebugLogging;
+                long started = measure ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+                try { Scan(); }
+                finally
+                {
+                    if (measure)
+                    {
+                        DiscoveryScans++;
+                        SceneComponentCount = sceneBehaviours.Count;
+                        DiscoveryLastMs = (System.Diagnostics.Stopwatch.GetTimestamp() - started) * 1000d / System.Diagnostics.Stopwatch.Frequency;
+                        DiscoveryWorstMs = Math.Max(DiscoveryWorstMs, DiscoveryLastMs);
+                    }
+                }
+            }
             for (int i = entries.Count - 1; i >= 0; i--)
             {
                 Entry entry = entries[i];
@@ -49,10 +77,15 @@ namespace GloomhavenVR.Quest
 
         void Scan()
         {
-            foreach (MonoBehaviour behaviour in Resources.FindObjectsOfTypeAll<MonoBehaviour>())
+            if (sceneObjects == null) sceneObjects = new QuestSceneObjects(this);
+            sceneObjects.Collect(sceneBehaviours, behaviourScratch);
+            foreach (MonoBehaviour behaviour in sceneBehaviours)
             {
                 if (behaviour == null || !behaviour.gameObject.scene.IsValid() || !behaviour.gameObject.scene.isLoaded) continue;
-                string type = behaviour.GetType().FullName;
+                Type identity = behaviour.GetType();
+                string type;
+                if (!typeNames.TryGetValue(identity, out type))
+                { type = identity.FullName; typeNames.Add(identity, type); }
                 try
                 {
                     if (type == "GLOOM.MainMenu.UIMainOptionsMenu")

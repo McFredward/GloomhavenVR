@@ -28,20 +28,20 @@ namespace UnityEngine
             if (value is Component component) component.gameObject.Detach(component);
         }
     }
-    public readonly struct Scene
-    {
-        readonly bool valid;
-        public readonly bool isLoaded;
-        public Scene(bool valid, bool loaded) { this.valid = valid; isLoaded = loaded; }
-        public bool IsValid() => valid;
-    }
     public sealed class GameObject : Object
     {
         readonly List<Component> components = new();
+        internal readonly List<GameObject> Children = new();
+        internal GameObject? Parent;
         public string name = "untrusted display name";
         public bool activeSelf = true;
         public bool activeInHierarchy => activeSelf;
-        public Scene scene = new(true, true);
+        public SceneManagement.Scene scene;
+        public GameObject()
+        {
+            scene = SceneManagement.SceneManager.DefaultScene;
+            scene.Data?.Roots.Add(this);
+        }
         internal void Attach(Component component) { if (!components.Contains(component)) components.Add(component); }
         internal void Detach(Component component) => components.Remove(component);
         public void SetActive(bool value) => activeSelf = value;
@@ -57,6 +57,29 @@ namespace UnityEngine
         }
         public T AddComponent<T>() where T : Component, new() => (T)AddComponent(typeof(T));
         public int ComponentCount<T>() where T : Component => components.Count(c => !c.Destroyed && c is T);
+        public void AddChild(GameObject child)
+        {
+            child.Parent?.Children.Remove(child);
+            child.scene.Data?.Roots.Remove(child);
+            Children.Add(child); child.Parent = this; child.MoveToScene(scene);
+        }
+        public void MoveToScene(SceneManagement.Scene value)
+        {
+            scene.Data?.Roots.Remove(this); scene = value;
+            if (Parent == null) scene.Data?.Roots.Add(this);
+            foreach (GameObject child in Children) child.MoveToScene(value);
+        }
+        public void GetComponentsInChildren<T>(bool includeInactive, List<T> result) where T : Component
+        {
+            result.Clear(); AppendComponents(includeInactive, result);
+        }
+        void AppendComponents<T>(bool includeInactive, List<T> result) where T : Component
+        {
+            if (Destroyed || (!includeInactive && !activeSelf)) return;
+            foreach (Component component in components)
+                if (!component.Destroyed && component is T item) result.Add(item);
+            foreach (GameObject child in Children) child.AppendComponents(includeInactive, result);
+        }
     }
     public class Component : Object
     {
@@ -75,7 +98,50 @@ namespace UnityEngine
     public static class Resources
     {
         public static readonly List<Object> All = new();
-        public static T[] FindObjectsOfTypeAll<T>() => All.Where(value => !value.Destroyed).OfType<T>().ToArray();
+        public static int GlobalEnumerations;
+        public static T[] FindObjectsOfTypeAll<T>()
+        { GlobalEnumerations++; return All.Where(value => !value.Destroyed).OfType<T>().ToArray(); }
+    }
+}
+namespace UnityEngine.SceneManagement
+{
+    public sealed class SceneData
+    {
+        public int Handle;
+        public bool Loaded = true;
+        public readonly List<UnityEngine.GameObject> Roots = new();
+    }
+    public readonly struct Scene
+    {
+        internal readonly SceneData? Data;
+        public Scene(bool valid, bool loaded) { Data = valid ? new SceneData { Handle = -1, Loaded = loaded } : null; }
+        internal Scene(SceneData data) { Data = data; }
+        public int handle => Data?.Handle ?? 0;
+        public bool isLoaded => Data?.Loaded == true;
+        public int rootCount => Data?.Roots.Count ?? 0;
+        public bool IsValid() => Data != null;
+        public void GetRootGameObjects(List<UnityEngine.GameObject> result)
+        {
+            result.Clear(); if (Data == null) return;
+            foreach (UnityEngine.GameObject root in Data.Roots)
+                if (!root.Destroyed && root.Parent == null) result.Add(root);
+        }
+    }
+    public static class SceneManager
+    {
+        static readonly List<Scene> Scenes = new();
+        public static Scene DefaultScene;
+        public static Scene Persistent;
+        static SceneManager() { Reset(); }
+        public static void Reset()
+        {
+            Scenes.Clear(); DefaultScene = AddScene(); Persistent = new Scene(new SceneData { Handle = 500 });
+        }
+        public static int sceneCount => Scenes.Count;
+        public static Scene GetSceneAt(int index) => Scenes[index];
+        public static Scene AddScene()
+        { var scene = new Scene(new SceneData { Handle = Scenes.Count + 1 }); Scenes.Add(scene); return scene; }
+        public static void Unload(Scene scene) { scene.Data!.Loaded = false; Scenes.Remove(scene); }
     }
 }
 namespace UnityEngine.UI

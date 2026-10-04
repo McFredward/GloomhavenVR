@@ -10,8 +10,10 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(RuntimeSource)/QuestGameScope.cs" />
+    <Compile Include="$(RuntimeSource)/QuestSceneObjects.cs" />
     <Compile Include="$(RuntimeSource)/QuestText.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Program.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ScopeStubs.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)PlatformStub.cs" />
   </ItemGroup>
 </Project>
