@@ -1,6 +1,8 @@
 # Build 622 paired NPC review
 
-Status: integrated implementation and focused checks; final gate pending. No Build622 headset result.
+Status: final causal cabinet and capture-order corrections in progress. The complete
+integrated attempt and every failed scope are retained; limited fixture repairs
+reuse unchanged successful coverage. No Build622 headset result.
 
 ## Inputs
 
@@ -105,7 +107,33 @@ card aura; neither represents the supplied headset geometry. Corrected checks
 exercise original PCG mesh bounds, world/style combinations, native world-Z writes
 and pitched/rolled cards. Source tests alone cannot prove a headset picture.
 Retain original failures; after a limited fix, repeat only its affected scope.
-Run the complete integrated gate once on the final changed dev tree before push.
+The complete integrated attempt executed all 129 scopes: 119 passed directly and
+ten failed. Retained focused resumes distinguish obsolete fixture bindings and
+one overloaded Unity import from production behavior. Final review subsequently
+found two production gaps below; their affected checks must run on the corrected
+tree. Unaffected passing scopes must not be repeated merely because another scope
+failed. Golden vectors, final source/compiled/surface/bundle checks remain required.
+
+## Why the first cabinet and pose corrections were insufficient
+
+Canonical avatar artwork preparation alone does not prepare a cabinet page. The
+catalogue constructs original widgets for all entries, but hidden price/body/card
+partitions and original module snapshots remained lazy. The public publisher
+registered only the current/transition warm entries and retired unseen entries.
+At a new-category replacement boundary, the receiver correctly hid the outgoing
+page while the target's original dependencies were still absent. Seeking the real
+owner clock, retaining same-author clones and prioritizing visible cards therefore
+could not guarantee a complete target page. The corrective boundary is the actual
+prepared original catalogue and atomic clock/content admission, not a button gate,
+an invented placeholder or pausing the observer's animation.
+
+The native publication schedule also captured town services from the use-bar step
+before TownServicePresentation.LateTick finished handoff/card/ring/widget writes.
+Isolated probes arranged those writes before capture, so they could pass while
+the actual registered LateUpdate order still sampled the previous owner pose.
+The corrected schedule retains the existing board/use-bar publishers and places
+only the read-only town capture after all original town/layout writers. A focused
+probe binds the real registered step list, not a rearranged simulation.
 
 ## Additional 1:1 review
 
