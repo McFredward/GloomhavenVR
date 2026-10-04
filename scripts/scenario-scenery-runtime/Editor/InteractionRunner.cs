@@ -34,9 +34,17 @@ public static class InteractionRunner
                 try
                 {
                     var assembly = Assembly.LoadFile(entry.dll);
-                    var controller = UnityEditor.Animations.AnimatorController.CreateAnimatorControllerAtPath("Assets/FixtureActive.controller");
-                    assembly.GetType("InteractionProgram").GetField("FixtureController").SetValue(null, controller);
-                    int count = (int)assembly.GetType("InteractionProgram").GetMethod("Run").Invoke(null, null);
+                    var program = assembly.GetType("InteractionProgram", throwOnError: true);
+                    // Scenery declares this real engine input to distinguish inert shelf
+                    // Animators from active native controllers. The other suites sharing
+                    // this adapter have no such field and must run without that injection.
+                    var fixtureController = program.GetField("FixtureController", BindingFlags.Public | BindingFlags.Static);
+                    if (fixtureController != null)
+                    {
+                        var controller = UnityEditor.Animations.AnimatorController.CreateAnimatorControllerAtPath("Assets/FixtureActive.controller");
+                        fixtureController.SetValue(null, controller);
+                    }
+                    int count = (int)program.GetMethod("Run").Invoke(null, null);
                     if (!String.IsNullOrEmpty(entry.expected)) throw new Exception("negative control escaped: " + entry.name);
                     output.WriteLine("PASS " + entry.name + ": " + count + " runtime assertions");
                 }
