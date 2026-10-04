@@ -26,11 +26,13 @@ class OriginalUiRecoveryTests(unittest.TestCase):
         specs = copy.deepcopy(ui_assets.SHADERS)
         rows = []
         for name, spec in specs.items():
+            color_lines = ''.join(' ' + prop + ' ("Fixture tint", Vector) = (1, 1, 1, 0)\n' for prop in spec["colorProperties"])
             dummy = ('Shader "' + name + '" {\n Properties { _Invented ("Fixture", Float) = 0.25 }\n'
-                     '\t//DummyShaderTextExporter\n SubShader { Pass {} }\n}\n').encode()
+                     + color_lines + '\t//DummyShaderTextExporter\n SubShader { Pass {} }\n}\n').encode()
             form = {"m_Name": name, "fixtureProperties": ["_Invented"], "fixtureState": "source-only"}
             spec["dummySha256"] = hashlib.sha256(dummy).hexdigest()
-            spec["sourceSha256"] = hashlib.sha256((dummy.decode().partition("\t//DummyShaderTextExporter")[0] + spec["program"]).encode()).hexdigest()
+            prefix = dummy.decode().partition("\t//DummyShaderTextExporter")[0].replace(', Vector)', ', Color)')
+            spec["sourceSha256"] = hashlib.sha256((prefix + spec["program"]).encode()).hexdigest()
             spec["formSha256"] = hashlib.sha256(json.dumps(form, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
             target = self.project / spec["asset"]
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -65,7 +67,8 @@ class OriginalUiRecoveryTests(unittest.TestCase):
         changed = {self.project / spec["asset"] for spec in self.specs.values()}
         for path, original in self.before.items():
             if path in changed:
-                self.assertTrue(path.read_text().startswith(original.decode().partition("\t//DummyShaderTextExporter")[0]))
+                expected_prefix = original.decode().partition("\t//DummyShaderTextExporter")[0].replace(', Vector)', ', Color)')
+                self.assertTrue(path.read_text().startswith(expected_prefix))
                 self.assertNotIn("DummyShaderTextExporter", path.read_text())
             else:
                 self.assertEqual(path.read_bytes(), original)

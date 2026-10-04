@@ -19,7 +19,7 @@ NAME = "Splash Screen Shader"
 ASSET = "Assets/Shader/Splash Screen Shader.shader"
 GUID = "36fec7f4d3bfafd409fd42ffef9eec70"
 DUMMY_SHA256 = "852f87eae8f6a70e1da343325013cd8ebf3362e5bcbdd46227f77c75fdb5ee89"
-SOURCE_SHA256 = "0050f621c03bbf14a26a89f6fdacaa6a3edc144a82d19dbb844d3c76625287d7"
+SOURCE_SHA256 = "d91f4c480676b22c09da4262f99d2fb38677257117be1130c85fbab2f34f95b4"
 RECIPE_SHA256 = "fd65d0a293f36a8d33578386f182d73b0aeba5ecd86a556826371db6ee1fff89"
 RECIPE_FORM_SHA256 = "af7616b518effd29a17231545f7acbfe49d3006ce9732c07818aa5235ed950b3"
 RECIPES = "Assets/QuestOriginalStartup/shader-recipes.json"
@@ -166,14 +166,15 @@ SHADERS = {
     NAME: {"asset": ASSET, "guid": GUID, "dummySha256": DUMMY_SHA256,
            "sourceSha256": SOURCE_SHA256, "recipeSha256": RECIPE_SHA256,
            "formSha256": RECIPE_FORM_SHA256, "program": PROGRAM,
-           "keywords": ["", "_ADDORMULT_ON"], "dxbcSha256": DXBC_SHA256},
+           "keywords": ["", "_ADDORMULT_ON"], "dxbcSha256": DXBC_SHA256,
+           "colorProperties": ["_Map02Tint", "_Map01_Tint"]},
     "UI/Dissolve mask": {
         "asset": "Assets/Shader/UI_Dissolve mask.shader", "guid": "ee924f72fbf9fcd4a9ea6e1dceb11982",
         "dummySha256": "45a57f07b6464d97e012cc59c6f49ff899bcecc1c7c745acef0904d22ea32509",
         "sourceSha256": "c2b96680f6cd9fd44070e998c89576beeb468ab88ac1f27a1d651f86f2c9abb4",
         "recipeSha256": "0bbd001e5f0469c922464801d967e366451d698e98d787c3c97488f7f07008a7",
         "formSha256": "0de78653f6fe4bbdbbd2a49a117a6a2870e7a5ecb9b04e85c6be86a21f44f0fc",
-        "program": DISSOLVE_PROGRAM, "keywords": [""], "dxbcSha256": {
+        "program": DISSOLVE_PROGRAM, "keywords": [""], "colorProperties": [], "dxbcSha256": {
             "vertex": "076c53f158c731b2703f8baa965b0b668ddd6df4f2f07875ca6e081db5592fbe",
             "fragment": "6759a3905d6da9e7464b1c344227dd6e2ab902265e3c08d7b16af1b5a7fee65e"},
     },
@@ -223,6 +224,14 @@ def _transcribe(dummy, spec):
     prefix, marker, _ = dummy.decode("utf-8").partition("\t//DummyShaderTextExporter")
     if not marker:
         raise BuildError("Original UI dummy export marker is missing")
+    # The exporter also spelled the original m_Type=0 Color properties as
+    # Vector. Restore their recipe-proven types while retaining descriptions,
+    # defaults and all serialized material values.
+    for name in spec["colorProperties"]:
+        pattern = r'(^\s*' + re.escape(name) + r'\s*\(\s*"[^"]*"\s*,\s*)Vector(\s*\))'
+        prefix, count = re.subn(pattern, r'\1Color\2', prefix, flags=re.M)
+        if count != 1:
+            raise BuildError("Original UI color property declaration differs: " + name)
     source = (prefix + spec["program"]).encode("utf-8")
     if _hash(source) != spec["sourceSha256"]:
         raise BuildError("Transcribed original UI source differs from the audited program")
@@ -269,6 +278,7 @@ def stage_startup_ui(project):
                         "metaSha256": _hash(metadata), "canonicalRecipeSha256": rows[name]["recipeSha256"],
                         "originalDxbcSha256": spec["dxbcSha256"], "passCount": 1,
                         "keywords": spec["keywords"], "propertiesAndDefaultsRetained": True,
+                        "originalColorPropertyTypesRestored": spec["colorProperties"],
                         "originalPassStatesRetained": True, "materialAndSceneUnchanged": True})
     receipt = {"schema": 1, "target": "startup", "recipe": RECIPE,
                "origin": "original-compiled-DXBC-transcription", "shaders": entries,

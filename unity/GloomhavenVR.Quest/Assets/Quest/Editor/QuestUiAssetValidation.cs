@@ -22,7 +22,7 @@ namespace GloomhavenVR.Quest.Editor
             new SourceShader {
                 name = "Splash Screen Shader", assetPath = "Assets/Shader/Splash Screen Shader.shader",
                 guid = "36fec7f4d3bfafd409fd42ffef9eec70",
-                sourceSha256 = "0050f621c03bbf14a26a89f6fdacaa6a3edc144a82d19dbb844d3c76625287d7",
+                sourceSha256 = "d91f4c480676b22c09da4262f99d2fb38677257117be1130c85fbab2f34f95b4",
                 canonicalRecipeSha256 = "fd65d0a293f36a8d33578386f182d73b0aeba5ecd86a556826371db6ee1fff89",
                 passCount = 1, keywords = new[] { "", "_ADDORMULT_ON" }
             },
@@ -99,6 +99,16 @@ namespace GloomhavenVR.Quest.Editor
                 var shader = AssetDatabase.LoadAssetAtPath<Shader>(assetPath);
                 if (shader == null || shader.name != source.name)
                     throw new InvalidOperationException("Imported original UI shader is missing or renamed.");
+                if (source.name == "Splash Screen Shader")
+                {
+                    foreach (string property in new[] { "_Map02Tint", "_Map01_Tint" })
+                    {
+                        int index = shader.FindPropertyIndex(property);
+                        if (index < 0 || shader.GetPropertyType(index) != ShaderPropertyType.Color ||
+                            shader.GetPropertyDefaultVectorValue(index) != new Vector4(1, 1, 1, 0))
+                            throw new InvalidOperationException("Original Splash Color property/default differs: " + property);
+                    }
+                }
                 var data = ShaderUtil.GetShaderData(shader);
                 if (data == null || data.SubshaderCount != 1 || data.GetSubshader(0).PassCount != 1)
                     throw new InvalidOperationException("Imported original UI shader pass bank differs.");
