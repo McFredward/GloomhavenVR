@@ -47,7 +47,9 @@ span, not one instantaneous picture.
 Debug SPIKE reports now retain a fixed-size per-frame ledger of the existing
 selected native callbacks after the summary's first 120 frames. GC collection
 deltas belong to the same observed boundary; they do not measure pause duration
-or prove a leak. Five optional main-thread engine markers use actual Unity
+or prove a leak. Hook installation/calibration finishes before real-frame capture:
+its synthetic calls cannot appear as native gameplay calls. Five optional
+main-thread engine markers use actual Unity
 recorders with finite capacity and validated time units. Each boundary resets
 and **resumes** the recorder: Unity 2021 Reset stops it. A real-frame fixture
 checks sporadic positive samples and fresh absent-frame zero sums; stale positive
@@ -79,6 +81,22 @@ held-input cancellation and real camera callback delivery. The complete integrat
 coverage, strict build and compiled comparison are recorded in STATE and under
 `.planning/debug/frame617-implementation/`; successful focused checks alone are not
 full-tree proof.
+
+The integrated full local attempt recorded all 120 suites; 118 passed directly.
+Two bounded fixture-only resumes cover the public-cabinet timing/readiness and
+inactive prepared-surface negative-control failures. Original failures remain,
+and their bound production hashes match the resumed sources. The final native
+calibration correction passed 1,427 production assertions, 13 actual engine-frame
+assertions and three relevant causal controls; unrelated passing suites were retained.
+All 14 source gates and 307,473 wire/golden assertions are covered, together with
+the strict zero-warning Release build, unchanged bundle/index, preserved public
+surfaces and five bilingual document pairs. The wire wrapper's accidentally nested
+local scheduler was canceled; the primary full local coverage and the same built
+wire binary's golden stage complete the ledger without repeating the full run.
+The wrapper's interrupted exit is not a passing gate receipt. Immutable compiled
+616 comparison shows 14 intended behavior changes, eight build-constant consumers
+and four added types; references/resources match. Details and the complete
+coverage reconciliation are in `coverage-ledger.json` beside the original logs.
 
 Use the ordinary Debug test profile. Test the first fan/class switch and first
 local/remote figure pickup after the indicator disappears, then ordinary play and

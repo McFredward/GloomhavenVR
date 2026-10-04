@@ -1,5 +1,48 @@
 # State — where the project stands
 
+**Scenario interaction preparation and bounded hitch attribution, 2026-10-04: 1.1.0 / ModBuild 617.**
+
+Build 616 is the hardware baseline; no 617 headset result exists yet. On every VR
+platform, the existing scenario spinner now covers one original resource job per
+frame after native loading, alternating card and figure/stat work: all party
+class/card sprites, up to 64 ordinary backings, reusable original figure ghosts and already-authored stat
+art. Local/remote consumers share their existing paths. Acquisition rebinds the
+current evaluated native pose/masks and validates mesh/material/bone/LOD identity;
+sleeping figures, live holds, native actions and immediate lazy fallback remain.
+Timeouts cancel pending preparation without retiring live presentation or holding
+native continuation. Unseen async portraits and complete native stat conversion
+remain cold work; the whole 65–99 ms stat hitch is not declared eliminated.
+
+The bounded Debug census batches borrowed work and deduplicates complete ancestor
+walks. Per-frame native callback and GC evidence continues past the 120-frame
+summary cap; five optional actual engine time recorders reset/resume each frame.
+First-install hook calibration is excluded from native frame evidence. Wall
+samples now inspect original material/indexed-MPB/gate state at actual head-camera
+pre-render, and bounded ceiling reports rank existing phase costs. Normal logs
+gain no recurring diagnostic stream. The safety ceiling remains: the approximately
+141 ms forced publication and hardware wall popping are **still open**, without a
+proven complete native dependency closure or headset pixel result. See [implementation
+and next capture](../docs/performance/FRAME-617-IMPLEMENTATION.md).
+
+Integrated coverage includes 120 local suites: 118 passed in the full attempt;
+two fixture-only bounded resumes cover the remaining failures without repeating
+unrelated green suites. The public-cabinet fixture now follows actual Unity frames;
+its intermittent initial failure is retained, not claimed as an NPC runtime fix.
+The inactive-tint control targets the earlier causal preparation assertion without
+weakening its mutation. Final calibration proof passed 1,427 production and 13 real-
+frame assertions plus three relevant controls; other census controls retain their
+full-run evidence. Fourteen source gates, 307,473 byte-exact wire/golden assertions,
+the scheduler registry, bundle/index, config/patch/log surfaces and five bilingual
+document pairs are covered. Strict Release has zero warnings/errors. The compiled
+comparison against immutable 616 has 14 intended behavior types and eight exact
+build-constant consumers changed, four types added, no removals, and identical
+references/resources. The wire wrapper's duplicate local scheduler was canceled;
+its remaining golden stage ran directly against the same built binary. The original
+failed/interrupted receipts and an independent complete coverage ledger remain in
+`.planning/debug/frame617-implementation/`. No full-gate-success exit is fabricated.
+
+---
+
 **Build616 hardware recheck and next strategy, 2026-10-04. No new binary.**
 
 Both supplied Frame logs identify 616 / d52b3c328 and enter the scenario directly.
