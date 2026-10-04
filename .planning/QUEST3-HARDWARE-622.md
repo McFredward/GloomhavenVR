@@ -134,5 +134,37 @@ library bytes. It records 531 assertions plus archive CRC, native Build ID
 Only actual method equalities are claimed; player lowering differences and the
 native `Math.Floor` intrinsic are recorded explicitly.
 
-Final screen/resource audit, Windows packaging and measured cleanup receipts
-are added after verification. No observed B622 headset result is claimed.
+The independent video/screen audit adds 883 recorded assertions plus archive CRC,
+41 actual compiled functions and finished-APK ResourceManager-to-Shader parsing.
+Its method set is disjoint from the 28 scope functions: 69 distinct functions and
+1,414 combined boundary assertions are verified, with two separate archive CRC
+checks. All 27 selected mod bodies match import-to-stripping; 14 player bodies
+have recorded lowering differences. All 41 stripped bodies match the native
+backup. Actual call sequences are compared individually; the pixel probe's
+compiler-generated display-class constructor is recorded explicitly.
+
+The actual APK contains `Hidden/GloomhavenVR/QuestWorldScreen`, two Tex2D capture
+properties, stereo routing and GLES mono/multiview programs across three hardware
+tiers. Parsed fragment sources use plain 2D samplers and the stereo vertex uses
+`gl_ViewID_OVR`. Instancing succeeds in the compiler preflight but is not retained
+as a third bank in this GLES resource. Do not conflate compiler coverage with baked
+variants. The original camera shader is also resolved through the finished APK's
+resource index, and parsed shader bytes match the generated player cache.
+
+The verified Windows ZIP has SHA-256
+`2552a84e172bffdbdee17eed9fc0cca66a710e9a71f1e64954f184accb38fd39`,
+size 2,588,037,106 bytes. Complete CRC/content/hash checks and isolated installer
+selection of embedded B622 pass. Its clean installer/document source is
+`2f361f2d`; the native freeze remains `4c10c034`. Later commits record completion
+only. The archive's procedure reflects its packaging-time pending resource/cleanup
+state; final completed receipts are recorded here without changing the delivered
+archive bytes.
+
+After matching B621 symbol retention and compact source/diagnostic archival,
+three completed Quest worker roots and the obsolete B621 generated project are
+removed. Measured additional free bytes are 36,452,593,664 for those roots and
+7,735,312,384 for retired downloads/staging, totaling 44,187,906,048 bytes.
+The handoff directory contains only the current APK, Windows archive and receipt.
+Git refs, canonical inputs, current and historical native evidence, supplied
+captures and parallel dev worktrees remain untouched. This candidate is pushed
+only on `feature/quest3-standalone`. No observed B622 headset result is claimed.

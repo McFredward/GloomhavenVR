@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Quest B622 follows verified B621 hardware defects, 2026-10-04: isolated feature.**
+**Quest B622 hardware candidate ready, 2026-10-04: isolated feature.**
 
 The exact B621 capture confirms nonuniform Intro decoder/capture/consumer pixels
 but continued invisible headset imagery. The actual legacy screen shader expects
@@ -18,9 +18,22 @@ Signed ARM64 native build succeeds from clean freeze `4c10c034`, input `9d148c70
 APK SHA `dd61d996dc75…`, size 2,587,919,101 bytes. Twenty-one affected Quest suites,
 fourteen source checks, strict Release and direct unchanged wire/golden assertions
 pass; the corrected loading test fixture and original failure are retained.
-Seven native original types and 28 scoped functions pass exact compiled/package
-linkage. Final screen/resource audit, Windows packaging and cleanup are pending;
-visible B622 results remain unverified.
+Independent final native audits verify seven preserved original types and 69
+disjoint actual ARM64 functions, with 1,414 assertions plus two archive CRC checks.
+Build ID `9a2274f00b636520` and exact packaged library bytes match. The finished
+APK's resource index resolves both screen/video shaders. World-screen compiler
+coverage is three banks/six stages; actual GLES resources retain mono and multiview
+across three hardware tiers, with plain 2D capture samplers and actual vertex eye
+routing. Instancing preflight success is not claimed as a third baked bank.
+
+Windows ZIP SHA is `2552a84e172b…`, size 2,588,037,106 bytes. CRC/content/hash and
+isolated embedded-B622 installer checks pass. The archive source `2f361f2d` records
+its packaging-time state; later commits document final proof without altering the
+delivered bytes. Three completed Quest workers, obsolete B621 project and retired
+downloads/staging are removed after archival/symbol retention, measuring
+44,187,906,048 additional free bytes. Latest-only handoff, captures, canonical
+inputs, native history, branch refs and parallel dev work are preserved. Visible
+B622 results remain unverified; publish only `feature/quest3-standalone`.
 See [B622 hardware procedure](QUEST3-HARDWARE-622.md).
 
 **Quest B621 hardware candidate ready, 2026-10-04: isolated feature.**
