@@ -49,7 +49,7 @@ namespace GloomhavenVR.Quest.Editor
         }
         [Serializable] public sealed class CompiledBank
         {
-            public string name, keyword, sha256, vertexSha256, fragmentSha256;
+            public string name, keyword, sha256, vertexSha256, fragmentSha256, fragmentOutput;
             public int bytes, vertexBytes, fragmentBytes;
         }
         [Serializable] public sealed class ValidationReceipt
@@ -126,18 +126,11 @@ namespace GloomhavenVR.Quest.Editor
                         if (!compiled.Success || compiled.ShaderData == null || compiled.ShaderData.Length == 0 ||
                             (compiled.Messages ?? new ShaderMessage[0]).Any(message => message.severity == ShaderCompilerMessageSeverity.Error))
                             throw new InvalidOperationException("Android original UI shader compilation failed: " + keyword);
-                        string code = new UTF8Encoding(false, true).GetString(compiled.ShaderData);
-                        var match = Regex.Match(code, @"\A#ifdef VERTEX\n(.*?)\n#endif\n#ifdef FRAGMENT\n(.*?)\n#endif\n*\z", RegexOptions.Singleline);
-                        if (!match.Success) throw new InvalidOperationException("Android original UI shader has an incomplete GLES program.");
-                        string vertex = match.Groups[1].Value, fragment = match.Groups[2].Value;
-                        foreach (string section in new[] { vertex, fragment })
-                            if (!section.StartsWith("#version 300 es\n", StringComparison.Ordinal) ||
-                                !Regex.IsMatch(section, @"\bvoid\s+main\s*\(\s*\)"))
-                                throw new InvalidOperationException("Android original UI GLSL300 stage is missing.");
-                        if (!Regex.IsMatch(vertex, @"\bgl_Position\b") || !Regex.IsMatch(fragment, @"\bSV_Target0\b"))
-                            throw new InvalidOperationException("Android original UI shader stage output is missing.");
+                        string[] sections = VerifiedGlesSections(compiled.ShaderData);
+                        string vertex = sections[0], fragment = sections[1];
                         programs.Add(new CompiledBank {
                             name = source.name, keyword = keyword, sha256 = Hash(compiled.ShaderData), bytes = compiled.ShaderData.Length,
+                            fragmentOutput = FragmentOutput(WithoutComments(fragment)),
                             vertexSha256 = Hash(Encoding.UTF8.GetBytes(vertex)), vertexBytes = Encoding.UTF8.GetByteCount(vertex),
                             fragmentSha256 = Hash(Encoding.UTF8.GetBytes(fragment)), fragmentBytes = Encoding.UTF8.GetByteCount(fragment)
                         });
@@ -161,6 +154,74 @@ namespace GloomhavenVR.Quest.Editor
             }
             finally { if (File.Exists(temporary)) File.Delete(temporary); }
             Debug.Log("[GloomhavenVR Quest] original UI shaders verified: passes=2, keyword banks=" + programs.Count);
+        }
+
+        internal static string[] VerifiedGlesSections(byte[] bytes)
+        {
+            string code;
+            try { code = new UTF8Encoding(false, true).GetString(bytes); }
+            catch (DecoderFallbackException error) { throw new InvalidOperationException("Original UI GLES program is not UTF-8.", error); }
+            var match = Regex.Match(code, @"\A#ifdef VERTEX\n(.*?)\n#endif\n#ifdef FRAGMENT\n(.*?)\n#endif\n*\z", RegexOptions.Singleline);
+            if (!match.Success) throw new InvalidOperationException("Android original UI shader has an incomplete GLES program.");
+            string vertex = match.Groups[1].Value, fragment = match.Groups[2].Value;
+            foreach (string section in new[] { vertex, fragment })
+                if (!section.StartsWith("#version 300 es\n", StringComparison.Ordinal))
+                    throw new InvalidOperationException("Android original UI GLSL300 stage is missing.");
+            string vertexCode = WithoutComments(vertex), fragmentCode = WithoutComments(fragment);
+            if (!WritesAllComponents(MainBody(vertexCode), "gl_Position"))
+                throw new InvalidOperationException("Android original UI vertex position output is incomplete.");
+            // HLSL semantic spelling determines the compiler's output identifier:
+            // these original UI transcriptions emit SV_TARGET0, while the legacy
+            // Bloom programs emit SV_Target0. Verify the actual GLES declaration
+            // and writes instead of requiring a particular generated name.
+            string output = FragmentOutput(fragmentCode);
+            if (!WritesAllComponents(MainBody(fragmentCode), output))
+                throw new InvalidOperationException("Android original UI fragment color output is incomplete.");
+            return new[] { vertex, fragment };
+        }
+
+        private static string WithoutComments(string code)
+        {
+            return Regex.Replace(code, @"//[^\n]*|/\*.*?\*/", "", RegexOptions.Singleline);
+        }
+
+        private static string FragmentOutput(string fragment)
+        {
+            var outputs = Regex.Matches(fragment,
+                @"(?m)^\s*layout\s*\(\s*location\s*=\s*0\s*\)\s*out\s+(?:(?:highp|mediump|lowp)\s+)?vec4\s+([A-Za-z_]\w*)\s*;");
+            if (outputs.Count != 1)
+                throw new InvalidOperationException("Android original UI fragment vec4 output at location 0 is missing or ambiguous.");
+            return outputs[0].Groups[1].Value;
+        }
+
+        private static string MainBody(string code)
+        {
+            var entry = Regex.Match(code, @"\bvoid\s+main\s*\(\s*\)\s*\{");
+            if (!entry.Success) throw new InvalidOperationException("Android original UI GLSL main entry is missing.");
+            int begin = entry.Index + entry.Length, depth = 1;
+            for (int index = begin; index < code.Length; index++)
+            {
+                if (code[index] == '{') depth++;
+                else if (code[index] == '}' && --depth == 0) return code.Substring(begin, index - begin);
+            }
+            throw new InvalidOperationException("Android original UI GLSL main entry is incomplete.");
+        }
+
+        private static bool WritesAllComponents(string body, string output)
+        {
+            int components = 0;
+            foreach (Match write in Regex.Matches(body,
+                @"\b" + Regex.Escape(output) + @"\s*(?:\.([xyzwrgba]{1,4}))?\s*=(?!=)"))
+            {
+                if (!write.Groups[1].Success) return true;
+                foreach (char component in write.Groups[1].Value)
+                {
+                    int index = "xyzw".IndexOf(component);
+                    if (index < 0) index = "rgba".IndexOf(component);
+                    components |= 1 << index;
+                }
+            }
+            return components == 15;
         }
 
         private static void SafePath(string relative)
