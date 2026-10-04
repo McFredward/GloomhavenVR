@@ -144,6 +144,14 @@ def stage(source, game_data, output, tmp_archive, *, canonical_project=None,
     references = recover.audit_asset_references(output)
     scene_settings = (output / "ProjectSettings/EditorBuildSettings.asset").read_text()
     scenes = re.findall(r"^\s+path: (Assets/.+\.unity)\s*$", scene_settings, re.M)
+    scene_objects = identities_module.object_index(rows)
+    scene_rows = []
+    for index, relative in enumerate(scenes):
+        original = [obj for obj in scene_objects.values() if obj["path"] == relative]
+        if not original or {obj["collection"] for obj in original} != {"level" + str(index)} or len({obj["guid"] for obj in original}) != 1:
+            raise BuildError("Original Campaign scene identity/order is unproven: " + relative)
+        scene_rows.append({"index": index, "path": relative, "guid": original[0]["guid"], "originalCollection": "level" + str(index)})
+    write_json(folder / "campaign-scenes.json", {"schema": 1, "scenes": scene_rows})
     shader_rows = [{"path": relative, "name": re.search(r'Shader\s+"([^\"]+)"', (output / relative).read_text())[1],
                     "status": "official-compatible-TMP-source" if relative in restored_paths else "unresolved-original-dummy",
                     "originalShaderFidelity": False}

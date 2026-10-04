@@ -24,6 +24,22 @@ NATIVE_CLASSES = {1: "UnityEngine.GameObject", 21: "UnityEngine.Material", 28: "
                   91: "UnityEngine.RuntimeAnimatorController", 213: "UnityEngine.Sprite", 319: "UnityEngine.SpriteAtlas"}
 
 
+def prefab_root(project, candidates):
+    """Identify the captured native root through its actual local Transform."""
+    roots = {}
+    for obj in candidates:
+        text = (project / obj["path"]).read_text()
+        for document in re.split(r"(?=^--- !u!)", text, flags=re.M):
+            if not document.startswith(("--- !u!4 ", "--- !u!224 ")):
+                continue
+            if not re.search(r"^  m_Father: \{fileID: 0\}$", document, re.M):
+                continue
+            go = re.search(r"^  m_GameObject: \{fileID: (-?\d+)\}$", document, re.M)
+            if go and int(go[1]) == int(obj["fileId"]):
+                roots[(obj["collection"], obj["pathId"])] = obj
+    return list(roots.values())
+
+
 def associate(catalog_path, project, identities, cab_bundles, managed_types):
     project, catalog_path = Path(project).resolve(), Path(catalog_path).resolve()
     decoded = decode_catalog(json.loads(catalog_path.read_text(encoding="utf-8-sig")))
@@ -40,7 +56,13 @@ def associate(catalog_path, project, identities, cab_bundles, managed_types):
     for obj in objects.values():
         by_pointer[(obj["guid"], int(obj["fileId"]))] = obj
         if obj.get("originalPath") and obj["collection"] in cab_bundles:
-            by_path[obj["originalPath"].replace("\\", "/").casefold()].append(obj)
+            original = obj["originalPath"].replace("\\", "/").casefold()
+            by_path[original].append(obj)
+            # Pinned OriginalPathProcessor.EnsureStartsWithAssets adds Assets/
+            # to a native Packages/ container. Reverse only that exact prefix;
+            # the catalog path, CAB owner and native pathID still all agree.
+            if original.startswith("assets/packages/"):
+                by_path[original[len("assets/"):]].append(obj)
     aliases = collections.defaultdict(set)
     for key, buckets in zip(decoded["keys"], decoded["buckets"]):
         for location in buckets:
@@ -59,6 +81,22 @@ def associate(catalog_path, project, identities, cab_bundles, managed_types):
         requested_type = location["resourceType"]["m_ClassName"]
         exact = [obj for obj in candidates if native(obj) == requested_type]
         proof = "original-catalog-container-CAB-pathID-and-native-object-type"
+        if len(exact) > 1 and requested_type == "UnityEngine.GameObject":
+            exact = prefab_root(project, exact)
+            proof += "-native-transform-root"
+        if not exact and requested_type == "UnityEngine.Material":
+            discovered = {}
+            for root in candidates:
+                if native(root) not in ("TMPro.TMP_SpriteAsset", "TMPro.TMP_FontAsset"):
+                    continue
+                text = (project / root["path"]).read_text()
+                for match in re.finditer(r"^  material: (\{fileID:[^}]+\})$", text, re.M):
+                    pointer = POINTER.fullmatch(match[1])
+                    target = by_pointer.get((pointer[2], int(pointer[1]))) if pointer else None
+                    if target is not None and native(target) == requested_type:
+                        discovered[(target["collection"], target["pathId"])] = target
+            exact = list(discovered.values())
+            proof += "-native-TMP-material-field"
         if not exact and requested_type in ("UnityEngine.Mesh", "UnityEngine.Avatar"):
             # FBX main containers export as native prefab plus separate native
             # mesh/avatar assets. Follow only the witnessed original prefab's
@@ -81,7 +119,8 @@ def associate(catalog_path, project, identities, cab_bundles, managed_types):
         # The original provider exposes all typed subassets from PNG atlases
         # and controller containers. Keep every actual original pathID and its
         # subobject name instead of arbitrarily choosing one sprite/clip.
-        multiple = len(unique) > 1 and requested_type in ("UnityEngine.Sprite", "UnityEngine.AnimationClip")
+        multiple = len(unique) > 1 and requested_type in ("UnityEngine.Sprite", "UnityEngine.AnimationClip",
+                                                          "UnityEngine.Mesh", "UnityEngine.Material")
         targets = list(unique.values()) if len(unique) == 1 or multiple else []
         target = targets[0] if len(targets) == 1 else None
         keys = sorted(aliases[entry_index])
