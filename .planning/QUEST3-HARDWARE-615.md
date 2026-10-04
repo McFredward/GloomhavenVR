@@ -64,7 +64,11 @@ the singleton-before-slots guarantee. The builder restores the original script
 execution metadata rather than suppressing native callbacks. The exact null
 operand in the captured `UIMultiplayerPlayerOption.Awake` stack is unavailable;
 the ordering defect is independently proven, while its hardware repair still
-needs verification. The next original scene run may expose further Android gaps.
+needs verification. Source DLL metadata identifies unreferenced static utilities
+that cannot own Unity lifecycle callbacks; their authored importer values are
+retained, while their exclusion is checked against actual imported types. The
+complete private original-project import verifies 1,929 orders, including all
+140 nonzero values, before the final Android build. The next original scene run may expose further Android gaps.
 
 ## One hardware round
 
@@ -101,6 +105,15 @@ phase progress bar/percentage, with reusable presentation for later in-game load
 The handoff directory retains only the newest verified package and receipt;
 superseded APKs/archives are removed, while historical audits and supplied
 hardware captures remain outside it.
+
+The recovery input is a separate verified clone of the immutable input used by
+B614 (`53972e2f…`), preserving its original catalog path mappings. The current
+mutable recovery project differs and is not substituted for the captured input.
+The source snapshot intentionally has no Git checkout: its existing DLL Git
+stamp reports unknown rather than the source revision. The verified embedded
+input manifest and deployed assembly contracts are the canonical source
+provenance; ModBuild 615 is retained. This stamp limitation has no demonstrated
+gameplay or ABI effect.
 
 Artifact and completed verification details are recorded after native packaging.
 No complete unrelated local test gate is claimed.

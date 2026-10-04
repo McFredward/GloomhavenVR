@@ -11,7 +11,9 @@ bindings restore omitted/failed-import content. Temporary progress reuses the
 real head; bounded diagnostics preserve startup and camera/video evidence.
 Captured early input, public self-hook and Unity-message signature defects are
 corrected. Binocular loading alignment and the original multiplayer widget null
-reference remain unverified. Eight focused Quest suites are being finalized;
+reference remain unverified. Nine focused Quest suites pass; the affected
+order/builder checks and additional recovery suite are rerun after the import
+classification correction;
 no unrelated full gate is claimed. Native packaging is pending at this source
 checkpoint. [B615 evidence and procedure](QUEST3-HARDWARE-615.md).
 Work remains solely on `feature/quest3-standalone`.
