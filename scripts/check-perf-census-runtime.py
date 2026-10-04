@@ -21,6 +21,7 @@ FILES = {name: "src/GloomhavenVR/Core/Perf/" + name for name in (
 FILES["PerfNativeLoopProbe.cs"] = "src/GloomhavenVR/Core/Perf/PerfNativeLoopProbe.cs"
 FILES["PerfSpikeDetails.cs"] = "src/GloomhavenVR/Core/Perf/PerfSpikeDetails.cs"
 FILES["ScenarioInteractionPreparation.cs"] = "src/GloomhavenVR/Core/ScenarioInteractionPreparation.cs"
+FILES["ScenarioRoomLoading.cs"] = "src/GloomhavenVR/Core/ScenarioRoomLoading.cs"
 FILES["IGrabbable.cs"] = "src/GloomhavenVR/Hands/Interact/IGrabbable.cs"
 CONTROLS = (
     ("calibration-as-native-frame", "PerfNativeLoopProbe.cs", "if (enabled && !_installed) Install();\n        _spikeCapture = enabled;", "_spikeCapture = enabled;\n        if (enabled && !_installed) Install();", "first native frame excludes synthetic hook calibration"),
@@ -33,6 +34,8 @@ CONTROLS = (
     ("ignore-spike-debug", "PerfSpikeDetails.cs", "on &= VRLog.WantsDebug;", "on &= true;", "ordinary logging leaves spike resources disabled"),
     ("preparation-gates-native-load", "ScenarioInteractionPreparation.cs", "if (loading)", "if (false)", "preparation waits for native loading without writing native flags"),
     ("restart-completed-preparation", "ScenarioInteractionPreparation.cs", "if (ScenarioCardPreparation.Failures > 0)", "_begun = false; if (ScenarioCardPreparation.Failures > 0)", "completed preparation does not restart during normal play"),
+    ("room-ignores-native-busy", "ScenarioRoomLoading.cs", "&& entity.IsBusy)", "&& false)", "room spinner follows native generation before preparing new actors"),
+    ("room-uses-enabled-as-loading", "ScenarioRoomLoading.cs", "if (LoadedMaterials?.GetValue(request) is Material[] loaded)", "if (!request.Renderer.enabled && LoadedMaterials?.GetValue(request) is Material[] loaded)", "room readiness uses original pending materials even when renderer is enabled"),
     ("refresh-cancels-census", "ScopeMethods.cs", "invalidateSceneCensus: false", "invalidateSceneCensus: true", "adaptive refresh preserves the same in-progress census"),
     ("setting-keeps-census", "ScopeMethods.cs", "if (invalidateSceneCensus)", "if (false && invalidateSceneCensus)", "graphics changes still cancel incremental inventories"),
     ("refresh-keeps-pacing-window", "ScopeMethods.cs", "if (changed)\n            MarkChange", "if (false && changed)\n            MarkChange", "refresh closes the old pacing window before adopting the new rate"),
@@ -70,7 +73,9 @@ def bound_sources(root):
     assert "PerfSpikeDetails.Append(sb);" in braced(monitor, "    private static void LogSpike("), "Only the existing bounded SPIKE emitter formats details"
     assert "PerfSpikeDetails.Shutdown();" in braced(monitor, "    internal static void Shutdown()"), "Shutdown releases continuous diagnostic recorders"
     assert "ScenarioInteractionPreparation.Install(_hostGo);" in (root / "src/GloomhavenVR/Core/CoreModule.cs").read_text()
-    assert "(IsGameLoading() || ScenarioInteractionPreparation.IsPreparing)" in (root / "src/GloomhavenVR/WorldUI/LoadingIndicator.cs").read_text()
+    loading = (root / "src/GloomhavenVR/WorldUI/LoadingIndicator.cs").read_text()
+    assert "(nativeGameLoading || ScenarioInteractionPreparation.IsPreparing)" in loading
+    assert "TickLoadPriority(nativeGameLoading &&" in loading, "post-load preparation restores ordinary native async priority"
     members = [braced(monitor, m) for m in (
         "    private sealed class Step", "    internal static long BeginStep()", "    internal static void EndStep(",
         "    internal readonly struct Measure", "    private static void LogSceneProfile()", "    private static void LogSplit(",

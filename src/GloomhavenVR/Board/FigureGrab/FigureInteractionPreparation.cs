@@ -45,6 +45,24 @@ internal static class FigureInteractionPreparation
         StatPanelSurface.BeginInteractionPreparation(_pending);
     }
 
+    /// <summary>Room-reveal preparation adds only new actor identities. Existing parked
+    /// or currently held local/remote ghosts and shared caches are never retired by a reveal.</summary>
+    internal static void BeginNewActors()
+    {
+        var added = new List<ActorBehaviour>();
+        foreach (ActorBehaviour actor in Object.FindObjectsOfType<ActorBehaviour>(includeInactive: true))
+        {
+            if (actor == null || HeldFigures.Owns(actor) || NetHeldFigures.Owns(actor)) continue;
+            GameObject? source = FigureGhosts.GhostSource(actor);
+            if (!Entries.TryGetValue(actor, out Entry cached) || cached.Ghost == null
+                || cached.Source != source) added.Add(actor);
+        }
+        _pending = added.ToArray();
+        _completed = 0;
+        _begun = true;
+        StatPanelSurface.BeginInteractionPreparation(_pending);
+    }
+
     /// <summary>At most one complete native ghost OR one stat-art cache resource per tick.
     /// The existing visual clone is atomic; its loading cost is intentionally not a frame-time
     /// guarantee. A failed actor counts as complete and keeps the immediate pickup fallback.</summary>

@@ -217,6 +217,7 @@ internal sealed class StatPanelSurface
             _portraitActors = actors;
             _portraitDiscoveryPending = true;
             _portraitDiscoveryUntil = Time.realtimeSinceStartup + 30f;
+            _portraitWaitUntil = _portraitDiscoveryUntil;
             TryCollectOriginalPortraits();
         }
     }
@@ -268,33 +269,57 @@ internal sealed class StatPanelSurface
             _portraitActors = System.Array.Empty<ActorBehaviour>();
             return;
         }
-        PreparationArt art = Preparation[_preparedArt++];
-        if (WorldUIConfig.PanelMipBake == null || !WorldUIConfig.PanelMipBake.Value) return;
-        using var timing = VRLog.WantsDebug ? PerfMonitor.Scope("FigurePreparation.StatArt") : default;
-        try
+        float metadataDeadline = Time.realtimeSinceStartup + .002f;
+        for (int job = 0; job < 64 && !InteractionPreparationReady; job++)
         {
-            // Populate the existing shared cache; original UI assignments and lifetime stay live.
-            if (art.Reference != null)
+            if (job > 0 && Time.realtimeSinceStartup >= metadataDeadline) return;
+            PreparationArt art = Preparation[_preparedArt++];
+            if (WorldUIConfig.PanelMipBake == null || !WorldUIConfig.PanelMipBake.Value) continue;
+            using var timing = VRLog.WantsDebug ? PerfMonitor.Scope("FigurePreparation.StatArt") : default;
+            bool cold = false;
+            try
             {
-                if (_portraitWaitUntil == 0f) _portraitWaitUntil = Time.realtimeSinceStartup + 30f;
-                Cards.CardArtPin.PinReference(art.Reference);
-                Sprite? portrait = Cards.CardArtPin.PreparedSprite(art.Reference, out bool pending);
-                if (portrait != null) Cards.CardFaceMipBake.ReplacementFor(portrait);
-                else if (pending && Time.realtimeSinceStartup < _portraitWaitUntil)
-                { _preparedArt--; return; }
-                else if (++_preparationFailures <= 2)
-                    VRLog.Warn("WorldUI", $"Stat portrait preparation unavailable or timed out; original live preview remains available (report {_preparationFailures}/2).");
-                _portraitWaitUntil = 0f;
+                // Populate the shared cache; original UI assignments and lifetime stay live.
+                if (art.Reference != null)
+                {
+                    Cards.CardArtPin.PinReference(art.Reference);
+                    Sprite? portrait = Cards.CardArtPin.PreparedSprite(art.Reference, out bool pending);
+                    if (portrait != null)
+                    {
+                        cold = Cards.CardFaceMipBake.RequiresColdPreparation(portrait);
+                        Cards.CardFaceMipBake.ReplacementFor(portrait);
+                    }
+                    else if (pending && Time.realtimeSinceStartup < _portraitWaitUntil)
+                    {
+                        // One absolute wait for the whole pass, with ready later portraits
+                        // allowed to advance. No serial 30-second timeout per reference.
+                        _preparedArt--;
+                        Preparation.RemoveAt(_preparedArt);
+                        Preparation.Add(art);
+                        continue;
+                    }
+                    else if (++_preparationFailures <= 2)
+                        VRLog.Warn("WorldUI", $"Stat portrait preparation unavailable or timed out; original live preview remains available (report {_preparationFailures}/2).");
+                }
+                else if (art.Sprite != null)
+                {
+                    cold = Cards.CardFaceMipBake.RequiresColdPreparation(art.Sprite);
+                    Cards.CardFaceMipBake.ReplacementFor(art.Sprite);
+                }
+                else if (art.Texture != null && art.Texture.mipmapCount <= 1)
+                {
+                    // Raw authored panel textures are uncommon; conservatively treat this
+                    // as the single possible cold texture operation in the current frame.
+                    cold = true;
+                    Cards.CardFaceMipBake.BakedTextureFor(art.Texture);
+                }
             }
-            else if (art.Sprite != null) Cards.CardFaceMipBake.ReplacementFor(art.Sprite);
-            else if (art.Texture != null && art.Texture.mipmapCount <= 1)
-                Cards.CardFaceMipBake.BakedTextureFor(art.Texture);
-        }
-        catch (System.Exception ex)
-        {
-            _portraitWaitUntil = 0f;
-            if (++_preparationFailures <= 2)
-                VRLog.Warn("WorldUI", $"Stat imagery preparation skipped ({ex.GetType().Name}: {ex.Message}); original live stat preview remains available (report {_preparationFailures}/2).");
+            catch (System.Exception ex)
+            {
+                if (++_preparationFailures <= 2)
+                    VRLog.Warn("WorldUI", $"Stat imagery preparation skipped ({ex.GetType().Name}: {ex.Message}); original live stat preview remains available (report {_preparationFailures}/2).");
+            }
+            if (cold) return;
         }
     }
 

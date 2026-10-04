@@ -93,6 +93,7 @@ namespace GloomhavenVR.Cards
     {
         internal static readonly HashSet<Sprite> Sprites = new();
         internal static readonly HashSet<Texture2D> Textures = new();
+        internal static bool RequiresColdPreparation(Sprite sprite)=>!Sprites.Contains(sprite);
         internal static Sprite? ReplacementFor(Sprite sprite) { Sprites.Add(sprite); return sprite; }
         internal static Texture2D? BakedTextureFor(Texture2D texture) { Textures.Add(texture); return texture; }
     }

@@ -174,8 +174,7 @@ public static class InteractionProgram
         Check(CardFaceMipBake.Sprites.Contains(preview)&&CardFaceMipBake.Sprites.Contains(fallback),
             "original player scenario preview and native fallback portrait are warm before Show");
         GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.TickInteractionPreparation();
-        Check(GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationCompleted==2
-            &&!GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationReady&&CardArtPin.Pins.Contains(monsterRef),
+        Check(!GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationReady&&CardArtPin.Pins.Contains(monsterRef),
             "incomplete original portrait pin retains loader work without touching a native loading request");
         monsterRef.Pending=false;
         for(int i=0;i<3;i++)GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.TickInteractionPreparation();
@@ -201,6 +200,15 @@ public static class InteractionProgram
         for(int i=0;i<5;i++)GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.TickInteractionPreparation();
         Check(GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationReady,
             "deferred original portrait discovery drains the same shared job queue");
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.ResetInteractionPreparation();
+        monsterRef.Pending=true;
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.BeginInteractionPreparation(owners);
+        typeof(GloomhavenVR.WorldUI.Surfaces.StatPanelSurface).GetField("_portraitWaitUntil",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic)!.SetValue(null,Time.realtimeSinceStartup-1f);
+        for(int i=0;i<16&&!GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationReady;i++)
+            GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.TickInteractionPreparation();
+        Check(GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationReady,
+            "all missing original portraits share one absolute preparation deadline");
+        monsterRef.Pending=false;
         GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.ResetInteractionPreparation();
         foreach(var owner in owners)Object.DestroyImmediate(owner.gameObject);
         UIInfoTools.Instance=new UIInfoTools();CardArtPin.Pins.Clear();ScenarioCardPreparation.References.Clear();
@@ -307,6 +315,10 @@ public static class InteractionProgram
             "released prepared ghost parks immediately without rendering");
         yield return null; // Pool lifetime must survive deferred destruction before next pickup.
         animator.Play("Base Layer.Flying",0,.41f);animator.Update(0);
+        FigureInteractionPreparation.BeginNewActors();
+        for(int tick=0;tick<1000&&!FigureInteractionPreparation.IsReady;tick++)FigureInteractionPreparation.Tick();
+        Check(firstPrepared!=null&&FigureInteractionPreparation.PreparedCount>0,
+            "room preparation preserves parked original ghosts and existing cache lifetime");
         NetHeldFigures.Actors.Add(actor);FigureGhosts.NotifyHeld(actor,Vector3.one,Quaternion.Euler(0,17,0));
         GameObject remotePrepared=FigureGhosts.GhostFor(actor)!;
         Check(remotePrepared==firstPrepared,"local and remote pickup reuse the same original visual cache");

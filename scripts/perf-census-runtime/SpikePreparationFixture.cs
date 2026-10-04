@@ -22,7 +22,7 @@ namespace GloomhavenVR.Cards
 {
     internal static class ScenarioCardPreparation
     {
-        internal static bool IsReady=true; internal static int Begins,Ticks,Resets; internal static int Failures=>0;
+        internal static bool IsReady=true; internal static int Begins,Ticks,Resets; internal static int Failures=>0; internal static string PendingDescription=>"fixture resources";
         internal static void Begin(){Begins++;IsReady=false;}
         internal static void Tick(){Ticks++;IsReady=true;}
         internal static void CancelPreparation(){IsReady=true;}
@@ -33,8 +33,9 @@ namespace GloomhavenVR.Board.FigureGrab
 {
     internal static class FigureInteractionPreparation
     {
-        internal static bool IsReady=true; internal static int Begins,Ticks,Resets;
+        internal static bool IsReady=true; internal static int Begins,Ticks,Resets; internal static int CompletedCount=>Ticks; internal static int TotalCount=>Ticks+1;
         internal static void Begin(){Begins++;IsReady=false;}
+        internal static void BeginNewActors(){IsReady=false;}
         internal static void Tick(){Ticks++;IsReady=true;}
         internal static void CancelPreparation(){IsReady=true;}
         internal static void Reset(){Resets++;IsReady=true;}
@@ -122,6 +123,11 @@ public static class SpikePreparationFixture
             Check(ScenarioControllerLoading()&&ScenarioCardPreparation.Begins==begins,
                 "preparation waits for native loading without writing native flags");
             SceneController.Instance.ScenarioIsLoading=false;
+            ScenarioSceneryBudget.IsPreparingPresentation=true;
+            ScenarioInteractionPreparation.Tick();
+            Check(ScenarioInteractionPreparation.IsPreparing&&ScenarioCardPreparation.Begins==begins,
+                "initial preparation defers finite resource deadlines until native visual queues settle");
+            ScenarioSceneryBudget.IsPreparingPresentation=false;
             ScenarioInteractionPreparation.Tick();
             Check(ScenarioInteractionPreparation.IsPreparing&&FigureInteractionPreparation.Ticks+ScenarioCardPreparation.Ticks==1,
                 "one cold preparation job per frame keeps the spinner visible");
@@ -132,6 +138,36 @@ public static class SpikePreparationFixture
             for(int i=0;i<10;i++)ScenarioInteractionPreparation.Tick();
             Check(ScenarioCardPreparation.Begins==begins,
                 "completed preparation does not restart during normal play");
+            var room = new GameObject("native revealed room").AddComponent<ProceduralMapTile>();
+            SceneManager.MoveGameObjectToScene(room.gameObject,proc);
+            var entity=room.gameObject.AddComponent<ApparanceEntity>();entity.IsBusy=true;
+            var nativeRenderer=room.gameObject.AddComponent<MeshRenderer>();nativeRenderer.enabled=true;
+            var loader=room.gameObject.AddComponent<MaterialLoader>();
+            Shader shader=Shader.Find("Unlit/Color");var material=new Material(shader);
+            var request=new MaterialLoaderData{Renderer=nativeRenderer};request.SetLoaded(new[]{material});loader.LoadersData.Add(request);
+            ScenarioRoomLoading.Install();RoomVisibilityTracker.Emit(room,false);
+            Check(!ScenarioRoomLoading.HasPendingReveal,"unrevealed rooms never start loading presentation");
+            RoomVisibilityTracker.Emit(room,true);
+            Check(ScenarioInteractionPreparation.IsPreparing,"native reveal event immediately publishes the loading indicator state");
+            Check(!ScenarioRoomLoading.Tick(),"room reveal waits for native Update activation before readiness");
+            typeof(ScenarioRoomLoading).GetField("_revealedFrame",BindingFlags.NonPublic|BindingFlags.Static)!.SetValue(null,Time.frameCount-2);
+            ScenarioInteractionPreparation.Tick();
+            Check(ScenarioInteractionPreparation.IsPreparing&&FigureInteractionPreparation.IsReady,
+                "room spinner follows native generation before preparing new actors");
+            typeof(ScenarioRoomLoading).GetField("_quietSince",BindingFlags.NonPublic|BindingFlags.Static)!.SetValue(null,Time.realtimeSinceStartup-.5f);
+            Check(!ScenarioRoomLoading.Tick(),"room spinner follows native generation before preparing new actors");
+            entity.IsBusy=false;request.SetLoaded(new Material[]{null!});
+            typeof(ScenarioRoomLoading).GetField("_quietSince",BindingFlags.NonPublic|BindingFlags.Static)!.SetValue(null,Time.realtimeSinceStartup-.5f);
+            Check(!ScenarioRoomLoading.Tick(),"room readiness uses original pending materials even when renderer is enabled");
+            request.SetLoaded(new[]{material});
+            typeof(ScenarioRoomLoading).GetField("_quietSince",BindingFlags.NonPublic|BindingFlags.Static)!.SetValue(null,Time.realtimeSinceStartup-.5f);
+            ScenarioSceneryBudget.IsPreparingPresentation=true;ScenarioInteractionPreparation.Tick();
+            Check(ScenarioInteractionPreparation.IsPreparing,"room masks finish before loading presentation closes");
+            ScenarioSceneryBudget.IsPreparingPresentation=false;ScenarioInteractionPreparation.Tick();
+            for(int i=0;i<3;i++)ScenarioInteractionPreparation.Tick();
+            Check(!ScenarioInteractionPreparation.IsPreparing&&!ScenarioRoomLoading.HasPendingReveal
+                &&ScenarioCardPreparation.Begins==begins,"room completion preserves shared card preparation and closes the visual gate");
+            UnityEngine.Object.DestroyImmediate(room.gameObject);UnityEngine.Object.DestroyImmediate(material);
             SceneController.Instance.Current=oldScene;ScenarioInteractionPreparation.Tick();
             Check(!ScenarioInteractionPreparation.IsPreparing,
                 "leaving native scenario releases prepared resources and spinner");
@@ -139,7 +175,8 @@ public static class SpikePreparationFixture
         }
         finally
         {
-            VRLog.WantsDebug=true;ScenarioInteractionPreparation.Reset();PerfSpikeDetails.Shutdown();
+            VRLog.WantsDebug=true;ScenarioInteractionPreparation.Reset();ScenarioRoomLoading.Shutdown();
+            ScenarioSceneryBudget.IsPreparingPresentation=false;PerfSpikeDetails.Shutdown();
             PerfNativeLoopProbe.Shutdown();VRSession.Harmony.UnpatchSelf();VRSession.Harmony=null;
             SceneController.Instance.Current=oldScene;SceneController.Instance.ScenarioIsLoading=false;
             Choreographer.s_Choreographer=oldChoreographer;

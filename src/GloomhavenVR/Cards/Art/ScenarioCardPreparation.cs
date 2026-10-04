@@ -27,6 +27,8 @@ internal static class ScenarioCardPreparation
     private const float WaitSeconds = 30f;
     private const int MaxBackings = 64;
     private const int MaxResources = 2048;
+    private const int MetadataJobsPerTick = 64;
+    private const float MetadataSecondsPerTick = .002f;
     private static readonly Queue<Sprite> Sprites = new();
     private static readonly Queue<ReferenceToSprite> References = new();
     private static readonly Queue<Component> NativeElementWidgets = new();
@@ -56,6 +58,7 @@ internal static class ScenarioCardPreparation
     internal static int Failures { get; private set; }
     internal static int ElementWidgetsCollected { get; private set; }
     internal static int AreaSpritesCollected { get; private set; }
+    internal static string PendingDescription => $"sprites={Sprites.Count}, references={References.Count}, nativeWidgets={NativeElementWidgets.Count}, backings={BackingsPrepared}/{BackingsTarget}";
 
     /// <summary>Other original scenario resources (for example authored actor portraits)
     /// borrow this preparation pass and its existing shared pin owner. Calls outside a
@@ -132,98 +135,114 @@ internal static class ScenarioCardPreparation
         using var scope = PerfMonitor.Scope("Cards.ScenarioPreparation");
         try
         {
-            if (!s_collected)
+            // Build618 charged every cheap reference/cache hit and every repeated native
+            // element owner a whole rendered frame. The Build618 Frame logs hit the
+            // 90-second ceiling twice. Drain bounded metadata together; one genuinely cold GPU bake or new backing remains atomic.
+            float metadataDeadline = Time.realtimeSinceStartup + MetadataSecondsPerTick;
+            for (int jobs = 0; jobs < MetadataJobsPerTick; jobs++)
             {
-                UIInfoTools? tools = UIInfoTools.Instance;
-                List<CPlayerActor>? players = ScenarioManager.Scenario?.PlayerActors;
-                s_factory = VRCardFactory.PreparationFactory;
-                if (tools == null || players == null || players.Count == 0 || s_factory == null)
+                if (jobs > 0 && Time.realtimeSinceStartup >= metadataDeadline) return;
+                if (!s_collected)
                 {
-                    if (Time.realtimeSinceStartup >= s_deadline) Finish(unavailable: true);
+                    UIInfoTools? tools = UIInfoTools.Instance;
+                    List<CPlayerActor>? players = ScenarioManager.Scenario?.PlayerActors;
+                    s_factory = VRCardFactory.PreparationFactory;
+                    if (tools == null || players == null || players.Count == 0 || s_factory == null)
+                    {
+                        if (Time.realtimeSinceStartup >= s_deadline) Finish(unavailable: true);
+                        return;
+                    }
+                    CollectRoster(players, tools);
+                    s_collected = true;
+                    // Bound only asynchronous waiting, not the amount of legitimate loading work.
+                    s_deadline = Time.realtimeSinceStartup + WaitSeconds;
+                    continue;
+                }
+                if (!ReferenceEquals(s_factory, VRCardFactory.PreparationFactory))
+                {
+                    Finish(unavailable: true);
                     return;
                 }
-                CollectRoster(players, tools);
-                s_collected = true;
-                // Bound only asynchronous waiting, not the amount of legitimate loading work.
-                s_deadline = Time.realtimeSinceStartup + WaitSeconds;
-                return;
-            }
-            if (!ReferenceEquals(s_factory, VRCardFactory.PreparationFactory))
-            {
-                Finish(unavailable: true);
-                return;
-            }
-            // Start all addressable references before spending time on synchronous mip copies.
-            // Revisit incomplete references at most once per frame, after ready sprites/backings.
-            if (References.Count > 0 && StartedReferences.Count < SeenReferences.Count)
-            {
-                PrepareReference();
-                return;
-            }
-            if (Sprites.Count > 0)
-            {
-                Sprite sprite = Sprites.Dequeue();
-                if (OwnedAtlasSprites.Remove(sprite))
+                // Start all addressable references before spending time on synchronous mip copies.
+                // Revisit incomplete references within the bounded metadata slice; native
+                // operations themselves retain exactly one GUID handle in the shared owner.
+                if (References.Count > 0 && StartedReferences.Count < SeenReferences.Count)
                 {
-                    try { CardFaceMipBake.WarmTemporarySprite(sprite); }
-                    finally { UnityEngine.Object.Destroy(sprite); }
+                    PrepareReference();
+                    continue;
                 }
-                else CardFaceMipBake.WarmSprite(sprite);
-                SpritesPrepared++;
-                PerfMonitor.Count("Cards.PreparedSprites");
-                return;
-            }
-            if (References.Count > 0)
-            {
-                PrepareReference();
-                return;
-            }
-            // Build617 prepared UIInfoTools.darkConfig but ConsumeDark stayed cold:
-            // native ConsumeElement/InfuseElement use their OWN serialized Sprite[]
-            // fields, including hidden highlight arrays. Read already-loaded original
-            // instances and inactive prefab templates once per type, then inspect one
-            // borrowed owner per Tick. Resources discovery does not activate an owner,
-            // invoke Awake/Init/Show, instantiate a hand, or assign native Images.
-            // This must precede unrelated shared UI chrome in the finite mip cache.
-            if (s_elementWidgetKindsCollected < 2)
-            {
-                CollectNativeElementWidgets(s_elementWidgetKindsCollected++);
-                return;
-            }
-            if (NativeElementWidgets.Count > 0)
-            {
-                Component widget = NativeElementWidgets.Dequeue();
-                if (widget != null)
+                if (Sprites.Count > 0)
                 {
-                    CollectSpriteFields(widget, includeReferences: false);
-                    ElementWidgetsCollected++;
+                    Sprite sprite = Sprites.Dequeue();
+                    if (sprite == null) { SpritesPrepared++; continue; }
+                    bool cold = CardsConfig.FaceMipBake != null && CardsConfig.FaceMipBake.Value
+                        && CardFaceMipBake.RequiresColdPreparation(sprite);
+                    if (OwnedAtlasSprites.Remove(sprite))
+                    {
+                        try { CardFaceMipBake.WarmTemporarySprite(sprite); }
+                        finally { UnityEngine.Object.Destroy(sprite); }
+                    }
+                    else CardFaceMipBake.WarmSprite(sprite);
+                    SpritesPrepared++;
+                    PerfMonitor.Count("Cards.PreparedSprites");
+                    if (cold) return;
+                    continue;
                 }
+                // Build617 prepared UIInfoTools.darkConfig but ConsumeDark stayed cold:
+                // native ConsumeElement/InfuseElement use their OWN serialized Sprite[]
+                // fields, including hidden highlight arrays. Read already-loaded original
+                // instances and inactive prefab templates once per type, then inspect a bounded
+                // batch of borrowed owners per Tick. Resources discovery does not activate an owner,
+                // invoke Awake/Init/Show, instantiate a hand, or assign native Images.
+                // This must precede unrelated shared UI chrome in the finite mip cache.
+                if (s_elementWidgetKindsCollected < 2)
+                {
+                    CollectNativeElementWidgets(s_elementWidgetKindsCollected++);
+                    continue;
+                }
+                if (NativeElementWidgets.Count > 0)
+                {
+                    Component widget = NativeElementWidgets.Dequeue();
+                    if (widget != null)
+                    {
+                        CollectSpriteFields(widget, includeReferences: false);
+                        ElementWidgetsCollected++;
+                    }
+                    continue;
+                }
+                if (!s_areaAtlasCollected)
+                {
+                    // Native ProcessAreaEffect calls this original atlas's GetSprite for
+                    // Grey/Red/Dot. It is outside UIInfoTools' direct Sprite fields. Atlas
+                    // GetSprites returns owned clones; retain only the shared heavy bake
+                    // data and dispose temporary sprite metadata after each warm job.
+                    CollectAreaAtlas();
+                    s_areaAtlasCollected = true;
+                    continue;
+                }
+                if (!s_sharedCollected)
+                {
+                    // Party background/state art takes precedence in the existing finite cache.
+                    // Do not let unrelated shared UI chrome consume its budget first.
+                    if (UIInfoTools.Instance != null) CollectSpriteFields(UIInfoTools.Instance, includeReferences: false);
+                    s_sharedCollected = true;
+                    continue;
+                }
+                if (References.Count > 0)
+                {
+                    PrepareReference();
+                    // Pending handles are asynchronous, so other original resources may
+                    // advance this frame. The shared absolute deadline bounds ALL of them.
+                    continue;
+                }
+                if (s_factory != null && s_factory.PreparedBlankCount < BackingsTarget)
+                {
+                    s_factory.PrepareOneBlank();
+                    return;
+                }
+                Finish(unavailable: false);
                 return;
             }
-            if (!s_areaAtlasCollected)
-            {
-                // Native ProcessAreaEffect calls this original atlas's GetSprite for
-                // Grey/Red/Dot. It is outside UIInfoTools' direct Sprite fields. Atlas
-                // GetSprites returns owned clones; retain only the shared heavy bake
-                // data and dispose temporary sprite metadata after each warm job.
-                CollectAreaAtlas();
-                s_areaAtlasCollected = true;
-                return;
-            }
-            if (!s_sharedCollected)
-            {
-                // Party background/state art takes precedence in the existing finite cache.
-                // Do not let unrelated shared UI chrome consume its budget first.
-                if (UIInfoTools.Instance != null) CollectSpriteFields(UIInfoTools.Instance, includeReferences: false);
-                s_sharedCollected = true;
-                return;
-            }
-            if (s_factory != null && s_factory.PreparedBlankCount < BackingsTarget)
-            {
-                s_factory.PrepareOneBlank();
-                return;
-            }
-            Finish(unavailable: false);
         }
         catch (Exception error)
         {

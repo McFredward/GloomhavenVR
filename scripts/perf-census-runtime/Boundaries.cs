@@ -48,3 +48,14 @@ namespace GloomhavenVR.WorldUI { internal static class WorldUIConfig { internal 
 namespace GloomhavenVR.Compat { internal enum ControlAction { ProximityGrab } internal static class ControlsProgress { internal static int Grabs; internal static void Notify(ControlAction a){Grabs++;} } }
 namespace GloomhavenVR.Hands { internal enum HapticPreset { GrabPulse } internal sealed class VRHand { internal string Side=>"Fixture"; internal void SendHaptic(HapticPreset p){} } }
 namespace GloomhavenVR.Hands.Interact { internal static class VRInteractables { internal readonly struct GrabbableEntry { internal readonly IGrabbable Target; internal readonly Collider Collider; internal GrabbableEntry(IGrabbable t,Collider c){Target=t;Collider=c;} } } }
+
+public sealed class ProceduralMapTile : UnityEngine.MonoBehaviour { }
+public sealed class ApparanceEntity : UnityEngine.MonoBehaviour { public bool IsBusy; }
+public sealed class MaterialLoader : UnityEngine.MonoBehaviour { public readonly System.Collections.Generic.List<MaterialLoaderData> LoadersData=new(); }
+public sealed class MaterialLoaderData { public UnityEngine.Renderer Renderer=null!; private UnityEngine.Material[]? _loadedMaterials; public void SetLoaded(UnityEngine.Material[] value){_loadedMaterials=value;} }
+public static class RoomVisibilityTracker { public static event System.Action<ProceduralMapTile,bool>? ProceduralMapTileVisibilityStateChanged; public static void Emit(ProceduralMapTile tile,bool show)=>ProceduralMapTileVisibilityStateChanged?.Invoke(tile,show); }
+namespace GloomhavenVR.Core {
+internal static class ScenarioSceneryBudget { internal static bool IsPreparingPresentation; }
+internal static class ScenarioEnvironmentBudget { internal static bool IsPreparingPresentation=>false; }
+internal static class ScenarioFigureDetailBudget { internal static bool IsPreparingPresentation=>false; }
+}

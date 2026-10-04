@@ -342,7 +342,8 @@ internal sealed class LoadingIndicator
             _townReloadActive = false;
         }
         bool townReload = indicatorEnabled && TickTownReload();
-        bool gameLoading = indicatorEnabled && (IsGameLoading() || ScenarioInteractionPreparation.IsPreparing);
+        bool nativeGameLoading = indicatorEnabled && IsGameLoading();
+        bool gameLoading = indicatorEnabled && (nativeGameLoading || ScenarioInteractionPreparation.IsPreparing);
         bool want = townReload || gameLoading;
         if (townReload && !gameLoading) _townReloadVisual = true;
         else if (gameLoading) _townReloadVisual = false;
@@ -356,7 +357,10 @@ internal sealed class LoadingIndicator
         // nothing there — the frames that stall are the game's own synchronous YML parse on
         // the main thread, not async integration, so a smaller slice cannot touch them. The
         // boot clause is a display decision and stays one; it must not sit on the load path.
-        TickLoadPriority(gameLoading && _boot != BootCoverage.Covering);
+        // Preparation is bounded mod-owned work; do not leave Unity's asynchronous
+        // integration throttled to Low AFTER native loading has ended. This previously
+        // prolonged original portrait/card requests while the post-load spinner waited.
+        TickLoadPriority(nativeGameLoading && _boot != BootCoverage.Covering);
 
         // Only a real scene load owns the full picture. A town-mode toggle leaves
         // original/rescue windows reachable while its spinner runs in front of options.

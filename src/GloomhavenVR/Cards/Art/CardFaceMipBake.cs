@@ -478,6 +478,33 @@ internal static class CardFaceMipBake
         return made;
     }
 
+    /// <summary>Read-only preparation cache test. A cached null is a completed native
+    /// geometry/packing verdict, so loading must not spend another frame retrying it.</summary>
+    internal static bool IsPrepared(Sprite source) => source != null
+        && (source.texture == null || source.texture.mipmapCount > 1
+            || s_replacementBySource.ContainsKey(OriginalFor(source).GetInstanceID()));
+
+    /// <summary>Whether warming can create/read back a texture. New Sprite wrappers on
+    /// an already prepared atlas/region are cheap CPU metadata and may share a bounded tick.
+    /// This predicts work only; ReplacementFor retains all original geometry/budget guards.</summary>
+    internal static bool RequiresColdPreparation(Sprite source)
+    {
+        source = OriginalFor(source);
+        if (IsPrepared(source) || IsRotatedPacked(source) || IsTightPacked(source)) return false;
+        Texture2D atlas = source.texture;
+        if (TryExactRect(source, out _))
+            return !s_bakedByTexture.ContainsKey(atlas.GetInstanceID())
+                && !s_bakedByIdentity.ContainsKey(IdentityOf(atlas));
+        try
+        {
+            Rect tr = source.textureRect;
+            Vector2 off = source.textureRectOffset;
+            string key = $"{IdentityOf(atlas)}|{Mathf.RoundToInt(tr.x)},{Mathf.RoundToInt(tr.y)},{Mathf.RoundToInt(tr.width)}x{Mathf.RoundToInt(tr.height)}|{Mathf.RoundToInt(source.rect.width)}x{Mathf.RoundToInt(source.rect.height)}|+{Mathf.RoundToInt(off.x)},{Mathf.RoundToInt(off.y)}";
+            return !s_regionTextureByKey.ContainsKey(key);
+        }
+        catch (System.Exception) { return true; }
+    }
+
     /// <summary>Load-time warming of one original sprite. Uses the very same cache as
     /// local and remote faces, with no Image assignment or native widget activation.</summary>
     internal static void WarmSprite(Sprite? sprite)

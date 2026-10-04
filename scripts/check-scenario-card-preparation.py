@@ -36,6 +36,7 @@ def main():
     (run / 'fixture-hashes.json').write_text(json.dumps({str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in fixture_files if path.is_file()}, indent=2) + '\n')
     variants = [
         ('production', '', '', '', ''),
+        ('one-metadata-owner-per-frame', 'ScenarioCardPreparation.cs', 'private const int MetadataJobsPerTick = 64;', 'private const int MetadataJobsPerTick = 1;', 'bounded preparation reaches readiness'),
         ('first-character-only', 'ScenarioCardPreparation.cs', 'foreach (CPlayerActor player in players)', 'foreach (CPlayerActor player in players.GetRange(0, 1))', 'all scenario classes and transferred ability skins are prepared without focus'),
         ('skip-cold-cache', 'ScenarioCardPreparation.cs', 'CardFaceMipBake.WarmSprite(sprite);', '// omitted shared mip preparation', 'actual native private consume infuse and highlight arrays have no cold local or remote sprite miss'),
         ('skip-element-icons', 'ScenarioCardPreparation.cs', 'else if (value is ElementConfigUI element)', 'else if (value is ElementConfigUI element && Time.frameCount < 0)', 'ordinary local and remote fronts have no cold sprite miss after preparation'),

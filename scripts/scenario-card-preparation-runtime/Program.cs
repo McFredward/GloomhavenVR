@@ -64,13 +64,17 @@ public static class DiagnosticProgram
         {
             int before = ScenarioCardPreparation.SpritesPrepared;
             int builds = VRCard.Builds;
+            int textureBakes=(int)typeof(CardFaceMipBake).GetField("s_bakeCount",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null)!;
+            int regionBakes=(int)typeof(CardFaceMipBake).GetField("s_spriteBakeCount",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null)!;
             ScenarioCardPreparation.Tick();
             int prepared = ScenarioCardPreparation.SpritesPrepared;
             int reserved = VRCard.Builds;
             for (int offer = 0; offer < 10; offer++) ScenarioCardPreparation.Tick();
             Check(prepared == ScenarioCardPreparation.SpritesPrepared && reserved == VRCard.Builds,
                 "repeated same-frame loader offers cannot multiply preparation work");
-            Check(ScenarioCardPreparation.SpritesPrepared - before <= 1 && VRCard.Builds - builds <= 1,
+            Check((int)typeof(CardFaceMipBake).GetField("s_bakeCount",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null)!-textureBakes<=1
+                &&(int)typeof(CardFaceMipBake).GetField("s_spriteBakeCount",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null)!-regionBakes<=1
+                &&VRCard.Builds-builds<=1,
                 "loading preparation performs at most one expensive sprite or backing per frame");
             Check(frames < 250, "bounded preparation reaches readiness");
             yield return null;
@@ -131,6 +135,13 @@ public static class DiagnosticProgram
                 prefabAssets[name] = prefab; return prefab;
             }
         };
+        // Real loaded hands may hold hundreds of identical element components. Their
+        // serialized fields are cheap metadata, never hundreds of whole rendered frames.
+        for(int owner=0;owner<1024;owner++)
+        {
+            var copy=new GameObject("duplicate-original-consume-owner");copy.SetActive(false);
+            copy.AddComponent<ConsumeElement>().Install(consumeArt,consumeHighlight,nativeImage);
+        }
         int consumeAwakes = ConsumeElement.Awakes, infuseAwakes = InfuseElement.Awakes;
         Sprite borrowedPortrait = Art("already-authored-original-portrait", 23);
         ReferenceToSprite borrowedReference = Reference("original-portrait-reference", 24);
@@ -160,7 +171,7 @@ public static class DiagnosticProgram
         Check(ScenarioCardPreparation.Classes == 4, "all scenario classes and transferred ability skins are prepared without focus");
         Check(tools.Focus == "first" && nativeImage.sprite == original && VRCard.NativeAdoptions == 0,
             "preparation never selects a character activates native widgets or assigns original artwork");
-        Check(ScenarioCardPreparation.ElementWidgetsCollected == 5,
+        Check(ScenarioCardPreparation.ElementWidgetsCollected == 1029,
             "loading visits existing inactive native consume and infuse widget owners including shared templates");
         Check(prefabAssets.Count == 2 && AssetBundleManager.Instance.Reads.SequenceEqual(new[] { "ConsumeButton", "InfuseElement", "ConsumeButton", "InfuseElement" })
             && prefabAssets.Values.All(prefab => !prefab.activeSelf),
@@ -309,7 +320,7 @@ public static class DiagnosticProgram
         Expire(); yield return null; ScenarioCardPreparation.Tick();
         Check(ScenarioCardPreparation.IsReady && ScenarioCardPreparation.Failures == 1,
             "missing native prerequisites cannot trap the player behind a loading spinner");
-        Metrics = $"classes=4, original sprites={ExpectedArt.Count}, original inactive element owners=5, private array art=6, actual packed area sprites=3, GUID requests={Addressables.Requests}, backing reservations=21, real GPU pixel comparisons={ExpectedArt.Count + 1}; no native focus/Show/Awake/Image preparation writes";
+        Metrics = $"classes=4, original sprites={ExpectedArt.Count}, original inactive element owners=1029, private array art=6, actual packed area sprites=3, GUID requests={Addressables.Requests}, backing reservations=21, real GPU pixel comparisons={ExpectedArt.Count + 1}; no native focus/Show/Awake/Image preparation writes";
     }
     public static void Cleanup()
     {
