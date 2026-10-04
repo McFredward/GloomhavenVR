@@ -77,6 +77,7 @@ namespace UnityEngine
         public float depth;
         public Texture targetTexture;
     }
+    public class Material : Object { }
     public class Texture : Object { }
     public class Texture2D : Texture { public int width = 1024, height = 179; }
     public class Font : Object { }
@@ -211,5 +212,8 @@ namespace GloomhavenVR.WorldUI
     internal static class FlatScreen
     {
         internal static bool OwnsVideoCapture(UnityEngine.Camera camera) => false;
+        internal static UnityEngine.Material VideoConsumer(UnityEngine.Camera camera) => null;
+        internal static UnityEngine.Camera FinalVideoCamera(UnityEngine.Camera camera) => null;
+        internal static UnityEngine.Texture VideoGlassCapture(UnityEngine.Camera camera) => null;
     }
 }
