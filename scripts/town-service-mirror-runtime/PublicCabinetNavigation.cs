@@ -98,7 +98,11 @@ public static partial class MirrorProgram
                 Transform remoteHousing = Remote(-2, housingId)!.Root;
                 Check(TownServiceMirror.HasReadyPublicPresentation && state.From == 256 && state.To == 0
                     && Vector3.Distance(housing.Find("Cassette").localPosition, remoteHousing.Find("Cassette").localPosition) < .005f,
-                    "actual peer category callback preserves the same intermediate authored cassette motion remotely");
+                    "actual peer category callback preserves the same intermediate authored cassette motion remotely"
+                    + ": ready=" + TownServiceMirror.HasReadyPublicPresentation + " from=" + state.From + " to=" + state.To
+                    + " direction=" + state.ScrollDirection + " ownerClock=" + drawer.FixtureFollowClock + " remoteClock=" + state.Elapsed
+                    + " owner=" + housing.Find("Cassette").localPosition.ToString("F6")
+                    + " remote=" + remoteHousing.Find("Cassette").localPosition.ToString("F6"));
                 foreach (var key in catalog.Categories)
                     Check(Vector3.Distance(key.Root.position, Remote(-2, TownServiceSync.PublicModuleId(key.Root))!.Root.position) < .003f,
                         "actual category key depression survives original capture and cross-client playback: owner=" + key.Root.position

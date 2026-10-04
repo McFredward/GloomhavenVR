@@ -127,7 +127,10 @@ def main():
     parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock", "catalog-lifetime", "public-catalog", "voice-relay", "shared-interaction", "item-transfer", "motion-fast"), default="full")
     parser.add_argument("--no-negative-controls", action="store_true")
     parser.add_argument("--only-mutation", help="Run production plus one selected negative control after a focused fixture fix")
+    parser.add_argument("--skip-production", action="store_true", help="Resume only --only-mutation when production already passed on the same source tree")
     args = parser.parse_args()
+    if args.skip_production and not args.only_mutation:
+        parser.error("--skip-production requires --only-mutation")
     args.source_root = args.source_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
@@ -294,7 +297,7 @@ def main():
         selected = [case for case in variants if case[0] == args.only_mutation]
         if len(selected) != 1 or args.only_mutation == "production":
             parser.error("--only-mutation must name an enabled negative control in this suite")
-        variants = variants[:1] + selected
+        variants = selected if args.skip_production else variants[:1] + selected
     for name, filename, before, after, expected in variants:
         build = run / name; production = build / "production"; production.mkdir(parents=True)
         for path, text in bound.items():

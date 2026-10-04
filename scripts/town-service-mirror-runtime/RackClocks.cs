@@ -61,7 +61,9 @@ public static partial class MirrorProgram
             }
             var clock=new TownRackState{Crank=2,Page=0,From=0,To=0,Members=members.ToArray()};
             TownServiceMirror.SetRack(1,clock);
+            int messagesBeforeCapture=GloomhavenVR.Core.VRLog.Messages.Count;
             List<byte[]> first=Capture();
+            RequireCompleteInitialRack(first,cards,scale,messagesBeforeCapture);
             byte[] withheld=first.Single(bytes=>TownServiceCodec.TryRead(bytes,bytes.Length,out var frame)&&frame!.Module==98);
             Receive(2,first.Where(bytes=>!ReferenceEquals(bytes,withheld)));
             for(float settle=Time.unscaledTime+.13f;Time.unscaledTime<settle;)
@@ -206,5 +208,38 @@ public static partial class MirrorProgram
             UnityEngine.Object.DestroyImmediate(owner.gameObject);UnityEngine.Object.DestroyImmediate(observer.gameObject);
         }
         GloomhavenVR.Net.NetPlayerActors.Peer=1;
+    }
+
+    private static void RequireCompleteInitialRack(List<byte[]> packets,Dictionary<ushort,Transform> cards,
+        float scale,int messagesBeforeCapture)
+    {
+        var published=new HashSet<ushort>();
+        foreach(byte[] packet in packets)
+            if(TownServiceCodec.TryRead(packet,packet.Length,out var frame))published.Add(frame!.Module);
+        ushort[] missing=cards.Keys.Where(id=>!published.Contains(id)).ToArray();
+        string[] captureErrors=GloomhavenVR.Core.VRLog.Messages.Skip(messagesBeforeCapture)
+            .Where(message=>message.Contains("capture module ")).ToArray();
+        if(missing.Length==0&&captureErrors.Length==0)return;
+
+        // Do not wait/retry a failed initial publication or turn its missing module
+        // into a later LINQ error. Keep the real production catch contract; only
+        // after failure, inspect the same originals to expose native API stacks.
+        var probes=new List<string>();
+        foreach(ushort id in missing)
+        {
+            using var binding=new TownServiceBinding(cards[id]);
+            try { binding.Read(TownServiceMirror.Assets); probes.Add("module "+id+" binding: readable after failure"); }
+            catch(Exception error) { probes.Add("module "+id+" binding: "+error); }
+            try
+            {
+                typeof(TownServiceMirror).GetMethod("ReadCanvasFrame",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic)!
+                    .Invoke(null,new object[]{cards[id],new TownServiceFrame()});
+                probes.Add("module "+id+" canvas frame: readable after failure");
+            }
+            catch(Exception error) { probes.Add("module "+id+" canvas frame: "+error); }
+        }
+        throw new InvalidOperationException("Initial native rack publication failed at scale "+scale
+            +"; missing modules="+string.Join(",",missing)+"\n"+string.Join("\n",captureErrors)
+            +"\n"+string.Join("\n",probes));
     }
 }
