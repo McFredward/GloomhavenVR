@@ -61,6 +61,17 @@ public static class InteractionProgram
     }
     private static int Count(Component driver, string field) => ((ICollection)driver.GetType().GetField(field, Private)!.GetValue(driver)!).Count;
     private static int Value(Component driver, string field) => (int)driver.GetType().GetField(field, Private)!.GetValue(driver)!;
+    private static bool HasQueuedDiscovery(Component driver) => Count(driver,"_pending")!=0
+        ||Count(driver,"_nodes")!=0||Count(driver,"_materialNodes")!=0
+        ||driver.GetType().GetField("_walkingTile",Private)!.GetValue(driver)!=null;
+    private static void DrainQueuedDiscovery(Component driver)
+    {
+        // Real discovery has a per-update realtime deadline. A fixed frame count depends
+        // on other suites' CPU load; wait for actual queued work without invoking a seed or
+        // loading-close hook that could conceal a broken loading-edge notification.
+        for(int frame=0;frame<2000&&HasQueuedDiscovery(driver);frame++)Tick(driver);
+        Check(!HasQueuedDiscovery(driver),"native queued discovery finishes within the bounded fixture update window");
+    }
     public static int Run()
     {
         _count = 0; VRLog.Messages.Clear(); PerfMonitor.Marks.Clear(); SceneRegistry.MapTiles.Tiles.Clear();
@@ -636,9 +647,11 @@ public static class InteractionProgram
             // Retain the independent unpatched fallback-edge proof after explicitly restarting
             // native loading, so a broken Harmony registration cannot silently omit discovery.
             SceneController.Instance.IsLoading=true;Tick(driver);
+            Check(!HasQueuedDiscovery(driver),"loading-edge fixture begins without unrelated queued discovery");
             var late=Leaf(full.transform,"FR_Floor_PlantsBushes_02");
             Check(!late.forceRenderingOff, "late fixture begins unmasked before native placement");
-            SceneController.Instance.IsLoading=false; Tick(driver,10);
+            SceneController.Instance.IsLoading=false; Tick(driver);
+            DrainQueuedDiscovery(driver);
             Check(late.forceRenderingOff, "loading-complete edge discovers late Apparance content missed by scene entry");
             var settled=Leaf(full.transform,"FR_Floor_Scatter_Grass_Medium_05");
             SceneryClock.Now+=3; Tick(driver,100);
