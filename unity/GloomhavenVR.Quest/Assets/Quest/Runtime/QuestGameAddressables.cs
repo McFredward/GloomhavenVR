@@ -72,9 +72,10 @@ namespace GloomhavenVR.Quest
                     {
                         if (alias == null || string.IsNullOrEmpty(alias.key) || string.IsNullOrEmpty(alias.assetGuid)) throw new InvalidDataException("Invalid original Addressables alias.");
                         IList<IResourceLocation> native = null;
+                        bool resolved = false;
                         foreach (IResourceLocator locator in Addressables.ResourceLocators)
-                            if (locator.Locate(alias.assetGuid, typeof(UnityEngine.Object), out native) && native != null && native.Count != 0) break;
-                        if (native == null || native.Count == 0) throw new InvalidDataException("Original key alias has no real native catalog asset: " + alias.key + " -> " + alias.assetGuid);
+                            if (locator.Locate(alias.assetGuid, typeof(UnityEngine.Object), out native) && native != null && native.Count != 0) { resolved = true; break; }
+                        if (!resolved) throw new InvalidDataException("Original key alias has no real native catalog asset: " + alias.key + " -> " + alias.assetGuid);
                         aliases.Add(alias.key, native);
                     }
                     aliasLocator = aliases; Addressables.AddResourceLocator(aliases);
@@ -94,19 +95,13 @@ namespace GloomhavenVR.Quest
                 }
                 int count = locations.Result.Count;
                 Addressables.Release(locations);
-                AsyncOperationHandle<IList<UnityEngine.Object>> assets = Addressables.LoadAssetsAsync<UnityEngine.Object>(label, null);
-                pinned.Add(assets);
-                yield return assets;
-                if (assets.Status != AsyncOperationStatus.Succeeded || assets.Result == null || assets.Result.Count != count)
-                {
-                    Failure = assets.OperationException ?? new InvalidDataException("Native startup required label did not load its full asset set: " + label); yield break;
-                }
-                foreach (UnityEngine.Object asset in assets.Result)
-                    if (asset == null) { Failure = new InvalidDataException("Native startup label returned a missing asset: " + label); yield break; }
-                Debug.Log("[Quest startup] native Addressables label verified=" + label + " assets=" + assets.Result.Count);
+                // The original AssetBundleManager owns initial asset loading,
+                // its progress and retained handles. Preloading the same labels
+                // here delays the intro and creates a second lifetime owner.
+                Debug.Log("[Quest startup] native Addressables label located=" + label + " assets=" + count);
             }
             Ready = true;
-            Debug.Log("[Quest startup] native Addressables initialized and required labels loaded from verified owned files.");
+            Debug.Log("[Quest startup] native Addressables initialized; original AssetBundleManager owns required asset loading.");
         }
         public void Dispose()
         {
