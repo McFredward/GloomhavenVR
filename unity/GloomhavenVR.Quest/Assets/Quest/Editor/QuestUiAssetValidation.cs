@@ -64,6 +64,7 @@ namespace GloomhavenVR.Quest.Editor
 
         public static void Validate(bool androidAssetsBuilt)
         {
+            QuestBlurValidation.Validate(androidAssetsBuilt);
             SafePath(ReceiptPath);
             if (File.Exists(ReceiptPath)) File.Delete(ReceiptPath);
             if (!Directory.Exists("Assets/Quest") ||

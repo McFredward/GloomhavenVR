@@ -32,8 +32,9 @@ def main():
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
     (project / "Packages/manifest.json").write_text('{"dependencies":{}}\n')
     receipt = json.loads((source / "QuestStartupEvidence/original-ui-assets.json").read_text())
+    blur = json.loads((source / "QuestStartupEvidence/original-ui-blur.json").read_text())
     before = {}
-    for row in receipt["shaders"]:
+    for row in receipt["shaders"] + [blur]:
         for relative, expected in ((row["assetPath"], row["sourceSha256"]), (row["assetPath"] + ".meta", row["metaSha256"])):
             if not relative.startswith("Assets/Shader/") or ".." in Path(relative).parts:
                 raise SystemExit("Unsafe private UI source path.")
@@ -48,8 +49,10 @@ def main():
     target_receipt = project / "QuestStartupEvidence/original-ui-assets.json"
     target_receipt.parent.mkdir()
     shutil.copy2(source / "QuestStartupEvidence/original-ui-assets.json", target_receipt)
+    shutil.copy2(source / "QuestStartupEvidence/original-ui-blur.json", project / "QuestStartupEvidence/original-ui-blur.json")
     production = root / "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestUiAssetValidation.cs"
     shutil.copy2(production, project / "Assets/Quest/Editor/QuestUiAssetValidation.cs")
+    shutil.copy2(production.with_name("QuestBlurValidation.cs"), project / "Assets/Quest/Editor/QuestBlurValidation.cs")
     shutil.copy2(root / "tests/QuestUiShaders.Tests/Probe.cs", project / "Assets/Quest/Editor/Probe.cs")
     print("Quest UI shader evidence: " + str(run), flush=True)
     result = subprocess.run([str(args.unity.resolve()), "-batchmode", "-nographics", "-quit", "-buildTarget", "Android",

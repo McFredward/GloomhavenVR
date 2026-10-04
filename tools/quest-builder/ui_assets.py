@@ -181,6 +181,12 @@ SHADERS = {
 }
 
 
+def stage_startup_blur(project):
+    """Stage the separately audited original framebuffer blur without changing the two-shader receipt."""
+    from ui_blur import stage_startup_blur as restore
+    return restore(project)
+
+
 def _hash(content):
     return hashlib.sha256(content).hexdigest()
 
