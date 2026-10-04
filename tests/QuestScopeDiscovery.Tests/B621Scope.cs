@@ -1,3 +1,6 @@
+// Test-only B621 production snapshot for the measured before/after CPU comparison.
+// Native source a06d33a1d24fb29872c3ad44e4f9901d74df3082, SHA-256 7ea280576c7422844900618f78053cfd4aefcabf2bf90d4a0c88f393f688cb71.
+// Only the component class name is changed; this file is never selected by the builder.
 #nullable disable
 #if GHVR_QUEST_STARTUP
 using System;
@@ -11,7 +14,7 @@ namespace GloomhavenVR.Quest
 {
     /// <summary>Only the explicitly excluded original entries; real mod input/tooltips remain owners.</summary>
     [DefaultExecutionOrder(10000)]
-    public sealed class QuestGameScope : MonoBehaviour
+    public sealed class QuestGameScopeB621 : MonoBehaviour
     {
         sealed class Entry
         {
@@ -25,35 +28,33 @@ namespace GloomhavenVR.Quest
         readonly List<Entry> entries = new List<Entry>();
         readonly HashSet<string> reported = new HashSet<string>(StringComparer.Ordinal);
         readonly List<MonoBehaviour> sceneBehaviours = new List<MonoBehaviour>();
+        readonly List<MonoBehaviour> behaviourScratch = new List<MonoBehaviour>();
         readonly Dictionary<Type, string> typeNames = new Dictionary<Type, string>();
-        QuestScopeObjects scopeObjects;
-        bool discoveryAttempted;
+        QuestSceneObjects sceneObjects;
+        float nextScan;
 
-        // SceneComponentCount now counts matched scope owners, not unrelated
-        // scene MonoBehaviours. Scalars only: the existing startup snapshot prices
+        // Scalars only: the existing startup snapshot can price this actual
         // discovery on hardware without another scene census or log stream.
         public static int DiscoveryScans { get; private set; }
         public static int SceneComponentCount { get; private set; }
         public static double DiscoveryLastMs { get; private set; }
         public static double DiscoveryWorstMs { get; private set; }
-        public static int DiscoveryLastTypeCount { get; private set; }
 
         void LateUpdate()
         {
             if (!QuestStandalonePlatform.Enabled) return;
-            double now = Time.unscaledTimeAsDouble;
-            if (!discoveryAttempted || scopeObjects != null && scopeObjects.NeedsScan(now))
+            if (Time.unscaledTime >= nextScan)
             {
+                nextScan = Time.unscaledTime + 1;
                 bool measure = QuestStandalonePlatform.DebugLogging;
                 long started = measure ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
-                try { Scan(now); }
+                try { Scan(); }
                 finally
                 {
                     if (measure)
                     {
                         DiscoveryScans++;
-                        SceneComponentCount = scopeObjects != null ? scopeObjects.MatchedOwnerCount : 0;
-                        DiscoveryLastTypeCount = scopeObjects != null ? scopeObjects.LastQueryTypeCount : 0;
+                        SceneComponentCount = sceneBehaviours.Count;
                         DiscoveryLastMs = (System.Diagnostics.Stopwatch.GetTimestamp() - started) * 1000d / System.Diagnostics.Stopwatch.Frequency;
                         DiscoveryWorstMs = Math.Max(DiscoveryWorstMs, DiscoveryLastMs);
                     }
@@ -77,16 +78,10 @@ namespace GloomhavenVR.Quest
             }
         }
 
-        void Scan(double now)
+        void Scan()
         {
-            if (!discoveryAttempted)
-            {
-                discoveryAttempted = true;
-                try { scopeObjects = new QuestScopeObjects(); }
-                catch (Exception error) { Report("scope-discovery", error); }
-            }
-            if (scopeObjects == null) { sceneBehaviours.Clear(); return; }
-            scopeObjects.CollectDue(now, sceneBehaviours);
+            if (sceneObjects == null) sceneObjects = new QuestSceneObjects(this);
+            sceneObjects.Collect(sceneBehaviours, behaviourScratch);
             foreach (MonoBehaviour behaviour in sceneBehaviours)
             {
                 if (behaviour == null || !behaviour.gameObject.scene.IsValid() || !behaviour.gameObject.scene.isLoaded) continue;

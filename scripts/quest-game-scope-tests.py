@@ -25,6 +25,7 @@ def main():
     root = Path(__file__).resolve().parents[1]
     source = (args.source or root).resolve()
     paths = {"QuestGameScope.cs": source / "unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestGameScope.cs",
+             "QuestScopeObjects.cs": source / "unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestScopeObjects.cs",
              "QuestSceneObjects.cs": source / "unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestSceneObjects.cs",
              "QuestText.cs": source / "src/GloomhavenVR/Core/Loc/QuestText.cs"}
     original = {name: path.read_text() for name, path in paths.items()}
@@ -52,20 +53,26 @@ def main():
          "native tooltip attaches to active purchase panel"),
         ("guildmaster-null-pointer-api-used", "QuestGameScope.cs", "tooltip != null && !entry.attachedTooltip", "tooltip != null",
          "Guildmaster Quest explanation reaches actual attached target"),
-        ("imported-asset-census-restored", "QuestGameScope.cs", "sceneObjects.Collect(sceneBehaviours, behaviourScratch);",
+        ("imported-asset-census-restored", "QuestGameScope.cs", "scopeObjects.CollectDue(now, sceneBehaviours);",
          "sceneBehaviours.Clear(); sceneBehaviours.AddRange(Resources.FindObjectsOfTypeAll<MonoBehaviour>());",
-         "scope never enumerates imported asset population"),
-        ("inactive-native-widgets-skipped", "QuestSceneObjects.cs", "item.GetComponentsInChildren<T>(true, scratch);",
-         "item.GetComponentsInChildren<T>(false, scratch);", "inactive original purchase widget discovered"),
+         "scope never enumerates broad imported asset population"),
+        ("inactive-native-widgets-skipped", "QuestScopeObjects.cs", "Resources.FindObjectsOfTypeAll(target)",
+         "UnityEngine.Object.FindObjectsOfType(target, false)", "inactive original purchase widget discovered"),
         ("persistent-roots-lost", "QuestSceneObjects.cs", "bool listed = false;", "bool listed = true;",
          "persistent native roots discovered without global assets scan"),
-        ("delayed-spawns-lost", "QuestSceneObjects.cs", "result.Clear();", "if (result.Count > 0) return; result.Clear();",
-         "delayed native widget discovered on next ordinary scan"),
+        ("delayed-spawns-lost", "QuestScopeObjects.cs", "deadlines[due] += 1d;", "deadlines[due] += 100d;",
+         "pooled missing DLC purchase can bind again"),
         ("desktop-scope-leaked", "QuestGameScope.cs", "if (!QuestStandalonePlatform.Enabled) return;",
          "if (!QuestStandalonePlatform.Enabled && Time.unscaledTime < 0) return;",
          "ordinary desktop scope leaves native UI and discovery untouched"),
         ("steady-discovery-allocation-added", "QuestSceneObjects.cs", "result.Clear();",
          "result.Clear(); System.GC.KeepAlive(new object());", "steady loaded-scene discovery reuses root and component buffers"),
+        ("all-behaviours-transferred", "QuestScopeObjects.cs", "FindObjectsOfTypeAll(target)",
+         "FindObjectsOfTypeAll(typeof(MonoBehaviour))", "scope queries only seven exact original owner types"),
+        ("exact-native-type-query-lost", "QuestScopeObjects.cs", "Type target = targets[index];",
+         "Type target = typeof(MonoBehaviour);", "inherited private promotion button disabled"),
+        ("owner-abi-not-validated", "QuestScopeObjects.cs", "!typeof(MonoBehaviour).IsAssignableFrom(target)",
+         "false", "targeted discovery validates exact owner component ABI once"),
     ]
     output = root / ".planning/debug/quest-game-scope"
     output.mkdir(parents=True, exist_ok=True)

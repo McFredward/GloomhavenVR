@@ -13,6 +13,7 @@
     <Reference Include="UnityEngine.UI"><HintPath>$(GameManaged)/UnityEngine.UI.dll</HintPath></Reference>
     <Compile Include="$(RuntimeSource)/QuestGameScope.cs" />
     <Compile Include="$(RuntimeSource)/QuestSceneObjects.cs" />
+    <Compile Include="$(RuntimeSource)/QuestScopeObjects.cs" />
     <Compile Include="$(RuntimeSource)/QuestText.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)NativeSDKProbe.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)PlatformStub.cs" />

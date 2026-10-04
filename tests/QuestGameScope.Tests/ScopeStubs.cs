@@ -11,7 +11,7 @@ namespace UnityEngine
     public sealed class DefaultExecutionOrder : Attribute { public DefaultExecutionOrder(int value) { } }
     public enum SystemLanguage { English, German }
     public static class Application { public static SystemLanguage systemLanguage; }
-    public static class Time { public static float unscaledTime; }
+    public static class Time { public static float unscaledTime; public static double unscaledTimeAsDouble => unscaledTime; }
     public static class Debug
     {
         public static readonly List<string> Logs = new();
@@ -22,6 +22,15 @@ namespace UnityEngine
     public class Object
     {
         public bool Destroyed;
+        public static Object[] FindObjectsOfType(Type type, bool includeInactive)
+        {
+            Resources.TargetedQueries.Add(type);
+            var found = Resources.All.Where(value => !value.Destroyed && type.IsAssignableFrom(value.GetType()))
+                .OfType<Component>().Where(value => value.gameObject.scene.IsValid() && value.gameObject.scene.isLoaded
+                    && (includeInactive || value.gameObject.activeInHierarchy)).Cast<Object>().ToArray();
+            Resources.TargetedObjects += found.Length;
+            return found;
+        }
         public static void Destroy(Object value)
         {
             value.Destroyed = true;
@@ -98,7 +107,15 @@ namespace UnityEngine
     public static class Resources
     {
         public static readonly List<Object> All = new();
-        public static int GlobalEnumerations;
+        public static int GlobalEnumerations, TargetedObjects;
+        public static readonly List<Type> TargetedQueries = new();
+        public static Object[] FindObjectsOfTypeAll(Type type)
+        {
+            TargetedQueries.Add(type);
+            var found = All.Where(value => !value.Destroyed && type.IsAssignableFrom(value.GetType())).ToArray();
+            TargetedObjects += found.Length;
+            return found;
+        }
         public static T[] FindObjectsOfTypeAll<T>()
         { GlobalEnumerations++; return All.Where(value => !value.Destroyed).OfType<T>().ToArray(); }
     }

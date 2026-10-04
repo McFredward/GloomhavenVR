@@ -12,7 +12,7 @@ static class Program
     static QuestGameScope Reset(SystemLanguage language = SystemLanguage.English)
     {
         Resources.All.Clear(); Debug.Logs.Clear(); Debug.Errors.Clear();
-        Resources.GlobalEnumerations = 0; SceneManager.Reset();
+        Resources.GlobalEnumerations = 0; Resources.TargetedQueries.Clear(); Resources.TargetedObjects = 0; SceneManager.Reset();
         QuestStandalonePlatform.Enabled = true; QuestStandalonePlatform.DebugLogging = false;
         Application.systemLanguage = language; Time.unscaledTime = 0;
         return new QuestGameScope();
@@ -177,7 +177,9 @@ static class Program
         var future = new FutureNativeOption(); future.NativeButton.interactable = false;
         object futureCallback = new object(); future.Callback = futureCallback;
         Tick(scope);
-        Check(Resources.GlobalEnumerations == 0, "scope never enumerates imported asset population");
+        Check(Resources.GlobalEnumerations == 0, "scope never enumerates broad imported asset population");
+        Check(Resources.TargetedQueries.Count == 7 && !Resources.TargetedQueries.Contains(typeof(MonoBehaviour)), "scope queries only seven exact original owner types");
+        Check(Resources.TargetedObjects <= 2, "scope transfers only native target candidates to managed code");
         Check(asset.NativeButton.interactable, "non-scene prefab purchase content remains untouched");
         Check(!inactive.NativeButton.interactable, "inactive original purchase widget discovered");
         Check(!future.NativeButton.interactable && ReferenceEquals(future.Callback, futureCallback), "future native option stays under original ownership");
@@ -206,7 +208,7 @@ static class Program
         Check(GC.GetAllocatedBytesForCurrentThread() == before, "steady loaded-scene discovery reuses root and component buffers");
 
         scope = Reset(); var desktop = new UIPromotionDLCSlot(); QuestStandalonePlatform.Enabled = false;
-        Tick(scope); Check(desktop.NativeButton.interactable && Resources.GlobalEnumerations == 0,
+        Tick(scope); Check(desktop.NativeButton.interactable && Resources.GlobalEnumerations == 0 && Resources.TargetedQueries.Count == 0,
             "ordinary desktop scope leaves native UI and discovery untouched");
         QuestStandalonePlatform.Enabled = true; int scans = QuestGameScope.DiscoveryScans;
         Tick(scope, 1); Check(QuestGameScope.DiscoveryScans == scans, "normal logging does not sample discovery clocks");
@@ -215,7 +217,60 @@ static class Program
             && QuestGameScope.DiscoveryWorstMs >= QuestGameScope.DiscoveryLastMs, "Debug discovery timing prices actual scoped work only");
         QuestStandalonePlatform.DebugLogging = false;
         NoErrors("scene discovery");
+        TargetedBoundaries();
     }
+    static void TargetedBoundaries()
+    {
+        var scope = Reset();
+        var inactive = new UIPromotionDLCSlot(); inactive.gameObject.SetActive(false);
+        var subclass = new FuturePromotion();
+        var late = new GLOOM.MainMenu.UILoadGameSlot(); late.NativeLoad.TextLanguageKey = "Consoles/LEARN_MORE";
+        var persistent = new UIDLCSelectorOption(); persistent.gameObject.MoveToScene(SceneManager.Persistent);
+        persistent.PurchasePanel.SetActive(true);
+        var additive = new UIPromotionDLCSlot(); Scene extra = SceneManager.AddScene(); additive.gameObject.MoveToScene(extra);
+        for (int index = 0; index < 14338; index++) _ = new FutureNativeOption();
+        Tick(scope);
+        Check(!inactive.NativeButton.interactable && !late.NativeLoad.interactable && !persistent.NativeGamepadToggle.interactable
+            && !additive.NativeButton.interactable, "targeted scope preserves inactive late additive persistent exclusions");
+        Check(subclass.NativeButton.interactable, "targeted scope excludes future native subclasses from exact owner binding");
+        Check(Resources.TargetedObjects == 5, "targeted query crosses managed boundary only for matching candidates");
+        SceneManager.Unload(extra);
+        var targeted = new QuestScopeObjects(); var actual = new System.Collections.Generic.List<MonoBehaviour>();
+        targeted.Collect(actual);
+        Check(!actual.Contains(additive), "targeted discovery drops unloaded scene owners");
+        Check(actual.Count == 3 && targeted.LastNativeObjectCount == 5, "targeted result filters exact identities without broad scene census");
+        var delayed = new UIPromotionDLCSlot(); delayed.gameObject.SetActive(false); Tick(scope, .5f);
+        Check(delayed.NativeButton.interactable, "targeted discovery retains ordinary delayed-spawn cadence");
+        Tick(scope, 1.01f); Check(!delayed.NativeButton.interactable, "targeted discovery finds new inactive owners without lifecycle hooks");
+        UnityEngine.Object.Destroy(delayed);
+        targeted.Collect(actual); Check(!actual.Contains(delayed), "targeted discovery drops destroyed owners");
+        bool rejected = false;
+        try { _ = new QuestScopeObjects(new[] { typeof(GameObject) }); }
+        catch (InvalidOperationException error) { rejected = error.Message.Contains("MonoBehaviour ABI"); }
+        Check(rejected, "targeted discovery validates exact owner component ABI once");
+        NoErrors("targeted discovery");
+    }
+    static void DiscoveryAbiFailure()
+    {
+        var scope = Reset(); var native = new UIPromotionDLCSlot();
+        var names = (string[])typeof(QuestScopeObjects).GetField("NativeNames", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        string original = names[0];
+        try
+        {
+            names[0] = "Original.ScopeOwnerRenamedByAChangedGame";
+            Tick(scope);
+            Check(Debug.Errors.Count == 1 && Debug.Errors[0].Contains("scope-discovery")
+                && Debug.Errors[0].Contains(names[0]), "changed original scope owner ABI fails visibly once");
+            Check(Resources.TargetedQueries.Count == 0 && native.NativeButton.interactable, "invalid scope ABI never guesses substitute native owner bindings");
+            for (int index = 1; index < 16; index++) Tick(scope, index * 1.01f);
+            Check(Debug.Errors.Count == 1, "invalid scope ABI failure logging remains bounded across repeated scans");
+            Check((bool)typeof(QuestGameScope).GetField("discoveryAttempted", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(scope)!,
+                "original scope owner ABI validation remains one attempt per adapter");
+        }
+        finally { names[0] = original; }
+    }
+    public sealed class FuturePromotion : UIPromotionDLCSlot { }
+
     public sealed class FutureNativeOption : MonoBehaviour
     {
         public Button NativeButton = new Button();
@@ -225,7 +280,7 @@ static class Program
     {
         try
         {
-            AdsAndLocalization(); SavePooling(); ExistingTooltipOwnership(); SelectorPooling(); ExactExistingScope(); GuildmasterAttachedTooltip(); DiscoveryBoundaries();
+            AdsAndLocalization(); SavePooling(); ExistingTooltipOwnership(); SelectorPooling(); ExactExistingScope(); GuildmasterAttachedTooltip(); DiscoveryBoundaries(); DiscoveryAbiFailure();
             Console.WriteLine("PASS Quest native purchase scope: " + assertions + " behavioral assertions");
             return 0;
         }
