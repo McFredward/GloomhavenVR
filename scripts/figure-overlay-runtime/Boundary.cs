@@ -4,10 +4,46 @@ using UnityEngine;
 public sealed class ActorBehaviour : MonoBehaviour
 {
     public GameObject? m_RootGameObject, m_AnimatedGameObject, m_Hilight;
-    public TestActor Actor = new TestActor();
+    public ScenarioRuleLibrary.CActor Actor = new TestActor();
 }
-public sealed class TestActor { public TestClass Class = new TestClass(); }
-public sealed class TestClass { public string ID = "NativeSpittingDrake"; }
+public sealed class TestActor : ScenarioRuleLibrary.CActor { }
+public class TestClass { public string ID = "NativeSpittingDrake", DefaultModel = "NativeSpittingDrake"; }
+namespace ScenarioRuleLibrary
+{
+    public class CActor { public TestClass Class = new(); }
+    public sealed class CharacterYMLData { public string CustomCharacterConfig = ""; }
+    public sealed class CCharacterClass { public CharacterYMLData CharacterYML = new(); }
+    public sealed class CPlayerActor : CActor { public CCharacterClass CharacterClass = new(); }
+    public sealed class MonsterYMLData { public string CustomConfig = ""; }
+    public sealed class CMonsterClass { public string DefaultModel = ""; public MonsterYMLData MonsterYML = new(); }
+    public class CEnemyActor : CActor { public CMonsterClass MonsterClass = new(); }
+    public sealed class PropHealthDetails { public string ActorSpriteName = ""; }
+    public sealed class AttachedProp { public PropHealthDetails PropHealthDetails = new(); }
+    public sealed class CObjectActor : CEnemyActor { public bool IsAttachedToProp; public AttachedProp AttachedProp = new(); }
+    public sealed class HeroSummonClass { public MonsterYMLData SummonYML = new(); }
+    public sealed class CHeroSummonActor : CActor { public string Prefab = ""; public string GetPrefabName() => Prefab; public HeroSummonClass HeroSummonClass = new(); }
+}
+public sealed class MonsterConfigYMLData { public string ID = "", Portrait = ""; }
+public sealed class TestSRLYML { public List<MonsterConfigYMLData> MonsterConfigs = new(); }
+public static class ScenarioRuleClient { public static TestSRLYML SRLYML = new(); }
+public sealed class CharacterConfigUI { public Sprite? scenarioPreviewInfoPortrait; }
+public sealed class UIInfoTools
+{
+    public static UIInfoTools? Instance;
+    public readonly Dictionary<(string,string?),SpriteMemoryManagement.ReferenceToSprite> Portraits = new();
+    public readonly Dictionary<(string,string),CharacterConfigUI> Characters = new();
+    public readonly Dictionary<(string,string),Sprite> HeroPortraits = new();
+    public readonly List<(string,string?)> Requested = new();
+    public SpriteMemoryManagement.ReferenceToSprite GetActorPortraitRef(string actorModel,string? customPortrait=null)
+    { Requested.Add((actorModel,customPortrait)); return Portraits[(actorModel,customPortrait)]; }
+    public CharacterConfigUI GetCharacterConfigUI(string character,bool useDefault=true,string customConfigID="")
+    { if(!useDefault) throw new System.InvalidOperationException("native uses default fallback"); return Characters[(character,customConfigID)]; }
+    public Sprite GetCharacterHeroPortrait(string character,string custom="") => HeroPortraits[(character,custom)];
+}
+namespace SpriteMemoryManagement
+{
+    public sealed class ReferenceToSprite { public Sprite? Sprite; public bool Pending; }
+}
 public sealed class HexSelect_Control : MonoBehaviour { public MeshRenderer? HexProjector; }
 public sealed class HexSelectControlParticles : MonoBehaviour
 { public ParticleSystem[]? ParticleBits, ParticleHover; }
@@ -32,6 +68,18 @@ namespace GloomhavenVR.Cards
         internal static Sprite? ReplacementFor(Sprite sprite) { Sprites.Add(sprite); return sprite; }
         internal static Texture2D? BakedTextureFor(Texture2D texture) { Textures.Add(texture); return texture; }
     }
+    internal static class ScenarioCardPreparation
+    {
+        internal static readonly HashSet<SpriteMemoryManagement.ReferenceToSprite> References = new();
+        internal static void IncludeOriginalReference(SpriteMemoryManagement.ReferenceToSprite reference) => References.Add(reference);
+    }
+    internal static class CardArtPin
+    {
+        internal static readonly HashSet<SpriteMemoryManagement.ReferenceToSprite> Pins = new();
+        internal static void PinReference(SpriteMemoryManagement.ReferenceToSprite reference) => Pins.Add(reference);
+        internal static Sprite? PreparedSprite(SpriteMemoryManagement.ReferenceToSprite reference,out bool pending)
+        { pending=reference.Pending;return pending?null:reference.Sprite; }
+    }
 }
 namespace GloomhavenVR.Core
 {
@@ -43,7 +91,7 @@ namespace GloomhavenVR.Core
     }
     internal static class ScenarioEnvironmentBudget { internal static void BeforeNativeRendererWrite(Renderer renderer) { } }
     internal static class VRLayers { internal const int ModLayer = 26; internal const string ModOwnedNamePrefix = "VR", ModOwnedQualifiedPrefix = "GloomhavenVR."; }
-    internal static class VRLog { internal static bool WantsDebug => true; internal static void Warn(string area, string text) { } internal static void Note(string area, string text) { } internal static void Alert(string area, string text) { } }
+    internal static class VRLog { internal static bool WantsDebug => true; internal static void Warn(string area, string text) { } internal static void Note(string area, string text) { } internal static void Debug(string area, string text) { } internal static void Alert(string area, string text) { } }
 }
 public sealed class ActorStatPanel : MonoBehaviour
 { public static ActorStatPanel? Instance => Singleton<ActorStatPanel>.Instance; public static int Shows; public void Show() => Shows++; }

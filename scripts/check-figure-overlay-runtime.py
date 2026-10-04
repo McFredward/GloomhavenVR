@@ -36,9 +36,10 @@ def main():
     stat_source = (args.source_root / 'src/GloomhavenVR/WorldUI/Surfaces/StatPanelSurface.cs').read_text()
     stat_start = stat_source.index('    // Build617: cache only already-authored original imagery')
     stat_end = stat_source.index('    /// <summary>Viewer-relative dock side', stat_start)
-    sources['StatPreparation.cs'] = ('using System.Collections.Generic;using UnityEngine;using UnityEngine.UI;using GloomhavenVR.Core;'
+    sources['StatPreparation.cs'] = ('using System.Collections.Generic;using UnityEngine;using UnityEngine.UI;using GloomhavenVR.Core;using SpriteMemoryManagement;'
         'namespace GloomhavenVR.WorldUI.Surfaces { internal sealed class StatPanelSurface {\n'
         + stat_source[stat_start:stat_end] + '\n}}')
+    sources['StatPortraitPreparation.cs'] = (args.source_root / 'src/GloomhavenVR/WorldUI/Surfaces/StatPortraitPreparation.cs').read_text()
     wall = args.source_root / 'src/GloomhavenVR/Core/WallFade'
     generated = run / 'WallOwnershipReads.cs'
     subprocess.run([sys.executable, str(ROOT / 'tests/GloomhavenVR.WallReadFactsTests/extract-driver.py'),
@@ -88,6 +89,9 @@ def main():
             ('reuse-changed-mesh', 'FigureInteractionPreparation.cs', '!entry.Mirror.MatchesPreparedSource(source)', 'false', 'changed original mesh invalidates prepared identity'),
             ('destroy-pooled-ghost', 'FigureInteractionPreparation.cs', 'Park(ghost); entry.InUse = false;', 'Park(ghost); Object.Destroy(ghost); entry.InUse = false;', 'local and remote pickup reuse the same original visual cache'),
             ('skip-stat-sprite-cache', 'StatPreparation.cs', 'Cards.CardFaceMipBake.ReplacementFor(art.Sprite);', '{ }', 'original stat sprite cache is ready before preview'),
+            ('wrong-original-monster-model', 'StatPortraitPreparation.cs', 'string model = enemy.MonsterClass.DefaultModel;', 'string model = actor.Class.DefaultModel;', 'original monster and object portrait selectors'),
+            ('skip-original-prop-override', 'StatPortraitPreparation.cs', 'model = obj.AttachedProp.PropHealthDetails.ActorSpriteName;', 'model = enemy.MonsterClass.DefaultModel;', 'original monster and object portrait selectors'),
+            ('skip-original-portrait-queue', 'StatPreparation.cs', 'Cards.ScenarioCardPreparation.IncludeOriginalReference(portrait);', '{ }', 'original monster and object portrait selectors'),
             ('skip-inactive-material-release', 'FigureInteractionPreparation.cs', 'owner.Release();', '{ }', 'reset releases owned material of a prepared ghost that never activated'),
             ('skip-prepared-current-mask', 'FigureVisualMirror.cs', 'FigureOverlayMasks.Apply(pair.Source, pair.Copy, _materialScratch);', '// stale same-material mask injected', 'prepared acquire refreshes current blend weights and same-material native mask UVs'),
             ('reuse-changed-shader', 'FigureVisualMirror.cs', ' != slot.Shaders[i]', ' != (_materialScratch[i] != null ? _materialScratch[i].shader : null)', 'same material with changed shader invalidates prepared surface classification'),

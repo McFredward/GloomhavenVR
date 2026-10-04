@@ -136,6 +136,61 @@ public static class InteractionProgram
         Singleton<ActorStatPanel>.Instance=null;Singleton<EnemyCurrentTurnStatPanel>.Instance=null;
         Object.DestroyImmediate(statRoot);Object.DestroyImmediate(enemyRoot);Object.DestroyImmediate(authoredSprite);
 
+        // These selectors mirror the shipped ActorStatPanel methods (recorded in source
+        // evidence); the provider/pin boundary is inert. Exercise the whole production
+        // collector and queue against original field shapes, never a made-up native Show.
+        var tools=new UIInfoTools();UIInfoTools.Instance=tools;
+        var preview=Sprite.Create(mask,new Rect(0,0,16,16),Vector2.one*.5f);
+        var fallback=Sprite.Create(mask,new Rect(16,0,16,16),Vector2.one*.5f);
+        tools.Characters[("Brute","custom hero")]=new CharacterConfigUI{scenarioPreviewInfoPortrait=preview};
+        tools.Characters[("Elementalist","")]=new CharacterConfigUI();tools.HeroPortraits[("Elementalist","")]=fallback;
+        var monsterRef=new SpriteMemoryManagement.ReferenceToSprite{Sprite=preview,Pending=true};
+        var propRef=new SpriteMemoryManagement.ReferenceToSprite{Sprite=fallback};
+        var summonRef=new SpriteMemoryManagement.ReferenceToSprite{Sprite=preview};
+        tools.Portraits[("SunDemon","custom monster")]=monsterRef;
+        tools.Portraits[("prop-portrait","custom monster")]=propRef;
+        tools.Portraits[("SlimeSpirit","custom summon")]=summonRef;
+        ScenarioRuleClient.SRLYML.MonsterConfigs.Add(new MonsterConfigYMLData{ID="monster",Portrait="custom monster"});
+        ScenarioRuleClient.SRLYML.MonsterConfigs.Add(new MonsterConfigYMLData{ID="summon",Portrait="custom summon"});
+        ActorBehaviour OriginalActor(ScenarioRuleLibrary.CActor value)
+        { var behaviour=new GameObject("original portrait owner").AddComponent<ActorBehaviour>();behaviour.Actor=value;return behaviour; }
+        var player=new ScenarioRuleLibrary.CPlayerActor();player.Class.DefaultModel="Brute";player.CharacterClass.CharacterYML.CustomCharacterConfig="custom hero";
+        var other=new ScenarioRuleLibrary.CPlayerActor();other.Class.DefaultModel="Elementalist";
+        var monster=new ScenarioRuleLibrary.CEnemyActor();monster.MonsterClass.DefaultModel="SunDemon";monster.MonsterClass.MonsterYML.CustomConfig="monster";
+        var prop=new ScenarioRuleLibrary.CObjectActor{IsAttachedToProp=true};prop.MonsterClass=monster.MonsterClass;prop.AttachedProp.PropHealthDetails.ActorSpriteName="prop-portrait";
+        var summon=new ScenarioRuleLibrary.CHeroSummonActor{Prefab="SlimeSpirit"};summon.HeroSummonClass.SummonYML.CustomConfig="summon";
+        ActorBehaviour[] owners={OriginalActor(player),OriginalActor(other),OriginalActor(monster),OriginalActor(monster),OriginalActor(prop),OriginalActor(summon)};
+        GloomhavenVR.WorldUI.WorldUIConfig.PanelMipBake.Value=false;
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.BeginInteractionPreparation(owners);
+        Check(GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationTotal==0&&tools.Requested.Count==0,
+            "disabled panel mip setting does not resolve or pin original actor portraits");
+        GloomhavenVR.WorldUI.WorldUIConfig.PanelMipBake.Value=true;
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.BeginInteractionPreparation(owners);
+        Check(GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationTotal==5
+            &&ScenarioCardPreparation.References.Count==3&&CardArtPin.Pins.Count==0,
+            "original monster and object portrait selectors use shared deferred reference queue with native custom/summon keys");
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.TickInteractionPreparation();
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.TickInteractionPreparation();
+        Check(CardFaceMipBake.Sprites.Contains(preview)&&CardFaceMipBake.Sprites.Contains(fallback),
+            "original player scenario preview and native fallback portrait are warm before Show");
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.TickInteractionPreparation();
+        Check(GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationCompleted==2
+            &&!GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationReady&&CardArtPin.Pins.Contains(monsterRef),
+            "incomplete original portrait pin retains loader work without touching a native loading request");
+        monsterRef.Pending=false;
+        for(int i=0;i<3;i++)GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.TickInteractionPreparation();
+        Check(GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationReady
+            &&tools.Requested.Contains(("prop-portrait","custom monster"))&&tools.Requested.Contains(("SlimeSpirit","custom summon"))
+            &&ActorStatPanel.Shows==0&&EnemyCurrentTurnStatPanel.Shows==0,
+            "all existing actor portrait families reach the same cache without native lifecycle");
+        GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.ResetInteractionPreparation();
+        Check(GloomhavenVR.WorldUI.Surfaces.StatPanelSurface.InteractionPreparationTotal==0&&CardArtPin.Pins.Count==3,
+            "stat preparation reset clears borrowed jobs while the shared pin owner retains lifetime");
+        foreach(var owner in owners)Object.DestroyImmediate(owner.gameObject);
+        UIInfoTools.Instance=null;CardArtPin.Pins.Clear();ScenarioCardPreparation.References.Clear();
+        CardFaceMipBake.Sprites.Clear();CardFaceMipBake.Textures.Clear();
+        Object.DestroyImmediate(preview);Object.DestroyImmediate(fallback);
+
         // Native asset provenance is required. These are the shipped SpittingDrake rig, meshes
         // and sleeping/flying clips, with a fixture controller to isolate state from game rules.
         AssetBundle bundle=AssetBundle.LoadFromFile(Arg("-nativeDrakeBundle"));Check(bundle!=null,"native drake bundle loads");

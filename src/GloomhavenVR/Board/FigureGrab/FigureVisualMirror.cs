@@ -185,54 +185,58 @@ internal sealed class FigureVisualMirror : MonoBehaviour
         return count;
     }
 
+    internal string PreparedMismatchReason { get; private set; } = string.Empty;
+    private bool PreparedMismatch(string reason) { PreparedMismatchReason = reason; return false; }
+
     internal bool MatchesPreparedSource(GameObject source)
     {
-        if (source == null || source != _preparedSource || _preparedNodes.Count == 0) return false;
+        PreparedMismatchReason = string.Empty;
+        if (source == null || source != _preparedSource || _preparedNodes.Count == 0) return PreparedMismatch("source-root");
         foreach (var node in _preparedNodes)
         {
             if (node.Node == null || (node.Node != source.transform && node.Node.parent != node.Parent)
-                || NativeChildCount(node.Node) != node.Children) return false;
+                || NativeChildCount(node.Node) != node.Children) return PreparedMismatch("hierarchy");
             node.Node.GetComponents(_slotScratch);
-            if (_slotScratch.Count != node.Renderers.Length) return false;
-            for (int i = 0; i < _slotScratch.Count; i++) if (_slotScratch[i] != node.Renderers[i]) return false;
+            if (_slotScratch.Count != node.Renderers.Length) return PreparedMismatch("renderer-count");
+            for (int i = 0; i < _slotScratch.Count; i++) if (_slotScratch[i] != node.Renderers[i]) return PreparedMismatch("renderer-identity");
             node.Node.GetComponents(_groupScratch);
-            if (_groupScratch.Count != node.Groups.Length) return false;
-            for (int i = 0; i < _groupScratch.Count; i++) if (_groupScratch[i] != node.Groups[i]) return false;
+            if (_groupScratch.Count != node.Groups.Length) return PreparedMismatch("lod-component-count");
+            for (int i = 0; i < _groupScratch.Count; i++) if (_groupScratch[i] != node.Groups[i]) return PreparedMismatch("lod-component-identity");
         }
         foreach (var slot in _preparedSlots)
         {
-            if (slot.Renderer == null || FigureOverlay.SourceMesh(slot.Renderer) != slot.Mesh) return false;
+            if (slot.Renderer == null || FigureOverlay.SourceMesh(slot.Renderer) != slot.Mesh) return PreparedMismatch("mesh-identity");
             if (slot.Mesh != null && (slot.Mesh.vertexCount != slot.Vertices
-                || slot.Mesh.subMeshCount != slot.Submeshes || slot.Mesh.blendShapeCount != slot.Shapes)) return false;
-            if (slot.Renderer is SpriteRenderer sprite && sprite.sprite != slot.Sprite) return false;
+                || slot.Mesh.subMeshCount != slot.Submeshes || slot.Mesh.blendShapeCount != slot.Shapes)) return PreparedMismatch("mesh-topology");
+            if (slot.Renderer is SpriteRenderer sprite && sprite.sprite != slot.Sprite) return PreparedMismatch("sprite-identity");
             slot.Renderer.GetSharedMaterials(_materialScratch);
-            if (_materialScratch.Count != slot.Materials.Length) return false;
+            if (_materialScratch.Count != slot.Materials.Length) return PreparedMismatch("material-count");
             for (int i = 0; i < _materialScratch.Count; i++)
                 if (_materialScratch[i] != slot.Materials[i]
                     || (_materialScratch[i] != null ? _materialScratch[i].shader : null) != slot.Shaders[i]
-                    || (_materialScratch[i] != null ? _materialScratch[i].renderQueue : -1) != slot.Queues[i]) return false;
+                    || (_materialScratch[i] != null ? _materialScratch[i].renderQueue : -1) != slot.Queues[i]) return PreparedMismatch("material-shader-queue");
             if (slot.Renderer is SkinnedMeshRenderer skin)
             {
-                if (skin.rootBone != slot.RootBone) return false;
+                if (skin.rootBone != slot.RootBone) return PreparedMismatch("root-bone");
                 Transform[] bones = skin.bones;
-                if (bones.Length != slot.Bones.Length) return false;
-                for (int i = 0; i < bones.Length; i++) if (bones[i] != slot.Bones[i]) return false;
+                if (bones.Length != slot.Bones.Length) return PreparedMismatch("bone-count");
+                for (int i = 0; i < bones.Length; i++) if (bones[i] != slot.Bones[i]) return PreparedMismatch("bone-identity");
             }
         }
         foreach (var lod in _preparedLods)
         {
             if (lod.Group == null || lod.Group.enabled != lod.Enabled || lod.Group.localReferencePoint != lod.Centre
                 || lod.Group.size != lod.Size || lod.Group.fadeMode != lod.Fade
-                || lod.Group.animateCrossFading != lod.Animate) return false;
+                || lod.Group.animateCrossFading != lod.Animate) return PreparedMismatch("lod-settings");
             LOD[] table = lod.Group.GetLODs();
-            if (table.Length != lod.Table.Length) return false;
+            if (table.Length != lod.Table.Length) return PreparedMismatch("lod-level-count");
             for (int i = 0; i < table.Length; i++)
             {
                 if (table[i].screenRelativeTransitionHeight != lod.Table[i].screenRelativeTransitionHeight
                     || table[i].fadeTransitionWidth != lod.Table[i].fadeTransitionWidth
-                    || table[i].renderers.Length != lod.Table[i].renderers.Length) return false;
+                    || table[i].renderers.Length != lod.Table[i].renderers.Length) return PreparedMismatch("lod-level-settings");
                 for (int j = 0; j < table[i].renderers.Length; j++)
-                    if (table[i].renderers[j] != lod.Table[i].renderers[j]) return false;
+                    if (table[i].renderers[j] != lod.Table[i].renderers[j]) return PreparedMismatch("lod-renderer-identity");
             }
         }
         return true;

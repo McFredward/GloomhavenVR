@@ -3,6 +3,7 @@ using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
 using UnityEngine;
 using UnityEngine.UI;
+using SpriteMemoryManagement;
 
 namespace GloomhavenVR.WorldUI.Surfaces;
 
@@ -180,21 +181,25 @@ internal sealed class StatPanelSurface
 
     // Build617: cache only already-authored original imagery while the scenario loader is up.
     // Never Show a made-up actor, instantiate a live singleton or create a preview camera.
-    // Portraits which do not yet exist retain their normal live arrival path.
+    // Build618 also resolves the original portraits for existing actors. Loading uses our own
+    // GUID pins, never the native ImageSpriteLoader or a synthetic panel Show.
     private readonly struct PreparationArt
     {
-        internal PreparationArt(Sprite sprite) { Sprite = sprite; Texture = null; }
-        internal PreparationArt(Texture2D texture) { Sprite = null; Texture = texture; }
+        internal PreparationArt(Sprite sprite) { Sprite = sprite; Texture = null; Reference = null; }
+        internal PreparationArt(Texture2D texture) { Sprite = null; Texture = texture; Reference = null; }
+        internal PreparationArt(ReferenceToSprite reference) { Sprite = null; Texture = null; Reference = reference; }
         internal readonly Sprite? Sprite;
         internal readonly Texture2D? Texture;
+        internal readonly ReferenceToSprite? Reference;
     }
     private static readonly List<PreparationArt> Preparation = new();
     private static int _preparedArt, _preparationFailures;
+    private static float _portraitWaitUntil;
     internal static int InteractionPreparationTotal => Preparation.Count;
     internal static int InteractionPreparationCompleted => _preparedArt;
     internal static bool InteractionPreparationReady => _preparedArt >= Preparation.Count;
 
-    internal static void BeginInteractionPreparation()
+    internal static void BeginInteractionPreparation(ActorBehaviour[]? actors = null)
     {
         ResetInteractionPreparation();
         if (WorldUIConfig.PanelMipBake == null || !WorldUIConfig.PanelMipBake.Value) return;
@@ -204,6 +209,20 @@ internal sealed class StatPanelSurface
             CollectPreparationArt(ActorStatPanel.Instance, sprites, textures);
         if (Singleton<EnemyCurrentTurnStatPanel>.IsInitialized)
             CollectPreparationArt(EnemyCurrentTurnStatPanel.Instance, sprites, textures);
+        if (actors != null)
+        {
+            var references = new HashSet<ReferenceToSprite>();
+            StatPortraitPreparation.Collect(actors,
+                portrait => { if (sprites.Add(portrait)) Preparation.Add(new PreparationArt(portrait)); },
+                portrait =>
+                {
+                    if (!references.Add(portrait)) return;
+                    Preparation.Add(new PreparationArt(portrait));
+                    // Start asynchronously through the existing coordinator's one-resource
+                    // queue while figure ghosts are prepared; do not load in this callback.
+                    Cards.ScenarioCardPreparation.IncludeOriginalReference(portrait);
+                });
+        }
     }
 
     private static void CollectPreparationArt(Component? root, HashSet<Sprite> sprites, HashSet<Texture2D> textures)
@@ -226,12 +245,25 @@ internal sealed class StatPanelSurface
         try
         {
             // Populate the existing shared cache; original UI assignments and lifetime stay live.
-            if (art.Sprite != null) Cards.CardFaceMipBake.ReplacementFor(art.Sprite);
+            if (art.Reference != null)
+            {
+                if (_portraitWaitUntil == 0f) _portraitWaitUntil = Time.realtimeSinceStartup + 30f;
+                Cards.CardArtPin.PinReference(art.Reference);
+                Sprite? portrait = Cards.CardArtPin.PreparedSprite(art.Reference, out bool pending);
+                if (portrait != null) Cards.CardFaceMipBake.ReplacementFor(portrait);
+                else if (pending && Time.realtimeSinceStartup < _portraitWaitUntil)
+                { _preparedArt--; return; }
+                else if (++_preparationFailures <= 2)
+                    VRLog.Warn("WorldUI", $"Stat portrait preparation unavailable or timed out; original live preview remains available (report {_preparationFailures}/2).");
+                _portraitWaitUntil = 0f;
+            }
+            else if (art.Sprite != null) Cards.CardFaceMipBake.ReplacementFor(art.Sprite);
             else if (art.Texture != null && art.Texture.mipmapCount <= 1)
                 Cards.CardFaceMipBake.BakedTextureFor(art.Texture);
         }
         catch (System.Exception ex)
         {
+            _portraitWaitUntil = 0f;
             if (++_preparationFailures <= 2)
                 VRLog.Warn("WorldUI", $"Stat imagery preparation skipped ({ex.GetType().Name}: {ex.Message}); original live stat preview remains available (report {_preparationFailures}/2).");
         }
@@ -239,7 +271,7 @@ internal sealed class StatPanelSurface
 
     internal static void ResetInteractionPreparation()
     {
-        Preparation.Clear(); _preparedArt = _preparationFailures = 0;
+        Preparation.Clear(); _preparedArt = _preparationFailures = 0; _portraitWaitUntil = 0f;
     }
 
     /// <summary>Viewer-relative dock side for a hand: RIGHT hand → viewer-LEFT (-1), LEFT hand →
@@ -534,8 +566,9 @@ internal sealed class StatPanelSurface
                 // local rotation, and CanvasConversion.LateTick RE-runs the flatten EVERY frame
                 // while shown (FlattenEnabled) so a NEW ENEMY TYPE repopulating the card with
                 // fresh tilted stat rows / ability text can NEVER re-acquire the 3D tilt.
-                watch.Panel = CanvasConversion.Convert(watch.Attached.transform as RectTransform, name,
-                    pokeable: false, sortingOrder: StatPanelSortingOrder, flatten2D: true);
+                using (VRLog.WantsDebug ? PerfMonitor.Scope("StatPanel.Convert") : default)
+                    watch.Panel = CanvasConversion.Convert(watch.Attached.transform as RectTransform, name,
+                        pokeable: false, sortingOrder: StatPanelSortingOrder, flatten2D: true);
                 if (watch.Panel != null)
                 {
                     // MR backing opt-out (user ruling 2026-08-04, reported on the figure-grab
@@ -554,7 +587,8 @@ internal sealed class StatPanelSurface
                     // sampling the game's MIPLESS UI atlases and the mipless 512² enemy portraits
                     // ('cultist', 'living bones', 'living corpse elite' … in the hardware log).
                     // It had never been wired to the bake at all. Immediate pass, then cadence.
-                    watch.RescanMips(name);
+                    using (VRLog.WantsDebug ? PerfMonitor.Scope("StatPanel.FirstMips") : default)
+                        watch.RescanMips(name);
                 }
             }
         }
@@ -676,6 +710,7 @@ internal sealed class StatPanelSurface
     /// </summary>
     private static void BuildStaticCopy(ActorStatPanel real, ScenarioRuleLibrary.CActor actor)
     {
+        using var timing = VRLog.WantsDebug ? PerfMonitor.Scope("StatPanel.Snapshot") : default;
         DestroyCopy();
 
         var holder = new GameObject("GloomhavenVR.StatPanelCopyHolder");

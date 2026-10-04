@@ -29,6 +29,7 @@ internal static class FigureInteractionPreparation
     private static Transform? _parking;
     private static int _completed, _failures, _hits, _misses, _invalidations;
     private static bool _begun;
+    private static int _missReports;
     internal static int CompletedCount => _completed + StatPanelSurface.InteractionPreparationCompleted;
     internal static int TotalCount => _pending.Length + StatPanelSurface.InteractionPreparationTotal;
     internal static bool IsReady => !_begun || (_completed == _pending.Length && StatPanelSurface.InteractionPreparationReady);
@@ -41,7 +42,7 @@ internal static class FigureInteractionPreparation
         Reset();
         _begun = true;
         _pending = Object.FindObjectsOfType<ActorBehaviour>(includeInactive: true);
-        StatPanelSurface.BeginInteractionPreparation();
+        StatPanelSurface.BeginInteractionPreparation(_pending);
     }
 
     /// <summary>At most one complete native ghost OR one stat-art cache resource per tick.
@@ -95,13 +96,15 @@ internal static class FigureInteractionPreparation
     {
         ghost = null; report = string.Empty;
         if (!Entries.TryGetValue(actor, out Entry entry) || entry.InUse || entry.Ghost == null)
-        { _misses++; return false; }
+        { _misses++; ReportMiss(actor, entry == null ? "not-prepared" : entry.InUse ? "already-acquired" : "destroyed-ghost"); return false; }
         using var timing = VRLog.WantsDebug ? PerfMonitor.Scope("FigurePreparation.Acquire") : default;
         GameObject? ring = actor.m_Hilight != null ? actor.m_Hilight : null;
         if (entry.Source != source || entry.Ring != ring || entry.Mirror == null
             || !entry.Mirror.MatchesPreparedSource(source))
         {
             _invalidations++; _misses++;
+            ReportMiss(actor, entry.Source != source ? "source-root" : entry.Ring != ring ? "selection-ring"
+                : entry.Mirror == null ? "destroyed-mirror" : entry.Mirror.PreparedMismatchReason);
             Retire(entry); Entries.Remove(actor);
             return false;
         }
@@ -118,6 +121,15 @@ internal static class FigureInteractionPreparation
             + "current original bones/blend shapes/masks bound before activation. Construction receipt: " + entry.Report;
         ghost.SetActive(true);
         return true;
+    }
+
+    private static void ReportMiss(ActorBehaviour actor, string reason)
+    {
+        // A cache miss is not an error: late summons and valid native visual changes keep
+        // their immediate fallback. Only Debug allocates a report, bounded per load.
+        if (!VRLog.WantsDebug || _missReports >= 8) return;
+        _missReports++;
+        VRLog.Debug("FigureGrab", $"PREPARED GHOST MISS actor='{actor.name}' reason={reason} (report {_missReports}/8); immediate current-original construction retained.");
     }
 
     internal static void Remember(ActorBehaviour actor, GameObject source, GameObject ghost,
@@ -172,7 +184,7 @@ internal static class FigureInteractionPreparation
         Entries.Clear();
         if (_parking != null) Object.Destroy(_parking.gameObject);
         _parking = null; _pending = Array.Empty<ActorBehaviour>();
-        _completed = _failures = _hits = _misses = _invalidations = 0;
+        _completed = _failures = _hits = _misses = _invalidations = _missReports = 0;
         _begun = false;
         StatPanelSurface.ResetInteractionPreparation();
     }
