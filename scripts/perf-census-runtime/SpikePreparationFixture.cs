@@ -150,21 +150,34 @@ public static class SpikePreparationFixture
             ScenarioRoomLoading.Install();RoomVisibilityTracker.Emit(room,false);
             Check(!ScenarioRoomLoading.HasPendingReveal,"unrevealed rooms never start loading presentation");
             RoomVisibilityTracker.Emit(room,true);
-            Check(ScenarioInteractionPreparation.IsPreparing,"native reveal event immediately publishes the loading indicator state");
+            Check(ScenarioInteractionPreparation.IsPreparing&&ScenarioInteractionPreparation.ShowsLoadingIndicator,"native reveal event immediately publishes the loading indicator state");
             Check(!ScenarioRoomLoading.Tick(),"room reveal waits for native Update activation before readiness");
             typeof(ScenarioRoomLoading).GetField("_revealedFrame",BindingFlags.NonPublic|BindingFlags.Static)!.SetValue(null,Time.frameCount-2);
             ScenarioInteractionPreparation.Tick();
             Check(ScenarioInteractionPreparation.IsPreparing&&FigureInteractionPreparation.IsReady,
                 "room spinner follows native generation before preparing new actors");
-            typeof(ScenarioRoomLoading).GetField("_quietSince",BindingFlags.NonPublic|BindingFlags.Static)!.SetValue(null,Time.realtimeSinceStartup-.5f);
             Check(!ScenarioRoomLoading.Tick(),"room spinner follows native generation before preparing new actors");
-            entity.IsBusy=false;request.SetLoaded(new Material[]{null!});
-            typeof(ScenarioRoomLoading).GetField("_quietSince",BindingFlags.NonPublic|BindingFlags.Static)!.SetValue(null,Time.realtimeSinceStartup-.5f);
+            entity.IsBusy=false;request.SetLoaded(new Material[]{null!,null!});
+            using var manager=new UnityEngine.ResourceManagement.ResourceManager();
+            var operation=new DeferredMaterialOperation();
+            var handle=manager.StartOperation(operation,default);
+            request.SetHandle(handle);
             Check(!ScenarioRoomLoading.Tick(),"room readiness uses original pending materials even when renderer is enabled");
-            request.SetLoaded(new[]{material});
-            typeof(ScenarioRoomLoading).GetField("_quietSince",BindingFlags.NonPublic|BindingFlags.Static)!.SetValue(null,Time.realtimeSinceStartup-.5f);
+            request.ReleaseObservation(true);
+            Check(ScenarioRoomLoading.Tick(),"released native requests cannot hold room loading open");
+            request.ReleaseObservation(false);
+            Check(!ScenarioRoomLoading.Tick(),"unreleased native request retains loading while its operation runs");
+            operation.Finish(material);
+            Check(ScenarioRoomLoading.Tick(),"completed native handles close the spinner despite preserved material holes");
+            var failed=new DeferredMaterialOperation();var failedHandle=manager.StartOperation(failed,default);
+            request.SetHandle(failedHandle);failed.Finish(null!,false);
+            Check(ScenarioRoomLoading.Tick(),"completed failed material requests do not masquerade as continuing asset loading");
+            request.SetHandle(default);
+            Check(ScenarioRoomLoading.Tick(),"invalid dormant handles do not keep a completed room loading");
+            request.SetHandle(handle);
             ScenarioSceneryBudget.IsPreparingPresentation=true;ScenarioInteractionPreparation.Tick();
-            Check(ScenarioInteractionPreparation.IsPreparing,"room masks finish before loading presentation closes");
+            Check(ScenarioInteractionPreparation.IsPreparing&&!ScenarioInteractionPreparation.ShowsLoadingIndicator,
+                "completed room assets hide the spinner while cosmetic preparation continues");
             ScenarioSceneryBudget.IsPreparingPresentation=false;ScenarioInteractionPreparation.Tick();
             for(int i=0;i<3;i++)ScenarioInteractionPreparation.Tick();
             Check(!ScenarioInteractionPreparation.IsPreparing&&!ScenarioRoomLoading.HasPendingReveal

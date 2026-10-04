@@ -20,6 +20,10 @@ internal static class ScenarioInteractionPreparation
     private static bool _wasLoading, _begun, _figureTurn, _faulted, _roomPass, _resourceJobsBegun;
     private static float _startedAt, _nextProgressAt;
     internal static bool IsPreparing { get; private set; }
+    // A revealed room shows loading only for its real native jobs. Cold ghost/cache work
+    // may finish in the background and must not keep an already loaded room spinning.
+    internal static bool ShowsLoadingIndicator => IsPreparing
+        && (!_roomPass || ScenarioRoomLoading.HasPendingReveal);
     internal static bool AcceptsRoomReveal(ProceduralMapTile tile) => _begun && !_faulted
         && VRSession.IsRunning && tile != null && tile.gameObject.scene.handle == _procedural;
 
@@ -94,13 +98,13 @@ internal static class ScenarioInteractionPreparation
             }
             using var scope = PerfMonitor.Scope("Core.ScenarioInteractionPreparation");
             // A ghost clone or one GPU mip/readback is indivisible. Do not stack both cold
-            // operations into the same frame; the loading indicator stays visible between them.
+            // operations into the same frame; initial preparation stays visible between them.
             // A reveal is authored by the native room event. Wait for actual procedural
             // content/material jobs before enumerating its newly created actors; no recurring
             // scene inventory or ordinary maintenance queue can re-arm this loading gate.
             if (ScenarioRoomLoading.HasPendingReveal)
             {
-                if (!ScenarioRoomLoading.Tick() || PresentationBudgetPending)
+                if (!ScenarioRoomLoading.Tick())
                 {
                     if (TimedOut()) StopTimedOut();
                     return;

@@ -343,7 +343,7 @@ internal sealed class LoadingIndicator
         }
         bool townReload = indicatorEnabled && TickTownReload();
         bool nativeGameLoading = indicatorEnabled && IsGameLoading();
-        bool gameLoading = indicatorEnabled && (nativeGameLoading || ScenarioInteractionPreparation.IsPreparing);
+        bool gameLoading = indicatorEnabled && (nativeGameLoading || ScenarioInteractionPreparation.ShowsLoadingIndicator);
         bool want = townReload || gameLoading;
         if (townReload && !gameLoading) _townReloadVisual = true;
         else if (gameLoading) _townReloadVisual = false;

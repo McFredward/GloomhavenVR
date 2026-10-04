@@ -35,7 +35,10 @@ CONTROLS = (
     ("preparation-gates-native-load", "ScenarioInteractionPreparation.cs", "if (loading)", "if (false)", "preparation waits for native loading without writing native flags"),
     ("restart-completed-preparation", "ScenarioInteractionPreparation.cs", "if (ScenarioCardPreparation.Failures > 0)", "_begun = false; if (ScenarioCardPreparation.Failures > 0)", "native reveal event immediately publishes the loading indicator state"),
     ("room-ignores-native-busy", "ScenarioRoomLoading.cs", "&& entity.IsBusy)", "&& false)", "room spinner follows native generation before preparing new actors"),
-    ("room-uses-enabled-as-loading", "ScenarioRoomLoading.cs", "if (LoadedMaterials?.GetValue(request) is Material[] loaded)", "if (!request.Renderer.enabled && LoadedMaterials?.GetValue(request) is Material[] loaded)", "room readiness uses original pending materials even when renderer is enabled"),
+    ("room-uses-enabled-as-loading", "ScenarioRoomLoading.cs", "if (Handles?.GetValue(request) is AsyncOperationHandle<Material>[] handles)", "if (!request.Renderer.enabled && Handles?.GetValue(request) is AsyncOperationHandle<Material>[] handles)", "room readiness uses original pending materials even when renderer is enabled"),
+    ("room-counts-completed-handles", "ScenarioRoomLoading.cs", "handle.IsValid() && !handle.IsDone", "handle.IsValid()", "completed native handles close the spinner despite preserved material holes"),
+    ("room-counts-released-handles", "ScenarioRoomLoading.cs", "|| Released?.GetValue(request) is true", "|| false", "released native requests cannot hold room loading open"),
+    ("room-counts-presentation-budget", "ScenarioInteractionPreparation.cs", "&& (!_roomPass || ScenarioRoomLoading.HasPendingReveal)", "&& (!_roomPass || IsPreparing)", "completed room assets hide the spinner while cosmetic preparation continues"),
     ("refresh-cancels-census", "ScopeMethods.cs", "invalidateSceneCensus: false", "invalidateSceneCensus: true", "adaptive refresh preserves the same in-progress census"),
     ("setting-keeps-census", "ScopeMethods.cs", "if (invalidateSceneCensus)", "if (false && invalidateSceneCensus)", "graphics changes still cancel incremental inventories"),
     ("refresh-keeps-pacing-window", "ScopeMethods.cs", "if (changed)\n            MarkChange", "if (false && changed)\n            MarkChange", "refresh closes the old pacing window before adopting the new rate"),
@@ -74,7 +77,7 @@ def bound_sources(root):
     assert "PerfSpikeDetails.Shutdown();" in braced(monitor, "    internal static void Shutdown()"), "Shutdown releases continuous diagnostic recorders"
     assert "ScenarioInteractionPreparation.Install(_hostGo);" in (root / "src/GloomhavenVR/Core/CoreModule.cs").read_text()
     loading = (root / "src/GloomhavenVR/WorldUI/LoadingIndicator.cs").read_text()
-    assert "(nativeGameLoading || ScenarioInteractionPreparation.IsPreparing)" in loading
+    assert "(nativeGameLoading || ScenarioInteractionPreparation.ShowsLoadingIndicator)" in loading
     assert "TickLoadPriority(nativeGameLoading &&" in loading, "post-load preparation restores ordinary native async priority"
     members = [braced(monitor, m) for m in (
         "    private sealed class Step", "    internal static long BeginStep()", "    internal static void EndStep(",
@@ -121,6 +124,7 @@ def main():
     native = ROOT / "ressources/GH_Data/Managed"
     refs = "".join('<Reference Include="' + p.stem + '"><HintPath>' + str(p) + '</HintPath><Private>false</Private></Reference>' for p in native.glob("UnityEngine*.dll"))
     harmony = Path.home() / ".nuget/packages/harmonyx/2.7.0/lib/net45/0Harmony.dll"
+    refs += '<Reference Include="Unity.ResourceManager"><HintPath>' + str(native / "Unity.ResourceManager.dll") + '</HintPath><Private>false</Private></Reference>'
     refs += '<Reference Include="0Harmony"><HintPath>' + str(harmony) + '</HintPath><Private>false</Private></Reference>'
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     variants = [("production", None)] + ([] if args.no_negative_controls else [(c[0],c) for c in CONTROLS if not args.control or c[0] in args.control])
@@ -153,7 +157,7 @@ def main():
     # native Unity hooks are exercised, not replaced with test-specific observer bodies.
     runtime_deps = [Path.home()/'.nuget/packages/mono.cecil/0.11.4/lib/net40/Mono.Cecil.dll',
                     Path.home()/'.nuget/packages/monomod.utils/21.12.13.1/lib/net452/MonoMod.Utils.dll',
-                    Path.home()/'.nuget/packages/monomod.runtimedetour/21.12.13.1/lib/net452/MonoMod.RuntimeDetour.dll', harmony]
+                    Path.home()/'.nuget/packages/monomod.runtimedetour/21.12.13.1/lib/net452/MonoMod.RuntimeDetour.dll', harmony, native / "Unity.ResourceManager.dll"]
     loader = "\n".join('        Assembly.LoadFile(@"' + str(p) + '");' for p in runtime_deps)
     runner = runner.replace("ran = true; bool passed = true;", "ran = true; bool passed = true;\n" + loader)
     runner = runner.replace("EditorSettings.enterPlayModeOptionsEnabled = true;", '''

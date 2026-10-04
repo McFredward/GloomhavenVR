@@ -52,7 +52,24 @@ namespace GloomhavenVR.Hands.Interact { internal static class VRInteractables { 
 public sealed class ProceduralMapTile : UnityEngine.MonoBehaviour { }
 public sealed class ApparanceEntity : UnityEngine.MonoBehaviour { public bool IsBusy; }
 public sealed class MaterialLoader : UnityEngine.MonoBehaviour { public readonly System.Collections.Generic.List<MaterialLoaderData> LoadersData=new(); }
-public sealed class MaterialLoaderData { public UnityEngine.Renderer Renderer=null!; private UnityEngine.Material[]? _loadedMaterials; public void SetLoaded(UnityEngine.Material[] value){_loadedMaterials=value;} }
+public sealed class MaterialLoaderData
+{
+    public UnityEngine.Renderer Renderer=null!;
+    // This is the exact native field shape. The fixture intentionally retains null result
+    // slots to reproduce saved-material holes independently of real async completion.
+    private UnityEngine.Material[]? _loadedMaterials;
+    private UnityEngine.ResourceManagement.AsyncOperations.AsyncOperationHandle<UnityEngine.Material>[]? _handles;
+    private bool _released;
+    public void SetLoaded(UnityEngine.Material[] value)=>_loadedMaterials=value;
+    public void SetHandle(UnityEngine.ResourceManagement.AsyncOperations.AsyncOperationHandle<UnityEngine.Material> value)=>_handles=new[]{value};
+    public void ReleaseObservation(bool value)=>_released=value;
+}
+public sealed class DeferredMaterialOperation : UnityEngine.ResourceManagement.AsyncOperations.AsyncOperationBase<UnityEngine.Material>
+{
+    protected override void Execute() { }
+    public void Finish(UnityEngine.Material value, bool succeeded=true)=>Complete(value,succeeded,succeeded?null:"fixture failed material");
+}
+
 public static class RoomVisibilityTracker { public static event System.Action<ProceduralMapTile,bool>? ProceduralMapTileVisibilityStateChanged; public static void Emit(ProceduralMapTile tile,bool show)=>ProceduralMapTileVisibilityStateChanged?.Invoke(tile,show); }
 namespace GloomhavenVR.Core {
 internal static class ScenarioSceneryBudget { internal static bool IsPreparingPresentation; }

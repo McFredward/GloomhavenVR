@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
+using UnityEngine.ResourceManagement.AsyncOperations;
 
 namespace GloomhavenVR.Core;
 
@@ -13,13 +14,36 @@ internal static class ScenarioRoomLoading
     private static readonly HashSet<ProceduralMapTile> Rooms = new();
     private static readonly List<ApparanceEntity> Entities = new();
     private static readonly List<MaterialLoaderData> Materials = new();
-    private static readonly FieldInfo? LoadedMaterials = typeof(MaterialLoaderData).GetField("_loadedMaterials",
+    private static readonly FieldInfo? Handles = typeof(MaterialLoaderData).GetField("_handles",
+        BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly FieldInfo? Released = typeof(MaterialLoaderData).GetField("_released",
         BindingFlags.Instance | BindingFlags.NonPublic);
     private static bool _installed;
     private static int _revealedFrame;
-    private static float _nextScan, _quietSince;
+    private static float _nextScan;
     internal static bool HasPendingReveal => Rooms.Count > 0;
-    internal static string PendingDescription => $"rooms={Rooms.Count}, generationOwners={Entities.Count}, materialRequests={Materials.Count}";
+    internal static string PendingDescription
+    {
+        get
+        {
+            int busy = 0, pending = 0, failed = 0;
+            foreach (ApparanceEntity entity in Entities)
+                if (entity != null && entity.gameObject.activeInHierarchy && entity.IsBusy) busy++;
+            foreach (MaterialLoaderData request in Materials)
+            {
+                if (request?.Renderer == null || !request.Renderer.gameObject.activeInHierarchy
+                    || Released?.GetValue(request) is true) continue;
+                if (Handles?.GetValue(request) is AsyncOperationHandle<Material>[] handles)
+                    foreach (AsyncOperationHandle<Material> handle in handles)
+                    {
+                        if (!handle.IsValid()) continue;
+                        if (!handle.IsDone) pending++;
+                        else if (handle.Status == AsyncOperationStatus.Failed) failed++;
+                    }
+            }
+            return $"rooms={Rooms.Count}, generationOwners={Entities.Count}, materialRequests={Materials.Count}, pendingGeneration={busy}, pendingMaterialHandles={pending}, completedFailedHandles={failed}";
+        }
+    }
 
     internal static void Install()
     {
@@ -34,7 +58,7 @@ internal static class ScenarioRoomLoading
         // Visibility is assigned before ProceduralMapTile.Update activates its children.
         // Keep two actual frame boundaries so the first idle observation cannot finish early.
         _revealedFrame = Time.frameCount;
-        _nextScan = _quietSince = 0f;
+        _nextScan = 0f;
         ScenarioInteractionPreparation.NotifyRoomReveal();
     }
 
@@ -42,42 +66,54 @@ internal static class ScenarioRoomLoading
     {
         if (!HasPendingReveal) return true;
         if (Time.frameCount <= _revealedFrame + 1) return false;
-        if (Time.realtimeSinceStartup >= _nextScan)
+        bool discovered = Time.realtimeSinceStartup >= _nextScan;
+        if (discovered) Discover();
+        if (HasNativeWork()) return false;
+        // Placement may have created children after the previous discovery. Observe them
+        // once before closing, without adding a quiet timer after completed native work.
+        if (!discovered) Discover();
+        return !HasNativeWork();
+    }
+
+    private static void Discover()
+    {
+        _nextScan = Time.realtimeSinceStartup + .25f;
+        Entities.Clear(); Materials.Clear();
+        foreach (ProceduralMapTile room in Rooms)
         {
-            _nextScan = Time.realtimeSinceStartup + .25f;
-            Entities.Clear(); Materials.Clear();
-            foreach (ProceduralMapTile room in Rooms)
-            {
-                if (room == null || !room.gameObject.activeInHierarchy) continue;
-                foreach (ApparanceEntity entity in room.GetComponentsInChildren<ApparanceEntity>(true))
-                    if (entity != null && entity.gameObject.activeInHierarchy) Entities.Add(entity);
-                foreach (MaterialLoader loader in room.GetComponentsInChildren<MaterialLoader>(true))
-                    if (loader != null && loader.gameObject.activeInHierarchy && loader.LoadersData != null)
-                        Materials.AddRange(loader.LoadersData);
-            }
+            if (room == null || !room.gameObject.activeInHierarchy) continue;
+            foreach (ApparanceEntity entity in room.GetComponentsInChildren<ApparanceEntity>(true))
+                if (entity != null && entity.gameObject.activeInHierarchy) Entities.Add(entity);
+            foreach (MaterialLoader loader in room.GetComponentsInChildren<MaterialLoader>(true))
+                if (loader != null && loader.gameObject.activeInHierarchy && loader.LoadersData != null)
+                    Materials.AddRange(loader.LoadersData);
         }
+    }
+
+    private static bool HasNativeWork()
+    {
         foreach (ApparanceEntity entity in Entities)
             if (entity != null && entity.gameObject.activeInHierarchy && entity.IsBusy)
-            { _quietSince = 0f; return false; }
+                return true;
         foreach (MaterialLoaderData request in Materials)
         {
-            // Renderer.enabled belongs to several visual budgets and cannot prove loading.
-            // Read the exact original async completion array without accessing/mutating handles.
-            if (request?.Renderer == null || !request.Renderer.gameObject.activeInHierarchy) continue;
-            if (LoadedMaterials?.GetValue(request) is Material[] loaded)
-                foreach (Material material in loaded)
-                    if (material == null) { _quietSince = 0f; return false; }
+            // Renderer.enabled is also owned by visual budgets. The result array reserves
+            // slots for existing materials and can retain nulls after every request has
+            // completed (or failed). Neither is evidence of outstanding asset loading.
+            if (request?.Renderer == null || !request.Renderer.gameObject.activeInHierarchy
+                || Released?.GetValue(request) is true) continue;
+            if (Handles?.GetValue(request) is AsyncOperationHandle<Material>[] handles)
+                foreach (AsyncOperationHandle<Material> handle in handles)
+                    if (handle.IsValid() && !handle.IsDone) return true;
         }
-        if (_quietSince == 0f) _quietSince = Time.realtimeSinceStartup;
-        // A final discovery observes children/loaders born at the preceding placement completion.
-        return Time.realtimeSinceStartup - _quietSince >= .25f;
+        return false;
     }
 
     internal static void Complete() => Reset();
     internal static void Reset()
     {
         Rooms.Clear(); Entities.Clear(); Materials.Clear();
-        _revealedFrame = 0; _nextScan = _quietSince = 0f;
+        _revealedFrame = 0; _nextScan = 0f;
     }
 
     internal static void Shutdown()
