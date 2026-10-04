@@ -113,6 +113,11 @@ namespace GloomhavenVR.Quest
             // the first render before the real rig can be created.
             ModContentReady = true;
             State = "starting-real-mod";
+            // B615's native abort occurred in a Debug performance type lookup
+            // after plugin creation. A periodic snapshot still said "checking
+            // mod content" because synchronous module installation delayed
+            // Update. Persist the boundary before entering the original plugin.
+            SaveState();
             yield return modLifecycle.Activate(modRoot);
             if (!modLifecycle.Available) { Fail("real-mod-lifecycle", new InvalidOperationException(modLifecycle.Failure ?? "Original plugin did not reach its observed running rig.")); yield break; }
             try { modLifecycle.BeginDeliveryView(); }
@@ -139,12 +144,14 @@ namespace GloomhavenVR.Quest
             catch (Exception e) { Fail("native-addressables-manifest", e); }
             if (State == "failed") yield break;
             State = "initializing-native-addressables";
+            SaveState();
             addressables = new QuestGameAddressables();
             yield return addressables.Install(addressablesManifest, manifest, root, stamp.inputKey);
             if (!addressables.Ready) { Fail("native-addressables", addressables.Failure ?? new InvalidDataException("Native Addressables startup did not complete.")); yield break; }
             UnityEngine.Debug.LogWarning("[Quest startup] real-mod lifecycle observed=" + ModLifecycleAvailable + "; fullGameReady=false. EOSAuthorised=false; crossplay unverified. proceduralRuntimeAvailable=false; native Apparance lifecycle disabled for menu-only target, campaign generation remains gated. voiceNativeAvailable=false; Android Opus remains gated.");
             if (!Application.CanStreamedLevelBeLoaded(originalScene)) { Fail("original-scene", new InvalidDataException("Required original scene is absent: " + originalScene)); yield break; }
             State = "loading-original-bootstrap";
+            SaveState();
             modLifecycle.EndDeliveryView();
             AsyncOperation loading = SceneManager.LoadSceneAsync(originalScene, LoadSceneMode.Single);
             if (loading == null) { Fail("original-scene", new InvalidOperationException("Unity refused original scene load.")); yield break; }
@@ -247,7 +254,7 @@ namespace GloomhavenVR.Quest
         }
         void OnApplicationPause(bool value) { paused = value; SaveState(); }
         void OnApplicationFocus(bool value) { focused = value; SaveState(); }
-        void SaveState()
+        internal void SaveState()
         {
             if (logPath == null) return;
             QuestGameContentProgress progress; double progressTime;

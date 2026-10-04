@@ -553,7 +553,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 615;
+    public const ushort ModBuild = 616;
+
+    // ModBuild 616 — Quest native abort after the accepted branded loading view.
+    // The exact B615 APK/input is verified in the 084759Z hardware capture. All
+    // eleven real-mod modules complete, then Debug native-loop instrumentation
+    // calls the Quest Harmony facade's broad TypeByName scan. Reading an unrelated
+    // Type.FullName aborts IL2CPP's GC descriptor initialization (SIGABRT); managed
+    // catch blocks cannot recover. Quest lookups now resolve exact assembly names
+    // plus build-generated metadata aliases, without enumerating runtime types.
+    // Aliases are rebuilt from current managed inputs so ongoing mod changes do
+    // not require manually maintaining a type list. Desktop Harmony is unchanged.
+    // Startup snapshots persist plugin/Addressables/scene boundaries and changed
+    // real-mod observations rather than waiting for the periodic Update writer.
+    // The accepted logo/bar and original game rules, saves and networking are
+    // unchanged. Removal of the observed crash path is source-proven; running
+    // the subsequent original scenes on Quest still requires hardware evidence.
 
     // ModBuild 615 — original Quest rules and videos after verified B614 hardware.
     // The real plugin completed all eleven modules and the rig ran. Original YML

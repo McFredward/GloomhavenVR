@@ -1,3 +1,12 @@
+Current B616 follow-up targets the verified B615 native abort in the Quest
+Harmony type resolver, retaining the accepted branded loading view. Resolve
+requested types without initializing unrelated runtime metadata; preserve
+short-name compatibility using generated aliases from current owned inputs.
+Persist startup phase/module observations at transitions so a synchronous
+initialization/crash cannot leave a misleading old delivery snapshot.
+See [616 evidence and procedure](QUEST3-HARDWARE-616.md). Native artifact and
+hardware confirmation remain pending.
+
 # Quest implementation and hardware checkpoints
 
 Current B615 hardware candidate follows the exact B614 capture: cached main-thread

@@ -31,6 +31,8 @@ def main():
          'yield return EnsureContent(modManifest, modRoot, "quest-mod-content.zip", "mod-content");', "mod-before-content"),
         ("duplicate-mod-owner", "yield return modLifecycle.Activate(modRoot);",
          "yield return modLifecycle.Activate(modRoot);\n            yield return modLifecycle.Activate(modRoot);", "one-owner"),
+        ("stale-mod-checkpoint", "SaveState();\n            yield return modLifecycle.Activate(modRoot);",
+         "yield return modLifecycle.Activate(modRoot);", "mod-checkpoint"),
         ("synchronous-main-hash", "Task.Run(() => QuestGameContent.IsReady(manifest, root, ReportContentProgress))",
          "Task.FromResult(QuestGameContent.IsReady(manifest, root, ReportContentProgress))", "main-hash"),
         ("worker-unity-path", "void ReportContentProgress(QuestGameContentProgress progress)\n        {",

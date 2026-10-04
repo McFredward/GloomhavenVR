@@ -92,6 +92,12 @@ namespace GloomhavenVR.Quest
             if (observation != lastObservation)
             {
                 lastObservation = observation;
+                // Keep lifecycle evidence newer than the five-second periodic
+                // snapshot. B615's native abort followed real module creation
+                // while its saved state still described file verification.
+                // Observe runs on the Unity main thread and only persists when
+                // this bounded lifecycle signature changes.
+                GetComponent<QuestGameBootstrap>()?.SaveState();
                 UnityEngine.Debug.Log("[Quest startup] real mod observation " + observation + " fullGameReady=false");
             }
         }

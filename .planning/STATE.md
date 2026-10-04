@@ -1,5 +1,18 @@
 # State — where the project stands
 
+**Quest B616 native-abort follow-up, 2026-10-04: isolated feature.**
+
+The new exact B615 capture verifies the installed APK/input. The maintainer
+accepts the branded bar. All eleven real-mod modules complete before a native
+UnityMain SIGABRT: Debug performance instrumentation calls the Quest Harmony
+facade's broad runtime type scan, whose `Type.FullName` read aborts IL2CPP GC
+descriptor initialization. The exact unrelated type is not retained. Original
+Bootstrap has not yet been observed; the old saved state predates real-mod
+creation. Targeted lookup and immediate startup checkpoints are being prepared;
+[616 evidence and procedure](QUEST3-HARDWARE-616.md). Accepted loading artwork,
+original rules/save/network semantics and concurrent `dev` work remain unchanged.
+Native build, final checks and a new signed hardware handoff are pending.
+
 **Quest B615 hardware candidate, 2026-10-04: isolated feature.**
 
 The exact B614 capture identifies the first original YML failure as a Unity path

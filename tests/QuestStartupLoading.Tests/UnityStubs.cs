@@ -176,6 +176,12 @@ namespace GloomhavenVR.Quest
         public IEnumerator Activate(string root)
         {
             Fixture.RequireMain("ModLifecycle.Activate"); Fixture.Activations++; Fixture.Event("real-mod");
+            // Observe the durable boundary before the synchronous plugin seam,
+            // without relying on a later periodic Unity Update to write it.
+            using (var checkpoint = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(Fixture.Root, "quest-startup-state.json"))))
+                if (checkpoint.RootElement.GetProperty("state").GetString() != "starting-real-mod"
+                    || !checkpoint.RootElement.GetProperty("modContentReady").GetBoolean())
+                    throw new InvalidOperationException("mod-checkpoint: durable state must identify verified content and imminent plugin activation");
             if (!File.Exists(Path.Combine(root, "StreamingAssets/gloomhavenvr.bundle")))
                 throw new InvalidOperationException("mod-before-content: activation preceded verified bundle installation");
             if (File.Exists(Path.Combine(Fixture.Root, "quest-owned-game/StreamingAssets/original.rules")))
