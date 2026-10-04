@@ -56,7 +56,7 @@ Specific misleading descriptions corrected include:
   native callback internals or the maintainer's particle preferences.
 - Healthbar depth text includes numbers and symbols and states both toggle modes.
 
-The map-icon animation setting is being retired by the integration lane. Its
+The map-icon animation setting is retired by the integrated change. Its
 stored key's help is inert; it is not reintroduced into the menu by this audit.
 
 ## Focused verification and limits
@@ -85,7 +85,7 @@ unchanged.
 
 This is evidence for content coverage and actual lookup behavior. It does not
 establish headset tooltip geometry, font readability, or rendering performance.
-The independently owned menu layout changes and complete integration gate must
-be verified by the primary agent before push. Focused evidence lives in
+The native menu-layout fixture and complete integrated source/local coverage
+also passed. Focused evidence lives in
 `.planning/debug/frame620/tooltips/`; initial fixture-boundary failures remain
 alongside the corrected proof.

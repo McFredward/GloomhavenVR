@@ -1,5 +1,60 @@
 # State — where the project stands
 
+**PC graphics/loading follow-up complete, 2026-10-04: 1.1.0 / ModBuild 620.**
+
+The immutable supplied baseline is Gaming PC Build619/`6e36062e3`, not a new
+Frame FPS capture. Initial preparation finished in 8.77 s; a later room pass
+kept the spinner until the 90 s bound with completed card/figure counts. The old
+log lacks actual pending-handle counts, so it cannot identify the exact native
+request alone. Original source and the real async-handle replay independently
+prove that null cached result slots can survive completed or failed operations.
+
+Room loading now follows actual unfinished native material/generation work,
+retains the two activation-frame boundaries, and closes without a quiet timer
+or waiting for background cosmetic/ghost preparation. Native loading/input flags
+remain untouched. Detailed pending counts stay guarded and bounded at Debug.
+The pre-619 continuous wall/prop noise and cutoff ramps replace the rejected
+square rank bank; explicit native enable delivery stays. This restores historical
+inputs, with source-equivalence and Unity pixel evidence, not a headset outcome.
+
+A whole-game original PCG census adds exact composite ornaments, loose paper/skull
+families, cosmetic paint projectors and actual shared floor/collider provenance.
+Masks remain reversible; structural/gameplay geometry and foreign state survive.
+The graphics profile note wraps across the full row at readable native size;
+simpler environment shading has an explicit ordinary-Graphics caption. Native
+fading walls retain their shaders. Legacy map-symbol sparkle settings remain
+stored but INERT and hidden. All settings help, dynamic families and headings
+use bilingual player-facing descriptions on ordinary and Advanced routes.
+
+The complete integrated attempt recorded all 125 local scopes: 123 passed
+directly; two fixture-only resumes satisfy the remaining scopes. Scenery's first
+attempt stopped before execution at an ambiguous creation-control binding. Its
+complete resume passed production (286 assertions) and 44 controls; only one
+control's earlier generic-floor assertion label was then resumed. Card preparation
+passed production (793 assertions) and 24 controls; its single remaining mutation
+now accepts exactly its disabled-mip assertion or the earlier frame-budget
+assertion, depending on native atlas cold/warm state. All original failures are
+retained. Passing suites were not repeated, and production source/assets match
+the complete attempt byte-for-byte after these fixture-only corrections.
+
+All 14 source scopes, 307,473 golden assertions, strict Release (zero warnings/
+errors), five EN/DE player-document pairs, bundle/figure-bank and surface checks
+passed. The original wire wrapper halted on local fixture failures; its original
+already-built vector executable ran separately. Remaining unchanged guard phases
+ran after explicit coverage verification. Evidence and the exact continuation
+script are retained in `.planning/debug/frame620/validation-ledger.json`.
+The compiled comparison contains ten intended implementation types and seven
+inlined build-constant changes, with no additions/removals or unexplained changes.
+All 655 configuration keys, 209 patch registrations and 4,790 log tokens remain.
+
+Next hardware checks: new-room spinner completion, wall OUT/IN on PC and Frame,
+zero-decoration skulls/paper/projectors and restoration, profile note readability,
+ordinary simpler-shading control, and ordinary/Advanced EN/DE help. The unrelated
+original cult-chain material healing errors in the input are not claimed fixed.
+See [implementation and evidence limits](../docs/performance/FRAME-620-IMPLEMENTATION.md).
+
+---
+
 **Frame follow-up complete, 2026-10-04: 1.1.0 / ModBuild 619.**
 
 The immutable supplied hardware baseline is Build618/c108555cd, with two

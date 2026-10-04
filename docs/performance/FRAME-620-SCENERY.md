@@ -102,9 +102,11 @@ recorded ground core in the portable classifier. Its production and only the
 four affected projector/collision causal controls were rerun. This is a corrected
 test coverage gap; the earlier pass did not establish the real generic-floor
 behaviour. The census generator reproduces every recorded classification and
-166-ground-core record from the preserved original read-only audit. Patch-inventory
-line references still require the primary agent's final regeneration after
-integrating other workers.
+166-ground-core record from the preserved original read-only audit. The primary agent regenerated the final patch inventory after integration.
+The integrated driver attempt subsequently passed production and 44 causal
+controls; the old anonymous-solid mutation now reaches the newly added generic
+floor proof earlier, so only that exact expectation was resumed. Its original
+failure is preserved; production and passing controls were not repeated.
 
 These are classification/lifecycle results, not a headset pixel or FPS benchmark.
 The 137 projector masks are verified through real Unity render-enable state; the

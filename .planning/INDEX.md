@@ -1,10 +1,10 @@
 # Planning index
 
-Updated 2026-10-04 for Build619's finite preparation and real room loading, whole-game
-cosmetic coverage, native wall inputs/TMP depth and four curated graphics profiles,
-following the actual Build618 Frame capture. Headset outcomes still need hardware
-verification. This directory holds internal engineering evidence, historical decisions
-and current status; it is not the player manual.
+Updated 2026-10-04 for Build620's PC graphics follow-up: original wall animation,
+whole-game decoration admissions, readable graphics notes, player-facing VR help
+and room loading tied to actual unfinished native jobs. Hardware outcomes remain
+separate from source/runtime evidence. This directory holds internal engineering
+records, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
 
@@ -14,6 +14,11 @@ and current status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [../docs/performance/FRAME-620-IMPLEMENTATION.md](../docs/performance/FRAME-620-IMPLEMENTATION.md) | Integrated graphics/menu/loading changes, verification and hardware limits |
+| [../docs/performance/FRAME-620-LOADING.md](../docs/performance/FRAME-620-LOADING.md) | Actual async room completion, preserved-cache false readiness and spinner lifetime |
+| [../docs/performance/FRAME-620-SCENERY.md](../docs/performance/FRAME-620-SCENERY.md) | Full original PCG census, exact ornament/core/collision hierarchy and projector masks |
+| [../docs/performance/FRAME-620-WALLS.md](../docs/performance/FRAME-620-WALLS.md) | Exact pre-619 continuous wall/prop ramps restored; native render proof boundaries |
+| [../docs/performance/FRAME-620-TOOLTIPS.md](../docs/performance/FRAME-620-TOOLTIPS.md) | Complete bilingual player help and actual dynamic-family lookup coverage |
 | [../docs/performance/FRAME-619-IMPLEMENTATION.md](../docs/performance/FRAME-619-IMPLEMENTATION.md) | Six implemented Frame follow-ups, exact environment-material test switch, integrated coverage and next hardware checks |
 | [../docs/performance/FRAME-619-ANALYSIS.md](../docs/performance/FRAME-619-ANALYSIS.md) | Actual Build618 scenes, two preparation timeouts, missed Living Spirit effects and hardware attribution limits |
 | [../docs/performance/FRAME-619-LOADING.md](../docs/performance/FRAME-619-LOADING.md) | Batched original metadata, shared portrait deadline, native room generation/material completion and preserved caches |
