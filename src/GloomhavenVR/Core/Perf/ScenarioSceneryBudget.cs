@@ -225,8 +225,21 @@ internal static class ScenarioSceneryBudget
 
     private static bool IsDecorativeProjectorName(string name)
     {
-        int duplicate = name.IndexOf(' ');
-        string original = duplicate > 0 ? name.Substring(0, duplicate) : name;
+        string original = name;
+        // Unity clone suffixes and authored numeric duplicates retain the exact native family.
+        // Arbitrary suffixes such as MagicCircle do not become decoration through prefix matching.
+        for (int pass = 0; pass < 2; pass++)
+        {
+            if (original.EndsWith("(Clone)", StringComparison.Ordinal))
+                original = original.Substring(0, original.Length - 7);
+            int space = original.LastIndexOf(' ');
+            if (space < 0 || space + 3 >= original.Length || original[space + 1] != (char)40
+                || original[original.Length - 1] != (char)41) continue;
+            bool numeric = true;
+            for (int i = space + 2; i < original.Length - 1; i++)
+                if (original[i] < '0' || original[i] > '9') { numeric = false; break; }
+            if (numeric) original = original.Substring(0, space);
+        }
         return original == "DECAL_BloodSplat_Proj_PR" || original == "DECAL_Dirt_Proj_PR"
             || original == "DECAL_FR_BloodSplat_Proj_PR" || original == "DECAL_FR_Dirt_Proj_PR";
     }
@@ -877,7 +890,7 @@ internal static class ScenarioSceneryBudget
             Mesh? mesh = filter != null ? filter.sharedMesh : null;
             if (mesh != null && IsNativeSceneryAsset(mesh.name))
             {
-                if (IsHardStructuralName(mesh.name) || IsGrassBase(mesh.name))
+                if (IsHardStructuralName(mesh.name) || IsGrassBase(mesh.name) || IsNativeGroundCore(mesh.name))
                     return true;
                 if (NamedKind(mesh.name) != Kind.None)
                     return false;
@@ -902,6 +915,182 @@ internal static class ScenarioSceneryBudget
         || name.StartsWith("DLC_", StringComparison.Ordinal)
         || name.StartsWith("PR_", StringComparison.Ordinal)
         || name.StartsWith("GH_", StringComparison.Ordinal);
+
+    // The original generic floor cores also represent their shared prefab collision. Their
+    // names omit Base/Basic, so an unrepresented-box veto used to retain the detachable bones
+    // despite correct ornament identity. This closed census grants representation only to
+    // retained original ground meshes, never to an arbitrary floor-named decoration.
+    private static readonly HashSet<string> NativeGroundCores = new(StringComparer.Ordinal)
+    {
+        "CR_Dungeon_Floor_Seg_J",
+        "CR_Dungeon_Floor_Seg_L",
+        "CR_Dungeon_Floor_Seg_P",
+        "CR_EXT_Stone_Floor_01",
+        "CR_EXT_Stone_Floor_01_Half_01",
+        "CR_EXT_Stone_Floor_01_Half_02",
+        "CR_EXT_Stone_Floor_01_Seg_J",
+        "CR_EXT_Stone_Floor_01_Seg_L",
+        "CR_EXT_Stone_Floor_01_Seg_P",
+        "CR_EXT_Stone_Floor_04",
+        "CR_EXT_Stone_Floor_06",
+        "CR_EXT_Stone_Floor_07_Top",
+        "CR_EXT_Stone_Floor_07_Well",
+        "CR_EXT_Stone_Floor_BAY",
+        "CR_FR_Floor_Mud_01",
+        "CR_FR_Floor_Mud_02",
+        "CR_FR_Floor_Mud_03",
+        "CR_FR_Floor_Mud_04",
+        "CR_FR_Floor_Wood",
+        "CR_FR_Floor_Wood_01",
+        "CR_FR_Floor_Wood_02",
+        "CR_FR_Floor_Wood_03",
+        "CR_INT_Marble_Floor_01",
+        "CR_INT_Marble_Floor_03",
+        "CR_INT_Marble_Floor_04",
+        "CR_INT_Marble_Floor_Half_01",
+        "CR_INT_Marble_Floor_Half_02",
+        "CR_INT_Marble_Floor_Seg_J",
+        "CR_INT_Marble_Floor_Seg_L",
+        "CR_INT_Marble_Floor_Seg_P",
+        "CR_INT_Shack_Wood_Floor_Half_01",
+        "CR_INT_Shack_Wood_Floor_Half_02",
+        "CR_INT_Shack_Wood_Floor_Seg_J",
+        "CR_INT_Shack_Wood_Floor_Seg_L",
+        "CR_INT_Shack_Wood_Floor_Seg_P",
+        "CR_INT_Stone_Floor_01",
+        "CR_INT_Stone_Floor_01_Seg_J",
+        "CR_INT_Stone_Floor_01_Seg_L",
+        "CR_INT_Stone_Floor_01_Seg_P",
+        "CR_INT_Stone_Floor_01_b",
+        "CR_INT_Stone_Floor_01_c",
+        "CR_INT_Stone_Floor_01_d",
+        "CR_INT_Stone_Floor_01_e",
+        "CR_INT_Stone_Floor_02",
+        "CR_INT_Stone_Floor_02_Half_01",
+        "CR_INT_Stone_Floor_02_Half_02",
+        "CR_INT_Stone_Floor_03",
+        "CR_INT_Stone_Floor_03_Half_01",
+        "CR_INT_Stone_Floor_03_Half_02",
+        "CR_INT_Stone_Floor_03_Seg_P",
+        "CR_INT_Stone_Floor_04",
+        "CR_INT_Stone_Floor_04_Half_01",
+        "CR_INT_Stone_Floor_04_Half_02",
+        "CR_INT_Stone_Floor_04_Seg_P",
+        "CR_INT_Stone_Floor_05",
+        "CR_INT_Wood_Floor_01",
+        "CR_INT_Wood_Floor_02",
+        "CR_INT_Wood_Floor_03",
+        "CR_INT_Wood_Floor_04",
+        "CR_INT_Wood_Floor_06",
+        "CR_INT_Wood_Floor_07",
+        "CR_INT_Wood_Floor_Basic_Half_01",
+        "CR_INT_Wood_Floor_Half_02",
+        "CR_INT_Wood_Floor_Seg_J",
+        "CR_INT_Wood_Floor_Seg_L",
+        "CR_INT_Wood_Floor_Seg_P",
+        "CR_OS_Floor_01",
+        "CR_OS_Floor_02",
+        "CR_OS_Floor_03",
+        "CR_OS_Floor_04",
+        "CR_OS_Floor_Basic_Half_01",
+        "CR_OS_Floor_Basic_Half_02",
+        "CR_OS_Floor_Basic_Seg_J",
+        "CR_OS_Floor_Basic_Seg_L",
+        "CR_OS_Floor_Basic_Seg_P",
+        "CR_RU_Floor_01_New",
+        "CR_RU_Floor_01_New_Half_01",
+        "CR_RU_Floor_01_New_Seg_J",
+        "CR_RU_Floor_01_New_Seg_L",
+        "CR_RU_Floor_01_New_Seg_P",
+        "CR_RU_Floor_02_New",
+        "CR_RU_Floor_03_New",
+        "CR_RU_Floor_RockSmall_New_01",
+        "CR_RU_Floor_RockSmall_New_02",
+        "CR_RU_Floor_RockSmall_New_03",
+        "CR_RU_Floor_Rock_New_01",
+        "CR_RU_Floor_Rock_New_02",
+        "CR_RU_Floor_Rock_New_03",
+        "CR_RU_Floor_Rock_New_04",
+        "CR_RU_StoneBlock_Floor_01",
+        "CR_RU_StoneBlock_Floor_02",
+        "CR_ST_Floor_Basic_Half_01",
+        "CR_ST_Floor_Basic_Half_02",
+        "CR_ST_Floor_Basic_Seg_J",
+        "CR_ST_Floor_Basic_Seg_L",
+        "CR_ST_Floor_Basic_Seg_P",
+        "CR_ST_Floor_WeaponRack_01",
+        "CR_ST_Floor_WeaponRack_02",
+        "CR_ST_Floor_WeaponRack_Small_01",
+        "CR_ST_Floor_WeaponRack_Small_02",
+        "CR_ST_Floor_Weapon_01",
+        "CR_ST_Floor_Weapon_02",
+        "CR_ST_Floor_Weapon_Small_01",
+        "CR_ST_Floor_Weapon_Small_02",
+        "CR_TC_Floor_01",
+        "CR_TC_Floor_01_Base",
+        "CR_TC_Floor_Basic",
+        "CR_TC_Floor_Basic_Half_01",
+        "CR_TC_Floor_Basic_Half_02",
+        "CR_TC_Floor_DoorStep",
+        "CR_TC_Floor_Hole_Complete",
+        "CR_TC_Floor_Metal",
+        "CR_TC_Floor_Plinth",
+        "CV_Floor_Basic_01",
+        "CV_Floor_Basic_02",
+        "CV_Floor_Basic_03",
+        "CV_Floor_Generic_Half_01",
+        "CV_Floor_Generic_Half_02",
+        "CV_Floor_Generic_Seg_J",
+        "CV_Floor_Generic_Seg_L",
+        "CV_Floor_Generic_Seg_P",
+        "CV_Floor_HexOutline_Rock_01",
+        "CV_Floor_HexOutline_Rock_02",
+        "CV_Floor_HexOutline_Rock_03",
+        "CV_Floor_HexOutline_Rock_04",
+        "CV_Floor_MetalOre_01",
+        "CV_Floor_MetalOre_02",
+        "CV_Floor_MetalOre_03",
+        "CV_Floor_MetalOre_04",
+        "CV_Floor_MetalOre_05",
+        "CV_Floor_MetalOre_06",
+        "CV_Floor_MetalOre_07",
+        "CV_Floor_Volcanic_01",
+        "CV_Floor_Volcanic_04",
+        "CV_Floor_Volcanic_05",
+        "DLC_SB_Plaform_Floor_Tracks_01",
+        "EN_CR_Floor_BaseHex_Plain",
+        "FR_CW_Floor_Dirt_Half_01",
+        "FR_CW_Floor_Dirt_Half_02",
+        "FR_CW_Floor_Dirt_Seg_J",
+        "FR_CW_Floor_Dirt_Seg_L",
+        "FR_CW_Floor_Dirt_Seg_P",
+        "FR_CW_Floor_Toadstool_01",
+        "FR_CW_Floor_Toadstool_02",
+        "FR_CW_Floor_Toadstool_03",
+        "FR_CW_Floor_Toadstool_Base_01",
+        "FR_CW_Floor_Toadstool_Base_02",
+        "FR_CW_Floor_Toadstool_Base_03",
+        "SE_Gothic_Floor_01",
+        "SE_Gothic_Floor_02",
+        "SE_Gothic_Floor_03",
+        "SE_Gothic_Floor_04",
+        "SE_Gothic_Floor_06",
+        "SE_Gothic_Floor_07",
+        "SE_Gothic_Floor_08",
+        "SE_Gothic_Floor_09",
+        "SE_Gothic_Floor_Half_01",
+        "SE_Gothic_Floor_Half_02",
+        "SE_Gothic_Floor_Seg_J",
+        "SE_Gothic_Floor_Seg_L",
+        "SE_Gothic_Floor_Seg_P",
+        "SE_Rot_01_Floor_Under",
+        "SE_Rot_Floor_01",
+        "SE_Rot_Floor_02",
+        "SE_Rot_Floor_03",
+        "SE_Rot_Floor_04",
+    };
+
+    private static bool IsNativeGroundCore(string name) => NativeGroundCores.Contains(name);
 
     // Build620 reviews the original renderer/mesh pairs across all PCG databases. These
     // meshes are detached ornaments beside an authored floor/wall/pillar core, not the core

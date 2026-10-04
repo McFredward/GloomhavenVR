@@ -173,11 +173,27 @@ public static class InteractionProgram
             var bonepile=NativeLeaf(generated.transform,"fi_vil_combs_props_bonepile_03c2","Mesh",false);
             var paper=NativeLeaf(generated.transform,"ST_TownMilitia_Paper_01","ST_TownMilitia_Paper_01",false);
             var blood=Node(generated.transform,"DECAL_BloodSplat_Proj_PR").AddComponent<Projector>();
+            var cloneBlood=Node(generated.transform,"DECAL_FR_BloodSplat_Proj_PR(Clone)").AddComponent<Projector>();
+            var duplicateClone=Node(generated.transform,"DECAL_Dirt_Proj_PR (12)(Clone)").AddComponent<Projector>();
+            var arbitrarySuffix=Node(generated.transform,"DECAL_BloodSplat_Proj_PR MagicCircle").AddComponent<Projector>();
+            var namedSuffix=Node(generated.transform,"DECAL_Dirt_Proj_PR (MagicCircle)").AddComponent<Projector>();
             var foreignProjection=Node(generated.transform,"DECAL_Dirt_Proj_PR (1)").AddComponent<Projector>(); foreignProjection.enabled=false;
             var nativeRune=Node(generated.transform,"ST_Demon_Circle02_Decal").AddComponent<Projector>();
             var propProjectorRoot=Node(generated.transform,"Native blood prop"); propProjectorRoot.AddComponent<ProceduralProp>();
             var propProjection=Node(propProjectorRoot.transform,"DECAL_BloodSplat_Proj_PR").AddComponent<Projector>();
             Check(Classify(bonepile,tile)=="Eligible"&&Classify(paper,tile)=="Eligible","original generic bone-pile mesh and paper use the decoration budget");
+            var genericFloors=new List<MeshRenderer>();
+            for (int i=1;i<=4;i++)
+            {
+                string name="CR_OS_Floor_0"+i;
+                var originalPrefab=Node(generated.transform,name+"_PR");originalPrefab.AddComponent<BoxCollider>();
+                var originalGroup=Node(originalPrefab.transform,name+"_New");
+                var originalCore=NativeLeaf(originalGroup.transform,name,name,false);
+                var originalBones=NativeLeaf(originalGroup.transform,name+"_Bones",name+"_Bones",false);
+                genericFloors.Add(originalCore);genericFloors.Add(originalBones);
+                Check(Classify(originalCore,tile)!="Eligible"&&Classify(originalBones,tile)=="Eligible",
+                    "original generic floor prefab collider is represented by real retained core: "+name);
+            }
             Check(Classify(pillar, tile) == "Eligible", "original tree pillar bark is vegetation rather than masonry");
             Check(Classify(wallStone, tile) == "Structural" && Classify(floor, tile) == "Structural", "native masonry and playable floor retain rendering");
             var nativeComposite=Node(mixed.transform,"FR_Wall_Grassy_Verge_Thin_Narrow_01");
@@ -339,6 +355,10 @@ public static class InteractionProgram
                 "zero decoration retains original floor masonry and native collision");
             Check(!blood.enabled&&!foreignProjection.enabled&&nativeRune.enabled&&propProjection.enabled,
                 "decoration zero masks identified original paint projections while gameplay and magic remain");
+            Check(!cloneBlood.enabled&&!duplicateClone.enabled&&arbitrarySuffix.enabled&&namedSuffix.enabled,
+                "native projector clones and numeric duplicates qualify while arbitrary suffixes remain");
+            Check(genericFloors.Where((r,i)=>i%2==0).All(r=>!r.forceRenderingOff)&&genericFloors.Where((r,i)=>i%2==1).All(r=>r.forceRenderingOff),
+                "original generic floor hierarchy removes bones while floor cores remain visible");
             PerfConfig.ScenarioSceneryDensityPercentValue=0; PerfConfig.ScenarioVegetationDensityPercentValue=0; Tick(driver,50);
             Check(grass.forceRenderingOff && treeLeaf.forceRenderingOff && bush.forceRenderingOff && caveLod.forceRenderingOff, "decoration zero hides real generated grass tree and cave LOD meshes");
             Check(bayMembers.All(r=>r.forceRenderingOff)&&!bayCollider.enabled,"zero budgets remove all eleven captured bay meshes and shared decorative box");

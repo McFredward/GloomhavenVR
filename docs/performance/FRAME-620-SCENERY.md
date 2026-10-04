@@ -54,6 +54,14 @@ beds, doors, colliders and native interaction remain. Whole-prefab creation is
 still deferred only when every original component/mesh proves it is cosmetic;
 a mixed floor-plus-skull prefab is not deferred as a unit.
 
+The original generic `CR_OS_Floor_01_PR` through `_04_PR` hierarchies also have
+a shared prefab box collider: an anonymous `_New` wrapper contains the solid
+floor and a separate bones renderer. Recognising the ornament alone did not
+prove that collision belongs to the retained floor. A closed census of 166
+actual ground-core mesh identities now establishes that representation. Unknown
+floor-like names, cosmetic leaf colliders and native gameplay ancestry still
+veto hiding. This does not broaden structural or cosmetic name admission.
+
 Blood/dirt paint uses another real render path: four exact original PCG projector
 families account for 122 of the 137 authored projections. The decoration budget
 owns only their render-enable changes, retaining original controllers, pose and
@@ -61,17 +69,22 @@ material. Magic circles, ice runes, toxic splats, unknown projectors and project
 beneath gameplay props remain. Foreign disabled projections remain disabled on
 restoration. Discovery includes inactive room content before reveal; bounded
 ancestry monitoring restores reparented/retired owned projections.
+Runtime names accept exact Unity `(Clone)` and native numeric duplicate suffixes,
+including combined duplicates/clones. Arbitrary suffixes such as `MagicCircle`
+or `(MagicCircle)` remain unknown, even after a known family name.
 
 ## Verification and limits
 
-The portable complete classifier passes 194 assertions and 18 causal negative
+The portable complete classifier passes 360 assertions and 18 causal negative
 controls, including all 64 independently recorded original composite meshes,
-unknown masonry, real floor collision and gameplay identities. Actual Unity
-2021.3.5 executes the complete discovery/ownership driver: 280 assertions cover
+all 166 original retained ground cores, unknown masonry, real floor collision
+and gameplay identities. Actual Unity
+2021.3.5 executes the complete discovery/ownership driver: 286 assertions cover
 all exact mesh identities, zero/100 retuning, mixed floor retention, separate paper
-and bone piles, original projector masks and foreign projector state. Four new
+and bone piles, original projector masks and foreign projector state. Six new
 causal variants cover omitted composite admissions, accidental broad skull-core
-admission, missing projector masks and foreign projector restoration.
+admission, missing projector masks, foreign projector restoration, omitted
+generic-floor collision representation and rejected native projector clones.
 
 The first composite negative mutation reached a different earlier terrain assertion;
 that raw failure remains preserved. Only that control was resumed using a complete
@@ -81,7 +94,15 @@ warnings. All fourteen source scopes pass through the complete attempt plus its
 targeted inventory resume. That checker initially counted an opening bracket
 inside a string literal; normalising native duplicate suffixes avoids its parser
 ambiguity. Projector production and its two affected controls were rerun after
-that bounded change; unrelated passing controls were retained. Patch-inventory
+that bounded change; unrelated passing controls were retained. Final review then
+found that the initial surrogate used a previously recognised `Basic` floor core
+instead of the actual generic `_Floor_01` hierarchy. The follow-up reproduces all
+four original generic prefab hierarchies in actual Unity and verifies every
+recorded ground core in the portable classifier. Its production and only the
+four affected projector/collision causal controls were rerun. This is a corrected
+test coverage gap; the earlier pass did not establish the real generic-floor
+behaviour. The census generator reproduces every recorded classification and
+166-ground-core record from the preserved original read-only audit. Patch-inventory
 line references still require the primary agent's final regeneration after
 integrating other workers.
 

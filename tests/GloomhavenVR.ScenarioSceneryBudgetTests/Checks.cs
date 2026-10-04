@@ -258,6 +258,14 @@ internal static partial class ScenarioSceneryBudget
             layer.GetComponent<MeshFilter>()!.sharedMesh!.name=original;
             Check(Inspect(layer,tile)==Verdict.Eligible,"every reviewed original detached ornament is optional: "+original);
         }
+        foreach(string original in NativeSceneryMetadata.GroundMeshes)
+        {
+            var prefab=Node(generated.transform,"Original ground template");prefab.AddComponent<Collider>();
+            var coreLayer=Leaf(prefab.transform,"LOD0",false);coreLayer.GetComponent<MeshFilter>()!.sharedMesh!.name=original;
+            var bones=Leaf(prefab.transform,"LOD1",false);bones.GetComponent<MeshFilter>()!.sharedMesh!.name="CR_OS_Floor_01_Bones";
+            Check(Inspect(coreLayer,tile)!=Verdict.Eligible&&Inspect(bones,tile)==Verdict.Eligible,
+                "recorded original ground core represents shared collision without masking floor: "+original);
+        }
         return _checks;
     }
 }

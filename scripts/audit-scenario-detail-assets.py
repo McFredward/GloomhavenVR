@@ -123,6 +123,21 @@ def scenery_review(result):
         example = next((row for row in candidates if 'MonoBehaviour' not in row['components']
             and 'Animator' not in row['ancestry_components'] and len(row['path'].split('/')) > 1), candidates[0])
         composites.append(example)
+    # Closed original identities establish the retained ground mesh behind a shared
+    # prefab collider. This is collision representation, never a cosmetic admission.
+    ground_exclusions = ('Grass', 'Grassy', 'LongGrass', 'Tree', 'Bush', 'Plants', 'Vines',
+        'Ivy', 'Roots', 'Leaves', 'Fern', 'Shrub', 'Reed', 'Flower', 'Foliage', 'Geranium',
+        'Moss', 'Scatter', 'Detail', 'Clutter', 'Stalagmites', 'Crystal', 'Debris',
+        'SmallRock', 'Stones', 'Vase', 'Urn', 'Pot', 'Barrel', 'Bottle', 'Candle', 'Book',
+        'Banner', 'Skull', 'Bone', 'Paper', 'Pages', 'Parchment', 'Scroll', 'Cup', 'Carpet',
+        'Curtain', 'Furniture', 'Chair', 'Candelabra', 'WallChains', 'Cobweb', 'Rubble')
+    ground = {}
+    for row in result['scenery_renderers']:
+        mesh = row['mesh']
+        if (mesh.startswith(('FR_', 'CR_', 'CV_', 'EN_', 'TO_', 'ST_', 'SB_', 'SE_',
+                             'CS_', 'CT_', 'DLC_', 'PR_', 'GH_'))
+            and '_Floor_' in mesh and not any(token in mesh for token in ground_exclusions)):
+            ground.setdefault(mesh, row)
     projectors = {}
     for row in result['scenery_projectors']:
         projectors.setdefault(clean(row['path'].split('/')[-1]), row)
@@ -130,7 +145,8 @@ def scenery_review(result):
     return {'bundle_count': len(result['scenery_bundles']), 'renderer_count': len(result['scenery_renderers']),
         'projector_count': len(result['scenery_projectors']), 'classification': classification,
         'counts': dict(Counter(category for _, category in classification)),
-        'composite_dressing': composites, 'projectors': list(projectors.values())}
+        'composite_dressing': composites, 'ground_cores': [ground[name] for name in sorted(ground)],
+        'projectors': list(projectors.values())}
 
 
 def main():

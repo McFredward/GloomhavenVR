@@ -44,6 +44,7 @@ def production(source):
         'private static bool ShouldHide(', 'private static bool IsStructuralName(', 'private static bool IsGrassBase(',
         'private static bool IsNativeWallWoodLeaf(', 'private static bool IsNativeSceneryAsset(', 'private static bool IsNativeTreeAsset(', 'private static bool IsNativeWallPlantLeaf(', 'private static bool ColliderIsPresent(', 'private static string TreeAssetName(',
         'private static bool IsNativeCompositeDressing(', 'private static readonly HashSet<string> NativeCompositeDressing',
+        'private static bool IsNativeGroundCore(', 'private static readonly HashSet<string> NativeGroundCores',
     )]
     header='''using System; using System.Collections.Generic; using UnityEngine; using UnityEngine.SceneManagement;
 namespace GloomhavenVR.Core;
@@ -75,6 +76,10 @@ def main():
     if catalog != originals or len(originals)!=64:
         raise SystemExit('Detached composite mesh admission must match independently reviewed original prefabs')
     mesh_values=','.join(json.dumps(n) for n in sorted(originals))
+    ground={row['mesh'] for row in review['ground_cores']}
+    if ground != set(re.findall(r'"([^"]+)"',expression(source,'private static readonly HashSet<string> NativeGroundCores'))) or len(ground)!=166:
+        raise SystemExit('Shared ground collision representation must match original retained mesh records')
+    ground_values=','.join(json.dumps(n) for n in sorted(ground))
     variants=[('production',source,'')]
     for name,old,new,expected in (
         ('captured-bay-rejected','if (CanOwnBayCollider(collider))\n                continue;','if (CanOwnBayCollider(collider) && false)\n                continue;','captured native bay admits every'),
@@ -105,7 +110,7 @@ def main():
         folder=Path(temp)
         (folder/'Classifier.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><NoWarn>CS0649</NoWarn></PropertyGroup></Project>')
         shutil.copyfile(fixture/'UnityGraph.cs',folder/'UnityGraph.cs');shutil.copyfile(fixture/'Checks.cs',folder/'Checks.cs')
-        (folder/'NativeSceneryMetadata.cs').write_text('internal static class NativeSceneryMetadata { internal static readonly string[] CompositeMeshes = {'+mesh_values+'}; }')
+        (folder/'NativeSceneryMetadata.cs').write_text('internal static class NativeSceneryMetadata { internal static readonly string[] CompositeMeshes = {'+mesh_values+'}; internal static readonly string[] GroundMeshes = {'+ground_values+'}; }')
         shutil.copyfile(args.source_root/'src/GloomhavenVR/Core/FigureRendererGuard.cs',folder/'FigureGuard.cs')
         for name,text,expected in variants:
             (folder/'Production.cs').write_text(production(text))

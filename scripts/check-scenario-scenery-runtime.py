@@ -84,6 +84,8 @@ def main():
             ('unknown-skull-core-admitted', 'Scenery.cs', 'private static bool IsNativeCompositeDressing(string name) => NativeCompositeDressing.Contains(name);', 'private static bool IsNativeCompositeDressing(string name) => name.IndexOf("Skull", StringComparison.Ordinal) >= 0 || NativeCompositeDressing.Contains(name);', 'unlisted skull wall preserves real masonry'),
             ('cosmetic-projector-retained', 'Scenery.cs', 'projector.enabled = false;\n            record.Owned = true;', 'projector.enabled = true;\n            record.Owned = true;', 'decoration zero masks identified original paint projections'),
             ('foreign-projector-enabled', 'Scenery.cs', 'else if (!hide && record.Owned)', 'else if (!hide)', 'restoring decoration preserves foreign disabled paint projection'),
+            ('generic-floor-collision-unrepresented', 'Scenery.cs', '|| IsNativeGroundCore(mesh.name)', '|| false', 'original generic floor prefab collider is represented'),
+            ('clone-projector-rejected', 'Scenery.cs', 'if (original.EndsWith("(Clone)", StringComparison.Ordinal))', 'if (original.EndsWith("(Clone)", StringComparison.Ordinal) && false)', 'native projector clones and numeric duplicates qualify'),
 
             ('subtree-cache-retained', 'Scenery.cs', 'finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }', 'finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }', ''),
         ]
