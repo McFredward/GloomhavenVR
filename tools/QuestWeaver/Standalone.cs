@@ -27,7 +27,7 @@ public sealed class StandaloneReport
     public int UnchangedTypesVerified { get; set; }
 }
 
-internal sealed record OfflineProfile(string DisplayName, string SteamId, string AccountId);
+internal sealed record OfflineProfile(string DisplayName, string SteamId, string AccountId, int OwnedDlcMask = 0);
 
 /// <summary>Transforms staged platform seams, never original rules, saves or transports.</summary>
 internal static class Standalone
@@ -45,7 +45,20 @@ internal static class Standalone
             || (dummy ? parsed != 0 || account != 0 || !name.Contains("DUMMY", StringComparison.OrdinalIgnoreCase)
                 : parsed <= uint.MaxValue || (uint)parsed != account))
             throw new InvalidDataException("Offline profile is missing, inconsistent, or an unlabelled dummy.");
-        return new OfflineProfile(name, id, account.ToString(CultureInfo.InvariantCulture));
+        int dlcMask = 0;
+        if (p.TryGetProperty("dlcOwnership", out JsonElement ownership))
+        {
+            if (ownership.GetProperty("schema").GetInt32() != 1 || ownership.GetProperty("provider").GetString() != "steam"
+                || ownership.GetProperty("appId").GetInt32() != 780290 || ownership.GetProperty("steamId").GetString() != id)
+                throw new InvalidDataException("Offline DLC ownership differs from the selected game/account.");
+            dlcMask = ownership.GetProperty("ownedMask").GetInt32();
+            int[] apps = ownership.GetProperty("installedAppIds").EnumerateArray().Select(a => a.GetInt32()).ToArray();
+            if ((dlcMask & ~7) != 0 || dlcMask < 0 || apps.Distinct().Count() != apps.Length
+                || apps.Any(a => a != 1809490 && a != 1958560 && a != 2584170)
+                || apps.Sum(a => a == 1809490 ? 1 : a == 1958560 ? 2 : 4) != dlcMask)
+                throw new InvalidDataException("Offline DLC ownership has invalid or inconsistent flags.");
+        }
+        return new OfflineProfile(name, id, account.ToString(CultureInfo.InvariantCulture), dlcMask);
     }
 
     internal static StandaloneReport Write(string managed, string? overrides, string profilePath, string output, string? bepinexPath = null, string? modPath = null)
@@ -130,6 +143,25 @@ internal static class Standalone
         Constant(game, "PlatformLayer", "get_IsValid", false, "System.Boolean");
         Constant(game, "PlatformLayer", "get_SessionTicket", "", "System.String");
         Constant(game, "PlatformLayer", "get_SteamAppId", 780290, "System.UInt32");
+        // The PC builder captures local DLC availability once. Preserve original
+        // CanPlayDLC/file checks, party/save validation and promotional selection;
+        // only the unavailable live-store seam uses baked ownership on Quest.
+        MethodDefinition installedDlc = Method(game, "PlatformDLC", "UserInstalledDLC", "System.Boolean", "ScenarioRuleLibrary.DLCRegistry/EDLCKey");
+        int[] originalDlcIds = installedDlc.Body.Instructions.Where(i => i.OpCode == OpCodes.Ldc_I4)
+            .Select(i => (int)i.Operand).Where(i => i > 100000).OrderBy(i => i).ToArray();
+        if (!originalDlcIds.SequenceEqual(new[] { 1809490, 1958560, 2584170 })
+            || !installedDlc.Body.Instructions.Any(i => i.Operand is MethodReference c && c.DeclaringType.FullName == "Steamworks.SteamApps" && c.Name == "IsDlcInstalled"))
+            throw new InvalidDataException("Original DLC ownership mapping changed; review the new source before building.");
+        Replace(installedDlc, il =>
+        {
+            Instruction yes = Instruction.Create(OpCodes.Ldc_I4_1);
+            foreach (int flag in new[] { 1, 2, 4 })
+                if ((profile.OwnedDlcMask & flag) != 0)
+                { il.Emit(OpCodes.Ldarg_1); il.Emit(OpCodes.Ldc_I4, flag); il.Emit(OpCodes.Beq, yes); }
+            il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ret);
+            il.Append(yes); il.Emit(OpCodes.Ret);
+        });
+        Noop("PlatformDLC", "OpenPlatformStoreDLCOverlay", "ScenarioRuleLibrary.DLCRegistry/EDLCKey");
         // Stored EpicLogin may request this entry point during SaveData initialization.
         // Keep the save unchanged and explicitly reject authentication on this offline target.
         MethodDefinition eos = Method(game, "PlatformLayer", "EOSInitialise", "System.Void");

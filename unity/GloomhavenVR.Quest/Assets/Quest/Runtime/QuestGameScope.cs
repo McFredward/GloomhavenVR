@@ -60,6 +60,14 @@ namespace GloomhavenVR.Quest
                         object button = RequiredField(behaviour, "_switchChatButton");
                         if (button is Component) Add((Component)button, "startupVoiceUnavailable", false, null);
                     }
+                    else if (type == "UIBuyDLCSlot" || type == "UIPromotionDLCSlot")
+                    {
+                        // Keep the original ad image, title, animation and native
+                        // promotion cycle. Only its exact serialized purchase
+                        // button is disabled; no label/name heuristics are used.
+                        object button = RequiredField(behaviour, "button");
+                        if (button is Component) Add((Component)button, "dlcPurchaseOnPc", false, null);
+                    }
                     else if (type == "GLOOM.MainMenu.UIMainMenuSuboption")
                     {
                         object model = WorkshopModel(behaviour);
@@ -150,7 +158,9 @@ namespace GloomhavenVR.Quest
 
         static object RequiredField(object owner, string name)
         {
-            FieldInfo field = owner.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo field = null;
+            for (Type type = owner.GetType(); type != null && field == null; type = type.BaseType)
+                field = type.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
             if (field == null) throw new InvalidOperationException("Original scope field ABI is missing: " + name);
             return field.GetValue(owner);
         }

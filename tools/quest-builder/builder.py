@@ -22,6 +22,7 @@ import zipfile
 
 import startup
 import shaders as post_effects
+import dlcs
 
 from profile import discover_steam_root, dummy_identity, load_profile, read_logo, ProfileError
 from storage import (BuildError, Stages, canonical, digest, ensure_output, inventory,
@@ -146,6 +147,8 @@ def inspect_inputs(args, repo: Path, output: Path, data: Path) -> dict:
     game_files = inventory(data)
     source_files, commit, dirty = source_inventory(repo)
     profile, logo = selected_profile(args)
+    if profile is not None:
+        profile["dlcOwnership"] = dlcs.capture(args, data, profile)
     game_key = value_hash({"files": game_files})
     source_key = value_hash({"files": source_files})
     profile_key = value_hash(profile) if profile else None
@@ -354,6 +357,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             shutil.copyfile(loading_logo, resources / "quest-loading-logo.png")
             shutil.copyfile(recovered / startup.REPORT, resources / startup.REPORT)
             startup.stage_startup_movies(project, game)
+            dlcs.stage(project, inputs["profile"]["dlcOwnership"])
             package_startup_content(project, inputs["inputKey"])
             package_data = json.loads((project / "Packages/manifest.json").read_text(encoding="utf-8"))
             package_data.setdefault("dependencies", {})["com.unity.addressables"] = "1.19.19"
@@ -392,6 +396,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
         contracts = [settings, manifest, resources / "quest-profile.json", resources / "quest-steam-logo.png"]
         if args.target == "startup":
             contracts.extend([resources / "quest-loading-logo.png", resources / startup.REPORT, resources / startup.MOVIES_REPORT, resources / "quest-startup-content.json",
+                              resources / "quest-dlc-ownership.json", project / "QuestStartupEvidence/dlc-content-selection.json",
                               project / "Assets/StreamingAssets/quest-startup-content.zip",
                               project / "QuestStartupEvidence/compute-source-restoration.json",
                               project / "Assets/QuestOriginalStartup/script-orders.json",
@@ -1032,6 +1037,9 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--steam-id")
     result.add_argument("--steam-logo", type=Path)
     result.add_argument("--dummy-profile", action="store_true", help="Explicit maintainer-authorized development identity (ID 0, DUMMY).")
+    result.add_argument("--dlc-ownership-json", type=Path, help="Small explicit local DLC declaration for portable build hosts; matches the selected account.")
+    result.add_argument("--owned-dlc", action="append", choices=[row[0] for row in dlcs.CATALOG],
+                        help="Maintainer diagnostic ownership declaration, only with the labelled DUMMY profile; repeat per DLC.")
     result.add_argument("--probe-assets", type=Path, help="Pure native recovered asset slice, only for the diagnostic probe.")
     result.add_argument("--startup-project", type=Path, help="Validated original-scene closure, only for the startup diagnostic.")
     result.add_argument("--unity-editor")
