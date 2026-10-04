@@ -649,13 +649,43 @@ internal static partial class VROptionsTab
     /// <para>Plain caption style, so it sits visibly below the header rather than competing with
     /// it.</para>
     /// </summary>
-    private static void BuildNote(Transform parent, string text)
+    private static void BuildNote(Transform parent, string text, bool multiline = false)
     {
         GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         if (title != null)
         {
             title.text = text;
             ApplyOptionCaption(title);
+            if (multiline)
+            {
+                // Notes have no value/control column. Use that space and grow the row
+                // at its readable authored size instead of overflowing a one-line title.
+                RectTransform rect = title.rectTransform;
+                rect.anchorMin = Vector2.zero;
+                rect.anchorMax = Vector2.one;
+                rect.offsetMin = new Vector2(12f, 8f);
+                rect.offsetMax = new Vector2(-12f, -8f);
+                title.enableAutoSizing = false;
+                title.enableWordWrapping = true;
+                title.overflowMode = TextOverflowModes.Overflow;
+                float available = ((RectTransform)parent).rect.width;
+                if (available <= 24f) available = ((RectTransform)row.transform).rect.width;
+                LayoutGroup? group = parent.GetComponent<LayoutGroup>();
+                float width = Mathf.Max(1f, available - (group?.padding.horizontal ?? 0) - 24f);
+                float height = title.GetPreferredValues(text, width, float.PositiveInfinity).y + 16f;
+                LayoutElement? layout = row.GetComponent<LayoutElement>();
+                if (layout != null)
+                {
+                    if (layout is LayoutElementExtended extended)
+                    {
+                        extended.MaxHeight = -1f;
+                        extended.scalePreferredHeight = 1f;
+                    }
+                    height = Mathf.Max(layout.minHeight, height);
+                    layout.minHeight = layout.preferredHeight = height;
+                    layout.flexibleHeight = 0f;
+                }
+            }
         }
 
         if (option != null)

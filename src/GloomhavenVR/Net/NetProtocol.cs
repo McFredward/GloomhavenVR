@@ -566,7 +566,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 619;
+    public const ushort ModBuild = 620;
+
+    // ModBuild 620 — restore the original continuous wall/prop dissolve, broaden
+    // whole-game decoration provenance and make VR options help player-facing.
+    // The Build619 point-filtered rank bank is removed; native fade enable remains
+    // explicit. Exact loose/composite decoration meshes and known cosmetic projector
+    // families are reversible presentation masks; structural/gameplay owners survive.
+    // Player help covers EN/DE settings/families and headings on both menu routes;
+    // the legacy map sparkle switch stays bound but INERT and is no longer offered.
+    // Graphics-profile help wraps across its full row at readable size; simpler
+    // environment shading has an explicit ordinary-menu label and retains native walls.
+    // Newly revealed room loading observes real native async handles, not null result
+    // slots, and ends immediately when native jobs complete. Background cosmetic/ghost
+    // preparation no longer extends a completed room's loading indicator. Initial cold
+    // preparation remains bounded, with Debug-only pending-job counts. No native load
+    // flags, wire records, gameplay ownership or local/remote card permissions change.
 
     // ModBuild 619 — bounded original preparation, native room-load indication and
     // whole-game cosmetic coverage after Build618's two preparation timeouts.

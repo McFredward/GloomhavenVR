@@ -2087,6 +2087,7 @@ internal static partial class Loc
         ["upd_extracting"] = Pair("Unpacking …", "Wird entpackt …"),
         // Build619: four explicit one-shot graphics actions, never an automatic profile latch.
         ["sec_graphics_profiles"] = Pair("Graphics profiles", "Grafikprofile"),
+        ["vr_o_simpleenvironment"] = Pair("Simpler environment shading", "Einfachere Umgebungsschattierung"),
         ["sec_graphics_details"] = Pair("Scene details", "Szenendetails"),
         ["graphics_standalone"] = Pair("Standalone", "Standalone"),
         ["graphics_performance"] = Pair("Performance PC", "Leistungsorientiert"),

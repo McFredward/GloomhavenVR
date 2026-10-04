@@ -224,6 +224,7 @@ public class Plugin : BaseUnityPlugin
     /// has. Local presentation only - no game state is written, and nothing about a hover reaches
     /// another player. See <c>WorldUI/MapRoom/MapIconHoverAnimation</c>.</para>
     /// </summary>
+    // Build620: legacy storage only, no runtime effect and hidden from both settings routes.
     internal static ConfigEntry<bool> MapHoverAnimation = null!;
 
     /// <summary>
@@ -705,28 +706,11 @@ public class Plugin : BaseUnityPlugin
                 + "is put back exactly as it was the moment you leave the room, and it is never "
                 + "sent to other players. Applies live, no restart.",
                 new AcceptableValueRange<float>(0.5f, 4f)));
-        // THE ONE [MapRoom] DIAL THAT IS NOT A SIZE (user, 2026-09-03: "Bitte deaktiviere die
-        // animationen für das mouseover im Kartenraum wenn ich über ein Kartensymbol hovere - an
-        // der Stelle möchte ich es nicht."). Same section as the five size dials because it is the
-        // same room and folds under the same [Rig] Vanilla2DMap switch, but it ships FALSE - the
-        // default IS the request, and the dial exists only so a taste ruling on a visual can be
-        // taken back without waiting for a build.
+        // Retain the stored key for upgrade compatibility; the legacy menu switch is retired.
         MapHoverAnimation = Config.Bind(
             "MapRoom", "HoverAnimation", Defaults.MapHoverAnimation,
-            // WRITTEN AGAINST ConfigCatalog.MaxDescriptionChars = 620 AND MEASURED, not estimated:
-            // 611 characters after ConfigCatalog.Collapse's whitespace rule. The five [MapRoom]
-            // size dials above shipped at 1062 and 772 and were clipped mid-word in the headset,
-            // and the reader lost exactly the closing sentences — so this one was cut to fit
-            // before it shipped rather than after a report.
-            new ConfigDescription(
-                "MOUSEOVER PARTICLE EFFECT on a location symbol in the 3D map room. OFF by "
-                + "default, as asked. The hover itself is untouched: the symbol still highlights, "
-                + "it still GROWS 20% while you point at it, its quest card still appears above it "
-                + "and the trigger still selects it. Only the sparkle stops — the game starts a "
-                + "fading particle effect on the symbol the instant you point at it, and that one "
-                + "is put straight back. The 20% growth is no longer part of this setting and runs "
-                + "either way; it multiplies with your chosen symbol size, so it stays equally "
-                + "visible at any size. Applies live, 3D map room only."));
+            new ConfigDescription("INERT: legacy MOUSEOVER PARTICLE EFFECT switch. The 3D map suppresses "
+                + "native hover particles. The symbol still GROWS 20% and retains normal highlight and selection."));
         WorldTiltDegrees = Config.Bind(
             "Rig", "WorldTiltDegrees", Defaults.WorldTiltDegrees,
             new ConfigDescription(

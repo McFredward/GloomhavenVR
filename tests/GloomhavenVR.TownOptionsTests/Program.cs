@@ -146,7 +146,7 @@ namespace GloomhavenVR.WorldUI
             if (!condition) throw new Exception("TOWN OPTIONS ASSERTION: " + message);
         }
         private static void BuildHeader(Transform parent, string label) => RenderOrder.Add("header:" + label);
-        private static void BuildNote(Transform parent, string label) => RenderOrder.Add("note:" + label);
+        private static void BuildNote(Transform parent, string label, bool multiline = false) => RenderOrder.Add("note:" + label);
         private static string? VariantNote(List<ConfigCatalog.ConfigItem> items) => null;
         private static void BuildLinkRow(Transform parent, string label, Action action, bool asAction) => RenderOrder.Add("action:" + label);
         private static bool TryBuildVariantTiles(Transform parent, ConfigCatalog.ConfigItem item, string? caption, string? hint) => false;
