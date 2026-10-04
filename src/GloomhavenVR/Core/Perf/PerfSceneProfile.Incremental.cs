@@ -42,7 +42,7 @@ internal static partial class PerfSceneProfile
 
     private static bool _sampleFullProfile;
     private static int _requestedScene, _requestedProcGen, _requestedSceneStamp;
-    private static int _lodEnabled, _sampleSlices;
+    private static int _lodEnabled, _sampleSlices, _sampleUnits;
     private static bool _inSim;
     private static double _simMs, _maxSliceMs, _maxUnitMs;
     private static float _sampleStart;
@@ -72,7 +72,14 @@ internal static partial class PerfSceneProfile
         }
         if (_sample != null)
         {
-            sb.Append("SCENE — incremental census in progress").Append(provenance);
+            sb.Append("SCENE — incremental census in progress").Append(provenance)
+                .Append(" | progress ").Append(_sampleSlices).Append(" slices, ")
+                .Append(_sampleUnits).Append(" work units, ")
+                .Append(_visitedNodes.Count).Append(" visited nodes; elapsed ")
+                .Append((Time.unscaledTime - _sampleStart).ToString("F2"))
+                .Append("s, CPU ").Append(_sampleCpu.Elapsed.TotalMilliseconds.ToString("F2"))
+                .Append("ms; max slice ").Append(_maxSliceMs.ToString("F3"))
+                .Append("ms, max unit ").Append(_maxUnitMs.ToString("F3")).Append("ms");
             return;
         }
         CensusDecision decision = _rationer.Decide(true, scene, procGen);
@@ -97,7 +104,7 @@ internal static partial class PerfSceneProfile
         _requestedProcGen = procGen;
         _requestedSceneStamp = SceneStamp();
         _sampleStart = Time.unscaledTime;
-        _sampleSlices = 0;
+        _sampleSlices = _sampleUnits = 0;
         _simMs = _maxSliceMs = _maxUnitMs = 0;
         _sampleCpu.Reset();
         _sceneLine.Length = _gfxLights.Length = 0;
@@ -220,7 +227,7 @@ internal static partial class PerfSceneProfile
                 long start = Stopwatch.GetTimestamp();
                 bool sim = _inSim;
                 _sampleCpu.Start();
-                try { completed = !_sample.MoveNext(); }
+                try { _sampleUnits++; completed = !_sample.MoveNext(); }
                 finally { _sampleCpu.Stop(); }
                 double ms = ElapsedMs(start);
                 if (sim) _simMs += ms;

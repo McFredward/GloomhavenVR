@@ -403,17 +403,25 @@ internal static partial class PerfMonitor
     /// (a double-click on a cycle button must not emit a line built from twelve frames); either
     /// way the accumulators are reset, so no window ever spans a change.</para>
     /// </summary>
-    internal static void MarkChange(string what)
+    internal static void MarkChange(string what, bool invalidateSceneCensus = true)
     {
         PerfConfig.Bind();
         if (_host == null || !PerfConfig.Enabled.Value)
             return;
-        PerfSceneProfile.Cancel();
+        // Frame 615's adaptive refresh marks repeatedly retired a slow, sliced scene
+        // inventory before completion. Refresh alone changes the pacing window, not
+        // scene membership or its graphics settings. Actual quality/configuration
+        // changes still cancel, as do Tick's native load/scene/debug lifecycle guards.
+        if (invalidateSceneCensus)
+            PerfSceneProfile.Cancel();
         float now = Time.unscaledTime;
         float elapsed = now - _windowStart;
         VRLog.Info(Scope0, $"MARK: {what} — closing the measurement window here ({elapsed:F1}s, "
                            + $"{_frameCount} frame(s) in it). Everything below the next FRAME/SPLIT line "
-                           + "describes ONLY the new state; nothing straddles the change.");
+                           + "describes ONLY the new state; nothing straddles the change. "
+                           + (!invalidateSceneCensus
+                               ? "The separate incremental census retains its explicit capture span."
+                               : ""));
         if (_frameCount >= MinMarkFrames)
             LogSummary(elapsed);
         ResetWindow(now);
@@ -675,7 +683,7 @@ internal static partial class PerfMonitor
         // window was actually measured under — a summary stamped with the new rate would be a lie
         // about its own frames.
         if (changed)
-            MarkChange($"display rate {previous:F1}Hz → {hz:F1}Hz");
+            MarkChange($"display rate {previous:F1}Hz → {hz:F1}Hz", invalidateSceneCensus: false);
         _refreshHz = hz;
         _refreshSource = source;
         _budgetSeconds = 1f / hz;

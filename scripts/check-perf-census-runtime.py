@@ -20,6 +20,9 @@ FILES = {name: "src/GloomhavenVR/Core/Perf/" + name for name in (
     "PerfSceneProfile.cs", "PerfSceneProfile.Incremental.cs", "PerfTextureCensus.cs", "LodGroupCensus.cs")}
 FILES["IGrabbable.cs"] = "src/GloomhavenVR/Hands/Interact/IGrabbable.cs"
 CONTROLS = (
+    ("refresh-cancels-census", "ScopeMethods.cs", "invalidateSceneCensus: false", "invalidateSceneCensus: true", "adaptive refresh preserves the same in-progress census"),
+    ("setting-keeps-census", "ScopeMethods.cs", "if (invalidateSceneCensus)", "if (false && invalidateSceneCensus)", "graphics changes still cancel incremental inventories"),
+    ("refresh-keeps-pacing-window", "ScopeMethods.cs", "if (changed)\n            MarkChange", "if (false && changed)\n            MarkChange", "refresh closes the old pacing window before adopting the new rate"),
     ("omit-profile-fault-cancel", "ScopeMethods.cs", "PerfSceneProfile.Cancel();\n            _sceneProfileFaulted = true;", "_sceneProfileFaulted = true;", "profile summary fault cancels pending job and completed roster"),
     ("queue-after-profile-fault", "ScopeMethods.cs", "if (_sceneProfileFaulted)", "if (false)", "profile summary fault cannot schedule a new census"),
     ("unsliced-textures", "PerfTextureCensus.cs", "yield return null;\n            Surf s = Surfaces[i];", "Surf s = Surfaces[i];", "texture native population is sliced per surface"),
@@ -51,8 +54,9 @@ def bound_sources(root):
     monitor = (root / "src/GloomhavenVR/Core/Perf/PerfMonitor.cs").read_text()
     members = [braced(monitor, m) for m in (
         "    private sealed class Step", "    internal static long BeginStep()", "    internal static void EndStep(",
-        "    internal readonly struct Measure", "    private static void LogSceneProfile()", "    private static void LogSplit(")]
-    bound["ScopeMethods.cs"] = "using System; using System.Collections.Generic; using System.Diagnostics; using System.Text; namespace GloomhavenVR.Core; internal static class PerfMonitor { internal static bool StepsActive=true; private static int _depth; private static double _frameModSeconds; private const string Scope0=\"Perf\"; private static bool _sceneProfileFaulted,_figureBoundarySummary; private static readonly System.Text.StringBuilder Sb=new(); internal static void ProfileSummary()=>LogSceneProfile(); internal static void SplitSummary()=>LogSplit(30,10); internal static void ResetFault()=>_sceneProfileFaulted=false; private static readonly Dictionary<string,Step> Steps=new(); private static readonly List<Step> StepOrder=new(); internal static Measure Scope(string name)=>new(name); internal static int Depth=>_depth; internal static int Calls(string name)=>Steps.TryGetValue(name,out Step step)?step.FrameCalls:0; internal static double Ms(string name)=>Steps.TryGetValue(name,out Step step)?step.FrameSeconds*1000:0; internal static void Reset(){Steps.Clear();StepOrder.Clear();_frameModSeconds=0;}\n" + "\n".join(members) + "}\n"
+        "    internal readonly struct Measure", "    private static void LogSceneProfile()", "    private static void LogSplit(",
+        "    internal static void MarkChange(", "    private static void RefreshBudget()")]
+    bound["ScopeMethods.cs"] = "using System; using System.Collections.Generic; using System.Diagnostics; using System.Text; using UnityEngine; namespace GloomhavenVR.Core; internal static partial class PerfMonitor { internal static bool StepsActive=true; private static int _depth; private static double _frameModSeconds; private const string Scope0=\"Perf\"; private static bool _sceneProfileFaulted,_figureBoundarySummary; private static readonly System.Text.StringBuilder Sb=new(); internal static void ProfileSummary()=>LogSceneProfile(); internal static void SplitSummary()=>LogSplit(30,10); internal static void ResetFault()=>_sceneProfileFaulted=false; private static readonly Dictionary<string,Step> Steps=new(); private static readonly List<Step> StepOrder=new(); internal static Measure Scope(string name)=>new(name); internal static int Depth=>_depth; internal static int Calls(string name)=>Steps.TryGetValue(name,out Step step)?step.FrameCalls:0; internal static double Ms(string name)=>Steps.TryGetValue(name,out Step step)?step.FrameSeconds*1000:0; internal static void Reset(){Steps.Clear();StepOrder.Clear();_frameModSeconds=0;}\n" + "\n".join(members) + "}\n"
     split = (root / "src/GloomhavenVR/Core/Perf/PerfFrameSplit.cs").read_text()
     zoom = (root / "src/GloomhavenVR/Core/Perf/PerfFrameSplit.Zoom.cs").read_text()
     # Expression-bodied endpoints are copied exactly; state adoption uses the original
@@ -103,7 +107,7 @@ def main():
                 if control[2] not in source: raise RuntimeError("Control marker drift: " + name)
                 source = source.replace(control[2],control[3])
             (case / filename).write_text(source)
-        for filename in ("Boundaries.cs", "Program.cs"):
+        for filename in ("Boundaries.cs", "Program.cs", "WindowBoundary.cs"):
             shutil.copyfile(ROOT / "scripts/perf-census-runtime" / filename, case / filename)
         project = case / "Fixture.csproj"
         project.write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net472</TargetFramework><LangVersion>latest</LangVersion><Nullable>enable</Nullable><NoWarn>0649;0414;0162</NoWarn><AssemblyName>PerfCensus_' + name.replace('-','_') + '</AssemblyName><GenerateDocumentationFile>false</GenerateDocumentationFile><EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems></PropertyGroup><ItemGroup>' + refs + '</ItemGroup></Project>')

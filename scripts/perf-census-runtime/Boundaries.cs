@@ -11,6 +11,7 @@ namespace GloomhavenVR.Core {
  internal static class PerfNativeLoopProbe { internal static void LogSummary(int frames){} }
  internal static class Defaults { internal const bool DesktopMirrorLeftEye=false; }
  internal static class PerfConfig {
+ internal static void Bind() { }
  internal static Entry<bool> FrameSplit=new(true); internal static Entry<bool> Enabled=new(true); internal static Entry<bool> SceneCensus=new(true); internal static bool SceneProfileOn=true;
  internal static int ScenarioSceneryDensityPercentValue=0, ScenarioDecorationDensityPercentValue=0, ScenarioVegetationDensityPercentValue=0, PlayerFigureDetailPercent=0,EnemyFigureDetailPercent=0, EnvironmentEffectsDensityPercent=0,HeadMaskDropMask=0;
  internal static bool FigureClothSimulationEnabled=false,StaticScenarioBatchesOn=false,SimpleEnvironmentShadingOn=false,ReducedScenarioGenerationOn=false,SharedWallReadCacheOn=false,LightStabiliserWorkCacheOn=false;

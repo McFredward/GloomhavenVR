@@ -74,6 +74,37 @@ public static class InteractionProgram
             Check(sim.Contains("1 enabled animator(s) own NO Renderer"),"inactive child renderer retains original animator population rule");
             Check(gfx.Contains("LOD groups: 1 active, 1 enabled"),"same sliced native LOD population reaches GFX");
             Check(Inventory<Renderer>("_inventoryRenderers")==0,"completed inventory releases retained renderer references");
+            // Actual adaptive refresh dispatch closes timing windows without restarting
+            // the real incremental inventory. Its enumerator must survive each boundary.
+            PerfSceneProfile.Cancel();Field("_rationer").SetValue(null,new CensusRationer());
+            PerfMonitor.SeedPacing();Request();
+            object job=Field("_sample").GetValue(null)!;
+            for(int i=0;i<240;i++)
+            {
+                if(i%24==0)
+                {
+                    float old=i%48==0?72:24,newRate=i%48==0?24:72;
+                    PerfMonitor.AdaptiveRefresh(newRate);
+                    Check(ReferenceEquals(job,Field("_sample").GetValue(null)),
+                        "adaptive refresh preserves the same in-progress census");
+                    Check(PerfMonitor.ClosedWindows==i/24+1&&PerfMonitor.ResetWindows==i/24+1
+                        &&PerfMonitor.LastSummarizedHz==old,
+                        "refresh closes the old pacing window before adopting the new rate");
+                }
+                PerfSceneProfile.Tick(persistent.scene);
+            }
+            var progress=new StringBuilder();PerfSceneProfile.AppendSceneLine(progress);
+            Check(progress.ToString().Contains("progress 240 slices")&&progress.ToString().Contains("work units"),
+                "bounded summary exposes advancing native inventory work");
+            Drain(persistent.scene);
+            Check(PerfFrameSplit.Roster!=null&&PerfFrameSplit.Roster.Length==native,
+                "adaptive refresh census eventually publishes the native roster");
+            Field("_rationer").SetValue(null,new CensusRationer());Request();
+            for(int i=0;i<12;i++)PerfSceneProfile.Tick(persistent.scene);
+            Check(Pending(),"graphics boundary starts from a live partially visited census");
+            PerfMonitor.MarkChange("fixture real graphics setting");
+            Check(!Pending()&&PerfFrameSplit.Roster==null,
+                "graphics changes still cancel incremental inventories");
             // Resampling cooldown intentionally remains. Reset only the cadence seam, not the
             // production request/pump; every cancellation case must drop live Unity references.
             foreach(string reason in new[]{"debug","config","loading","scene"})
