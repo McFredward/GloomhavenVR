@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Quest B621 in progress, 2026-10-04: isolated feature.**
+**Quest B621 hardware candidate ready, 2026-10-04: isolated feature.**
 
 The exact B620 capture verifies installed APK/input and native movie decoding.
 The maintainer confirms keyboard, Guildmaster explanation and options filter;
@@ -11,6 +11,35 @@ pixel evidence and replaces active Quest scope's recurring global component swee
 with scene-root discovery. Recent frame spikes and actual discovery costs survive
 in bounded Debug state. Headset outcomes remain unverified; preserve confirmed
 behavior. See [B621 hardware procedure](QUEST3-HARDWARE-621.md).
+
+The signed ARM64 IL2CPP candidate succeeds from clean native source `a06d33a1`,
+input `bd857629028e…`, APK SHA `b983d610e5a8…`, size 2,587,918,076 bytes.
+Nineteen final focused Quest suites, fourteen source checks, strict Release and
+286,760 direct unchanged protocol/golden assertions pass. The loading fixture's
+new read-only bridge/material stubs required one corrected rerun; its initial
+failed receipt remains archived. No unrelated complete wrapper gate is claimed.
+Actual source/CIL/generated C++ and compiled ARM64 boundaries pass 577 CIL plus
+371 further assertions: 46 selected functions are present, with native build ID
+`c2c3fb5d2392dbf3` and exact packaged library bytes. All 957 current mod C# files
+are selected automatically. Editor/player lowering differences are recorded;
+only actual per-method equalities are claimed. Both camera-video GLES stages and
+the retained original shader/media/audio/sprite import checks pass.
+
+The Windows archive passes CRC/content/hash verification and isolated installer
+selection of embedded B621. ZIP SHA is `5a764db0d36a…`, size 2,588,030,548 bytes.
+Near-plane completion and far-plane completed-color restoration pass real GPU
+fixtures; additional far-plane copies have an unmeasured headset GPU cost. Native
+UI blur recovery is a separate source-proven gap, with actual culling and pixel
+evidence added rather than guessed visibility/shader changes. Visible video,
+stereo depth and sustained hitch improvements remain hardware gates.
+
+Three completed Quest worker roots and the obsolete B620 generated project were
+removed after compact archival and matching B620 symbol retention, measuring
+36,545,183,744 additional free bytes. Retiring superseded downloads and the verified
+B621 packaging stage measured another 7,764,283,392 bytes. The handoff directory
+contains only the latest APK, Windows archive and receipt. Current/native historical
+evidence, canonical inputs, supplied captures, Git refs and parallel dev worktrees
+remain. This candidate is published only on `feature/quest3-standalone`.
 
 
 **Quest B620 scoped menu follow-up, 2026-10-04: isolated feature.**

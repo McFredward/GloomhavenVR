@@ -128,3 +128,24 @@ complete local wrapper gate is claimed. The compiled-boundary, archive/installer
 and measured cleanup receipts are retained under the main checkout's ignored
 `quest3-validation/B621/` and `quest3-validation/cache-archive-B621/` directories.
 Native and desktop GPU checks do not establish the next headset outcome.
+
+Independent final boundaries pass 577 CIL and 371 further assertions, selecting
+46 actual compiled ARM64 functions. Native build ID is `c2c3fb5d2392dbf3`; packaged
+library bytes match exactly. All 22 selected mod bodies are identical from import
+to stripping, and all 46 stripped bodies match the native backup. Actual player
+lowering differences are recorded per method, including the async callback
+closure; do not infer equality from a method name or symbol alone.
+
+The Windows archive has SHA-256
+`5a764db0d36a6f69c56cc306f3e952ffaba8187ea3eff1d47de1610cd451a456`,
+size 2,588,030,548 bytes. Complete ZIP CRC, copied script/content hashes, native
+APK identity and the isolated installer dry-run pass. The archive's installer
+source is clean `d448a574`; subsequent changes only record these final receipts.
+
+After proof archival and matching B620 symbol retention, three completed Quest
+worker worktrees and the obsolete B620 generated project are removed. Measured
+free-space increases are 36,545,183,744 bytes for those roots and 7,764,283,392 bytes
+for superseded handoff files and the verified packaging stage. The latest-only
+directory retains B621 APK, Windows ZIP and handoff receipt. Captures, canonical
+owned inputs, current/historical native evidence, branch refs and parallel dev
+worktrees remain untouched.
