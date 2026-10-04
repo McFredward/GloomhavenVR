@@ -51,6 +51,7 @@ internal sealed partial class FlatScreen
 
             var record = new CapturedCamera
             {
+                Owner = this,
                 Camera = cam,
                 OriginalClearFlags = cam.clearFlags,
                 OriginalBackground = cam.backgroundColor,

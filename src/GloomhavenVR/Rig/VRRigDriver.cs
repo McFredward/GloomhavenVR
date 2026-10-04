@@ -967,33 +967,6 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         RenderQuality.RequestEyeTargetDiagnostics("menu rig built");
     }
 
-    /// <summary>
-    /// The camera to anchor to outside scenarios, best first: Camera.main (tag
-    /// MainCamera) → highest-depth enabled backbuffer camera that isn't the UICamera.
-    /// Null when the menu scene has no world camera (the rig then waits; the flat
-    /// screen is hidden anyway because it needs a world camera too).
-    /// </summary>
-    private static Camera? ResolveMenuCamera()
-    {
-        Camera? cam = Camera.main;
-        if (cam != null)
-            return cam;
-
-        // Cold path only (no-rig frames / scene-load recheck) — shared non-alloc buffer.
-        int count = VRCameraPolicy.GetAllCamerasNonAlloc(out Camera[] all);
-        Camera? best = null;
-        for (int i = 0; i < count; i++)
-        {
-            Camera candidate = all[i];
-            if (candidate == null || !candidate.enabled || candidate.targetTexture != null
-                || candidate.CompareTag("UICamera") || candidate == HeadCamera)
-                continue;
-            if (best == null || candidate.depth > best.depth)
-                best = candidate;
-        }
-        return best;
-    }
-
     private void TearDownRig(string reason)
     {
         bool hadRig = _kind != RigKind.None;

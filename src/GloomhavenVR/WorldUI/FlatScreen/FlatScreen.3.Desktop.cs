@@ -182,6 +182,7 @@ internal sealed partial class FlatScreen
                 antiAliasing = 1,
             };
             _scrubRt.Create();
+            DesktopScrubTarget = _scrubRt;
         }
 
         Camera? head = Rig.VRRigDriver.HeadCamera;
@@ -402,6 +403,8 @@ internal sealed partial class FlatScreen
         _scrubbed.Clear();
         if (_scrubRt != null)
         {
+            if (DesktopScrubTarget == _scrubRt)
+                DesktopScrubTarget = null;
             _scrubRt.Release();
             Object.Destroy(_scrubRt);
             _scrubRt = null;

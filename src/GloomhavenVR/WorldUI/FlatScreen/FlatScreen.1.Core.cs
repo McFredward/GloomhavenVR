@@ -329,6 +329,7 @@ internal sealed partial class FlatScreen
     /// <summary>One captured backbuffer camera + everything needed to restore it.</summary>
     private sealed class CapturedCamera
     {
+        internal FlatScreen Owner = null!;
         public Camera Camera = null!;
         public CameraClearFlags OriginalClearFlags;
         public Color OriginalBackground;
