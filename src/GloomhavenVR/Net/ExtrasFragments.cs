@@ -11,8 +11,10 @@ namespace GloomhavenVR.Net;
 internal sealed class ExtrasFragments
 {
     // Complete cloth controls, held item101 and float tuning249 raise the legal maximum
-    // to 7700 bytes. Keep bounded headroom; chunk/header grammar stays unchanged.
-    internal const int MaxSnapshotBytes = 8192;
+    // to 7700 bytes. 8000 retains the writer's 257-byte margin within ten existing
+    // four-chunk datagrams. Rounding to8192 adds an eleventh saturated presence
+    // turn and exceeds its unchanged five-second assembly deadline at full load.
+    internal const int MaxSnapshotBytes = 8000;
     internal const int MaxDatagramBytes = 864;
     internal const int ChunkBytes = 200;
     private const int MetadataBytes = 12; // sequence:u64, snapshot length:u16, offset:u16

@@ -584,12 +584,19 @@ internal static class NetProtocol
     // public shelf mechanics/cards, actual offered faces and native enhancement rows.
     // Same-author page changes retain ready clones; reordered members wait for their own
     // rack clock. The original cassette continues its owner-authored intermediate motion.
+    // The final causal review also found lazy dormant native partitions: public catalogue
+    // loading now prepares original rows/cards and retains their immutable snapshots.
+    // Additive record102 carries a public clock's required content keys and complete changed
+    // originals together. Validate the entire bank and original asset/topology contracts
+    // before admitting its clock; local send completion is never a remote acknowledgement.
+    // Town capture runs after the actual registered native town, tween and canvas writers,
+    // while the existing board/use-bar sampling cadence remains unchanged.
     // Merchant item inspection now uses the approved avatar fan/rig held-card pipeline.
     // The real inspection pile owns its immutable character key, independently of the
     // ability fan. Map-only additive v3 record101 carries public original item provenance
     // atomically with each held pose; seat/count/ID checks reject stale native lists.
     // Owner deadzone float249 complements unchanged count224..247 and inert tombstone248.
-    // Presence maximum is7700, writer7957 and bounded fragment envelope8192; fixed layouts,
+    // Presence maximum is7700, writer7957 and bounded fragment envelope8000; fixed layouts,
     // scenario concealment and all prior record meanings remain unchanged.
     // Original resident item sprites and inactive pool templates warm during visible town
     // preparation. Normal play uses a bounded readiness census, not a full per-frame scan.

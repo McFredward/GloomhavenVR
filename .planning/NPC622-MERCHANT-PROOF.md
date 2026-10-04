@@ -55,9 +55,9 @@ Float249 carries the owner's finite unbounded FanFollowDeadzone metres without
 Count quantization. Count224..247 stays byte-wide; tombstone248 stays zero-width.
 Both ordinary scenario fans and map inspection fans consume owner deadzone.
 Complete cloth145 raises the previous real maximum to7680;101 adds15 and249 adds5,
-so worst7700 has writer7957 (margin257) and bounded fragment envelope8192. Golden
+so worst7700 has writer7957 (margin257) and bounded fragment envelope8000. Golden
 fixtures exercise reordered7700-byte reassembly with genuine101/249 records and
-both sides' new8192 bound. Header/chunk grammar and Wire3 remain unchanged.
+both sides' new8000 bound. Header/chunk grammar and Wire3 remain unchanged.
 
 Normal stock held cards retain a stock manifest while their body/face move to the
 avatar lane. Public shelf vacancy, StockItemHeldByOther and pickup voice validation

@@ -49,12 +49,28 @@ item rendering/pose and disclosure predicates stay authoritative in scenarios.
 
 Float249 is the owner's finite metre deadzone; count224..247 stays byte-wide and
 zero-width248 stays retired. Actual complete-cloth145 makes the old bound7680;
-101 adds15 and249 adds5. Worst presence7700, writer7957, envelope8192. All existing
+101 adds15 and249 adds5. Worst presence7700, writer7957, envelope8000. All existing
 record lengths/header/chunk grammar are unchanged, with literal golden controls.
 Ready same-author public cabinet originals survive page epochs. Reordered future
 members wait for their matching rack clock before mutating current modules;
 new-author changes still require atomic group handover. Native originals and
 owner-authored intermediate motion remain mandatory.
+
+TLV102 belongs only to the independent public cabinet lane. It binds the rack's
+current/transition member IDs to exact original content keys and includes complete
+canonical updates with the same service, session and claim. Validate every member,
+original property, native asset and template topology before admitting the picture.
+Neither a matching page epoch nor local datagram completion is proof of remote
+content readiness. Retain the complete bank through heartbeats and lossy delivery;
+never substitute a gray front, blank page or a paused observer clock. New-original
+preparation is bounded during loading and hidden cached pages stay dormant during
+steady play. Existing record78, numeric motion and original widget contracts remain
+authoritative; no card bitmap or native gameplay callback is transmitted.
+
+The read-only town publisher runs at the end of the actual registered LateUpdate
+writer list, after native town/card/ring/scroll writes, grip-bar tweens and final
+canvas sorting. Do not move the already approved board/use-bar capture or reorder
+native continuation to accommodate this presentation-only sampler.
 
 ---
 

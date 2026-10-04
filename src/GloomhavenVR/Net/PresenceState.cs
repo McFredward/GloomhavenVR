@@ -1902,7 +1902,7 @@ internal static class PresenceSerializer
     // Base6869 + residents79(147 including complete anchored cloth controls) + faces80(96)
     // + activity81(55) + public map loadout88(3) + native opening histories83/84(510)
     // + held item101(15) + sparse float249(5) = 7700. Keep the largest-record
-    // margin257 in the writer and bounded8192 fragment reassembly.
+    // margin257 in the writer and bounded8000 fragment reassembly.
     public const int MaxSize = 7957;
 
     // ---- write --------------------------------------------------------------------------
