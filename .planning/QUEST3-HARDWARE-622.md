@@ -71,16 +71,21 @@ Seven batched typed queries were slower in local Mono (12.15 ms full scan versus
 Absolute one-second deadlines stagger the seven known families. Initial binding
 and catch-up after low FPS or clock jumps can query the bounded full set; ordinary
 frames query one family. In a genuine 14,346-behaviour Unity scene, mean production
-tick is 1.6063 ms and worst tick 1.7097 ms; whole-cycle mean remains 11.2441 ms,
-versus 5.8507 ms for the original full scan. Initial batch is 11.2516 ms and stalled
-catch-up 11.2642 ms. This reduces the local frame burst while retaining the larger
-whole-cycle cost honestly. Nine defect controls and 309 real-engine assertions
+tick is 1.6276 ms and worst tick 1.6947 ms; whole-cycle mean remains 11.3935 ms,
+versus 5.8093 ms for the original full scan. Initial batch is 11.4626 ms and stalled
+catch-up 11.4414 ms. This reduces the local frame burst while retaining the larger
+whole-cycle cost honestly. Ten defect controls and 316 real-engine assertions
 cover discovery/cadence, all seven families, inactive late AddComponent, prefab
 exclusion, DontSave/DDOL, unload and clock jumps. Existing tracked widgets retain
 per-frame enforcement and native callback/availability behavior. Debug state
 records query-family count so batch and ordinary-tick measurements are distinct;
 its legacy component count now denotes matched owners. Android frame-time
 improvement remains a hardware gate; local timings cannot establish it.
+The engine's per-thread allocation counter fails a known 8 KiB control; allocation
+values are explicitly unsupported. Rounded retained-heap deltas of zero do not
+establish zero per-query allocation. Managed scope controls and 26 original SDK
+ABI assertions pass; preservation is supplied by the existing generated
+`GH.Runtime preserve="all"` linker policy.
 
 This is still an original startup/menu slice. Full campaign assets, actual DLC
 scenario recovery and authenticated Android crossplay remain separate port work.
