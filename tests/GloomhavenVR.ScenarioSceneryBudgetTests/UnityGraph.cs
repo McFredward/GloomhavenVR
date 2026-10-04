@@ -69,7 +69,8 @@ namespace UnityEngine
     internal class MeshCollider:Collider { internal Mesh? sharedMesh; }
     internal class LODGroup:Component { }
     internal class Light:Component { }
-    internal class Animator:Component { }
+    internal class RuntimeAnimatorController:Object { }
+    internal class Animator:Component { internal RuntimeAnimatorController? runtimeAnimatorController; }
     internal class ParticleSystem:Component { }
     internal class Canvas:Component { }
 }

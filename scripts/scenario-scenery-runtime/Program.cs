@@ -10,6 +10,7 @@ using UnityEngine.SceneManagement;
 
 public static class InteractionProgram
 {
+    public static RuntimeAnimatorController FixtureController = null!;
     private static int _count;
     private static readonly BindingFlags Private = BindingFlags.NonPublic | BindingFlags.Instance;
     private static readonly MethodInfo Classifier = typeof(ScenarioSceneryBudget).GetMethod("Classify", BindingFlags.NonPublic | BindingFlags.Static)!;
@@ -345,6 +346,76 @@ public static class InteractionProgram
             var detachedTile=separateTile.GetComponent<ProceduralMapTile>(); SceneRegistry.MapTiles.Tiles.Add(detachedTile);
             var separateGrass=Leaf(Node(separateTile.transform,"Generated Content").transform,"FR_Floor_Detail_Grass_06_PR");
             var foreign=Leaf(full.transform,"FR_Floor_LargeBush_03"); foreign.forceRenderingOff=true;
+            // Actual original prefab layouts from the hash-verified whole-game audit: the
+            // page scatter owns a shared box; shelf books own their box; jugs carry an inert
+            // Animator; mixed bays keep their retained core/corpse and its shared collision.
+            var pageRoot=Node(generated.transform,"TO_INT_Cathedral_Clutter_Pages_03_PR");
+            var originalPages=NativeLeaf(pageRoot.transform,"TO_INT_Floor_Clutter_Pages_03","TO_INT_Floor_Clutter_Pages_03",false);
+            var originalPageBox=pageRoot.AddComponent<BoxCollider>();
+            pageRoot.AddComponent<MaterialLoader>();pageRoot.AddComponent<DetailsDisabler>();pageRoot.AddComponent<ImportantObjectsShadowsDisabler>();
+            var shelfBookRoot=Node(generated.transform,"TO_INT_Shelf_Clutter_Default_01_PR");
+            var shelfBooks=NativeLeaf(shelfBookRoot.transform,"CR_ST_Shelf_Books_01","CR_ST_Shelf_Books_01",false);
+            var shelfBookBox=shelfBooks.gameObject.AddComponent<BoxCollider>();
+            Check(Classify(originalPages,tile)=="Eligible"&&Classify(shelfBooks,tile)=="Eligible",
+                "pure original pages and shelf books admit their native decorative colliders");
+            var originalJugs=NativeLeaf(generated.transform,"CR_ST_Shelf_Alchemy_Jugs_01","CR_ST_Shelf_Alchemy_Jugs_01",false);
+            var jugAnimator=originalJugs.gameObject.AddComponent<Animator>();
+            Check(Classify(originalJugs,tile)=="Eligible","controller-less original shelf animation is inert");
+            var controller=new AnimatorOverrideController(FixtureController);
+            jugAnimator.runtimeAnimatorController=controller;
+            Check(jugAnimator.runtimeAnimatorController != null,"fixture assigns a real native runtime animator controller");
+            Check(Classify(originalJugs,tile)=="Ancestry","active native controller still protects original shelf content");
+            jugAnimator.runtimeAnimatorController=null;UnityEngine.Object.DestroyImmediate(controller);
+            var unknownSmall=NativeLeaf(generated.transform,"CR_OS_Skull_Low","CR_OS_Skull_Low",false);
+            unknownSmall.gameObject.AddComponent<UnknownNativeCallback>();
+            Check(Classify(unknownSmall,tile)=="Ancestry","unknown native callbacks retain exact small decoration");
+            var smallOriginals=new List<MeshRenderer>();
+            var smallOwnMeshes=new List<MeshRenderer>();
+            var smallOwnBoxes=new List<BoxCollider>();
+            var retainedShelfRoot=Node(generated.transform,"CR_ST_Shelf_Alchemy_01");
+            var retainedShelf=NativeLeaf(retainedShelfRoot.transform,"CR_ST_Shelf_Alchemy_01","CR_ST_Shelf_Alchemy_01",false);
+            var retainedShelfBox=retainedShelfRoot.AddComponent<BoxCollider>();
+            foreach(string original in NativeSceneryMetadata.SmallMeshes)
+            {
+                var member=NativeLeaf(retainedShelfRoot.transform,"Mesh",original,false);
+                smallOriginals.Add(member);
+                Check(Classify(member,tile)=="Eligible","every whole-game exact small leaf is independent of native structural carrier: "+original);
+                var own=NativeLeaf(generated.transform,original,original,false);
+                smallOwnMeshes.Add(own);smallOwnBoxes.Add(own.gameObject.AddComponent<BoxCollider>());
+                Check(Classify(own,tile)=="Eligible","every exact small standalone leaf can own its proven dedicated collider: "+original);
+            }
+            var outerActor=scenario.AddComponent<ActorBehaviour>();
+            Check(Classify(originalJugs,tile)=="Ancestry","actual actor above native tile boundary retains exact small meshes");
+            UnityEngine.Object.DestroyImmediate(outerActor);
+            var outerInteractable=scenario.AddComponent<CInteractableActor>();
+            Check(Classify(originalJugs,tile)=="Ancestry","actual interactable actor above native tile boundary retains exact small meshes");
+            UnityEngine.Object.DestroyImmediate(outerInteractable);
+            var outerAnimator=scenario.AddComponent<Animator>();var outerController=new AnimatorOverrideController(FixtureController);
+            outerAnimator.runtimeAnimatorController=outerController;
+            Check(Classify(originalJugs,tile)=="Ancestry","active rig above native tile boundary retains exact small meshes");
+            UnityEngine.Object.DestroyImmediate(outerAnimator);UnityEngine.Object.DestroyImmediate(outerController);
+            var largePieces=new List<MeshRenderer>();
+            foreach(string large in new[]{"CR_Corpse_Sitting","CR_Cross_01","skeleton_Lying 1","CR_ST_Stone_Coffin_01"})
+            {
+                var largeRoot=Node(generated.transform,large);
+                var member=NativeLeaf(largeRoot.transform,"CR_OS_Skull_Low","CR_OS_Skull_Low",false);
+                largePieces.Add(member);
+                Check(Classify(member,tile)=="Ancestry","large corpse cross and coffin preserve separately named pieces: "+large);
+            }
+            var preservedFurniture=new List<MeshRenderer>();
+            foreach(string original in NativeSceneryMetadata.FurnitureCores)
+            {
+                var member=NativeLeaf(generated.transform,"Mesh",original,false);
+                preservedFurniture.Add(member);
+                Check(Classify(member,tile)!="Eligible","original large furniture cores stay visible: "+original);
+            }
+            var torture=Node(generated.transform,"Torture_Bay_Sm_01");var tortureBox=torture.AddComponent<BoxCollider>();
+            var tortureBoard=Node(torture.transform,"CR_CT_TortureBoard_Wall (1)");
+            var skeleton=Node(tortureBoard.transform,"skeleton_Lying 1 (1)");
+            var skeletonBody=NativeLeaf(skeleton.transform,"chest03","chest03",false);
+            var wallChain=NativeLeaf(tortureBoard.transform,"CR_TC_WallChains_03 (2)","CR_TC_WallChains_03",false);
+            Check(Classify(wallChain,tile)=="Eligible"&&Classify(skeletonBody,tile)!="Eligible",
+                "actual mixed torture bay removes small chain leaf but retains large skeleton and shared collision");
             driver=Driver(host); Tick(driver,10);
             Check(!grass.forceRenderingOff && !treeLeaf.forceRenderingOff, "both 100 settings retain original rendering");
             PerfConfig.ScenarioDecorationDensityPercentValue=0; Tick(driver,50);
@@ -359,6 +430,15 @@ public static class InteractionProgram
                 "native projector clones and numeric duplicates qualify while arbitrary suffixes remain");
             Check(genericFloors.Where((r,i)=>i%2==0).All(r=>!r.forceRenderingOff)&&genericFloors.Where((r,i)=>i%2==1).All(r=>r.forceRenderingOff),
                 "original generic floor hierarchy removes bones while floor cores remain visible");
+            Check(originalPages.forceRenderingOff&&shelfBooks.forceRenderingOff&&!originalPageBox.enabled&&!shelfBookBox.enabled,
+                "zero decoration removes original page book meshes and owned collision together");
+            Check(originalJugs.forceRenderingOff&&smallOriginals.All(r=>r.forceRenderingOff)&&wallChain.forceRenderingOff,
+                "zero decoration masks all exact small original meshes including inert animated shelf contents");
+            Check(smallOwnMeshes.All(r=>r.forceRenderingOff)&&smallOwnBoxes.All(c=>!c.enabled),
+                "zero decoration removes every exact standalone small mesh and its dedicated native collider");
+            Check(!retainedShelf.forceRenderingOff&&retainedShelfBox.enabled&&largePieces.All(r=>!r.forceRenderingOff)
+                && preservedFurniture.All(r=>!r.forceRenderingOff)&&!skeletonBody.forceRenderingOff&&tortureBox.enabled&&!unknownSmall.forceRenderingOff,
+                "large units native shelf and mixed shared collision remain untouched at decoration zero");
             PerfConfig.ScenarioSceneryDensityPercentValue=0; PerfConfig.ScenarioVegetationDensityPercentValue=0; Tick(driver,50);
             Check(grass.forceRenderingOff && treeLeaf.forceRenderingOff && bush.forceRenderingOff && caveLod.forceRenderingOff, "decoration zero hides real generated grass tree and cave LOD meshes");
             Check(bayMembers.All(r=>r.forceRenderingOff)&&!bayCollider.enabled,"zero budgets remove all eleven captured bay meshes and shared decorative box");
@@ -527,6 +607,19 @@ public static class InteractionProgram
             PerfConfig.ScenarioDecorationDensityPercentValue=0;
             PerfConfig.ScenarioVegetationDensityPercentValue=0;
             scopeFinalizer.Invoke(null,new object?[]{null,leafScope[1]});
+            var pageTemplate=UnityEngine.Object.Instantiate(pageRoot,host.transform,false);
+            pageTemplate.name="TO_INT_Cathedral_Clutter_Pages_03_PR";
+            pageTemplate.GetComponent<BoxCollider>().enabled=true;
+            pageTemplate.GetComponentInChildren<MeshRenderer>(true).forceRenderingOff=false;
+            object?[] pageScope={0,null};scopePrefix.Invoke(null,pageScope);
+            object?[] pageArgs={pageTemplate,pos,scaled,rot,full.transform,null};
+            int beforePageLoads=MaterialLoader.Instances;
+            Check(!(bool)prefix.Invoke(null,pageArgs)!,"actual original small page prefab defers native visual creation at zero");
+            var pageReceipt=(GameObject)pageArgs[5]!;
+            Check(pageReceipt.GetComponentsInChildren<MeshRenderer>(true).Length==0
+                &&pageReceipt.GetComponentsInChildren<Collider>(true).Length==0&&MaterialLoader.Instances==beforePageLoads,
+                "small page creation avoids original mesh collider and visual callbacks together");
+            scopeFinalizer.Invoke(null,new object?[]{null,pageScope[1]});
             // A delayed population larger than the ordinary per-frame traversal budget must
             // finish before the real loading UI closes, without a later +2-second catch-up.
             var loadingLeaves=new List<MeshRenderer>();
@@ -632,6 +725,14 @@ public static class InteractionProgram
             Tick(driver,3);
             Check(deferredOnly.GetComponentsInChildren<MeshRenderer>(true).Length==1,"all 100 restores deferred-only scenes even with no renderer records");
             VRSession.IsRunning=false; Tick(driver);
+            Check(!originalPages.forceRenderingOff&&!shelfBooks.forceRenderingOff&&originalPageBox.enabled&&shelfBookBox.enabled
+                && !originalJugs.forceRenderingOff&&smallOriginals.All(r=>!r.forceRenderingOff)&&!wallChain.forceRenderingOff,
+                "full decoration restores every exact original small mesh and only owned native boxes");
+            Check(smallOwnMeshes.All(r=>!r.forceRenderingOff)&&smallOwnBoxes.All(c=>c.enabled),
+                "full detail restores every exact standalone small mesh and its dedicated native collider");
+            Check(pageReceipt.GetComponentsInChildren<MeshRenderer>(true).Length==1
+                &&pageReceipt.GetComponentInChildren<BoxCollider>().enabled,
+                "full decoration restores the exact deferred small page prefab and its native collision");
             Check(bulk.All(r=>!r.forceRenderingOff)&&foreign.forceRenderingOff,"VR shutdown restores every owned live renderer only");
             Check(treeCollision.enabled&&leafTreeCollision.enabled&&mixedTreeCollision.enabled&&!foreignTreeCollision.enabled,"VR shutdown restores all owned tree colliders and preserves native floor and foreign masks");
             int remainingOwners=((IDictionary)typeof(ScenarioSceneryBudget).GetField("TreeColliderOwners",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null)!).Count;
@@ -666,6 +767,19 @@ public static class InteractionProgram
             ScenarioSceneryBudget.BeforeLoadingComplete();
             Check(allBiome.All(r=>r.forceRenderingOff),"complete driver masks original all-biome and DLC cosmetics at zero");
             Check(allBiomeProps.All(r=>!r.forceRenderingOff)&&!mossWall.forceRenderingOff,"complete all-biome driver preserves native gameplay and solid wall geometry");
+            PerfConfig.ScenarioDecorationDensityPercentValue=35;Tick(driver,100);
+            int hiddenSmall=smallOriginals.Count(r=>r.forceRenderingOff);
+            Check(hiddenSmall>0&&hiddenSmall<smallOriginals.Count,"low positive decoration selects a deterministic proportion of real small meshes");
+            var selectedSmall=smallOriginals.Select(r=>r.forceRenderingOff).ToArray();
+            ScenarioSceneryBudget.ContentPlaced(tile);Tick(driver,100);
+            Check(selectedSmall.SequenceEqual(smallOriginals.Select(r=>r.forceRenderingOff)),"rediscovery preserves exact small-mesh density membership");
+            PerfConfig.ScenarioDecorationDensityPercentValue=0;Tick(driver,100);
+            var activeController=new AnimatorOverrideController(FixtureController);jugAnimator.runtimeAnimatorController=activeController;
+            ScenarioSceneryBudget.ContentPlaced(tile);Tick(driver,100);
+            Check(!originalJugs.forceRenderingOff,"native controller activation restores a previously masked shelf mesh");
+            jugAnimator.runtimeAnimatorController=null;UnityEngine.Object.DestroyImmediate(activeController);
+            ScenarioSceneryBudget.ContentPlaced(tile);Tick(driver,100);
+            Check(originalJugs.forceRenderingOff,"clearing native inert shelf controller permits bounded remasking");
             Check(!ScenarioSceneryBudget.IsPreparingPresentation,"drained loading work does not include ongoing ancestry monitoring or diagnostics");
             PerfConfig.ScenarioSceneryDensityPercentValue=100;PerfConfig.ScenarioVegetationDensityPercentValue=100;PerfConfig.ScenarioDecorationDensityPercentValue=100;
             Tick(driver,100);

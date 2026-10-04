@@ -34,6 +34,8 @@ public static class InteractionRunner
                 try
                 {
                     var assembly = Assembly.LoadFile(entry.dll);
+                    var controller = UnityEditor.Animations.AnimatorController.CreateAnimatorControllerAtPath("Assets/FixtureActive.controller");
+                    assembly.GetType("InteractionProgram").GetField("FixtureController").SetValue(null, controller);
                     int count = (int)assembly.GetType("InteractionProgram").GetMethod("Run").Invoke(null, null);
                     if (!String.IsNullOrEmpty(entry.expected)) throw new Exception("negative control escaped: " + entry.name);
                     output.WriteLine("PASS " + entry.name + ": " + count + " runtime assertions");

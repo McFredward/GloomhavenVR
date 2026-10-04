@@ -29,7 +29,9 @@ def main():
     sources = {'Placement.cs': (base / 'Perf/ScenarioDecorativePlacement.cs').read_text(), 'Scenery.cs': scenery.replace('Time.unscaledTime', 'SceneryClock.Now'), 'FigureGuard.cs': guard}
     metadata = json.loads((args.source_root/'tests/GloomhavenVR.ScenarioSceneryBudgetTests/NativeDetailProvenance.json').read_text())
     composite = sorted({row['mesh'] for row in metadata['scenery_review']['composite_dressing']})
-    sources['NativeSceneryMetadata.cs'] = 'internal static class NativeSceneryMetadata { internal static readonly string[] CompositeMeshes = {' + ','.join(json.dumps(n) for n in composite) + '}; }'
+    small = sorted({row['mesh'] for row in metadata['scenery_review']['small_dressing']})
+    furniture = sorted({row['mesh'] for row in metadata['scenery_review']['retained_furniture_cores']})
+    sources['NativeSceneryMetadata.cs'] = 'internal static class NativeSceneryMetadata { internal static readonly string[] CompositeMeshes = {' + ','.join(json.dumps(n) for n in composite) + '}; internal static readonly string[] SmallMeshes = {' + ','.join(json.dumps(n) for n in small) + '}; internal static readonly string[] FurnitureCores = {' + ','.join(json.dumps(n) for n in furniture) + '}; }'
     # Observe entry only; the complete production proof body still runs unchanged. This
     # distinguishes native fallthrough before proof from an expensive proof returning zero.
     proof_entry = 'internal static int DecorativeCategories(GameObject root)\n    {'
@@ -40,7 +42,7 @@ def main():
     if not args.no_negative_controls:
         variants += [
             ('captured-bay-rejected', 'Scenery.cs', 'if (CanOwnBayCollider(collider))\n                continue;', 'if (CanOwnBayCollider(collider) && false)\n                continue;', 'captured native bay admits every'),
-            ('captured-bay-invisible-box', 'Scenery.cs', '{ collider.enabled = false; BayColliderOwners[collider] = true; }', '{ collider.enabled = true; BayColliderOwners[collider] = true; }', 'zero budgets remove all eleven captured bay'),
+            ('captured-bay-invisible-box', 'Scenery.cs', '{ collider.enabled = false; BayColliderOwners[collider] = true; }', '{ collider.enabled = true; BayColliderOwners[collider] = true; }', 'zero decoration removes original page book meshes and owned collision together'),
             ('captured-floor-segment-lost', 'Scenery.cs', '|| name.StartsWith("FR_Floor_Grass_Seg_", StringComparison.Ordinal)', '|| false', 'captured native edge keeps solid floor'),
             ('omit-creation-deferral', 'Placement.cs', 'if (categories == 0 || !Zero(categories)) return false;', 'if (categories == 0 || !Zero(categories) || true) return false;', 'creation prefix defers actual renderer collider'),
             ('all-positive-prefab-walk', 'Placement.cs', 'if (PerfConfig.ScenarioSceneryDensityPercentValue > 0\n            && PerfConfig.ScenarioVegetationDensityPercentValue > 0', 'if (PerfConfig.ScenarioSceneryDensityPercentValue <= 0\n            && PerfConfig.ScenarioVegetationDensityPercentValue > 0', 'all positive budgets retain native creation without template proof'),
@@ -88,6 +90,12 @@ def main():
             ('generic-floor-collision-unrepresented', 'Scenery.cs', '|| IsNativeGroundCore(mesh.name)', '|| false', 'original generic floor prefab collider is represented'),
             ('clone-projector-rejected', 'Scenery.cs', 'if (original.EndsWith("(Clone)", StringComparison.Ordinal))', 'if (original.EndsWith("(Clone)", StringComparison.Ordinal) && false)', 'native projector clones and numeric duplicates qualify'),
 
+            ('inert-shelf-animator-rejected', 'Scenery.cs', 'return animator != null && (!smallDressing || animator.runtimeAnimatorController != null);', 'return animator != null;', 'controller-less original shelf animation is inert'),
+            ('active-shelf-controller-ignored', 'Scenery.cs', 'return animator != null && (!smallDressing || animator.runtimeAnimatorController != null);', 'return animator != null && !smallDressing;', 'active native controller still protects original shelf content'),
+            ('small-global-figure-guard-lost', 'Scenery.cs', 'smallDressing ? !HasSmallDressingFigureAncestor(renderer)', 'smallDressing ? true', 'actual actor above native tile boundary retains exact small meshes'),
+            ('large-unit-child-hidden', 'Scenery.cs', '|| IsLargeDecorativeUnit(t.name)\n                || (smallDressing', '|| false\n                || (smallDressing', 'large corpse cross and coffin preserve separately named pieces'),
+            ('small-page-collision-retained', 'Scenery.cs', '&& !NativeSmallDressingContainers.Contains(OriginalAssetName(collider.name))', '&& true', 'pure original pages and shelf books admit their native decorative colliders'),
+            ('unknown-small-callback-ignored', 'Scenery.cs', '|| (smallDressing && !generated && HasUnknownSmallDressingCallback(t))', '|| false', 'unknown native callbacks retain exact small decoration'),
             ('subtree-cache-retained', 'Scenery.cs', 'finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }', 'finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }', ''),
         ]
         variants = [v for v in variants if v[0] != 'subtree-cache-retained']

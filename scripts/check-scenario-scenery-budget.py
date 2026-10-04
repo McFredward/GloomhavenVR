@@ -38,6 +38,7 @@ def production(source):
         'private static bool CanOwnBayCollider(', 'private static Collider[] BayCollidersFor(', 'private static void RefreshBayCollider(', 'internal static int DecorativeCategories(', 'private static bool HasUnrepresentedCollider(', 'private static bool CanOwnTreeCollider(', 'private static Transform? NativeTreeCarrier(', 'private static ColliderFacts ReadColliderFacts(',
         'private static bool UsesFoliage(', 'private static bool UsesOnlyFoliage(',
         'private static bool RepresentsSolidComposite(', 'private static Kind NamedKind(',
+        'private static bool BlocksSmallDressingAnimation(', 'private static bool HasSmallDressingFigureAncestor(', 'private static bool HasUnknownSmallDressingCallback(', 'private static bool IsExactSmallSubtree(', 'private static string OriginalAssetName(',
         'private static bool IsHardStructuralName(', 'private static bool IsScenarioTile(',
     )]
     methods += [expression(source,key) for key in (
@@ -45,6 +46,10 @@ def production(source):
         'private static bool IsNativeWallWoodLeaf(', 'private static bool IsNativeSceneryAsset(', 'private static bool IsNativeTreeAsset(', 'private static bool IsNativeWallPlantLeaf(', 'private static bool ColliderIsPresent(', 'private static string TreeAssetName(',
         'private static bool IsNativeCompositeDressing(', 'private static readonly HashSet<string> NativeCompositeDressing',
         'private static bool IsNativeGroundCore(', 'private static readonly HashSet<string> NativeGroundCores',
+        'private static bool IsNativeSmallDressing(', 'private static bool IsLargeDecorativeUnit(',
+        'private static readonly HashSet<string> NativeSmallDressing =',
+        'private static readonly HashSet<string> NativeSmallDressingContainers',
+        'private static readonly HashSet<string> NativeRetainedFurnitureCores',
     )]
     header='''using System; using System.Collections.Generic; using UnityEngine; using UnityEngine.SceneManagement;
 namespace GloomhavenVR.Core;
@@ -80,6 +85,18 @@ def main():
     if ground != set(re.findall(r'"([^"]+)"',expression(source,'private static readonly HashSet<string> NativeGroundCores'))) or len(ground)!=166:
         raise SystemExit('Shared ground collision representation must match original retained mesh records')
     ground_values=','.join(json.dumps(n) for n in sorted(ground))
+    small={row['mesh'] for row in review['small_dressing']}
+    if small != set(re.findall(r'"([^"]+)"',expression(source,'private static readonly HashSet<string> NativeSmallDressing ='))):
+        raise SystemExit('Small dressing admission must match independently reread original mesh hierarchies')
+    if any(not row.get('chain') or len(row.get('size',[]))!=3 for row in review['small_dressing']):
+        raise SystemExit('Small dressing requires original component ancestry and bounds')
+    for table, field in (('NativeSmallDressingContainers', 'small_dressing_containers'), ('NativeRetainedFurnitureCores', 'retained_furniture_cores')):
+        records=review[field]
+        original_set=set(records) if field=='small_dressing_containers' else {row['mesh'] for row in records}
+        actual_set=set(re.findall(r'"([^"]+)"',expression(source,'private static readonly HashSet<string> '+table)))
+        if original_set != actual_set:
+            raise SystemExit('Native small container/retained core proof drift: '+table)
+    small_values=','.join(json.dumps(n) for n in sorted(small))
     variants=[('production',source,'')]
     for name,old,new,expected in (
         ('captured-bay-rejected','if (CanOwnBayCollider(collider))\n                continue;','if (CanOwnBayCollider(collider) && false)\n                continue;','captured native bay admits every'),
@@ -100,6 +117,17 @@ def main():
         ('native-tree-inheritance-missed', 'if (treeCarrier != null)', 'if (treeCarrier != null && (unit == null || IsNativeTreeAsset(unit.name)))', 'hardware named native tree assembly admits'),
         ('anonymous-tree-floor-admitted', 'if (IsNativeSceneryAsset(mesh.name)\n            && (IsHardStructuralName(mesh.name) || (!foliage && IsGrassBase(mesh.name))))', 'if (IsNativeSceneryAsset(mesh.name)\n            && (IsHardStructuralName(mesh.name) || (!foliage && IsGrassBase(mesh.name))) && false)', 'anonymous original floor mesh under tree keeps its solid identity'),
         ('completed-tree-wall-boundary-lost', 'return carrier; // outside an already complete tree, the wall/floor is its boundary', 'return null; // negative: surrounding wall incorrectly discards completed tree', 'completed native tree under mixed masonry wrapper remains optional'),
+        ('small-inert-animator-rejected', 'return animator != null && (!smallDressing || animator.runtimeAnimatorController != null);',
+            'return animator != null;', 'controller-less original shelf animator is inert'),
+        ('active-controller-ignored', 'return animator != null && (!smallDressing || animator.runtimeAnimatorController != null);',
+            'return animator != null && !smallDressing;', 'active native controller protects small shelf mesh'),
+        ('small-global-figure-guard-lost', 'smallDressing ? !HasSmallDressingFigureAncestor(renderer)',
+            'smallDressing ? true', 'actual actor above tile retains exact small mesh'),
+        ('large-unit-child-hidden', '|| IsLargeDecorativeUnit(t.name)\n                || (smallDressing',
+            '|| false\n                || (smallDressing', 'large corpse and cross preserve their separately named small pieces'),
+        ('small-collision-left-on', '{ collider.enabled = false; BayColliderOwners[collider] = true; }',
+            '{ collider.enabled = collider.name == "FR_Default_Bay_10" ? false : true; BayColliderOwners[collider] = true; }',
+            'pure original page clutter owns its decorative box'),
 
     ):
         if source.count(old)!=1:raise SystemExit('Classifier mutation binding drift: '+name)
@@ -110,7 +138,7 @@ def main():
         folder=Path(temp)
         (folder/'Classifier.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><NoWarn>CS0649</NoWarn></PropertyGroup></Project>')
         shutil.copyfile(fixture/'UnityGraph.cs',folder/'UnityGraph.cs');shutil.copyfile(fixture/'Checks.cs',folder/'Checks.cs')
-        (folder/'NativeSceneryMetadata.cs').write_text('internal static class NativeSceneryMetadata { internal static readonly string[] CompositeMeshes = {'+mesh_values+'}; internal static readonly string[] GroundMeshes = {'+ground_values+'}; }')
+        (folder/'NativeSceneryMetadata.cs').write_text('internal static class NativeSceneryMetadata { internal static readonly string[] CompositeMeshes = {'+mesh_values+'}; internal static readonly string[] GroundMeshes = {'+ground_values+'}; internal static readonly string[] SmallMeshes = {'+small_values+'}; }')
         shutil.copyfile(args.source_root/'src/GloomhavenVR/Core/FigureRendererGuard.cs',folder/'FigureGuard.cs')
         for name,text,expected in variants:
             (folder/'Production.cs').write_text(production(text))

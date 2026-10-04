@@ -266,6 +266,61 @@ internal static partial class ScenarioSceneryBudget
             Check(Inspect(coreLayer,tile)!=Verdict.Eligible&&Inspect(bones,tile)==Verdict.Eligible,
                 "recorded original ground core represents shared collision without masking floor: "+original);
         }
+        foreach(string original in NativeSceneryMetadata.SmallMeshes)
+        {
+            var small=Leaf(ossuary.transform,"Mesh",false);
+            small.GetComponent<MeshFilter>()!.sharedMesh!.name=original;
+            Check(Inspect(small,tile)==Verdict.Eligible,"every exact small original leaf is independent of structural parent: "+original);
+        }
+        var inertJugs=Leaf(generated.transform,"CR_ST_Shelf_Alchemy_Jugs_01",false);
+        inertJugs.GetComponent<MeshFilter>()!.sharedMesh!.name="CR_ST_Shelf_Alchemy_Jugs_01";
+        var jugAnimator=inertJugs.gameObject.AddComponent<Animator>();
+        Check(Inspect(inertJugs,tile)==Verdict.Eligible,"controller-less original shelf animator is inert");
+        jugAnimator.runtimeAnimatorController=new RuntimeAnimatorController();
+        Check(Inspect(inertJugs,tile)==Verdict.Ancestry,"active native controller protects small shelf mesh");
+        jugAnimator.runtimeAnimatorController=null;
+        var actorAbove=scenario.AddComponent<ActorBehaviour>();
+        Check(Inspect(inertJugs,tile)==Verdict.Ancestry,"actual actor above tile retains exact small mesh");
+        scenario.Components.Remove(actorAbove);
+        var interactableAbove=scenario.AddComponent<CInteractableActor>();
+        Check(Inspect(inertJugs,tile)==Verdict.Ancestry,"actual interactable actor above tile retains exact small mesh");
+        scenario.Components.Remove(interactableAbove);
+        var rigAbove=scenario.AddComponent<Animator>();rigAbove.runtimeAnimatorController=new RuntimeAnimatorController();
+        Check(Inspect(inertJugs,tile)==Verdict.Ancestry,"active rig above tile retains exact small mesh");
+        scenario.Components.Remove(rigAbove);
+        var pageRoot=Node(generated.transform,"TO_INT_Cathedral_Clutter_Pages_03_PR");
+        var pages=Leaf(pageRoot.transform,"TO_INT_Floor_Clutter_Pages_03",false);
+        pages.GetComponent<MeshFilter>()!.sharedMesh!.name="TO_INT_Floor_Clutter_Pages_03";
+        var pageBox=pageRoot.AddComponent<Collider>();
+        Check(Inspect(pages,tile)==Verdict.Eligible,"actual native pure page wrapper admits original collider ownership");
+        var pageRecord=new Record{Renderer=pages,BayColliders=BayCollidersFor(pages)};
+        SetHidden(pageRecord,true);
+        Check(pages.forceRenderingOff&&!pageBox.enabled,"pure original page clutter owns its decorative box");
+        SetHidden(pageRecord,false);
+        Check(!pages.forceRenderingOff&&pageBox.enabled,"original page render and collision restore together");
+        pageBox.isTrigger=true;
+        Check(Inspect(pages,tile)==Verdict.Effect,"native page trigger remains visible and functional");
+        pageBox.isTrigger=false;
+        foreach(string original in NativeSceneryMetadata.SmallMeshes)
+        {
+            var own=Leaf(generated.transform,original,false);
+            own.GetComponent<MeshFilter>()!.sharedMesh!.name=original;
+            var ownBox=own.gameObject.AddComponent<Collider>();
+            Check(Inspect(own,tile)==Verdict.Eligible,"exact standalone small original owns dedicated collision: "+original);
+            var ownRecord=new Record{Renderer=own,BayColliders=BayCollidersFor(own)};
+            SetHidden(ownRecord,true);
+            Check(own.forceRenderingOff&&!ownBox.enabled,"zero masks every exact standalone mesh and dedicated box: "+original);
+            SetHidden(ownRecord,false);
+            Check(!own.forceRenderingOff&&ownBox.enabled,"full density restores every exact standalone mesh and dedicated box: "+original);
+        }
+        foreach(string large in new[]{"CR_Corpse_Sitting","CR_Cross_01","skeleton_Lying 1","CR_ST_Stone_Coffin_01"})
+        {
+            var largeRoot=Node(generated.transform,large);
+            var small=Leaf(largeRoot.transform,"CR_OS_Skull_Low",false);
+            small.GetComponent<MeshFilter>()!.sharedMesh!.name="CR_OS_Skull_Low";
+            Check(Inspect(small,tile)==Verdict.Ancestry,"large corpse and cross preserve their separately named small pieces: "+large);
+            Check(DecorativeCategories(largeRoot)==0,"large decoration is never deferred or collision owned: "+large);
+        }
         return _checks;
     }
 }

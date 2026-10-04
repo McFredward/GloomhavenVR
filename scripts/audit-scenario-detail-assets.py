@@ -77,6 +77,87 @@ def scenery_renderer(component):
             'ancestry_components': sorted(ancestry_components)}
 
 
+def small_dressing_candidate(name):
+    """Select review candidates; runtime admits only the resulting closed mesh identities."""
+    lower = name.lower()
+    excluded = ('skinbone', 'skeleton', 'coffin', 'сoffin', 'cross', 'corpse', 'cadaver',
+        'burns', '_puddles', 'lava', 'volcanic', '_wall', '_pillar', '_floor_basic',
+        '_floor_base', 'terrain_', '_banner', '_altar', 'large_stone_urn',
+        '_shelves_stone', '_floorshelf_stone', '_smallshelf_stone', '_wallshelf_stone',
+        'grass', 'plants', 'leaves', 'foliage', '(clone)', ' simplified mesh')
+    if any(token in lower for token in excluded if not (token == '_wall' and 'wallchains' in lower)): return False
+    tokens = ('clutter', 'scatter', 'debris', 'skull', 'bonepile', '_bone', '_paper',
+        '_pages', 'parchment', '_scroll', '_cup', '_pot', '_urn', '_vase', '_bottle',
+        '_book', 'wallchains', 'cobweb', '_jugs', '_plate', '_oiler', '_balance',
+        '_flask', '_inkpot', '_potion')
+    return any(token in lower for token in tokens) or lower.startswith(
+        ('book_', 'bottle_', 'flask_', 'inkpot_', 'potion_'))
+
+
+def component_fact(pointer):
+    kind = pointer.type.name
+    data = pointer.read()
+    fact = {'type': kind}
+    if kind == 'MonoBehaviour':
+        try: fact['script'] = data.m_Script.read().m_ClassName
+        except Exception: fact['script'] = '<external>'
+    elif kind == 'Animator':
+        fact['controller'] = data.m_Controller.path_id
+    elif kind.endswith('Collider'):
+        fact['trigger'] = data.m_IsTrigger
+        fact['enabled'] = data.m_Enabled
+    return fact
+
+
+def enrich_small_dressing(result, bundles):
+    """Read the actual hierarchy for small meshes and retained mixed-composite members.
+
+    All stored bundle hashes are checked before reusing an older complete census. This
+    avoids repeatedly decoding material-only bundles without trusting stale identities.
+    """
+    names = {row['mesh'] for row in result['scenery_renderers'] if small_dressing_candidate(row['mesh'])}
+    names -= {row['mesh'] for row in scenery_review(result)['composite_dressing']}
+    selected = sorted({row['bundle'] for row in result['scenery_renderers'] if row['mesh'] in names})
+    records = []
+    for name in selected:
+        env = UnityPy.load(str(bundles / name))
+        for reader in env.objects:
+            if reader.type.name != 'MeshRenderer': continue
+            data = reader.read(); obj = data.m_GameObject.read()
+            pointers = [slot.component for slot in obj.m_Component]
+            filter = next((pointer.read() for pointer in pointers if pointer.type.name == 'MeshFilter'), None)
+            if filter is None: continue
+            try: mesh = filter.m_Mesh.read()
+            except Exception: continue
+            if mesh.m_Name not in names: continue
+            extent = mesh.m_LocalAABB.m_Extent
+            size = [2 * extent.x, 2 * extent.y, 2 * extent.z]
+            # An identity describing a whole large body/building is not small floor/shelf clutter.
+            if size[1] > 2 or max(size) > 3: continue
+            if any(token in mesh.m_Name.lower() for token in ('vase', 'urn', 'pot')) and size[1] > 1: continue
+            transform = next(pointer.read() for pointer in pointers if pointer.type.name == 'Transform')
+            chain = []
+            while True:
+                node = transform.m_GameObject.read()
+                chain.append({'name': node.m_Name,
+                    'components': [component_fact(slot.component) for slot in node.m_Component]})
+                if not transform.m_Father.path_id: break
+                transform = transform.m_Father.read()
+            fact = scenery_renderer(reader)
+            fact.update({'bundle': name, 'size': size, 'chain': chain})
+            records.append(fact)
+    result['small_dressing_containers'] = sorted({row['chain'][-1]['name'] for row in records})
+    representatives = {}
+    for row in records:
+        # Prefer a normal generated-decoration copy over an obstacle/damage-dependent copy.
+        scripts = [f.get('script', '') for node in row['chain'] for f in node['components']]
+        score = sum(script not in ('MaterialLoader', 'DetailsDisabler', 'ImportantObjectsShadowsDisabler',
+            'PropObjectsShadowsDisabler', 'DetailLevelDisableProvider') for script in scripts)
+        prior = representatives.get(row['mesh'])
+        if prior is None or score < prior[0]: representatives[row['mesh']] = (score, row)
+    return [representatives[name][1] for name in sorted(representatives)]
+
+
 def scenery_review(result):
     """Document candidate semantics separately from the runtime gameplay/collision vetoes.
 
@@ -105,10 +186,12 @@ def scenery_review(result):
     gameplay = ('_obst', '_chest', 'treasurecrate', '_prop_scen', '_destruct', 'doorlock')
     def clean(name):
         return re.sub(r'(?: \(\d+\)|\(Clone\)| simplified mesh)$', '', name)
+    small_names = {row['mesh'] for row in result.get('small_dressing', [])}
     def role(name):
         original = clean(name)
         name = original.lower()
         if original in meshes: return 'detached-composite-dressing'
+        if original in small_names: return 'exact-small-dressing'
         if name.startswith('pcg_'): return 'generation-container'
         if any(token in name for token in gameplay): return 'gameplay-protected'
         if any(token in name for token in ('water', 'toxic', 'lava', 'sludge', 'hotcoals')): return 'water-or-effect-protected'
@@ -146,7 +229,16 @@ def scenery_review(result):
         'projector_count': len(result['scenery_projectors']), 'classification': classification,
         'counts': dict(Counter(category for _, category in classification)),
         'composite_dressing': composites, 'ground_cores': [ground[name] for name in sorted(ground)],
-        'projectors': list(projectors.values())}
+        'projectors': list(projectors.values()), 'small_dressing': result.get('small_dressing', []),
+        'small_dressing_containers': result.get('small_dressing_containers', []),
+        'retained_furniture_cores': [row for mesh, row in sorted({row['mesh']: row for row in result['scenery_renderers']
+            if (re.fullmatch(r'CR_ST_Shelf_(?:Alchemy|Books|Scrolls|Skulls|Pots|UrnsPots|Urns)_\d+', row['mesh'])
+                or (row['mesh'].startswith(('CR_', 'TO_', 'FR_', 'CV_', 'ST_', 'DLC_', 'SE_', 'SB_', 'CT_', 'CS_', 'EN_', 'PR_', 'GH_'))
+                    and any(token in row['mesh'] for token in ('_Table', '_Chair', '_Bench', '_Furniture',
+                        '_Shelves_Stone', '_WallShelf_Stone', '_FloorShelf_Stone', '_SmallShelf_Stone'))
+                    and '_Props_' not in row['mesh'] and 'simplified mesh' not in row['mesh']))
+            and row['mesh'] not in {item['mesh'] for item in result.get('small_dressing', [])}
+            and row['mesh'] not in meshes}.items())]}
 
 
 def main():
@@ -154,12 +246,29 @@ def main():
     parser.add_argument('--source-root', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--provenance-output', type=Path, help='Write compact checked-in identity metadata, never artwork/geometry')
+    parser.add_argument('--scenery-input', type=Path, help='Reuse a complete census only after checking every original bundle hash')
     parser.add_argument('--actors-only', action='store_true')
     parser.add_argument('--scenery-only', action='store_true', help='Skip the independent actor census')
     parser.add_argument('--scenery-renderers', action='store_true', help='Include original PCG renderer ancestry and mesh identities')
     args = parser.parse_args()
     bundles = args.source_root / 'ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64'
     result = {'unitypy': UnityPy.__version__, 'actor_bundles': [], 'models': [], 'scenery_bundles': [], 'scenery_names': [], 'scenery_renderers': [], 'scenery_projectors': []}
+    if args.scenery_input:
+        result = json.loads(args.scenery_input.read_text())
+        for record in result['scenery_bundles']:
+            path = bundles / record['bundle']
+            if hashlib.sha256(path.read_bytes()).hexdigest() != record['sha256']:
+                raise SystemExit('Original bundle changed: ' + record['bundle'])
+        result['small_dressing'] = enrich_small_dressing(result, bundles)
+        result['scenery_review'] = scenery_review(result)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(result, indent=2) + '\n')
+        if args.provenance_output:
+            previous = json.loads(args.provenance_output.read_text())
+            previous['scenery_review'] = result['scenery_review']
+            args.provenance_output.write_text(json.dumps(previous, separators=(',', ':')) + '\n')
+        print('Reviewed ' + str(len(result['small_dressing'])) + ' exact original small dressing meshes; all census bundle hashes match')
+        return
     actor_paths = sorted(path for path in bundles.glob('*_assets_all.bundle')
                          if path.name.startswith(('hero_', 'npc_')))
     for index, path in enumerate([] if args.scenery_only else actor_paths):
@@ -210,6 +319,7 @@ def main():
                 print(f'Scenery: {index + 1}/{len(paths)}', flush=True)
         result['scenery_names'] = sorted(names)
         if args.scenery_renderers or args.provenance_output:
+            result['small_dressing'] = enrich_small_dressing(result, bundles)
             result['scenery_review'] = scenery_review(result)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + '\n')
