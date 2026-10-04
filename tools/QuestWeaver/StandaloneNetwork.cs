@@ -16,7 +16,8 @@ internal static class StandaloneNetwork
     };
 
     /// <returns>Original game types changed by the narrow voice entry boundary.</returns>
-    internal static IEnumerable<string> Apply(AssemblyDefinition game, AssemblyDefinition voiceApi, StandaloneReport report)
+    internal static IEnumerable<string> Apply(AssemblyDefinition game, AssemblyDefinition voiceApi, StandaloneReport report,
+        string runtimeAssemblyName = "Assembly-CSharp")
     {
         TypeDefinition wrapper = voiceApi.MainModule.GetType("POpusCodec.Wrapper")
             ?? throw new InvalidDataException("Original Photon Voice Opus wrapper is absent.");
@@ -42,8 +43,10 @@ internal static class StandaloneNetwork
         if (calls.Length != 1 || calls[0].DeclaringType.FullName != "VoiceChat.BoltVoiceBridge"
             || calls[0].Name != "SetupAndConnect" || connect.Body.Instructions.Count != 4)
             throw new InvalidDataException("Original voice opt-in service boundary changed.");
-        AssemblyNameReference runtimeAssembly = game.MainModule.AssemblyReferences.SingleOrDefault(a => a.Name == "Assembly-CSharp")
-            ?? new AssemblyNameReference("Assembly-CSharp", new Version(0, 0, 0, 0));
+        if (runtimeAssemblyName is not ("Assembly-CSharp" or "QuestGame.Campaign"))
+            throw new InvalidDataException("Unsupported Quest runtime assembly identity.");
+        AssemblyNameReference runtimeAssembly = game.MainModule.AssemblyReferences.SingleOrDefault(a => a.Name == runtimeAssemblyName)
+            ?? new AssemblyNameReference(runtimeAssemblyName, new Version(0, 0, 0, 0));
         if (!game.MainModule.AssemblyReferences.Contains(runtimeAssembly)) game.MainModule.AssemblyReferences.Add(runtimeAssembly);
         TypeReference runtime = new("GloomhavenVR.Quest", "QuestGameNetwork", game.MainModule, runtimeAssembly);
         MethodReference begin = new("BeginVoice", game.MainModule.TypeSystem.Void, runtime);

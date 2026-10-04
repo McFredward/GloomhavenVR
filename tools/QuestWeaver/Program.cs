@@ -23,7 +23,7 @@ internal static class Program
                 if (!options.TryAdd(args[i], args[++i])) throw new ArgumentException("Repeated option.");
             }
             foreach (string key in options.Keys)
-                if (key is not ("--mod" or "--managed" or "--output" or "--report" or "--standalone-target" or "--profile" or "--overrides" or "--bepinex" or "--sdk" or "--reference-managed" or "--sdk-target"))
+                if (key is not ("--mod" or "--managed" or "--output" or "--report" or "--standalone-target" or "--profile" or "--overrides" or "--bepinex" or "--sdk" or "--reference-managed" or "--sdk-target" or "--export-helper"))
                     throw new ArgumentException("Unknown option: " + key);
             string Required(string key) => options.TryGetValue(key, out string? value)
                 ? Path.GetFullPath(value) : throw new ArgumentException("Missing option: " + key);
@@ -43,17 +43,19 @@ internal static class Program
             if (options.Keys.Any(k => k is "--sdk" or "--reference-managed" or "--sdk-target")) throw new ArgumentException("Package SDK options require the package-api command.");
             if (args[0] == "standalone")
             {
-                if (subset || options.GetValueOrDefault("--standalone-target") != "startup") throw new ArgumentException("Standalone supports only explicit --standalone-target startup.");
+                string target = options.GetValueOrDefault("--standalone-target") ?? "";
+                if (subset || target is not ("startup" or "export" or "game")) throw new ArgumentException("Standalone requires explicit --standalone-target startup|export|game.");
                 string outputPath = Required("--output");
                 if (options.ContainsKey("--mod") != options.ContainsKey("--bepinex")) throw new ArgumentException("Optional standalone BepInEx adapter requires both --mod and --bepinex.");
                 StandaloneReport standalone = Standalone.Write(Required("--managed"), options.GetValueOrDefault("--overrides"), Required("--profile"), outputPath,
-                    options.ContainsKey("--bepinex") ? Required("--bepinex") : null, options.ContainsKey("--mod") ? Required("--mod") : null);
+                    options.ContainsKey("--bepinex") ? Required("--bepinex") : null, options.ContainsKey("--mod") ? Required("--mod") : null,
+                    target, options.ContainsKey("--export-helper") ? Required("--export-helper") : null);
                 string standaloneReportPath = options.TryGetValue("--report", out string? reportValue) ? Path.GetFullPath(reportValue) : outputPath + ".report.json";
                 WriteJson(standaloneReportPath, standalone);
-                Console.WriteLine($"QuestWeaver: offline startup adapter={standalone.StartupAdapterComplete}; fullGameReady=false; {standalone.UnchangedTypesVerified} unrelated types verified invariant.");
+                Console.WriteLine($"QuestWeaver: {standalone.Scope} adapter={standalone.StartupAdapterComplete}; fullGameReady={standalone.FullGameReady.ToString().ToLowerInvariant()}; {standalone.UnchangedTypesVerified} unrelated types verified invariant.");
                 return standalone.StartupAdapterComplete && standalone.Issues.Count == 0 ? 0 : 2;
             }
-            if (options.Keys.Any(k => k is "--standalone-target" or "--profile" or "--overrides" or "--bepinex")) throw new ArgumentException("Startup options require the standalone command.");
+            if (options.Keys.Any(k => k is "--standalone-target" or "--profile" or "--overrides" or "--bepinex" or "--export-helper")) throw new ArgumentException("Startup options require the standalone command.");
             using var model = Discovery.Load(Required("--mod"), Required("--managed"));
             AuditReport report = model.Audit();
             if (args[0] == "audit")

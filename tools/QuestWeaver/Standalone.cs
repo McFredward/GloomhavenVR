@@ -27,7 +27,7 @@ public sealed class StandaloneReport
     public int UnchangedTypesVerified { get; set; }
 }
 
-internal sealed record OfflineProfile(string DisplayName, string SteamId, string AccountId, int OwnedDlcMask = 0);
+internal sealed record OfflineProfile(string DisplayName, string SteamId, string AccountId, int OwnedDlcMask = 0, string Provider = "steam");
 
 /// <summary>Transforms staged platform seams, never original rules, saves or transports.</summary>
 internal static class Standalone
@@ -37,19 +37,33 @@ internal static class Standalone
         using JsonDocument json = JsonDocument.Parse(File.ReadAllText(path));
         JsonElement p = json.RootElement;
         string name = p.GetProperty("displayName").GetString() ?? "";
-        string id = p.GetProperty("steamId").GetString() ?? "";
+        string provider = p.GetProperty("provider").GetString() ?? "";
+        string steamId = p.GetProperty("steamId").GetString() ?? "";
+        string id = p.TryGetProperty("providerId", out JsonElement providerId) ? providerId.GetString() ?? "" : steamId;
         uint account = p.GetProperty("accountId").GetUInt32();
         bool dummy = p.TryGetProperty("isDummy", out JsonElement d) && d.GetBoolean();
-        if (p.GetProperty("schema").GetInt32() != 1 || p.GetProperty("provider").GetString() != "steam"
-            || string.IsNullOrWhiteSpace(name) || !ulong.TryParse(id, NumberStyles.None, CultureInfo.InvariantCulture, out ulong parsed)
-            || (dummy ? parsed != 0 || account != 0 || !name.Contains("DUMMY", StringComparison.OrdinalIgnoreCase)
-                : parsed <= uint.MaxValue || (uint)parsed != account))
+        byte[] accountDigest = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(provider + ":" + id));
+        uint providerAccount = (uint)accountDigest[0] << 24 | (uint)accountDigest[1] << 16 | (uint)accountDigest[2] << 8 | accountDigest[3];
+        if (providerAccount == 0) providerAccount = 1;
+        bool validIdentity = provider switch
+        {
+            "steam" => ulong.TryParse(id, NumberStyles.None, CultureInfo.InvariantCulture, out ulong parsed) && steamId == id
+                && (dummy ? parsed == 0 && account == 0 : parsed > uint.MaxValue && (uint)parsed == account),
+            "epic" => !dummy && steamId == "0" && account == providerAccount && id.Length == 32 && id.All(c => "0123456789abcdef".Contains(c)),
+            "gog" => !dummy && steamId == "0" && account == providerAccount
+                && ulong.TryParse(id, NumberStyles.None, CultureInfo.InvariantCulture, out ulong gogId) && gogId > 0,
+            _ => false
+        };
+        if (p.GetProperty("schema").GetInt32() != 1 || string.IsNullOrWhiteSpace(name) || !validIdentity
+            || dummy && !name.Contains("DUMMY", StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Offline profile is missing, inconsistent, or an unlabelled dummy.");
         int dlcMask = 0;
         if (p.TryGetProperty("dlcOwnership", out JsonElement ownership))
         {
-            if (ownership.GetProperty("schema").GetInt32() != 1 || ownership.GetProperty("provider").GetString() != "steam"
-                || ownership.GetProperty("appId").GetInt32() != 780290 || ownership.GetProperty("steamId").GetString() != id)
+            string ownershipId = ownership.TryGetProperty("providerId", out JsonElement ownedId)
+                ? ownedId.GetString() ?? "" : ownership.TryGetProperty("steamId", out JsonElement ownedSteam) ? ownedSteam.GetString() ?? "" : "";
+            if (ownership.GetProperty("schema").GetInt32() != 1 || ownership.GetProperty("provider").GetString() != provider
+                || ownership.GetProperty("appId").GetInt32() != 780290 || ownershipId != id)
                 throw new InvalidDataException("Offline DLC ownership differs from the selected game/account.");
             dlcMask = ownership.GetProperty("ownedMask").GetInt32();
             int[] apps = ownership.GetProperty("installedAppIds").EnumerateArray().Select(a => a.GetInt32()).ToArray();
@@ -58,18 +72,23 @@ internal static class Standalone
                 || apps.Sum(a => a == 1809490 ? 1 : a == 1958560 ? 2 : 4) != dlcMask)
                 throw new InvalidDataException("Offline DLC ownership has invalid or inconsistent flags.");
         }
-        return new OfflineProfile(name, id, account.ToString(CultureInfo.InvariantCulture), dlcMask);
+        return new OfflineProfile(name, id, account.ToString(CultureInfo.InvariantCulture), dlcMask, provider);
     }
 
-    internal static StandaloneReport Write(string managed, string? overrides, string profilePath, string output, string? bepinexPath = null, string? modPath = null)
+    internal static StandaloneReport Write(string managed, string? overrides, string profilePath, string output, string? bepinexPath = null, string? modPath = null,
+        string target = "startup", string? exportHelperPath = null)
     {
+        if (target is not ("startup" or "export" or "game")) throw new ArgumentException("Unsupported standalone conversion target.");
+        if ((target == "export") != (exportHelperPath != null)) throw new ArgumentException("Only the native export target requires its explicit helper assembly.");
         OfflineProfile profile = ReadProfile(profilePath);
         managed = Path.GetFullPath(managed); output = Path.GetFullPath(output);
         if (output == managed || output.StartsWith(managed + Path.DirectorySeparatorChar, StringComparison.Ordinal)
             || overrides != null && (output == Path.GetFullPath(overrides) || output.StartsWith(Path.GetFullPath(overrides) + Path.DirectorySeparatorChar, StringComparison.Ordinal)))
             throw new ArgumentException("Standalone output must be separate from inputs.");
         if (Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any()) throw new ArgumentException("Output directory must be empty.");
-        var report = new StandaloneReport();
+        var report = new StandaloneReport { Scope = target switch {
+            "export" => "procedural-export-offline-platform", "game" => "campaign-local-platform", _ => "startup-offline-platform" },
+            EosAuthorised = target == "game" };
         using var resolver = new DefaultAssemblyResolver();
         if (overrides != null) resolver.AddSearchDirectory(Path.GetFullPath(overrides));
         resolver.AddSearchDirectory(managed);
@@ -82,8 +101,16 @@ internal static class Standalone
         using AssemblyDefinition game = AssemblyDefinition.ReadAssembly(Input("GH.Runtime.dll"), new ReaderParameters { AssemblyResolver = resolver, InMemory = true });
         using AssemblyDefinition platforms = AssemblyDefinition.ReadAssembly(Input("SM.Consoles.dll"), new ReaderParameters { AssemblyResolver = resolver, InMemory = true });
         using AssemblyDefinition apparance = AssemblyDefinition.ReadAssembly(Input("Apparance.Unity.dll"), new ReaderParameters { AssemblyResolver = resolver, InMemory = true });
+        using AssemblyDefinition? utilities = target != "startup" ? AssemblyDefinition.ReadAssembly(Input("Utilities.dll"),
+            new ReaderParameters { AssemblyResolver = resolver, InMemory = true }) : null;
+        using AssemblyDefinition? voiceApi = target == "game" ? AssemblyDefinition.ReadAssembly(Input("PhotonVoice.API.dll"),
+            new ReaderParameters { AssemblyResolver = resolver, InMemory = true }) : null;
+        using AssemblyDefinition? nativeApi = target == "export" ? AssemblyDefinition.ReadAssembly(Input("Apparance.Net.dll"),
+            new ReaderParameters { AssemblyResolver = resolver, InMemory = true }) : null;
         if (game.MainModule.Resources.Any(r => r.Name == "QuestGame.Standalone.v1")) throw new InvalidDataException("Standalone input was already adapted.");
-        var assemblies = new[] { game, platforms, apparance };
+        var assemblies = new[] { game, platforms, apparance }.Concat(utilities == null ? Array.Empty<AssemblyDefinition>() : new[] { utilities })
+            .Concat(voiceApi == null ? Array.Empty<AssemblyDefinition>() : new[] { voiceApi })
+            .Concat(nativeApi == null ? Array.Empty<AssemblyDefinition>() : new[] { nativeApi }).ToArray();
         var snapshots = assemblies.ToDictionary(a => a, a => Discovery.AllTypes(a.MainModule).ToDictionary(t => t.FullName, ProtectedTypes.Fingerprint));
         var protectedSnapshots = assemblies.ToDictionary(a => a, ProtectedTypes.Snapshot);
         var changedTypes = new HashSet<string>(StringComparer.Ordinal);
@@ -143,6 +170,8 @@ internal static class Standalone
         Constant(game, "PlatformLayer", "get_IsValid", false, "System.Boolean");
         Constant(game, "PlatformLayer", "get_SessionTicket", "", "System.String");
         Constant(game, "PlatformLayer", "get_SteamAppId", 780290, "System.UInt32");
+        if (profile.Provider != "steam")
+            Constant(game, "PlatformLayer", "get_PlatformID", profile.Provider == "gog" ? "GoGGalaxy" : "EpicGamesStore", "System.String");
         // The PC builder captures local DLC availability once. Preserve original
         // CanPlayDLC/file checks, party/save validation and promotional selection;
         // only the unavailable live-store seam uses baked ownership on Quest.
@@ -168,7 +197,7 @@ internal static class Standalone
         MethodReference warning = eos.Body.Instructions.Select(i => i.Operand).OfType<MethodReference>().FirstOrDefault(m => m.DeclaringType.FullName == "UnityEngine.Debug" && m.Name == "LogWarning")
             ?? Discovery.AllTypes(game.MainModule).SelectMany(t => t.Methods).Where(m => m.HasBody).SelectMany(m => m.Body.Instructions).Select(i => i.Operand).OfType<MethodReference>()
                 .First(m => m.DeclaringType.FullName == "UnityEngine.Debug" && m.Name == "LogWarning" && m.Parameters.Count == 1);
-        Replace(eos, il => { il.Emit(OpCodes.Ldstr, "[Quest startup] EOS unavailable in offline startup target; stored EpicLogin retained. Multiplayer authentication remains unverified."); il.Emit(OpCodes.Call, game.MainModule.ImportReference(warning)); il.Emit(OpCodes.Ret); });
+        Replace(eos, il => { il.Emit(OpCodes.Ldstr, "[Quest platform] Store login services unavailable; stored EpicLogin retained. Original session-code multiplayer does not imply store authentication."); il.Emit(OpCodes.Call, game.MainModule.ImportReference(warning)); il.Emit(OpCodes.Ret); });
         Noop("PlatformNetworking", "Initialize", "Platforms.IPlatform");
         Constant(game, "PlatformNetworking", "get_PlatformInvitesSupported", false, "System.Boolean");
         Constant(game, "PlatformNetworking", "get_EPICInvitesSupported", false, "System.Boolean");
@@ -207,7 +236,7 @@ internal static class Standalone
         // The SDK starts the native Opus encoder from its own joined-room callback.
         // Guard the original opt-in UI before connecting, never fabricate room success
         // or alter the original Bolt/Photon transport and SDK callbacks.
-        Replace(voiceSwitch, il =>
+        if (target != "game") Replace(voiceSwitch, il =>
         {
             il.Emit(OpCodes.Ldstr, "[Quest startup] voice chat unavailable in this startup diagnostic: original native Opus encoder is not available on Android; no voice room connection attempted.");
             il.Emit(OpCodes.Call, game.MainModule.ImportReference(warning)); il.Emit(OpCodes.Ret);
@@ -219,8 +248,9 @@ internal static class Standalone
         // This explicitly menu-only target has no compatible native Apparance engine.
         // Suppress only its Unity lifecycle entry points; leave generation APIs untouched,
         // Instance unset, and report the unavailable procedural runtime rather than success.
-        foreach (string callback in new[] { "Awake", "Start", "Update", "Stop", "OnDestroy" })
-            Replace(Method(apparance, "ApparanceEngine", callback, "System.Void"), il => il.Emit(OpCodes.Ret));
+        if (target == "startup")
+            foreach (string callback in new[] { "Awake", "Start", "Update", "Stop", "OnDestroy" })
+                Replace(Method(apparance, "ApparanceEngine", callback, "System.Void"), il => il.Emit(OpCodes.Ret));
         MethodDefinition unloadResources = Method(game, "ApparanceResourceListLoader", "UnloadAll", "System.Void");
         Instruction[] nativeRefresh = unloadResources.Body.Instructions.Where(i => i.OpCode == OpCodes.Callvirt && i.Operand is MethodReference c
             && c.DeclaringType.FullName == "ApparanceEngine" && c.Name == "RefreshResources" && c.HasThis && c.ReturnType.FullName == "System.Void" && c.Parameters.Count == 0).ToArray();
@@ -228,8 +258,11 @@ internal static class Standalone
         // Original SceneController startup calls UnloadAll even without a campaign.
         // Keep real AssetReference releases and both managed collection clears, but
         // consume the engine instance instead of entering its unavailable native cache.
-        nativeRefresh[0].OpCode = OpCodes.Pop; nativeRefresh[0].Operand = null;
-        changedTypes.Add(unloadResources.DeclaringType.FullName); report.Modifications.Add("menu-only native engine cache-refresh guard: " + unloadResources.FullName);
+        if (target == "startup")
+        {
+            nativeRefresh[0].OpCode = OpCodes.Pop; nativeRefresh[0].Operand = null;
+            changedTypes.Add(unloadResources.DeclaringType.FullName); report.Modifications.Add("menu-only native engine cache-refresh guard: " + unloadResources.FullName);
+        }
 
         // Keep the original Workshop row visible while excluding its callback. Global
         // ModdingSupported stays false so startup never scans/downloads Workshop content.
@@ -253,6 +286,12 @@ internal static class Standalone
 
         using AssemblyDefinition compatibility = PathsCompatibility.Create(game.MainModule);
         TypeDefinition paths = compatibility.MainModule.Types.Single(t => t.Name == "Paths");
+        if (utilities != null)
+            Replace(Method(utilities, "PathsManager", "get_PersistionDataPath", "System.String"), il =>
+            {
+                il.Emit(OpCodes.Call, utilities.MainModule.ImportReference(paths.Methods.Single(m => m.Name == "get_persistentDataPath")));
+                il.Emit(OpCodes.Ret);
+            });
         // B612 hardware reached native rule loading, then failed while resolving
         // global hero/item references. Its recent-logcat capture evicted the first
         // parse failure; that cause is still unproven. Independently, the original
@@ -296,13 +335,30 @@ internal static class Standalone
         }
         PathsCompatibility.RebindCalls(game.MainModule, paths, changedTypes, report.Modifications);
         PathsCompatibility.BindErrorScreenshot(game.MainModule, paths, changedTypes, report.Modifications);
-        game.MainModule.Resources.Add(new EmbeddedResource("QuestGame.Standalone.v1", ManifestResourceAttributes.Private, System.Text.Encoding.UTF8.GetBytes("startup-offline-platform\n")));
+        if (target == "game")
+        {
+            StandaloneStorage.Bind(game, compatibility.MainModule, changedTypes, report.Modifications);
+            foreach (string type in StandaloneNetwork.Apply(game, voiceApi!, report, "QuestGame.Campaign")) changedTypes.Add(type);
+            changedTypes.Add("POpusCodec.Wrapper");
+        }
+        if (target == "export")
+        {
+            foreach (string type in StandaloneExport.Bind(game, exportHelperPath!, report)) changedTypes.Add(type);
+            StandaloneExport.BindNativeCapture(nativeApi!, exportHelperPath!, report);
+            changedTypes.Add("Apparance.Net.Interop");
+        }
+        game.MainModule.Resources.Add(new EmbeddedResource("QuestGame.Standalone.v1", ManifestResourceAttributes.Private, System.Text.Encoding.UTF8.GetBytes(report.Scope + "\n")));
         report.RemainingGates.AddRange(new[] {
             new IntegrationIssue("ORIGINAL_MENU_RUNTIME", "Bootstrap -> Intro -> Gloomhaven_unified -> MainMenu", "Original scene execution, initial Android Addressables closure, native services and rendering require actual Unity/device evidence."),
             new IntegrationIssue("MOD_LIFECYCLE", "GloomhavenVR.Plugin", "This platform-only output does not instantiate or certify the mod. Standalone BepInEx lifecycle and XR/content seams are a separate gate."),
             new IntegrationIssue("EOS_CROSSPLAY", "original multiplayer", "No online authentication, sessions, invites or crossplay are claimed; legitimate Android EOS remains required if original transport requires it.") });
-        report.RemainingGates.Add(new IntegrationIssue("PROCEDURAL_NATIVE_UNAVAILABLE", "ApparanceEngine", "Menu-only lifecycle and startup unload's native cache-refresh disabled because original engine imports Windows ApparanceEngine. Managed resource release remains original. No fake generation readiness; campaign requires verified Android native support or prebaked geometry."));
-        report.RemainingGates.Add(new IntegrationIssue("VOICE_NATIVE_UNAVAILABLE", "VoiceChat.VoceChatOptions.SwitchStatus", "Original opt-in voice UI is guarded for this startup diagnostic. Native Opus encoder and real voice-room operation remain unavailable/unverified; game transport is unchanged."));
+        if (target == "startup")
+            report.RemainingGates.Add(new IntegrationIssue("PROCEDURAL_NATIVE_UNAVAILABLE", "ApparanceEngine", "Menu-only lifecycle and startup unload's native cache-refresh disabled because original engine imports Windows ApparanceEngine. Managed resource release remains original. No fake generation readiness; campaign requires verified Android native support or prebaked geometry."));
+        report.RemainingGates.Add(target == "game"
+            ? new IntegrationIssue("VOICE_DEVICE_SESSION", "VoiceChat.BoltVoiceChatService", "Fixed ARM64 codec ABI and opt-in permission boundary are bound. The staged native codec, actual microphone and joined-PC voice room require separate execution evidence.")
+            : new IntegrationIssue("VOICE_NATIVE_UNAVAILABLE", "VoiceChat.VoceChatOptions.SwitchStatus", "Original opt-in voice UI is guarded for this startup diagnostic. Native Opus encoder and real voice-room operation remain unavailable/unverified; game transport is unchanged."));
+        if (target == "game") report.RemainingGates.Add(new IntegrationIssue("CAMPAIGN_NATIVE_RUNTIME", "ApparanceEngine",
+            "Original dynamic generation is retained. A matching Android native engine bridge and complete content/shader evidence must be staged before building; this platform report alone cannot certify a complete game."));
         string scratch = Path.Combine(Path.GetDirectoryName(output)!, ".quest-standalone-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(scratch);
         try
@@ -330,7 +386,16 @@ internal static class Standalone
             }
             compatibility.Write(Path.Combine(scratch, "QuestGame.Compatibility.dll"));
             report.OutputAssemblies["QuestGame.Compatibility.dll"] = Hash(Path.Combine(scratch, "QuestGame.Compatibility.dll"));
-            File.WriteAllText(Path.Combine(scratch, "link.xml"), "<linker><assembly fullname=\"GH.Runtime\" preserve=\"all\"/><assembly fullname=\"SM.Consoles\" preserve=\"all\"/><assembly fullname=\"Apparance.Unity\" preserve=\"all\"/><assembly fullname=\"QuestGame.Compatibility\" preserve=\"all\"/>" + (report.BepInExAdapterGenerated ? "<assembly fullname=\"BepInEx\" preserve=\"all\"/>" : "") + "</linker>\n");
+            if (exportHelperPath != null)
+            {
+                string helper = Path.Combine(scratch, "QuestProceduralExport.dll");
+                File.Copy(exportHelperPath, helper);
+                report.OutputAssemblies["QuestProceduralExport.dll"] = Hash(helper);
+            }
+            IEnumerable<string> preserved = target == "game" ? StandaloneNetwork.PreservedAssemblies : new[] { "GH.Runtime", "SM.Consoles" };
+            string linked = string.Concat(preserved.Concat(new[] { "Apparance.Unity", "Apparance.Net", "QuestGame.Compatibility" }).Distinct(StringComparer.Ordinal)
+                .Select(name => "<assembly fullname=\"" + name + "\" preserve=\"all\"/>"));
+            File.WriteAllText(Path.Combine(scratch, "link.xml"), "<linker>" + linked + (report.BepInExAdapterGenerated ? "<assembly fullname=\"BepInEx\" preserve=\"all\"/>" : "") + "</linker>\n");
             if (Directory.Exists(output)) Directory.Delete(output);
             Directory.Move(scratch, output); report.StartupAdapterComplete = true;
             return report;
@@ -364,5 +429,5 @@ internal static class Standalone
         il.InsertBefore(first, il.Create(OpCodes.Ret));
         method.Body.MaxStackSize = Math.Max(1, method.Body.MaxStackSize);
     }
-    private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+    internal static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
 }

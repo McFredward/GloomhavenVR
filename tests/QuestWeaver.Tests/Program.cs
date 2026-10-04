@@ -173,6 +173,8 @@ try
     HarmonyLookupTests.Run(Path.Combine(temp, "type-lookup"), Check);
     StartupTests.Run(projectRoot, Check);
     DlcTests.Run(projectRoot, Check);
+    StandaloneProfileTests.Run(projectRoot, Check);
+    StandaloneExportTests.Run(projectRoot, Path.Combine(temp, "native-export"), Check);
     PackageApiTests.Run(temp + "-package-api", Check);
     Console.WriteLine($"QuestWeaver executable fixture: {assertions} assertions passed.");
 }
