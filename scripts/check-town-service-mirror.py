@@ -300,6 +300,10 @@ def main():
             variants.append(("missing-enchantress-inspection", "TownServiceMirror.Voice.cs",
                 "|| reaction == TownVoiceReaction.EnchantressInspect", "",
                 "accepted enchantment card inspections use the private synchronized voice relay"))
+            variants.append(("missing-avatar-stock-source", "TownServiceMirror.Stock.cs",
+                "bool found = NetAvatarDriver.TryGetTownHeldStock(RealPeer(key), wanted, out int avatarItem);",
+                "bool found = false; int avatarItem = 0;",
+                "atomic avatar stock provenance preserves public vacancy and pickup voice with zero heldstock modules"))
     print(f"Production binding: {args.source_root.resolve()}; evidence: {run}", flush=True)
     if args.only_mutation:
         selected = [case for case in variants if case[0] == args.only_mutation]

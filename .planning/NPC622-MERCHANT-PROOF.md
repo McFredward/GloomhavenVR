@@ -94,3 +94,31 @@ The main worker binds this display prerequisite before initial3D-map/loading rev
 
 The primary worker owns final manifest/build notes, shared publisher exclusions,
 loading integration, source/assets fixes and the one complete final integrated gate.
+
+## Final focused addendum
+
+The map-only source binds resident original sprites, then runs the actual shared
+TownServiceNeutralize before activation. ItemCardUI and other game/navigation
+controllers are removed; original engine images/rectangles/masks/TMP remain.
+Unsupported native custom graphics are rejected read-only before the generic art
+backend consumes exceptions, reported once per item, and remain pending without
+invented artwork or a recurring clone/log loop. Scenario activation is unchanged.
+
+- Cold/native preparation + map controller neutralization:1800 assertions,
+  production plus cold-map-art-reported-ready, cleared-native-pool-latched and
+  map-clone-controller-live causal controls:
+  `/tmp/npc622-merchant-proofs/prewarm/run-0txat_m6`.
+  Cold background requests precede dependent class-icon requests. Neither a
+  resident background alone nor a cached same-singleton cleared pool reports ready.
+  The actual source callback and actual neutralizer retain exact original Unity
+  sprites before activation. Game pool/catalog/addressable handles and the generic
+  fitting backend are explicit fixture boundaries; this is not a headset picture
+  or a complete live game-prefab controller-graph proof.
+- Stock pickup voice/public vacancy: voice-relay production and
+  missing-avatar-stock-source causal control:
+  `/tmp/npc622-merchant-proofs/voice/run-cc8nwp30`.
+  Covers live stock101 with zero heldstock modules, wrong peer, release and inactive
+  session guards.
+- Final Debug build before the read-only unsupported-graphic precheck:
+  `/tmp/npc622-merchant-final-build.log`, zero warnings/errors. Primary final gate
+  compiles and tests the integrated final tree.

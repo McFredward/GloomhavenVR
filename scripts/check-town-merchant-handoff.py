@@ -37,7 +37,10 @@ def sources(root):
              "src/GloomhavenVR/WorldUI/TownServices/TownServiceOfferingPose.cs",
              "src/GloomhavenVR/Cards/Piles/ItemsPile.Merchant.cs",
              "src/GloomhavenVR/WorldUI/MapRoom/MapRoomHand.5.Merchant.cs",
-             "src/GloomhavenVR/Net/TownItemHeldSource.cs"]
+             "src/GloomhavenVR/Net/TownItemHeldSource.cs",
+             "src/GloomhavenVR/Net/Remote/RemoteItemCardSource.cs",
+             "src/GloomhavenVR/Net/Remote/RemoteItemCardSource.Merchant.cs",
+             "src/GloomhavenVR/Net/TownServices/TownServiceNeutralize.cs"]
     bound = {Path(p).name: (root / p).read_text() for p in paths}
     protocol = (root / "src/GloomhavenVR/Net/NetProtocol.cs").read_text()
     bound["ActualMerchantHash.cs"] = "namespace GloomhavenVR.Net { internal static class NetProtocol { " + method(protocol, "public static uint HashMapKey(string? id)") + " } }"
@@ -99,6 +102,9 @@ def mutations():
         ("purchase-placeholder", "ItemsPile.Merchant.cs", "chip.BeginInspectionEmerge(Vector3.zero, chip.transform.localPosition.x >= 0f ? 1f : -1f);", "chip.BeginEmerge(Vector3.zero, 0f, chip.transform.localPosition.x >= 0f ? 1f : -1f);", "purchased item never exposes a brown backing while original art is pending"),
         ("offering-flat", "TownServiceOfferingPose.cs", "facing * Quaternion.Euler(0f, 1.5f * Mathf.Sin(age * .9f), 0f)", "palm.rotation * Quaternion.Euler(90f, 0f, 0f)", "offering overlay is upright over the palm"),
         ("offering-static", "TownServiceOfferingPose.cs", ".006f * Mathf.Sin(age * 1.8f)", "0f", "offering suspension has visible gentle continuous motion"),
+        ("map-clone-controller-live", "RemoteItemCardSource.cs", "if (!RevealGate.InScenario) TownServices.TownServiceNeutralize.Apply(clone);", "", "native map face keeps original engine sprites with no active gameplay or navigation controller"),
+        ("cold-map-art-reported-ready", "RemoteItemCardSource.Merchant.cs", "internal static bool PrepareMapItem(int id) => TryPreparedMapItem(id, out _, out _);", "internal static bool PrepareMapItem(int id) => true;", "cold native item pins cannot report loading readiness before original art is resident"),
+        ("cleared-native-pool-latched", "RemoteItemCardSource.Merchant.cs", "if (!PreparedMapTemplates.Contains(id) || !HasPreparedPool(id))", "if (!PreparedMapTemplates.Contains(id))", "same singleton cleared item pools rewarm instead of trusting old readiness"),
         ("inspection-fan-source", "ActualInspectionFanKey.cs", "Cards.ItemsPile.InspectionCurrent?.InspectionCharacterKey ?? s_localFanCharacterKey", "s_localFanCharacterKey", "visible inspection fan owns record20 even when the ordinary ability fan is absent"),
         ("held-stale-identity", "MapRoomHand.5.Merchant.cs", "&& items[source.Seat] != null && items[source.Seat].ID == source.ItemId", "&& items[source.Seat] != null", "same-size reordered inventory cannot draw a different held item"),
         ("offering-retirement", "ItemsPile.Merchant.cs", "chip.Holder == null && !chip.TownOffering &&", "chip.Holder == null &&", "closed wrist fan retains actual pending offering"),

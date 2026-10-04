@@ -384,6 +384,7 @@ public static class InteractionProgram
   Check(Singleton<UIItemConfirmationBox>.Instance.IsActive && ReferenceEquals(Singleton<UIItemConfirmationBox>.Instance._onConfirmedCallback,foreign),"reset cannot cancel somebody else's confirmation");
   Check(TownServiceCatalog.Offer==null && TownServiceCatalog.CanOffer==null && TownServiceCatalog.InOfferingZone==null,"reset clears callback lifetime");
   ProvePublicHeldItemProvenance();
+  NativeItemPreparationProof.Run(Check);
   UnityEngine.Object.DestroyImmediate(root);
  }
  private static void FlushNextFrameInspectionReaction() {

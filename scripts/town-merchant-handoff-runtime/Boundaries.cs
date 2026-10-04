@@ -4,9 +4,9 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-namespace TMPro { public class TMP_Text : MonoBehaviour { public string text = ""; public RectTransform rectTransform => (RectTransform)transform; } }
+namespace TMPro { public class TextMeshProUGUI : UnityEngine.UI.Text { } public class TMP_Text : MonoBehaviour { public string text = ""; public RectTransform rectTransform => (RectTransform)transform; } }
 namespace FFSNet { public static class FFSNetwork { public static bool IsOnline; } }
-namespace ScenarioRuleLibrary { public class CItem { public int ID; public bool Tradeable = true; } }
+namespace ScenarioRuleLibrary { public class CItem { public enum EItemSlotState{None,Spent,Consumed} public EItemSlotState SlotState; public CItem(){} public CItem(int id){ID=id;} public int ID; public bool Tradeable = true; } }
 namespace MapRuleLibrary.Party {
  public class CMapCharacter { public string CharacterName="Brute"; public bool IsUnderMyControl = true; public readonly List<ScenarioRuleLibrary.CItem> AllCharacterItems = new(); }
  public class CMapParty { public readonly List<ScenarioRuleLibrary.CItem> Stock = new(); }
@@ -31,17 +31,24 @@ public class NewPartyDisplayUI {
  public NewPartyCharacterUI? SelectedUISlot;
 }
 public class UIWindow : MonoBehaviour { public bool IsOpen, IsVisible; public void Hide() { IsOpen=false; IsVisible=false; } }
-public class ItemCardUI : MonoBehaviour { public UnityEngine.UI.Image cardBackground=null!; }
+public class ItemCardUI : MonoBehaviour { public ScenarioRuleLibrary.CItem item=null!; public int CardID=>item.ID; public UnityEngine.UI.Image cardBackground=null!,validOwnerIcon=null!; }
 public class ObjectPool : MonoBehaviour {
  public enum ECardType { Item }
  public static ObjectPool? instance;
+ public class CardPool { public int CardID; public ECardType CardType; public List<GameObject> Instances=new(); }
+ private readonly List<CardPool> cardPools=new();
+ public static int Spawns; public void ClearItemPools(){cardPools.Clear();_cards.Clear();}
  private readonly Dictionary<int,List<GameObject>> _cards = new();
  public static bool LastResetScale,LastResetMiddle,LastResetRotation;
  public static GameObject SpawnCard(int id,ECardType type,Transform parent,bool resetLocalScale=false,bool resetToMiddle=false,bool resetLocalRotation=false,bool activate=true) {
+  Spawns++;
   LastResetScale=resetLocalScale;LastResetMiddle=resetToMiddle;LastResetRotation=resetLocalRotation;
   GameObject card;
   if(instance!=null&&instance._cards.TryGetValue(id,out var cards)&&cards.Count>0) {card=cards[^1];cards.RemoveAt(cards.Count-1);}
   else card=new GameObject("NativeArt",typeof(RectTransform),typeof(CanvasRenderer),typeof(UnityEngine.UI.Image),typeof(ItemCardUI));
+  if(instance!=null&&!instance.cardPools.Exists(p=>p.CardID==id))instance.cardPools.Add(new CardPool{CardID=id,CardType=type,Instances=new List<GameObject>{card}});
+  var ui=card.GetComponent<ItemCardUI>();ui.item=new ScenarioRuleLibrary.CItem(id);ui.cardBackground=card.GetComponent<UnityEngine.UI.Image>();
+  if(id>=9000&&ui.validOwnerIcon==null){var icon=new GameObject("OriginalClassIcon",typeof(RectTransform),typeof(CanvasRenderer),typeof(UnityEngine.UI.Image));icon.transform.SetParent(card.transform,false);ui.validOwnerIcon=icon.GetComponent<UnityEngine.UI.Image>();}
   card.transform.SetParent(parent,false);
   var rect=(RectTransform)card.transform;
   if(resetLocalScale)rect.localScale=Vector3.one;

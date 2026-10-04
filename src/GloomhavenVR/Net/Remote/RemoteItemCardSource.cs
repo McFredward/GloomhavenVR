@@ -51,6 +51,7 @@ internal static partial class RemoteItemCardSource
     /// <summary>One-shot latch for the "the item borrow works on this build" line — once per session,
     /// never once per card.</summary>
     private static bool s_logged;
+    private static readonly System.Collections.Generic.HashSet<int> RejectedMapFronts = new();
 
     /// <summary>
     /// Stable dedup key for <paramref name="item"/>, in <see cref="RemoteCardArt"/>'s key space.
@@ -135,7 +136,7 @@ internal static partial class RemoteItemCardSource
 
         // Map fronts are public originals. Never construct a visible grey asynchronous
         // placeholder; the early map preparation pins precisely the native sprite keys.
-        if (!RevealGate.InScenario && !TryPreparedMapItem(item, out _, out _)) return false;
+        if (!RevealGate.InScenario && (RejectedMapFronts.Contains(item.ID) || !TryPreparedMapItem(item, out _, out _))) return false;
         int key = KeyFor(item);
         if (art.ShowsKey(key))
         {
@@ -149,8 +150,11 @@ internal static partial class RemoteItemCardSource
         }
         catch (System.Exception e)
         {
-            VRLog.Warn("Net", $"Remote ITEM face: pooled borrow failed ({e.Message}) — the chip keeps " +
-                              "its card BACK.");
+            // An unsupported native Graphic/controller contract cannot heal on a frame retry.
+            // Report the actual adapter failure once per public item and keep its front pending.
+            if (!RevealGate.InScenario && e is System.IO.InvalidDataException && !RejectedMapFronts.Add(item.ID)) return false;
+            VRLog.Warn("Net", $"Remote ITEM face: pooled borrow failed ({e.Message}) — "
+                + (RevealGate.InScenario ? "the chip keeps its card BACK." : "the public original front remains pending."));
             art.HideFront();
             return false;
         }
@@ -218,6 +222,16 @@ internal static partial class RemoteItemCardSource
             // The closure is the one allocation of this path and it happens ONLY on a real rebuild
             // (the ShowsKey dedup in ShowFace is what keeps a settled fan off it entirely).
             CItem captured = item;
+            // Validate read-only before the generic art backend can catch/consume an adapter
+            // exception. This keeps unsupported native graphics a single bounded source failure.
+            if (!RevealGate.InScenario)
+                foreach (var graphic in cardGo.GetComponentsInChildren<UnityEngine.UI.Graphic>(true))
+                {
+                    var type = graphic.GetType();
+                    if (type != typeof(UnityEngine.UI.Image) && type != typeof(UnityEngine.UI.RawImage)
+                        && type != typeof(UnityEngine.UI.Text) && type != typeof(TMPro.TextMeshProUGUI))
+                        throw new System.IO.InvalidDataException("Native custom graphic requires an explicit original mesh adapter: " + type.FullName);
+                }
             bool shown = art.ShowFront(cardGo, key, skinSource: null, beforeActivate: clone =>
             {
                 var cloneUi = clone.GetComponent<ItemCardUI>();
@@ -235,6 +249,7 @@ internal static partial class RemoteItemCardSource
                         { cloneUi.validOwnerIcon.sprite = icon; cloneUi.validOwnerIcon.enabled = icon != null; }
                     }
                 }
+                if (!RevealGate.InScenario) TownServices.TownServiceNeutralize.Apply(clone);
             }, spentLook: LookOf(item));
             if (shown)
                 ReportOnce(item);
