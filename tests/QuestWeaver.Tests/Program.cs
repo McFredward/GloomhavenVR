@@ -29,6 +29,12 @@ int assertions = 0;
 void Check(bool condition, string message) { assertions++; if (!condition) throw new Exception(message); }
 try
 {
+    if (args.Length == 1 && args[0] == "--type-lookup")
+    {
+        HarmonyLookupTests.Run(Path.Combine(temp, "type-lookup"), Check);
+        Console.WriteLine($"Quest Harmony type lookup: {assertions} assertions passed.");
+        return;
+    }
     using (Discovery model = Discovery.Load(Path.Combine(fixtureDir, "FixtureMod.dll"), fixtureDir))
     {
         AuditReport report = model.Audit();
@@ -164,6 +170,7 @@ try
         if (Directory.Exists(nextOutput)) Directory.Delete(nextOutput, true);
     }
     context.Unload();
+    HarmonyLookupTests.Run(Path.Combine(temp, "type-lookup"), Check);
     StartupTests.Run(projectRoot, Check);
     PackageApiTests.Run(temp + "-package-api", Check);
     Console.WriteLine($"QuestWeaver executable fixture: {assertions} assertions passed.");
