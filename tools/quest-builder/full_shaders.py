@@ -6,6 +6,8 @@ This module recovers those exact interfaces before an open-source DXBC compiler
 translates the instruction stream. Unknown layouts stop conversion explicitly.
 """
 import hashlib
+import json
+import collections
 from pathlib import Path
 import re
 import struct
@@ -62,10 +64,23 @@ def parameter_delta(raw, offset):
                 raise ShaderRecoveryError("Unsupported original compiled cbuffer field layout: " + field_name)
             fields.append({"name": field_name, "type": kind, "rows": rows, "columns": columns,
                            "matrix": bool(matrix), "arraySize": array_size, "byteOffset": byte_offset})
-        structures = reader.count()
-        if structures:
-            raise ShaderRecoveryError("Original shader contains a nested structured cbuffer; its layout needs explicit recovery.")
-        buffers.append({"name": name, "bytes": size, "fields": fields})
+        structures = []
+        for _ in range(reader.count()):
+            struct_name = reader.text()
+            byte_offset, array_size, stride = reader.values("<3i")
+            if byte_offset < 0 or array_size < 0 or stride <= 0 or stride % 16:
+                raise ShaderRecoveryError("Invalid original structured cbuffer layout.")
+            members = []
+            for _ in range(reader.count()):
+                member_name = reader.text()
+                kind, rows, columns, matrix, member_array, offset = reader.values("<6i")
+                if kind not in (0, 1) or not 1 <= rows <= 4 or not 1 <= columns <= 4 or matrix not in (0, 1) or member_array < 0 or offset < 0:
+                    raise ShaderRecoveryError("Unsupported original structured cbuffer member: " + member_name)
+                members.append({"name": member_name, "type": kind, "rows": rows, "columns": columns,
+                                "matrix": bool(matrix), "arraySize": member_array, "byteOffset": offset})
+            structures.append({"name": struct_name, "byteOffset": byte_offset, "arraySize": array_size,
+                               "stride": stride, "fields": members})
+        buffers.append({"name": name, "bytes": size, "fields": fields, "structures": structures})
     bindings = []
     for _ in range(reader.count()):
         name, kind = reader.text(), reader.values("<i")
@@ -80,6 +95,11 @@ def parameter_delta(raw, offset):
                 raise ShaderRecoveryError("Unknown original compiled texture dimension.")
             bindings.append({"name": name, "kind": "texture", "slot": texture,
                              "samplerSlot": sampler, "dimension": dimension})
+        elif kind == 2:
+            slot, array_size = reader.values("<2i")
+            if slot < 0 or array_size <= 0:
+                raise ShaderRecoveryError("Invalid original structured GPU buffer binding.")
+            bindings.append({"name": name, "kind": "buffer", "slot": slot, "arraySize": array_size})
         else:
             raise ShaderRecoveryError("Unsupported original shader resource binding kind: " + str(kind))
     if reader.position != len(raw):
@@ -157,11 +177,15 @@ def merge_interface(common, names, delta):
     """Combine original partial common parameters and per-variant deltas."""
     names = {int(index): name for name, index in names}
     buffers = {}
-    def add_buffer(name, size, fields):
+    def add_buffer(name, size, fields, structures=()):
         if name not in buffers:
-            buffers[name] = {"name": name, "bytes": size, "fields": []}
-        if buffers[name]["bytes"] != size:
-            raise ShaderRecoveryError("Original common/delta cbuffer byte sizes disagree: " + name)
+            buffers[name] = {"name": name, "bytes": size, "fields": [], "structures": []}
+        # Unity's common table is the shared parameter prefix. A keyword
+        # delta can extend that same original cbuffer with additional fields;
+        # its serialized size is not necessarily equal to the common prefix.
+        # Keep both native extents, and bind only scalars read by the actual
+        # DXBC declaration later. All overlapping field layouts still agree.
+        buffers[name]["bytes"] = max(buffers[name]["bytes"], size)
         seen = {field["byteOffset"]: field for field in buffers[name]["fields"]}
         for field in fields:
             previous = seen.get(field["byteOffset"])
@@ -170,9 +194,8 @@ def merge_interface(common, names, delta):
             if previous is None:
                 buffers[name]["fields"].append(field)
                 seen[field["byteOffset"]] = field
+        buffers[name]["structures"].extend(structures)
     for buffer in common.get("m_ConstantBuffers", []):
-        if buffer.get("m_StructParams"):
-            raise ShaderRecoveryError("Nested original common cbuffer structure requires explicit recovery.")
         fields = []
         for field in buffer.get("m_VectorParams", []):
             fields.append({"name": names[field["m_NameIndex"]], "type": field["m_Type"], "rows": 1,
@@ -182,14 +205,30 @@ def merge_interface(common, names, delta):
             fields.append({"name": names[field["m_NameIndex"]], "type": field["m_Type"], "rows": field["m_RowCount"],
                            "columns": 4, "matrix": True, "arraySize": field["m_ArraySize"],
                            "byteOffset": field.get("m_OffsetInConstantBuffer") if field.get("m_OffsetInConstantBuffer") is not None else field["m_Index"]})
-        add_buffer(names[buffer["m_NameIndex"]], buffer["m_Size"], fields)
+        structures = []
+        for structure in buffer.get("m_StructParams", []) or []:
+            members = []
+            for field in structure.get("m_VectorMembers", []):
+                members.append({"name": names[field["m_NameIndex"]], "type": field["m_Type"], "rows": 1,
+                                "columns": field["m_Dim"], "matrix": False, "arraySize": field["m_ArraySize"],
+                                "byteOffset": field.get("m_OffsetInConstantBuffer") if field.get("m_OffsetInConstantBuffer") is not None else field["m_Index"]})
+            for field in structure.get("m_MatrixMembers", []):
+                members.append({"name": names[field["m_NameIndex"]], "type": field["m_Type"], "rows": field["m_RowCount"],
+                                "columns": 4, "matrix": True, "arraySize": field["m_ArraySize"],
+                                "byteOffset": field.get("m_OffsetInConstantBuffer") if field.get("m_OffsetInConstantBuffer") is not None else field["m_Index"]})
+            structures.append({"name": names[structure["m_NameIndex"]], "byteOffset": structure["m_Index"],
+                               "arraySize": structure["m_ArraySize"], "stride": structure["m_StructSize"], "fields": members})
+        add_buffer(names[buffer["m_NameIndex"]], buffer["m_Size"], fields, structures)
     for buffer in delta["buffers"]:
-        add_buffer(buffer["name"], buffer["bytes"], buffer["fields"])
+        add_buffer(buffer["name"], buffer["bytes"], buffer["fields"], buffer.get("structures", []))
     bindings = [{"name": names[binding["m_NameIndex"]], "kind": "cbuffer", "slot": binding["m_Index"]}
                 for binding in common.get("m_ConstantBufferBindings", [])]
     for binding in common.get("m_TextureParams", []):
         bindings.append({"name": names[binding["m_NameIndex"]], "kind": "texture", "slot": binding["m_Index"],
                          "samplerSlot": binding["m_SamplerIndex"], "dimension": binding["m_Dim"] * 2})
+    for binding in common.get("m_BufferParams", []):
+        bindings.append({"name": names[binding["m_NameIndex"]], "kind": "buffer", "slot": binding["m_Index"],
+                         "arraySize": binding["m_ArraySize"]})
     bindings.extend(delta["bindings"])
     unique = {}
     for binding in bindings:
@@ -273,6 +312,32 @@ def restore_uniforms(hlsl, interface, input_signature=()):
                 if name in declarations and declarations[name] != declaration:
                     raise ShaderRecoveryError("Original uniform has conflicting types: " + name)
                 declarations[name] = declaration
+        for structure in buffer.get("structures", []):
+            for element in range(max(1, structure["arraySize"])):
+                for field in structure["fields"]:
+                    nested = {**field, "name": structure["name"] + "[" + str(element) + "]." + field["name"],
+                              "byteOffset": structure["byteOffset"] + element * structure["stride"] + field["byteOffset"]}
+                    for component, expression in field_components(nested).items():
+                        if component in components and components[component] != expression:
+                            raise ShaderRecoveryError("Original structured cbuffer fields overlap.")
+                        components[component] = expression
+            if not structure["name"].startswith("unity_"):
+                # Original material instancing arrays are engine-populated
+                # Unity buffers; a private uniform copy would lose per-instance
+                # material properties. Retain their actual buffer/field names.
+                prefix = "UnityInstancing_"
+                if not buffer["name"].startswith(prefix) or structure["name"] != buffer["name"][len(prefix):] + "Array":
+                    raise ShaderRecoveryError("Unknown original nonbuiltin structured cbuffer.")
+                instance_name = buffer["name"][len(prefix):]
+                native = ["UNITY_INSTANCING_BUFFER_START(" + instance_name + ")"]
+                for field in structure["fields"]:
+                    if field["arraySize"]:
+                        raise ShaderRecoveryError("Nested original material instancing arrays require explicit Unity binding.")
+                    kind = "int" if field["type"] == 1 else "float"
+                    shape = (str(field["rows"]) + "x" + str(field["columns"])) if field["matrix"] else (str(field["columns"]) if field["columns"] > 1 else "")
+                    native.append("UNITY_DEFINE_INSTANCED_PROP(" + kind + shape + ", " + field["name"] + ")")
+                native.append("UNITY_INSTANCING_BUFFER_END(" + instance_name + ")")
+                declarations[buffer["name"]] = "\n".join(native)
         body = hlsl[match.end():]
         reads = re.finditer(r"\b" + re.escape(variable) + r"\[([^]]+)\](?:\.([xyzw]+))?", body)
         used = set()
@@ -308,6 +373,14 @@ def restore_uniforms(hlsl, interface, input_signature=()):
             return "// Native Unity include supplies " + binding["name"] + "."
         return match[1] + " " + binding["name"] + ";"
     hlsl = re.sub(r"(Texture\w+(?:<[^>]+>)?)\s+(\w+)\s*:\s*register\(t(\d+)\);", texture, hlsl)
+    def structured_buffer(match):
+        original_slot = re.fullmatch(r"t(\d+)", match[2])
+        binding = bindings.get(("buffer", int(original_slot[1]))) if original_slot else None
+        if binding is None:
+            raise ShaderRecoveryError("Translated GPU buffer lost its original native resource binding.")
+        textures[match[2]] = binding["name"]
+        return match[1] + " " + binding["name"] + ";"
+    hlsl = re.sub(r"((?:StructuredBuffer|ByteAddressBuffer)(?:<[^>]+>)?)\s+(\w+)\s*:\s*register\(t(\d+)\);", structured_buffer, hlsl)
     sampler_names = {}
     def sampler(match):
         original_slot = re.fullmatch(r"s(\d+)", match[1])
@@ -338,3 +411,368 @@ def restore_uniforms(hlsl, interface, input_signature=()):
         raise ShaderRecoveryError("Translated program lacks its original entry function.")
     hlsl = hlsl[:entry.end()] + "\n    " + "\n    ".join(initializers) + hlsl[entry.end():]
     return "\n".join(declarations.values()) + "\n" + hlsl, observed
+
+
+def original_programs(shader, unitypy=None):
+    """Read actual D3D11 program blocks and retain every pass/keyword alias."""
+    if unitypy is None:
+        import UnityPy as unitypy
+    from UnityPy.helpers import CompressionHelper
+    from UnityPy.export.ShaderConverter import ShaderSubProgram
+    from UnityPy.streams import EndianBinaryReader
+    import attrs
+    matches = [index for index, platform in enumerate(shader.platforms) if int(platform) == 4]
+    if len(matches) != 1:
+        raise ShaderRecoveryError("Original shader needs exactly one native D3D11 program bank.")
+    platform = matches[0]
+    compressed = bytes(shader.compressedBlob)
+    offsets, lengths, sizes = shader.offsets[platform], shader.compressedLengths[platform], shader.decompressedLengths[platform]
+    if not isinstance(offsets, list):
+        offsets, lengths, sizes = [offsets], [lengths], [sizes]
+    if len(offsets) != len(lengths) or len(offsets) != len(sizes):
+        raise ShaderRecoveryError("Original shader compressed segment counts disagree.")
+    segments = []
+    for offset, length, size in zip(offsets, lengths, sizes):
+        if offset < 0 or length <= 0 or offset + length > len(compressed):
+            raise ShaderRecoveryError("Original shader segment lies outside its native program bank.")
+        segments.append(CompressionHelper.decompress_lz4(compressed[offset:offset + length], size))
+    directory = segments[0]
+    count = struct.unpack_from("<i", directory)[0]
+    if count < 0 or 4 + count * 12 > len(directory):
+        raise ShaderRecoveryError("Malformed original shader program directory.")
+    table = [struct.unpack_from("<3i", directory, 4 + index * 12) for index in range(count)]
+    cache, records = {}, []
+    for subshader_index, subshader in enumerate(shader.m_ParsedForm.m_SubShaders):
+        for pass_index, shader_pass in enumerate(subshader.m_Passes):
+            for stage, attribute in (("vertex", "progVertex"), ("fragment", "progFragment"),
+                                     ("geometry", "progGeometry"), ("hull", "progHull"), ("domain", "progDomain")):
+                owner = getattr(shader_pass, attribute, None)
+                if owner is None:
+                    continue
+                for variant in owner.m_SubPrograms:
+                    # Original desktop variants can have several hardware-tier
+                    # aliases for one actual bytecode block. Keep those aliases
+                    # but decode each original block only once.
+                    index = variant.m_BlobIndex
+                    if index not in cache:
+                        if not 0 <= index < len(table):
+                            raise ShaderRecoveryError("Original pass points outside its native program directory.")
+                        offset, length, segment = table[index]
+                        if not 0 <= segment < len(segments) or offset < 0 or length <= 0 or offset + length > len(segments[segment]):
+                            raise ShaderRecoveryError("Original shader program range is invalid.")
+                        raw = segments[segment][offset:offset + length]
+                        reader = EndianBinaryReader(raw, endian="<")
+                        program = ShaderSubProgram(reader)
+                        dxbc, chunks = dxbc_container(program.m_ProgramCode)
+                        delta = parameter_delta(raw, reader.Position)
+                        cache[index] = {"raw": raw, "dxbc": dxbc, "delta": delta,
+                                        "dxbcSha256": hashlib.sha256(dxbc).hexdigest(),
+                                        "programVersion": program.m_Version, "programType": int(program.m_ProgramType)}
+                    actual = cache[index]
+                    common = attrs.asdict(owner.m_CommonParameters) if owner.m_CommonParameters is not None else {}
+                    interface = merge_interface(common, shader_pass.m_NameIndices, actual["delta"])
+                    keywords = [shader.m_ParsedForm.m_KeywordNames[value] for value in (variant.m_KeywordIndices or [])]
+                    records.append({"subshader": subshader_index, "pass": pass_index, "stage": stage,
+                                    "blobIndex": index, "hardwareTier": variant.m_ShaderHardwareTier,
+                                    "keywords": sorted(keywords), "interface": interface,
+                                    "originalDxbcSha256": actual["dxbcSha256"], "raw": actual["raw"], "dxbc": actual["dxbc"],
+                                    "programVersion": actual["programVersion"], "programType": actual["programType"]})
+    return records
+
+
+def _json(path, value):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+
+
+def _hash(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as source:
+        for chunk in iter(lambda: source.read(4 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _objects(identities):
+    if isinstance(identities, (str, Path)):
+        value = json.loads(Path(identities).read_text())
+        identities = value.get("identities", value) if isinstance(value, dict) else value
+    objects = {}
+    for row in identities:
+        for obj in row["objects"]:
+            key = (obj["collection"].casefold(), int(obj["pathId"]))
+            item = {**obj, "guid": row["guid"], "path": row["path"]}
+            if key in objects and objects[key] != item:
+                raise ShaderRecoveryError("Conflicting original object export identities.")
+            objects[key] = item
+    return objects
+
+
+def native_assets(game_data, identities, cab_bundles, unitypy=None, classes=(48,)):
+    """Yield exact original native objects selected by captured export identities."""
+    if unitypy is None:
+        import UnityPy as unitypy
+    game_data = Path(game_data).resolve()
+    if isinstance(cab_bundles, (str, Path)):
+        cab_bundles = json.loads(Path(cab_bundles).read_text())
+    owners = {key.casefold(): value for key, value in cab_bundles.items()}
+    groups = collections.defaultdict(dict)
+    for key, obj in _objects(identities).items():
+        if obj["classId"] not in classes:
+            continue
+        relative = owners.get(key[0], obj["collection"])
+        source = (game_data / relative).resolve()
+        if game_data not in source.parents or not source.is_file():
+            raise ShaderRecoveryError("Original shader container is absent/outside owned game: " + relative)
+        groups[relative][key] = obj
+    for relative, targets in sorted(groups.items()):
+        environment = unitypy.load(str(game_data / relative))
+        found = set()
+        for original in environment.objects:
+            key = (original.assets_file.name.casefold(), int(original.path_id))
+            if key not in targets:
+                continue
+            if int(original.type) != targets[key]["classId"]:
+                raise ShaderRecoveryError("Captured original pathID changed native type.")
+            found.add(key)
+            yield targets[key], original, relative
+        if found != targets.keys():
+            raise ShaderRecoveryError("Original shader identities are missing from their actual CAB: " + repr(sorted(targets.keys() - found)))
+
+
+def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=None,
+              bind_programs=False, vkd3d="vkd3d-compiler", spirv_cross="spirv-cross"):
+    """Inventory every original pass/stage and optionally translate every bank.
+
+    Shader instruction/interface failures remain explicit entries; this report
+    never marks a placeholder or an uncompiled bank ready for an Android player.
+    """
+    import attrs
+    project, cache = Path(project).resolve(), Path(cache).resolve()
+    cache.mkdir(parents=True, exist_ok=True)
+    shaders, errors, unique_programs, total_aliases = [], [], set(), 0
+    for obj, original, source_container in native_assets(game_data, identities, cab_bundles, unitypy):
+        shader = original.read()
+        form = attrs.asdict(shader.m_ParsedForm)
+        record = {"guid": obj["guid"], "assetPath": obj["path"], "originalName": shader.m_ParsedForm.m_Name,
+                  "originalSerializedFile": obj["collection"], "originalPathId": obj["pathId"],
+                  "originalSourceContainer": source_container,
+                  "originalObjectSha256": hashlib.sha256(original.get_raw_data()).hexdigest(),
+                  "originalParsedFormSha256": hashlib.sha256(json.dumps(form, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+                  "sourceSha256": _hash(project / obj["path"]), "originalDxbcSha256": [], "variants": [],
+                  "nativePasses": [], "status": "original-placeholder-not-restored",
+                  "androidShaderCompiled": False, "pixelParityVerified": False}
+        for si, subshader in enumerate(form["m_SubShaders"]):
+            for pi, shader_pass in enumerate(subshader["m_Passes"]):
+                record["nativePasses"].append({"subshader": si, "pass": pi, "type": shader_pass["m_Type"],
+                                             "state": shader_pass["m_State"], "tags": shader_pass["m_Tags"],
+                                             "useName": shader_pass["m_UseName"], "textureName": shader_pass["m_TextureName"]})
+        try:
+            programs = original_programs(shader, unitypy)
+            total_aliases += len(programs)
+            _json(cache / "forms" / (record["originalParsedFormSha256"] + ".json"), form)
+            for program in programs:
+                unique_programs.add(program["originalDxbcSha256"])
+                _, chunks = dxbc_container(program["dxbc"])
+                outputs = signature(chunks[b"OSGN"]) if b"OSGN" in chunks else []
+                variant = {key: value for key, value in program.items() if key not in ("raw", "dxbc", "interface")}
+                variant["fragmentOutput"] = "color" if any(row["systemValue"] == 64 for row in outputs) else \
+                    "depth" if any(row["systemValue"] in (65, 67, 68) for row in outputs) else "none"
+                variant["originalInputSignature"] = signature(chunks[b"ISGN"]) if b"ISGN" in chunks else []
+                variant["originalOutputSignature"] = outputs
+                interface_key = hashlib.sha256(json.dumps(program["interface"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+                interface_path = cache / "interfaces" / (interface_key + ".json")
+                if not interface_path.exists():
+                    _json(interface_path, program["interface"])
+                variant["originalInterfaceSha256"] = interface_key
+                if bind_programs:
+                    bound_path = cache / "bound" / (program["originalDxbcSha256"] + "-" + interface_key + ".hlsl")
+                    proof_path = bound_path.with_suffix(".json")
+                    if bound_path.exists() and proof_path.exists():
+                        proof = json.loads(proof_path.read_text())
+                        if _hash(bound_path) != proof["boundHlslSha256"]:
+                            raise ShaderRecoveryError("Recovered shader bank cache changed.")
+                    else:
+                        translated = translate(program["dxbc"], cache / "translated", vkd3d, spirv_cross)
+                        bound, used = restore_uniforms(Path(translated["hlslPath"]).read_text(), program["interface"], translated["inputSignature"])
+                        bound_path.parent.mkdir(parents=True, exist_ok=True)
+                        bound_path.write_text(bound)
+                        proof = {**translated, "originalInterfaceSha256": interface_key,
+                                 "boundHlslSha256": _hash(bound_path), "usedOriginalBuffers": used,
+                                 "unityUniformsRestored": True}
+                        _json(proof_path, proof)
+                    variant["boundHlslPath"] = str(bound_path)
+                    variant["boundHlslSha256"] = proof["boundHlslSha256"]
+                record["variants"].append(variant)
+            record["originalDxbcSha256"] = sorted({row["originalDxbcSha256"] for row in programs})
+            record["allOriginalInstructionsExtracted"] = True
+            record["allOriginalInterfacesBound"] = bool(bind_programs)
+        except (ShaderRecoveryError, ValueError, KeyError, TypeError, IndexError, struct.error) as error:
+            record["status"] = "original-instruction-recovery-blocked"
+            record["recoveryError"] = str(error)
+            errors.append({"guid": obj["guid"], "name": record["originalName"], "assetPath": obj["path"], "error": str(error)})
+        shaders.append(record)
+        _json(cache / "progress.json", {"schema": 1, "shaderCount": len(shaders), "blockedShaderCount": len(errors),
+                                       "uniqueOriginalProgramCount": len(unique_programs), "originalProgramAliasCount": total_aliases})
+    _json(cache / "original-shader-stages.json", {"schema": 1, "shaders": shaders, "errors": errors,
+                                                 "uniqueOriginalProgramCount": len(unique_programs),
+                                                 "originalProgramAliasCount": total_aliases})
+    materials, binary_materials = [], []
+    object_index = _objects(identities)
+    for obj in object_index.values():
+        if obj["classId"] != 21:
+            continue
+        try:
+            text = (project / obj["path"]).read_text()
+        except UnicodeDecodeError:
+            binary_materials.append(obj)
+            continue
+        shader = re.search(r"^  m_Shader: \{fileID: (-?\d+), guid: ([0-9a-f]{32}), type: \d+\}$", text, re.M)
+        if shader is None:
+            if re.search(r"^  m_Shader: \{fileID: 0\}$", text, re.M):
+                binary_materials.append(obj)
+                continue
+            raise ShaderRecoveryError("Original material has no actual shader PPtr: " + obj["path"])
+        materials.append({"guid": obj["guid"], "assetPath": obj["path"], "shaderGuid": shader[2],
+                          "originalSerializedFile": obj["collection"], "originalPathId": obj["pathId"]})
+    if binary_materials:
+        rows = [{"guid": obj["guid"], "path": obj["path"], "objects": [obj]} for obj in binary_materials]
+        for obj, original, _ in native_assets(game_data, rows, cab_bundles, unitypy, (21,)):
+            pointer = original.read().m_Shader
+            if not pointer.m_PathID:
+                materials.append({"guid": obj["guid"], "assetPath": obj["path"], "shaderGuid": None,
+                                  "originalShaderNull": True, "originalSerializedFile": obj["collection"],
+                                  "originalPathId": obj["pathId"]})
+                continue
+            collection = original.assets_file.name
+            if pointer.m_FileID:
+                external = original.assets_file.externals[pointer.m_FileID - 1].path.replace("\\", "/")
+                collection = external.rsplit("/", 1)[-1]
+            target = object_index.get((collection.casefold(), int(pointer.m_PathID)))
+            if target is None and collection.casefold() == "unity default resources" and pointer.m_PathID == 10101:
+                # Native Font importers use Unity's fixed engine text shader;
+                # its actual original external pointer is not a game asset.
+                materials.append({"guid": obj["guid"], "assetPath": obj["path"],
+                                  "shaderGuid": "0000000000000000f0000000000000000", "shaderFileId": 10101,
+                                  "originalEngineBuiltinShader": True, "nativeFontImporterSubObject": True,
+                                  "originalSerializedFile": obj["collection"], "originalPathId": obj["pathId"]})
+                continue
+            if target is None or target["classId"] != 48:
+                raise ShaderRecoveryError("Native font material lost its original shader identity: " + obj["path"] + " " + collection + ":" + str(pointer.m_PathID))
+            materials.append({"guid": obj["guid"], "assetPath": obj["path"], "shaderGuid": target["guid"],
+                              "nativeFontImporterSubObject": True,
+                              "originalSerializedFile": obj["collection"], "originalPathId": obj["pathId"]})
+    report = {"schema": 1, "scope": "campaign", "shaders": shaders, "materials": materials, "renderCases": [],
+              "shaderCount": len(shaders), "materialCount": len(materials), "uniqueOriginalProgramCount": len(unique_programs),
+              "originalProgramAliasCount": total_aliases, "blockedShaderCount": len(errors), "errors": errors,
+              "allPlaceholdersRestored": False, "androidShaderCompiled": False, "pixelParityVerified": False}
+    _json(cache / "original-shader-inventory.json", report)
+    return report
+
+
+def stereo_wrapper(hlsl, stage):
+    """Route both native stereo eyes before original uniform reconstruction."""
+    if stage not in ("vertex", "fragment"):
+        raise ShaderRecoveryError("Quest stereo wrapper only accepts native vertex/fragment programs.")
+    entry = "QuestOriginalVertex" if stage == "vertex" else "QuestOriginalFragment"
+    main = re.search(r"(?P<return>\w+) main\(SPIRV_Cross_Input stage_input\)\s*\{", hlsl)
+    if main is None:
+        raise ShaderRecoveryError("Original translated stage has an unsupported native entry signature.")
+    hlsl = hlsl[:main.start()] + hlsl[main.start():].replace(" main(", " " + entry + "(", 1)
+    def add_fields(structure, addition):
+        nonlocal hlsl
+        pattern = r"(struct " + structure + r"\s*\{)(.*?)(\n\};)"
+        matches = list(re.finditer(pattern, hlsl, re.S))
+        if len(matches) != 1:
+            raise ShaderRecoveryError("Native stage lost its original IO structure: " + structure)
+        actual = matches[0]
+        fields = actual[2]
+        if stage == "vertex" and structure == "SPIRV_Cross_Input":
+            fields = re.sub(r"\s*uint \w+\s*:\s*SV_InstanceID;", "", fields)
+        hlsl = hlsl[:actual.start()] + actual[1] + fields + "\n    " + addition + actual[3] + hlsl[actual.end():]
+    if stage == "vertex":
+        add_fields("SPIRV_Cross_Input", "UNITY_VERTEX_INPUT_INSTANCE_ID")
+        add_fields("SPIRV_Cross_Output", "UNITY_VERTEX_OUTPUT_STEREO")
+        # Unity derives the eye and the true object instance from the native
+        # SV_InstanceID; the original desktop instruction stream expects only
+        # the object instance, including the native base-instance offset.
+        hlsl = re.sub(r"gl_InstanceIndex = stage_input\.\w+;", "gl_InstanceIndex = unity_InstanceID;", hlsl)
+        hlsl = re.sub(r"(" + entry + r"\(SPIRV_Cross_Input stage_input\)\s*\{)",
+                      r"\1\n    UNITY_SETUP_INSTANCE_ID(stage_input);", hlsl)
+        hlsl = hlsl.replace("return stage_output;", "UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(stage_output);\n    return stage_output;")
+    else:
+        add_fields("SPIRV_Cross_Input", "UNITY_VERTEX_OUTPUT_STEREO")
+        hlsl = re.sub(r"(" + entry + r"\(SPIRV_Cross_Input stage_input\)\s*\{)",
+                      r"\1\n    UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(stage_input);", hlsl)
+    return hlsl
+
+
+COMPARE = {0: "Off", 1: "Never", 2: "Less", 3: "Equal", 4: "LEqual", 5: "Greater", 6: "NotEqual", 7: "GEqual", 8: "Always"}
+BLEND = {0: "Zero", 1: "One", 2: "DstColor", 3: "SrcColor", 4: "OneMinusDstColor", 5: "SrcAlpha",
+         6: "OneMinusSrcColor", 7: "DstAlpha", 8: "OneMinusDstAlpha", 9: "SrcAlphaSaturate", 10: "OneMinusSrcAlpha"}
+BLEND_OP = {0: "Add", 1: "Sub", 2: "RevSub", 3: "Min", 4: "Max"}
+STENCIL_OP = {0: "Keep", 1: "Zero", 2: "Replace", 3: "IncrSat", 4: "DecrSat", 5: "Invert", 6: "IncrWrap", 7: "DecrWrap"}
+
+
+def state_value(field, mapping=None):
+    name = field["name"]
+    if name and name != "<noninit>":
+        if not re.fullmatch(r"[A-Za-z_]\w*", name):
+            raise ShaderRecoveryError("Original render state contains an invalid property binding.")
+        return "[" + name + "]"
+    value = field["val"]
+    if mapping is not None:
+        if value != int(value) or int(value) not in mapping:
+            raise ShaderRecoveryError("Unsupported original native render-state enum: " + str(value))
+        return mapping[int(value)]
+    return format(value, ".9g")
+
+
+def tags(value):
+    return "Tags { " + " ".join(json.dumps(key) + "=" + json.dumps(item) for key, item in value.get("tags", [])) + " }"
+
+
+def render_state(state):
+    """Retain original dynamic and constant blend/depth/cull/stencil states."""
+    rows = []
+    if state.get("m_Name"):
+        rows.append("Name " + json.dumps(state["m_Name"]))
+    if state.get("m_LOD"):
+        rows.append("LOD " + str(state["m_LOD"]))
+    rows += [tags(state["m_Tags"]), "Cull " + state_value(state["culling"], {0: "Off", 1: "Front", 2: "Back"}),
+             "ZTest " + state_value(state["zTest"], COMPARE), "ZWrite " + state_value(state["zWrite"], {0: "Off", 1: "On"}),
+             "AlphaToMask " + state_value(state["alphaToMask"], {0: "Off", 1: "On"}),
+             "Offset " + state_value(state["offsetFactor"]) + ", " + state_value(state["offsetUnits"]),
+             "Lighting " + ("On" if state["lighting"] else "Off")]
+    for field, command in (("zClip", "ZClip"), ("conservative", "Conservative")):
+        if state.get(field) is not None:
+            rows.append(command + " " + state_value(state[field], {0: "Off", 1: "On"}))
+    count = 8 if state["rtSeparateBlend"] else 1
+    for index in range(count):
+        blend = state["rtBlend" + str(index)]
+        target = " " + str(index) if state["rtSeparateBlend"] else ""
+        rows.append("Blend" + target + " " + state_value(blend["srcBlend"], BLEND) + " " + state_value(blend["destBlend"], BLEND) +
+                    ", " + state_value(blend["srcBlendAlpha"], BLEND) + " " + state_value(blend["destBlendAlpha"], BLEND))
+        rows.append("BlendOp" + target + " " + state_value(blend["blendOp"], BLEND_OP) +
+                    ", " + state_value(blend["blendOpAlpha"], BLEND_OP))
+        mask = blend["colMask"]
+        if mask["name"] and mask["name"] != "<noninit>":
+            color = state_value(mask)
+        else:
+            value = int(mask["val"])
+            if value != mask["val"] or value < 0 or value > 15:
+                raise ShaderRecoveryError("Original pass color mask is invalid.")
+            color = "".join(letter for bit, letter in ((8, "R"), (4, "G"), (2, "B"), (1, "A")) if value & bit) or "0"
+        rows.append("ColorMask " + color + target)
+    rows += ["Stencil {", "Ref " + state_value(state["stencilRef"]),
+             "ReadMask " + state_value(state["stencilReadMask"]), "WriteMask " + state_value(state["stencilWriteMask"])]
+    for suffix, native in (("Front", "stencilOpFront"), ("Back", "stencilOpBack")):
+        actual = state.get(native) or state["stencilOp"]
+        for field, command, mapping in (("comp", "Comp", COMPARE), ("pass_", "Pass", STENCIL_OP),
+                                        ("fail", "Fail", STENCIL_OP), ("zFail", "ZFail", STENCIL_OP)):
+            rows.append(command + suffix + " " + state_value(actual[field], mapping))
+    rows.append("}")
+    if state.get("fogMode", -1) != -1:
+        raise ShaderRecoveryError("Original fixed-function fog state requires a separate portable proof.")
+    return "\n".join(rows)

@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT / "tools/quest-recovery"))
 sys.path.insert(0, str(ROOT / "tools/quest-builder"))
 import canonical_guids
 from recover import RecoveryError
-from full_shaders import ShaderRecoveryError, field_components, parameter_delta, restore_uniforms
+from full_shaders import ShaderRecoveryError, field_components, parameter_delta, restore_uniforms, merge_interface, stereo_wrapper
 
 
 class CampaignContracts(unittest.TestCase):
@@ -110,6 +110,33 @@ void vert_main() { float amount = cb0_0_m0[0u].w; float4 value=t3.Sample(s2,floa
         self.assertTrue(parameter_delta(raw, 0)["allOriginalInterfaceBytesConsumed"])
         with self.assertRaisesRegex(ShaderRecoveryError, "trailing"):
             parameter_delta(raw + b"\0\0\0\0", 0)
+
+    def test_native_structured_resource_retains_original_numeric_binding(self):
+        name = b"_HistogramBuffer"
+        raw = struct.pack("<4i", 0, 0, 0, 1) + struct.pack("<i", len(name)) + name + struct.pack("<3i", 2, 0, 1)
+        actual = parameter_delta(raw, 0)
+        self.assertEqual(actual["bindings"], [{"name": "_HistogramBuffer", "kind": "buffer", "slot": 0, "arraySize": 1}])
+        source, _ = restore_uniforms("ByteAddressBuffer t0 : register(t12);\nvoid frag_main() { uint x=t0.Load(0); }",
+                                     {"buffers": [], "bindings": actual["bindings"]})
+        self.assertIn("ByteAddressBuffer _HistogramBuffer;", source)
+        self.assertIn("_HistogramBuffer.Load(0)", source)
+
+    def test_keyword_delta_can_extend_actual_common_cbuffer_prefix(self):
+        common = {"m_ConstantBuffers": [{"m_NameIndex": 0, "m_Size": 16, "m_VectorParams": [], "m_MatrixParams": []}]}
+        delta = {"buffers": [{"name": "$Globals", "bytes": 32, "fields": [self.field()]}], "bindings": []}
+        result = merge_interface(common, [["$Globals", 0]], delta)
+        self.assertEqual(result["buffers"][0]["bytes"], 32)
+        self.assertEqual(result["buffers"][0]["fields"], [self.field()])
+
+    def test_stereo_eye_setup_precedes_original_cb_reconstruction(self):
+        source = """struct SPIRV_Cross_Input {\n float4 v0:POSITION;\n};
+struct SPIRV_Cross_Output {\n float4 gl_Position:SV_Position;\n};
+SPIRV_Cross_Output main(SPIRV_Cross_Input stage_input) {\n vert_main();\n SPIRV_Cross_Output stage_output;\n return stage_output;\n}"""
+        restored = stereo_wrapper(source, "vertex")
+        self.assertIn("UNITY_VERTEX_INPUT_INSTANCE_ID", restored)
+        self.assertIn("UNITY_VERTEX_OUTPUT_STEREO", restored)
+        self.assertLess(restored.index("UNITY_SETUP_INSTANCE_ID(stage_input)"), restored.index("vert_main()"))
+        self.assertIn("UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(stage_output)", restored)
 
 
 if __name__ == "__main__":
