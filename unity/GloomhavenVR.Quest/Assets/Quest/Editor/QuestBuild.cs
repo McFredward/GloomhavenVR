@@ -250,10 +250,12 @@ namespace GloomhavenVR.Quest.Editor
             QuestUiAssetValidation.Validate(false);
             QuestPostEffectValidation.Validate(false);
             QuestVideoValidation.Validate(false);
+            QuestWorldScreenValidation.Validate(false);
             QuestStartupAddressablesBuild.Build();
             QuestPostEffectValidation.Validate(true);
             QuestUiAssetValidation.Validate(true);
             QuestVideoValidation.Validate(true);
+            QuestWorldScreenValidation.Validate(true);
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             GameObject bootstrap = new GameObject("Original Gloomhaven startup diagnostic");
             bootstrap.AddComponent<QuestGameBootstrap>();

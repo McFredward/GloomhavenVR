@@ -553,7 +553,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 621;
+    public const ushort ModBuild = 622;
+
+    // ModBuild 622 — follow the exact B621 headset pixel and timing evidence.
+    // Intro decoder/capture/consumer textures contain real pixels; the desktop
+    // blit shader expects a texture array in Quest single-pass XR. Use a gated
+    // opaque world shader with explicit 2D left/right samplers and GPU eye choice;
+    // preserve existing capture, stereo depth, native playback and desktop paths.
+    // Reset the same persistent material on stereo/mono/suspension transitions.
+    // B621 scope discovery costs ~94ms on hardware over 14,338 scene behaviours,
+    // alongside ~1-second GC-free frame spikes. Query only the seven exact original
+    // scope types natively, retaining inactive/pooled/persistent/live hidden owners.
+    // Validate actual GLES mono/instanced/multiview banks and rendered eye pixels.
+    // These checks establish source behavior, not a visible headset improvement.
 
     // ModBuild 621 — follow up verified B620 Quest video and recurring menu hitches.
     // Move the scoped movie adapter to completed capture consumption and retain

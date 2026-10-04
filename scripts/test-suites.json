@@ -1455,6 +1455,12 @@
       "weight": 30
     },
     {
+      "id": "quest-world-screen-shaders",
+      "command": ["python3", "scripts/quest-world-screen-shader-tests.py"],
+      "groups": ["local"],
+      "weight": 30
+    },
+    {
       "id": "quest-menu-sampling",
       "command": ["python3", "scripts/quest-menu-sampling-tests.py"],
       "groups": ["local"],
