@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-04 for Build616 original NPC geometry, animated walls and the Frame615 hardware audit. This directory holds internal
+Updated 2026-10-04 for the actual Build616 Frame recheck, unchanged steady hitches and the still-open native wall transition. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -11,6 +11,9 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [../docs/performance/FRAME-617-ANALYSIS.md](../docs/performance/FRAME-617-ANALYSIS.md) | Build616 steady comparison, finished vegetation masks, ordinary cold interactions and next evidence strategy; no new binary |
+| [../docs/performance/FRAME-617-HITCH-TARGETS.md](../docs/performance/FRAME-617-HITCH-TARGETS.md) | Original card/ghost/stat resource paths, accepted retune boundaries and prioritized safe next work |
+| [../docs/performance/FRAME-617-WALLS.md](../docs/performance/FRAME-617-WALLS.md) | Persistent native wall pop, actual HIGH/toggle path and limits of the previous LOW surrogate |
 | [../docs/performance/FRAME-616-IMPLEMENTATION.md](../docs/performance/FRAME-616-IMPLEMENTATION.md) | Original NPC meshes, Frame native-window defaults, wall fade correction and refresh-safe diagnostics |
 | [../docs/performance/FRAME-616-PERF-AUDIT.md](../docs/performance/FRAME-616-PERF-AUDIT.md) | Actual Build615 loaded improvement, applied/inactive optimizations and remaining attributed/unattributed stalls |
 | [../docs/performance/FRAME-616-NPC-ORIGINALS.md](../docs/performance/FRAME-616-NPC-ORIGINALS.md) | Removed NPC-only derivatives, unchanged scenario parts and saved-profile boundaries |

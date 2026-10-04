@@ -41,7 +41,7 @@ that no uninstrumented mod-triggered engine work occurred.
 | --- | --- | --- |
 | Ability hand switch preparation | Frame 5437: 311.95ms total, 193.73ms named mod, `Cards.Driver` 172.37ms. Window peak is 183.61ms. | Prepare shared class art/mips and blank wrapper resources during the spinner; retain native hand ownership and immediate focus/exchange semantics. |
 | Figure ghost and first information panel | `Hands.NearGrip.Pickup` 109.10ms, nested ghost construction 55.89ms; `StatPanelSurface` peaks 65.93ms and later 98.54ms. | Prebuild inert visual templates and shared portrait/mip resources, then bind the current native pose at pickup. Never advance gameplay or expose a stale frozen idle pose. |
-| Real wall publication | Stable rescans skip commits, but later `WallFade.Rescan` peaks 140.85ms; frames 6871/6996 contain 223.25/208.01ms rescans. | Eliminate unrelated publication invalidation first; prepare expensive memberships on bounded private state and publish atomically without losing native fade continuation. |
+| Periodic unchanged wall publication | A 30-cycle staleness ceiling forces a 140.81ms commit before the vegetation changes. Later 223.25/208.01ms setting/preparation publications are accepted costs, not targets here. | Audit whether the unchanged-table safety publication can reuse validated state; if still needed, stage memberships privately and publish atomically without losing native fade continuation. |
 | VR options content reuse | Frames 6442/6470: `VROptionsTab.TabRoot` 118.94/109.80ms. | Reuse inactive row/view trees with live value rebinding and intact toggle/X/input state; avoid rebuilding every row on a tab revisit. |
 | Audited actor-bar cadence | `ActorBars.Late` averages 1.77–1.96ms per measured frame; three ordinary heroes are refused solely by exact `CInteractableActor`. | Extend only the exact audited type, retaining all transition/topology/dissolve/unknown-writer guards. Establish actual admitted/skipped counters before claiming a benefit. |
 
@@ -111,14 +111,20 @@ information. Verify both held sides and remote pickup using these same caches.
 ### Wall bursts are not all the same event
 
 The 140.81ms commit reported at line 5753 follows options/tab creation and the
-wall roster changing from 4693 to 4700, before the first vegetation retune. It
-is a candidate for unrelated-renderer invalidation; the hardware roster count
-alone does not prove the exact invalidation predicate. Later commits reported at
+wall roster changing from 4693 to 4700, before the first vegetation retune.
+Its actual refusal report identifies the 30-cycle STALENESS CEILING at 122.5s
+of table age, with the other listed invalidation terms zero. The seven added
+renderers do not establish an unrelated UI invalidation cause. Audit the safety
+purpose of this periodic unchanged-table publication rather than assuming that
+a roster change forced it. Later commits reported at
 6172/6415 follow 0→5→10% vegetation retuning, with rosters growing to 5015/5826.
 These are real visibility/configuration edges. Frame 6871 is 294.18ms total with
 264.27ms named mod (`WallFade.Rescan` 223.25ms, nested WallCache 84.74ms);
 frame 6996 is 290.95ms with 224.99ms named mod (`Rescan` 208.01ms).
-Most stable rescans still report zero commit cost. A slower sweep frequency
+The maintainer explicitly accepts slider/preparation stalls: the 223/208ms
+retune publications and the nearby 592.48ms preparation frame below are context,
+not optimization targets for ordinary gameplay. Most stable rescans still report
+zero commit cost. A slower sweep frequency
 alone cannot remove expensive admitted publication or cold resources.
 
 The 592.48ms frame 6762 follows the first retunes but names only 45.41ms of mod

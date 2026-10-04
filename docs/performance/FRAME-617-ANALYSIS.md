@@ -102,7 +102,7 @@ not disappeared:
   another logged figure interaction has a 35.54 ms StatPanelSurface component.
 
 Current `CardArtPrewarm` warms original sprite loaders on adoption. That does
-not guarantee that cloning/layout/initial activation of a whole native fan is
+not guarantee that wrapper creation/layout/adoption of the original native fan is
 prepared for every later character switch. Use the existing original-face pool
 and construction paths to prepare likely character hands while loading or in
 bounded background work, retaining live card state and immediate fan opening.

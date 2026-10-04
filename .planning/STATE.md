@@ -1,5 +1,35 @@
 # State — where the project stands
 
+**Build616 hardware recheck and next strategy, 2026-10-04. No new binary.**
+
+Both supplied Frame logs identify 616 / d52b3c328 and enter the scenario directly.
+Six loaded, pre-options/all-zero windows average 49.35ms versus 615's 49.60ms:
+only 0.5% lower, with no demonstrated improvement in recurring hitches. Ordinary
+ability-fan construction reaches 172.37ms, pickup 109.10ms with nested ghost
+construction 55.89ms, and stat preview peaks 65.93–98.54ms. At the final same 8970-renderer
+population, vegetation 10→5→0% masks 71 then 76 additional renderers. One finished
+5% timing window is confounded by visible options and figure preparation; no
+complete finished 10% or final 0% window permits a vegetation-only time estimate.
+The maintainer explicitly accepts slider/preparation stalls; they are excluded as
+optimization targets. Extreme tail spikes follow lost user presence and are not
+classified as worn-headset gameplay hitches.
+
+Original native wall materials and the visual-clock clamp are actually applied,
+but the reported pop remains open. The passing GL fixture covered LOW only;
+the capture also uses HIGH/toggle-native branches. Numeric intermediate fades
+cannot certify native pixels. Refresh-safe diagnostics progress for 130s but
+true configuration changes still cancel them before a complete SCENE/SIM/GFX
+inventory. Prioritize original resource/ghost/preview preparation before ordinary
+input, audited redundant steady publication, and bounded engine/GC attribution;
+retain 1:1 presentation and immediate interaction. See [the current audit](../docs/performance/FRAME-617-ANALYSIS.md)
+and [native wall proof boundaries](../docs/performance/FRAME-617-WALLS.md), with
+[the exact cold-resource call paths](../docs/performance/FRAME-617-HITCH-TARGETS.md).
+These FRAME-617 documents describe the next investigation, not a shipped617 fix.
+This follow-up changes developer documentation only; source/bundles/wire remain
+identical to validated616. Evidence is in `.planning/debug/frame617-review/`.
+
+---
+
 **Original NPC meshes and Frame hardware follow-up, 2026-10-04: 1.1.0 / ModBuild 616.**
 
 The supplied Frame logs identify 615 / 64db88dc9, with a real CampaignMap visit
