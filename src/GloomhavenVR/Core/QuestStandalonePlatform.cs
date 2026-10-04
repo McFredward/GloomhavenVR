@@ -31,6 +31,14 @@ public static class QuestStandalonePlatform
     public static bool DebugLogging => Enabled && VRLog.Wants(VRLogLevel.Debug);
 
     /// <summary>
+    /// The native Android movie adapter may write only the mod's current menu
+    /// capture. Query actual ownership, rather than coupling the builder to RT
+    /// names, dimensions or future menu/stereo implementation details.
+    /// </summary>
+    public static bool IsFlatScreenVideoTarget(Camera camera) =>
+        Enabled && WorldUI.FlatScreen.OwnsVideoCapture(camera);
+
+    /// <summary>
     /// The player-owned preparation scene contains only a neutral camera anchor,
     /// not an original menu composite. Never capture that empty anchor into the
     /// mod's floating desktop surface. Original Bootstrap, Intro and menu scenes

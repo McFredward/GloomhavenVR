@@ -43,6 +43,7 @@ namespace GloomhavenVR.Quest
             public float BoundAt;
             public int StateSamples, SourceChanges;
             public string LastObservedUrl;
+            public QuestCameraVideoOutput Output;
         }
         readonly Dictionary<string, string> paths = new Dictionary<string, string>(StringComparer.Ordinal);
         readonly List<BoundPlayer> players = new List<BoundPlayer>();
@@ -143,6 +144,7 @@ namespace GloomhavenVR.Quest
                     BoundAt = Time.realtimeSinceStartup, LastObservedUrl = selected.url,
                     Context = scene.name + "/" + binding.playerPath + " source=" + clip.name + " delivery=" + (clip.delivery ?? "original-legacy") };
                 players.Add(record);
+                record.Output = new QuestCameraVideoOutput(selected, record.Context);
                 selected.prepareCompleted += Prepared;
                 selected.started += Started;
                 selected.errorReceived += Error;
@@ -261,8 +263,11 @@ namespace GloomhavenVR.Quest
             if (disposed) return;
             disposed = true;
             foreach (var bound in players)
+            {
+                if (bound.Output != null) bound.Output.Dispose();
                 if (bound.Player != null)
                 { bound.Player.prepareCompleted -= Prepared; bound.Player.started -= Started; bound.Player.errorReceived -= Error; }
+            }
             players.Clear(); paths.Clear();
         }
     }

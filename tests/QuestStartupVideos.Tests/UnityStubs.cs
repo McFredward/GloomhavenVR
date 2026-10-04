@@ -136,3 +136,12 @@ namespace GloomhavenVR.Core
 {
     internal static class QuestStandalonePlatform { internal static bool DebugLogging = true; }
 }
+namespace GloomhavenVR.Quest
+{
+    // The owned output adapter has a separate real Unity camera/texture fixture.
+    internal sealed class QuestCameraVideoOutput : IDisposable
+    {
+        internal QuestCameraVideoOutput(UnityEngine.Video.VideoPlayer player, string context) { }
+        public void Dispose() { }
+    }
+}
