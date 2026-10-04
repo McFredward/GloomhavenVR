@@ -16,8 +16,9 @@ namespace GloomhavenVR.Core;
 /// floor plates, masonry, doors, actors and native gameplay props retain their renderers. Native
 /// tree pillars are vegetation, not masonry: 0% removes their bark and foliage together.
 ///
-/// Only owned false-to-true Renderer.forceRenderingOff writes are restored. Native enabled state,
-/// components, materials, property blocks, room reveal and multiplayer state are never written.
+/// Only owned false-to-true Renderer.forceRenderingOff writes and identified decorative
+/// Projector.enabled masks are restored. Native Renderer.enabled, scripts, materials, property
+/// blocks, room reveal and multiplayer state are never written.
 /// Only purely decorative tree/bay colliders are disabled/restored with an owned visual mask. Shared
 /// procedural wall/tile colliders and all gameplay/trigger/body colliders remain untouched.
 /// Grass, vegetation and loose-decoration budgets are independent: Build 601's
@@ -206,6 +207,78 @@ internal static class ScenarioSceneryBudget
         internal Collider[] TreeColliders = Array.Empty<Collider>();
         internal bool ColliderClaims;
         internal Collider[] BayColliders = Array.Empty<Collider>();
+    }
+
+    // Original PCG blood/dirt projectors are decorative paint, not mesh renderers. Keep the
+    // native projector's material/pose/controller alive; own only its render-enable change.
+    // Unknown decals, gameplay circles, toxic splats and figure effects never qualify.
+    private sealed class ProjectorRecord
+    {
+        internal Projector Projector = null!;
+        internal int Id;
+        internal ProceduralMapTile Tile = null!;
+        internal Transform[] Chain = null!;
+        internal uint Hash;
+        internal bool Owned;
+        internal bool Invalidated;
+    }
+
+    private static bool IsDecorativeProjectorName(string name)
+    {
+        int duplicate = name.IndexOf(' ');
+        string original = duplicate > 0 ? name.Substring(0, duplicate) : name;
+        return original == "DECAL_BloodSplat_Proj_PR" || original == "DECAL_Dirt_Proj_PR"
+            || original == "DECAL_FR_BloodSplat_Proj_PR" || original == "DECAL_FR_Dirt_Proj_PR";
+    }
+
+    private static bool IsDecorativeProjector(Projector projector, ProceduralMapTile tile)
+    {
+        if (projector == null || tile == null || !IsDecorativeProjectorName(projector.name)) return false;
+        bool generated = false;
+        for (Transform? node = projector.transform; node != null && node != tile.transform; node = node.parent)
+        {
+            CInteractable interactable = node.GetComponent<CInteractable>();
+            UnityGameEditorObject native = node.GetComponent<UnityGameEditorObject>();
+            if ((interactable != null && interactable is not CInteractableTile)
+                || (native != null && native.PropObject != null)
+                || node.GetComponent<ProceduralProp>() != null || node.GetComponent<ProceduralDoorway>() != null
+                || node.GetComponent<UnityGameEditorDoorProp>() != null || FigureRendererGuard.CarriesFigureComponent(node)
+                || node.GetComponent<Canvas>() != null || node.GetComponent<Light>() != null
+                || node.GetComponent<Animator>() != null || node.GetComponent<ParticleSystem>() != null
+                || node.GetComponent<Rigidbody>() != null || node.name == "Preview") return false;
+            if (node == projector.transform && node.GetComponent<Collider>() != null) return false;
+            if (node.name == "Generated Content") generated = true;
+            if (node.parent == tile.transform) return generated;
+        }
+        return false;
+    }
+
+    private static void SetProjectorHidden(ProjectorRecord record, bool hide)
+    {
+        Projector projector = record.Projector;
+        if (projector == null) { record.Owned = false; return; }
+        if (hide && !record.Owned && projector.enabled)
+        {
+            projector.enabled = false;
+            record.Owned = true;
+        }
+        else if (!hide && record.Owned)
+        {
+            if (!projector.enabled) projector.enabled = true;
+            record.Owned = false;
+        }
+    }
+
+    private static bool SameProjectorChain(ProjectorRecord record)
+    {
+        Transform? current = record.Projector != null ? record.Projector.transform : null;
+        if (current == null) return false;
+        for (int i = 0; i < record.Chain.Length; i++)
+        {
+            if (current == null || !ReferenceEquals(current, record.Chain[i])) return false;
+            current = current.parent;
+        }
+        return true;
     }
 
     /// <summary>Own only false→true writes. Restoring an already-forced renderer would take an
@@ -422,6 +495,15 @@ internal static class ScenarioSceneryBudget
             && (IsHardStructuralName(mesh.name) || (!foliage && IsGrassBase(mesh.name))))
             return Verdict.Structural;
         bool dedicatedStructuralFoliage = false;
+        // A real ornamental child can live beneath a structural parent. Its exact original
+        // mesh identity authorises only that child, never the parent's geometry or collider.
+        // This is the skull/bone layer of necropolis floors and walls reported on Build619.
+        if (IsNativeCompositeDressing(mesh.name))
+        {
+            unit = renderer.transform;
+            kind = Kind.Dressing;
+            structural = false;
+        }
         // Apparance can label a renderer Mesh/LOD0 while retaining the original mesh asset
         // family. That asset is stronger provenance than the generated wrapper's generic name;
         // it still cannot override an explicit structural leaf or a gameplay ancestry veto.
@@ -821,12 +903,88 @@ internal static class ScenarioSceneryBudget
         || name.StartsWith("PR_", StringComparison.Ordinal)
         || name.StartsWith("GH_", StringComparison.Ordinal);
 
+    // Build620 reviews the original renderer/mesh pairs across all PCG databases. These
+    // meshes are detached ornaments beside an authored floor/wall/pillar core, not the core
+    // itself. A broad "Bone", "Rubble" or "Wall" exception would also erase real floors.
+    // NativeDetailProvenance pins their actual prefab ancestry and independent core identity.
+    private static readonly HashSet<string> NativeCompositeDressing = new(StringComparer.Ordinal)
+    {
+        "CR_INT_Stone_Floor_01_Rubble_01",
+        "CR_INT_Stone_Floor_01_Rubble_02",
+        "CR_INT_Stone_Floor_01_Rubble_03",
+        "CR_INT_Stone_Floor_01_Rubble_04",
+        "CR_INT_Stone_Floor_01_Rubble_05",
+        "CR_OS_Floor_01_Bones",
+        "CR_OS_Floor_02_Bones",
+        "CR_OS_Floor_02_Skulls",
+        "CR_OS_Floor_03_Bones",
+        "CR_OS_Floor_04_Bones",
+        "CR_OS_Floor_Basic_Half_01_Bone",
+        "CR_OS_Floor_Basic_Half_02_Skull",
+        "CR_OS_Floor_Basic_Seg_J_Bone",
+        "CR_OS_Floor_Basic_Seg_L_Bone",
+        "CR_OS_Floor_Basic_Seg_P_Bone",
+        "CR_OS_Floor_Bone_01",
+        "CR_OS_Floor_Detail_Bones_03",
+        "CR_OS_Pillar_01_New_Skulls",
+        "CR_OS_Pillar_LOD0_02_Skull00",
+        "CR_OS_Pillar_LOD0_02_Skull01",
+        "CR_OS_Pillar_LOD0_02_Skull02",
+        "CR_OS_Pillar_LOD0_02_Skull03",
+        "CR_OS_Pillar_LOD0_02_Skull04",
+        "CR_OS_Pillar_LOD0_02_Skull05",
+        "CR_OS_Pillar_LOD0_02_Skull06",
+        "CR_OS_Pillar_LOD0_02_Skull07",
+        "CR_OS_Pillar_LOD0_02_Skull08",
+        "CR_OS_Pillar_LOD0_02_Skull09",
+        "CR_OS_Pillar_LOD0_02_Skull10",
+        "CR_OS_Pillar_LOD0_02_Skull11",
+        "CR_OS_Pillar_LOD0_02_Skull12",
+        "CR_OS_Pillar_LOD0_02_Skull13",
+        "CR_OS_Pillar_LOD0_02_Skull14",
+        "CR_OS_Pillar_LOD0_02_Skull15",
+        "CR_OS_Pillar_LOD0_02_Skull16",
+        "CR_OS_Pillar_LOD1_02_Skull00",
+        "CR_OS_Pillar_LOD1_02_Skull01",
+        "CR_OS_Pillar_LOD1_02_Skull02",
+        "CR_OS_Pillar_LOD1_02_Skull03",
+        "CR_OS_Pillar_LOD1_02_Skull04",
+        "CR_OS_Pillar_LOD1_02_Skull05",
+        "CR_OS_Pillar_LOD1_02_Skull06",
+        "CR_OS_Pillar_Large_Bones",
+        "CR_OS_Pillar_Large_Skulls",
+        "CR_OS_Wall_01_Bones",
+        "CR_OS_Wall_01_Skulls",
+        "CR_OS_Wall_02_Skull",
+        "CR_OS_Wall_03_Skulls",
+        "CR_OS_Wall_06_Skulls",
+        "CR_OS_Wall_08_Skulls",
+        "CR_OS_Wall_DoorFrame_Thin_01_Bone",
+        "CR_OS_Wall_DoorFrame_Thin_01_Skull",
+        "CR_OS_Wall_Thin_01_Bone",
+        "CR_OS_Wall_Thin_01_Bones",
+        "CR_ST_FloorShelf_Stone_Bone_Skull",
+        "CR_ST_Shelves_Stone_Bone_Bone",
+        "CR_ST_SmallShelf_Stone_Bone_Bone",
+        "CR_ST_WallShelf_Stone_Bone_Bone",
+        "CR_ST_WallShelf_Stone_Bone_Skull",
+        "TERRAIN_Crypt_Rubble_Bits",
+        "TERRAIN_DU_Rubble_Skulls",
+        "TERRAIN_Town_Ext_Rubble_Bits",
+        "TERRAIN_Town_Rubble_Bits",
+        "TERR_Forest_Rubble_Stones",
+    };
+
+    private static bool IsNativeCompositeDressing(string name) => NativeCompositeDressing.Contains(name);
+
     private static Kind NamedKind(string name)
     {
         // Build619's complete original PCG-database census covers every biome/DLC, rather than
         // the forest/cave hardware sample. Named cosmetics still pass the full gameplay,
         // structural mesh, collision and generated-content checks. A new token is not permission
         // to mask an enclosing procedural wall or a native interactable tree/obstacle.
+        if (IsNativeCompositeDressing(name))
+            return Kind.Dressing;
         if (IsNativeWallPlantLeaf(name))
             return Kind.Vegetation;
         if (name.IndexOf("_Grass", StringComparison.OrdinalIgnoreCase) >= 0
@@ -868,6 +1026,23 @@ internal static class ScenarioSceneryBudget
             || name.IndexOf("_Candle", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_Book", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_Banner", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Skull", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Bone", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Paper", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Pages", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Parchment", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Scroll", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Cup", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Carpet", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Curtain", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Furniture", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Chair", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Candelabra", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_WallChains", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_Cobweb", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("FloorClutter", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("CoinsScatter", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.StartsWith("fi_vil_combs_props_bonepile_", StringComparison.Ordinal)
             || name.StartsWith("FR_Stones_", StringComparison.Ordinal)
             || name.StartsWith("CR_FR_Stones_", StringComparison.Ordinal)
             || name.StartsWith("geranium ", StringComparison.Ordinal))
@@ -876,7 +1051,7 @@ internal static class ScenarioSceneryBudget
     }
 
     private static bool IsStructuralName(string name) =>
-        !IsNativeTreeAsset(name) && (name.IndexOf("_Wall_", StringComparison.OrdinalIgnoreCase) >= 0
+        !IsNativeTreeAsset(name) && !IsNativeCompositeDressing(name) && (name.IndexOf("_Wall_", StringComparison.OrdinalIgnoreCase) >= 0
         || name.IndexOf("_UnderWall_", StringComparison.OrdinalIgnoreCase) >= 0
         || name.IndexOf("_Pillar_", StringComparison.OrdinalIgnoreCase) >= 0
         || name.IndexOf("_Door", StringComparison.OrdinalIgnoreCase) >= 0
@@ -917,6 +1092,8 @@ internal static class ScenarioSceneryBudget
     private static bool IsHardStructuralName(string name)
     {
         if (IsNativeTreeAsset(name))
+            return false;
+        if (IsNativeCompositeDressing(name))
             return false;
         if (name.IndexOf("_Pillar_", StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("_Door", StringComparison.OrdinalIgnoreCase) >= 0
@@ -1012,6 +1189,8 @@ internal static class ScenarioSceneryBudget
         private readonly HashSet<int> _materialNodeIds = new();
         private readonly List<ProceduralMapTile> _tiles = new(64);
         private readonly List<Record> _records = new(1024);
+        private readonly List<ProjectorRecord> _projectors = new();
+        private readonly Dictionary<int, ProjectorRecord> _projectorIds = new();
         private readonly Dictionary<int, Record> _byId = new(1024);
         private readonly List<GameObject> _heldRoots = new(8);
         private readonly List<MeshRenderer> _heldMeshes = new(32);
@@ -1041,6 +1220,7 @@ internal static class ScenarioSceneryBudget
         private int _retuneIndex = -1;
         private int _pruneIndex;
         private int _watchIndex;
+        private int _projectorWatchIndex;
         private int _visitedNodes;
         private int _meshRenderers;
         private int _debugNames;
@@ -1114,7 +1294,7 @@ internal static class ScenarioSceneryBudget
             // A scene can consist entirely of deferred decoration and have no renderer
             // records yet. Restore its recipes even when every live budget returns to 100.
             ScenarioDecorativePlacement.Refresh(complete: false);
-            if (!BudgetActive && _records.Count == 0)
+            if (!BudgetActive && _records.Count == 0 && _projectors.Count == 0)
                 return;
             using var _perf = PerfMonitor.Scope("SceneryBudget.Update");
             RecheckOwned();
@@ -1142,6 +1322,8 @@ internal static class ScenarioSceneryBudget
                     if (_visitedRendererIds.Add(renderer.GetInstanceID())) _meshRenderers++;
                     Examine(renderer, tile);
                 }
+                Projector[] projectors = root.GetComponentsInChildren<Projector>(includeInactive: true);
+                for (int i = 0; i < projectors.Length; i++) ExamineProjector(projectors[i], tile);
             }
             finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); TreeColliderReadFacts.Clear(); BayColliderReadFacts.Clear(); }
         }
@@ -1330,6 +1512,8 @@ internal static class ScenarioSceneryBudget
                         _meshRenderers++;
                     Examine(renderer, node.Tile);
                 }
+                Projector projector = t.GetComponent<Projector>();
+                if (projector != null) ExamineProjector(projector, node.Tile);
                 for (int child = 0; child < t.childCount; child++)
                     _nodes.Enqueue(new Node(t.GetChild(child), node.Tile));
                 if (!complete && (budget & 3) == 0 && Time.realtimeSinceStartup >= deadline)
@@ -1394,6 +1578,33 @@ internal static class ScenarioSceneryBudget
             }
         }
 
+        private void ExamineProjector(Projector projector, ProceduralMapTile tile)
+        {
+            int id = projector.GetInstanceID();
+            if (_projectorIds.TryGetValue(id, out ProjectorRecord? record))
+            {
+                if (!IsDecorativeProjector(projector, tile))
+                { SetProjectorHidden(record, false); record.Invalidated = true; return; }
+                if (!SameProjectorChain(record))
+                {
+                    SetProjectorHidden(record, false);
+                    record.Hash = StableHash(projector.transform, tile);
+                    record.Chain = CaptureChain(projector.transform, tile);
+                    record.Tile = tile;
+                }
+                record.Invalidated = false;
+            }
+            else
+            {
+                if (!IsDecorativeProjector(projector, tile)) return;
+                record = new ProjectorRecord { Projector = projector, Id = id, Tile = tile,
+                    Hash = StableHash(projector.transform, tile), Chain = CaptureChain(projector.transform, tile) };
+                _projectorIds.Add(id, record);
+                _projectors.Add(record);
+            }
+            SetProjectorHidden(record, ShouldHide(record.Hash, _decorationDensity));
+        }
+
         /// <summary>A placement or reveal can rebuild a unit without replacing its renderer.
         /// Re-run the full classifier before retaining our mask on a previously seen leaf.</summary>
         private void RevalidateKnown(Record record, MeshRenderer renderer, ProceduralMapTile tile)
@@ -1444,14 +1655,20 @@ internal static class ScenarioSceneryBudget
         {
             if (_retuneIndex < 0)
                 return;
-            int end = Math.Min(_records.Count, _retuneIndex + RetunesPerFrame);
+            int end = Math.Min(_records.Count + _projectors.Count, _retuneIndex + RetunesPerFrame);
             for (; _retuneIndex < end; _retuneIndex++)
             {
+                if (_retuneIndex >= _records.Count)
+                {
+                    ProjectorRecord projection = _projectors[_retuneIndex - _records.Count];
+                    if (!projection.Invalidated) SetProjectorHidden(projection, ShouldHide(projection.Hash, _decorationDensity));
+                    continue;
+                }
                 Record record = _records[_retuneIndex];
                 if (!record.Invalidated)
                     SetHidden(record, ShouldHide(record.Hash, DensityFor(record)));
             }
-            if (_retuneIndex < _records.Count)
+            if (_retuneIndex < _records.Count + _projectors.Count)
                 return;
             _retuneIndex = -1;
             PerfMonitor.MarkChange($"Scenario scenery budget retune complete: grass {_density}%, "
@@ -1460,11 +1677,23 @@ internal static class ScenarioSceneryBudget
             {
                 _records.Clear();
                 _byId.Clear();
+                _projectors.Clear();
+                _projectorIds.Clear();
             }
         }
 
         private void RecheckOwned()
         {
+            // A bounded chain-only watch rescues reparented/retired original decal projections.
+            // Ordinary wall/tile collision remains represented by retained meshes, never a decal.
+            int projectorBudget = Math.Min(16, _projectors.Count);
+            while (projectorBudget-- > 0)
+            {
+                if (_projectorWatchIndex >= _projectors.Count) _projectorWatchIndex = 0;
+                ProjectorRecord projection = _projectors[_projectorWatchIndex++];
+                if (!SameProjectorChain(projection))
+                { SetProjectorHidden(projection, false); projection.Invalidated = true; }
+            }
             // Build 605 measured 4.6–8.0 ms scenery Update peaks. The held-prop path was a
             // candidate: testing every hidden plant against every hand scales with the whole level.
             // Enumerate the actual <= 2 local roots plus remote roots, then use the existing
@@ -1517,6 +1746,17 @@ internal static class ScenarioSceneryBudget
         /// long session. Never mutate list indices while a setting retune is in progress.</summary>
         private void PruneDead(int budget)
         {
+            if (_retuneIndex < 0 && _projectors.Count > 0)
+            {
+                int index = _projectorWatchIndex % _projectors.Count;
+                ProjectorRecord projection = _projectors[index];
+                if (projection.Projector == null)
+                {
+                    _projectorIds.Remove(projection.Id);
+                    _projectors[index] = _projectors[_projectors.Count - 1];
+                    _projectors.RemoveAt(_projectors.Count - 1);
+                }
+            }
             if (_retuneIndex >= 0 || _records.Count == 0)
                 return;
             while (budget-- > 0 && _records.Count > 0)
@@ -1551,6 +1791,9 @@ internal static class ScenarioSceneryBudget
             int grass = 0;
             int vegetation = 0;
             int dressing = 0;
+            int projectorOwned = 0;
+            for (int i = 0; i < _projectors.Count; i++)
+                if (_projectors[i].Projector != null && _projectors[i].Owned && !_projectors[i].Invalidated) projectorOwned++;
             for (int i = 0; i < _records.Count; i++)
             {
                 Record record = _records[i];
@@ -1572,7 +1815,8 @@ internal static class ScenarioSceneryBudget
                               + $"eligible grass {grass}, trees/bushes/vines {vegetation}, "
                               + $"scatter/details {dressing}; {owned} owned and {actuallyForced} "
                               + "actually forceRenderingOff. Native props, actors, floors and "
-                              + "structural walls preserved; actual frame gain is unverified.");
+                              + "structural walls preserved; actual frame gain is unverified. "
+                              + $"Decorative projections {_projectors.Count}, owned masks {projectorOwned}.");
             if (VRLog.WantsDebug)
                 VRLog.Debug(Scope, $"Scenario scenery rejection encounters (repeat walks included): "
                                    + $"no generated ancestry {_rejected[(int)Verdict.Generator]}, "
@@ -1588,6 +1832,10 @@ internal static class ScenarioSceneryBudget
         {
             for (int i = 0; i < _records.Count; i++)
                 SetHidden(_records[i], false);
+            for (int i = 0; i < _projectors.Count; i++) SetProjectorHidden(_projectors[i], false);
+            _projectors.Clear();
+            _projectorIds.Clear();
+            _projectorWatchIndex = 0;
             foreach (var bay in BayColliderOwners)
                 if (bay.Value && bay.Key != null && !bay.Key.enabled) bay.Key.enabled = true;
             BayColliderOwners.Clear();

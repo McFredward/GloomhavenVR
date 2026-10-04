@@ -7,8 +7,10 @@ is not Unity and cannot establish render pixels or native engine lifetime. The i
 check-scenario-scenery-runtime.py runs the complete source/Driver in actual Unity 2021.3.5.
 """
 import argparse
+import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -41,6 +43,7 @@ def production(source):
     methods += [expression(source,key) for key in (
         'private static bool ShouldHide(', 'private static bool IsStructuralName(', 'private static bool IsGrassBase(',
         'private static bool IsNativeWallWoodLeaf(', 'private static bool IsNativeSceneryAsset(', 'private static bool IsNativeTreeAsset(', 'private static bool IsNativeWallPlantLeaf(', 'private static bool ColliderIsPresent(', 'private static string TreeAssetName(',
+        'private static bool IsNativeCompositeDressing(', 'private static readonly HashSet<string> NativeCompositeDressing',
     )]
     header='''using System; using System.Collections.Generic; using UnityEngine; using UnityEngine.SceneManagement;
 namespace GloomhavenVR.Core;
@@ -61,6 +64,17 @@ def main():
     parser.add_argument('--source-root',type=Path,default=ROOT);args=parser.parse_args()
     source=(args.source_root/'src/GloomhavenVR/Core/Perf/ScenarioSceneryBudget.cs').read_text()
     fixture=ROOT/'tests/GloomhavenVR.ScenarioSceneryBudgetTests'
+    metadata=json.loads((fixture/'NativeDetailProvenance.json').read_text())
+    review=metadata['scenery_review']
+    if (review['bundle_count'],review['renderer_count'],review['projector_count']) != (2144,47754,137):
+        raise SystemExit('Original whole-game PCG renderer/projector census changed; review actual assets')
+    if [n for n,_ in review['classification']] != metadata['scenery_names']:
+        raise SystemExit('Every original PCG identity needs an explicit retained/candidate classification')
+    catalog=set(re.findall(r'"([^"]+)"',expression(source,'private static readonly HashSet<string> NativeCompositeDressing')))
+    originals={row['mesh'] for row in review['composite_dressing']}
+    if catalog != originals or len(originals)!=64:
+        raise SystemExit('Detached composite mesh admission must match independently reviewed original prefabs')
+    mesh_values=','.join(json.dumps(n) for n in sorted(originals))
     variants=[('production',source,'')]
     for name,old,new,expected in (
         ('captured-bay-rejected','if (CanOwnBayCollider(collider))\n                continue;','if (CanOwnBayCollider(collider) && false)\n                continue;','captured native bay admits every'),
@@ -91,6 +105,7 @@ def main():
         folder=Path(temp)
         (folder/'Classifier.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><NoWarn>CS0649</NoWarn></PropertyGroup></Project>')
         shutil.copyfile(fixture/'UnityGraph.cs',folder/'UnityGraph.cs');shutil.copyfile(fixture/'Checks.cs',folder/'Checks.cs')
+        (folder/'NativeSceneryMetadata.cs').write_text('internal static class NativeSceneryMetadata { internal static readonly string[] CompositeMeshes = {'+mesh_values+'}; }')
         shutil.copyfile(args.source_root/'src/GloomhavenVR/Core/FigureRendererGuard.cs',folder/'FigureGuard.cs')
         for name,text,expected in variants:
             (folder/'Production.cs').write_text(production(text))

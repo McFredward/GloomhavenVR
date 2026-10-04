@@ -232,6 +232,32 @@ internal static partial class ScenarioSceneryBudget
         }
         Check(Inspect(Leaf(generated.transform,"CV_Wall_Mossy_01",false),tile)==Verdict.Structural,
             "moss naming never admits a solid native wall core");
+        var ossuary=Node(generated.transform,"CR_OS_Floor_Basic_Half_02");
+        var ossuaryCore=Leaf(ossuary.transform,"CR_OS_Floor_Basic_Half_02",false);
+        ossuaryCore.GetComponent<MeshFilter>()!.sharedMesh!.name="CR_OS_Floor_Basic_Half_02";
+        var ornament=Leaf(ossuary.transform,"LOD0",false);
+        ornament.GetComponent<MeshFilter>()!.sharedMesh!.name="CR_OS_Floor_Basic_Half_02_Skull";
+        var collision=ossuary.AddComponent<Collider>();
+        Check(Inspect(ornament,tile)==Verdict.Eligible&&Inspect(ossuaryCore,tile)==Verdict.Structural,
+            "original detached skull layer follows decoration while real floor core remains");
+        Check(DecorativeCategories(ossuary)==0,"floor with decorative skulls never qualifies for whole-prefab deferral");
+        ornament.gameObject.AddComponent<Collider>();
+        Check(Inspect(ornament,tile)==Verdict.Effect,"decorative skull cannot own a leaf collider even beside a floor");
+        foreach(string name in new[]{"EN_CR_Skull","fi_vil_combs_props_bonepile_03c2","ST_TownMilitia_Paper_01",
+            "CR_INT_Floor_Carpet_Gray","SE_Gothic_Cobwebs_01","CR_TC_WallChains_01"})
+            Check(Inspect(Leaf(generated.transform,name,false),tile)==Verdict.Eligible,
+                "reviewed original loose clutter receives decoration budget: "+name);
+        foreach(string name in new[]{"CR_OS_Wall_01","CR_OS_Pillar_Large","CR_OS_Floor_Basic_Seg_J",
+            "TERRAIN_DU_Rubble_Floor","TERRAIN_Crypt_Rubble_Base"})
+            Check(Inspect(Leaf(generated.transform,name,false),tile)!=Verdict.Eligible,
+                "unlisted original structural ground and masonry remain visible: "+name);
+        Check(!IsNativeCompositeDressing("CV_Wall_Unknown_Skull"),"a new skull wall is not evidence of detached geometry");
+        foreach(string original in NativeSceneryMetadata.CompositeMeshes)
+        {
+            var layer=Leaf(ossuary.transform,"LOD1",false);
+            layer.GetComponent<MeshFilter>()!.sharedMesh!.name=original;
+            Check(Inspect(layer,tile)==Verdict.Eligible,"every reviewed original detached ornament is optional: "+original);
+        }
         return _checks;
     }
 }

@@ -27,6 +27,9 @@ def main():
     scenery = (base / 'Perf/ScenarioSceneryBudget.cs').read_text()
     guard = (base / 'FigureRendererGuard.cs').read_text()
     sources = {'Placement.cs': (base / 'Perf/ScenarioDecorativePlacement.cs').read_text(), 'Scenery.cs': scenery.replace('Time.unscaledTime', 'SceneryClock.Now'), 'FigureGuard.cs': guard}
+    metadata = json.loads((args.source_root/'tests/GloomhavenVR.ScenarioSceneryBudgetTests/NativeDetailProvenance.json').read_text())
+    composite = sorted({row['mesh'] for row in metadata['scenery_review']['composite_dressing']})
+    sources['NativeSceneryMetadata.cs'] = 'internal static class NativeSceneryMetadata { internal static readonly string[] CompositeMeshes = {' + ','.join(json.dumps(n) for n in composite) + '}; }'
     # Observe entry only; the complete production proof body still runs unchanged. This
     # distinguishes native fallthrough before proof from an expensive proof returning zero.
     proof_entry = 'internal static int DecorativeCategories(GameObject root)\n    {'
@@ -45,7 +48,7 @@ def main():
             ('lose-restore-pose', 'Placement.cs', 'visual.transform.localScale = Vector3.one;', 'visual.transform.localScale = recipe.Template.transform.localScale;', 'restoration reproduces original pose without'),
             ('omit-loading-completion', 'Scenery.cs', 'WalkNodes(loading: true, complete: true);', 'WalkNodes(loading: true, complete: false);', 'actual loading-close preparation drains'),
             ('skip-inactive-reveal', 'Scenery.cs', 'if (root != null) _driver?.PrepareSubtree(root);', 'if (root != null && root.activeInHierarchy) _driver?.PrepareSubtree(root);', 'room reveal prepares inactive'),
-            ('deferred-only-restore-skipped', 'Scenery.cs', 'ScenarioDecorativePlacement.Refresh(complete: false);\n            if (!BudgetActive && _records.Count == 0)', 'if (!BudgetActive && _records.Count == 0) return;\n            ScenarioDecorativePlacement.Refresh(complete: false);\n            if (!BudgetActive && _records.Count == 0)', 'all 100 restores deferred-only'),
+            ('deferred-only-restore-skipped', 'Scenery.cs', 'ScenarioDecorativePlacement.Refresh(complete: false);\n            if (!BudgetActive && _records.Count == 0 && _projectors.Count == 0)', 'if (!BudgetActive && _records.Count == 0) return;\n            ScenarioDecorativePlacement.Refresh(complete: false);\n            if (!BudgetActive && _records.Count == 0 && _projectors.Count == 0)', 'all 100 restores deferred-only'),
             ('native-parent-prop-deferred', 'Scenery.cs', '|| (native != null && native.PropObject != null)\n                || FigureRendererGuard.CarriesFigureComponent(t)', '|| false\n                || FigureRendererGuard.CarriesFigureComponent(t)', 'native parent PropObject identity protects'),
             ('unrepresented-parent-deferred', 'Scenery.cs', 'if (!facts.Represented)\n                for (int i = 0; i < facts.Colliders.Length; i++)', 'if (!facts.Represented && false)\n                for (int i = 0; i < facts.Colliders.Length; i++)', 'creation retains decoration representing an unrepresented'),
             ('generated-creation-provenance-lost', 'Scenery.cs', 'return generated;', 'return generated || true;', 'creation requires actual Generated Content provenance'),
@@ -76,6 +79,11 @@ def main():
 
             ('held-full-scenery-scan', 'Scenery.cs', '_heldMeshChecks++;', '_heldMeshChecks += _records.Count;', 'holding one mesh examines one renderer'),
             ('remote-held-root-omitted', 'Scenery.cs', 'NetHeldProps.CopyVisualRoots(_heldRoots);', '/* negative: omit actual remote roots */', 'remote held decoration restores immediately'),
+
+            ('detached-skull-retained', 'Scenery.cs', 'private static bool IsNativeCompositeDressing(string name) => NativeCompositeDressing.Contains(name);', 'private static bool IsNativeCompositeDressing(string name) => name.Length < 0 && NativeCompositeDressing.Contains(name);', 'original detached skull layer follows decoration'),
+            ('unknown-skull-core-admitted', 'Scenery.cs', 'private static bool IsNativeCompositeDressing(string name) => NativeCompositeDressing.Contains(name);', 'private static bool IsNativeCompositeDressing(string name) => name.IndexOf("Skull", StringComparison.Ordinal) >= 0 || NativeCompositeDressing.Contains(name);', 'unlisted skull wall preserves real masonry'),
+            ('cosmetic-projector-retained', 'Scenery.cs', 'projector.enabled = false;\n            record.Owned = true;', 'projector.enabled = true;\n            record.Owned = true;', 'decoration zero masks identified original paint projections'),
+            ('foreign-projector-enabled', 'Scenery.cs', 'else if (!hide && record.Owned)', 'else if (!hide)', 'restoring decoration preserves foreign disabled paint projection'),
 
             ('subtree-cache-retained', 'Scenery.cs', 'finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }', 'finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }', ''),
         ]

@@ -156,6 +156,28 @@ public static class InteractionProgram
             var wallStone = Leaf(mixed.transform, "CV_Wall_Generic_02", false);
             var floor = Leaf(mixed.transform, "EN_CR_Floor_BaseHex_Plain", false);
             var water = Leaf(mixed.transform, "Water", false);
+            var ossuary = Node(generated.transform,"CR_OS_Floor_Basic_Half_02");
+            var ossuaryCollision = ossuary.AddComponent<BoxCollider>();
+            var ossuaryCore = NativeLeaf(ossuary.transform,"CR_OS_Floor_Basic_Half_02","CR_OS_Floor_Basic_Half_02",false);
+            var ornament = NativeLeaf(ossuary.transform,"LOD0","CR_OS_Floor_Basic_Half_02_Skull",false);
+            Check(Classify(ornament,tile)=="Eligible"&&Classify(ossuaryCore,tile)=="Structural",
+                "original detached skull layer follows decoration while real floor core remains");
+            var ornaments = new List<MeshRenderer>();
+            foreach (string original in NativeSceneryMetadata.CompositeMeshes)
+            {
+                var member=NativeLeaf(ossuary.transform,"LOD1",original,false); ornaments.Add(member);
+                Check(Classify(member,tile)=="Eligible","every reviewed original detached ornament is optional: "+original);
+            }
+            var unknownSkull=NativeLeaf(generated.transform,"CV_Wall_Unknown_Skull","CV_Wall_Unknown_Skull",false);
+            Check(Classify(unknownSkull,tile)=="Structural","unlisted skull wall preserves real masonry");
+            var bonepile=NativeLeaf(generated.transform,"fi_vil_combs_props_bonepile_03c2","Mesh",false);
+            var paper=NativeLeaf(generated.transform,"ST_TownMilitia_Paper_01","ST_TownMilitia_Paper_01",false);
+            var blood=Node(generated.transform,"DECAL_BloodSplat_Proj_PR").AddComponent<Projector>();
+            var foreignProjection=Node(generated.transform,"DECAL_Dirt_Proj_PR (1)").AddComponent<Projector>(); foreignProjection.enabled=false;
+            var nativeRune=Node(generated.transform,"ST_Demon_Circle02_Decal").AddComponent<Projector>();
+            var propProjectorRoot=Node(generated.transform,"Native blood prop"); propProjectorRoot.AddComponent<ProceduralProp>();
+            var propProjection=Node(propProjectorRoot.transform,"DECAL_BloodSplat_Proj_PR").AddComponent<Projector>();
+            Check(Classify(bonepile,tile)=="Eligible"&&Classify(paper,tile)=="Eligible","original generic bone-pile mesh and paper use the decoration budget");
             Check(Classify(pillar, tile) == "Eligible", "original tree pillar bark is vegetation rather than masonry");
             Check(Classify(wallStone, tile) == "Structural" && Classify(floor, tile) == "Structural", "native masonry and playable floor retain rendering");
             var nativeComposite=Node(mixed.transform,"FR_Wall_Grassy_Verge_Thin_Narrow_01");
@@ -311,6 +333,12 @@ public static class InteractionProgram
             Check(!grass.forceRenderingOff && !treeLeaf.forceRenderingOff, "both 100 settings retain original rendering");
             PerfConfig.ScenarioDecorationDensityPercentValue=0; Tick(driver,50);
             Check(!grass.forceRenderingOff&&!treeLeaf.forceRenderingOff&&caveLod.forceRenderingOff,"decoration budget is independent from grass and vegetation");
+            Check(ornament.forceRenderingOff&&ornaments.All(r=>r.forceRenderingOff)&&bonepile.forceRenderingOff&&paper.forceRenderingOff,
+                "decoration zero removes all reviewed composite ornaments and original loose clutter");
+            Check(!ossuaryCore.forceRenderingOff&&!unknownSkull.forceRenderingOff&&ossuaryCollision.enabled,
+                "zero decoration retains original floor masonry and native collision");
+            Check(!blood.enabled&&!foreignProjection.enabled&&nativeRune.enabled&&propProjection.enabled,
+                "decoration zero masks identified original paint projections while gameplay and magic remain");
             PerfConfig.ScenarioSceneryDensityPercentValue=0; PerfConfig.ScenarioVegetationDensityPercentValue=0; Tick(driver,50);
             Check(grass.forceRenderingOff && treeLeaf.forceRenderingOff && bush.forceRenderingOff && caveLod.forceRenderingOff, "decoration zero hides real generated grass tree and cave LOD meshes");
             Check(bayMembers.All(r=>r.forceRenderingOff)&&!bayCollider.enabled,"zero budgets remove all eleven captured bay meshes and shared decorative box");
@@ -364,6 +392,9 @@ public static class InteractionProgram
 
             PerfConfig.ScenarioDecorationDensityPercentValue=100; Tick(driver,50);
             Check(!grass.forceRenderingOff && !treeLeaf.forceRenderingOff && foreign.forceRenderingOff, "restoration clears owned masks and preserves foreign force flag");
+            Check(blood.enabled&&!foreignProjection.enabled,"restoring decoration preserves foreign disabled paint projection");
+            Check(ornaments.All(r=>!r.forceRenderingOff)&&!paper.forceRenderingOff&&!bonepile.forceRenderingOff,
+                "decoration 100 restores every owned original ornament and loose-clutter renderer");
             PerfConfig.ScenarioSceneryDensityPercentValue=0; Tick(driver,50);
             Check(grass.forceRenderingOff && !treeLeaf.forceRenderingOff, "existing grass key works as an independent grass-only budget");
             Check(!propGrass.forceRenderingOff && !floorBase.forceRenderingOff, "grass slider preserves gameplay props and floor bases");
