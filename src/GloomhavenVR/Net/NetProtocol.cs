@@ -136,6 +136,9 @@ internal static class NetProtocol
     public const byte ExtIdBoardWrist = 100;
     // Atomic public map-item source. Existing rig/extra prefixes and record36 stay unchanged.
     public const byte ExtIdTownItemHeld = 101;
+    /// <summary>Public cabinet original-content bank, carried atomically with its rack
+    /// clock. Adds no gameplay action or private card identity to the avatar stream.</summary>
+    public const byte ExtIdTownCatalogBank = 102;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
