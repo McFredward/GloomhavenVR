@@ -88,5 +88,11 @@ native playback ownership, content-before-mod ordering and bounded evidence.
 Actual SDK compilation, native Android build and exact APK audits are separate
 checks. None establishes headset image correctness or campaign playability.
 
+The maintainer additionally requested the existing GloomhavenVR logo and a real
+phase progress bar/percentage, with reusable presentation for later in-game loads.
+The handoff directory retains only the newest verified package and receipt;
+superseded APKs/archives are removed, while historical audits and supplied
+hardware captures remain outside it.
+
 Artifact and completed verification details are recorded after native packaging.
 No complete unrelated local test gate is claimed.

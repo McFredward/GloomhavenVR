@@ -10,6 +10,14 @@ testing. Do not merge or push these Quest changes into `dev`, where other agents
 continue Steam Frame work. This explicit instruction supersedes the generic
 integration-branch rules below for the Quest task; all other contracts still apply.
 
+**Quest hardware handoff, clarified on 2026-10-04:** after verifying each new
+hardware package, keep the main ignored `.planning/debug/quest3/` output directory
+limited to the latest APK, Windows archive and current handoff receipt. Remove
+superseded APKs/archives and move historical validation outside that handoff
+directory. Preserve supplied captures in `quest3_probleme/`. The initial loading
+view must use the existing GloomhavenVR logo, a real progress bar and percentage;
+keep the presentation reusable for later in-game loading.
+
 The maintainer requested integration of `feature/immersive-town-services` into
 `dev`. All subsequent NPC, Steam Frame, and other development now integrates and
 pushes to `dev`; create worker worktrees from the current `dev` commit. The NPC
