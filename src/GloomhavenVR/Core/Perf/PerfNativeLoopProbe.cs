@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
 using System.Text;
+using System.Threading;
 using HarmonyLib;
+using ScenarioRuleLibrary;
 
 namespace GloomhavenVR.Core;
 
@@ -32,14 +34,16 @@ internal static class PerfNativeLoopProbe
 {
     private sealed class Target
     {
-        internal Target(string typeName, string methodName)
+        internal Target(string typeName, string methodName, bool overloads = false)
         {
             TypeName = typeName;
             MethodName = methodName;
+            Overloads = overloads;
         }
 
         internal readonly string TypeName;
         internal readonly string MethodName;
+        internal readonly bool Overloads;
         internal string Fault = "not installed";
         internal bool Patched;
         internal long Ticks;
@@ -72,6 +76,19 @@ internal static class PerfNativeLoopProbe
         new("ApparanceEngine", "Update"),
         new("ApparanceResources", "Update"),
         new("Updater", "Update"),
+        // Build617 attributes 207 ms to Choreographer.Update, not to its precise message.
+        // These are original presentation entry points reached by ActionSelection. Their
+        // inclusive nested times must not be added; every overload keeps original dispatch.
+        new("Choreographer", "ProcessMessage", true),
+        new("CardsHandManager", "Show", true),
+        new("CardsHandUI", "UpdateView", true),
+        new("CardsHandUI", "UpdateCards", true),
+        new("CardsActionControlller", "Init", true),
+        new("UIActiveBonusBar", "ShowActiveBonus", true),
+        new("UIUseItemsBar", "ShowUsableItems", true),
+        new("InfusionBoardUI", "UpdateBoard"),
+        new("FullAbilityCard", "MakeFullCard", true),
+        new("FullAbilityCard", "MakeFullCardContinued"),
     };
 
     private static readonly Dictionary<MethodBase, Target> ByMethod = new(Targets.Length);
@@ -80,11 +97,25 @@ internal static class PerfNativeLoopProbe
     {
         internal long Started;
         internal int Capture;
+        internal int MessageIndex;
     }
+
+    // Original message enum only: no actor/card identity, state mutation, reflection or
+    // string conversion in a live callback. Allocate these fixed ledgers once at Debug setup.
+    private sealed class MessageCost
+    {
+        internal MessageCost(string label) => Label = label;
+        internal readonly string Label;
+        internal long Ticks, Worst, LastTicks, LastWorst;
+        internal int Calls, Exceptions, LastCalls, LastExceptions;
+    }
+    private static MessageCost[] _messages = Array.Empty<MessageCost>();
+    private static readonly List<MessageCost> MessageRanked = new();
 
     private static bool _installed;
     private static bool _sampling;
     private static bool _spikeCapture;
+    private static int _mainThread;
     private static readonly List<Target> SpikeRanked = new(Targets.Length);
 
     // Rolled at the monitor's first Update, before refresh/settings may close its summary.
@@ -104,6 +135,15 @@ internal static class PerfNativeLoopProbe
             target.FrameTicks = 0;
             target.FrameCalls = 0;
         }
+        foreach (MessageCost message in _messages)
+        {
+            message.LastTicks = _spikeCapture ? message.Ticks : 0;
+            message.LastWorst = _spikeCapture ? message.Worst : 0;
+            message.LastCalls = _spikeCapture ? message.Calls : 0;
+            message.LastExceptions = _spikeCapture ? message.Exceptions : 0;
+            message.Ticks = message.Worst = 0;
+            message.Calls = message.Exceptions = 0;
+        }
     }
 
     internal static void AppendSpike(StringBuilder sb)
@@ -121,6 +161,21 @@ internal static class PerfNativeLoopProbe
             sb.Append(i == 0 ? " " : ", ").Append(target.Label).Append(' ')
                 .Append((target.LastFrameTicks * 1000d / Stopwatch.Frequency).ToString("F3"))
                 .Append("ms/").Append(target.LastFrameCalls).Append(" call(s)");
+        }
+        MessageRanked.Clear();
+        foreach (MessageCost message in _messages)
+            if (message.LastCalls != 0) MessageRanked.Add(message);
+        MessageRanked.Sort((a, b) => b.LastTicks.CompareTo(a.LastTicks));
+        sb.Append(" | native previous-frame messages (Debug; inclusive):");
+        if (MessageRanked.Count == 0) sb.Append(" n/a (no selected message completed)");
+        for (int i = 0; i < Math.Min(3, MessageRanked.Count); i++)
+        {
+            MessageCost message = MessageRanked[i];
+            sb.Append(i == 0 ? " " : ", ").Append(message.Label).Append(' ')
+                .Append((message.LastTicks * 1000d / Stopwatch.Frequency).ToString("F3"))
+                .Append("ms/").Append(message.LastCalls).Append(" call(s), max ")
+                .Append((message.LastWorst * 1000d / Stopwatch.Frequency).ToString("F3"))
+                .Append("ms, exception(s) ").Append(message.LastExceptions);
         }
     }
     private static int _captureGeneration;
@@ -161,6 +216,8 @@ internal static class PerfNativeLoopProbe
         // The shared plugin Harmony removes these patches during Plugin.OnDestroy. Clear the
         // mapping here so a hot reload cannot retain references to old game methods.
         ByMethod.Clear();
+        _messages = Array.Empty<MessageCost>();
+        MessageRanked.Clear();
         foreach (Target target in Targets)
         {
             target.Patched = false;
@@ -211,6 +268,7 @@ internal static class PerfNativeLoopProbe
     private static void Install()
     {
         _installed = true;
+        _mainThread = Thread.CurrentThread.ManagedThreadId;
         long started = Stopwatch.GetTimestamp();
         MethodInfo? prefix = typeof(PerfNativeLoopProbe).GetMethod(nameof(Prefix),
             BindingFlags.Static | BindingFlags.NonPublic);
@@ -218,29 +276,56 @@ internal static class PerfNativeLoopProbe
             BindingFlags.Static | BindingFlags.NonPublic);
         if (prefix == null || postfix == null)
             return;
+        Array values = Enum.GetValues(typeof(CMessageData.MessageType));
+        int last = 0;
+        foreach (CMessageData.MessageType value in values) last = Math.Max(last, (int)value);
+        // Current publisher enum is small/dense. Unusual future values never justify an
+        // unbounded allocation; they retain the ordinary method-level inclusive measurement.
+        int capacity = Math.Min(4095, last) + 1;
+        _messages = new MessageCost[capacity];
+        for (int i = 0; i < capacity; i++) _messages[i] = new MessageCost("message#" + i);
+        foreach (CMessageData.MessageType value in values)
+            if ((int)value >= 0 && (int)value < capacity) _messages[(int)value] = new MessageCost(value.ToString());
         foreach (Target target in Targets)
         {
             try
             {
-                Type? type = AccessTools.TypeByName(target.TypeName);
+                // Prefer the publisher's actual assembly over an unrelated loaded type with
+                // the same short name. Third-party callbacks retain explicit-name fallback.
+                Type? type = typeof(Choreographer).Assembly.GetType(target.TypeName)
+                    ?? AccessTools.TypeByName(target.TypeName);
                 if (type == null)
                 {
                     target.Fault = "type unavailable";
                     continue;
                 }
-                MethodInfo? method = type.GetMethod(target.MethodName,
-                    BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic
-                    | BindingFlags.DeclaredOnly, null, Type.EmptyTypes, null);
-                if (method == null)
+                const BindingFlags flags = BindingFlags.Instance | BindingFlags.Static
+                    | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+                MethodInfo[] methods = target.Overloads ? type.GetMethods(flags) : Array.Empty<MethodInfo>();
+                MethodInfo? single = target.Overloads ? null
+                    : type.GetMethod(target.MethodName, flags, null, Type.EmptyTypes, null);
+                if (single != null) methods = new[] { single };
+                int patched = 0;
+                foreach (MethodInfo method in methods)
                 {
-                    target.Fault = "method unavailable";
-                    continue;
+                    if (method.Name != target.MethodName) continue;
+                    bool message = target.TypeName == "Choreographer" && target.MethodName == "ProcessMessage"
+                        && method.GetParameters().Length == 1
+                        && method.GetParameters()[0].ParameterType == typeof(CMessageData);
+                    if (target.TypeName == "Choreographer" && target.MethodName == "ProcessMessage" && !message)
+                        continue;
+                    if (message)
+                        VRSession.Harmony!.Patch(method,
+                            prefix: new HarmonyMethod(typeof(PerfNativeLoopProbe), nameof(MessagePrefix)),
+                            finalizer: new HarmonyMethod(typeof(PerfNativeLoopProbe), nameof(MessageFinalizer)));
+                    else
+                        VRSession.Harmony!.Patch(method, prefix: new HarmonyMethod(prefix),
+                            postfix: new HarmonyMethod(postfix));
+                    ByMethod.Add(method, target);
+                    patched++;
                 }
-                VRSession.Harmony!.Patch(method, prefix: new HarmonyMethod(prefix),
-                    postfix: new HarmonyMethod(postfix));
-                ByMethod.Add(method, target);
-                target.Patched = true;
-                target.Fault = string.Empty;
+                target.Patched = patched > 0;
+                target.Fault = target.Patched ? string.Empty : "method unavailable";
             }
             catch (Exception e)
             {
@@ -275,6 +360,10 @@ internal static class PerfNativeLoopProbe
         // up here would add work to every call merely to confirm the registration we made once.
         if (!_sampling && !_spikeCapture)
             return;
+        // ProcessMessage explicitly accepts off-main calls and queues them instead. Those
+        // callbacks must retain native behavior without becoming main-thread frame costs.
+        if (Thread.CurrentThread.ManagedThreadId != _mainThread)
+            return;
         __state.Capture = _captureGeneration;
         __state.Started = Stopwatch.GetTimestamp();
     }
@@ -298,5 +387,30 @@ internal static class PerfNativeLoopProbe
             target.FrameTicks += ticks;
             target.FrameCalls++;
         }
+    }
+
+    private static void MessagePrefix(CMessageData? message, ref ProbeState __state)
+    {
+        Prefix(ref __state);
+        if (__state.Started != 0)
+            __state.MessageIndex = message != null ? (int)message.m_Type : -1;
+    }
+
+    private static Exception? MessageFinalizer(MethodBase __originalMethod, ProbeState __state,
+        Exception? __exception)
+    {
+        Postfix(__originalMethod, __state);
+        if (_spikeCapture && __state.Started != 0 && __state.Capture == _captureGeneration
+            && __state.MessageIndex >= 0 && __state.MessageIndex < _messages.Length)
+        {
+            MessageCost message = _messages[__state.MessageIndex];
+            long ticks = Stopwatch.GetTimestamp() - __state.Started;
+            message.Ticks += ticks;
+            message.Worst = Math.Max(message.Worst, ticks);
+            message.Calls++;
+            if (__exception != null) message.Exceptions++;
+        }
+        // Observe failure completion; never swallow, replace or manufacture native exceptions.
+        return __exception;
     }
 }

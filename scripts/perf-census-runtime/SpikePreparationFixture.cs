@@ -59,7 +59,7 @@ public static class SpikePreparationFixture
             Check(text.ToString().Contains("n/a (no selected callback completed)"),
                 "first native frame excludes synthetic hook calibration");
             PerfNativeLoopProbe.Start();
-            Type actorType=AccessTools.TypeByName("ActorBehaviour");
+            Type actorType=typeof(Choreographer).Assembly.GetType("ActorBehaviour")!;
             object actor=Activator.CreateInstance(actorType)!;
             MethodInfo callback=actorType.GetMethod("Update")!;
             for(int frame=0;frame<155;frame++)
@@ -76,6 +76,28 @@ public static class SpikePreparationFixture
             PerfSpikeDetails.RollFrame(true);text.Clear();PerfSpikeDetails.Append(text);
             Check(!text.ToString().Contains("ActorBehaviour.Update "),
                 "native frame attribution clears previous callbacks");
+            var choreographer = new Choreographer();
+            choreographer.Dispatch(new CMessageData{m_Type=CMessageData.MessageType.Nested});
+            bool preservedFailure=false;
+            try { choreographer.Dispatch(new CMessageData{m_Type=CMessageData.MessageType.Throwing}); }
+            catch(InvalidOperationException error){preservedFailure=error.Message=="original native failure";}
+            PerfSpikeDetails.RollFrame(true);text.Clear();PerfSpikeDetails.Append(text);
+            string native=text.ToString();
+            Check(native.Contains("native previous-frame messages (Debug; inclusive):")
+                  &&native.Contains("ActionSelection ")&&native.Contains("Nested ")&&native.Contains("Throwing "),
+                "original message labels survive nested callbacks after summary cap");
+            Check(native.Contains("exception(s) 1")&&preservedFailure&&choreographer.Processed==3,
+                "message finalizer observes failures without changing original callbacks or exceptions");
+            Check(native.Contains("CardsHandManager.Show ")&&native.Contains("CardsHandUI.UpdateView "),
+                "selected nested native presentation methods retain inclusive substep evidence");
+            PerfSpikeDetails.RollFrame(true);text.Clear();PerfSpikeDetails.Append(text);
+            Check(!text.ToString().Contains("ActionSelection "),
+                "native message ledgers clear before the next frame");
+            var background=new Thread(()=>choreographer.Dispatch(new CMessageData{m_Type=CMessageData.MessageType.ActionSelection}));
+            background.Start();background.Join();
+            PerfSpikeDetails.RollFrame(true);text.Clear();PerfSpikeDetails.Append(text);
+            Check(!text.ToString().Contains("ActionSelection ")&&choreographer.Processed==4,
+                "off-main native dispatch preserves callbacks without charging the main-thread ledger");
             GC.Collect(0);PerfSpikeDetails.RollFrame(true);text.Clear();PerfSpikeDetails.Append(text);
             Check(!text.ToString().Contains("GC collections since previous frame 0/"),
                 "real GC collection delta belongs to the observed boundary");
@@ -84,6 +106,9 @@ public static class SpikePreparationFixture
                 "GC collection deltas do not accumulate into the next frame");
             VRLog.WantsDebug=false;PerfSpikeDetails.RollFrame(true);text.Clear();PerfSpikeDetails.Append(text);
             Check(text.Length==0 && !(bool)typeof(PerfSpikeDetails).GetField("_on",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null)!,"ordinary logging leaves spike resources disabled");
+            choreographer.Dispatch(new CMessageData{m_Type=CMessageData.MessageType.ActionSelection});
+            Check(choreographer.Processed==5,
+                "ordinary logging preserves uninstrumented native message dispatch");
             VRLog.WantsDebug=true;
             game=SceneManager.GetSceneByName("Game");proc=SceneManager.GetSceneByName("ProcGen");
             if(!game.IsValid())game=SceneManager.CreateScene("Game");

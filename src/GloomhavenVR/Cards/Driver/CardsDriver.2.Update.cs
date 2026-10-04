@@ -674,7 +674,8 @@ internal sealed partial class CardsDriver
         if (_dirty)
         {
             _dirty = false;
-            Rebuild(anchor);
+            using (Core.PerfMonitor.Scope("Cards.Rebuild"))
+                Rebuild(anchor);
         }
 
         // Deferred initial placement (test #17): retries until the head has a

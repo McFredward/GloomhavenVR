@@ -124,6 +124,7 @@ internal sealed class CardFan
 
     internal void Open(VRHand hand)
     {
+        using Core.PerfMonitor.Measure timing = Core.PerfMonitor.Scope("Cards.FanOpen");
         if (CardsDriver.BurnLayoutPending) return;
 
         _hand = hand;
@@ -657,6 +658,7 @@ internal sealed class CardFan
     /// </summary>
     internal void SetCards(List<VRCard> cards, bool swap)
     {
+        using Core.PerfMonitor.Measure timing = Core.PerfMonitor.Scope("Cards.FanPublish");
         // The outgoing wave was captured EARLIER, by the driver's BeginSwapOut at the top of the
         // rebuild — it has to be, because the rebuild's park sweep runs before this call and would
         // otherwise have teleported the whole outgoing hand into the pool (see BeginSwapOut). All

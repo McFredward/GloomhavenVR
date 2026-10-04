@@ -2003,6 +2003,7 @@ internal sealed partial class CardsDriver
 
     private VRCard AdoptedCard(AbilityCardUI widget)
     {
+        using Core.PerfMonitor.Measure timing = Core.PerfMonitor.Scope("Cards.AdoptedCard");
         VRCard card = _factory.GetOrCreate(widget);
         if (card.NeedsFace)
             card.AttachGameCard(widget); // re-adopt after a dialog yielded the face

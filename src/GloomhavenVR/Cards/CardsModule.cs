@@ -85,6 +85,8 @@ internal sealed class CardsModule : IVRModule
         // the white action halves). The guard skips only those restarts and replays/heals
         // once the loads are quiet (see Cards/CardArtGuard.cs).
         VRSession.Harmony?.PatchAll(typeof(FullAbilityCard_ShowCard_ArtGuard));
+        VRSession.Harmony?.PatchAll(typeof(FullAbilityCard_UpdateScale_AdoptedLayout));
+        VRSession.Harmony?.PatchAll(typeof(FullAbilityCard_UpdatePosition_AdoptedLayout));
         VRSession.Harmony?.PatchAll(typeof(BurnArtwork.ToggleEffect_PreserveSpentStart_Patch));
         VRSession.Harmony?.PatchAll(typeof(BurnArtwork.ToggleAdditiveEffect_PreservePlayback_Patch));
         VRSession.Harmony?.PatchAll(typeof(BurnArtwork.RestoreCard_PreservePlayback_Patch));
