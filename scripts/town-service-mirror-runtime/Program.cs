@@ -1126,7 +1126,7 @@ public static partial class MirrorProgram
                 native.CardID = 123; native.fullAbilityCard = Go("native-full-face").transform;
                 GloomhavenVR.WorldUI.NativeTemplates.Originals["enchant.tooltip"] = Go("native-folio-price-tooltip").transform;
                 ritual.Handoff = new GloomhavenVR.WorldUI.TownServiceEnhancementHandoff
-                { Card = offeringCard, NativeSource = native, Face = Go("offered-full-face").transform, Zone = Go("palm-zone").transform };
+                { Card = offeringCard, OfferedCardId = 123, NativeSource = native, Face = Go("offered-full-face").transform, Zone = Go("palm-zone").transform };
             }
             GloomhavenVR.WorldUI.TownServicePresentation.Ritual = ritual;
             calls.Clear(); GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
@@ -1141,8 +1141,8 @@ public static partial class MirrorProgram
                     "offered card capacity mirrors the actual native point provenance");
                 var offered = ritual.Handoff!;
                 Check(calls.Exists(c => c.Key == "face.123" && c.Source == offered.Face
-                    && c.Provenance == offered.NativeSource!.fullAbilityCard
-                    && c.CloneOf!(c.Provenance!) == offered.Face), "offered owned card mirrors original face provenance");
+                    && c.Provenance == null && c.CloneOf == null && c.Prewarm),
+                    "offered owned card publishes its actual front independently of pooled native provenance");
                 Check(calls.Exists(c => c.Key == "map.cardbody" && c.Source == offered.Card!.Find("Visual/Backing")),
                     "offered owned card mirrors actual backing");
                 Check(!calls.Exists(c => c.Key == "merchant.zone" && c.Source == offered.Zone), "mage pre-drop card guide remains local while offered face and body stay shared");
@@ -1151,14 +1151,12 @@ public static partial class MirrorProgram
                 && c.CloneOf!(piece.Source) == piece.Content), "physical ritual keeps original native inscription provenance");
             Check(calls.Exists(c => c.Key == piece.BodyKey && c.Source == piece.Body), "ritual mirrors exact physical coin or rune body");
             if (service == 2)
-                Check(calls.FindAll(c => c.Key == "ritual.purse").Count == 2,
-                    "the public bowl's ghost purse and the owner's carried real purse remain separate mirrored objects");
+                Check(calls.FindAll(c => c.Key == "ritual.purse").Count == 1,
+                    "the owner's actual carried purse stays shared while its pre-drop ghost stays local");
             Check(calls.Exists(c => c.Key == piece.DetailKey && c.Source == piece.DetailContent && c.Provenance == piece.DetailSource),
                 "held ritual description mirrors actual owner presentation");
-            Check(service == 2
-                ? calls.Exists(c => c.Key == "ritual.purse" && c.Source == ritual.Zone)
-                : !calls.Exists(c => c.Key == "merchant.zone" && c.Source == ritual.Zone),
-                "priestess ghost purse remains public while mage pre-drop card guide is local only");
+            Check(!calls.Exists(c => c.Source == ritual.Zone),
+                "all town pre-drop guides remain visitor-local while actual offered originals stay shared");
             Check(service == 2 ? calls.Exists(c => c.Key == "temple.level" && c.Source == inscription.Content)
                 : calls.Exists(c => c.Key == "enchant.holder" && c.Source == holder.Panel.Target),
                 "ritual preserves devotion ledger or original ability hotspots");

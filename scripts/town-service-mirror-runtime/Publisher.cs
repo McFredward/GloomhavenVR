@@ -18,7 +18,12 @@ namespace GloomhavenVR.WorldUI
     internal sealed class UIShopItemSlot : MonoBehaviour { }
     internal sealed class UITempleShopSlot : MonoBehaviour { }
     internal sealed class UINewEnhancementShopSlot : MonoBehaviour { }
-    internal sealed class UIEnhanceCardSlot : MonoBehaviour { }
+    internal sealed class UIEnhanceCardSlot : MonoBehaviour
+    { internal AbilityCardUI? AbilityCard; internal readonly List<UIEnhanceCardPoint> enhancementPoints = new(); }
+    internal sealed class UIShopItemInventory : MonoBehaviour { internal readonly List<UIShopItemSlot> slotPool = new(); }
+    internal sealed class UITempleShopInventory : MonoBehaviour { internal readonly List<UITempleShopSlot> slots = new(); }
+    internal sealed class UINewEnhancementShopInventory : MonoBehaviour { internal readonly List<UINewEnhancementShopSlot> slotsPool = new(); }
+    internal sealed class UIPartyCharacterEnhancementAbilityCardsDisplay : MonoBehaviour { internal readonly List<UIEnhanceCardSlot> slotsPool = new(); }
     internal sealed class UIEnhanceCardPoint : MonoBehaviour { }
     internal sealed class UIEnhancementButtonHighlight : MonoBehaviour { }
     internal sealed class ItemCardUI : MonoBehaviour { internal int CardID; }
@@ -78,6 +83,7 @@ namespace GloomhavenVR.WorldUI
         internal sealed class ReturnPresentation { internal Transform? Face, Body, StationRoot; internal int CardId; internal uint Session; internal float SessionAge; }
         internal static readonly List<ReturnPresentation> Returning = new();
         internal Transform? Card, Face, Zone; internal AbilityCardUI? NativeSource;
+        internal int OfferedCardId = -1;
         internal Transform? CloneOf(Transform original) => NativeSource != null && original == NativeSource.fullAbilityCard ? Face : null;
     }
     internal sealed class TownServiceMerchantZone { internal Transform Root = null!; }
@@ -119,6 +125,7 @@ namespace GloomhavenVR.WorldUI
     internal sealed class TownServiceToken
     {
         internal bool IsPhysical, IsMoving, IsHeld;
+        internal bool PhysicalAtHome = true;
         internal GloomhavenVR.Hands.VRHand? HoldingHand;
         internal Transform? HeldContent;
         internal Transform Source = null!;
@@ -135,7 +142,11 @@ namespace GloomhavenVR.WorldUI
         internal static IReadOnlyList<Part> Parts(string key) => OnePart;
         internal static Transform At(Transform source,string path) => source;
         internal static readonly HashSet<Transform> BoundaryRoots = new();
-        internal static bool IsBoundary(Transform source) => BoundaryRoots.Contains(source);
+        internal static bool IsBoundary(Transform source) => BoundaryRoots.Contains(source)
+#if PUBLISHER622
+            || IsDynamic(source)
+#endif
+            ;
         internal static void Resolve(byte service,ushort template,string address)
         { string key=address.Split('|')[0];TownServiceMirror.RegisterTemplate(service,template,Originals[key],IsBoundary,address); }
         internal static bool Ready = true;
@@ -165,7 +176,7 @@ namespace GloomhavenVR.WorldUI
     internal sealed partial class TownServiceSync
     {
         internal sealed class Recorded
-        { internal string Key = ""; internal Transform Source = null!; internal Transform? Provenance; internal Func<Transform, Transform?>? CloneOf; }
+        { internal string Key = ""; internal Transform Source = null!; internal Transform? Provenance; internal Func<Transform, Transform?>? CloneOf; internal bool Prewarm; }
         private sealed class Published
         { internal ushort Id; internal bool Seen; internal string Address = "", Identity = ""; internal Transform Source = null!; internal Func<Transform,bool> Exclude = null!; }
         private sealed class SourceEntry
@@ -186,11 +197,15 @@ namespace GloomhavenVR.WorldUI
         internal static int AllocatedIds => Private._nextId;
         internal static ushort ModuleId(Transform source) => Private.Sources[source].Parts[0].Id;
         internal static int ModuleCount => Private.Modules.Count;
+        internal static bool HasPublishedSource(Transform source) => Private.Sources.TryGetValue(source, out SourceEntry? entry)
+            && entry.Complete && entry.Parts.Count > 0;
         internal static int PublicAllocatedIds => Public._nextId;
         internal static ushort PublicModuleId(Transform source) => Public.Sources[source].Parts[0].Id;
         internal static int PublicModuleCount => Public.Modules.Count;
         internal static int PublicSourceCount => Public.Sources.Count;
-                private void CollectDynamic(Transform source) { }
+#if !PUBLISHER622
+        private void CollectDynamic(Transform source) { }
+#endif
         private void CollectHeldBoundaries(Transform source,Func<Transform,Transform?> clone,HashSet<Transform> excluded) { }
                 internal static int SourceCount => Private.Sources.Count;
         private void PrepareCore() { }
@@ -203,7 +218,7 @@ namespace GloomhavenVR.WorldUI
         private void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null, bool prewarm = false)
         {
             if (source == null) return;
-            Calls.Add(new() { Key = key, Source = source, Provenance = provenance, CloneOf = cloneOf });
+            Calls.Add(new() { Key = key, Source = source, Provenance = provenance, CloneOf = cloneOf, Prewarm = prewarm });
             if (UseProductionPublish) { NativeTemplates.Originals[key] = source; PublishNative(key,source,provenance,cloneOf,prewarm); return; }
             Sources[source] = new() { Seen = true };
             string identity = key + "@" + source.GetInstanceID();
@@ -226,6 +241,7 @@ namespace GloomhavenVR.Cards
 {
     internal sealed partial class ItemsPile
     {
+        internal static bool InspectionUsesAvatarTransport(ItemChip chip) => chip.AvatarTransport;
         internal sealed partial class ItemChip : TransferProbe
         {
             internal GloomhavenVR.WorldUI.ItemCardUI? NativeItemCard;
@@ -233,6 +249,7 @@ namespace GloomhavenVR.Cards
             internal Transform? InspectionBody;
             internal GloomhavenVR.Hands.VRHand? Holder;
             internal bool TownOffering;
+            internal bool AvatarTransport;
             internal Item? Item;
         }
         internal sealed class Item { internal int ID; }
