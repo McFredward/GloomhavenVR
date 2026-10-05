@@ -119,6 +119,16 @@ Instrumented tools use content-addressed generations so future builder changes
 do not mutate older witnessed tools. Metadata inspection accepts a separate
 `managed_dotnet`/.NET 8 command while the pinned exporter uses .NET 10.
 
+The new source seam was actually compiled and exercised on the original core:
+62,879 original managed field recipes and the core packed atlas were captured.
+UIInfoTools (`level1`, pathID 11386) passes its actual native owner/script header
+check and retains the original AreaEffectSpriteAtlas PPtr `(4, 10304)`. A separate
+original GUI/builtin export captured the omitted bundled atlas and 181 genuine
+redirects. Its freshly captured recipe drove an independent 896-object staging
+smoke test, which restored the missing atlas reference and all 895 sprites without
+the precomputed overlay. The production Editor packed-sprite validator passed
+the same 895 imported sprites.
+
 ## Exact compiled shader recovery
 
 Original custom shaders are predominantly stripped D3D11 programs. A generic
@@ -150,6 +160,9 @@ retain original behavior rather than declare a translated fragment alone complet
 - `test_campaign_contracts.py`: 8 checks for scene/graph GUID witnesses, canonical
   path/pointer preservation, exact used-uniform coverage, original resource
   register recovery, matrix/integer packing and original input semantics.
+- `test_native_pointers.py`: 11 checks for exact native field paths, missing-GUID
+  parsing, dependency indices, genuine redirect evidence and witnessed packed
+  Sprite UV/rectangle/stream rules.
 - `py_compile` on the new recovery/builder modules and `git diff --check`.
 
 These checks do not establish correct headset pictures or playable Campaign flow.
