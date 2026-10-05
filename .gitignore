@@ -133,3 +133,6 @@ preview-controllers.log
 
 # Local game-derived shader reports/disassembly; regenerate from a licensed game install.
 /tools/ShaderDisasm/evidence/*.txt
+
+# Quest Wizard sessions, local account selection, downloads and build caches.
+/scripts/.quest-wizard/
