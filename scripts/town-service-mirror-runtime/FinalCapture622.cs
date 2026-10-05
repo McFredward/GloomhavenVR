@@ -107,7 +107,7 @@ namespace GloomhavenVR.Net
     {
         internal bool IsOnline = true; internal int LocalPlayerId = 1;
         internal readonly List<byte[]> Packets = new();
-        internal int Drains;
+        internal int Drains; internal bool SendTownControl(byte[] bytes, int length, bool hostOnly) => true;
         internal void Send(byte[] bytes, int length, object? identity = null)
         {
             if (length <= 0) return;
@@ -150,7 +150,7 @@ namespace GloomhavenVR.Net
         internal bool isActiveAndEnabled = true;
         internal readonly FfsNetTransport _transport = new();
         private object? _decisionHighlightSnapshot;
-        private readonly byte[] _activityBuffer = new byte[1]; private float _nextFaceSend;
+        private readonly byte[] _activityBuffer = new byte[1];
         internal static NetAvatarDriver FixtureInstall() => _instance = new();
         internal static void FixtureWithdraw() => _instance = null;
         private void LogPhaseError(string name, Exception error) => throw new InvalidOperationException(name, error);
@@ -164,6 +164,8 @@ namespace GloomhavenVR.Net
 }
 namespace GloomhavenVR.Net.TownServices
 {
+    internal static class TownMerchantControlSync
+    { internal static Func<byte[],int,bool,bool>? SendReliable; internal static void Tick(FfsNetTransport transport,float now) { } }
     internal static partial class TownServiceGrantSync
     { internal static void Tick(FfsNetTransport transport, float now) { FinalCaptureState.Captures++; FinalCaptureState.Trace.Add("Town.Capture"); } }
 }

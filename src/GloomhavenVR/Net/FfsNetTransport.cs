@@ -300,9 +300,21 @@ internal sealed class FfsNetTransport : INetTransport
     /// grants are broadcast from that host to every modded observer.</summary>
     internal bool SendTownGrant(byte[] payload, int length, bool hostOnly)
     {
+        return length == TownServices.TownServiceGrantCodec.Size
+            && NetPacket.PeekType(payload, length) == TownServices.TownServiceGrantCodec.MessageType
+            && SendReliableTownPacket(payload, length, hostOnly);
+    }
+
+    internal bool SendTownControl(byte[] payload, int length, bool hostOnly)
+    {
+        return TownServices.TownMerchantControlCodec.TryRead(payload, length, out _)
+            && SendReliableTownPacket(payload, length, hostOnly);
+    }
+
+    private bool SendReliableTownPacket(byte[] payload, int length, bool hostOnly)
+    {
         if (_degraded || !_installed || _sendSideAction == null || _customDataCtor == null
-            || !IsOnline || NetSession.FlatNetMode || length != TownServices.TownServiceGrantCodec.Size
-            || length > payload.Length || NetPacket.PeekType(payload, length) != TownServices.TownServiceGrantCodec.MessageType)
+            || !IsOnline || NetSession.FlatNetMode || length <= 0 || length > payload.Length)
             return false;
         try
         {

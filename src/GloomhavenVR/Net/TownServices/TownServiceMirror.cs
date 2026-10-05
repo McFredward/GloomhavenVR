@@ -873,7 +873,7 @@ internal static partial class TownServiceMirror
                         && (now < module.NextRefresh || module.Last != null && module.LastSent < module.Last.Sequence)) continue;
                     frame.Sequence = NextSequence();
                     TownServiceFrame emitted;
-                    if (frame.CatalogBank != null || module.Baseline == null || now >= module.NextBaseline || !TownServiceDelta.Compatible(module.Baseline, frame))
+                    if (UsesNativeTemplateState(frame) || frame.CatalogBank != null || module.Baseline == null || now >= module.NextBaseline || !TownServiceDelta.Compatible(module.Baseline, frame))
                     { emitted = TownServiceDelta.Retain(frame); module.Baseline = emitted; module.NextBaseline = float.PositiveInfinity; }
                     else emitted = TownServiceDelta.Create(module.Baseline, frame);
                     emitted.HighPriority = module.HighPriority || module.WasPriority || NeedsHeartbeat(module);
@@ -929,6 +929,7 @@ internal static partial class TownServiceMirror
     internal static bool ReceiveParsed(int peer, TownServiceFrame frame)
     {
         if (peer <= 0) return false;
+        if (!TryExpandNativeTemplateState(frame, out frame)) return false;
         if (frame.Module == TownServiceFrame.VoiceModule)
         { if (frame.VisitorStock) ReceiveStockVoice(peer, frame); else ReceiveVoice(peer, frame); return true; }
         if (frame!.VisitorStock)
@@ -1052,6 +1053,7 @@ internal static partial class TownServiceMirror
             RetireDestroyedRemoteModules(entry.Key, standing);
             foreach (RemoteModule visible in standing.Values)
             { visible.Motion.Tick(now); visible.Binding.TickAnimation(now); }
+            if (!secondaryVisitor && !stockVisitor && !MagePictureReady(entry.Key, session, pending)) continue;
             bool reorder = false;
             foreach (var packet in OrderCatalogPending(pending))
             {
@@ -1437,6 +1439,7 @@ internal static partial class TownServiceMirror
       foreach (LocalModule module in StockLane.Modules.Values) yield return module; }
     internal static void ResetNetwork()
     {
+        ResetNativeTemplateState();
         ResetMotionNetwork();
         ResetPublicPicture();
         DonationCommits.Clear(); DonationCommitOrder.Clear();

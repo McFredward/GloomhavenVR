@@ -25,7 +25,7 @@ def expression(text, signature):
 def sources(root):
     base = root / "src/GloomhavenVR"
     names = ["TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta",
-             "TownServiceFrame", "TownCatalogBank", "TownCatalogBank.Headers", "TownCatalogClock", "TownServiceMirror.CatalogBank", "TownServiceMirror.CatalogWarm", "TownServiceMirror.NativeTemplateState", "TownRackState", "TownCatalogLayout", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMirror.PublicVisibility", "TownServiceMirror.Offerings", "TownServiceMirror.Voice", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
+             "TownServiceFrame", "TownCatalogBank", "TownCatalogBank.Headers", "TownCatalogClock", "TownServiceMirror.CatalogBank", "TownServiceMirror.CatalogWarm", "TownServiceMirror.NativeTemplateState", "TownServiceMirror.NativePublication", "TownRackState", "TownCatalogLayout", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMirror.PublicVisibility", "TownServiceMirror.Offerings", "TownServiceMirror.Voice", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
     bound['NativePurse.cs'] = (root / 'scripts/town-purse-runtime/NativePurse.cs').read_text()
     bound['TownServicePursePresentation.cs'] = (base / 'WorldUI/TownServices/TownServicePursePresentation.cs').read_text()

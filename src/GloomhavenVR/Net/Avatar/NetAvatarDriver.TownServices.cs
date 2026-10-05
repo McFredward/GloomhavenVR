@@ -16,9 +16,14 @@ internal sealed partial class NetAvatarDriver
     private readonly Dictionary<int, List<TownServiceMotionPacket>> _pendingTownMotion = new();
     private readonly byte[] _activityBuffer = new byte[TownActivityCodec.PacketBytes];
     private float _nextFaceSend, _nextTownCapture;
+    private Func<byte[], int, bool, bool>? _merchantControlSender;
+    private bool SendMerchantControl(byte[] bytes, int length, bool hostOnly) =>
+        _transport is FfsNetTransport ffs && ffs.SendTownControl(bytes, length, hostOnly);
     private void SendTownServices()
     {
         TownServiceGrantSync.Tick(_transport, UnityEngine.Time.unscaledTime);
+        TownMerchantControlSync.SendReliable = _merchantControlSender ??= SendMerchantControl;
+        TownMerchantControlSync.Tick(_transport, UnityEngine.Time.unscaledTime);
         // Original numeric motion and rig packets already run at15 Hz. Sampling and
         // serializing every render frame only rebuilt discarded snapshots between those
         // sends, especially for the complete public cabinet. Keep the final-writer seam
@@ -109,6 +114,6 @@ internal sealed partial class NetAvatarDriver
         }
         if (TownServiceMirror.SharedFrameForRemote != null) TownServiceMirror.TickRemote(TownServiceMirror.SharedFrameForRemote);
     }
-    private void ForgetTownServices(int peer) { _pendingTown.Remove(peer); _pendingTownVoice.Remove(peer); _pendingTownMotion.Remove(peer); TownServiceGrantSync.ForgetPeer(peer); TownServiceMirror.RemovePeer(peer); RemoteTownResidents.Forget(peer); RemoteTownFaces.Forget(peer); RemoteTownActivities.Forget(peer); }
-    private void ResetTownServices() { _pendingTown.Clear(); _pendingTownVoice.Clear(); _pendingTownMotion.Clear(); TownServiceGrantSync.Reset(); TownServiceMirror.ResetNetwork(); RemoteTownResidents.Reset(); RemoteTownFaces.Reset(); RemoteTownActivities.Reset(); _nextFaceSend = _nextTownCapture = 0f; }
+    private void ForgetTownServices(int peer) { _pendingTown.Remove(peer); _pendingTownVoice.Remove(peer); _pendingTownMotion.Remove(peer); TownServiceGrantSync.ForgetPeer(peer); TownMerchantControlSync.ForgetPeer(peer); TownServiceMirror.RemovePeer(peer); RemoteTownResidents.Forget(peer); RemoteTownFaces.Forget(peer); RemoteTownActivities.Forget(peer); }
+    private void ResetTownServices() { _pendingTown.Clear(); _pendingTownVoice.Clear(); _pendingTownMotion.Clear(); TownServiceGrantSync.Reset(); TownMerchantControlSync.Reset(); TownServiceMirror.ResetNetwork(); RemoteTownResidents.Reset(); RemoteTownFaces.Reset(); RemoteTownActivities.Reset(); _nextFaceSend = _nextTownCapture = 0f; }
 }

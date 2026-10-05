@@ -82,7 +82,7 @@ internal static partial class TownServiceMirror
     private static byte[] WriteCatalogPacket(TownServiceFrame frame, Action<byte[], int, object?> send)
     {
         if (frame.CatalogBank == null || !LocalCatalogBanks.TryGetValue(frame.Module, out LocalCatalogBank? bank))
-            return TownServiceCodec.Write(frame);
+            return WriteNativeTownFrame(frame);
         if (!bank.SeparateRepair)
         {
             try { return TownServiceCodec.Write(frame); }
@@ -94,7 +94,7 @@ internal static partial class TownServiceMirror
         {
             TownServiceFrame repair = TownServiceDelta.Retain(original);
             repair.HighPriority = true;
-            byte[] part = TownServiceCodec.Write(repair);
+            byte[] part = WriteNativeTownFrame(repair);
             send(part, part.Length, repair);
         }
         TownServiceFrame reference = TownServiceDelta.Retain(frame);

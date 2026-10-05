@@ -50,7 +50,7 @@ internal static partial class TownServiceMirror
             original.BaseSequence = 0; original.PublicCatalog = true; original.VisitorStock = false;
             original.Service = _service; original.Session = _session; original.PublicClaim = _publicClaim;
             original.HighPriority = false;
-            byte[] packet = TownServiceCodec.Write(original);
+            byte[] packet = WriteNativeTownFrame(original);
             send(packet, packet.Length, original); emitted++;
         }
         // Local completion only releases sender storage. Repeated original rounds

@@ -994,8 +994,13 @@
     },
     {
       "id": "town-catalog-warm",
-      "command": ["python3", "scripts/check-town-catalog-warm.py"],
-      "groups": ["local"],
+      "command": [
+        "python3",
+        "scripts/check-town-catalog-warm.py"
+      ],
+      "groups": [
+        "local"
+      ],
       "weight": 95
     },
     {
@@ -1706,6 +1711,30 @@
         "local"
       ],
       "weight": 5
+    },
+    {
+      "id": "town-temple-tooltip",
+      "command": [
+        "python3",
+        "scripts/check-town-temple-tooltip.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 95
+    },
+    {
+      "id": "town-merchant-control",
+      "command": [
+        "python3",
+        "scripts/check-town-merchant-control.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 50
     }
   ]
 }

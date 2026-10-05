@@ -140,6 +140,11 @@ internal static class NetProtocol
     /// clock. Adds no gameplay action or private card identity to the avatar stream.</summary>
     public const byte ExtIdTownCatalogBank = 102;
     public const byte ExtIdTownCatalogHeaders = 103;
+    /// <summary>Reliable host-coordinated public cabinet presentation input and clock.</summary>
+    public const byte MsgTownMerchantControl = 27;
+    public const byte ExtIdTownMerchantControl = 104;
+    /// <summary>Owner properties against an exact locally available native prefab basis.</summary>
+    public const byte ExtIdTownNativeTemplateState = 105;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -576,7 +581,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 622;
+    public const ushort ModBuild = 623;
+
+    // ModBuild 623 — bounded native NPC publication and reliable common cabinet controls.
+    // Paired Build622 evidence isolated final publication CPU spikes, discarded catalogue
+    // authorship/banks on input, purse identity replacement on pickup, and cold native
+    // enchantment templates. Sample at the existing15 Hz transport clock; reuse decoded
+    // immutable frames and canonical content hashes for pose-only changes. Record104
+    // carries reliable public cabinet inputs to the host and its common analytic clock.
+    // Record105 carries original native property differences against a validated local
+    // prefab basis, with complete repairs; pixels are never transported. A mage picture
+    // is admitted together with its original card, ring and required option rows.
+    // Keep the temple's prepared physical purse identity through wrist/held/return states
+    // and reconstruct its actual original tooltip counter topology without callbacks.
+    // Preserve the canonical avatar/scenario item rendering path confirmed in Build622;
+    // item inspection remains exclusive throughout merchant buy/sell/cancel refreshes.
+    // Automated original-runtime evidence is not a new headset performance measurement.
 
     // ModBuild 622 — paired original NPC publication, canonical merchant items and safe map switches.
     // Both supplied hardware peers were Build620; the observer reports an original TownNpc
