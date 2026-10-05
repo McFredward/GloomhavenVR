@@ -153,3 +153,28 @@ the later narrow borrower fix has its own lifetime/public-bank continuation.
 Neither these probes nor the native-card packet measurements establish a Build622
 headset picture or an instantaneous first cold category. The actual scheduler's
 remaining transfer latency and subsequent fast-clock work are recorded separately.
+
+## Final prepared-clock and lifecycle continuation
+
+Additive103 transmits exact owner headers and genuine property changes against
+validated prepared originals; complete102 snapshots remain queued for loss repair.
+The actual original housing has 34 nodes/7561 bytes. Measured warm scheduler
+completion is 100–300 ms with original 12/24/36/48-face inputs and ordinary competing
+streams. Initial cold completion remains 850–1550 ms; these exclude internet
+transit and rendering. Deliberately saturated loss proof establishes progress,
+not that ordinary latency persists under unrestricted original traffic.
+
+Actual unregister/root replacement/lane disposal now free exact sender slots;
+receiver capacity reclaims only unrequired oldest original modules. Hidden prepared
+cards survive visibility changes. Final source/receiver lifetime and capacity
+probes pass 147/144 assertions, wire82 and final full mirror233471. Corresponding
+causal controls and failed originals are retained in
+`.planning/debug/npc622/warm-proof622/README.md`. The historical `/tmp` execution
+paths above have retained compact copies under the main checkout's merchant,
+bank and warm proof directories; generated worktrees can therefore be removed.
+
+All 308039 golden assertions and remaining integrated build/source/compiled gates
+pass. The final 59-entry compiled audit and explicit continuation ledger are in
+`.planning/debug/npc622/compiled-audit622/compiled-audit-lifecycle-final.json` and
+`.planning/debug/npc622/validation-ledger.json`. Build622 headset parity remains
+to be checked on both peers; source or editor success is not a hardware outcome.

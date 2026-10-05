@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Build622 integration, 2026-10-05: 1.1.0 — final validation in progress.**
+**Build622 integration complete, 2026-10-05: 1.1.0.**
 
 Both supplied NPC hardware peers were Build620 (host Debug, observer Info).
 The integrated review resolves original bank shaders, shared cabinet epochs and
@@ -10,6 +10,35 @@ and bounded loading preparation. Actual labelled purse geometry owns grip, holde
 scale and bowl/return lifetime; the explicitly local temple guide is not published.
 Offered-card aura rotation uses the final original card plane. Normal converted
 service windows retain their contents across City/World map switches.
+
+The actual prepared original catalogue now retains immutable native dependencies
+independently of page visibility. Exact current headers and genuine property
+changes reuse that validated bank; complete snapshots remain the loss-repair
+path. Same-author page changes retain original clones. Real pooled-source
+retirement frees sender slots; bounded receiver reclaim preserves current and
+prepared dependencies. Capture runs after the actual final town pose writers.
+The former cabinet probes did not execute nested iterators or wait for native
+unloads; repaired scheduling and causal controls expose those invalid positives.
+
+The complete local attempt recorded 129 scopes, with 119 direct passes and ten
+retained failures resolved through focused continuations. The current inventory
+adds final capture order and prepared-clock scopes; unchanged successful suites
+were not repeated. Final affected mirror passes 233471 assertions; warm/source
+lifetime and capacity probes pass 147 and 144, with independent wire controls.
+All 14 source scopes, 308039 full golden assertions, both allocation controls,
+strict Release (zero warnings/errors), five EN/DE document pairs and unchanged
+native bundle/figure banks pass. All 660 config keys and 4790 log tokens remain;
+211 patch registrations include the two scoped map-switch hooks. All 59 compiled
+entries (52 changed C# types, six added, one project metadata change) are explained.
+The 3002-file final runtime census and explicit coverage continuation are retained
+in `.planning/debug/npc622/validation-ledger.json`, including original failures.
+
+Prepared clocks with genuine housing and 12/24/36/48 original card captures take
+100–300 ms in the measured ordinary scheduler traffic. Initial cold delivery is
+850–1550 ms. Deliberately saturated loss tests prove progress/recovery, not low
+latency. These exclude internet transit and headset rendering; no Build622
+hardware parity or FPS result is claimed. Both peers must use Build622 for the
+next paired cabinet/fan/purse/enchantment and map-switch check.
 
 The supplied failed rejoin used a truncated code; the complete code connected.
 Native Story admission already accepts the connection, then waits for a fresh

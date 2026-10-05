@@ -1,8 +1,8 @@
 # Build 622 paired NPC review
 
-Status: final causal cabinet and capture-order corrections in progress. The complete
-integrated attempt and every failed scope are retained; limited fixture repairs
-reuse unchanged successful coverage. No Build622 headset result.
+Status: implementation, causal review and integrated validation complete. The
+complete integrated attempt and every failed scope are retained; bounded
+continuations reuse unchanged successful coverage. No Build622 headset result.
 
 ## Inputs
 
@@ -141,7 +141,9 @@ existing datagrams, exceeding its unchanged five-second deadline under saturated
 traffic. The legal 7700-byte presence and 7957-byte writer now fit an 8000-byte
 envelope and ten datagrams. All 32 simultaneous streams complete again without a
 scheduler/deadline change. The original six failed vectors and subsequent limited
-repairs are retained; the final full vector run passed 307957 assertions.
+repairs are retained; that full vector run passed 307957 assertions. The final
+full run including independent prepared-clock and retirement vectors passes
+308039 assertions.
 
 Original bank bounds are based on actual asset measurements, not the earlier
 five-node fixture. The real inactive/inert native ItemCard has 25 nodes and its
@@ -221,3 +223,110 @@ holder/price/control partitions and rendering. They are not headset results or
 proof of an immediate cold-category response. Applying a bank's sampled animation
 age only at receipt also replays an obsolete transition; the corrected playback
 uses a newer, matching native session clock when one has already arrived.
+
+## Prepared originals and measured warm response
+
+The remaining transport delay was measured with the actual original housing,
+not a minimal synthetic clock. Its capture has 34 nodes and 7561 bytes; original
+ItemCard captures remain 17933 bytes each. Sending all original properties again
+for every category clock retains correctness but wastes the prepared receiver bank.
+
+The receiver now retains validated complete originals independently of manifest
+membership and visible clones. The publisher sends genuine dormant originals in
+bounded background rounds, without constructing dormant observer hosts. Each
+module keeps at most three revisions, including its earliest complete basis;
+peer removal, session replacement and template-object replacement are explicit
+lifetime boundaries. A higher claim may reauthorize exact content only for the
+same actual sender, service and session, never another visitor's originals.
+
+Additive record103 carries every current owner header and, where needed, native
+property changes against an explicitly named original content key. Visibility,
+parent, pose, canvas and original rack-member state are authored values, not
+observer guesses. Exact target hashes, complete membership, original templates
+and actual parent bindings are validated before clock/pending admission. Missing
+bases or changed topology reject the reference atomically. A complete record102
+repair remains queued on every original heartbeat; local completion is not an
+acknowledgement. Reference and complete packets with the same source sequence
+survive main-thread coalescing independently.
+
+The first warm implementation also failed its real timing test: a fragmented
+clock yielded to full repair per fragment, and an empty background turn left
+the priority counter permanently above its threshold. The full bank then finished
+before the quick clock. Both defects are corrected: clock completion owns the
+next repair turn, unfinished assemblies keep their namespace, and an empty
+background turn resets arbitration debt. The original global event cap and
+two-urgent/one-background share remain.
+
+With 12/24/36/48 actual ItemCard captures and the complete housing, final warm
+clock assembly takes 100/150/150/150 ms with idle presence and 250/250/300/300 ms
+with representative competing presence, animation and three widget streams.
+The clocks occupy 3/4/4/4 datagrams under the unchanged 864-byte / 50-ms cap.
+The rejected implementation took 900–1700 ms. These deterministic scheduler
+measurements exclude network transit and headset rendering. First cold admission
+still requires complete originals; the measured cold boundary is 850–1550 ms,
+and loss repair remains necessary. No zero-latency cold join is claimed.
+
+The final affected mirror and avatar receive probes pass 233363 and 345
+assertions. A fresh stronger public-bank probe passes 14389 assertions, retaining
+actual root/parent admission, changed original prices, populated far-page body/
+pose, peer lifetime and delayed matching-session playback. Its obsolete
+"no dormant packet" expectation was replaced by an actual complete original
+prewarm check. Earlier causal controls retain their exact unchanged triggering
+paths; failed originals are preserved rather than relabelled as successes.
+
+The new clock proof exercises original template lifetime, exact content keys,
+native property changes, higher same-author claims, missing bases, malformed and
+nested packets, and atomic rejection before pending state mutation. Independent
+literal/CRC vectors and deliberately broken CRC, nested-clock and empty-background
+arbitration controls are included. The complete native bank remains the loss
+repair path; neither transport completion nor a cached key is a remote receipt.
+
+The final lifetime review found another long-session failure: genuinely retired
+native IDs remained in the sender queues and receiver cache. At the 4096-module
+bound new dependencies could be refused until session reset. Explicit unregister,
+native root replacement and lane destruction now publish scoped local retirement
+through fixed 24-KiB bitmaps. The sender removes those exact queues/bases while
+preserving fragment counters and completing an already-started immutable bundle.
+Ordinary off-page visibility does not retire prepared cards.
+
+At receiver capacity, only the oldest unused immutable module is reclaimed;
+current pending, living original clones and active prepared-bank dependencies are
+protected. The sender proof fills actual slots, retires 4000 source IDs and delivers
+a genuine replacement through the assembler. Receiver capacity, actual native
+unregister/replacement/clear hooks, and disabled-retirement controls are exercised.
+Final warm lifetime and receiver probes pass 147 and 144 assertions; independent
+wire checks pass 82. The final changed mirror scope passes 233471 assertions.
+
+The deliberately saturated loss model retains progress and complete repair, but
+its final clock takes 1500 ms and complete loss repair 31 s. It continuously emits
+large original visitor and background traffic plus twelve page interruptions;
+this does not model canonical held-item101 motion or ordinary unchanged stock.
+Earlier stress failures lost the local-only scheduling flag in a test copy and
+reported last heartbeat instead of first arrival. Both invalid measurements are
+retained with the corrected observer. No low saturated-latency claim is made.
+
+## Integrated validation and hardware boundary
+
+The initial complete local attempt is retained with all 129 scopes, including
+its ten original failures. Focused continuations resolve the affected failures;
+unchanged successful scopes are retained with source/runtime binding evidence.
+The current inventory additionally includes final capture order and prepared
+catalogue clocks. The complete local wrapper stopped on the original failures
+before goldens; its remaining phases were resumed explicitly. This is not a
+claim that the original wrapper returned success.
+
+Final source coverage passes all 14 scopes. Strict Release has zero warnings and
+errors; all five EN/DE player-document pairs, original bundle/figure banks, and
+the config/patch/log surface are checked. Full byte/transport vectors pass
+308039 assertions, and both send-allocation causal controls fail at their
+intended assertions. The compiled audit explains every changed production type,
+with no unexplained removal or behavior change. Compact evidence and the exact
+continuation are retained in `.planning/debug/npc622/validation-ledger.json`.
+
+The next paired hardware test must use Build622 on both peers. Check repeated
+category/page changes including an early joiner, item fan and held-card motion,
+wrist/held purse scale and grip, visitor-local drop guides, original enhancement
+rows/scroll/hover, tilted card aura and returned cards. Check ordinary service
+windows across City/World switching and reconnect with the full room code.
+Automated transport/Unity evidence is not a headset picture or measured internet
+latency; first cold dependency delivery remains an explicitly measured boundary.
