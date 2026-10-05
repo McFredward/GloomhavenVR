@@ -273,6 +273,14 @@ namespace GloomhavenVR.WorldUI
         { if (!CanClaim || !rack.Select(category, false)) return false; Claim(); return true; }
         internal static bool TryTurnPage(TownServiceMerchantDrawer rack, int direction)
         { if (!CanClaim || !rack.RequestTurn(direction)) return false; Claim(); return true; }
+        // Network intent arbitration has its own source-bound control fixture.
+        // This fixture retains the native drawer's local mechanical operation.
+        internal static bool TryBeginCrank(TownServiceMerchantDrawer rack) { return CanClaim; }
+        internal static bool CanGrabCrank { get { return true; } }
+        internal static bool IsLocalCrankOwner(int owner) { return true; }
+        internal static void RequestCrankDrag(float leadAngle) { }
+        internal static bool RequestCrankRelease(float leadAngle) { return _catalog?.Drawers[0].RequestTurn(1, leadAngle) ?? false; }
+        internal static void RequestCrankCancel() { }
     }
 }
 namespace GloomhavenVR.Net.TownServices

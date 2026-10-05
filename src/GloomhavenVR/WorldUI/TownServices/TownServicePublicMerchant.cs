@@ -42,7 +42,7 @@ internal static class TownServicePublicMerchant
             // gate disabled all six physical buttons whenever any owner rack member
             // was detached, even though its slot had already been vacated. The local
             // native presentation rows contain the complete public stock without a
-            // selected character; a press elects this visitor as its next author.
+            // selected character; a press operates the host's existing original bank.
             return TownServiceAvailability.NativeUnlocked(1);
         }
     }
@@ -61,6 +61,21 @@ internal static class TownServicePublicMerchant
             || !MapRoomDriver.Active || StoryComposite.PointOfNoReturn) return false;
         return TownMerchantControlSync.RequestPage(direction);
     }
+    internal static bool TryBeginCrank(TownServiceMerchantDrawer rack)
+    { return _catalog != null && ReferenceEquals(_catalog.Drawers[0], rack) && CanClaim
+        && MapRoomDriver.Active && !StoryComposite.PointOfNoReturn && TownMerchantControlSync.RequestCrankGrab(); }
+    internal static bool CanGrabCrank { get { return TownMerchantControlSync.CanGrabCrank; } }
+    internal static bool IsLocalCrankOwner(int owner) { return TownMerchantControlSync.IsLocalCrankOwner(owner); }
+    internal static void RequestCrankDrag(float leadAngle) { TownMerchantControlSync.RequestCrankDrag(leadAngle); }
+    internal static bool RequestCrankRelease(float leadAngle) { return TownMerchantControlSync.RequestCrankRelease(leadAngle); }
+    internal static void RequestCrankCancel() { TownMerchantControlSync.RequestCrankCancel(); }
+    internal static bool CanBeginOriginalCrank
+    { get { return _catalog != null && CanClaim && MapRoomDriver.Active
+        && !StoryComposite.PointOfNoReturn && _catalog.Drawers[0].CanGrab; } }
+    internal static bool ApplyOriginalCrankRelease(float leadAngle)
+    { return _catalog != null && CanClaim && MapRoomDriver.Active && !StoryComposite.PointOfNoReturn
+        && _catalog.Drawers[0].RequestTurn(1, leadAngle); }
+    internal static void ApplySharedCrank(int owner, float leadAngle) { _catalog?.Drawers[0].FollowCrank(owner, leadAngle); }
     internal static bool ApplyOriginalControl(TownMerchantControlOperation operation, int value)
     {
         if (_catalog == null || !CanClaim || !MapRoomDriver.Active || StoryComposite.PointOfNoReturn) return false;

@@ -32,7 +32,7 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     private float _nextStickTurn;
     private int _stickDirection;
     private int _indicatorPage = -1, _indicatorCount;
-    private bool _laser, _disposed, _turning, _swapped;
+    private bool _laser, _disposed, _turning, _swapped, _sharedCrankAcquired;
     internal Transform Root => _root.transform;
     internal Transform Content { get; }
     private readonly Transform[] _rowContents = new Transform[3];
@@ -55,7 +55,8 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     internal bool Accessible => !_turning;
     internal bool Moving => _hand != null || _turning;
     public bool GrabWithGrip => true;
-    public bool CanGrab => !_disposed && _hand == null && !_turning && PageCount > 1 && _alive() && _mayClose();
+    public bool CanGrab => !_disposed && _hand == null && !_turning && PageCount > 1 && _alive() && _mayClose()
+        && TownServicePublicMerchant.CanGrabCrank;
     public bool AllowsHand(VRHand hand) => CanGrab || _hand == hand;
     internal TownServiceMerchantDrawer(Transform parent, int level, bool selling, int category, string label, TMP_Text? font,
         Func<bool> alive, Func<bool> mayClose, Action<TownServiceMerchantDrawer> opening)
@@ -159,6 +160,11 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
         _audio.Begin(TurnEpoch, 0f); return true;
     }
     internal bool RequestTurn() => RequestTurn(1);
+    internal bool RequestTurn(int direction, float leadAngle)
+    {
+        _pull = Mathf.Clamp01(leadAngle / 35f);
+        return RequestTurn(direction);
+    }
     internal bool RequestTurn(int direction)
     {
         if (direction == 0 || _disposed || _hand != null || PageCount <= 1 || !_alive() || !_mayClose()) return false;
@@ -254,7 +260,23 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     internal static Vector3 CardPosition(int index) => TownServiceMerchantLayout.StockPosition(index);
     internal void BeginLaser() => _laser = true;
     public void OnGrab(VRHand hand)
-    { if (!CanGrab) return; TownServicePhysicalRay.Claim(hand); _hand = hand; _cursorStart = Root.parent.InverseTransformPoint(hand.Rig.GrabAnchor.position); _pull = 0f; }
+    { if (!CanGrab || !TownServicePublicMerchant.TryBeginCrank(this)) return; TownServicePhysicalRay.Claim(hand); _hand = hand; _cursorStart = Root.parent.InverseTransformPoint(hand.Rig.GrabAnchor.position); _pull = 0f; _sharedCrankAcquired = false; }
+    internal void FollowCrank(int owner, float leadAngle)
+    {
+        if (_hand != null)
+        {
+            if (owner != 0 && TownServicePublicMerchant.IsLocalCrankOwner(owner))
+            { _sharedCrankAcquired = true; return; }
+            // A pending visitor grab remains local until its reliable claim arrives.
+            // Once acquired, a zero owner represents expiry/release and must also
+            // clear the real grabber rather than leaving an invisible held clutch.
+            if (owner == 0 && !_sharedCrankAcquired) return;
+            VRHand hand = _hand;
+            if (ReferenceEquals(hand.Grabber.Held, this)) hand.Grabber.CancelAll();
+            else OnGrabCancelled(hand);
+        }
+        if (!_turning) Root.localRotation = Quaternion.Euler(owner == 0 ? 0f : -leadAngle, 0f, 0f);
+    }
     internal void Tick(float opacity)
     {
         if (_disposed) return;
@@ -264,6 +286,7 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
             _pull = Mathf.Clamp01((_cursorStart.y - Root.parent.InverseTransformPoint(_hand.Rig.GrabAnchor.position).y) / .10f);
             Root.localRotation = Quaternion.Euler(-35f * _pull, 0f, 0f);
         }
+        if (_hand != null) TownServicePublicMerchant.RequestCrankDrag(_pull * 35f);
         if (_turning)
         {
             _clock += Time.unscaledDeltaTime;
@@ -287,9 +310,9 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     }
     internal void Close() { }
     public void OnRelease(VRHand hand, Vector3 velocity)
-    { if (_hand != hand) return; TownServicePhysicalRay.Claim(hand); _hand = null; TownServicePublicMerchant.TryTurnPage(this, 1); _laser = false; }
+    { if (_hand != hand) return; TownServicePhysicalRay.Claim(hand); _hand = null; TownServicePublicMerchant.RequestCrankRelease(_pull * 35f); _laser = false; _sharedCrankAcquired = false; }
     public void OnGrabCancelled(VRHand hand)
-    { if (_hand == hand) { _hand = null; _laser = false; _pull = 0f; Root.localRotation = Quaternion.identity; } }
+    { if (_hand == hand) { _hand = null; _laser = false; _pull = 0f; _sharedCrankAcquired = false; Root.localRotation = Quaternion.identity; TownServicePublicMerchant.RequestCrankCancel(); } }
     public void Dispose()
     {
         if (_disposed) return; _disposed = true; ContentRoots.Remove(Content); foreach (Transform cards in _rowContents) ContentRoots.Remove(cards); VRInteractables.UnregisterGrabbable(this);

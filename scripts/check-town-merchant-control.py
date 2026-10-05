@@ -2,7 +2,7 @@
 """Exercise actual public cabinet input, host dedup and original drawer clocks in Unity.
 
 Native card/row presenters and transport are declared fixture ports. The production
-Select/RequestTurn bridge, new54-byte wire, host receiver and crank release are bound
+Select/RequestTurn bridge, new62-byte wire, host receiver and crank release are bound
 verbatim. This does not claim hardware render or internet latency parity.
 """
 import argparse
@@ -34,6 +34,8 @@ def main():
     parser.add_argument('--source-root', type=Path, default=ROOT)
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/town-merchant-control')
     parser.add_argument('--no-negative-controls', action='store_true')
+    parser.add_argument('--negative-control', action='append', default=[],
+                        help='Run only the named negative controls with the production case.')
     args = parser.parse_args()
     root = args.source_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -45,7 +47,11 @@ def main():
     bridge = []
     for signature in ('internal static bool TrySelectCategory', 'internal static bool TryTurnPage',
                       'internal static bool ApplyOriginalControl', 'internal static TownRackState? ControlClock',
-                      'internal static void ApplySharedControlClock'):
+                      'internal static void ApplySharedControlClock', 'internal static bool TryBeginCrank',
+                      'internal static bool CanGrabCrank', 'internal static bool IsLocalCrankOwner',
+                      'internal static void RequestCrankDrag', 'internal static bool RequestCrankRelease',
+                      'internal static void RequestCrankCancel', 'internal static bool CanBeginOriginalCrank',
+                      'internal static bool ApplyOriginalCrankRelease', 'internal static void ApplySharedCrank'):
         bridge.append(method(public, signature))
     bound['PublicControl.cs'] = ('using GloomhavenVR.Net.TownServices; using GloomhavenVR.WorldUI.MapRoom; '
                                 'namespace GloomhavenVR.WorldUI; internal static partial class TownServicePublicMerchant { '
@@ -62,7 +68,10 @@ def main():
     fixture = run / 'fixture'; shutil.copytree(root / 'scripts/town-service-catalog-runtime', fixture)
     shutil.copyfile(root / 'scripts/town-merchant-control-runtime/Control.cs', fixture / 'Control.cs')
     boundary = (fixture / 'Boundaries.cs').read_text()
-    for signature in ('internal static bool TrySelectCategory', 'internal static bool TryTurnPage'):
+    for signature in ('internal static bool TrySelectCategory', 'internal static bool TryTurnPage',
+                      'internal static bool TryBeginCrank', 'internal static bool CanGrabCrank',
+                      'internal static bool IsLocalCrankOwner', 'internal static void RequestCrankDrag',
+                      'internal static bool RequestCrankRelease', 'internal static void RequestCrankCancel'):
         boundary = boundary.replace(method(boundary, signature), '')
     boundary = boundary.replace('public static NetworkPlayer? MyPlayer;', 'public static NetworkPlayer? MyPlayer; public static int HostPlayerID;')
     boundary = boundary.replace('internal static readonly HashSet<int> ForeignStock = new();',
@@ -81,14 +90,31 @@ def main():
              'writer.Write(message.Session); writer.Write(message.Sequence);',
              'writer.Write(message.Sequence); writer.Write(message.Session);',
              'public request matches independent byte-exact golden layout'),
-            ('crank-local-bypass', 'TownServiceMerchantDrawer.cs', 'TownServicePublicMerchant.TryTurnPage(this, 1);', 'RequestTurn();',
+            ('crank-local-bypass', 'TownServiceMerchantDrawer.cs', 'TownServicePublicMerchant.RequestCrankRelease(_pull * 35f);', 'RequestTurn();',
              'physical crank release follows the same shared intent'),
             ('duplicate-page-replay', 'TownMerchantControlSync.cs', '!TownMerchantControlCodec.Newer(message.Sequence, previous)', 'false',
              'duplicate reliable request cannot replay the page turn'),
             ('bank-authority-reset', 'PublicControl.cs', 'TownServiceMerchantDrawer rack = _catalog.Drawers[0];',
              'TownServiceMirror.ClaimPublicCatalog(); TownServiceMerchantDrawer rack = _catalog.Drawers[0];',
              'public input preserves the complete prepared original bank'),
+            ('request-nonce-reset', 'TownMerchantControlSync.cs', '_stateSequence = 0;',
+             '_requestSequence = _stateSequence = 0;',
+             'presentation rebuild retains monotone requester nonces against the surviving host'),
+            ('crank-fixed-lead', 'TownServiceMerchantDrawer.cs', '_pull = Mathf.Clamp01(leadAngle / 35f);',
+             '_pull = 0f;',
+             'release relinquishes the shared clutch and continues the original full turn from the visitor'),
+            ('crank-lease-steal', 'TownMerchantControlSync.cs',
+             'if (operation == TownMerchantControlOperation.CrankGrab)\n        {',
+             'if (operation == TownMerchantControlOperation.CrankGrab)\n        { _crankOwner = 0;',
+             'simultaneous public crank grabs cannot steal the first visitor'),
+            ('crank-unbounded-sample', 'TownMerchantControlSync.cs', 'Time.unscaledTime < _nextCrankSend',
+             'false', 'manual crank sampling is bounded to 15 Hz independently of render frequency'),
         ]
+    if args.negative_control:
+        selected = set(args.negative_control)
+        unknown = selected - {variant[0] for variant in variants[1:]}
+        if unknown: parser.error('Unknown negative control: ' + ', '.join(sorted(unknown)))
+        variants = [variant for variant in variants if variant[0] == 'production' or variant[0] in selected]
     unity = Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity'))
     ui = root / 'ressources/GH_Data/Managed/UnityEngine.UI.dll'
     manifest = {'result': str(run / 'results.txt'), 'cases': []}

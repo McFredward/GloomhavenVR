@@ -32,7 +32,7 @@ public static partial class InteractionProgram
         int originals = ObjectPool.Alive, nativeInitializations = UIShopItemSlot.Initializations;
         var transmitted = new List<byte[]>();
         TownMerchantControlSync.SendReliable = (bytes, count, hostOnly) =>
-        { Check(count == 54 && bytes.Length == count, "public control contains 54 metadata bytes and no native artwork"); transmitted.Add(bytes); return true; };
+        { Check(count == 62 && bytes.Length == count, "public control contains 62 metadata bytes and no native artwork"); transmitted.Add(bytes); return true; };
         var hostTransport = new ControlTransport { LocalPlayerId = 1 };
         var peerTransport = new ControlTransport { LocalPlayerId = 2 };
         FFSNet.FFSNetwork.IsOnline = true; FFSNet.PlayerRegistry.HostPlayerID = 1;
@@ -45,21 +45,22 @@ public static partial class InteractionProgram
             "client input sends an intent instead of silently turning a private page");
         byte[] request = transmitted[0]; transmitted.Clear();
         Check(BitConverter.ToString(request).Replace("-", "").ToLowerInvariant()
-            == "31525647031b682d00010102010000000001000000020000000100000000000000000000000000000000000000000000000000000000",
+            == "31525647031b6835000101020100000000010000000200000001000000000000000000000000000000000000000000000000000000000000000000000000",
             "public request matches independent byte-exact golden layout");
         var goldenClock = new TownRackState { Cassette = true, Turn = 0x04030201,
             Elapsed = .25f, LeadAngle = 7.5f, Page = 256, From = 256, To = 257, PageCount = 2, ScrollDirection = 1 };
         var goldenState = new TownMerchantControlMessage(TownMerchantControlKind.State,
-            TownMerchantControlOperation.Snapshot, 0, 0xaabbccdd, 0x01020304, 2, 5, 0x11223344, goldenClock);
+            TownMerchantControlOperation.Snapshot, 0, 0xaabbccdd, 0x01020304, 2, 5, 0x11223344, goldenClock, 3, 17.5f);
         byte[] goldenBytes = TownMerchantControlCodec.Write(in goldenState);
         Check(BitConverter.ToString(goldenBytes).Replace("-", "").ToLowerInvariant()
-            == "31525647031b682d0001020300ddccbbaa040302010200000005000000010203040000803e0000f04000010001010102000144332211",
+            == "31525647031b68350001020300ddccbbaa040302010200000005000000010203040000803e0000f040000100010101020001443322110300000000008c41",
             "public original clock matches independent byte-exact golden layout");
         Check(TownMerchantControlCodec.TryRead(goldenBytes, goldenBytes.Length, out var nativeClock)
             && nativeClock.Session == 0xaabbccdd && nativeClock.Sequence == 0x01020304
             && nativeClock.Clock!.Page == 256 && nativeClock.Clock.From == 256 && nativeClock.Clock.To == 257
             && nativeClock.Clock.Elapsed == .25f && nativeClock.Clock.LeadAngle == 7.5f
-            && nativeClock.Clock.ScrollDirection == 1 && nativeClock.Epoch == 0x11223344,
+            && nativeClock.Clock.ScrollDirection == 1 && nativeClock.Epoch == 0x11223344
+            && nativeClock.CrankOwner == 3 && nativeClock.CrankLeadAngle == 17.5f,
             "independent clock bytes preserve original animation timing direction and control scope");
         Check(TownMerchantControlCodec.TryRead(request, request.Length, out var decoded)
             && decoded.Kind == TownMerchantControlKind.Request && decoded.Requester == 2,
@@ -94,9 +95,42 @@ public static partial class InteractionProgram
         // An actual physical crank release must use the same public request path.
         Set(peerRack, "_turning", false); Set(peerRack, "_clock", 1f);
         var hand = new VRHand(); uint beforeGrab = peerRack.TurnEpoch; transmitted.Clear();
-        peerRack.OnGrab(hand); peerRack.OnRelease(hand, Vector3.zero);
-        Check(peerRack.TurnEpoch == beforeGrab && transmitted.Count == 1,
+        peerRack.OnGrab(hand);
+        hand.Rig.GrabAnchor.position -= peerRack.Root.parent.TransformVector(Vector3.up * .05f);
+        peerRack.Tick(1f);
+        int manualMessages = transmitted.Count;
+        for (int pulse = 0; pulse < 120; pulse++) peerRack.Tick(1f);
+        Check(transmitted.Count == manualMessages, "manual crank sampling is bounded to 15 Hz independently of render frequency");
+        peerRack.OnRelease(hand, Vector3.zero);
+        Check(peerRack.TurnEpoch == beforeGrab && transmitted.Count == 3,
             "physical crank release follows the same shared intent instead of a private local turn");
+        byte[][] manual = transmitted.ToArray(); transmitted.Clear();
+        Check(TownMerchantControlCodec.TryRead(manual[0], manual[0].Length, out var grab)
+            && grab.Operation == TownMerchantControlOperation.CrankGrab
+            && TownMerchantControlCodec.TryRead(manual[1], manual[1].Length, out var drag)
+            && drag.Operation == TownMerchantControlOperation.CrankDrag && Mathf.Abs(drag.CrankLeadAngle - 17.5f) < .001f
+            && TownMerchantControlCodec.TryRead(manual[2], manual[2].Length, out var release)
+            && release.Operation == TownMerchantControlOperation.CrankRelease && Mathf.Abs(release.CrankLeadAngle - 17.5f) < .001f,
+            "manual crank transmits its real grab, intermediate handle angle and final authored lead angle");
+        ControlFixture.LocalPeer = 1; TownServicePublicMerchant.RegisterProbe(host);
+        TownMerchantControlSync.Tick(hostTransport, Time.unscaledTime); transmitted.Clear();
+        Set(hostRack, "_turning", false); Set(hostRack, "_clock", 1f);
+        TownMerchantControlSync.Receive(2, manual[0], manual[0].Length);
+        Check(TownMerchantControlSync.CrankOwner == 2 && !hostRack.CanGrab,
+            "first public crank visitor owns only the bounded shared handle clutch");
+        var competing = new TownMerchantControlMessage(TownMerchantControlKind.Request, TownMerchantControlOperation.CrankGrab,
+            0, 0, 1, 3, 1, 0);
+        byte[] competingBytes = TownMerchantControlCodec.Write(in competing);
+        TownMerchantControlSync.Receive(3, competingBytes, competingBytes.Length);
+        Check(TownMerchantControlSync.CrankOwner == 2,
+            "simultaneous public crank grabs cannot steal the first visitor's intermediate movement");
+        TownMerchantControlSync.Receive(2, manual[1], manual[1].Length);
+        Check(Quaternion.Angle(hostRack.Root.localRotation, Quaternion.Euler(-17.5f, 0f, 0f)) < .01f,
+            "author crank immediately uses the visitor's actual intermediate hand angle");
+        TownMerchantControlSync.Receive(2, manual[2], manual[2].Length);
+        Check(TownMerchantControlSync.CrankOwner == 0 && hostRack.TurnEpoch == 2
+            && Mathf.Abs(hostRack.LeadAngle - 17.5f) < .001f,
+            "release relinquishes the shared clutch and continues the original full turn from the visitor's angle");
         UnityEngine.Object.DestroyImmediate(hand.Rig.GrabAnchor.gameObject);
         // Measure production Select/RequestTurn + codec + dedup at its real call site.
         ControlFixture.LocalPeer = 1; TownServicePublicMerchant.RegisterProbe(host);
@@ -110,11 +144,48 @@ public static partial class InteractionProgram
             TownMerchantControlSync.Receive(2, bytes, bytes.Length);
         }
         timer.Stop();
-        Check(hostRack.TurnEpoch == 1001 && ObjectPool.Alive == originals
+        Check(hostRack.TurnEpoch == 1002 && ObjectPool.Alive == originals
             && UIShopItemSlot.Initializations == nativeInitializations && TownServiceMirror.AuthorityClaims == 0,
             "1000 source control events do zero native card rebuilds and zero catalogue authority migrations");
         Console.WriteLine("MERCHANT_CONTROL events=1000 elapsed_ms=" + timer.Elapsed.TotalMilliseconds.ToString("F3")
             + " bytes_per_event=" + TownMerchantControlCodec.Size + " native_widget_rebuilds=0 authority_migrations=0");
+        // A category press remains a normal public operation independent of the
+        // transaction owner or selected character, and uses the exact native drawer.
+        var category = new TownMerchantControlMessage(TownMerchantControlKind.Request,
+            TownMerchantControlOperation.Category, 5, 0, 2, 3, 2, 0);
+        byte[] categoryBytes = TownMerchantControlCodec.Write(in category);
+        TownMerchantControlSync.Receive(3, categoryBytes, categoryBytes.Length);
+        Check(hostRack.ToPage == 5 * 256 && hostRack.TurnEpoch == 1003 && ObjectPool.Alive == originals
+            && UIShopItemSlot.Initializations == nativeInitializations,
+            "an unassigned third visitor's category intent uses the original common page without native card reconstruction");
+        Set(hostRack, "_turning", false); Set(hostRack, "_clock", 1f);
+        var timedGrab = new TownMerchantControlMessage(TownMerchantControlKind.Request,
+            TownMerchantControlOperation.CrankGrab, 0, 0, 3, 3, 3, 0);
+        byte[] timedBytes = TownMerchantControlCodec.Write(in timedGrab);
+        TownMerchantControlSync.Receive(3, timedBytes, timedBytes.Length);
+        Check(TownMerchantControlSync.CrankOwner == 3, "third visitor can acquire a released physical clutch");
+        TownMerchantControlSync.Tick(hostTransport, Time.unscaledTime + 3f);
+        Check(TownMerchantControlSync.CrankOwner == 0 && hostRack.CanGrab,
+            "abandoned crank ownership expires without stranding public controls or invalidating originals");
+        var hostHand = new VRHand(); hostRack.OnGrab(hostHand);
+        TownMerchantControlSync.Tick(hostTransport, Time.unscaledTime);
+        Check(TownMerchantControlSync.CrankOwner == 1 && hostRack.Moving,
+            "local physical author uses the same bounded crank ownership");
+        TownMerchantControlSync.Tick(hostTransport, Time.unscaledTime + 3f);
+        Check(TownMerchantControlSync.CrankOwner == 0 && !hostRack.Moving && hostRack.CanGrab,
+            "expiry clears the actual local hand clutch instead of retaining a stale physical grab");
+        UnityEngine.Object.DestroyImmediate(hostHand.Rig.GrabAnchor.gameObject);
+        ControlFixture.LocalPeer = 2; TownServicePublicMerchant.RegisterProbe(peer);
+        TownMerchantControlSync.Tick(peerTransport, Time.unscaledTime); transmitted.Clear();
+        Check(TownServicePublicMerchant.TrySelectCategory(peerRack, 1), "peer control before a presentation reset is queued");
+        Check(TownMerchantControlCodec.TryRead(transmitted[0], transmitted[0].Length, out var beforeReset),
+            "peer control before reset retains a valid nonce");
+        TownMerchantControlSync.Reset(); transmitted.Clear();
+        TownMerchantControlSync.Tick(peerTransport, Time.unscaledTime);
+        Check(TownServicePublicMerchant.TrySelectCategory(peerRack, 2), "peer control after a presentation reset is queued");
+        Check(TownMerchantControlCodec.TryRead(transmitted[0], transmitted[0].Length, out var afterReset)
+            && TownMerchantControlCodec.Newer(afterReset.Sequence, beforeReset.Sequence),
+            "presentation rebuild retains monotone requester nonces against the surviving host");
         TownMerchantControlSync.Reset(); TownServicePublicMerchant.DetachProbe(); FFSNet.FFSNetwork.IsOnline = false;
     }
 }
