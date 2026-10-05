@@ -456,4 +456,20 @@ class SourceHistoryTests(Fixture):
         fetch=next(row for row in calls if 'fetch' in row);self.assertEqual(fetch[-1],chosen);self.assertEqual(fetch[fetch.index('--depth')+1],'1')
         self.assertEqual(proof['commit'],chosen)
 
+
+class ExternalRunnerTests(Fixture):
+    def test_rejected_run_cannot_overwrite_another_servers_live_session(self):
+        saved=self.plan();ui=self.root/'ui';ui.mkdir();(ui/'index.html').write_text('UI')
+        engine=mock.Mock();engine.run.side_effect=state.WizardError('already_running','other owner')
+        http=server.LocalServer(self.store,ui,engine_factory=lambda _:engine)
+        try:
+            with state.file_lock(self.store.root/'run.lock'):
+                saved['status']='running';self.store.save(saved)
+                before=(self.store.session_dir(saved['session'])/'state.json').read_bytes()
+                http.run_session(saved['session']);http.jobs[saved['session']].join(timeout=3)
+                self.assertFalse(http.jobs[saved['session']].is_alive())
+                self.assertEqual((self.store.session_dir(saved['session'])/'state.json').read_bytes(),before)
+                self.assertEqual(http.job_errors[saved['session']]['code'],'already_running')
+        finally:http.close_owned()
+
 if __name__=='__main__':unittest.main()

@@ -63,6 +63,7 @@ class LocalServer(ThreadingHTTPServer):
         self.token = secrets.token_urlsafe(32)
         self.engine_factory, self.discover = engine_factory, discover
         self.jobs, self.jobs_lock, self.browse_lock = {}, threading.Lock(), threading.Lock()
+        self.job_errors = {}
         self.artwork_cache, self.artwork_lock = {}, threading.Lock()
         super().__init__(("127.0.0.1", port), Handler)
         self.origin = "http://127.0.0.1:" + str(self.server_address[1])
@@ -106,6 +107,7 @@ class LocalServer(ThreadingHTTPServer):
         value = dict(state)
         value["artwork"] = [{"id": row["id"], "url": "/api/artwork?session=" + session + "&id=" + row["id"], "altCode": row["altCode"]} for row, _ in rows]
         value["capabilities"] = {"artwork": bool(rows)}
+        if session in self.job_errors: value["requestError"] = self.job_errors[session]
         return value
 
     def run_session(self, session):
@@ -116,12 +118,18 @@ class LocalServer(ThreadingHTTPServer):
             def work():
                 try: self.engine_factory(self.store).run(session)
                 except (WizardError, OSError, ValueError) as error:
-                    state = self.store.load(session)
                     code = error.code if isinstance(error, WizardError) else "stage_failed"
                     message = error.message if isinstance(error, WizardError) else {"en": str(error), "de": str(error)}
+                    if code == "already_running":
+                        # Another server owns the durable session. A rejected
+                        # request must never overwrite that runner's live state.
+                        self.job_errors[session] = {"code": code, "message": message}
+                        return
+                    state = self.store.load(session)
                     state.update(status="blocked", needsActions=[{"code": code, "message": message}])
                     self.store.event(state, code)
             job = threading.Thread(target=work, name="quest-wizard-" + session, daemon=False)
+            self.job_errors.pop(session, None)
             self.jobs[session] = job; job.start()
 
     def close_owned(self):
