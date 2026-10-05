@@ -934,6 +934,8 @@ def validate_apk(apk: Path, report: Path, inputs: dict, tools: dict, output: Pat
                 "package": PACKAGE, "profileSha256": digest(
                     output / "identities" / inputs["profileKey"] / "quest-profile.json"),
                 "unityVersion": tools["unityVersion"], "buildResult": "Succeeded"}
+    if inputs["target"] == "game":
+        expected["graphicsApi"] = "Vulkan"
     for field, value in expected.items():
         if metadata.get(field) != value:
             raise BuildError("Unity build evidence disagrees with selected inputs: " + field)
@@ -1079,7 +1081,7 @@ def bind_startup_package_apis(args, output: Path, source: Path, project: Path,
     """
     sdk = project / "QuestStartupEvidence/PlayerSdk"
     env = dict(os.environ)
-    env.update({"GHVR_QUEST_PACKAGE": PACKAGE, "GHVR_QUEST_ANDROID_SDK": tools["androidSdk"],
+    env.update({"GHVR_QUEST_PACKAGE": PACKAGE, "GHVR_QUEST_TARGET": args.target, "GHVR_QUEST_ANDROID_SDK": tools["androidSdk"],
                 "GHVR_QUEST_ANDROID_NDK": tools["androidNdk"], "GHVR_QUEST_JDK": tools["jdk"]})
     command([tools["editor"], "-batchmode", "-nographics", "-quit", "-projectPath", str(project),
              "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuild.CompileStartupSdk", "-logFile",

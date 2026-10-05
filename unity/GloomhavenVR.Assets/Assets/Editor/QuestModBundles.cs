@@ -88,22 +88,22 @@ namespace GloomhavenVR
             if (Application.unityVersion != "2021.3.5f1") throw new InvalidOperationException("Android mod bundles require exact Unity2021.3.5f1.");
             if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.Android)
                 throw new InvalidOperationException("Launch the private mod-art project with -buildTarget Android.");
-            // Retain the standalone linear/GLES compiler contract. Mono banks
-            // serve the current mod's MultiPass player; this compiler setting
-            // also permits stereo-capable authored programs without choosing the
-            // generated player's OpenXR session mode.
-            PlayerSettings.colorSpace = ColorSpace.Linear;
-            PlayerSettings.stereoRenderingPath = StereoRenderingPath.SinglePass;
-            PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
-            PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] { GraphicsDeviceType.OpenGLES3 });
-            string configured = Environment.GetEnvironmentVariable("GHVR_QUEST_MOD_BUNDLE_OUTPUT");
-            if (string.IsNullOrWhiteSpace(configured) || !Path.IsPathRooted(configured))
-                throw new InvalidOperationException("GHVR_QUEST_MOD_BUNDLE_OUTPUT must select fresh absolute private output.");
-            string output = Path.GetFullPath(configured);
             string fullGameValue = Environment.GetEnvironmentVariable("GHVR_QUEST_MOD_FULL_GAME");
             if (!string.IsNullOrEmpty(fullGameValue) && fullGameValue != "0" && fullGameValue != "1")
                 throw new InvalidOperationException("GHVR_QUEST_MOD_FULL_GAME must be 0 or 1.");
             bool fullGame = fullGameValue == "1";
+            var graphicsApi = fullGame ? GraphicsDeviceType.Vulkan : GraphicsDeviceType.OpenGLES3;
+            // Full Campaign preserves the original D3D reversed-depth and UV
+            // conventions through Vulkan. Startup/probe retain their GLES banks.
+            // The bank's compiler setting is independent of the XR session mode.
+            PlayerSettings.colorSpace = ColorSpace.Linear;
+            PlayerSettings.stereoRenderingPath = StereoRenderingPath.SinglePass;
+            PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
+            PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] { graphicsApi });
+            string configured = Environment.GetEnvironmentVariable("GHVR_QUEST_MOD_BUNDLE_OUTPUT");
+            if (string.IsNullOrWhiteSpace(configured) || !Path.IsPathRooted(configured))
+                throw new InvalidOperationException("GHVR_QUEST_MOD_BUNDLE_OUTPUT must select fresh absolute private output.");
+            string output = Path.GetFullPath(configured);
             string project = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
             if (output == project || output.StartsWith(project + Path.DirectorySeparatorChar, StringComparison.Ordinal)
                 || project.StartsWith(output + Path.DirectorySeparatorChar, StringComparison.Ordinal)
@@ -229,7 +229,7 @@ namespace GloomhavenVR
                 unityVersion = Application.unityVersion, assetNames = assets.ToArray(), requiredAssetNames = RequiredAssets,
                 sourceFiles = sources, builtinDependencies = dependencies.Where(p => !File.Exists(p)).OrderBy(p => p, StringComparer.Ordinal).ToArray(),
                 bundle = banks[0].bundle, bundles = banks.Select(bank => bank.bundle).ToArray(), banks = banks,
-                townBanksIncluded = fullGame
+                townBanksIncluded = fullGame, graphicsApi = graphicsApi.ToString()
             };
             receipt.bundle.path = BundleName;
             File.WriteAllText(Path.Combine(output, "quest-mod-bundles.json"), JsonUtility.ToJson(receipt, true));

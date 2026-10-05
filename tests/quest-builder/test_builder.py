@@ -312,6 +312,7 @@ class ApkTests(Temporary):
     def campaign_fixture(self, omit=None, input_key=None):
         self.inputs["target"] = "game"
         self.metadata["target"] = "game"
+        self.metadata["graphicsApi"] = "Vulkan"
         storage.write_json(self.evidence, self.metadata)
         self.fixture_apk()
         bank = self.apk.parent / "GloomhavenVR-Quest-content.zip"
@@ -333,6 +334,13 @@ class ApkTests(Temporary):
         self.assertEqual(evidence["contentFiles"], [storage.record_file(bank, bank.name)])
         bank.write_bytes(b"changed")
         with self.assertRaisesRegex(storage.BuildError, "content bank changed"):
+            builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+
+    def test_campaign_requires_original_depth_compatible_graphics_backend(self):
+        self.campaign_fixture()
+        self.metadata["graphicsApi"] = "OpenGLES3"
+        storage.write_json(self.evidence, self.metadata)
+        with self.assertRaisesRegex(storage.BuildError, "selected inputs: graphicsApi"):
             builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
 
     def test_campaign_rejects_missing_executable_or_wrong_bank_owner(self):

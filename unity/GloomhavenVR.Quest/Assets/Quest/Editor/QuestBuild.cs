@@ -26,7 +26,7 @@ namespace GloomhavenVR.Quest.Editor
         {
             public int schema = 1;
             public string target, inputKey, package, profileSha256, unityVersion, buildResult;
-            public string il2CppCompilerConfiguration, additionalIl2CppArgs, stereoRenderingPath, openXrRenderMode;
+            public string il2CppCompilerConfiguration, additionalIl2CppArgs, stereoRenderingPath, openXrRenderMode, graphicsApi;
             public bool incrementalGc;
             public string[] scenes;
         }
@@ -111,7 +111,8 @@ namespace GloomhavenVR.Quest.Editor
                 additionalIl2CppArgs = PlayerSettings.GetAdditionalIl2CppArgs(),
                 incrementalGc = PlayerSettings.gcIncremental,
                 stereoRenderingPath = PlayerSettings.stereoRenderingPath.ToString(),
-                openXrRenderMode = OpenXRSettings.GetSettingsForBuildTargetGroup(BuildTargetGroup.Android).renderMode.ToString()
+                openXrRenderMode = OpenXRSettings.GetSettingsForBuildTargetGroup(BuildTargetGroup.Android).renderMode.ToString(),
+                graphicsApi = string.Join(",", PlayerSettings.GetGraphicsAPIs(BuildTarget.Android).Select(api => api.ToString()))
             }, true));
             if (report.summary.result != BuildResult.Succeeded)
                 throw new InvalidOperationException("Android build failed: " + report.summary.result + ", errors=" + report.summary.totalErrors);
@@ -152,7 +153,12 @@ namespace GloomhavenVR.Quest.Editor
             PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevel30;
             PlayerSettings.colorSpace = ColorSpace.Linear;
             PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
-            PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] { GraphicsDeviceType.OpenGLES3 });
+            bool fullCampaign = Environment.GetEnvironmentVariable("GHVR_QUEST_TARGET") == "game";
+            // Original Windows DXBC embeds reversed-depth and top-origin UV math.
+            // Unity's Vulkan branch has those same conventions; GLES does not.
+            // Keep the existing diagnostic backends and desktop settings intact.
+            PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] {
+                fullCampaign ? GraphicsDeviceType.Vulkan : GraphicsDeviceType.OpenGLES3 });
             // The current mod's authored shaders and per-eye callbacks require
             // MultiPass. Query its public contract so future mod changes remain
             // authoritative; the independent hardware probe can still use SPI.

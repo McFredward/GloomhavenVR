@@ -50,7 +50,7 @@ class AuthoredBankTests(unittest.TestCase):
                           "dependencies": [], "bundle": row})
         declared = self.files if full else [row for row in self.files if not row["path"].startswith(mod_assets.TOWN_ROOT)]
         result = {"schema": 1, "target": "Android", "unityVersion": "2021.3.5f1", "bundleName": mod_assets.MAIN,
-                  "graphicsApi": "OpenGLES3", "colorSpace": "Linear", "stereoRenderingPath": "SinglePass",
+                  "graphicsApi": "Vulkan" if full else "OpenGLES3", "colorSpace": "Linear", "stereoRenderingPath": "SinglePass",
                   "typeTreesEnabled": True, "chunkBasedCompression": True, "townBanksIncluded": full,
                   "assetNames": list(self.main), "requiredAssetNames": list(self.main),
                   "bundle": records[0], "bundles": records, "banks": banks, "sourceFiles": declared}
@@ -84,7 +84,7 @@ class AuthoredBankTests(unittest.TestCase):
             ("desktop", lambda receipt: receipt.update(target="StandaloneWindows64")),
             ("startup only", lambda receipt: receipt.update(townBanksIncluded=False)),
             ("no type trees", lambda receipt: receipt.update(typeTreesEnabled=False)),
-            ("wrong GPU", lambda receipt: receipt.update(graphicsApi="Vulkan")),
+            ("wrong GPU", lambda receipt: receipt.update(graphicsApi="OpenGLES3")),
             ("wrong stereo", lambda receipt: receipt.update(stereoRenderingPath="MultiPass")),
             ("missing voice file", lambda receipt: receipt["bundles"].pop()),
             ("missing voice bank", lambda receipt: receipt["banks"].pop()),

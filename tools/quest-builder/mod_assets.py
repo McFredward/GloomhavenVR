@@ -52,7 +52,7 @@ def validate_bundle_set(folder: Path, authored: Path, source_files: list[dict], 
     except (OSError, ValueError) as error:
         raise BuildError("Authored Android mod bank receipt is missing or unreadable.") from error
     contract = {"schema": 1, "target": "Android", "unityVersion": "2021.3.5f1", "bundleName": MAIN,
-                "graphicsApi": "OpenGLES3", "colorSpace": "Linear", "stereoRenderingPath": "SinglePass",
+                "graphicsApi": "Vulkan" if full_game else "OpenGLES3", "colorSpace": "Linear", "stereoRenderingPath": "SinglePass",
                 "typeTreesEnabled": True, "chunkBasedCompression": True, "townBanksIncluded": full_game}
     if not isinstance(receipt, dict) or any(receipt.get(name) != value for name, value in contract.items()):
         raise BuildError("Authored mod banks have an unsupported Android rendering/full-game contract.")
