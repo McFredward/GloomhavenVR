@@ -170,6 +170,103 @@ public static partial class MirrorProgram
         File.WriteAllText(Path.Combine(_output, "native-state623-wire-cost.txt"),
             "Original bytes=" + full.Length + "; unchanged native bytes=" + unchanged.Length
             + "; changed native bytes=" + current.Length + "; complete native nodes=" + changed.Nodes.Length + "\n");
+        IEnumerator bankProof = NativeBankSplit623(); while (bankProof.MoveNext()) yield return bankProof.Current;
+        yield return null;
+    }
+
+    private static IEnumerator NativeBankSplit623()
+    {
+        TownServiceMirror.Shutdown(); Baselines.Clear(); GloomhavenVR.Net.NetPlayerActors.Peer = 1;
+        Transform author = Go("oversized original catalog author").transform;
+        Transform viewer = Go("oversized original catalog observer").transform;
+        Transform rack = Go("Original native oversized rack", author).transform;
+        Transform crank = Go("Original native oversized crank", rack).transform;
+        TownServiceMirror.RegisterTemplate(1, 1, rack, child => child == crank, "merchant.rack|");
+        TownServiceMirror.RegisterTemplate(1, 1, crank, address: "merchant.crank|");
+        TownServiceFrame root = NativeFrame623(rack, 200, 1, "merchant.rack|");
+        root.Service = 1; root.PublicCatalog = true; root.PublicClaim = 1; root.Session = 624;
+        root.Sequence = 100;
+        using (var rootBinding = new TownServiceBinding(rack, child => child == crank))
+        { root.Nodes = rootBinding.Read(TownServiceMirror.Assets); root.Structure = rootBinding.Structure; }
+        root.Rack = new TownRackState { Crank = 201, Turn = 9, Members = new TownRackMember[8] };
+        var originals = new TownServiceFrame[8]; var references = new TownCatalogBankMember[8];
+        var random = new System.Random(623); const string letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        for (int i = 0; i < originals.Length; i++)
+        {
+            ushort id = (ushort)(210 + i);
+            Transform row = Rect("Original native catalog inscription", author, Vector2.zero, new Vector2(400, 60));
+            var label = row.gameObject.AddComponent<TextMeshProUGUI>();
+            label.font = TMP_Settings.defaultFontAsset; label.richText = false; label.fontSize = 20 + i;
+            var text = new char[12000];
+            for (int j = 0; j < text.Length; j++) text[j] = letters[random.Next(letters.Length)];
+            label.text = new string(text);
+            TownServiceMirror.RegisterTemplate(1, 1, row, address: "merchant.row|");
+            TownServiceFrame original = NativeFrame623(row, id, 1, "merchant.row|");
+            original.Service = 1; original.PublicCatalog = true; original.PublicClaim = root.PublicClaim;
+            original.Session = root.Session; original.Sequence = (ulong)(2 + i);
+            original.RackMember = new TownRackStamp { Rack = root.Module, Turn = root.Rack.Turn };
+            originals[i] = original; references[i] = new TownCatalogBankMember(id, TownCatalogBank.ContentKey(original));
+            root.Rack.Members[i] = new TownRackMember(id, 0, false);
+        }
+        root.CatalogBank = new TownCatalogBank { Prepared = true, Members = references, Updates = originals };
+        bool packedOverflow = false;
+        try { TownServiceCodec.Write(root); }
+        catch (InvalidDataException error) { packedOverflow = error.Message == "Original catalog updates exceed the packed bank bound."; }
+        Check(packedOverflow, "actual captured original catalog exceeds the packed bank envelope");
+        var repairs = new List<byte[]>(); byte[] reference;
+        using (TownServiceMirror.UsePublicLane())
+        {
+            TownServiceMirror.BeginSession(1, root.Session, author, rack);
+            TownServiceMirror.SetCatalogBankPrepared(root.Module, true);
+            Action<byte[], int, object?> send = (bytes, length, identity) =>
+            {
+                Check(bytes.Length == length && identity is TownServiceFrame tagged && tagged.HighPriority,
+                    "actual bank splitter emits complete independently tagged original repairs");
+                repairs.Add(bytes);
+            };
+            reference = (byte[])typeof(TownServiceMirror).GetMethod("WriteCatalogPacket", PrivateStatic)!
+                .Invoke(null, new object[] { root, send })!;
+            TownServiceMirror.EndSession();
+        }
+        Check(repairs.Count == originals.Length, "oversized native catalog retains every exact original repair");
+        Check(TownServiceCodec.TryRead(reference, reference.Length, out TownServiceFrame? clock)
+            && clock!.CatalogBank!.Prepared && clock.CatalogBank.Updates.Length == 0
+            && clock.CatalogBank.Headers.Length == originals.Length,
+            "split reference retains every current original header for atomic dependency admission");
+        for (int i = 0; i < repairs.Count; i++)
+        {
+            Check(TownServiceCodec.TryRead(repairs[i], repairs[i].Length, out TownServiceFrame? sparse)
+                && TownServiceMirror.TryExpandNativeTemplateState(sparse!, out _),
+                "split original repair preserves native metadata through the real codec");
+            TownServiceCodec.TryRead(repairs[i], repairs[i].Length, out sparse);
+            TownServiceMirror.TryExpandNativeTemplateState(sparse!, out TownServiceFrame actual);
+            AssertNativeEqual623(originals[i], actual);
+            Check(TownCatalogBank.ContentKey(actual) == references[i].ContentKey,
+                "every split original retains its exact content identity");
+        }
+        GloomhavenVR.Net.NetPlayerActors.Peer = 10;
+        Check(!TownServiceMirror.Receive(2, reference, reference.Length),
+            "reference clock cannot expose a catalog before its original repairs arrive");
+        for (int i = 0; i < repairs.Count - 1; i++) Receive(2, new[] { repairs[i] });
+        Check(!TownServiceMirror.Receive(2, reference, reference.Length),
+            "one missing original keeps the complete prepared catalog unadmitted");
+        Receive(2, new[] { repairs[repairs.Count - 1] });
+        Check(TownServiceMirror.Receive(2, reference, reference.Length),
+            "actual split bank admits immediately after its final exact original repair");
+        var pending = (Dictionary<int, Dictionary<ushort, TownServiceFrame>>)typeof(TownServiceMirror)
+            .GetField("Pending", PrivateStatic)!.GetValue(null)!;
+        Check(pending.TryGetValue(-2, out var full) && full.ContainsKey(root.Module),
+            "admitted reference retains the actual full prepared catalog root");
+        foreach (TownServiceFrame original in originals)
+        {
+            Check(full!.TryGetValue(original.Module, out TownServiceFrame? restored),
+                "all repaired original branches enter the exact prepared picture");
+            AssertNativeEqual623(original, restored!);
+        }
+        File.WriteAllText(Path.Combine(_output, "native-bank-split623.txt"),
+            "Packed original bank exceeded 56320 B; repairs=" + repairs.Count
+            + "; reference=" + reference.Length + " B; current headers=" + clock!.CatalogBank!.Headers.Length
+            + "; no dependency loss; final repair admits complete original catalog\n");
         yield return null;
     }
 

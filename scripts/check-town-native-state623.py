@@ -18,7 +18,8 @@ def main():
     parser.add_argument('--source-root', type=Path, default=ROOT)
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/town-native-state623')
     parser.add_argument('--no-negative-controls', action='store_true')
-    parser.add_argument('--negative-control', action='append', choices=['inert-artwork', 'owner-text', 'complete-picture'])
+    parser.add_argument('--bank-split-only', action='store_true')
+    parser.add_argument('--negative-control', action='append', choices=['inert-artwork', 'owner-text', 'complete-picture', 'split-headers'])
     args = parser.parse_args()
     root = args.source_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -34,6 +35,10 @@ def main():
                 var state = NativeState623(); while (state.MoveNext()) yield return state.Current;
                 File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\\n"); yield break;
             }
+            if (suite == "native-bank-split623") {
+                var bank = NativeBankSplit623(); while (bank.MoveNext()) yield return bank.Current;
+                File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\\n"); yield break;
+            }
 '''
     text = program.read_text()
     if text.count(anchor) != 1: raise RuntimeError('Fixture entry binding drift')
@@ -41,13 +46,20 @@ def main():
     variants = [('production', None, None, None, '')]
     if not args.no_negative_controls:
         variants += [
+            ('split-headers', 'TownServiceMirror.CatalogBank.cs',
+             'TownServiceFrame reference = TownCatalogClock.Create(frame, NoCatalogPatchBases);',
+             'TownServiceFrame reference = TownServiceDelta.Retain(frame); reference.CatalogBank = new TownCatalogBank { Prepared = frame.CatalogBank.Prepared, Members = frame.CatalogBank.Members };',
+             'split reference retains every current original header for atomic dependency admission'),
+        ]
+    if not args.no_negative_controls and not args.bank_split_only:
+        variants += [
             ('inert-artwork', 'TownServiceMirror.NativeTemplateState.cs', 'binding.Read(Assets, includeInactiveGraphics: true)', 'binding.Read(Assets)', 'actual original prefab produces compact native metadata without a prior network baseline'),
             ('owner-text', 'TownServiceMirror.NativeTemplateState.cs', 'index == 0 || NativeTextProperty(key)', 'index == 0', 'localized observer defaults never replace exact owner text or font'),
             ('complete-picture', 'TownServiceMirror.NativeTemplateState.cs', 'if (peer <= 0 || session.Service != 3 || session.Modules.Length == 0) return true;', 'return true;\n#pragma warning disable CS0162', 'a missing offered card prevents a partial ring or options picture'),
         ]
     if args.negative_control:
         variants = [case for case in variants if case[0] == 'production' or case[0] in args.negative_control]
-    manifest = {'suite': 'native-state623', 'result': str(run / 'results.txt'), 'evidence': str(run), 'cases': []}
+    manifest = {'suite': 'native-bank-split623' if args.bank_split_only else 'native-state623', 'result': str(run / 'results.txt'), 'evidence': str(run), 'cases': []}
     unity = Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity'))
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
     for name, filename, before, after, expected in variants:
