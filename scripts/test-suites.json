@@ -993,6 +993,12 @@
       "weight": 100
     },
     {
+      "id": "town-catalog-warm",
+      "command": ["python3", "scripts/check-town-catalog-warm.py"],
+      "groups": ["local"],
+      "weight": 95
+    },
+    {
       "id": "town-publisher622",
       "command": [
         "python3",

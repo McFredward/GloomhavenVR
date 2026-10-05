@@ -153,30 +153,39 @@ internal sealed class TownServiceLaneSendQueue
         // thousands of catalog rows; the full catalog cannot starve behind a held card.
         bool normalFirst = _priorityTurns >= 2;
         // A reference clock consumes an ordinary urgent town turn. The next
-        // urgent turn belongs to full repair, and every third still to background.
+        // urgent turn after its complete assembly belongs to full repair;
+        // every third still belongs to background.
         if (!normalFirst && !_clockRepairDue)
         {
             byte[]? clock = TakeClock(now);
-            if (clock != null) { _clockRepairDue = true; _priorityTurns++; return clock; }
+            if (clock != null) { _priorityTurns++; return clock; }
         }
-        byte[]? selected = normalFirst ? Take(now, false) : Take(now, true);
-        if (selected != null) { _priorityTurns = normalFirst ? 0 : _priorityTurns + 1; if (!normalFirst) _clockRepairDue = false; return selected; }
+        byte[]? selected;
+        if (normalFirst)
+        {
+            selected = Take(now, false);
+            // An empty background consumes no arbitration debt. Otherwise the
+            // counter stays above two forever and every fallback selects full
+            // repair before the unfinished reference clock.
+            _priorityTurns = 0;
+            if (selected != null) return selected;
+            if (!_clockRepairDue)
+            {
+                selected = TakeClock(now);
+                if (selected != null) { _priorityTurns++; return selected; }
+            }
+        }
+        selected = Take(now, true);
+        if (selected != null) { _priorityTurns++; _clockRepairDue = false; return selected; }
         // An oversize full root uses this same module namespace directly. Finish
         // its interrupted clock before trying background; otherwise a nonempty
         // dormant bank could keep that assembly blocked indefinitely.
-        if (!normalFirst)
-        {
-            selected = TakeClock(now, unfinishedOnly: true);
-            if (selected != null) { _priorityTurns++; return selected; }
-        }
-        selected = Take(now, normalFirst);
-        if (selected != null) _priorityTurns = normalFirst ? _priorityTurns + 1 : 0;
-        if (selected != null && normalFirst) _clockRepairDue = false;
-        if (selected == null)
-        {
-            selected = TakeClock(now);
-            if (selected != null) { _clockRepairDue = true; _priorityTurns = normalFirst ? 0 : _priorityTurns + 1; }
-        }
+        selected = TakeClock(now, unfinishedOnly: true);
+        if (selected != null) { _priorityTurns++; return selected; }
+        selected = Take(now, false);
+        if (selected != null) { _priorityTurns = 0; return selected; }
+        selected = TakeClock(now);
+        if (selected != null) _priorityTurns++;
         return selected;
     }
     private byte[]? TakeClock(double now, bool unfinishedOnly = false)
@@ -189,7 +198,7 @@ internal sealed class TownServiceLaneSendQueue
             if (unfinishedOnly && !clock.HasInFlight) continue;
             if (!clock.HasInFlight) clock.AdvanceSequence(complete.Sequence);
             byte[]? page = clock.Next(now);
-            if (page != null) return page;
+            if (page != null) { _clockRepairDue = !clock.HasInFlight; return page; }
         }
         return null;
     }
