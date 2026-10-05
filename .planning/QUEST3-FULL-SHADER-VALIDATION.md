@@ -134,7 +134,7 @@ The production Amp fixture has exposed additional exact-engine declaration and
 sampler adaptations; these remain a compiler gate, never a generic shader fallback.
 
 `tools/quest-shaders/produce.py` exports
-`restore_project(project, inventory_path, cache, output, preserved_sources=None)`.
+`restore_project(project, inventory_path, cache, output, preserved_sources=None, graphics_api="Vulkan")`.
 `project` is the private recovered/repaired Unity project, `inventory_path` is
 the native `original-shader-inventory.json`, and `cache` is its native binding
 cache. `output` is a disjoint private overlay. `preserved_sources` maps original
@@ -304,3 +304,13 @@ resources matched their actual cooked descriptor/property/dimension bindings.
 The separate eight-source legacy fixture also passed 27 Vulkan banks/54 stages.
 These are compiler/format evidence, not headset image validation or a full
 Campaign native driver census.
+
+The full-only producer defaults to `graphics_api="Vulkan"`; explicit `GLES3`
+is available for the separate bounded historical probe. The compiler manifest
+records `graphicsApi` and `compilerPlatform`. The Campaign Editor gate emits
+actual decoded stage SHA-256 values and property/type reflections, validates
+original typed target signatures and linked varying locations, and retains
+content-addressed evidence bytes to avoid duplicating native stage payloads
+for tens of thousands of aliases. Native Windows `_DepthSlice` layer outputs
+recover their witnessed `SV_RenderTargetArrayIndex` on Vulkan rather than the
+GLES interface relocation. The original layer calculation remains unchanged.

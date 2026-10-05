@@ -1133,7 +1133,16 @@ def portable_sampling_interface(hlsl):
     return hlsl, adapters
 
 
-def stereo_wrapper(hlsl, stage, output_adapters=(), input_signature=(), output_signature=()):
+def stereo_wrapper(hlsl, stage, output_adapters=(), input_signature=(), output_signature=(), graphics_api="GLES3"):
+    if graphics_api not in ("GLES3", "Vulkan"):
+        raise ShaderRecoveryError("Unsupported native graphics interface backend.")
+    if graphics_api == "Vulkan":
+        for adapter in output_adapters:
+            name = re.escape(adapter["nativeOutput"])
+            pattern = r"(\buint\s+" + name + r"\s*:\s*)TEXCOORD" + str(adapter["portableLocation"]) + r";"
+            hlsl, count = re.subn(pattern, r"\1SV_RenderTargetArrayIndex;", hlsl)
+            if count != 1:
+                raise ShaderRecoveryError("Original Vulkan layer cannot recover its witnessed native output.")
     if input_signature:
         hlsl = native_stage_interface(hlsl, input_signature, "input")
     if output_signature:
@@ -1190,7 +1199,7 @@ def stereo_wrapper(hlsl, stage, output_adapters=(), input_signature=(), output_s
         hlsl = hlsl[:actual.start()] + actual[1] + fields + "\n    " + addition + actual[3] + hlsl[actual.end():]
     if stage == "vertex":
         add_fields("SPIRV_Cross_Input", "UNITY_VERTEX_INPUT_INSTANCE_ID")
-        add_fields("SPIRV_Cross_Output", "UNITY_VERTEX_OUTPUT_STEREO")
+        add_fields("SPIRV_Cross_Output", "UNITY_VERTEX_OUTPUT_STEREO_EYE_INDEX" if graphics_api == "Vulkan" and output_adapters else "UNITY_VERTEX_OUTPUT_STEREO")
         # Unity derives the eye and the true object instance from the native
         # SV_InstanceID; the original desktop instruction stream expects only
         # the object instance, including the native base-instance offset.
@@ -1199,12 +1208,12 @@ def stereo_wrapper(hlsl, stage, output_adapters=(), input_signature=(), output_s
         hlsl = re.sub(r"(" + entry + r"\(SPIRV_Cross_Input stage_input\)\s*\{)",
                       r"\1\n    UNITY_SETUP_INSTANCE_ID(stage_input);", hlsl)
         layer = []
-        for adapter in output_adapters:
+        for adapter in ([] if graphics_api == "Vulkan" else output_adapters):
             if adapter["kind"] != "native-vertex-layer-to-unity-framebuffer" or not re.fullmatch(r"o\d+", adapter["nativeOutput"]):
                 raise ShaderRecoveryError("Unproven original output-interface adapter.")
             layer += ["#if defined(UNITY_STEREO_INSTANCING_ENABLED)",
                       "    stage_output.stereoTargetEyeIndexAsRTArrayIdx = stage_output." + adapter["nativeOutput"] + ";", "#endif"]
-        hlsl = hlsl.replace("return stage_output;", "UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(stage_output);\n" + "\n".join(layer) + "\n    return stage_output;")
+        hlsl = hlsl.replace("return stage_output;", ("UNITY_INITIALIZE_OUTPUT_STEREO_EYE_INDEX(stage_output);" if graphics_api == "Vulkan" and output_adapters else "UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(stage_output);") + "\n" + "\n".join(layer) + "\n    return stage_output;")
     else:
         add_fields("SPIRV_Cross_Input", "UNITY_VERTEX_OUTPUT_STEREO")
         hlsl = re.sub(r"(" + entry + r"\(SPIRV_Cross_Input stage_input\)\s*\{)",

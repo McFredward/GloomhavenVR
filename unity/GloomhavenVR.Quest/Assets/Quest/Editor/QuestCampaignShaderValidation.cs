@@ -48,7 +48,7 @@ namespace GloomhavenVR.Quest.Editor
         [Serializable] public sealed class Manifest
         {
             public int schema, requiredShaderCount, requiredMaterialCount, requiredHostRenderTargetCount;
-            public string scope;
+            public string scope, graphicsApi, compilerPlatform;
             public OriginalShader[] shaders;
             public OriginalMaterial[] materials;
             public RenderCase[] renderCases;
@@ -66,7 +66,8 @@ namespace GloomhavenVR.Quest.Editor
         }
         [Serializable] public sealed class CompiledProgram
         {
-            public string guid, stereo, glesSha256, file;
+            public string guid, stereo, glesSha256, file, bankSha256, vertexSha256, fragmentSha256, vertexFile, fragmentFile;
+            public QuestVulkanShaderValidation.Image[] images;
             public int subshader, pass, hardwareTier;
             public string[] keywords;
             public bool vertexCompiled, fragmentCompiled, vertexEyeRoutingObserved, fragmentEyeRoutingObserved, multiviewLayoutObserved;
@@ -74,7 +75,7 @@ namespace GloomhavenVR.Quest.Editor
         [Serializable] public sealed class Receipt
         {
             public int schema = 1, materialCount;
-            public string unityVersion, compilerPlatform = "GLES3x", sourceManifestSha256;
+            public string unityVersion, compilerPlatform = "GLES3x", graphicsApi, sourceManifestSha256;
             public bool originalPixelParityVerified, headsetPictureVerified;
             public CompiledProgram[] programs;
         }
@@ -96,9 +97,11 @@ namespace GloomhavenVR.Quest.Editor
             Directory.CreateDirectory(outputPath);
             string receiptPath = Path.Combine(outputPath, "android-compiler.json");
             if (File.Exists(receiptPath)) File.Delete(receiptPath);
+            bool vulkan = input.graphicsApi == "Vulkan";
+            var backend = vulkan ? GraphicsDeviceType.Vulkan : GraphicsDeviceType.OpenGLES3;
             if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.Android ||
-                !PlayerSettings.GetGraphicsAPIs(BuildTarget.Android).Contains(GraphicsDeviceType.OpenGLES3))
-                throw new InvalidOperationException("Campaign compiler gate requires the Android/GLES3 project.");
+                !PlayerSettings.GetGraphicsAPIs(BuildTarget.Android).Contains(backend))
+                throw new InvalidOperationException("Campaign compiler gate requires its declared Android graphics backend.");
             var shaders = new Dictionary<string, Shader>(StringComparer.Ordinal);
             var programs = new List<CompiledProgram>();
             var originalOutputs = (input.programs ?? new SourceProgram[0])
@@ -128,15 +131,37 @@ namespace GloomhavenVR.Quest.Editor
                     if (variant.pass < 0 || variant.pass >= subshader.PassCount)
                         throw new InvalidOperationException("Campaign shader loses an original pass.");
                     var pass = subshader.GetPass(variant.pass);
+                    NativeSignature[] nativeOutputs = null;
+                    if (input.scope == "campaign-compiler" && (!originalOutputs.TryGetValue(variant.fragmentOriginalDxbcSha256, out nativeOutputs) || nativeOutputs == null))
+                        throw new InvalidOperationException("Native fragment output signature is missing from instruction evidence.");
+                    string key = row.guid + "-" + variant.subshader + "-" + variant.pass + "-t" + variant.hardwareTier + "-" + Hash(Encoding.UTF8.GetBytes(string.Join("\n", variant.keywords))).Substring(0, 16);
+                    if (vulkan)
+                    {
+                        var actual = QuestVulkanShaderValidation.Compile(shader, variant.subshader, variant.pass, variant.keywords, variant.hardwareTier);
+                        VerifyVulkanBank(actual, variant.fragmentOutput, nativeOutputs);
+                        if (variant.stereo == "multiview" && (!actual.vertexEyeRoutingObserved && !variant.viewInvariant || variant.requiresFragmentEyeRouting && !actual.fragmentEyeRoutingObserved))
+                            throw new InvalidOperationException("Campaign Vulkan multiview bank omits required native eye routing.");
+                        string bankFile = actual.bankSha256 + ".vulkan", vertexFile = actual.vertexSha256 + ".vertex.spv", fragmentFile = actual.fragmentSha256 + ".fragment.spv";
+                        WriteNativeBank(Path.Combine(outputPath, bankFile), actual.bank, actual.bankSha256);
+                        WriteNativeBank(Path.Combine(outputPath, vertexFile), actual.vertex, actual.vertexSha256);
+                        WriteNativeBank(Path.Combine(outputPath, fragmentFile), actual.fragment, actual.fragmentSha256);
+                        programs.Add(new CompiledProgram {
+                            guid = row.guid, subshader = variant.subshader, pass = variant.pass, hardwareTier = variant.hardwareTier, stereo = variant.stereo,
+                            keywords = variant.keywords, vertexCompiled = true, fragmentCompiled = true,
+                            vertexEyeRoutingObserved = actual.vertexEyeRoutingObserved, fragmentEyeRoutingObserved = actual.fragmentEyeRoutingObserved,
+                            multiviewLayoutObserved = actual.inputs.Any(value => value.builtin == 4440),
+                            bankSha256 = actual.bankSha256, vertexSha256 = actual.vertexSha256, fragmentSha256 = actual.fragmentSha256,
+                            file = bankFile, vertexFile = vertexFile, fragmentFile = fragmentFile, images = actual.images
+                        });
+                        if (programs.Count % 100 == 0) Debug.Log("Campaign native Android bank coverage: " + programs.Count);
+                        continue;
+                    }
                     var vertex = pass.CompileVariant(ShaderType.Vertex, variant.keywords, ShaderCompilerPlatform.GLES3x, BuildTarget.Android, (GraphicsTier)variant.hardwareTier);
                     // GLES3x returns the entire linked native bank through the
                     // Vertex query. Verify both emitted stages in those bytes.
                     if (!vertex.Success || vertex.ShaderData == null || vertex.ShaderData.Length == 0)
                         throw new InvalidOperationException("Actual Campaign Android shader bank failed: " + row.guid + " / tier=" + variant.hardwareTier + " / " + string.Join(" ", variant.keywords) + " / " + string.Join("; ", vertex.Messages.Select(message => message.message + " at " + message.file + ":" + message.line)));
                     string source = new UTF8Encoding(false, true).GetString(vertex.ShaderData);
-                    NativeSignature[] nativeOutputs = null;
-                    if (input.scope == "campaign-compiler" && (!originalOutputs.TryGetValue(variant.fragmentOriginalDxbcSha256, out nativeOutputs) || nativeOutputs == null))
-                        throw new InvalidOperationException("Native fragment output signature is missing from instruction evidence.");
                     try { VerifyBank(source, variant.fragmentOutput, nativeOutputs); }
                     catch (InvalidOperationException error)
                     {
@@ -149,7 +174,6 @@ namespace GloomhavenVR.Quest.Editor
                     bool multiviewLayout = Regex.IsMatch(source, @"layout\s*\(\s*num_views\s*=\s*2\s*\)");
                     if (variant.stereo == "multiview" && (!multiviewLayout || !eyeRouting && !variant.viewInvariant || variant.requiresFragmentEyeRouting && !fragmentEye))
                         throw new InvalidOperationException("Campaign multiview bank omits required native eye routing.");
-                    string key = row.guid + "-" + variant.subshader + "-" + variant.pass + "-t" + variant.hardwareTier + "-" + Hash(Encoding.UTF8.GetBytes(string.Join("\n", variant.keywords))).Substring(0, 16);
                     string file = key + ".glsl";
                     File.WriteAllBytes(Path.Combine(outputPath, file), vertex.ShaderData);
                     programs.Add(new CompiledProgram {
@@ -184,7 +208,7 @@ namespace GloomhavenVR.Quest.Editor
                     throw new InvalidOperationException("Campaign material no longer uses its exact original shader: " + row.guid);
             }
             File.WriteAllText(receiptPath, JsonUtility.ToJson(new Receipt {
-                unityVersion = Application.unityVersion, sourceManifestSha256 = Hash(File.ReadAllBytes(manifestPath)),
+                unityVersion = Application.unityVersion, compilerPlatform = vulkan ? "Vulkan" : "GLES3x", graphicsApi = vulkan ? "Vulkan" : "GLES3", sourceManifestSha256 = Hash(File.ReadAllBytes(manifestPath)),
                 materialCount = input.materials.Length, programs = programs.ToArray()
             }, true) + "\n");
             Debug.Log("PASS Campaign Android shader gate: materials=" + input.materials.Length + ", actual banks=" + programs.Count + ". Original pixels and headset remain separate gates.");
@@ -335,6 +359,45 @@ namespace GloomhavenVR.Quest.Editor
             }
             else if (originalFragmentOutput != "none")
                 throw new InvalidOperationException("Campaign original fragment output contract is unknown.");
+        }
+
+        private static void WriteNativeBank(string path, byte[] bytes, string expected)
+        {
+            if (File.Exists(path))
+            {
+                if (Hash(File.ReadAllBytes(path)) != expected) throw new InvalidOperationException("Native Vulkan evidence bank bytes changed.");
+                return;
+            }
+            File.WriteAllBytes(path, bytes);
+        }
+
+        private static void VerifyVulkanBank(QuestVulkanShaderValidation.Result bank, string output, NativeSignature[] nativeOutputs)
+        {
+            foreach (var input in bank.inputs.Where(value => value.stage == "fragment" && value.location >= 0))
+            {
+                var candidates = bank.outputs.Where(value => value.stage == "vertex" && value.location == input.location).ToArray();
+                if (candidates.Length != 1 || candidates[0].componentType != input.componentType || candidates[0].bitWidth != input.bitWidth || candidates[0].components < input.components)
+                    throw new InvalidOperationException("Campaign Vulkan native stage interface is incompatible: " + input.location);
+            }
+            if (output == "depth")
+            {
+                if (!bank.outputs.Any(value => value.stage == "fragment" && value.builtin == 22 && value.componentType == 3 && value.components == 1))
+                    throw new InvalidOperationException("Campaign Vulkan fragment bank loses its original depth output.");
+            }
+            else if (output == "color")
+            {
+                var expected = nativeOutputs == null ? new[] { new NativeSignature { semantic = "SV_Target", componentType = 3, mask = 15 } } :
+                    nativeOutputs.Where(value => value.semantic.Equals("SV_Target", StringComparison.OrdinalIgnoreCase)).ToArray();
+                if (expected.Length == 0) throw new InvalidOperationException("Campaign Vulkan bank lacks original target signatures.");
+                foreach (var target in expected)
+                {
+                    var values = bank.outputs.Where(value => value.stage == "fragment" && value.location == target.semanticIndex).ToArray();
+                    if (values.Length != 1 || values[0].componentType != target.componentType || values[0].bitWidth != 32 ||
+                        (target.mask & ~target.readWriteMask & ~((1 << values[0].components) - 1)) != 0)
+                        throw new InvalidOperationException("Campaign Vulkan fragment bank changes native target type/written components.");
+                }
+            }
+            else if (output != "none") throw new InvalidOperationException("Campaign Vulkan native fragment output contract is unknown.");
         }
 
         private static void VerifyStageLink(string vertex, string fragment)

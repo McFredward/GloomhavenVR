@@ -224,3 +224,18 @@ class ReconstructionGraph(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class VulkanNativeInterface(unittest.TestCase):
+    def test_vulkan_recovers_exact_original_layer_semantic(self):
+        source = ('struct SPIRV_Cross_Input { float4 position : POSITION0; };\n'
+                  'struct SPIRV_Cross_Output { float4 gl_Position : SV_Position; uint o1 : TEXCOORD3;\n};\n'
+                  'SPIRV_Cross_Output main(SPIRV_Cross_Input stage_input) { '
+                  'SPIRV_Cross_Output stage_output; stage_output.o1=uint(_DepthSlice); return stage_output; }')
+        adapter = {'kind': 'native-vertex-layer-to-unity-framebuffer', 'nativeOutput': 'o1', 'portableLocation': 3}
+        actual = native.stereo_wrapper(source, 'vertex', [adapter], graphics_api='Vulkan')
+        self.assertIn('o1 : SV_RenderTargetArrayIndex;', actual)
+        self.assertIn('stage_output.o1=uint(_DepthSlice);', actual)
+        self.assertIn('UNITY_VERTEX_OUTPUT_STEREO_EYE_INDEX', actual)
+        self.assertNotIn('stereoTargetEyeIndexAsRTArrayIdx', actual)
+        with self.assertRaisesRegex(native.ShaderRecoveryError, 'witnessed native output'):
+            native.stereo_wrapper(source.replace('TEXCOORD3', 'TEXCOORD4'), 'vertex', [adapter], graphics_api='Vulkan')

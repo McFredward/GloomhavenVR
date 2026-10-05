@@ -246,7 +246,7 @@ def shader_source(form, record, cache, includes):
                 # normal native optimization. No original instance is capped.
                 lines.append('#pragma skip_optimizations gles3')
             lines += _keyword_pragmas(vertex, fragment, keys, mandatory)
-            lines += ['#pragma hardware_tier_variants gles3', '#pragma multi_compile_instancing', '#pragma multi_compile __ STEREO_INSTANCING_ON STEREO_MULTIVIEW_ON',
+            lines += ['#pragma hardware_tier_variants ' + ('vulkan' if graphics_api == 'Vulkan' else 'gles3'), '#pragma multi_compile_instancing', '#pragma multi_compile __ STEREO_INSTANCING_ON STEREO_MULTIVIEW_ON',
                       '#define UNITY_LIGHT_PROBE_PROXY_VOLUME 1', '#include "UnityCG.cginc"']
             # The original instructions do not call high-level Unity lighting
             # helpers. LightingCommon's fixed4 _SpecColor collides with an exact
@@ -290,7 +290,9 @@ def shader_source(form, record, cache, includes):
     return '\n'.join(lines) + '\n', list(unique.values())
 
 
-def restore_project(project, inventory_path, cache, output, preserved_sources=None):
+def restore_project(project, inventory_path, cache, output, preserved_sources=None, graphics_api="Vulkan"):
+    if graphics_api not in ("Vulkan", "GLES3"):
+        raise ValidationError("Original Campaign graphics backend is unsupported.")
     # Bound inputs can be regenerated between invocations in one builder
     # process; cache within one immutable reconstruction operation only.
     _program_features.cache_clear()
@@ -331,7 +333,7 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
                 raise ValidationError('Original stage semantics differ from the recovered native inventory.')
             portable, sampling_adapters = native.portable_sampling_interface(bound.read_text())
             wrapped = native.stereo_wrapper(portable, row['stage'], row.get('outputInterfaceAdapters', []),
-                                            input_signature, output_signature)
+                                            input_signature, output_signature, graphics_api=graphics_api)
             wrapped, load_proofs = load_bounds.restore(wrapped)
             wrapped, integer_proof = integer_bits.restore(wrapped)
             path = Path('Assets/QuestOriginalCampaign/ShaderPrograms') / (key[0] + '-' + key[1] + '.hlsl')
@@ -348,7 +350,7 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
     shaders = []
     for shader in inventory['shaders']:
         form = json.loads((cache / 'forms' / (shader['originalParsedFormSha256'] + '.json')).read_text())
-        source, variants = shader_source(form, shader, cache, includes)
+        source, variants = shader_source(form, shader, cache, includes, graphics_api)
         retained = preserved_sources.get(shader['guid'])
         target = output / shader['assetPath']
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -367,7 +369,9 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
                         'sourceSha256': sha256(target), 'variants': variants,
                         'sourceRestoration': 'retained-source-contract' if retained else 'exact-original-dxbc',
                         'retainedSourceContract': retained})
-    manifest = {'schema': 1, 'scope': 'campaign-compiler', 'requiredShaderCount': len(shaders),
+    manifest = {'schema': 1, 'scope': 'campaign-compiler', 'graphicsApi': graphics_api,
+                'compilerPlatform': 'Vulkan' if graphics_api == 'Vulkan' else 'GLES3x',
+                'originalDepthConvention': 'D3D-reversed-Z' if graphics_api == 'Vulkan' else 'GLES-probe-only', 'requiredShaderCount': len(shaders),
                 'requiredMaterialCount': len(inventory['materials']), 'shaders': shaders,
                 'materials': inventory['materials'], 'programs': list(programs.values()), 'originalPixelParityVerified': False}
     if generator_hashes != {path.name: sha256(path) for path in generator_paths}:
@@ -390,9 +394,10 @@ def main():
     parser.add_argument('--cache', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--preserved-sources', type=Path)
+    parser.add_argument('--graphics-api', choices=('Vulkan', 'GLES3'), default='Vulkan')
     args = parser.parse_args()
     retained = json.loads(args.preserved_sources.read_text()) if args.preserved_sources else None
-    result = restore_project(args.project, args.inventory, args.cache, args.output, retained)
+    result = restore_project(args.project, args.inventory, args.cache, args.output, retained, args.graphics_api)
     print('Exact original shader sources: ' + str(len(result['shaders'])))
 
 

@@ -155,7 +155,7 @@ def validate_receipt(manifest, manifest_sha, receipt):
     """A compiler receipt is only accepted for the exact original identity set."""
     if receipt.get("schema") != 1 or receipt.get("sourceManifestSha256") != manifest_sha:
         raise ValidationError("Native shader receipt refers to different source identities.")
-    if receipt.get("unityVersion") != "2021.3.5f1" or receipt.get("compilerPlatform") != "GLES3x":
+    if receipt.get("unityVersion") != "2021.3.5f1" or receipt.get("compilerPlatform") != manifest.get("compilerPlatform", "GLES3x"):
         raise ValidationError("Native shader receipt uses a different compiler contract.")
     expected = {(s["guid"], v["subshader"], v["pass"], v.get("hardwareTier", 0), tuple(sorted(v["keywords"])))
                 for s in manifest["shaders"] for v in s["variants"]}
@@ -167,7 +167,12 @@ def validate_receipt(manifest, manifest_sha, receipt):
         if key in actual or not row.get("vertexCompiled") or not row.get("fragmentCompiled"):
             raise ValidationError("Native GLES bank failed or is duplicated.")
         actual.add(key)
-        _hash(row.get("glesSha256"), "actual native GLES bank")
+        if manifest.get("graphicsApi") == "Vulkan":
+            _hash(row.get("bankSha256"), "actual native Vulkan bank")
+            _hash(row.get("vertexSha256"), "actual native Vulkan vertex")
+            _hash(row.get("fragmentSha256"), "actual native Vulkan fragment")
+        else:
+            _hash(row.get("glesSha256"), "actual native GLES bank")
         original = expected_variants.get(key)
         if original is None or row.get("stereo") != original["stereo"]:
             raise ValidationError("Native GLES bank changes its declared stereo contract.")

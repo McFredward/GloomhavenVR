@@ -106,6 +106,21 @@ class EvidenceContract(unittest.TestCase):
             with self.assertRaises(manifest.ValidationError):
                 manifest.validate_receipt(self.data, "4" * 64, receipt)
 
+    def test_vulkan_receipt_requires_both_actual_stage_hashes(self):
+        data = copy.deepcopy(self.data)
+        data.update(graphicsApi="Vulkan", compilerPlatform="Vulkan")
+        receipt = self.compiler_receipt()
+        receipt.update(graphicsApi="Vulkan", compilerPlatform="Vulkan")
+        receipt["programs"][0].update(bankSha256="6" * 64, vertexSha256="7" * 64, fragmentSha256="8" * 64)
+        manifest.validate_receipt(data, "4" * 64, receipt)
+        for missing in ("bankSha256", "vertexSha256", "fragmentSha256"):
+            bad = copy.deepcopy(receipt)
+            bad["programs"][0].pop(missing)
+            with self.assertRaises(manifest.ValidationError):
+                manifest.validate_receipt(data, "4" * 64, bad)
+        with self.assertRaises(manifest.ValidationError):
+            manifest.validate_receipt(data, "4" * 64, self.compiler_receipt())
+
     def test_actual_multiview_receipt_requires_observed_eye_routing(self):
         data = copy.deepcopy(self.data)
         data["shaders"][0]["variants"][0].update(keywords=["STEREO_MULTIVIEW_ON"], stereo="multiview")

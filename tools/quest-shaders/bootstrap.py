@@ -32,6 +32,11 @@ def prepare(overlay, original_project, output):
         shutil.copy2(source, target)
         shutil.copy2(source.with_name(source.name + '.meta'), target.with_name(target.name + '.meta'))
     gate = Path(__file__).resolve().parents[2] / 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignShaderValidation.cs'
+    for helper in ("QuestVulkanShaderValidation.cs", "QuestSmolvDecoder.cs"):
+        extra = gate.with_name(helper)
+        destination = output / "Assets/Quest/Editor" / helper
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(extra, destination)
     destination = output / 'Assets/Quest/Editor/QuestCampaignShaderValidation.cs'
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(gate, destination)

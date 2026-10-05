@@ -211,7 +211,7 @@ def main():
     try:
         if args.mode == "compile":
             receipt = compile_android(args.unity, args.project, args.manifest, args.output)
-            print("Actual Android GLES banks: " + str(len(receipt["programs"])))
+            print("Actual Android native banks: " + str(len(receipt["programs"])))
         elif args.mode == "candidates":
             print(build_candidates(args.unity, args.project, args.manifest, args.output))
         elif args.mode == "host":
