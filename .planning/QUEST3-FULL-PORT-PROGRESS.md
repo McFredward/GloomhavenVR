@@ -628,3 +628,13 @@ it changes no persistent OS configuration. The integrated host retry now also
 recovers only an exact, provenance-bound interrupted delivery copy before
 launching another child. Eight focused delivery controls, thirteen resume
 controls and ten native-packer controls pass on the feature tree.
+
+The next derivative is
+`dc3c56bb091ba4d318765fb26fb1a8f5dc1a9c2743ae9e2188fff8fe7ed3fbb9`.
+It adds a game-only managed collection and safe unused-imported-assets unload
+inside the content-exclusion scope immediately before native Player assembly.
+A bounded two-sample receipt records the real memory handoff. The exact method
+compiles against Unity2021.3.5 metadata; ten pinned-Mono release/dispatch controls
+and two source-bound stage controls pass. The native Editor unload and full
+Player peak are distinct runtime observations, not established by those controls.
+Frozen ModBuild623 runtime, input identity and imported Library remain retained.
