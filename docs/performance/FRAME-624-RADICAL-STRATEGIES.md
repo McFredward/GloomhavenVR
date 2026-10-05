@@ -26,8 +26,8 @@ XR GPU value 103.83 ms is explicitly at the application interval and unusable as
 GPU busy time. Unity's draw/batch/pass/triangle counters return only zero samples
 and are explicitly rejected at line 3000. Do not turn material slots into draw calls.
 The final scene census has not completed; final renderer/shader populations are
-unknown. Zero summary figure counts do not prove the absence of the live actors
-whose callbacks the spike diagnostics separately observe.
+unknown. The summary figure values are budget percentages, not actor populations;
+native callbacks and detailed figure receipts separately establish live actors.
 
 The same window ranks these measured scopes:
 
@@ -106,8 +106,11 @@ causal redundant-read variant performs 48 and is rejected. Separate actual
 MPB retirement, foreign material replacement and complete restoration. This
 models the between-eye mutation seam without claiming an OpenXR eye-picture test.
 
-Focused validation passes 733 production assertions and six selected causal
-controls; the new scope contributes 107 assertions to 626 existing assertions.
+The complete affected environment suite passes 733 production assertions across
+44 production/negative variants; the new scope contributes 107 assertions to
+626 existing assertions. The adjacent structural-instancing suite also passes
+23 assertions across five production/causal variants. Overall local suite
+coverage remains partial; final integration still requires the complete gate.
 Strict Release has zero warnings/errors. The Unity Mono byte-allocation counter
 does not calibrate after a known 8 KB allocation. The fixture instead verifies
 reused dictionary storage, cleared material references and rejects repeated
@@ -123,6 +126,7 @@ dictionary creation; it makes no measured zero-byte allocation claim.
 | 2 | Explicit opaque repeated-mesh submission by small room/cell groups | Reduces repeated native renderer submission without mesh merging | Stereo integration, lights/probes, callbacks and culling costs. |
 | 2 | Exact unchanged UI/material/geometry work removal | Reliable CPU saving with unchanged presentation | Avoid delaying pooled content, hidden-window protection or native animation. |
 | 3 | User-approved abstract terrain and distant-room detail | Largest reduction in represented environment | New visible compromise and target/picking parity need explicit review. |
+| 3 | User-approved tactical 2.5D board | Replaces most room geometry and environment shading with a few surfaces | Elevation, pickup, native animation and CPU driver costs require separate design and measurements. |
 | 3 | User-approved visible idle-pose/effect quality reduction | Potential CPU/GPU relief after other budgets saturate | Native continuation and multiplayer animation parity prohibit blanket suspension. |
 
 ### Existing resolution control as a discriminator
@@ -154,7 +158,7 @@ Never substitute a collider mesh or write the original `MeshFilter.sharedMesh`.
 `Mesh.AcquireReadOnlyMeshData` is not a runtime escape from this restriction:
 Unity 2021.3 explicitly rejects unreadable meshes. An editor-only API succeeding
 does not prove a player solution. See the official
-[2021.3 read-only mesh API](https://docs.unity 3d.com/2021.3/Documentation/ScriptReference/Mesh.AcquireReadOnlyMeshData.html).
+[2021.3 read-only mesh API](https://docs.unity3d.com/2021.3/Documentation/ScriptReference/Mesh.AcquireReadOnlyMeshData.html).
 
 Let the existing `Batch` retain two identities: its exact **native source mesh**
 for lifetime/change validation, and its private readable **combine input**. Keep
@@ -220,7 +224,7 @@ Unity 2021.3 `Graphics.DrawMeshInstanced` culls/sorts the whole group, does not
 subsequently cull individual instances, and limits each call to 1023 instances.
 Small spatial groups and explicit camera binding are therefore necessary; the
 API is not proof that a whole-scenario group is faster. See the official
-[2021.3 instanced draw API](https://docs.unity 3d.com/2021.3/Documentation/ScriptReference/Graphics.DrawMeshInstanced.html).
+[2021.3 instanced draw API](https://docs.unity3d.com/2021.3/Documentation/ScriptReference/Graphics.DrawMeshInstanced.html).
 
 A prototype must establish correct MultiPass camera/event placement without
 double-queuing a draw, recover nested/interrupted cameras, retain original probes,
@@ -284,6 +288,29 @@ zero-decoration controls establish permission for existing audited dressing
 reduction, not for every geometry deletion. Obtain a concrete approval for the
 proposed visual examples before enabling the wider mode. Original window/card/NPC
 contents and shared intermediate animation are not covered by that compromise.
+
+### Tactical 2.5D fallback
+
+If minimal 3D still misses the multiplayer budget, a more radical opt-in mode can
+represent each revealed room with a small number of original-textured floor
+surfaces and low-cost obstacle/door outlines. Lightweight actor pieces retain
+identity, position, health, conditions and target highlighting. Hands, held cards
+and readable original windows stay in VR. All revealed tactical information remains
+public; a distant room never disappears merely because the local visitor looks away.
+
+Define elevation, line-of-sight cues, figure pickup and action transitions before
+implementation. A proposed action can restore the original figure presentation
+while keeping the rest of the board inexpensive, but the exact intermediate
+animation remains shared. Source controllers, native scenario state and colliders
+remain authoritative; a renderer-only replacement must preserve targeting and
+native action completion. Original 3D view remains a reversible mode choice.
+
+This trades room depth and scenery appearance for a much smaller rendering
+representation. It does not by itself remove the 34.72-ms measured logic span:
+native controllers and mod presentation loops still run unless a separately
+proven path removes their redundant work. Measure submission, actual GPU time
+where available, logic and memory independently. A baked room image alone is not
+evidence that the CPU bottleneck or multiplayer cost has been solved.
 
 ### Animation and effects after the existing zero budgets
 
