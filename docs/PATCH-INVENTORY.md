@@ -32,7 +32,7 @@ runtime, which is why a runtime audit could never do this job (see
 `.planning/refactor/REVIEW-Hands-Board-Core.md` §P1).
 
 
-**181 patch classes, 268 patched methods.**
+**186 patch classes, 276 patched methods.**
 
 ## Board
 
@@ -122,6 +122,10 @@ runtime, which is why a runtime audit could never do this job (see
 |---|---|---|---|
 | `InitialInputSkip` *(degrades by design)*<br/><sub>src/GloomhavenVR/Compat/InitialInputSkip.cs:28</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `CompatModule`:59 |
 | `LoadoutHostingGuard`<br/><sub>src/GloomhavenVR/Compat/LoadoutHostingGuard.cs:116</sub> | `UILoadoutManager.OnSwitchedToMultiplayer()` *(private)* | prefix | `CompatModule`:83 |
+| `MerchantTutorialExitMessagePatch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/MerchantTutorialExitText.cs:85</sub> | `IntroductionStepUI.ToMessage()` | postfix | `WorldUIModule`:84 |
+| `MerchantTutorialExitTitlePatch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/MerchantTutorialExitText.cs:92</sub> | `LevelMessageUILayout.Init()` *(private)* | postfix | `WorldUIModule`:85 |
+| &nbsp; | `LevelMessageUILayout.OnLanguageChanged()` *(private)* | postfix | &nbsp; |
+| `MerchantTutorialExitPagePatch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/MerchantTutorialExitText.cs:104</sub> | `LevelMessagePageUI.OnLanguageChanged()` *(private)* | postfix | `WorldUIModule`:86 |
 | `LevelMessageUILayoutGroup_Show_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialCameraSkip.cs:294</sub> | `LevelMessageUILayoutGroup.Show()` *(private)* | postfix | `CompatModule`:209 |
 | `TutorialChainHold` *(degrades by design)*<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialChainHold.cs:74</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `CompatModule`:201 |
 | `LevelEventsController_StartListeningForEvents_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialFlowPatches.cs:35</sub> | `LevelEventsController.StartListeningForEvents()` *(private)* | postfix | `CompatModule`:190 |
@@ -214,16 +218,16 @@ runtime, which is why a runtime audit could never do this job (see
 |---|---|---|---|
 | `WorldspaceDisplayPanelBase_Patches`<br/><sub>src/GloomhavenVR/WorldUI/ActorBars.cs:2774</sub> | `WorldspaceDisplayPanelBase.TrackCharacter()` | prefix | `WorldUIModule`:56 |
 | &nbsp; | `WorldspaceDisplayPanelBase.LateUpdate()` *(private)* | prefix | &nbsp; |
-| `HintProducerScopePatch`<br/><sub>src/GloomhavenVR/WorldUI/Composites/HintMessageOrigins.cs:154</sub> | `UIIntroduceBase.Show(IntroductionConfigUI, Action)` *(private)* | prefix | `WorldUIModule`:129 |
+| `HintProducerScopePatch`<br/><sub>src/GloomhavenVR/WorldUI/Composites/HintMessageOrigins.cs:154</sub> | `UIIntroduceBase.Show(IntroductionConfigUI, Action)` *(private)* | prefix | `WorldUIModule`:134 |
 | &nbsp; | `UIIntroduceBase.Show(IntroductionConfigUI, Action)` *(private)* | finalizer | &nbsp; |
-| `HintHighlightScopePatch`<br/><sub>src/GloomhavenVR/WorldUI/Composites/HintMessageOrigins.cs:167</sub> | `UIIntroduceProcessHighlight.Process(IntroductionStepUI, string)` *(private)* | prefix | `WorldUIModule`:131 |
+| `HintHighlightScopePatch`<br/><sub>src/GloomhavenVR/WorldUI/Composites/HintMessageOrigins.cs:167</sub> | `UIIntroduceProcessHighlight.Process(IntroductionStepUI, string)` *(private)* | prefix | `WorldUIModule`:136 |
 | &nbsp; | `UIIntroduceProcessHighlight.Process(IntroductionStepUI, string)` *(private)* | finalizer | &nbsp; |
-| `HintRewardScopePatch`<br/><sub>src/GloomhavenVR/WorldUI/Composites/HintMessageOrigins.cs:182</sub> | `UIIntroductionRewardsProcess.Process(EIntroductionConcept)` *(private)* | prefix | `WorldUIModule`:132 |
+| `HintRewardScopePatch`<br/><sub>src/GloomhavenVR/WorldUI/Composites/HintMessageOrigins.cs:182</sub> | `UIIntroductionRewardsProcess.Process(EIntroductionConcept)` *(private)* | prefix | `WorldUIModule`:137 |
 | &nbsp; | `UIIntroductionRewardsProcess.Process(EIntroductionConcept)` *(private)* | finalizer | &nbsp; |
-| `HintMessageOriginPatch`<br/><sub>src/GloomhavenVR/WorldUI/Composites/HintMessageOrigins.cs:195</sub> | `UIIntroductionManager.AddMessage()` *(private)* | prefix | `WorldUIModule`:133 |
-| `HintDirectConceptScopePatch`<br/><sub>src/GloomhavenVR/WorldUI/Composites/HintMessageOrigins.cs:203</sub> | `UIIntroductionManager.Show(EIntroductionConcept, Action)` *(private)* | prefix | `WorldUIModule`:134 |
+| `HintMessageOriginPatch`<br/><sub>src/GloomhavenVR/WorldUI/Composites/HintMessageOrigins.cs:195</sub> | `UIIntroductionManager.AddMessage()` *(private)* | prefix | `WorldUIModule`:138 |
+| `HintDirectConceptScopePatch`<br/><sub>src/GloomhavenVR/WorldUI/Composites/HintMessageOrigins.cs:203</sub> | `UIIntroductionManager.Show(EIntroductionConcept, Action)` *(private)* | prefix | `WorldUIModule`:139 |
 | &nbsp; | `UIIntroductionManager.Show(EIntroductionConcept, Action)` *(private)* | finalizer | &nbsp; |
-| `QuestPreparationHint`<br/><sub>src/GloomhavenVR/WorldUI/Composites/QuestPreparationHint.cs:22</sub> | `UIIntroduceBase.Show(IntroductionConfigUI, Action)` *(private)* | prefix | `WorldUIModule`:130 |
+| `QuestPreparationHint`<br/><sub>src/GloomhavenVR/WorldUI/Composites/QuestPreparationHint.cs:22</sub> | `UIIntroduceBase.Show(IntroductionConfigUI, Action)` *(private)* | prefix | `WorldUIModule`:135 |
 | `InputManager_SetGamepadInputDevice_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Grab/InputModeGuard.cs:75</sub> | `InputManager.SetGamepadInputDevice()` | prefix | `WorldUIModule`:72 |
 | `InputManager_AssignGamepadBindings_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Grab/InputModeGuard.cs:95</sub> | `InputManager.AssignGamepadBindingsToPlayerActions()` *(private)* | prefix | `WorldUIModule`:73 |
 | `VrGamepadConnectionActivateGuard`<br/><sub>src/GloomhavenVR/WorldUI/Grab/VrGamepadConnectionGuard.cs:20</sub> | `GamepadConnectionBox.Activate()` | prefix | `WorldUIModule`:74 |
@@ -231,7 +235,7 @@ runtime, which is why a runtime audit could never do this job (see
 | `MapQuestReadyPress`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestReadyRoster.cs:1862</sub> | `UIReadyToggle.ReadyUp(bool, bool)` | postfix | `MapTravelConfirm`:874 |
 | `MapQuestReadyUp.ClientQuestPromptSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestReadyUp.cs:1298</sub> | `UIGuildmasterConfirmActionButtonPresenter.ShowQuestSelectedAction()` | postfix | `MapQuestReadyUp`:337 |
 | &nbsp; | `UIGuildmasterConfirmActionPopupPresenter.ShowQuestSelectedAction()` | postfix | &nbsp; |
-| `MapSelectionTransition`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapSelectionTransition.cs:25</sub> | `NewPartyDisplayUI.DisableMapOptions()` | prefix | `WorldUIModule`:212 |
+| `MapSelectionTransition`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapSelectionTransition.cs:25</sub> | `NewPartyDisplayUI.DisableMapOptions()` | prefix | `WorldUIModule`:217 |
 | &nbsp; | `NewPartyDisplayUI.DisableMapOptions()` | finalizer | &nbsp; |
 | &nbsp; | `NewPartyDisplayUI.EnableMapOptions()` | prefix | &nbsp; |
 | &nbsp; | `NewPartyDisplayUI.EnableMapOptions()` | finalizer | &nbsp; |
@@ -243,7 +247,7 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `global::MapTimedMovementFlow.TeleportPartyToWayPoint()` *(private)* | prefix | &nbsp; |
 | &nbsp; | `global::PartyToken.PartyInstantMove()` | prefix | &nbsp; |
 | &nbsp; | `global::MapTimedMovementFlow.MovePartyToEncounter()` | prefix | &nbsp; |
-| `TownWindowMapSwitch`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/TownWindowMapSwitch.cs:13</sub> | `UIGuildmasterHUD.UpdateCurrentMode()` | prefix | `WorldUIModule`:213 |
+| `TownWindowMapSwitch`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/TownWindowMapSwitch.cs:13</sub> | `UIGuildmasterHUD.UpdateCurrentMode()` | prefix | `WorldUIModule`:218 |
 | `PostQuestRewardQueuePatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:13</sub> | `MapChoreographer.ShowQueuedQuestRewards()` | prefix | `WorldUIModule`:62 |
 | &nbsp; | `MapChoreographer.ShowQueuedQuestRewards()` | finalizer | &nbsp; |
 | `PostQuestCampaignRewardManagerPatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:24</sub> | `CampaignRewardsManager.ShowRewards()` | prefix | `WorldUIModule`:63 |
@@ -260,36 +264,36 @@ runtime, which is why a runtime audit could never do this job (see
 | `PostQuestRewardIntroductionMessagePatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:98</sub> | `UIIntroductionManager.AddMessage()` *(private)* | prefix | `WorldUIModule`:69 |
 | `PostQuestRewardIntroductionShowPatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:104</sub> | `UIIntroductionManager.ShowMessageImmediately()` *(private)* | prefix | `WorldUIModule`:70 |
 | `PostQuestRewardSceneEndPatch`<br/><sub>src/GloomhavenVR/WorldUI/Modal/PostQuestRewardPatches.cs:111</sub> | `MapChoreographer.OnDestroy()` *(private)* | postfix | `WorldUIModule`:71 |
-| `Character3DDisplayRefcount`<br/><sub>src/GloomhavenVR/WorldUI/Patches/Character3DDisplayRefcount.cs:115</sub> | `Character3DDisplayManager.Display(Component, ECharacter, string, string)` *(private)* | prefix | `WorldUIModule`:121 |
+| `Character3DDisplayRefcount`<br/><sub>src/GloomhavenVR/WorldUI/Patches/Character3DDisplayRefcount.cs:115</sub> | `Character3DDisplayManager.Display(Component, ECharacter, string, string)` *(private)* | prefix | `WorldUIModule`:126 |
 | &nbsp; | `Character3DDisplayManager.Hide()` | prefix | &nbsp; |
 | &nbsp; | `Character3DDisplayManager.HideAll()` | prefix | &nbsp; |
-| `CharacterClickSelectsOnly` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/CharacterClickSelectsOnly.cs:158</sub> | `NewPartyCharacterUI.OnClick()` | prefix | `WorldUIModule`:152 |
+| `CharacterClickSelectsOnly` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/CharacterClickSelectsOnly.cs:158</sub> | `NewPartyCharacterUI.OnClick()` | prefix | `WorldUIModule`:157 |
 | &nbsp; | `NewPartyCharacterUI.OnClick()` | postfix | &nbsp; |
-| `ConfirmationBox_ShowGenericConfirmation_Pair_Rescue_Patch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/ConfirmationBoxRescue.cs:362</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:190 |
+| `ConfirmationBox_ShowGenericConfirmation_Pair_Rescue_Patch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/ConfirmationBoxRescue.cs:362</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:195 |
 | &nbsp; | *(resolved at runtime by `TargetMethod`)* | finalizer | &nbsp; |
-| `ConfirmationBox_ShowGenericConfirmation_Single_Rescue_Patch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/ConfirmationBoxRescue.cs:386</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:191 |
+| `ConfirmationBox_ShowGenericConfirmation_Single_Rescue_Patch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/ConfirmationBoxRescue.cs:386</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:196 |
 | &nbsp; | *(resolved at runtime by `TargetMethod`)* | finalizer | &nbsp; |
-| `ConfirmationBox_ShowGenericSpendConfirmation_Rescue_Patch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/ConfirmationBoxRescue.cs:407</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:192 |
+| `ConfirmationBox_ShowGenericSpendConfirmation_Rescue_Patch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/ConfirmationBoxRescue.cs:407</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:197 |
 | &nbsp; | *(resolved at runtime by `TargetMethod`)* | finalizer | &nbsp; |
 | `ShowUIWindowSuppressor` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/EscMenuInputBlock.cs:160</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `EscMenuInputBlock`:79 |
 | `EscMenuEscapeSuppressor` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/EscMenuInputBlock.cs:201</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `EscMenuInputBlock`:80 |
 | `EscMenuTransitionFinalizer` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/EscMenuShowSafety.cs:187</sub> | *(resolved at runtime by `TargetMethod`)* | finalizer | `EscMenuInputBlock`:114 |
 | `EscMenuMultiplayerCheckFinalizer` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/EscMenuShowSafety.cs:265</sub> | *(resolved at runtime by `TargetMethod`)* | finalizer | `EscMenuInputBlock`:116 |
-| `InitiativeHoverCardBlock`<br/><sub>src/GloomhavenVR/WorldUI/Patches/InitiativeHoverCardBlock.cs:38</sub> | `CardsHandManager.Preview(CPlayerActor, Transform)` | prefix | `WorldUIModule`:86 |
+| `InitiativeHoverCardBlock`<br/><sub>src/GloomhavenVR/WorldUI/Patches/InitiativeHoverCardBlock.cs:38</sub> | `CardsHandManager.Preview(CPlayerActor, Transform)` | prefix | `WorldUIModule`:91 |
 | `InputFieldActivateWatch`<br/><sub>src/GloomhavenVR/WorldUI/Patches/InputFieldFocusWatch.cs:183</sub> | `TMP_InputField.ActivateInputField()` | postfix | `InputFieldFocusWatch`:119 |
 | `InputFieldDeactivateWatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/InputFieldFocusWatch.cs:219</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `InputFieldFocusWatch`:131 |
 | `KeyboardHideSuppressor` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/KeyboardAutoHideBlock.cs:91</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `KeyboardAutoHideBlock`:62 |
-| `MainMenuLogoSwap`<br/><sub>src/GloomhavenVR/WorldUI/Patches/MainMenuLogoSwap.cs:127</sub> | `MainMenuUIManager.Awake()` *(private)* | postfix | `WorldUIModule`:159 |
-| `MapLocationHoverAnimationGate`<br/><sub>src/GloomhavenVR/WorldUI/Patches/MapLocationHoverAnimationGate.cs:42</sub> | `MapLocation.Highlight()` *(private)* | postfix | `WorldUIModule`:113 |
-| `MapLocationSelectorGate`<br/><sub>src/GloomhavenVR/WorldUI/Patches/MapLocationSelectorGate.cs:42</sub> | `MapLocationSelector.Update()` *(private)* | prefix | `WorldUIModule`:99 |
-| `ESCMenu_OnShow_LatchGuard_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Patches/MenuExitLatchGuard.cs:54</sub> | `ESCMenu.OnShow()` *(private)* | postfix | `WorldUIModule`:170 |
-| `MouseWorldSurfaceCut`<br/><sub>src/GloomhavenVR/WorldUI/Patches/MouseWorldSurfaceCut.cs:75</sub> | `EventSystem.RaycastAll()` | postfix | `WorldUIModule`:94 |
-| `PartyPanelStackingHide` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/PartyPanelStackingHide.cs:170</sub> | `NewPartyDisplayUI.Hide(object, bool, Action, bool)` | prefix | `WorldUIModule`:211 |
-| `PartyPreviewStorm`<br/><sub>src/GloomhavenVR/WorldUI/Patches/PartyPreviewStorm.cs:113</sub> | `UIAdventurePartyAssemblyWindow.PreviewCharacterInfo(CMapCharacter)` *(private)* | prefix | `WorldUIModule`:143 |
-| `CQuestStateExtensions_CheckRequirements_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Patches/ScenarioGateCheat.cs:621</sub> | `CQuestStateExtensions.CheckRequirements()` | postfix | `WorldUIModule`:103 |
-| `UnityGameEditorRuntime_LoadScenario_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Patches/ScenarioGateCheat.cs:635</sub> | `UnityGameEditorRuntime.LoadScenario(ScenarioState, UnityAction<ScenarioState>)` | prefix | `WorldUIModule`:104 |
+| `MainMenuLogoSwap`<br/><sub>src/GloomhavenVR/WorldUI/Patches/MainMenuLogoSwap.cs:127</sub> | `MainMenuUIManager.Awake()` *(private)* | postfix | `WorldUIModule`:164 |
+| `MapLocationHoverAnimationGate`<br/><sub>src/GloomhavenVR/WorldUI/Patches/MapLocationHoverAnimationGate.cs:42</sub> | `MapLocation.Highlight()` *(private)* | postfix | `WorldUIModule`:118 |
+| `MapLocationSelectorGate`<br/><sub>src/GloomhavenVR/WorldUI/Patches/MapLocationSelectorGate.cs:42</sub> | `MapLocationSelector.Update()` *(private)* | prefix | `WorldUIModule`:104 |
+| `ESCMenu_OnShow_LatchGuard_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Patches/MenuExitLatchGuard.cs:54</sub> | `ESCMenu.OnShow()` *(private)* | postfix | `WorldUIModule`:175 |
+| `MouseWorldSurfaceCut`<br/><sub>src/GloomhavenVR/WorldUI/Patches/MouseWorldSurfaceCut.cs:75</sub> | `EventSystem.RaycastAll()` | postfix | `WorldUIModule`:99 |
+| `PartyPanelStackingHide` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/PartyPanelStackingHide.cs:170</sub> | `NewPartyDisplayUI.Hide(object, bool, Action, bool)` | prefix | `WorldUIModule`:216 |
+| `PartyPreviewStorm`<br/><sub>src/GloomhavenVR/WorldUI/Patches/PartyPreviewStorm.cs:113</sub> | `UIAdventurePartyAssemblyWindow.PreviewCharacterInfo(CMapCharacter)` *(private)* | prefix | `WorldUIModule`:148 |
+| `CQuestStateExtensions_CheckRequirements_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Patches/ScenarioGateCheat.cs:621</sub> | `CQuestStateExtensions.CheckRequirements()` | postfix | `WorldUIModule`:108 |
+| `UnityGameEditorRuntime_LoadScenario_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Patches/ScenarioGateCheat.cs:635</sub> | `UnityGameEditorRuntime.LoadScenario(ScenarioState, UnityAction<ScenarioState>)` | prefix | `WorldUIModule`:109 |
 | `SettingsClickExemption` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/SettingsClickExemption.cs:102</sub> | *(resolved at runtime by `TargetMethod`)* | finalizer | `SettingsClickExemption`:146 |
-| `TakeDamagePanelSafety`<br/><sub>src/GloomhavenVR/WorldUI/Patches/TakeDamagePanelSafety.cs:58</sub> | `TakeDamagePanel.TakeDamage()` | prefix | `WorldUIModule`:85 |
+| `TakeDamagePanelSafety`<br/><sub>src/GloomhavenVR/WorldUI/Patches/TakeDamagePanelSafety.cs:58</sub> | `TakeDamagePanel.TakeDamage()` | prefix | `WorldUIModule`:90 |
 | &nbsp; | `TakeDamagePanel.BurnAvailableCard(bool)` | prefix | &nbsp; |
 | &nbsp; | `TakeDamagePanel.BurnDiscardedCards(bool)` | prefix | &nbsp; |
 | &nbsp; | `TakeDamagePanel.PreviewDamage()` | prefix | &nbsp; |
@@ -306,9 +310,9 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `TakeDamagePanel.OnMouseEnterBurnTwo()` | prefix | &nbsp; |
 | &nbsp; | `TakeDamagePanel.OnMouseExitBurnTwo()` | prefix | &nbsp; |
 | &nbsp; | `TakeDamagePanel.get_IsLethalDamage()` *(private)* | prefix | &nbsp; |
-| `TooltipRaiseGuard`<br/><sub>src/GloomhavenVR/WorldUI/Patches/TooltipRaiseGuard.cs:78</sub> | `UITooltipTarget.OnPointerEnter()` | prefix | `WorldUIModule`:87 |
+| `TooltipRaiseGuard`<br/><sub>src/GloomhavenVR/WorldUI/Patches/TooltipRaiseGuard.cs:78</sub> | `UITooltipTarget.OnPointerEnter()` | prefix | `WorldUIModule`:92 |
 | &nbsp; | `UITooltip.Show()` | prefix | &nbsp; |
-| `TooltipWindowPatches`<br/><sub>src/GloomhavenVR/WorldUI/Patches/TooltipWindowPatches.cs:67</sub> | `RectTransformExtensions.DeltaWorldPositionToFitTheScreen(RectTransform, Camera, float)` | prefix | `WorldUIModule`:128 |
+| `TooltipWindowPatches`<br/><sub>src/GloomhavenVR/WorldUI/Patches/TooltipWindowPatches.cs:67</sub> | `RectTransformExtensions.DeltaWorldPositionToFitTheScreen(RectTransform, Camera, float)` | prefix | `WorldUIModule`:133 |
 | &nbsp; | `RectTransformExtensions.DeltaWorldPositionToFitTheScreen(RectTransform, Camera, float, float)` | prefix | &nbsp; |
 | &nbsp; | `RectTransformExtensions.DeltaPositionToFitTheScreen(RectTransform, Camera, float)` | prefix | &nbsp; |
 | &nbsp; | `RectTransformExtensions.DeltaPositionToFitTheScreen(RectTransform, float)` | prefix | &nbsp; |
@@ -331,11 +335,15 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `UITextInfoPanel.Show((string, string)[])` | postfix | &nbsp; |
 | `UIDistributePointsPopup_Hide_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Surfaces/SurfaceCloseEdge.cs:147</sub> | `UIDistributePointsPopup.Hide()` | prefix | `SurfaceCloseEdge`:77 |
 | `UIAbilityCardPicker_Hide_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Surfaces/SurfaceCloseEdge.cs:156</sub> | `UIAbilityCardPicker.Hide()` | prefix | `SurfaceCloseEdge`:78 |
-| `TownServiceEnhancementGrantGuard`<br/><sub>src/GloomhavenVR/WorldUI/TownServices/TownServiceEnhancementHandoff.cs:981</sub> | `UIEnhancementConfirmationBox.ShowConfirmation(string, string, Sprite, string, Action, string, string, Action)` | prefix | `WorldUIModule`:78 |
+| `TownServiceEnhancementGrantGuard`<br/><sub>src/GloomhavenVR/WorldUI/TownServices/TownServiceEnhancementHandoff.cs:986</sub> | `UIEnhancementConfirmationBox.ShowConfirmation(string, string, Sprite, string, Action, string, string, Action)` | prefix | `WorldUIModule`:78 |
 | `TownServiceEnhancementVoiceCapture`<br/><sub>src/GloomhavenVR/WorldUI/TownServices/TownServiceEnhancementVoiceCapture.cs:12</sub> | `UIEnhancementConfirmationBox.ShowConfirmation(string, string, Sprite, string, Action, string, string, Action)` | prefix | `WorldUIModule`:79 |
 | `TownServiceRitualConfirmationCapture`<br/><sub>src/GloomhavenVR/WorldUI/TownServices/TownServiceRitualConfirmationGuard.cs:66</sub> | `UIEnhancementConfirmationBox.ShowConfirmation(string, string, Sprite, string, Action, string, string, Action)` | prefix | `WorldUIModule`:77 |
-| `TownServiceTutorialStepPatch`<br/><sub>src/GloomhavenVR/WorldUI/TownServices/TownServiceTutorialPatches.cs:90</sub> | `UIMapFTUEStep.StartStep()` | prefix | `WorldUIModule`:80 |
-| `TownServiceTutorialSequencePatch`<br/><sub>src/GloomhavenVR/WorldUI/TownServices/TownServiceTutorialPatches.cs:105</sub> | `MapFTUEManager.StartStep()` | postfix | `WorldUIModule`:81 |
+| `TownServiceTutorialShopExitPatch`<br/><sub>src/GloomhavenVR/WorldUI/TownServices/TownServiceTutorialPatches.cs:228</sub> | `UIShopItemWindow.Exit()` | prefix | `WorldUIModule`:82 |
+| &nbsp; | `UIShopItemWindow.Exit()` | finalizer | &nbsp; |
+| `TownServiceTutorialShopHiddenPatch`<br/><sub>src/GloomhavenVR/WorldUI/TownServices/TownServiceTutorialPatches.cs:241</sub> | `UIShopItemWindow.OnHidden()` *(private)* | prefix | `WorldUIModule`:83 |
+| &nbsp; | `UIShopItemWindow.OnHidden()` *(private)* | postfix | &nbsp; |
+| `TownServiceTutorialStepPatch`<br/><sub>src/GloomhavenVR/WorldUI/TownServices/TownServiceTutorialPatches.cs:250</sub> | `UIMapFTUEStep.StartStep()` | prefix | `WorldUIModule`:80 |
+| `TownServiceTutorialSequencePatch`<br/><sub>src/GloomhavenVR/WorldUI/TownServices/TownServiceTutorialPatches.cs:265</sub> | `MapFTUEManager.StartStep()` | postfix | `WorldUIModule`:81 |
 
 ## Registration sites
 
@@ -363,6 +371,6 @@ runtime, which is why a runtime audit could never do this job (see
 | `src/GloomhavenVR/WorldUI/Patches/KeyboardAutoHideBlock.cs` | `KeyboardHideSuppressor` |
 | `src/GloomhavenVR/WorldUI/Patches/SettingsClickExemption.cs` | `SettingsClickExemption` |
 | `src/GloomhavenVR/WorldUI/Surfaces/SurfaceCloseEdge.cs` | `UIAbilityCardPicker_Hide_Patch`, `UIDistributePointsPopup_Hide_Patch` |
-| `src/GloomhavenVR/WorldUI/WorldUIModule.cs` | `CQuestStateExtensions_CheckRequirements_Patch`, `Character3DDisplayRefcount`, `CharacterClickSelectsOnly`, `ConfirmationBox_ShowGenericConfirmation_Pair_Rescue_Patch`, `ConfirmationBox_ShowGenericConfirmation_Single_Rescue_Patch`, `ConfirmationBox_ShowGenericSpendConfirmation_Rescue_Patch`, `ESCMenu_OnShow_LatchGuard_Patch`, `HintDirectConceptScopePatch`, `HintHighlightScopePatch`, `HintMessageOriginPatch`, `HintProducerScopePatch`, `HintRewardScopePatch`, `InitiativeHoverCardBlock`, `InputManager_AssignGamepadBindings_Patch`, `InputManager_SetGamepadInputDevice_Patch`, `MainMenuLogoSwap`, `MapLocationHoverAnimationGate`, `MapLocationSelectorGate`, `MapSelectionTransition`, `MapStoryController_OnFinishShow_LifecyclePatch`, `MapStoryController_ShowImmediately_LifecyclePatch`, `MouseWorldSurfaceCut`, `PartyPanelStackingHide`, `PartyPreviewStorm`, `PostQuestCampaignRewardContinuePatch`, `PostQuestCampaignRewardManagerPatch`, `PostQuestCampaignRewardShowPatch`, `PostQuestGuildmasterRewardContinuePatch`, `PostQuestGuildmasterRewardShowPatch`, `PostQuestRewardIntroductionMessagePatch`, `PostQuestRewardIntroductionScopePatch`, `PostQuestRewardIntroductionShowPatch`, `PostQuestRewardQueuePatch`, `PostQuestRewardSceneEndPatch`, `QuestPreparationHint`, `StoryController_OnFinishShow_LifecyclePatch`, `StoryController_ShowImmediately_LifecyclePatch`, `TakeDamagePanelSafety`, `TooltipRaiseGuard`, `TooltipWindowPatches`, `TownServiceEnhancementGrantGuard`, `TownServiceEnhancementVoiceCapture`, `TownServiceRitualConfirmationCapture`, `TownServiceTutorialSequencePatch`, `TownServiceTutorialStepPatch`, `TownWindowMapSwitch`, `UITextInfoPanel_Show_Patch`, `UnityGameEditorRuntime_LoadScenario_Patch`, `VrGamepadConnectionActivateGuard`, `VrGamepadConnectionUpdateGuard`, `WorldspaceDisplayPanelBase_Patches` |
+| `src/GloomhavenVR/WorldUI/WorldUIModule.cs` | `CQuestStateExtensions_CheckRequirements_Patch`, `Character3DDisplayRefcount`, `CharacterClickSelectsOnly`, `ConfirmationBox_ShowGenericConfirmation_Pair_Rescue_Patch`, `ConfirmationBox_ShowGenericConfirmation_Single_Rescue_Patch`, `ConfirmationBox_ShowGenericSpendConfirmation_Rescue_Patch`, `ESCMenu_OnShow_LatchGuard_Patch`, `HintDirectConceptScopePatch`, `HintHighlightScopePatch`, `HintMessageOriginPatch`, `HintProducerScopePatch`, `HintRewardScopePatch`, `InitiativeHoverCardBlock`, `InputManager_AssignGamepadBindings_Patch`, `InputManager_SetGamepadInputDevice_Patch`, `MainMenuLogoSwap`, `MapLocationHoverAnimationGate`, `MapLocationSelectorGate`, `MapSelectionTransition`, `MapStoryController_OnFinishShow_LifecyclePatch`, `MapStoryController_ShowImmediately_LifecyclePatch`, `MerchantTutorialExitMessagePatch`, `MerchantTutorialExitPagePatch`, `MerchantTutorialExitTitlePatch`, `MouseWorldSurfaceCut`, `PartyPanelStackingHide`, `PartyPreviewStorm`, `PostQuestCampaignRewardContinuePatch`, `PostQuestCampaignRewardManagerPatch`, `PostQuestCampaignRewardShowPatch`, `PostQuestGuildmasterRewardContinuePatch`, `PostQuestGuildmasterRewardShowPatch`, `PostQuestRewardIntroductionMessagePatch`, `PostQuestRewardIntroductionScopePatch`, `PostQuestRewardIntroductionShowPatch`, `PostQuestRewardQueuePatch`, `PostQuestRewardSceneEndPatch`, `QuestPreparationHint`, `StoryController_OnFinishShow_LifecyclePatch`, `StoryController_ShowImmediately_LifecyclePatch`, `TakeDamagePanelSafety`, `TooltipRaiseGuard`, `TooltipWindowPatches`, `TownServiceEnhancementGrantGuard`, `TownServiceEnhancementVoiceCapture`, `TownServiceRitualConfirmationCapture`, `TownServiceTutorialSequencePatch`, `TownServiceTutorialShopExitPatch`, `TownServiceTutorialShopHiddenPatch`, `TownServiceTutorialStepPatch`, `TownWindowMapSwitch`, `UITextInfoPanel_Show_Patch`, `UnityGameEditorRuntime_LoadScenario_Patch`, `VrGamepadConnectionActivateGuard`, `VrGamepadConnectionUpdateGuard`, `WorldspaceDisplayPanelBase_Patches` |
 
 The preloader (`GloomhavenVR.Preload.dll`) patches **no** assemblies (`TargetDLLs` is empty); it only installs the OpenXR natives + UnitySubsystems manifest.

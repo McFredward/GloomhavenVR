@@ -1744,6 +1744,42 @@
         "local"
       ],
       "weight": 2
+    },
+    {
+      "id": "town-onboarding",
+      "command": [
+        "bash",
+        "scripts/town-onboarding-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 20
+    },
+    {
+      "id": "merchant-tutorial-text",
+      "command": [
+        "bash",
+        "scripts/merchant-tutorial-text-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 12
+    },
+    {
+      "id": "town-window-close",
+      "command": [
+        "bash",
+        "scripts/town-window-close-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 7
     }
   ]
 }

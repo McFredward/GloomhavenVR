@@ -161,6 +161,7 @@ internal static partial class ModalFallback
         // Temporary native presentation hides must not finish the merchant lesson.
         using var closeScope = MapRoom.TownWindowCloseScope.Enter(
             MapRoom.GuildmasterDestinations.IsDestination(window));
+        var merchantClose = TownServiceTutorialPatches.CaptureConvertedMerchantClose(window);
 
         // Item 6: flag THIS floated window for release regardless of the game's own IsOpen. A sticky
         // reachable menu the game's single-window toggle already hid stays floated in VR until its
@@ -221,6 +222,11 @@ internal static partial class ModalFallback
             VRLog.Error("WorldUI", $"MODAL CLOSE (X button): closing '{name}' FAILED " +
                                    $"({ex.GetType().Name}: {ex.Message}).");
         }
+
+        // An already-native-hidden sticky float cannot emit OnHidden a second time.
+        // Its native cleanup has already run; finish only the exact lesson captured
+        // for this explicit close, after the successful hide or VR-only release.
+        TownServiceTutorialPatches.CompleteConvertedMerchantClose(window, merchantClose);
 
         // Issue 4 (ESC menu unresponsive after closing a submenu): reset the ESC menu's ToggleGroup
         // deterministically on EVERY X-close of an ESC submenu, in BOTH branches above — the game's

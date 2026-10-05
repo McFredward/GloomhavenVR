@@ -581,7 +581,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 623;
+    public const ushort ModBuild = 624;
+
+    // ModBuild 624 — first-save merchant onboarding closes through the native flow.
+    // A real destination close and a surface-only map switch share the same native
+    // map Toggle. Preserve open merchant/temple/enchantress windows only for the
+    // latter; explicit X/second-cap exits retain the original mode cleanup and FTUE
+    // listeners. A scoped native shop close resolves only its exact pending BuyItem
+    // step after cleanup, independent of old WorldMap toggle listeners or purchases.
+    // The original BuyItem exit hint names X/second Merchant press in EN/DE instead
+    // of reopening WorldMap. Persistent immersive residents still advance their
+    // flat-only steps through original native promises; no saved-state/travel bypass.
+    // No wire layout, canonical item path or cabinet presentation changes.
 
     // ModBuild 623 — bounded native NPC publication and reliable common cabinet controls.
     // Paired Build622 evidence isolated final publication CPU spikes, discarded catalogue

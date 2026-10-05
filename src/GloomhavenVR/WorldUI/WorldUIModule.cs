@@ -79,6 +79,11 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(TownServiceEnhancementVoiceCapture)); // original confirmed enchantment drives resident speech
         VRSession.Harmony?.PatchAll(typeof(TownServiceTutorialStepPatch));
         VRSession.Harmony?.PatchAll(typeof(TownServiceTutorialSequencePatch));
+        VRSession.Harmony?.PatchAll(typeof(TownServiceTutorialShopExitPatch));
+        VRSession.Harmony?.PatchAll(typeof(TownServiceTutorialShopHiddenPatch));
+        VRSession.Harmony?.PatchAll(typeof(Compat.MerchantTutorialExitMessagePatch));
+        VRSession.Harmony?.PatchAll(typeof(Compat.MerchantTutorialExitTitlePatch));
+        VRSession.Harmony?.PatchAll(typeof(Compat.MerchantTutorialExitPagePatch));
         // Register before any map destination can open. Installing this from the town-service
         // Tick was one frame too late for UIWindow.Show itself, so the flat open cue survived.
         TownServiceNativeAudioSilence.EnsureInstalled();
