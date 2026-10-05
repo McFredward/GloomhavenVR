@@ -21,7 +21,8 @@ Dictionary<string, string> types = Discovery.AllTypes(game.MainModule).ToDiction
 var protectedTypes = ProtectedTypes.Snapshot(game);
 var report = new StandaloneReport();
 string[] changed = StandaloneNetwork.Apply(game, api, report).ToArray();
-Check(changed.SequenceEqual(new[] { "VoiceChat.BoltVoiceChatService", "UIMultiplayerEscSubmenu" }), "Network adaptation changed more than the original voice opt-in/invite capability boundaries.");
+Check(changed.SequenceEqual(new[] { "VoiceChat.BoltVoiceChatService", "UIMultiplayerEscSubmenu", "GHClientCallbacks", "SaveData" }),
+    "Network adaptation changed more than the original voice/invite capability and explicitly excluded Guildmaster admission/load boundaries.");
 foreach (TypeDefinition type in Discovery.AllTypes(game.MainModule))
     if (!changed.Contains(type.FullName)) Check(types[type.FullName] == ProtectedTypes.Fingerprint(type), "Unrelated original game/network type changed: " + type.FullName);
 Check(ProtectedTypes.Verify(protectedTypes, game) == protectedTypes.Count, "Protected original gameplay changed.");

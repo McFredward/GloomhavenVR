@@ -6,7 +6,7 @@ using System.Runtime.CompilerServices;
 
 namespace QuestWeaver;
 
-/// <summary>Only the original voice platform boundary; never transport or serializers.</summary>
+/// <summary>Quest platform boundaries and excluded-mode admission; transport and serializers remain original.</summary>
 internal static class StandaloneNetwork
 {
     internal static readonly string[] PreservedAssemblies = {
@@ -15,7 +15,7 @@ internal static class StandaloneNetwork
         "PhotonRealtime", "Photon3Unity3D", "PhotonVoice", "PhotonVoice.API"
     };
 
-    /// <returns>Original game types changed by the narrow voice entry boundary.</returns>
+    /// <returns>Original types changed by the explicit Quest platform and mode boundaries.</returns>
     internal static IEnumerable<string> Apply(AssemblyDefinition game, AssemblyDefinition voiceApi, StandaloneReport report,
         string runtimeAssemblyName = "Assembly-CSharp")
     {
@@ -93,6 +93,6 @@ internal static class StandaloneNetwork
         display.InsertAfter(epicReads[0], capability); display.InsertAfter(capability, allowed); display.InsertAfter(allowed, both);
         show.Body.MaxStackSize = Math.Max(show.Body.MaxStackSize, 3);
         report.Modifications.Add("Require excluded Epic invite capability without changing saved EpicLogin: " + show.FullName);
-        return new[] { service.FullName, multiplayer.FullName };
+        return new[] { service.FullName, multiplayer.FullName }.Concat(StandaloneGuildmaster.Apply(game, runtimeAssembly, report));
     }
 }
