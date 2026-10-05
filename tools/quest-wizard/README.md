@@ -67,12 +67,22 @@ After hard process death, a saved running session is marked interrupted only
 when the kernel workspace lock has no active owner; a live external run remains
 protected. No persisted PID is terminated during reconciliation.
 
-The central builder's interrupted imported workspace currently needs its pending
-transactional resume integration: the backend retains such a workspace and
-blocks rather than destroying its Library. This is an explicit interim limitation,
-not complete whole-build resume. Stable asset workspaces across changed mod
-revisions and shortening generated Windows paths are separate pending builder
-improvements. Signing keys and device saves are never reset by this workflow.
+The selected source must declare `BUILDER_RESUME_CONTRACT=1` to resume an
+interrupted imported build; older source is retained and produces an explicit
+action instead of destroying its Library. The current contract journals mutable
+content, verifies completed source-export batches, and retries only the owned
+unfinished work. An unchanged original game keeps the same Unity workspace when
+the mod or local profile changes; each changed build still needs its own verified
+receipts and newly generated assets. Library survives regeneration, but asset
+copying is still required. Final Android color/API settings are serialized before
+the first Editor start. No faster import time is claimed without a measured run.
+Signing keys and device saves are never reset by this workflow.
+
+New shader caches use `tool-cache/cs/<owned-game-hash>/o`; prior longer cache trees
+are preserved. Original shader asset names and GUIDs remain unchanged. The shader
+producer checks the actual Windows output roots before writing: a sufficiently
+long custom build root still needs a shorter directory. Cache path shortening
+does not assume Windows or Unity supports every extended-length path.
 
 Tool pins come from [official .NET release metadata](https://builds.dotnet.microsoft.com/dotnet/release-metadata/8.0/releases.json)
 and [Git for Windows](https://github.com/git-for-windows/git/releases/tag/v2.51.0.windows.1).

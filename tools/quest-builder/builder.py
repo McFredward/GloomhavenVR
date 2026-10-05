@@ -460,7 +460,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
                     tool_cache=output / "tool-cache/campaign-native-codecs", cab_bundles=original_owners)
                 import campaign_compute
                 campaign_compute.stage(source, project, output / "tool-cache/campaign-compute" / inputs["inputKey"])
-                campaign_shaders.stage(source, project, game, output / "tool-cache/campaign-shaders" / inputs["game"]["key"])
+                campaign_shaders.stage(source, project, game, campaign_shader_cache(output, inputs["game"]["key"]))
             package_startup_content(project, inputs["inputKey"])
             package_data = json.loads((project / "Packages/manifest.json").read_text(encoding="utf-8"))
             package_data.setdefault("dependencies", {})["com.unity.addressables"] = "1.19.19"
@@ -553,6 +553,14 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
 
     stages.run("prepare", key, generate)
     return project
+
+
+def campaign_shader_cache(output: Path, game_key: str) -> Path:
+    if not isinstance(game_key, str) or not re.fullmatch(r"[0-9a-f]{64}", game_key):
+        raise BuildError("Campaign shader cache requires the owned game hash.")
+    # Keep the former campaign-shaders tree untouched. Native shader receipts
+    # and identities are unchanged; a short host path avoids Win32 MAX_PATH.
+    return output / "tool-cache/cs" / game_key
 
 
 def startup_shader_contracts(project: Path) -> list[Path]:

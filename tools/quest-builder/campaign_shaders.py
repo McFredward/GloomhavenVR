@@ -59,6 +59,11 @@ def original_cab_bundles(source, game):
     return owners
 
 
+def cache_overlay(cache):
+    """Keep generated Windows paths short without deleting older cache trees."""
+    return cache / "o"
+
+
 def stage(source, project, game, cache, tool_archive=None):
     source, project, game, cache = map(Path, (source, project, game, cache))
     cache.mkdir(parents=True, exist_ok=True)
@@ -72,7 +77,7 @@ def stage(source, project, game, cache, tool_archive=None):
     if inventory.get("blockedShaderCount") or inventory.get("errors"):
         raise BuildError("Full native Shader recovery has unresolved banks; inspect " + str(cache / "original-shader-inventory.json"))
     producer = load(source, "tools/quest-shaders/produce.py", "tools/quest-shaders")
-    overlay = cache / "overlay"
+    overlay = cache_overlay(cache)
     if overlay.exists(): shutil.rmtree(overlay)
     manifest = producer.restore_project(project, cache / "original-shader-inventory.json", cache,
         overlay, preserved_sources=preserve_sources(project))
