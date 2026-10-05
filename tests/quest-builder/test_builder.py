@@ -375,6 +375,21 @@ class ApkTests(Temporary):
         with patch.object(builder, "command", self.tool_output), self.assertRaises(storage.BuildError):
             builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
 
+    def test_actual_build_provenance_survives_validation_and_mismatch_rejects(self):
+        provenance = {"schema": 1, "runtime": {"sourceCommit": "frozen-runtime"},
+                      "stagedEditorSources": [{"path": "Assets/Quest/Editor/Correction.cs", "sha256": "c" * 64}]}
+        self.metadata["buildProvenance"] = provenance
+        storage.write_json(self.evidence, self.metadata)
+        self.fixture_apk()
+        with patch.object(builder, "command", self.tool_output):
+            details = builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output, provenance)
+        self.assertEqual(details["buildProvenance"], provenance)
+        self.assertEqual(details["buildReport"]["buildProvenance"], provenance)
+        self.metadata["buildProvenance"] = {"schema": 1, "runtime": {"sourceCommit": "different-runtime"}}
+        storage.write_json(self.evidence, self.metadata)
+        with self.assertRaisesRegex(storage.BuildError, "build-tool provenance"):
+            builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output, provenance)
+
     def test_signer_receives_literal_apk_path_through_java(self):
         self.fixture_apk()
         renamed = self.apk.with_name("Campaign & 100% literal.apk")

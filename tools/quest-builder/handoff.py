@@ -4,7 +4,7 @@ from pathlib import Path
 import shutil
 import zipfile
 
-from storage import BuildError, digest, write_json
+from storage import BuildError, digest, record_file, write_json
 
 
 def package(repo, output, apk, details, destination):
@@ -23,25 +23,35 @@ def package(repo, output, apk, details, destination):
     name = "GloomhavenVR-Quest-B" + str(number) + ".apk"
     targets = [(apk, payload / name, details["apkSha256"])]
     targets += [(output / row["path"], payload / Path(row["path"]).name, row["sha256"]) for row in details.get("contentFiles", [])]
+    targets += [(output / row["path"], payload / Path(row["path"]).name, row["sha256"])
+                for row in details.get("buildEvidenceFiles", [])]
+    if len({target.name for _, target, _ in targets}) != len(targets):
+        raise BuildError("Hardware package contains conflicting payload filenames.")
     for source, target, expected in targets:
         shutil.copyfile(source, target)
         if digest(target) != expected:
             raise BuildError("Hardware package copy differs from verified output: " + target.name)
     handoff = {"schema": 1, **details, "apk": name, "modBuild": number, "inputKey": inputs["inputKey"],
                "contentFiles": [{"path": Path(row["path"]).name, "sha256": row["sha256"], "size": row["size"]}
-                                for row in details.get("contentFiles", [])]}
-    write_json(payload / "handoff.json", handoff)
+                                for row in details.get("contentFiles", [])],
+               "buildEvidenceFiles": [{"path": Path(row["path"]).name, "sha256": row["sha256"], "size": row["size"]}
+                                      for row in details.get("buildEvidenceFiles", [])]}
     shutil.copyfile(str(apk) + ".build.json", payload / (name + ".build.json"))
     scripts = [prefix + suffix for prefix in ("install-quest-wireless", "collect-quest-logs", "quest-saves")
                for suffix in (".py", ".ps1", ".cmd")]
+    packaged_sources = []
     for relative in ["scripts/" + name for name in scripts]:
         source = repo / relative
         if not source.is_file(): raise BuildError("Hardware installer source is missing: " + relative)
         target = root / relative; target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(source, target)
+        packaged_sources.append(record_file(target, relative))
     for directory in ("tools/quest-installer", "tools/quest-builder"):
         for source in sorted((repo / directory).iterdir()):
             if source.is_file() and source.suffix in (".py", ".ps1", ".json", ".txt"):
                 target = root / directory / source.name; target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(source, target)
+                packaged_sources.append(record_file(target, target.relative_to(root).as_posix()))
+    handoff["packageSourceFiles"] = sorted(packaged_sources, key=lambda row: row["path"])
+    write_json(payload / "handoff.json", handoff)
     (root / "README.txt").write_text(
         "GloomhavenVR Quest hardware package B" + str(number) + "\n\n"
         "Extract the complete GloomhavenVR-Quest-Test folder. Connect and authorize the Quest over USB on the first run.\n"

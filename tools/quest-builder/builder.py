@@ -30,6 +30,7 @@ import ui_assets
 import full_assets
 import campaign
 import mod_assets
+import build_provenance
 
 from profile import discover_steam_root, dummy_identity, load_profile, read_logo, ProfileError
 from storage import (BuildError, Stages, canonical, digest, ensure_output, inventory,
@@ -929,10 +930,13 @@ def signing(output: Path, tools: dict) -> tuple[Path, dict]:
     return key, private
 
 
-def validate_apk(apk: Path, report: Path, inputs: dict, tools: dict, output: Path) -> dict:
+def validate_apk(apk: Path, report: Path, inputs: dict, tools: dict, output: Path,
+                 expected_provenance: dict | None = None) -> dict:
     if not apk.is_file() or not report.is_file():
         raise BuildError("Unity did not produce both the APK and its .build.json evidence.")
     metadata = json.loads(report.read_text(encoding="utf-8"))
+    if expected_provenance is not None and metadata.get("buildProvenance") != expected_provenance:
+        raise BuildError("Unity build evidence lost the actual staged build-tool provenance.")
     expected = {"schema": 1, "target": inputs["target"], "inputKey": inputs["inputKey"],
                 "package": PACKAGE, "profileSha256": digest(
                     output / "identities" / inputs["profileKey"] / "quest-profile.json"),
@@ -1004,23 +1008,30 @@ def validate_apk(apk: Path, report: Path, inputs: dict, tools: dict, output: Pat
         raise BuildError("Quest 3 APK declares mandatory eye tracking, which its hardware does not support.")
     if re.search(r"^uses-permission(?:-sdk-\d+)?:\s.*\beye_tracking\b", badging, re.MULTILINE | re.IGNORECASE):
         raise BuildError("Quest 3 APK requests an unused eye-tracking permission.")
-    return {"apkSha256": digest(apk), "certificateSha256": cert_hash,
+    result = {"apkSha256": digest(apk), "certificateSha256": cert_hash,
             "package": PACKAGE, "isDiagnostic": inputs["target"] != "game",
             "isDummy": bool(inputs["profile"].get("isDummy")), "buildReport": metadata, "contentFiles": content_files}
+    if "buildProvenance" in metadata:
+        result["buildProvenance"] = metadata["buildProvenance"]
+    return result
 
 
 def build(args, inputs: dict, output: Path, source: Path, game: Path, project: Path) -> Path:
     tools = toolchain(args, output)
     weave(args, inputs, output, source, game, project)
     key_file, private = signing(output, tools)
-    key = value_hash({"input": inputs["inputKey"], "toolchain": tools["key"], "recipe": RECIPE})
+    provenance = build_provenance.capture(inputs, project, source, Path(__file__).resolve().parent, tools)
+    key = value_hash({"input": inputs["inputKey"], "toolchain": tools["key"], "recipe": RECIPE,
+                      "buildProvenance": value_hash(provenance)})
     apk = output / "builds" / key / "GloomhavenVR-Quest.apk"
     report = Path(str(apk) + ".build.json")
+    provenance_path = apk.parent / "build-provenance.json"
 
     def compile_player():
         apk.parent.mkdir(parents=True, exist_ok=True)
         apk.unlink(missing_ok=True)
         report.unlink(missing_ok=True)
+        write_json(provenance_path, provenance)
         native = source / "scripts/build-quest-native.py"
         if not native.is_file():
             raise BuildError("The selected source does not contain the Quest passthrough native build tool.")
@@ -1052,8 +1063,14 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                  "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuild.Build",
                  "-logFile", str(output / "logs" / ("unity-build-" + key[:12] + ".log"))],
                 output / "logs" / ("unity-launch-" + key[:12] + ".log"), env=env)
-        details = validate_apk(apk, report, inputs, tools, output)
-        evidence = []
+        if build_provenance.capture(inputs, project, source, Path(__file__).resolve().parent, tools) != provenance:
+            raise BuildError("Staged build tools changed during the Player build; retry after editing stops.")
+        metadata = json.loads(report.read_text(encoding="utf-8"))
+        metadata["buildProvenance"] = provenance
+        write_json(report, metadata)
+        details = validate_apk(apk, report, inputs, tools, output, provenance)
+        details["buildEvidenceFiles"] = [record_file(provenance_path, provenance_path.relative_to(output).as_posix())]
+        evidence = [provenance_path]
         if args.target == "game":
             import campaign_compute
             compute_receipt = apk.parent / "compute-delivered-validation.json"
