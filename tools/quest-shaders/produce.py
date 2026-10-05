@@ -262,6 +262,7 @@ def shader_source(form, record, cache, includes, graphics_api="Vulkan"):
                 selector = [*selection, 'UNITY_HARDWARE_TIER' + str(tier + 1)]
                 v, f = _selected(vertex, selector), _selected(fragment, selector)
                 compiler_variants.append({'subshader': si, 'pass': pi, 'passType': pass_type[mode], 'hardwareTier': tier, 'keywords': list(selection),
+                    'coverageKind': 'original-native',
                     'stereo': 'multiview' if 'STEREO_MULTIVIEW_ON' in selection else 'instancing' if 'STEREO_INSTANCING_ON' in selection else 'mono',
                     'vertexOriginalDxbcSha256': v['originalDxbcSha256'], 'fragmentOriginalDxbcSha256': f['originalDxbcSha256'],
                     'fragmentOutput': f['fragmentOutput'], 'requiresFragmentEyeRouting': _fragment_eye(f, cache),
@@ -272,6 +273,7 @@ def shader_source(form, record, cache, includes, graphics_api="Vulkan"):
                 selector = [*selection, 'UNITY_HARDWARE_TIER' + str(tier + 1)]
                 v, f = _selected(vertex, selector), _selected(fragment, selector)
                 compiler_variants.append({'subshader': si, 'pass': pi, 'passType': pass_type[mode], 'hardwareTier': tier, 'keywords': sorted([*selection, 'STEREO_MULTIVIEW_ON']),
+                    'coverageKind': 'quest-synthetic',
                     'stereo': 'multiview', 'vertexOriginalDxbcSha256': v['originalDxbcSha256'],
                     'fragmentOriginalDxbcSha256': f['originalDxbcSha256'], 'fragmentOutput': f['fragmentOutput'],
                     'requiresFragmentEyeRouting': _fragment_eye(f, cache),
@@ -287,7 +289,7 @@ def shader_source(form, record, cache, includes, graphics_api="Vulkan"):
     unique = {}
     for row in compiler_variants:
         unique[(row['subshader'], row['pass'], row['hardwareTier'], tuple(row['keywords']))] = row
-    return '\n'.join(lines) + '\n', list(unique.values())
+    return '\n'.join(lines) + '\n', [row for row in unique.values() if graphics_api != 'Vulkan' or row['coverageKind'] == 'original-native']
 
 
 def restore_project(project, inventory_path, cache, output, preserved_sources=None, graphics_api="Vulkan"):
@@ -377,6 +379,8 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
     if generator_hashes != {path.name: sha256(path) for path in generator_paths}:
         raise ValidationError('Shader generator changed during reconstruction; rebuild from stable tooling.')
     manifest['sourceGeneratorSha256'] = generator_hashes
+    manifest['requiredOriginalNativeAliasCount'] = sum(row['coverageKind'] == 'original-native' for shader in shaders for row in shader['variants'])
+    manifest['requiredSyntheticAliasCount'] = sum(row['coverageKind'] == 'quest-synthetic' for shader in shaders for row in shader['variants'])
     manifest['requiredHostRenderTargetCount'] = max([1, *[signature['semanticIndex'] + 1
         for shader in inventory['shaders'] for program in shader['variants']
         if program['stage'] == 'fragment' for signature in program['originalOutputSignature']

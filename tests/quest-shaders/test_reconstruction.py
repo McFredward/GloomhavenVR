@@ -231,6 +231,26 @@ class VulkanNativeInterface(unittest.TestCase):
         self.assertEqual(inspect.signature(produce.shader_source).parameters['graphics_api'].default, 'Vulkan')
         self.assertEqual(inspect.signature(produce.restore_project).parameters['graphics_api'].default, 'Vulkan')
 
+
+    def test_shipping_manifest_retains_native_keywords_without_synthetic_eye_claims(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        form = {'m_Name': 'NativeFixture', 'm_PropInfo': {'m_Props': []}, 'm_SubShaders': [
+            {'m_Tags': {'tags': []}, 'm_Passes': [{'m_Type': 0, 'm_State': {'m_Tags': {'tags': []}}}]}]}
+        rows = [dict(stage=stage, subshader=0, **{'pass': 0}, hardwareTier=0, keywords=keys,
+                     originalDxbcSha256=stage + str(n), originalInterfaceSha256='interface', fragmentOutput='color')
+                for n, keys in enumerate(([], ['NATIVE_ALPHA'])) for stage in ('vertex', 'fragment')]
+        includes = {(r['originalDxbcSha256'], r['originalInterfaceSha256']): 'Assets/' + r['originalDxbcSha256'] + '.hlsl' for r in rows}
+        native_stub = SimpleNamespace(tags=lambda _: '', render_state=lambda _: 'Cull Off')
+        with patch.object(produce, 'recovery_module', return_value=native_stub), patch.object(produce, '_fragment_eye', return_value=False), patch.object(produce, '_instance_layout', return_value=False), patch.object(produce, '_native_light_field', return_value=False):
+            source, shipping = produce.shader_source(form, {'guid': 'a'*32, 'variants': rows}, Path('.'), includes, 'Vulkan')
+            _, historical_probe = produce.shader_source(form, {'guid': 'a'*32, 'variants': rows}, Path('.'), includes, 'GLES3')
+        self.assertEqual([v['keywords'] for v in shipping], [[], ['NATIVE_ALPHA']])
+        self.assertTrue(all(v['coverageKind'] == 'original-native' for v in shipping))
+        self.assertEqual(len(historical_probe), 4)
+        self.assertEqual(sum(v['coverageKind'] == 'quest-synthetic' for v in historical_probe), 2)
+        self.assertIn('#pragma multi_compile __ STEREO_INSTANCING_ON STEREO_MULTIVIEW_ON', source)
+
     def test_vulkan_recovers_exact_original_layer_semantic(self):
         source = ('struct SPIRV_Cross_Input { float4 position : POSITION0; };\n'
                   'struct SPIRV_Cross_Output { float4 gl_Position : SV_Position; uint o1 : TEXCOORD3;\n};\n'

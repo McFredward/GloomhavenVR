@@ -314,3 +314,25 @@ content-addressed evidence bytes to avoid duplicating native stage payloads
 for tens of thousands of aliases. Native Windows `_DepthSlice` layer outputs
 recover their witnessed `SV_RenderTargetArrayIndex` on Vulkan rather than the
 GLES interface relocation. The original layer calculation remains unchanged.
+
+Full Vulkan retention/compiler coverage is the exact original alias graph;
+`coverageKind="original-native"` and `requiredOriginalNativeAliasCount` record
+its provenance. Extra future multiview aliases remain source options but do
+not enter the shipping MultiPass acceptance gate. The historical GLES probe
+may separately retain `coverageKind="quest-synthetic"` aliases. This filtering
+changes the evidence/retention scope only; reconstructed ShaderLab/HLSL bytes
+and every original native keyword/tier/pass remain unchanged.
+
+Actual Vulkan all-family milestone: all 688 source identities, 9,187 material
+shader bindings and 1,432 original pass representatives passed the real Unity
+Android Vulkan gate. Independent SPIR-V validation and lavapipe driver creation
+passed all 1,432 aliases/544 distinct graphics pipelines, with the missing
+fragment entry-point negative control rejected. A rebuilt native Linux Vulkan
+Amp candidate matched the existing original Windows/D3D11 readbacks byte for
+byte in all eight baseline/geometry/light/diffuse/UV/opacity/vertex-animation/
+camera-position cases; both planted texture/error-shader controls rejected.
+The CPU Vulkan device was selected explicitly (`-force-device-index 0`) and
+reported by Unity; no device spoofing was used. This bounded family fixture
+does not prove original bones, full Campaign materials, Android stereo or a
+Quest display. A native shadow/depth witness and full original alias sweep
+remain independent follow-up gates.
