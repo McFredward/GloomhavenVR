@@ -29,6 +29,7 @@ internal static class TownWindowMapSwitch
     private static bool Switch(UIGuildmasterHUD hud, EGuildmasterMode newMode,
                                ref EGuildmasterMode currentMode)
     {
+        if (TownWindowCloseScope.Active) return true;
         if (_switchDepth != 0 && currentMode == newMode
             && GuildmasterDestinations.IsMapSurfaceMode(newMode)) return false;
         if (!MapRoomDriver.Active || !WorldUIConfig.ConversionActive

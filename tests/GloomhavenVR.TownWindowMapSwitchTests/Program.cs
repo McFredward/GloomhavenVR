@@ -10,6 +10,7 @@ internal static class Program
     private static int Main()
     {
         var hud = new UIGuildmasterHUD();
+        MapRoomDriver.Hud = hud;
         foreach (EGuildmasterMode service in new[] { EGuildmasterMode.Merchant, EGuildmasterMode.Temple, EGuildmasterMode.Enchantress })
         foreach (EGuildmasterMode map in new[] { EGuildmasterMode.City, EGuildmasterMode.WorldMap })
         {
@@ -26,7 +27,32 @@ internal static class Program
             hud.Update(EGuildmasterMode.None);
             Check(hud.Exits == 1 && hud.Mode == EGuildmasterMode.None, "explicit close did not exit exactly once");
             hud.Exits = hud.Enters = 0;
+
+            // Actual X and second-press close dispatch the native home map, rather
+            // than None. Test both with an untouched and a purchased inventory.
+            foreach (bool purchased in new[] { false, true })
+            {
+                GuildmasterDestinations.Window = new UIWindow { RowCount = purchased ? 4 : 5 };
+                hud.Mode = service;
+                GuildmasterDestinations.CloseHome();
+                Check(hud.Mode == map && hud.Exits == 1 && hud.Enters == 1,
+                    "closing to the home map must exit the actual service once, including after purchase");
+                Check(!TownWindowCloseScope.Active, "explicit close scope leaked into map browsing");
+                hud.Exits = hud.Enters = 0;
+            }
         }
+        using (TownWindowCloseScope.Enter())
+        {
+            try { using (TownWindowCloseScope.Enter()) throw new Exception("native close failure"); }
+            catch (Exception) { }
+            Check(TownWindowCloseScope.Active, "nested failed close cleared the outer native exit scope");
+        }
+        Check(!TownWindowCloseScope.Active, "failed close permanently disabled map switch preservation");
+        MapRoomDriver.ThrowClose = true;
+        try { GuildmasterDestinations.CloseHome(); }
+        catch (Exception) { }
+        MapRoomDriver.ThrowClose = false;
+        Check(!TownWindowCloseScope.Active, "actual native close dispatch exception leaked its exit scope");
         foreach (int gate in new[] { 0, 1, 2, 3, 4 })
         {
             MapRoomDriver.Active = gate != 0; WorldUIConfig.ConversionActive = gate != 1;
@@ -75,7 +101,7 @@ public sealed class MapChoreographer
 }
 namespace GloomhavenVR.Core
 {
-    internal static class VRLog { internal static bool WantsDebug => true; internal static void Debug(string scope, string value) {} internal static void Note(string scope, string value) {} internal static void Alert(string scope, string value) {} }
+    internal static class VRLog { internal static bool WantsDebug => true; internal static void Debug(string scope, string value) {} internal static void Info(string scope, string value) {} internal static void Note(string scope, string value) {} internal static void Alert(string scope, string value) {} }
 }
 namespace GloomhavenVR.WorldUI
 {
@@ -84,10 +110,23 @@ namespace GloomhavenVR.WorldUI
 }
 namespace GloomhavenVR.WorldUI.MapRoom
 {
-    internal static class MapRoomDriver { internal static bool Active = true; internal static MapChoreographer? Choreographer; }
-    internal static class GuildmasterDestinations
+    internal static class MapRoomDriver
     {
+        internal static bool Active = true, ThrowClose;
+        internal static MapChoreographer? Choreographer;
+        internal static UIGuildmasterHUD? Hud;
+        internal static bool PressGuildmasterMode(EGuildmasterMode mode, string source, bool suppressNativeSound)
+        {
+            if (ThrowClose) throw new Exception("native close callback failed");
+            Hud!.Update(mode); return true;
+        }
+    }
+    internal static partial class GuildmasterDestinations
+    {
+        private const string Scope = "test destination";
         internal static UIWindow? Window; internal static EGuildmasterMode Home;
+        private static EGuildmasterMode HomeMode() => Home;
+        internal static void CloseHome() => ReturnHome("test X/second cap", "test service");
         internal static bool IsMapSurfaceMode(EGuildmasterMode mode) => mode is EGuildmasterMode.City or EGuildmasterMode.WorldMap;
         internal static UIWindow? ModeWindow(EGuildmasterMode mode) => Window;
         internal static void RememberMapSurface(EGuildmasterMode mode) => Home = mode;

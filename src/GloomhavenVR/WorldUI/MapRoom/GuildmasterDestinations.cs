@@ -1358,6 +1358,12 @@ internal static class GuildmasterDestinations
     private static bool ReturnHome(string source, string what)
     {
         EGuildmasterMode home = HomeMode();
+        // X and a second destination press intentionally close that service. The
+        // map-switch preservation patch must not interpret their shared native
+        // map Toggle as a request to keep the merchant/temple/enchantress open.
+        // Retain every original Exit and tutorial listener, with exception-safe
+        // nesting if a native close callback synchronously closes another window.
+        using var closeScope = TownWindowCloseScope.Enter();
         // An immersive resident is left by proximity, not by touching the map rail. Sending the
         // synthetic pointer sequence here used to play ExtendedToggle.mouseDownAudioItem
         // (PlaySound_UIMapOpen in the shipped map prefab) before UIWindow.Hide was ever reached.

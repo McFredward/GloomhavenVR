@@ -1,4 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><ProductionSource Condition="'$(ProductionSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/TownWindowMapSwitch.cs</ProductionSource></PropertyGroup>
-  <ItemGroup><Compile Include="$(ProductionSource)" Link="Production.cs" /></ItemGroup>
+  <ItemGroup>
+    <Compile Include="$(ProductionSource)" Link="Production.cs" />
+    <Compile Include="../../src/GloomhavenVR/WorldUI/MapRoom/TownWindowCloseScope.cs" Link="ProductionCloseScope.cs" />
+    <Compile Include="$(ProductionCloseDispatch)" Link="ProductionCloseDispatch.cs" Condition="'$(ProductionCloseDispatch)' != ''" />
+  </ItemGroup>
 </Project>
