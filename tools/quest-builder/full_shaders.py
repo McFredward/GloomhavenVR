@@ -909,6 +909,9 @@ def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=Non
                         proof = json.loads(proof_path.read_text())
                         if _hash(bound_path) != proof["boundHlslSha256"]:
                             raise ShaderRecoveryError("Recovered shader bank cache changed.")
+                        if (proof.get("originalDxbcSha256") != program["originalDxbcSha256"] or
+                            proof.get("originalInterfaceSha256") != interface_key or not proof.get("unityUniformsRestored")):
+                            raise ShaderRecoveryError("Recovered shader cache changes its native instruction/interface identity.")
                     else:
                         proof = None
                     if proof is None or proof.get("binderSha256") != binder_sha256:
@@ -916,9 +919,11 @@ def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=Non
                         # Rebind a previously witnessed instruction translation
                         # without rerunning external tools when its bytes match.
                         # Every native interface and binder change is reapplied.
-                        if previous and Path(previous["hlslPath"]).is_file() and _hash(previous["hlslPath"]) == previous["translatedHlslSha256"]:
+                        translated_path = cache / "translated" / (program["originalDxbcSha256"] + ".hlsl")
+                        if previous and translated_path.is_file() and _hash(translated_path) == previous["translatedHlslSha256"]:
                             translated = {key: value for key, value in previous.items() if key not in
                                           ("binderSha256", "originalInterfaceSha256", "boundHlslSha256", "usedOriginalBuffers")}
+                            translated["hlslPath"] = str(translated_path)
                         else:
                             translated = translate(program["dxbc"], cache / "translated", vkd3d, spirv_cross)
                         translated["originalBufferLayouts"] = native_buffer_layouts(program["dxbc"])
