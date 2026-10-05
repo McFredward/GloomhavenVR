@@ -113,8 +113,12 @@ fails the explicit negative control.
 
 The test uses six explicit host-only Unity native getter/logger substitutes and
 disposable original platform/save singletons. Original game bodies are unchanged.
-Campaign/party lists stay empty deliberately; this proves the real global format
-and callbacks, not every possible Campaign save graph or IL2CPP execution.
+Global fixtures keep Campaign/party lists empty deliberately. A supplemental oracle
+now also roundtrips nonempty original `List<PartyAdventureData>` slot metadata and
+`List<GHRuleset>` metadata, including native owner/avatar bytes, independent item
+flags, character tuples, timestamp and run identity. Original constructors and
+`RefreshCheckpoints` run against the disposable root. This is slot metadata rather
+than a `CMapState` gameplay snapshot or Android IL2CPP proof.
 
 Observed concrete strong formatter/serializer roots include:
 
@@ -128,6 +132,9 @@ The list/dictionary static constructors also reference `ListFormatter<int>` and
 `DictionaryFormatter<int,string>`. Preserving open generic metadata alone does not
 compile concrete value-type generic bodies; the Quest runtime supplies real typed
 AOT roots. The proof writes its observed cache/type closure to private text files.
+It now captures `StrongTypeFormatterMap` and `WeakTypeFormatterMap` too, since
+`FormatterInstances` alone misses directly returned reflection/ISerializable
+formatters. See [the exact additional AOT roots](Odin-AOT-CLOSURE.md).
 
 Manatee.Json's 106 emit sites belong to interface type synthesis used by its
 fallback resolver. The sole original game client is the optional error-report

@@ -50,13 +50,35 @@ def main() -> None:
         if hashlib.sha256(path.read_bytes()).hexdigest() != original_hashes[path.name]:
             raise RuntimeError("Original input changed: " + path.name)
     fixtures = {}
-    for kind in ("default", "nonempty"):
+    for kind in ("default", "nonempty", "campaign-metadata", "campaign-metadata-rewritten", "ruleset-metadata"):
         values = [(output / (variant + "-" + kind + ".dat")).read_bytes() for variant in ("pc", "quest", "quest-noemit")]
         if not all(value == values[0] for value in values):
             raise RuntimeError("Original PC/reflection/no-emission fixture bytes differ: " + kind)
         fixtures[kind] = {"size": len(values[0]), "sha256": hashlib.sha256(values[0]).hexdigest()}
+    closure = (output / "quest-noemit-original-type-closure.txt").read_text(encoding="utf-8").splitlines()
+    observed_strong = [line for line in closure if line.startswith("selected StrongTypeFormatterMap ")]
+    expected_strong = {
+        "GlobalData+KeyBinding": "ReflectionFormatter`1",
+        "ClientIndependantValues+CIVKeyValuePair": "ReflectionFormatter`1",
+        "System.Tuple`2": "ReflectionFormatter`1",
+        "System.Tuple`3": "ReflectionFormatter`1",
+        "PartyAdventureData": "SerializableFormatter`1",
+        "GHRuleset": "SerializableFormatter`1",
+    }
+    for name, formatter in expected_strong.items():
+        if not any(line.startswith("selected StrongTypeFormatterMap " + name + ",")
+                   or line.startswith("selected StrongTypeFormatterMap " + name + "[[")
+                   for line in observed_strong if " => OdinSerializer." + formatter + "[[" in line):
+            raise RuntimeError("Actual native metadata formatter closure changed or was not captured: " + name)
+    if not any(line.startswith("selected WeakTypeFormatterMap System.Byte[],")
+               and " => OdinSerializer.PrimitiveArrayFormatter`1[[System.Byte," in line for line in closure):
+        raise RuntimeError("Original avatar primitive byte-array formatter was not exercised.")
     receipt = {"schema": 1, "originalGlobalDataOdinBinaryWriterReader": True,
                "pcQuestFixtureBytesIdentical": True, "originalCallbacksRetained": True,
+               "originalCampaignSlotMetadataRoundtrip": True, "originalRulesetMetadataRoundtrip": True,
+               "formatterMapsCaptured": ["FormatterInstances", "StrongTypeFormatterMap", "WeakTypeFormatterMap"],
+               "observedStrongFormatterRoots": expected_strong,
+               "originalAvatarPrimitiveArrayFormatterExercised": True,
                "runtimeEmitPoisonSites": 345, "pcCodegenNegativeControl": True,
                "unityNativeHostSubstitutes": ["Application.platform/unityVersion/version/isEditor", "DebugLogHandler native logging"],
                "nativeGlobalMembers": 50, "fixtures": fixtures,

@@ -40,15 +40,105 @@ internal static class OdinGlobalDataProof
         return (byte[])method.MakeGenericMethod(value.GetType()).Invoke(null,
             new object[] { value, Enum.Parse(formatType, "Binary"), null });
     }
-    static object Deserialize(byte[] bytes)
+    static object Deserialize(byte[] bytes, Type valueType = null)
     {
         Type utility = odin.GetType("OdinSerializer.SerializationUtility", true);
         Type formatType = odin.GetType("OdinSerializer.DataFormat", true);
         MethodInfo method = utility.GetMethods().Single(methodInfo => methodInfo.Name == "DeserializeValue"
             && methodInfo.IsGenericMethodDefinition && methodInfo.GetParameters().Length == 3
             && methodInfo.GetParameters()[0].ParameterType == typeof(byte[]));
-        return method.MakeGenericMethod(Type("GlobalData")).Invoke(null,
+        return method.MakeGenericMethod(valueType ?? Type("GlobalData")).Invoke(null,
             new object[] { bytes, Enum.Parse(formatType, "Binary"), null });
+    }
+    static void PropertyField(object value, string name, object data)
+    {
+        Field(value, "<" + name + ">k__BackingField", data);
+    }
+    static object ConstructSerialized(string name, Dictionary<string, object> entries)
+    {
+        Type valueType = Type(name);
+        var info = new SerializationInfo(valueType, new FormatterConverter());
+        foreach (var entry in entries) info.AddValue(entry.Key, entry.Value);
+        return Activator.CreateInstance(valueType, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            null, new object[] { info, new StreamingContext() }, null);
+    }
+    static void VerifyCampaignMetadata(string variant, string output, bool readOther)
+    {
+        // This is native slot metadata, not a fabricated CMapState or gameplay
+        // snapshot. Its original formatter/constructor bodies run unchanged.
+        object avatar = ConstructSerialized("SaveOwner+SerializedAvatar", new Dictionary<string, object> {
+            { "X", 1 }, { "Y", 1 }, { "Bytes", new byte[] { 1, 3, 5, 7, 9 } }
+        });
+        object owner = ConstructSerialized("SaveOwner", new Dictionary<string, object> {
+            { "PlatformPlayerID", "0" }, { "PlatformAccountID", "0" }, { "PlatformNetworkAccountID", "0" },
+            { "PlatformName", "HostFixture" }, { "Username", "Campaign metadata fixture (DUMMY)" },
+            { "Avatar", avatar }, { "AvatarSet", true }
+        });
+        object independent = Activator.CreateInstance(Type("ClientIndependantValues"));
+        ((IList)Field(independent, "CIVItemIsNewDictionary")).Add(Activator.CreateInstance(
+            Type("ClientIndependantValues+CIVKeyValuePair"), new object[] { "FixtureItem (DUMMY)", true }));
+        object party = Allocate(Type("PartyAdventureData"));
+        foreach (var entry in new Dictionary<string, object> {
+            { "PartyName", "Metadata fixture DUMMY" }, { "DisplayPartyName", "Metadata fixture DUMMY" },
+            { "RulesetName", "" }, { "RunSessionID", "00000000000000000000000000000000" },
+            { "Owner", owner }, { "ClientIndependantValues", independent },
+            { "LastSavedTimeStamp", new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc) },
+            { "AdventureMapCheckpointsFilepaths", new List<string>() },
+            { "AdventureMapScenarioCheckpointsFilepaths", new List<string>() },
+            { "LastSavedSelectedCharacterIDs", new List<Tuple<string, int>> { Tuple.Create("FixtureCharacter (DUMMY)", 3) } },
+            { "LastSavedSelectedCharacterInfo", new List<Tuple<string, int, string>> { Tuple.Create("FixtureCharacter (DUMMY)", 3, "FixtureName (DUMMY)") } }
+        }) PropertyField(party, entry.Key, entry.Value);
+        PropertyField(party, "GameMode", Enum.Parse(Type("PartyAdventureData").GetProperty("GameMode").PropertyType, "Campaign"));
+        var gold = Type("PartyAdventureData").GetProperty("GoldMode");
+        PropertyField(party, "GoldMode", Enum.Parse(gold.PropertyType, "PartyGold"));
+        // No real campaign files or account state are created. RefreshCheckpoints
+        // operates against the same disposable host-only save root.
+        IList parties = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(party.GetType()));
+        parties.Add(party);
+        byte[] bytes = Serialize(parties);
+        File.WriteAllBytes(Path.Combine(output, variant + "-campaign-metadata.dat"), bytes);
+        IList partyCopies = (IList)Deserialize(bytes, parties.GetType());
+        Check(partyCopies.Count == 1, "Original Campaign slot list changed.");
+        object copy = partyCopies[0];
+        Check(Field(copy, "GameMode").ToString() == "Campaign", "Original Campaign metadata mode changed.");
+        Check(Field(copy, "RunSessionID").Equals("00000000000000000000000000000000"), "Original run identity changed.");
+        Check(((IList)Field(copy, "LastSavedSelectedCharacterIDs")).Count == 1, "Original character tuple metadata changed.");
+        object copyOwner = Field(copy, "Owner");
+        Check(Field(copyOwner, "Username").Equals("Campaign metadata fixture (DUMMY)"), "Original owner metadata changed.");
+        Check(((byte[])Field(Field(copyOwner, "Avatar"), "Bytes")).SequenceEqual(new byte[] { 1, 3, 5, 7, 9 }),
+            "Original avatar byte array changed.");
+        Check(((IList)Field(Field(copy, "ClientIndependantValues"), "CIVItemIsNewDictionary")).Count == 1,
+            "Original independent metadata list changed.");
+        byte[] rewritten = Serialize(partyCopies);
+        File.WriteAllBytes(Path.Combine(output, variant + "-campaign-metadata-rewritten.dat"), rewritten);
+        Check(((IList)Field(copy, "LastSavedSelectedCharacterInfo")).Count == 1,
+            "Original character display metadata changed.");
+        Check(bytes.SequenceEqual(rewritten), "Original Campaign slot metadata roundtrip bytes changed.");
+        if (readOther)
+        {
+            string other = variant == "pc" ? "quest" : "pc";
+            Check(bytes.SequenceEqual(File.ReadAllBytes(Path.Combine(output, other + "-campaign-metadata.dat"))),
+                "Original PC/Quest Campaign metadata formatter bytes changed.");
+            Check(rewritten.SequenceEqual(File.ReadAllBytes(Path.Combine(output, other + "-campaign-metadata-rewritten.dat"))),
+                "Original PC/Quest Campaign metadata reread bytes changed.");
+        }
+        Type rulesetType = Type("GHRuleset");
+        object ruleset = Activator.CreateInstance(rulesetType, new object[] { "Ruleset fixture (DUMMY)",
+            Enum.Parse(rulesetType.GetProperty("RulesetType").PropertyType, "Campaign") });
+        ((IList)Field(ruleset, "LinkedModNames")).Add("Metadata fixture only (DUMMY)");
+        IList rulesets = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(rulesetType));
+        rulesets.Add(ruleset);
+        byte[] rulesetBytes = Serialize(rulesets);
+        File.WriteAllBytes(Path.Combine(output, variant + "-ruleset-metadata.dat"), rulesetBytes);
+        IList rulesetCopies = (IList)Deserialize(rulesetBytes, rulesets.GetType());
+        Check(rulesetCopies.Count == 1, "Original ruleset list changed.");
+        object rulesetCopy = rulesetCopies[0];
+        Check(((IList)Field(rulesetCopy, "LinkedModNames")).Count == 1, "Original ruleset metadata list changed.");
+        Check(rulesetBytes.SequenceEqual(Serialize(rulesetCopies)), "Original ruleset metadata roundtrip bytes changed.");
+        if (readOther)
+            Check(rulesetBytes.SequenceEqual(File.ReadAllBytes(Path.Combine(output, (variant == "pc" ? "quest" : "pc") + "-ruleset-metadata.dat"))),
+                "Original PC/Quest ruleset metadata formatter bytes changed.");
+        Console.WriteLine(variant + "/campaign-metadata " + bytes.Length + " bytes; native slot metadata only, original migration preserved.");
     }
     static Dictionary<string, object> Entries(object value)
     {
@@ -138,6 +228,7 @@ internal static class OdinGlobalDataProof
             }
             Console.WriteLine(variant + "/" + fixture + " " + bytes.Length + " bytes SHA256=" + BitConverter.ToString(SHA256.Create().ComputeHash(bytes)).Replace("-", "").ToLowerInvariant());
         }
+        VerifyCampaignMetadata(variant, output, args[3] == "read-other");
         Type serializerType = odin.GetType("OdinSerializer.Serializer", true);
         var closure = new SortedSet<string>(StringComparer.Ordinal);
         foreach (string field in new[] { "Weak_ReaderWriterCache", "Strong_ReaderWriterCache" })
@@ -146,6 +237,14 @@ internal static class OdinGlobalDataProof
         Type locatorType = odin.GetType("OdinSerializer.FormatterLocator", true);
         foreach (DictionaryEntry entry in (IDictionary)locatorType.GetField("FormatterInstances", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null))
             closure.Add("formatter " + ((Type)entry.Key).AssemblyQualifiedName);
+        // Reflection and ISerializable locator formatters are returned directly,
+        // rather than stored in FormatterInstances. Record both actual maps so
+        // those AOT instantiations cannot disappear from the closure report.
+        foreach (string field in new[] { "StrongTypeFormatterMap", "WeakTypeFormatterMap" })
+            foreach (DictionaryEntry entry in (IDictionary)locatorType.GetField(field, BindingFlags.Static | BindingFlags.NonPublic).GetValue(null))
+                foreach (DictionaryEntry byPolicy in (IDictionary)entry.Value)
+                    closure.Add("selected " + field + " " + ((Type)entry.Key).AssemblyQualifiedName
+                        + " => " + byPolicy.Value.GetType().AssemblyQualifiedName);
         File.WriteAllLines(Path.Combine(output, variant + "-original-type-closure.txt"), closure.ToArray());
         Console.WriteLine("Actual original GlobalData + original Odin binary writer/reader: " + assertions + " assertions passed; host-only Unity native substitutes; Android/full campaign graph not verified.");
         return 0;
