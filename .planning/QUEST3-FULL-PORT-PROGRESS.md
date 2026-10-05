@@ -606,3 +606,25 @@ and the real Android SDK/API compilation completes. The Player is running with
 minimum shader mode; the old exhaustive native receipt is not reused or relabelled
 as a new graphics PASS. Native packaging, IL2CPP and delivered artifact gates
 remain pending.
+
+## Completed native content, host-memory interruption
+
+Invocation f392 completed one controlled native content build: 3,255 native
+bundles, 6,366 delivered members and a 10,703,844,611-byte ZIP64 bank. The real
+standard-library packer used Stored native bundles, verified every member, and
+completed in 162.09 seconds. Native shader compilation reported zero errors and
+zero keyword assertions; minimum mode made zero individual alias queries.
+The temporary ZIP/Addressables exclusion and preserved native linker were active.
+
+The kernel then killed the exact owned Unity PID 3111516 for global memory
+exhaustion at 2026-10-05 17:43:43 UTC, during Android Player assembly. Exit 137
+is not a successful Player or a hardware result. Original imports and the native
+build remain intact. After child termination, central recovery restored the
+Addressables directory and the prior complete mutable content pair. Private
+kernel and completed-native receipts retain this distinction.
+
+An additional temporary 16 GiB swap file is active for this development build;
+it changes no persistent OS configuration. The integrated host retry now also
+recovers only an exact, provenance-bound interrupted delivery copy before
+launching another child. Eight focused delivery controls, thirteen resume
+controls and ten native-packer controls pass on the feature tree.
