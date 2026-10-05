@@ -73,6 +73,19 @@ static class NativeSDKProbe
             Check(Field(selector, "_dlcPurchaseablePanel")?.FieldType == typeof(GameObject), "native selector active purchase panel");
             var create = original.GetType("GLOOM.MainMenu.UICreateGameDLCStep", true)!;
             Check(typeof(MonoBehaviour).IsAssignableFrom(create), "native campaign DLC step retained");
+#if GHVR_QUEST_GAME
+            foreach (string name in new[] { "ClearHotkeySessions", "DisposeButtons" })
+            {
+                var nativeMethod = typeof(ErrorMessage).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
+                Check(nativeMethod != null && nativeMethod.ReturnType == typeof(void), "native notice retirement " + name);
+            }
+            var cancel = typeof(SaveData).GetMethod("OnCancelCreateLocalSave", BindingFlags.NonPublic | BindingFlags.Instance, null,
+                new[] { typeof(bool), typeof(Action) }, null);
+            Check(cancel != null && cancel.ReturnType == typeof(void), "original cancellation bool/Action ABI");
+            var helper = typeof(GloomhavenVR.Quest.QuestGameScope).GetMethod("NotifyGuildmasterUnavailable", BindingFlags.Public | BindingFlags.Static,
+                null, new[] { typeof(bool), typeof(Action) }, null);
+            Check(helper != null && helper.ReturnType == typeof(void), "public static full Campaign notice ABI");
+#endif
             Console.WriteLine("PASS Quest native scope SDK reflection: " + assertions + " original ABI assertions; no Unity callbacks invoked");
             return 0;
         }

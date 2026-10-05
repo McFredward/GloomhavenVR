@@ -257,3 +257,38 @@ freeze.
 The interrupted prepare copies are removed only after retaining their unique
 receipts; the canonical recovered content remains. No full Campaign APK is ready
 yet.
+
+## Complete preparation and excluded-mode admission
+
+Full-target preparation now completes successfully at the pre-admission-guard
+freeze `3c7de308`. Its source input is
+`9c37114a911705e00291e1a124fe8318e6c2ec22c16d8d775b78df99c4dddd7b`.
+The complete prepared tree retains 688 native shader identities, 9,187 original
+material consumers and all 13 original scenes. Actual file/GUID verification
+matches all 682 cache-eligible shader sources and all 11,656 program includes
+against the final production compiler donor; the six preserved original UI
+sources remain excluded from that cache. This is a completed preparation gate,
+not a final player or hardware result.
+
+The existing gray Guildmaster entry did not prevent original session-code
+admission from accepting a PC Guildmaster host. The Quest-only static adapter
+now rejects that mode before privilege/save transfer and denies its native load
+method before save mutation. Campaign branches and unknown-mode handling retain
+their original bodies. The localized native notice reuses the original caller
+cancellation method, preserves imported save bytes, and retires prior native
+error buttons/hotkeys before showing the unavailable explanation.
+
+Integrated checks pass 904 static Weaver assertions, including 150 actual
+original-method admission assertions; 11,998 network/codec assertions and 12
+original codec paths; 145 notice assertions with six rejected defects; and 30
+original SDK ABI assertions. The network count decreases by two because the two
+explicitly adapted types leave its unchanged-type census; the added admission
+checks cover their complete preserved method bodies and actual emitted branches.
+The existing native purchase scope and its 20 defect controls also pass. No
+desktop behavior, original save serializer or multiplayer transport is changed.
+
+The final production source freeze must include this admission guard and runtime
+notice. A new matching prepared project, complete Unity/import/native-bank gates,
+IL2CPP compilation, signed full player, adjacent complete content bank and Windows
+hardware package remain required. The prior successful prepared tree is retained
+only as non-final source evidence until its replacement is verified.

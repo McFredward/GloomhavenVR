@@ -27,6 +27,24 @@ onCancelLoad)` is the statically referenced full-game runtime UI boundary in
 and the original acknowledgement/cancellation flow. The weaver does not patch
 the desktop mod or rely on runtime IL2CPP detours.
 
+The runtime notice retires a pre-existing native connection-error presentation
+through the original `ClearHotkeySessions` and `DisposeButtons` methods before
+showing its explanation. Hiding alone retains old native buttons, while the
+native raw-text notice refuses to replace a visible message. Acknowledgement
+invokes the original `SaveData.OnCancelCreateLocalSave(bool, Action)` exactly
+once when a local caller supplied cancellation or requested a main-menu return;
+the multiplayer notice otherwise closes in place. Original assembly-wide AOT
+roots preserve these private native methods. A real Unity/GH.Runtime SDK probe
+checks their exact signatures without invoking game or engine callbacks.
+
+Run `python3 scripts/quest-guildmaster-notice-tests.py` for 145 managed notice
+assertions and six rejected defects. The existing scope suite additionally
+checks purchase/tooltip ownership with 20 rejected defects. Full-game SDK mode
+on `QuestGameScope.NativeSDK.csproj` uses `-p:CampaignScope=true` and explicit
+`RuntimeSource`, `QuestTextSource`, `GameManaged` and `UnityManaged` properties;
+it checks 30 original ABI assertions. These are native-call and signature
+checks, not a rendering simulation.
+
 `StandaloneGuildmasterTests.Run(projectRoot, check, requireOriginal: true)` reads
 the actual owned `GH.Runtime.dll`. It checks both modified methods against their
 complete original bodies after removing only the generated seam, verifies
@@ -41,3 +59,9 @@ the required original-input invocation cannot skip it.
 The focused actual-input run passes 150 assertions. This proves source/managed
 branch behavior; a headset-to-PC Campaign join remains a hardware acceptance
 test. It does not claim device rendering or live multiplayer success.
+
+The integrated static Weaver suite passes 904 assertions. The affected original
+network/codec suite passes 11,998 assertions and 12 codec paths, retaining native
+token/save/side-channel bytes. Its former 12,000 count decreases by exactly the
+two newly adapted type-body invariance checks; the two complete original method
+bodies and mode behavior are instead covered by the added 150 admission checks.

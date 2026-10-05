@@ -38,6 +38,51 @@ namespace GloomhavenVR.Quest
         public static double DiscoveryWorstMs { get; private set; }
         public static int DiscoveryLastTypeCount { get; private set; }
 
+#if GHVR_QUEST_GAME
+        /// <summary>Explain the excluded mode without entering its original save or scene flow.</summary>
+        public static void NotifyGuildmasterUnavailable(bool loadMenuOnCancel, Action onCancelLoad)
+        {
+            if (QuestStandalonePlatform.Enabled == false) return;
+            ErrorMessage notice = SceneController.Instance.GlobalErrorMessage;
+            // Native multiplayer failure callbacks can already have opened this
+            // same notice. ShowGenericDebugMessage refuses to replace a visible
+            // message, and Hide alone leaves its buttons/hotkey sessions alive.
+            // Retire those original owners before showing the scoped explanation.
+            if (notice.ShowingMessage)
+            {
+                NativeNoticeMethod(typeof(ErrorMessage), "ClearHotkeySessions", Type.EmptyTypes).Invoke(notice, null);
+                NativeNoticeMethod(typeof(ErrorMessage), "DisposeButtons", Type.EmptyTypes).Invoke(notice, null);
+            }
+            bool completed = false;
+            notice.ShowGenericDebugMessage(QuestText.Get("guildmaster", false),
+                QuestText.Get("guildmasterUnavailable", Application.systemLanguage.Equals(SystemLanguage.German)),
+                new List<ErrorMessage.LabelAction> { new ErrorMessage.LabelAction("GUI_CANCEL", delegate
+                {
+                    if (completed) return;
+                    completed = true;
+                    if (loadMenuOnCancel || onCancelLoad != null)
+                    {
+                        // Reuse the original cancellation method: it restores
+                        // the caller's interaction and native load-window escape
+                        // ownership, optionally returning to the main menu.
+                        // No Guildmaster save bytes or game-mode fields are set.
+                        NativeNoticeMethod(typeof(SaveData), "OnCancelCreateLocalSave", new[] { typeof(bool), typeof(Action) })
+                            .Invoke(SaveData.Instance, new object[] { loadMenuOnCancel, onCancelLoad });
+                    }
+                    else notice.Hide();
+                }, KeyAction.UI_CANCEL) });
+            UnityEngine.Debug.Log("[Quest game] excluded Guildmaster entry rejected before native load.");
+        }
+
+        static MethodInfo NativeNoticeMethod(Type owner, string name, Type[] parameters)
+        {
+            MethodInfo method = owner.GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic, null, parameters, null);
+            if (method == null || method.ReturnType != typeof(void))
+                throw new InvalidOperationException("Original Guildmaster cancellation/notice ABI is missing: " + owner.FullName + "." + name);
+            return method;
+        }
+#endif
+
         void LateUpdate()
         {
             if (!QuestStandalonePlatform.Enabled) return;

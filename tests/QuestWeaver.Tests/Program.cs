@@ -29,6 +29,12 @@ int assertions = 0;
 void Check(bool condition, string message) { assertions++; if (!condition) throw new Exception(message); }
 try
 {
+    if (args.Length == 1 && args[0] == "--guildmaster-only")
+    {
+        StandaloneGuildmasterTests.Run(projectRoot, Check, requireOriginal: true);
+        Console.WriteLine($"Quest Guildmaster admission: {assertions} assertions passed.");
+        return;
+    }
     if (args.Length == 1 && args[0] == "--type-lookup")
     {
         HarmonyLookupTests.Run(Path.Combine(temp, "type-lookup"), Check);
@@ -176,6 +182,7 @@ try
     StandaloneProfileTests.Run(projectRoot, Check);
     StandaloneCampaignTests.Run(projectRoot, Path.Combine(temp, "native-campaign"), Check);
     StandaloneOdinTests.Run(projectRoot, Check);
+    StandaloneGuildmasterTests.Run(projectRoot, Check);
     StandaloneExportTests.Run(projectRoot, Path.Combine(temp, "native-export"), Check);
     PackageApiTests.Run(temp + "-package-api", Check);
     Console.WriteLine($"QuestWeaver executable fixture: {assertions} assertions passed.");
