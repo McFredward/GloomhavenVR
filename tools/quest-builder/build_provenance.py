@@ -6,6 +6,7 @@ and compares a second capture before accepting the player build.
 """
 
 from pathlib import Path
+import hashlib
 import json
 import re
 
@@ -21,6 +22,13 @@ _DRIVER = Path("tools/quest-builder")
 _COMPUTE_RECEIPT = Path("QuestCampaignEvidence/compute-reference-types.json")
 _COMPUTE_SCOPE = "native-class72-ComputeShaderImporter-PPtr-types"
 _SHADER_MANIFEST = Path("Assets/QuestOriginalCampaign/campaign-shaders.json")
+_SHADER_ORDER_RECEIPT = Path("QuestCampaignEvidence/fragment-stereo-input-order.json")
+_SHADER_ORDER_SCOPE = "native-fragment-stereo-input-order"
+_SHADER_ORDER_GENERATOR = Path("tools/quest-shaders/produce.py")
+_SHADER_ORDER_FOLIAGE_GUIDS = frozenset((
+    "1baec85ef43ddac49b802c75062235f0", "35a4838a171d5b546bff36f271f98005",
+    "cf5270adcf02aa94f84c088a5d5671fb", "717b2309850595340bf803079af38b12",
+))
 _TOOL_FIELDS = (
     "unityVersion", "buildDriverSha256", "key", "editorSha256", "javaSha256",
     "apksignerSha256", "ndkPropertiesSha256", "buildToolsVersion",
@@ -198,7 +206,7 @@ def _compute_repair(project, drivers, witnessed):
         raise BuildError("Build provenance could not capture recognized compute repair evidence.") from exc
 
 
-def _shader_manifest(project, witnessed):
+def _shader_manifest(project, witnessed, parsed=None):
     """Bind actual compiler/pass metadata without exporting shader contents."""
     path = _real_path(project / _SHADER_MANIFEST, "campaign shader manifest")
     if not path.exists():
@@ -241,9 +249,218 @@ def _shader_manifest(project, witnessed):
             alias_count += len(shader["variants"])
         if alias_count != manifest["requiredOriginalNativeAliasCount"] + manifest["requiredSyntheticAliasCount"]:
             raise BuildError("Build provenance campaign shader alias count differs from its manifest.")
+        if parsed is not None:
+            parsed["manifest"] = manifest
         return record
     except (OSError, ValueError, TypeError, KeyError) as exc:
         raise BuildError("Build provenance could not capture recognized campaign shader metadata.") from exc
+
+
+def _shader_order_json(project, name, witnessed, maximum=16 * 1024 * 1024):
+    if (not isinstance(name, str) or not name.startswith("QuestCampaignEvidence/")
+            or "\\" in name or any(part in ("", ".", "..") for part in name.split("/"))):
+        raise BuildError("Build provenance shader repair has an unsafe evidence path.")
+    path = _real_path(project / name, "shader input repair evidence")
+    if not path.is_file() or path.stat().st_size > maximum:
+        raise BuildError("Build provenance shader repair evidence is missing or too large.")
+    record = record_file(path, name)
+    witnessed.append((path, record))
+    return json.loads(path.read_text(encoding="utf-8")), record
+
+
+def _shader_order_asset(project, name, witnessed, expected, meta_hash, guid=None):
+    actual = _asset_record(project, name, witnessed)
+    meta = _asset_record(project, name + ".meta", witnessed)
+    if actual["sha256"] != expected or meta["sha256"] != meta_hash:
+        raise BuildError("Build provenance shader repair source/meta differs from its receipt.")
+    if guid is not None:
+        metadata = (project / (name + ".meta")).read_text(encoding="utf-8")
+        if not isinstance(guid, str) or not re.fullmatch(r"[0-9a-f]{32}", guid) or not re.search(
+                r"(?m)^guid: " + re.escape(guid) + r"$", metadata):
+            raise BuildError("Build provenance shader repair metadata GUID differs from its native identity.")
+    return {**actual, "meta": meta}
+
+
+def _shader_input_repair(project, drivers, source, manifest_record, manifest, witnessed, target):
+    """Bind only the witnessed 90 native Foliage fragment declaration moves.
+
+    The receipt binds the current manifest. Its manifest marker deliberately
+    carries no receipt hash, avoiding a circular hash dependency while making a
+    missing applied receipt fail closed. Native compiler/driver witnesses remain
+    separate from an unverified headset picture and original pixel parity.
+    """
+    path = _real_path(project / _SHADER_ORDER_RECEIPT, "shader input repair receipt")
+    transaction = _real_path(project / "QuestCampaignEvidence/fragment-stereo-input-order.transaction",
+                             "shader input repair transaction")
+    if transaction.exists():
+        raise BuildError("Build provenance shader input repair transaction is incomplete.")
+    witnessed.append((transaction, None))
+    marker = manifest.get("fragmentStereoInputOrderRepair") if manifest is not None else None
+    if not path.exists():
+        if marker is not None:
+            raise BuildError("Build provenance applied shader input repair receipt is missing.")
+        witnessed.append((path, None))
+        return None
+    expected_marker = {"path": _SHADER_ORDER_RECEIPT.as_posix(), "scope": _SHADER_ORDER_SCOPE, "programCount": 90}
+    if target != "game" or manifest_record is None or marker != expected_marker:
+        raise BuildError("Build provenance shader input repair lacks its recognized Campaign manifest marker.")
+    try:
+        receipt, evidence = _shader_order_json(project, _SHADER_ORDER_RECEIPT.as_posix(), witnessed, 1024 * 1024)
+        if (not isinstance(receipt, dict) or type(receipt.get("schema")) is not int or receipt["schema"] != 1
+                or receipt.get("scope") != _SHADER_ORDER_SCOPE or receipt.get("graphicsApi") != "Vulkan"
+                or receipt.get("applied") is not True
+                or type(receipt.get("programCount")) is not int or receipt["programCount"] != 90
+                or type(receipt.get("changedProgramCount")) is not int or receipt["changedProgramCount"] != 90
+                or receipt.get("headsetPictureVerified") is not False or receipt.get("originalPixelParityVerified") is not False
+                or not isinstance(receipt.get("programs"), list) or len(receipt["programs"]) != 90):
+            raise BuildError("Build provenance has unrecognized shader input repair evidence.")
+        declared = receipt["manifest"]
+        if (declared.get("path") != _SHADER_MANIFEST.as_posix()
+                or not isinstance(declared.get("beforeSha256"), str) or not _HASH.fullmatch(declared["beforeSha256"])
+                or declared.get("afterSha256") != manifest_record["sha256"]
+                or declared["beforeSha256"] == declared["afterSha256"]):
+            raise BuildError("Build provenance shader input repair differs from the current manifest.")
+        generator_files = [_real_path(drivers.parent / "quest-shaders/produce.py", "shader input repair generator")]
+        if not generator_files[0].is_file() or receipt["generator"].get("path") != _SHADER_ORDER_GENERATOR.as_posix():
+            raise BuildError("Build provenance shader input repair generator is missing or unrecognized.")
+        generator = _records(generator_files, drivers.parent / "quest-shaders", _SHADER_ORDER_GENERATOR.parent,
+                             source / _SHADER_ORDER_GENERATOR.parent, _SHADER_ORDER_GENERATOR.parent, witnessed)[0]
+        if generator["sha256"] != receipt["generator"].get("sha256"):
+            raise BuildError("Build provenance shader input repair generator differs from its receipt.")
+        helper_path = _real_path(drivers.parent / "quest-shaders/stereo_repair.py", "shader input repair helper")
+        helper_name = Path("tools/quest-shaders/stereo_repair.py")
+        if not helper_path.is_file() or receipt["repairHelper"].get("path") != helper_name.as_posix():
+            raise BuildError("Build provenance shader input repair helper is missing or unrecognized.")
+        helper = _records([helper_path], drivers.parent / "quest-shaders", helper_name.parent,
+                          source / helper_name.parent, helper_name.parent, witnessed)[0]
+        if helper["sha256"] != receipt["repairHelper"].get("sha256"):
+            raise BuildError("Build provenance shader input repair helper differs from its receipt.")
+        all_programs = manifest.get("programs")
+        if not isinstance(all_programs, list):
+            raise BuildError("Build provenance shader repair requires the actual original program manifest.")
+        original = {row["assetPath"]: row for row in all_programs}
+        if len(original) != len(all_programs):
+            raise BuildError("Build provenance shader repair program manifest contains duplicate paths.")
+        foliage_fragments = {variant["fragmentOriginalDxbcSha256"] for shader in manifest["shaders"]
+                             if shader["guid"] in _SHADER_ORDER_FOLIAGE_GUIDS for variant in shader["variants"]}
+        front_faces = {}
+        for name, row in original.items():
+            signature = row.get("originalInputSignature", [])
+            faces = [item for item in signature if item.get("systemValue") == 9]
+            if not faces:
+                continue
+            if (len(faces) != 1 or faces[0].get("semantic", "").upper() != "SV_ISFRONTFACE"
+                    or row.get("originalDxbcSha256") not in foliage_fragments):
+                raise BuildError("Build provenance shader repair is outside the native Foliage fragment closure.")
+            front_faces[name] = row
+        if len(front_faces) != 90:
+            raise BuildError("Build provenance shader repair original FrontFace census differs.")
+        programs, paths = [], set()
+        for row in receipt["programs"]:
+            name = row.get("assetPath"); native = front_faces.get(name)
+            if (not isinstance(row, dict) or name in paths or native is None
+                    or not isinstance(name, str) or not name.endswith(".hlsl")
+                    or row.get("originalDeclarationsAndMathPreserved") is not True
+                    or any(not isinstance(row.get(field), str) or not _HASH.fullmatch(row[field]) for field in (
+                        "originalDxbcSha256", "originalInterfaceSha256", "beforeSha256", "afterSha256", "metaSha256", "restBytesSha256"))
+                    or row["beforeSha256"] == row["afterSha256"]
+                    or row["originalDxbcSha256"] != native.get("originalDxbcSha256")
+                    or row["originalInterfaceSha256"] != native.get("originalInterfaceSha256")
+                    or row["afterSha256"] != native.get("sourceSha256")):
+                raise BuildError("Build provenance shader repair changed program identity is invalid.")
+            actual = _shader_order_asset(project, name, witnessed, row["afterSha256"], row["metaSha256"])
+            raw = (project / name).read_bytes()
+            macro = b"    UNITY_VERTEX_OUTPUT_STEREO\n"
+            rest = raw.replace(macro, b"")
+            if raw.count(macro) != 1 or hashlib.sha256(rest).hexdigest() != row["restBytesSha256"]:
+                raise BuildError("Build provenance shader repair changed original declarations or program math.")
+            programs.append({**actual, "originalDxbcSha256": row["originalDxbcSha256"],
+                "originalInterfaceSha256": row["originalInterfaceSha256"], "beforeSha256": row["beforeSha256"],
+                "restBytesSha256": row["restBytesSha256"], "originalDeclarationsAndMathPreserved": True})
+            paths.add(name)
+        if paths != front_faces.keys():
+            raise BuildError("Build provenance shader repair does not cover every native FrontFace program.")
+        info = receipt["identities"]
+        ledger_path = "QuestCampaignEvidence/fragment-stereo-input-order-identities.json"
+        ledger, ledger_record = _shader_order_json(project, info.get("path"), witnessed)
+        if (info.get("path") != ledger_path or info.get("sha256") != ledger_record["sha256"]
+                or type(ledger.get("schema")) is not int or ledger["schema"] != 1
+                or ledger.get("scope") != _SHADER_ORDER_SCOPE + "-identities"
+                or any(type(info.get(key)) is not int or info[key] != manifest[field] for key, field in (
+                    ("shaderCount", "requiredShaderCount"), ("materialCount", "requiredMaterialCount"),
+                    ("originalAliasCount", "requiredOriginalNativeAliasCount")))
+                or ledger.get("originalAliasCount") != manifest["requiredOriginalNativeAliasCount"]):
+            raise BuildError("Build provenance shader repair unchanged identity ledger differs.")
+        unchanged_counts = {}
+        for kind, expected in (("shaders", {r["assetPath"]: r for r in manifest["shaders"]}),
+                               ("materials", {r["assetPath"]: r for r in manifest["materials"]}),
+                               ("programs", {name: r for name, r in original.items() if name not in paths})):
+            values = ledger.get(kind)
+            if not isinstance(values, list) or len(values) != len(expected):
+                raise BuildError("Build provenance shader repair unchanged identity census differs.")
+            seen = set()
+            for row in values:
+                name = row.get("assetPath"); native = expected.get(name)
+                if (not isinstance(row, dict) or name in seen or native is None
+                        or any(not isinstance(row.get(key), str) or not _HASH.fullmatch(row[key]) for key in ("sha256", "metaSha256"))
+                        or kind != "programs" and row.get("guid") != native.get("guid")
+                        or kind == "programs" and row["sha256"] != native.get("sourceSha256")):
+                    raise BuildError("Build provenance shader repair unchanged native identity is invalid.")
+                _shader_order_asset(project, name, witnessed, row["sha256"], row["metaSha256"],
+                                    row.get("guid") if kind != "programs" else None)
+                seen.add(name)
+            unchanged_counts[kind] = len(values)
+        compiler_input_info = receipt["nativeCompilerInput"]
+        compiler_input, input_record = _shader_order_json(project, compiler_input_info.get("path"), witnessed)
+        if (compiler_input_info.get("path") != "QuestCampaignEvidence/fragment-stereo-input-order-input.json"
+                or compiler_input_info.get("sha256") != input_record["sha256"]
+                or not isinstance(compiler_input.get("rewrites"), list) or len(compiler_input["rewrites"]) != 90
+                or not isinstance(compiler_input.get("failures"), list) or len(compiler_input["failures"]) != 26
+                or not isinstance(compiler_input.get("nativeControls"), list) or len(compiler_input["nativeControls"]) != 7):
+            raise BuildError("Build provenance shader repair compiler input differs from its native witness.")
+        tuple_fields = ("assetPath", "originalDxbcSha256", "originalInterfaceSha256", "beforeSha256", "afterSha256", "metaSha256")
+        rewrites = {tuple(row[field] for field in tuple_fields) for row in compiler_input["rewrites"]}
+        if rewrites != {tuple(row[field] for field in tuple_fields) for row in receipt["programs"]}:
+            raise BuildError("Build provenance shader repair differs from the exact witnessed native includes.")
+        witnesses = {"nativeCompilerInput": input_record}
+        witness_data = {}
+        for key, suffix, counts, flags in (
+                ("nativeCompilerWitness", "witness", {"baselineRejectedCount": 26, "positiveCompilerCount": 33, "monoExactStageCount": 7},
+                 {"actualNativeBundleBuilt": True}),
+                ("nativeDriverWitness", "driver", {"actualNativePipelineAliasCount": 33, "actualDistinctNativePipelineCount": 33},
+                 {"missingNativeEntryRejected": True})):
+            info = receipt[key]
+            if info.get("path") != "QuestCampaignEvidence/fragment-stereo-input-order-" + suffix + ".json":
+                raise BuildError("Build provenance shader repair witness path is unrecognized.")
+            data, record = _shader_order_json(project, info["path"], witnessed)
+            if (info.get("sha256") != record["sha256"]
+                    or type(data.get("schema")) is not int or data["schema"] != 1
+                    or any(type(info.get(k)) is not int or info[k] != v or data.get(k) != v for k, v in counts.items())
+                    or any(info.get(k) is not v or data.get(k) is not v for k, v in flags.items())
+                    or data.get("headsetPictureVerified") is not False):
+                raise BuildError("Build provenance shader repair native witness differs from its receipt.")
+            witnesses[key] = {**record, **counts, **flags}
+            witness_data[key] = data
+        compiler = witness_data["nativeCompilerWitness"]
+        driver = witness_data["nativeDriverWitness"]
+        if (compiler.get("unityVersion") != "2021.3.5f1" or compiler.get("inputSha256") != input_record["sha256"]
+                or compiler.get("originalDeclarationsAndMathPreserved") is not True
+                or compiler.get("originalShaderAndMetaPreserved") is not True
+                or compiler.get("originalPixelParityVerified") is not False
+                or driver.get("graphicsApi") != "Vulkan"
+                or driver.get("sourceWitnessSha256") != witnesses["nativeCompilerWitness"]["sha256"]
+                or driver.get("originalWindowsPixelParityVerified") is not False):
+            raise BuildError("Build provenance shader repair native witness cross-binding differs.")
+        return {**evidence, "scope": _SHADER_ORDER_SCOPE, "graphicsApi": "Vulkan", "generator": generator,
+            "repairHelper": helper, "applied": True,
+            "manifest": {**manifest_record, "beforeSha256": declared["beforeSha256"]},
+            "programCount": 90, "changedProgramCount": 90, "programs": sorted(programs, key=lambda row: row["path"]),
+            "identities": {**ledger_record, "shaderCount": unchanged_counts["shaders"],
+                "materialCount": unchanged_counts["materials"], "unchangedProgramCount": unchanged_counts["programs"],
+                "originalAliasCount": manifest["requiredOriginalNativeAliasCount"]}, **witnesses,
+            "headsetPictureVerified": False, "originalPixelParityVerified": False}
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise BuildError("Build provenance could not capture recognized shader input repair evidence.") from exc
 
 
 def capture(inputs, project, source, driver_dir, toolchain):
@@ -270,7 +487,10 @@ def capture(inputs, project, source, driver_dir, toolchain):
     if next(row for row in driver_records if row["path"] == "tools/quest-builder/builder.py")["sha256"] != tools["buildDriverSha256"]:
         raise BuildError("Build provenance driver differs from the recorded toolchain.")
     compute_repair = _compute_repair(project, drivers, witnessed)
-    shader_manifest = _shader_manifest(project, witnessed)
+    shader_state = {}
+    shader_manifest = _shader_manifest(project, witnessed, shader_state)
+    shader_repair = _shader_input_repair(project, drivers, source, shader_manifest,
+                                        shader_state.get("manifest"), witnessed, inputs.get("target"))
 
     # A module imported earlier or a source changed during capture is not a
     # trustworthy launch record. Recheck membership and both sets of bytes.
@@ -293,4 +513,6 @@ def capture(inputs, project, source, driver_dir, toolchain):
         result["campaignComputeReferenceRepair"] = compute_repair
     if shader_manifest is not None:
         result["campaignShaderManifest"] = shader_manifest
+    if shader_repair is not None:
+        result["campaignFragmentStereoInputOrderRepair"] = shader_repair
     return result

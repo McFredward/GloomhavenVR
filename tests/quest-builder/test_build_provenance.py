@@ -1,6 +1,7 @@
 """Focused controls for truthful mixed-source build provenance, without Unity."""
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -100,6 +101,97 @@ class BuildProvenanceTests(unittest.TestCase):
     def store_shader_manifest(self, manifest):
         self.write(self.project / "Assets/QuestOriginalCampaign/campaign-shaders.json",
                    (json.dumps(manifest, sort_keys=True) + "\n").encode())
+
+    def shader_order_receipt(self):
+        """Small identity ledger, all 90 witnessed input programs; no Unity claim."""
+        scope = "native-fragment-stereo-input-order"
+        shader_guid = "1baec85ef43ddac49b802c75062235f0"
+        shader = "Assets/Original/NativeFoliage.shader"
+        material = "Assets/Original/NativeFoliage.mat"
+        for name, guid in ((shader, shader_guid), (material, "8" * 32)):
+            self.write(self.project / name, b"// immutable original identity fixture\n")
+            self.write(self.project / (name + ".meta"), ("guid: " + guid + "\n").encode())
+        produce = self.driver.parent / "quest-shaders/produce.py"
+        helper = self.driver.parent / "quest-shaders/stereo_repair.py"
+        self.write(produce, b"# current actual produce.py fixture\n")
+        self.write(helper, b"# new exact repair helper fixture\n")
+        self.write(self.source / "tools/quest-shaders/produce.py", b"# frozen prior produce.py fixture\n")
+        rows, native, variants = [], [], []
+        for i in range(90):
+            name = "Assets/Original/Programs/Native" + str(i) + ".hlsl"
+            before = b"struct SPIRV_Cross_Input\n{\n    float2 uv : TEXCOORD0;\n    bool face : SV_IsFrontFace;\n    UNITY_VERTEX_OUTPUT_STEREO\n};\n"
+            after = b"struct SPIRV_Cross_Input\n{\n    float2 uv : TEXCOORD0;\n    UNITY_VERTEX_OUTPUT_STEREO\n    bool face : SV_IsFrontFace;\n};\n"
+            self.write(self.project / name, after)
+            self.write(self.project / (name + ".meta"), ("guid: " + format(i + 100, "032x") + "\n").encode())
+            dxbc = format(i + 1, "064x"); interface = format(i + 500, "064x")
+            row = {"assetPath": name, "originalDxbcSha256": dxbc, "originalInterfaceSha256": interface,
+                   "beforeSha256": hashlib.sha256(before).hexdigest(), "afterSha256": digest(self.project / name),
+                   "metaSha256": digest(self.project / (name + ".meta")),
+                   "restBytesSha256": hashlib.sha256(after.replace(b"    UNITY_VERTEX_OUTPUT_STEREO\n", b"")).hexdigest(),
+                   "originalDeclarationsAndMathPreserved": True}
+            rows.append(row)
+            native.append({"assetPath": name, "sourceSha256": row["afterSha256"],
+                "originalDxbcSha256": dxbc, "originalInterfaceSha256": interface,
+                "originalInputSignature": [{"systemValue": 9, "semantic": "SV_IsFrontFace", "semanticIndex": 0}]})
+            variants.append({"subshader": 0, "pass": 0, "hardwareTier": 0, "passType": "Normal",
+                "keywords": ["NATIVE_" + str(i)], "fragmentOriginalDxbcSha256": dxbc})
+        untouched = "Assets/Original/Programs/Unchanged.hlsl"
+        self.write(self.project / untouched, b"// exact unaffected vertex program\n")
+        self.write(self.project / (untouched + ".meta"), b"guid: 99999999999999999999999999999999\n")
+        native.append({"assetPath": untouched, "sourceSha256": digest(self.project / untouched),
+            "originalDxbcSha256": "9" * 64, "originalInterfaceSha256": "a" * 64,
+            "originalInputSignature": [{"systemValue": 1, "semantic": "SV_Position", "semanticIndex": 0}]})
+        manifest = {"schema": 1, "scope": "campaign-compiler", "graphicsApi": "Vulkan",
+            "requiredShaderCount": 1, "requiredMaterialCount": 1,
+            "requiredOriginalNativeAliasCount": 90, "requiredSyntheticAliasCount": 0,
+            "shaders": [{"assetPath": shader, "guid": shader_guid, "sourceSha256": digest(self.project / shader),
+                "originalName": "PRIVATE SHADER CONTENT", "variants": variants}],
+            "materials": [{"assetPath": material, "guid": "8" * 32}], "programs": native,
+            "fragmentStereoInputOrderRepair": {"path": "QuestCampaignEvidence/fragment-stereo-input-order.json",
+                "scope": scope, "programCount": 90}}
+        self.store_shader_manifest(manifest)
+        def identity(name, guid=None):
+            value = {"assetPath": name, "sha256": digest(self.project / name), "metaSha256": digest(self.project / (name + ".meta"))}
+            if guid is not None: value["guid"] = guid
+            return value
+        ledger = {"schema": 1, "scope": scope + "-identities", "originalAliasCount": 90,
+            "shaders": [identity(shader, shader_guid)], "materials": [identity(material, "8" * 32)],
+            "programs": [identity(untouched)]}
+        ledger_path = "QuestCampaignEvidence/fragment-stereo-input-order-identities.json"
+        input_path = "QuestCampaignEvidence/fragment-stereo-input-order-input.json"
+        witness_path = "QuestCampaignEvidence/fragment-stereo-input-order-witness.json"
+        driver_path = "QuestCampaignEvidence/fragment-stereo-input-order-driver.json"
+        self.write(self.project / ledger_path, json.dumps(ledger).encode())
+        self.write(self.project / input_path, json.dumps({"failures": list(range(26)), "nativeControls": list(range(7)),
+            "rewrites": copy.deepcopy(rows), "privateEnvironment": "PRIVATE COMPILER INPUT"}).encode())
+        witness = {"schema": 1, "unityVersion": "2021.3.5f1", "inputSha256": digest(self.project / input_path),
+            "baselineRejectedCount": 26, "positiveCompilerCount": 33, "monoExactStageCount": 7,
+            "actualNativeBundleBuilt": True, "originalDeclarationsAndMathPreserved": True,
+            "originalShaderAndMetaPreserved": True, "headsetPictureVerified": False, "originalPixelParityVerified": False}
+        self.write(self.project / witness_path, json.dumps(witness).encode())
+        driver = {"schema": 1, "graphicsApi": "Vulkan", "sourceWitnessSha256": digest(self.project / witness_path),
+            "actualNativePipelineAliasCount": 33, "actualDistinctNativePipelineCount": 33,
+            "missingNativeEntryRejected": True, "headsetPictureVerified": False, "originalWindowsPixelParityVerified": False}
+        self.write(self.project / driver_path, json.dumps(driver).encode())
+        receipt = {"schema": 1, "scope": scope, "graphicsApi": "Vulkan", "applied": True,
+            "generator": {"path": "tools/quest-shaders/produce.py", "sha256": digest(produce)},
+            "repairHelper": {"path": "tools/quest-shaders/stereo_repair.py", "sha256": digest(helper)},
+            "manifest": {"path": "Assets/QuestOriginalCampaign/campaign-shaders.json", "beforeSha256": "b" * 64,
+                "afterSha256": digest(self.project / "Assets/QuestOriginalCampaign/campaign-shaders.json")},
+            "programCount": 90, "changedProgramCount": 90, "programs": rows,
+            "identities": {"path": ledger_path, "sha256": digest(self.project / ledger_path), "shaderCount": 1,
+                "materialCount": 1, "originalAliasCount": 90},
+            "nativeCompilerInput": {"path": input_path, "sha256": digest(self.project / input_path)},
+            "nativeCompilerWitness": {"path": witness_path, "sha256": digest(self.project / witness_path),
+                **{k: witness[k] for k in ("baselineRejectedCount", "positiveCompilerCount", "monoExactStageCount", "actualNativeBundleBuilt")}},
+            "nativeDriverWitness": {"path": driver_path, "sha256": digest(self.project / driver_path),
+                **{k: driver[k] for k in ("actualNativePipelineAliasCount", "actualDistinctNativePipelineCount", "missingNativeEntryRejected")}},
+            "headsetPictureVerified": False, "originalPixelParityVerified": False}
+        self.store_shader_order_receipt(receipt)
+        return receipt, manifest, ledger
+
+    def store_shader_order_receipt(self, receipt):
+        self.write(self.project / "QuestCampaignEvidence/fragment-stereo-input-order.json", json.dumps(receipt).encode())
 
     def test_unchanged_sources_are_exact_sorted_portable_records(self):
         result = self.capture()
@@ -465,6 +557,167 @@ class BuildProvenanceTests(unittest.TestCase):
             return row
         with patch.object(build_provenance, "record_file", concurrent_remove):
             with self.assertRaises(BuildError): self.capture()
+
+    def test_native_shader_order_repair_binds_actual_generator_snapshot_and_all_unchanged_identities(self):
+        receipt, _, _ = self.shader_order_receipt()
+        result = self.capture()
+        repair = result["campaignFragmentStereoInputOrderRepair"]
+        self.assertEqual(repair["programCount"], 90)
+        self.assertEqual(repair["changedProgramCount"], 90)
+        self.assertEqual(repair["generator"]["sha256"], receipt["generator"]["sha256"])
+        self.assertEqual(repair["generator"]["snapshotSha256"], digest(self.source / "tools/quest-shaders/produce.py"))
+        self.assertTrue(repair["generator"]["changedFromSnapshot"])
+        self.assertIsNone(repair["repairHelper"]["snapshotSha256"])
+        self.assertTrue(repair["repairHelper"]["changedFromSnapshot"])
+        self.assertEqual(repair["manifest"]["sha256"], result["campaignShaderManifest"]["sha256"])
+        self.assertEqual(repair["identities"]["unchangedProgramCount"], 1)
+        self.assertEqual(repair["nativeCompilerWitness"]["positiveCompilerCount"], 33)
+        self.assertFalse(repair["headsetPictureVerified"])
+        self.assertFalse(repair["originalPixelParityVerified"])
+        self.assertEqual(result, self.capture())
+        output = json.dumps(result)
+        self.assertNotIn("PRIVATE", output)
+        self.assertNotIn("SPIRV_Cross_Input", output)
+        self.assertNotIn("originalInputSignature", output)
+        self.assertNotIn(str(self.root), output)
+
+    def test_shader_order_repair_rejects_missing_receipt_marker_and_partial_transaction(self):
+        receipt, manifest, _ = self.shader_order_receipt()
+        path = self.project / "QuestCampaignEvidence/fragment-stereo-input-order.json"
+        path.unlink()
+        with self.assertRaisesRegex(BuildError, "receipt is missing"): self.capture()
+        self.store_shader_order_receipt(receipt)
+        marker = manifest.pop("fragmentStereoInputOrderRepair")
+        self.store_shader_manifest(manifest)
+        with self.assertRaisesRegex(BuildError, "manifest marker"): self.capture()
+        manifest["fragmentStereoInputOrderRepair"] = marker
+        self.store_shader_manifest(manifest)
+        self.write(self.project / "QuestCampaignEvidence/fragment-stereo-input-order.transaction", b"interrupted")
+        with self.assertRaisesRegex(BuildError, "transaction is incomplete"): self.capture()
+
+    def test_shader_order_repair_invalid_scope_counts_readiness_and_identity_fail_closed(self):
+        receipt, _, _ = self.shader_order_receipt()
+        controls = (
+            lambda x: x.update(schema=True), lambda x: x.update(scope="unrelated repair"),
+            lambda x: x.update(graphicsApi="OpenGLES3"), lambda x: x.update(applied=False),
+            lambda x: x.update(programCount=89), lambda x: x.update(changedProgramCount=True),
+            lambda x: x.update(headsetPictureVerified=True), lambda x: x.update(originalPixelParityVerified=True),
+            lambda x: x["manifest"].update(afterSha256="0" * 64),
+            lambda x: x["generator"].update(sha256="0" * 64),
+            lambda x: x["repairHelper"].update(path="tools/quest-shaders/unknown.py"),
+            lambda x: x["programs"][0].update(originalDxbcSha256="0" * 64),
+            lambda x: x["programs"][0].update(originalInterfaceSha256="0" * 64),
+            lambda x: x["programs"][0].update(afterSha256="0" * 64),
+            lambda x: x["programs"][0].update(metaSha256="0" * 64),
+            lambda x: x["programs"][0].update(restBytesSha256="0" * 64),
+            lambda x: x["programs"][0].update(originalDeclarationsAndMathPreserved=False),
+            lambda x: x["programs"][1].update(assetPath=x["programs"][0]["assetPath"]),
+            lambda x: x["nativeCompilerWitness"].update(positiveCompilerCount=34),
+            lambda x: x["nativeDriverWitness"].update(missingNativeEntryRejected=False),
+        )
+        for i, mutate in enumerate(controls):
+            with self.subTest(defect=i):
+                bad = copy.deepcopy(receipt); mutate(bad); self.store_shader_order_receipt(bad)
+                with self.assertRaises(BuildError): self.capture()
+
+    def test_shader_order_repair_only_recognizes_native_foliage_front_face_programs(self):
+        receipt, manifest, _ = self.shader_order_receipt()
+        for mutate in (
+                lambda x: x["shaders"][0].update(guid="6" * 32),
+                lambda x: x["programs"][0]["originalInputSignature"][0].update(systemValue=1),
+                lambda x: x["programs"][0]["originalInputSignature"][0].update(semantic="TEXCOORD")):
+            bad = copy.deepcopy(manifest); mutate(bad); self.store_shader_manifest(bad)
+            changed = copy.deepcopy(receipt)
+            changed["manifest"]["afterSha256"] = digest(self.project / "Assets/QuestOriginalCampaign/campaign-shaders.json")
+            self.store_shader_order_receipt(changed)
+            with self.assertRaises(BuildError): self.capture()
+
+    def test_shader_order_repair_missing_changed_linked_include_meta_and_witness_fail_closed(self):
+        receipt, _, _ = self.shader_order_receipt()
+        paths = [self.project / receipt["programs"][0]["assetPath"],
+            self.project / (receipt["programs"][0]["assetPath"] + ".meta"),
+            self.project / "Assets/Original/NativeFoliage.mat",
+            self.project / receipt["nativeCompilerInput"]["path"],
+            self.project / receipt["nativeCompilerWitness"]["path"],
+            self.driver.parent / "quest-shaders/produce.py",
+            self.driver.parent / "quest-shaders/stereo_repair.py"]
+        for path in paths:
+            with self.subTest(path=path.name):
+                retained = path.with_name(path.name + ".retained"); path.rename(retained)
+                try:
+                    with self.assertRaises(BuildError): self.capture()
+                    path.write_bytes(b"changed source bytes")
+                    with self.assertRaises(BuildError): self.capture()
+                    path.unlink(); path.symlink_to(retained)
+                    with self.assertRaises(BuildError): self.capture()
+                finally:
+                    path.unlink(missing_ok=True); retained.rename(path)
+
+    def test_shader_order_repair_native_meta_guid_and_unchanged_ledger_census_are_verified(self):
+        receipt, _, ledger = self.shader_order_receipt()
+        ledger_path = self.project / receipt["identities"]["path"]
+        for mutate in (
+                lambda x: x["shaders"][0].update(guid="0" * 32),
+                lambda x: x["materials"][0].update(metaSha256="0" * 64),
+                lambda x: x["programs"][0].update(sha256="0" * 64),
+                lambda x: x["materials"].append(copy.deepcopy(x["materials"][0]))):
+            bad = copy.deepcopy(ledger); mutate(bad); ledger_path.write_text(json.dumps(bad))
+            changed = copy.deepcopy(receipt); changed["identities"]["sha256"] = digest(ledger_path)
+            self.store_shader_order_receipt(changed)
+            with self.assertRaises(BuildError): self.capture()
+
+    def test_shader_order_repair_rejects_changed_native_guid_even_with_refreshed_meta_hash(self):
+        receipt, _, ledger = self.shader_order_receipt()
+        meta = self.project / (ledger["materials"][0]["assetPath"] + ".meta")
+        meta.write_text("guid: " + "0" * 32 + "\n")
+        ledger["materials"][0]["metaSha256"] = digest(meta)
+        ledger_path = self.project / receipt["identities"]["path"]
+        ledger_path.write_text(json.dumps(ledger))
+        receipt["identities"]["sha256"] = digest(ledger_path)
+        self.store_shader_order_receipt(receipt)
+        with self.assertRaisesRegex(BuildError, "metadata GUID"): self.capture()
+
+    def test_shader_order_repair_source_race_and_removed_evidence_are_rejected(self):
+        receipt, _, _ = self.shader_order_receipt()
+        target = self.project / receipt["programs"][0]["assetPath"]
+        changed = False
+        def concurrent_change(path, relative):
+            nonlocal changed
+            row = record_file(path, relative)
+            if path == target and not changed:
+                changed = True; path.write_bytes(path.read_bytes() + b"// raced math\n")
+            return row
+        with patch.object(build_provenance, "record_file", concurrent_change):
+            with self.assertRaises(BuildError): self.capture()
+
+    def test_shader_order_repair_unchanged_material_race_and_disappearing_receipt_fail_closed(self):
+        receipt, _, ledger = self.shader_order_receipt()
+        for target, delete in ((self.project / ledger["materials"][0]["assetPath"], False),
+                               (self.project / "QuestCampaignEvidence/fragment-stereo-input-order.json", True)):
+            with self.subTest(path=target.name):
+                payload = target.read_bytes(); changed = False
+                def concurrent_change(path, relative):
+                    nonlocal changed
+                    row = record_file(path, relative)
+                    if path == target and not changed:
+                        changed = True
+                        if delete: path.unlink()
+                        else: path.write_bytes(payload + b"// concurrent mutation\n")
+                    return row
+                try:
+                    with patch.object(build_provenance, "record_file", concurrent_change):
+                        with self.assertRaises(BuildError): self.capture()
+                finally: target.write_bytes(payload)
+
+    def test_shader_order_repair_recapture_detects_edits_without_rewriting_frozen_runtime(self):
+        receipt, _, _ = self.shader_order_receipt()
+        before = self.capture()
+        self.write(self.source / "tools/quest-shaders/produce.py", b"# changed snapshot generator\n")
+        after = self.capture()
+        self.assertEqual(before["runtime"], after["runtime"])
+        self.assertNotEqual(value_hash(before), value_hash(after))
+        self.write(self.driver.parent / "quest-shaders/produce.py", b"# changed actual generator\n")
+        with self.assertRaisesRegex(BuildError, "generator differs"): self.capture()
 
 
 if __name__ == "__main__":
