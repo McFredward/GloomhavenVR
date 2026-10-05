@@ -440,3 +440,32 @@ validation; ordinary mod/profile/package changes do not. The first actual full
 imported Android Campaign gate remains in progress and necessary at this
 checkpoint. Cache integration must not modify the live build's captured sources
 or invent completion before that gate reports success.
+
+### Parallel Wizard implementation authorized
+
+On2026-10-05 the maintainer explicitly requested beginning Wizard implementation
+while the current full Player builds, with APK delivery remaining the priority.
+The UI must be modern, attractive, novice-friendly and gamer-oriented, including
+the GloomhavenVR logo and locally owned Gloomhaven imagery. Implement UI and
+backend in isolated worker worktrees with disjoint ownership. New Wizard modules
+and launchers can be reviewed separately; changes to captured central builder
+modules must wait for the current Player's safe completion/failure boundary.
+
+Use a local browser UI and standard-library local backend, without hosting or
+external account services. Reuse the working Windows local-Python/ADB bootstrap;
+keep conversion environments separately pinned. Provide EN/DE strings, accessible
+clear step navigation, one primary action, useful overall progress, resumable
+cancel/restart and collapsed technical details. The public package ships only
+project-owned artwork. Original game imagery is served through bounded opaque
+IDs from the user's selected installation, optional offline launcher artwork or
+verified completed local recovery; it is not checked into Git or released with
+the tools. A polished project-logo presentation is valid before those local
+images exist.
+
+A conservative block that preserves an interrupted imported project is an interim
+safeguard, not fulfillment of seamless resume. Central transactional preparation,
+build-owned output separation, process ownership and interrupted owned recovery
+must be fixed so an unchanged interrupted build can actually continue without
+losing Library. Source/runtime dependencies missing from a clean checkout must
+be provisioned from authoritative pinned recipes and owned game/Editor inputs;
+no private ignored cache may become a hidden Wizard prerequisite.
