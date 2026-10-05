@@ -461,3 +461,47 @@ The proof host forces the actually selected lavapipe device index0; it does not
 spoof a physical GPU. Wine's reported Windows adapter name is not evidence of
 that physical adapter. No hardware picture, Android dispatch, bone animation
 or all-material pixel parity is asserted by these bounded host fixtures.
+
+The final original-graph gate is complete. All three private compiler shards
+exited successfully, and the strict union passed with all688original shaders,
+all51,564original Vulkan aliases and all9,187original material consumers. The
+full real compiler receipt and its bank/SPIR-V bytes are in private
+`vulkan-native-full-compiler-v1`; receipt SHA-256
+`2f244f98c3710a3328f8f1d0a79d45ac85e89afdd6159d8d04f65dc6792a6323`.
+The authoritative source manifest is
+`full-production-vulkan-final-v1/QuestRecovery/campaign-shaders.json`, SHA-256
+`348038841db3224b3c48c9b4d7b67086c90574a2929b81dd4a4c5e5cb08df5c5`.
+An additional complete actual Vulkan driver execution passed all51,564aliases
+and all11,212distinct unchanged native stage pairs; the missing-entry-point
+negative control was rejected. The final driver receipt is
+`vulkan-native-full-driver-v1/actual-vulkan-pipelines.json`, SHA-256
+`a2ad7147a4753ffcfe505ad7a1bbb6ae1e5436e373bb47f90b231497ef99191e`.
+No geometry, hull, domain or raytracing subprograms were populated in any of
+the688native forms, and none used a UsePass indirection. No additional populated
+graphics stage or name-resolved native pass was omitted from this gate.
+
+The three completed content-addressed ShaderCache donors remain closed and
+stable at:
+
+```text
+/home/claw/quest3-local/full-shader-validation/full-production-compile-v1/Library/ShaderCache
+/home/claw/quest3-local/full-shader-validation/full-production-vulkan-shard-1/Library/ShaderCache
+/home/claw/quest3-local/full-shader-validation/full-production-vulkan-shard-2/Library/ShaderCache
+```
+
+Before seeding the final project's compiler cache, compare original shader
+GUIDs and exact ShaderLab/program-include bytes with the authoritative manifest.
+All five production generator/helper hashes were separately checked against
+the primary frozen sources and match exactly. Copy only the content-addressed
+ShaderCache entries after validating this provenance; do not transplant the
+entire Library, substitute shard receipts or skip any final-project variant.
+The six retained UI/Bloom source contracts differ from the private translated
+shader versions and must compile against their own original receipts; unmatched
+cache keys are ordinary cache misses. The final prepared-project gate still
+executes every original alias and all material checks. Retain the donors until
+that gate consumes them, then remove obsolete private import/build caches.
+
+Another3.5GiB of superseded private source overlays and experimental Windows
+host caches were removed after their metadata/log/readback evidence was
+compressed. Immutable original data, `full-bound-v1`, the final source output,
+all three current Libraries and the passing original pixel oracles remain.
