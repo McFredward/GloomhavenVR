@@ -7,7 +7,8 @@
   <ItemGroup>
     <Compile Include="$(FixtureDir)/*.cs"/><Compile Include="$(ProductionDir)/*.cs"/>
     <Reference Include="$(UnityManaged)/UnityEngine/*.dll"/>
+    <Reference Include="$(GameManaged)/*.dll" Exclude="$(GameManaged)/UnityEngine*.dll;$(GameManaged)/mscorlib.dll;$(GameManaged)/System*.dll;$(GameManaged)/netstandard.dll"/>
+    <Reference Include="UnityEngine.UI" HintPath="$(GameManaged)/UnityEngine.UI.dll"/>
     <Reference Include="0Harmony" HintPath="$(HarmonyPath)"/>
-    <Reference Include="UnityEngine.UI"><HintPath>$(GameManaged)/UnityEngine.UI.dll</HintPath></Reference>
   </ItemGroup>
 </Project>

@@ -127,6 +127,10 @@ internal static partial class CanvasConversion
         public CanvasGroup? Group;
         public readonly List<CanvasRenderer> Renderers = new(32);
         public readonly List<Graphic> Graphics = new(32);
+        // Includes settled re-read exemptions: an unrelated insertion must never re-veil
+        // a renderer already handed back to the game while this window stays hidden.
+        public readonly HashSet<Graphic> GraphicSet = new();
+        public int GraphicRevision;
         public int VeiledAtFrame;
         /// <summary>Ticks since the veil on which the panel was actually rendering. The settled
         /// re-read needs two: one for uGUI to service the canvas, one to read the result.</summary>
@@ -155,6 +159,8 @@ internal static partial class CanvasConversion
     private sealed class HiddenWindowVeilState
     {
         public UiHierarchyInventory? Inventory;
+        public HashSet<UIWindow>? SharedRegistry;
+        public int SharedRegistryVersion;
         public readonly List<UIWindow> Windows = new(16);
         public readonly HashSet<UIWindow> WindowSet = new();
         public readonly List<VeiledWindow> Veiled = new(4);
@@ -248,6 +254,7 @@ internal static partial class CanvasConversion
                     if (veil.Window != null && graphic.transform.IsChildOf(veil.Window.transform))
                         continue;
                     ReleaseRenderer(cr, graphic);
+                    if (graphic != null) veil.GraphicSet.Remove(graphic);
                     if (i < veil.Graphics.Count) veil.Graphics.RemoveAt(i);
                     veil.Renderers.RemoveAt(i);
                     released++;
@@ -280,7 +287,8 @@ internal static partial class CanvasConversion
             {
                 VeiledWindow v = st.Veiled[i];
                 if (v.Window == null || v.Window.IsOpen || v.Window.IsVisible
-                    || !v.Window.gameObject.activeInHierarchy)
+                    || !v.Window.gameObject.activeInHierarchy
+                    || !v.Window.transform.IsChildOf(target))
                 {
                     Unveil(v);
                     st.Veiled.RemoveAt(i);
@@ -308,6 +316,23 @@ internal static partial class CanvasConversion
         using (PerfMonitor.Scope("WorldUI.HiddenWindowVeil.Discovery"))
         {
             RefreshVeilWindowInventory(st, target);
+            // A native pool can insert graphics into a window already under veil. Discovering
+            // only new UIWindow components would leave that new renderer outside the one-frame
+            // safety ownership. Recapture identities on topology/activation events, while every
+            // existing renderer still learns live foreign alpha/cull in the reassert pass above.
+            for (int i = 0; i < st.Veiled.Count; i++)
+            {
+                VeiledWindow veil = st.Veiled[i];
+                int revision = st.Inventory?.Revision ?? 0;
+                if (veil.GraphicRevision == revision || veil.Window == null) continue;
+                int before = veil.Renderers.Count;
+                CaptureMissingVeilGraphics(panel, veil, out int disagree, out _, out string path, out float worst);
+                veil.GraphicRevision = revision;
+                st.GraphicsVeiled += veil.Renderers.Count - before;
+                st.Disagreements += disagree;
+                if (worst > st.WorstDisagreement) st.WorstDisagreement = worst;
+                if (disagree > 0) RecordDisagreement(st, veil.Window, disagree, path);
+            }
             VeilWindowScratch.Clear();
             VeilWindowScratch.AddRange(st.Windows);
             for (int i = 0; i < VeilWindowScratch.Count; i++)
@@ -350,6 +375,8 @@ internal static partial class CanvasConversion
 
     private static void RefreshVeilWindowInventory(HiddenWindowVeilState state, Transform target)
     {
+        if (PerfConfig.SharedUiWindowReadsOn && TryRefreshSharedVeilWindowInventory(state, target))
+            return;
         // Build612 walked the full character column (thousands of transforms) every frame.
         // Pool/hierarchy callbacks invalidate its component inventory; live window/alpha
         // verdicts above remain per-frame. Include disabled UIWindow components as the old
@@ -401,6 +428,7 @@ internal static partial class CanvasConversion
             Graphic? g = i < v.Graphics.Count ? v.Graphics[i] : null;
             if (cr == null || g == null)
             {
+                if (!ReferenceEquals(g, null)) v.GraphicSet.Remove(g);
                 if (i < v.Graphics.Count) v.Graphics.RemoveAt(i);
                 v.Renderers.RemoveAt(i);
                 continue;
@@ -414,6 +442,7 @@ internal static partial class CanvasConversion
             if (v.Window == null || !g.transform.IsChildOf(v.Window.transform))
             {
                 ReleaseRenderer(cr, g);
+                v.GraphicSet.Remove(g);
                 v.Graphics.RemoveAt(i);
                 v.Renderers.RemoveAt(i);
                 continue;
@@ -437,62 +466,9 @@ internal static partial class CanvasConversion
     private static void Veil(ConvertedPanel panel, HiddenWindowVeilState st, UIWindow w, CanvasGroup group)
     {
         var v = new VeiledWindow { Window = w, Group = group, VeiledAtFrame = Time.frameCount };
-        int disagreements = 0, skippedOwnGroup = 0;
-        float worst = 0f;
-        string disagreePath = "";
-        VeilGraphicScratch.Clear();
-        w.GetComponentsInChildren(includeInactive: false, VeilGraphicScratch);
-        for (int i = 0; i < VeilGraphicScratch.Count; i++)
-        {
-            Graphic g = VeilGraphicScratch[i];
-            if (g == null)
-                continue;
-            CanvasRenderer? cr = g.canvasRenderer;
-            if (cr == null)
-                continue;
-            // The chain walk uGUI itself performs: a group below the window that ignores its
-            // parents is drawn by the game even while the window is hidden, and stays drawn here.
-            if (GroupChainAlphaBelow(g.transform, w.transform) >= FitMinAlpha)
-            {
-                skippedOwnGroup++;
-                continue;
-            }
-            float inherited = cr.GetInheritedAlpha();
-            if (g.color.a * inherited >= FitMinAlpha)
-            {
-                disagreements++;
-                if (inherited > worst)
-                {
-                    worst = inherited;
-                    disagreePath = HierarchyPathBelow(g.transform, panel.Target);
-                }
-            }
-            v.Renderers.Add(cr);
-            v.Graphics.Add(g);
-            if (VeilHolds.TryGetValue(cr, out VeilHold h))
-            {
-                // Already veiled under an enclosing hidden window: its channel is ours already
-                // (reads 0), so the pre-veil value on record is the one to keep.
-                h.Holds++;
-                VeilHolds[cr] = h;
-            }
-            else
-            {
-                // ModBuild 434 — THROUGH THE SEAT VEIL, for exactly the reason this whole file
-                // exists for the materialise runner. A renderer the sub-view SEAT veil (part 9g)
-                // is holding reads 0 here, and capturing that zero as its pre-veil value would
-                // restore it as zero on this veil's own lift — the black-column failure with the
-                // two writers swapped. Falls back to the channel itself when nothing holds it.
-                VeilHolds[cr] = new VeilHold
-                {
-                    Alpha = PreSeatVeilAlpha(cr, cr.GetAlpha()),
-                    Holds = 1,
-                };
-            }
-            cr.SetAlpha(0f);
-            cr.cull = true;
-        }
-        VeilGraphicScratch.Clear();
+        CaptureMissingVeilGraphics(panel, v, out int disagreements, out int skippedOwnGroup,
+            out string disagreePath, out float worst);
+        v.GraphicRevision = st.Inventory?.Revision ?? 0;
         st.Veiled.Add(v);
         st.VeilEvents++;
         st.WindowsSeen++;
@@ -549,6 +525,73 @@ internal static partial class CanvasConversion
                 : ".")
             + (pastCap ? " NAMED PAST THE CAP because it DISAGREES: the cap must never hide the "
                          + "window that carries the flash population." : ""));
+    }
+
+    private static void CaptureMissingVeilGraphics(ConvertedPanel panel, VeiledWindow v,
+        out int disagreements, out int skippedOwnGroup, out string disagreePath, out float worst)
+    {
+        disagreements = 0;
+        skippedOwnGroup = 0;
+        worst = 0f;
+        disagreePath = "";
+        VeilGraphicScratch.Clear();
+        SharedVeilGroupReads.Clear();
+        v.Window.GetComponentsInChildren(includeInactive: false, VeilGraphicScratch);
+        for (int i = 0; i < VeilGraphicScratch.Count; i++)
+        {
+            Graphic g = VeilGraphicScratch[i];
+            if (g == null || v.GraphicSet.Contains(g))
+                continue;
+            CanvasRenderer? cr = g.canvasRenderer;
+            if (cr == null)
+                continue;
+            // The chain walk uGUI itself performs: a group below the window that ignores its
+            // parents is drawn by the game even while the window is hidden, and stays drawn here.
+            if ((PerfConfig.SharedUiWindowReadsOn
+                ? SharedGroupChainAlphaBelow(g.transform, v.Window.transform)
+                : GroupChainAlphaBelow(g.transform, v.Window.transform)) >= FitMinAlpha)
+            {
+                skippedOwnGroup++;
+                continue;
+            }
+            float inherited = cr.GetInheritedAlpha();
+            if (g.color.a * inherited >= FitMinAlpha)
+            {
+                disagreements++;
+                if (inherited > worst)
+                {
+                    worst = inherited;
+                    disagreePath = HierarchyPathBelow(g.transform, panel.Target);
+                }
+            }
+            v.GraphicSet.Add(g);
+            v.Renderers.Add(cr);
+            v.Graphics.Add(g);
+            if (VeilHolds.TryGetValue(cr, out VeilHold h))
+            {
+                // Already veiled under an enclosing hidden window: its channel is ours already
+                // (reads 0), so the pre-veil value on record is the one to keep.
+                h.Holds++;
+                VeilHolds[cr] = h;
+            }
+            else
+            {
+                // ModBuild 434 — THROUGH THE SEAT VEIL, for exactly the reason this whole file
+                // exists for the materialise runner. A renderer the sub-view SEAT veil (part 9g)
+                // is holding reads 0 here, and capturing that zero as its pre-veil value would
+                // restore it as zero on this veil's own lift — the black-column failure with the
+                // two writers swapped. Falls back to the channel itself when nothing holds it.
+                VeilHolds[cr] = new VeilHold
+                {
+                    Alpha = PreSeatVeilAlpha(cr, cr.GetAlpha()),
+                    Holds = 1,
+                };
+            }
+            cr.SetAlpha(0f);
+            cr.cull = true;
+        }
+        VeilGraphicScratch.Clear();
+        SharedVeilGroupReads.Clear();
     }
 
     private static void RecordDisagreement(HiddenWindowVeilState st, UIWindow w, int count, string path)
@@ -662,6 +705,7 @@ internal static partial class CanvasConversion
         }
         v.Renderers.Clear();
         v.Graphics.Clear();
+        v.GraphicSet.Clear();
     }
 
     /// <summary>
@@ -776,7 +820,9 @@ internal static partial class CanvasConversion
         if (!HiddenWindowVeils.TryGetValue(panel, out HiddenWindowVeilState? st))
             return;
         HiddenWindowVeils.Remove(panel);
+        ForgetSharedVeilWindowInventory(st);
         st.Inventory?.Dispose();
+        st.SharedRegistry = null;
         st.Windows.Clear();
         st.WindowSet.Clear();
         for (int i = 0; i < st.Veiled.Count; i++)

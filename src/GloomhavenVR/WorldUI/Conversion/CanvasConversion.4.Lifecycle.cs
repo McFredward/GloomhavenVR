@@ -1304,6 +1304,7 @@ internal static partial class CanvasConversion
     /// </summary>
     internal static void LateTick()
     {
+        using var sharedWindowReads = BeginSharedVeilWindowReads();
         for (int i = 0; i < Active.Count; i++)
         {
             ConvertedPanel panel = Active[i];

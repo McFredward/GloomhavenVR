@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 namespace GloomhavenVR.Core {
+ internal static class PerfConfig { internal static bool SharedUiWindowReadsOn=true; }
  internal static class VRLog {
   internal static int Errors;
   internal static void Info(string s,string m) {} internal static void Note(string s,string m) {}
@@ -29,9 +30,10 @@ namespace GloomhavenVR.WorldUI {
  internal sealed class ConvertedPanel {
   internal GameObject HostGo=null!;internal RectTransform Target=null!;internal bool IsAlive=true;
  }
- internal static partial class CanvasConversion {internal static readonly List<ConvertedPanel> ActivePanels=new();}
+ internal static partial class CanvasConversion {internal static readonly List<ConvertedPanel> ActivePanels=new(); private static List<ConvertedPanel> Active=>ActivePanels; private static readonly Dictionary<ConvertedPanel,HiddenWindowVeilState> HiddenWindowVeils=new();}
  internal sealed class HiddenWindowVeilState {
   public UiHierarchyInventory? Inventory;
+  public HashSet<UIWindow>? SharedRegistry; public int SharedRegistryVersion;
   public readonly List<UIWindow> Windows=new(); public readonly HashSet<UIWindow> WindowSet=new();
  }
  internal sealed class InitiativeTrackSurface {
