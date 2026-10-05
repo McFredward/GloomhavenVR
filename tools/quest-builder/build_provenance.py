@@ -268,9 +268,16 @@ def _shader_order_json(project, name, witnessed, maximum=16 * 1024 * 1024):
     return json.loads(path.read_text(encoding="utf-8")), record
 
 
-def _shader_order_asset(project, name, witnessed, expected, meta_hash, guid=None):
+def _shader_order_asset(project, name, witnessed, expected, meta_hash, guid=None, successors=None):
     actual = _asset_record(project, name, witnessed)
     meta = _asset_record(project, name + ".meta", witnessed)
+    successor = (successors or {}).get(name)
+    if successor is not None:
+        from stereo_eye_repair import original_bytes, hash_bytes
+        if (successor["beforeSha256"] != expected or successor["metaSha256"] != meta_hash
+                or hash_bytes(original_bytes((project / name).read_bytes())) != expected):
+            raise BuildError("Build provenance shader successor does not preserve its prior program bytes.")
+        expected = successor["afterSha256"]
     if actual["sha256"] != expected or meta["sha256"] != meta_hash:
         raise BuildError("Build provenance shader repair source/meta differs from its receipt.")
     if guid is not None:
@@ -281,10 +288,12 @@ def _shader_order_asset(project, name, witnessed, expected, meta_hash, guid=None
     return {**actual, "meta": meta}
 
 
-def _shader_input_repair(project, drivers, source, manifest_record, manifest, witnessed, target):
+def _shader_input_repair(project, drivers, source, manifest_record, manifest, witnessed, target, successors=None):
     """Bind only the witnessed 90 native Foliage fragment declaration moves.
 
-    The receipt binds the current manifest. Its manifest marker deliberately
+    The receipt binds its completed manifest phase. A recognized subsequent
+    Layer repair reconstructs that exact phase and proves its three preimages.
+    Its manifest marker deliberately
     carries no receipt hash, avoiding a circular hash dependency while making a
     missing applied receipt fail closed. Native compiler/driver witnesses remain
     separate from an unverified headset picture and original pixel parity.
@@ -407,7 +416,7 @@ def _shader_input_repair(project, drivers, source, manifest_record, manifest, wi
                         or kind == "programs" and row["sha256"] != native.get("sourceSha256")):
                     raise BuildError("Build provenance shader repair unchanged native identity is invalid.")
                 _shader_order_asset(project, name, witnessed, row["sha256"], row["metaSha256"],
-                                    row.get("guid") if kind != "programs" else None)
+                                    row.get("guid") if kind != "programs" else None, successors)
                 seen.add(name)
             unchanged_counts[kind] = len(values)
         compiler_input_info = receipt["nativeCompilerInput"]
@@ -463,6 +472,70 @@ def _shader_input_repair(project, drivers, source, manifest_record, manifest, wi
         raise BuildError("Build provenance could not capture recognized shader input repair evidence.") from exc
 
 
+def _shader_eye_repair(project, drivers, source, manifest_record, manifest, witnessed, target):
+    """Bind exact Layer wrapper changes and reconstruct the prior proof phase.
+
+    This never rewrites the independent fragment receipt or its historical
+    manifest hash. Only the three proven successor headers may have new bytes.
+    """
+    from stereo_eye_repair import RECEIPT, TRANSACTION, MARKER, SCOPE, verify_completed, encoded
+    path = _real_path(project / RECEIPT, "vertex Layer repair receipt")
+    transaction = _real_path(project / TRANSACTION, "vertex Layer repair transaction")
+    if transaction.exists():
+        raise BuildError("Build provenance vertex Layer repair transaction is incomplete.")
+    witnessed.append((transaction, None))
+    marker = manifest.get(MARKER) if manifest is not None else None
+    if not path.exists():
+        if marker is not None:
+            raise BuildError("Build provenance vertex Layer repair receipt is missing.")
+        witnessed.append((path, None))
+        return None, manifest, manifest_record, None
+    if target != "game" or manifest_record is None or marker != {"path": RECEIPT, "scope": SCOPE, "programCount": 3}:
+        raise BuildError("Build provenance vertex Layer repair lacks its recognized Campaign manifest marker.")
+    try:
+        receipt, prior = verify_completed(project, manifest, drivers)
+        _, evidence = _shader_order_json(project, RECEIPT, witnessed, 1024 * 1024)
+        modules = {}
+        for role, name in (("generator", "full_shaders.py"), ("repairHelper", "stereo_eye_repair.py")):
+            records = _records([_real_path(drivers / name, "vertex Layer repair module")], drivers, _DRIVER,
+                               source / _DRIVER, _DRIVER, witnessed)
+            modules[role] = records[0]
+        shader_records = []
+        for row in receipt["shaders"]:
+            actual = _shader_order_asset(project, row["assetPath"], witnessed, row["sha256"], row["metaSha256"], row["guid"])
+            shader_records.append({**actual, **{key: row[key] for key in ("guid", "originalPathId", "originalSerializedFile") if key in row}})
+        proof_records = {}
+        for role in ("identities", "nativeCompilerInput", "nativeCompilerWitness"):
+            _, record = _shader_order_json(project, receipt[role]["path"], witnessed)
+            proof_records[role] = record
+        successors = {row["assetPath"]: row for row in receipt["programs"]}
+        programs = []
+        for row in receipt["programs"]:
+            actual = _shader_order_asset(project, row["assetPath"], witnessed, row["afterSha256"], row["metaSha256"])
+            programs.append({**actual, **{key: row[key] for key in (
+                "originalDxbcSha256", "originalInterfaceSha256", "beforeSha256")}})
+        ledger, _ = _shader_order_json(project, receipt["identities"]["path"], witnessed)
+        for kind in ("shaders", "materials", "programs"):
+            for row in ledger[kind]:
+                _shader_order_asset(project, row["assetPath"], witnessed, row["sha256"], row["metaSha256"],
+                                    row.get("guid") if kind != "programs" else None)
+        before_bytes = encoded(prior)
+        before_record = {"path": manifest_record["path"], "sha256": receipt["manifest"]["beforeSha256"], "size": len(before_bytes)}
+        previous = receipt.get("priorFragmentRepair")
+        if previous is not None:
+            _, previous_record = _shader_order_json(project, previous["path"], witnessed, 1024 * 1024)
+            if previous_record["sha256"] != previous["sha256"]:
+                raise BuildError("Build provenance prior fragment repair bytes changed.")
+        result = {**evidence, "scope": SCOPE, "graphicsApi": "Vulkan", "applied": True,
+                  "manifest": {**manifest_record, "beforeSha256": before_record["sha256"]},
+                  "programCount": 3, "programs": sorted(programs, key=lambda row: row["path"]), "shaders": shader_records,
+                  **modules, **proof_records, "priorFragmentRepair": previous,
+                  "headsetPictureVerified": False, "originalPixelParityVerified": False}
+        return result, prior, before_record, successors
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise BuildError("Build provenance could not capture recognized vertex Layer repair evidence.") from exc
+
+
 def capture(inputs, project, source, driver_dir, toolchain):
     """Capture sorted stable bytes without exposing paths, accounts or secrets.
 
@@ -489,8 +562,10 @@ def capture(inputs, project, source, driver_dir, toolchain):
     compute_repair = _compute_repair(project, drivers, witnessed)
     shader_state = {}
     shader_manifest = _shader_manifest(project, witnessed, shader_state)
-    shader_repair = _shader_input_repair(project, drivers, source, shader_manifest,
-                                        shader_state.get("manifest"), witnessed, inputs.get("target"))
+    eye_repair, prior_manifest, prior_record, successors = _shader_eye_repair(
+        project, drivers, source, shader_manifest, shader_state.get("manifest"), witnessed, inputs.get("target"))
+    shader_repair = _shader_input_repair(project, drivers, source, prior_record,
+                                        prior_manifest, witnessed, inputs.get("target"), successors)
 
     # A module imported earlier or a source changed during capture is not a
     # trustworthy launch record. Recheck membership and both sets of bytes.
@@ -515,4 +590,6 @@ def capture(inputs, project, source, driver_dir, toolchain):
         result["campaignShaderManifest"] = shader_manifest
     if shader_repair is not None:
         result["campaignFragmentStereoInputOrderRepair"] = shader_repair
+    if eye_repair is not None:
+        result["campaignVertexLayerEyeMacroRepair"] = eye_repair
     return result
