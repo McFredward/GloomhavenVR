@@ -46,14 +46,28 @@ def native_yaml(fields, pixels, texture_format, file_id):
 def remap_manifests(project, path_map):
     """Retain captured native identities when their portable physical path changes."""
     changed = []
-    for relative in ('QuestRecovery/original-asset-identities.json', 'Assets/QuestOriginalCampaign/campaign-addressables.json'):
+    files = ['QuestRecovery/original-asset-identities.json']
+    for folder in ('QuestOriginalStartup', 'QuestOriginalCampaign'):
+        for filename in ('startup-addressables.json', 'campaign-addressables.json', 'script-bindings.json'):
+            files.append('Assets/' + folder + '/' + filename)
+    for relative in files:
         path = project / relative
         if not path.is_file(): continue
-        original = path.read_text(); text = original
-        for old, new in path_map.items():
-            text = text.replace(json.dumps(old), json.dumps(new))
-        if text != original:
-            path.write_text(text)
+        original = path.read_text(); document = json.loads(original); modified = False
+        if relative == files[0]:
+            for row in document['identities']:
+                if row['path'] in path_map:
+                    row['path'] = path_map[row['path']]; modified = True
+        elif relative.endswith('-addressables.json'):
+            for row in document['entries']:
+                if row.get('assetPath') in path_map:
+                    row['assetPath'] = path_map[row['assetPath']]; modified = True
+        else:
+            for index, value in enumerate(document['assetPaths']):
+                if value in path_map:
+                    document['assetPaths'][index] = path_map[value]; modified = True
+        if modified:
+            write_json(path,document); text = path.read_text()
             changed.append({'path': relative, 'beforeSha256': hashlib.sha256(original.encode()).hexdigest(),
                             'sha256': hashlib.sha256(text.encode()).hexdigest()})
     return changed

@@ -39,10 +39,20 @@ class NativeCubeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             p=Path(root);(p/'QuestRecovery').mkdir()
             f=p/'QuestRecovery/original-asset-identities.json'
-            f.write_text('{"assetPath":"Assets/Cube.png","guid":"a","originalPath":"Assets/Original.asset"}')
+            f.write_text('{"identities":[{"path":"Assets/Cube.png","guid":"a","originalPath":"Assets/Cube.png"}]}')
+            import json
+            folder=p/'Assets/QuestOriginalCampaign';folder.mkdir(parents=True)
+            catalog=folder/'campaign-addressables.json'
+            catalog.write_text(json.dumps({'entries':[{'assetPath':'Assets/Cube.png','originalAssetPath':'Assets/Cube.png',
+                           'keys':['Assets/Cube.png'],'nativeKeys':['Assets/Cube.png']}]}))
+            bindings=folder/'script-bindings.json'
+            bindings.write_text(json.dumps({'assetPaths':['Assets/Cube.png'],'bindings':[]}))
             changed=full_textures.remap_manifests(p,{'Assets/Cube.png':'Assets/Cube.asset'})
-            self.assertEqual(len(changed),1)
-            self.assertEqual(f.read_text(),'{"assetPath":"Assets/Cube.asset","guid":"a","originalPath":"Assets/Original.asset"}')
+            self.assertEqual(len(changed),3)
+            self.assertEqual(json.loads(f.read_text())['identities'][0],{'path':'Assets/Cube.asset','guid':'a','originalPath':'Assets/Cube.png'})
+            self.assertEqual(json.loads(catalog.read_text())['entries'][0],{'assetPath':'Assets/Cube.asset',
+                    'originalAssetPath':'Assets/Cube.png','keys':['Assets/Cube.png'],'nativeKeys':['Assets/Cube.png']})
+            self.assertEqual(json.loads(bindings.read_text())['assetPaths'],['Assets/Cube.asset'])
 
 
 if __name__=='__main__':unittest.main()
