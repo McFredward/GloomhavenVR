@@ -25,14 +25,14 @@ public static partial class MirrorProgram
         observer.SetPositionAndRotation(new Vector3(6f, .13f, -.4f), Quaternion.Euler(0f, 83f, 0f));
         observer.localScale = Vector3.one * 1.4f;
         GameObject holder = Go("CardHilight", owner);
-        RectTransform root = holder.AddComponent<RectTransform>(); root.sizeDelta = new Vector2(325f, 450f);
+        RectTransform root = (RectTransform)holder.transform; root.sizeDelta = new Vector2(325f, 450f);
         Canvas canvas = holder.AddComponent<Canvas>(); canvas.renderMode = RenderMode.WorldSpace;
         canvas.worldCamera = _camera;
         holder.AddComponent<CanvasGroup>();
         var highlighter = holder.AddComponent<GloomhavenVR.WorldUI.UIEnhancementCardHighlighter>();
         GameObject printed = Go("Native pooled card", root);
         var nativeCard = printed.AddComponent<GloomhavenVR.WorldUI.AbilityCardUI>();
-        RectTransform nativeFace = Go("FullAbilityCard", printed.transform).AddComponent<RectTransform>();
+        RectTransform nativeFace = (RectTransform)Go("FullAbilityCard", printed.transform).transform;
         nativeFace.sizeDelta = new Vector2(294f, 450f); nativeFace.pivot = new Vector2(.31f, .68f);
         nativeFace.anchoredPosition = new Vector2(19f, -11f); nativeFace.localScale = Vector3.one * .84f;
         nativeCard.fullAbilityCard = nativeFace; highlighter.Card = nativeCard;
@@ -40,7 +40,7 @@ public static partial class MirrorProgram
             new Vector2(171f, 82f), new Color(.1f, .8f, 1f, .75f));
         area.gameObject.AddComponent<GloomhavenVR.WorldUI.UIEnhancementButtonHighlight>();
         area.rectTransform.pivot = new Vector2(.23f, .77f);
-        RectTransform physical = Go("Actually adopted face", owner).AddComponent<RectTransform>();
+        RectTransform physical = (RectTransform)Go("Actually adopted face", owner).transform;
         physical.sizeDelta = new Vector2(294f, 450f); physical.localScale = Vector3.one * .00049f;
         GloomhavenVR.WorldUI.TownServiceEnhancementHandoff.PhysicalCardFace = physical;
         TownServiceMirror.RegisterTemplate(3, 1, root, address: "enchant.holder|");
