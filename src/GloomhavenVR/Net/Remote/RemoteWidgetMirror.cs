@@ -2525,28 +2525,61 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
             if (!on)
                 return false; // an invisible branch's interior does not need driving
 
+            // Reuse only a nonvirtual native or field getter immediately before its own
+            // write. Read order remains target then source, and no earlier setter/callback is
+            // crossed. Off retains the original second read for A/B comparison. Resolve the
+            // mode once per Apply; the next node observes any live config change.
+            // Virtual Graphic/TMP/Text getters stay live on both paths: subclasses can execute
+            // user code. No observation survives this comparison or is shared between peers.
+            bool reuseNativeReads = PerfConfig.SharedUiWindowReadsOn;
             if (driveRects)
             {
                 if (_srcRect != null && _dstRect != null)
                 {
-                    if (_dstRect.anchorMin != _srcRect.anchorMin) _dstRect.anchorMin = _srcRect.anchorMin;
-                    if (_dstRect.anchorMax != _srcRect.anchorMax) _dstRect.anchorMax = _srcRect.anchorMax;
-                    if (_dstRect.pivot != _srcRect.pivot) _dstRect.pivot = _srcRect.pivot;
-                    if (_dstRect.sizeDelta != _srcRect.sizeDelta) _dstRect.sizeDelta = _srcRect.sizeDelta;
-                    if (_dstRect.anchoredPosition3D != _srcRect.anchoredPosition3D)
-                        _dstRect.anchoredPosition3D = _srcRect.anchoredPosition3D;
+                    Vector2 targetAnchorMin = _dstRect.anchorMin;
+                    Vector2 sourceAnchorMin = _srcRect.anchorMin;
+                    if (targetAnchorMin != sourceAnchorMin)
+                        _dstRect.anchorMin = reuseNativeReads ? sourceAnchorMin : _srcRect.anchorMin;
+                    Vector2 targetAnchorMax = _dstRect.anchorMax;
+                    Vector2 sourceAnchorMax = _srcRect.anchorMax;
+                    if (targetAnchorMax != sourceAnchorMax)
+                        _dstRect.anchorMax = reuseNativeReads ? sourceAnchorMax : _srcRect.anchorMax;
+                    Vector2 targetPivot = _dstRect.pivot;
+                    Vector2 sourcePivot = _srcRect.pivot;
+                    if (targetPivot != sourcePivot)
+                        _dstRect.pivot = reuseNativeReads ? sourcePivot : _srcRect.pivot;
+                    Vector2 targetSizeDelta = _dstRect.sizeDelta;
+                    Vector2 sourceSizeDelta = _srcRect.sizeDelta;
+                    if (targetSizeDelta != sourceSizeDelta)
+                        _dstRect.sizeDelta = reuseNativeReads ? sourceSizeDelta : _srcRect.sizeDelta;
+                    Vector3 targetPosition = _dstRect.anchoredPosition3D;
+                    Vector3 sourcePosition = _srcRect.anchoredPosition3D;
+                    if (targetPosition != sourcePosition)
+                        _dstRect.anchoredPosition3D = reuseNativeReads ? sourcePosition : _srcRect.anchoredPosition3D;
                 }
-                else if (_dstRect == null && Dst.localPosition != Src.localPosition)
+                else if (_dstRect == null)
                 {
-                    Dst.localPosition = Src.localPosition;
+                    Vector3 targetPosition = Dst.localPosition;
+                    Vector3 sourcePosition = Src.localPosition;
+                    if (targetPosition != sourcePosition)
+                        Dst.localPosition = reuseNativeReads ? sourcePosition : Src.localPosition;
                 }
             }
-            if (Dst.localRotation != Src.localRotation) Dst.localRotation = Src.localRotation;
-            if (Dst.localScale != Src.localScale) Dst.localScale = Src.localScale;
+            Quaternion targetRotation = Dst.localRotation;
+            Quaternion sourceRotation = Src.localRotation;
+            if (targetRotation != sourceRotation)
+                Dst.localRotation = reuseNativeReads ? sourceRotation : Src.localRotation;
+            Vector3 targetScale = Dst.localScale;
+            Vector3 sourceScale = Src.localScale;
+            if (targetScale != sourceScale)
+                Dst.localScale = reuseNativeReads ? sourceScale : Src.localScale;
 
             if (_srcGraphic != null && _dstGraphic != null)
             {
-                if (_dstGraphic.enabled != _srcGraphic.enabled) _dstGraphic.enabled = _srcGraphic.enabled;
+                bool targetEnabled = _dstGraphic.enabled;
+                bool sourceEnabled = _srcGraphic.enabled;
+                if (targetEnabled != sourceEnabled)
+                    _dstGraphic.enabled = reuseNativeReads ? sourceEnabled : _srcGraphic.enabled;
                 if (_dstGraphic.color != _srcGraphic.color) _dstGraphic.color = _srcGraphic.color;
                 Color rendered = _srcGraphic.canvasRenderer.GetColor();
                 if (_dstGraphic.canvasRenderer.GetColor() != rendered) _dstGraphic.canvasRenderer.SetColor(rendered);
@@ -2573,17 +2606,28 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
 
             if (_srcImage != null && _dstImage != null)
             {
-                if (!ReferenceEquals(_dstImage.sprite, _srcImage.sprite)) _dstImage.sprite = _srcImage.sprite;
+                Sprite? targetSprite = _dstImage.sprite;
+                Sprite? sourceSprite = _srcImage.sprite;
+                if (!ReferenceEquals(targetSprite, sourceSprite))
+                    _dstImage.sprite = reuseNativeReads ? sourceSprite : _srcImage.sprite;
                 // UIHighlightTransition/UIButtonExtended_Target write overrideSprite during
                 // SpriteSwap. The underlying sprite alone never reflects that original state.
-                Sprite? sourceOverride = _srcImage.overrideSprite != _srcImage.sprite ? _srcImage.overrideSprite : null;
+                Sprite? currentOverride = _srcImage.overrideSprite;
+                Sprite? sourceOverride = currentOverride != _srcImage.sprite
+                    ? (reuseNativeReads ? currentOverride : _srcImage.overrideSprite) : null;
                 Sprite? destinationOverride = _dstImage.overrideSprite != _dstImage.sprite ? _dstImage.overrideSprite : null;
                 if (!ReferenceEquals(destinationOverride, sourceOverride))
                     _dstImage.overrideSprite = sourceOverride;
-                if (_dstImage.type != _srcImage.type) _dstImage.type = _srcImage.type;
+                Image.Type targetImageType = _dstImage.type;
+                Image.Type sourceImageType = _srcImage.type;
+                if (targetImageType != sourceImageType)
+                    _dstImage.type = reuseNativeReads ? sourceImageType : _srcImage.type;
                 // The fill amount IS the progress bar and the cooldown sweep — the one number whose
                 // omission would leave a mirrored panel looking right and reading wrong.
-                if (_dstImage.fillAmount != _srcImage.fillAmount) _dstImage.fillAmount = _srcImage.fillAmount;
+                float targetFill = _dstImage.fillAmount;
+                float sourceFill = _srcImage.fillAmount;
+                if (targetFill != sourceFill)
+                    _dstImage.fillAmount = reuseNativeReads ? sourceFill : _srcImage.fillAmount;
                 CopyMaterial(_srcImage, _dstImage);
             }
             else if (_srcRaw != null && _dstRaw != null)
@@ -2591,13 +2635,24 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
                 // The character PORTRAIT: CharacterPortraitsProvider assigns this texture at runtime
                 // out of the misc_characterportraits bundle. Copying the reference is the whole
                 // reason a mirrored initiative entry shows the real face.
-                if (!ReferenceEquals(_dstRaw.texture, _srcRaw.texture)) _dstRaw.texture = _srcRaw.texture;
-                if (_dstRaw.uvRect != _srcRaw.uvRect) _dstRaw.uvRect = _srcRaw.uvRect;
+                Texture? targetTexture = _dstRaw.texture;
+                Texture? sourceTexture = _srcRaw.texture;
+                if (!ReferenceEquals(targetTexture, sourceTexture))
+                    _dstRaw.texture = reuseNativeReads ? sourceTexture : _srcRaw.texture;
+                Rect targetUvRect = _dstRaw.uvRect;
+                Rect sourceUvRect = _srcRaw.uvRect;
+                if (targetUvRect != sourceUvRect)
+                    _dstRaw.uvRect = reuseNativeReads ? sourceUvRect : _srcRaw.uvRect;
                 CopyMaterial(_srcRaw, _dstRaw);
             }
 
-            if (_srcGroup != null && _dstGroup != null && _dstGroup.alpha != _srcGroup.alpha)
-                _dstGroup.alpha = _srcGroup.alpha;
+            if (_srcGroup != null && _dstGroup != null)
+            {
+                float targetAlpha = _dstGroup.alpha;
+                float sourceAlpha = _srcGroup.alpha;
+                if (targetAlpha != sourceAlpha)
+                    _dstGroup.alpha = reuseNativeReads ? sourceAlpha : _srcGroup.alpha;
+            }
 
             return true;
         }
