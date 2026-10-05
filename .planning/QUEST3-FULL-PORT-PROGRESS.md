@@ -179,7 +179,7 @@ Its existing per-eye camera callbacks and authored Shader banks therefore use
 their supported route, and the Quest flat-screen adapter selects the completed
 eye texture through that same route. Desktop mode selection is unchanged.
 
-Current focused Python builder gate passes200 tests in the provisioned private
+Current focused Python builder gate passes203 tests in the provisioned private
 Python environment; compute fixtures pass27 and case-path fixtures pass14. Own
 superseded APKs are removed; B622 native symbols are retained with matching build
 ID9a2274f00b636520 before deleting its generated28-GB Library. Final full-player
@@ -234,7 +234,8 @@ Shipping coverage retains all51,564 original native Vulkan keyword aliases.
 Synthetic future multiview aliases are tracked separately and do not inflate that
 census. All three exact final compiler partitions now pass and their verified
 disjoint union contains688 shaders, all9,187 original consumers and11,212 distinct
-actual SPIR-V pairs. The independent full live-driver census remains in progress.
+actual SPIR-V pairs. The independent full live-driver census passes all51,564
+aliases/all11,212 pairs, including a real missing-entry-point negative control.
 Seven original/native instanced NaN-control readbacks and three original shadow
 witnesses match the original D3D output, including the formerly failing tier2
 instancing bank. Focused shader fixtures pass51 tests. No original alias or
@@ -245,8 +246,14 @@ exposed a shared path-migration helper that required diagnostic startup manifest
 Campaign-only recovery now validates its own complete catalog/script-binding
 pair; partial manifests and changed GUIDs fail before mutation. The actual full
 generated asset tree passes25 moves/50 byte-preserved files without fabricating
-startup manifests. Script-order selection and four additional dynamically sourced
-Campaign video routes are being completed before the next production freeze.
+startup manifests. Campaign-authoritative script-order selection now passes all
+7,003 real source records/6,930 distinct scripts/145 authored nonzero orders, with
+16 focused fixtures and12 rejected injected defects. Four additional dynamically
+sourced Campaign video routes are covered without changing original playback;
+the actual13-scene producer covers all8 players and19 external movies. Managed
+router checks pass208 assertions/22 rejected defects, including destroyed-player
+global-hook cleanup. These changes are integrated before the next production
+freeze.
 The interrupted prepare copies are removed only after retaining their unique
 receipts; the canonical recovered content remains. No full Campaign APK is ready
 yet.
