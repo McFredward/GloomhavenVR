@@ -19,7 +19,7 @@ internal static partial class ScenarioTerrainBudget
         private Mesh? _exact, _target, _morph, _current;
         private Vector3[]? _from, _to, _vertices;
         private float _progress = 1f;
-        private int _percent = 100;
+        private int _percent = 100, _requestedPercent = 100;
         private bool _masked;
         private readonly GameObject _proxy;
         private readonly MeshRenderer _proxyRenderer;
@@ -102,13 +102,19 @@ internal static partial class ScenarioTerrainBudget
             if (Floor) return;
             if (_exact == null && _lookup != null && _lookup(Original, 100, out Mesh exact)) _exact = exact;
             if (_exact == null || !_exact.isReadable) return;
-            if (percent != _percent)
+            if (percent != _requestedPercent)
             {
                 Mesh target = _exact;
                 if (percent < 100 && (_lookup == null || !_lookup(Original, percent, out target))) return;
                 if (target == null || !target.isReadable || target.vertexCount != _exact.vertexCount
                     || target.subMeshCount != _exact.subMeshCount) return;
+                _requestedPercent = percent;
+                // A bank may correctly fall back to its exact original if a seam-rich
+                // mesh has no useful coarse tier. Keep its native renderer instead of
+                // paying for an identical private draw or distorting without a saving.
+                if (percent < 100 && TriangleCount(target) >= OriginalTriangles) { percent = 100; target = _exact; }
                 _percent = percent;
+                if (target == _exact && _current == null && _progress >= 1f) return;
                 if (_target == target && _progress < 1f || _current == target && _progress >= 1f) return;
                 if (_morph == null)
                 {

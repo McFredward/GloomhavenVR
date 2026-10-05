@@ -108,6 +108,9 @@ ScenarioTerrainBudget.ConfigureNativeCameraConsumers(
     ScenarioEnvironmentBudget.HasNativeCommandBufferConsumers);
 ScenarioTerrainBudget.ConfigureCanonicalMaterial(
     ScenarioEnvironmentBudget.CanonicalMaterial);
+ScenarioTerrainBudget.ConfigureAssetPreparation(
+    () => ScenarioEnvironmentMeshBank.IsReady,
+    () => ScenarioEnvironmentMeshBank.IsUnavailable || ScenarioEnvironmentAssets.IsUnavailable);
 ScenarioTerrainBudget.Install(host);
 ```
 
@@ -124,6 +127,13 @@ to `Placed` or `QueueRoot`, `MaterialReady`, `BeforeNativeRendererWrite` and
 `BeforeNativeContentChange`, respectively. Invoke `Shutdown` during teardown.
 Scene callbacks and registry seeding cover already-existing tiles/walls;
 placement hooks cover later Apparance output and reveal/pooling.
+
+Temporary asset preparation retains the bounded discovery queue while original
+rendering continues. A terminal missing/incompatible bank clears that queue and
+reports a bounded ordinary-level fallback; it never holds a native spinner or
+continuation. A later ready provider reseeds originals. A tier with no triangle
+reduction remains on the original native renderer instead of adding an identical
+private draw.
 
 Include `Environments/ScenarioCheapTerrain.shader` in the same Windows bundle
 as the prepared original mesh bank. The bundle must be generated with Unity

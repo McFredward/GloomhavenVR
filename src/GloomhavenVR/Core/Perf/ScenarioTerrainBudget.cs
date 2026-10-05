@@ -23,6 +23,7 @@ internal static partial class ScenarioTerrainBudget
     private static MeshLookup? _lookup;
     private static Func<Camera, bool>? _nativeCameraConsumers;
     private static Func<Material, Material>? _canonicalMaterial;
+    private static Func<bool>? _assetsReady, _assetsUnavailable;
     private static Driver? _driver;
     private static bool _failed;
     private const string ShaderName = "GloomhavenVR/ScenarioCheapTerrain";
@@ -35,6 +36,8 @@ internal static partial class ScenarioTerrainBudget
         _nativeCameraConsumers = hasNativeConsumers;
     internal static void ConfigureCanonicalMaterial(Func<Material, Material> canonicalMaterial) =>
         _canonicalMaterial = canonicalMaterial;
+    internal static void ConfigureAssetPreparation(Func<bool> assetsReady, Func<bool> assetsUnavailable)
+    { _assetsReady = assetsReady; _assetsUnavailable = assetsUnavailable; }
     private static Material CanonicalMaterial(Material material) =>
         material != null ? _canonicalMaterial?.Invoke(material) ?? material : material!;
     internal static void Install(GameObject host)
@@ -170,6 +173,7 @@ internal static partial class ScenarioTerrainBudget
         private int _walls;
         private int _reportedSurfaces = -1, _reportedSettings;
         private float _nextReport;
+        private bool _assetsWereReady = true, _assetFailureReported;
         private Shader? _shader;
 
         private void Awake()
@@ -217,6 +221,20 @@ internal static partial class ScenarioTerrainBudget
             {
                 bool active = Enabled;
                 if (active && !_active) Seed();
+                bool ready = !active || (_assetsReady?.Invoke() ?? true);
+                bool unavailable = !ready && _assetsUnavailable?.Invoke() == true;
+                if (active && ready && !_assetsWereReady) Seed();
+                _assetsWereReady = ready;
+                if (unavailable)
+                {
+                    _pending.Clear(); _queued.Clear();
+                    if (!_assetFailureReported)
+                    {
+                        _assetFailureReported = true;
+                        VRLog.Note("Perf", "Scenario terrain assets unavailable; native rendering and continuation retained.");
+                    }
+                }
+                else if (ready) _assetFailureReported = false;
                 List<ProceduralWall> currentWalls = ProceduralWall.m_WallCache;
                 if (active && currentWalls != null && currentWalls.Count != _walls)
                 {
@@ -227,7 +245,7 @@ internal static partial class ScenarioTerrainBudget
                 }
                 _active = active;
                 int nodes = 128;
-                while (active && nodes-- > 0 && _pending.Count > 0)
+                while (active && ready && nodes-- > 0 && _pending.Count > 0)
                 {
                     Transform node = _pending.Dequeue();
                     if (node == null) continue;
