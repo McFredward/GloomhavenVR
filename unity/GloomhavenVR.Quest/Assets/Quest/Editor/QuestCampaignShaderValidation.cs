@@ -21,6 +21,8 @@ namespace GloomhavenVR.Quest.Editor
     public static class QuestCampaignShaderValidation
     {
         public const string DefaultManifest = "Assets/QuestOriginalCampaign/campaign-shaders.json";
+        public static int LastNativeCompileCount { get; private set; }
+        public static bool LastValidationCacheReused { get; private set; }
 
         [Serializable] public sealed class Variant
         {
@@ -99,6 +101,8 @@ namespace GloomhavenVR.Quest.Editor
 
         public static void Validate(string manifestPath, string outputPath)
         {
+            LastNativeCompileCount = 0;
+            LastValidationCacheReused = false;
             if (Application.unityVersion != "2021.3.5f1")
                 throw new InvalidOperationException("Campaign shader evidence requires original Unity 2021.3.5f1.");
             var input = Read(manifestPath);
@@ -107,12 +111,18 @@ namespace GloomhavenVR.Quest.Editor
             AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
             Directory.CreateDirectory(outputPath);
             string receiptPath = Path.Combine(outputPath, "android-compiler.json");
-            if (File.Exists(receiptPath)) File.Delete(receiptPath);
             bool vulkan = input.graphicsApi == "Vulkan";
             var backend = vulkan ? GraphicsDeviceType.Vulkan : GraphicsDeviceType.OpenGLES3;
             if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.Android ||
                 !PlayerSettings.GetGraphicsAPIs(BuildTarget.Android).Contains(backend))
                 throw new InvalidOperationException("Campaign compiler gate requires its declared Android graphics backend.");
+            var before = vulkan ? QuestCampaignShaderCache.Capture(input, manifestPath) : null;
+            bool reused = vulkan && QuestCampaignShaderCache.TryReuse(input, before, outputPath);
+            if (!reused)
+            {
+                QuestCampaignShaderCache.Invalidate(outputPath);
+                if (File.Exists(receiptPath)) File.Delete(receiptPath);
+            }
             var shaders = new Dictionary<string, Shader>(StringComparer.Ordinal);
             var programs = new List<CompiledProgram>();
             var originalOutputs = (input.programs ?? new SourceProgram[0])
@@ -142,12 +152,14 @@ namespace GloomhavenVR.Quest.Editor
                     if (variant.pass < 0 || variant.pass >= subshader.PassCount)
                         throw new InvalidOperationException("Campaign shader loses an original pass.");
                     var pass = subshader.GetPass(variant.pass);
+                    if (reused) continue;
                     NativeSignature[] nativeOutputs = null;
                     if (input.scope == "campaign-compiler" && (!originalOutputs.TryGetValue(variant.fragmentOriginalDxbcSha256, out nativeOutputs) || nativeOutputs == null))
                         throw new InvalidOperationException("Native fragment output signature is missing from instruction evidence.");
                     string key = row.guid + "-" + variant.subshader + "-" + variant.pass + "-t" + variant.hardwareTier + "-" + Hash(Encoding.UTF8.GetBytes(string.Join("\n", variant.keywords))).Substring(0, 16);
                     if (vulkan)
                     {
+                        ++LastNativeCompileCount;
                         var actual = QuestVulkanShaderValidation.Compile(shader, variant.subshader, variant.pass, variant.keywords, variant.hardwareTier);
                         VerifyVulkanBank(actual, variant.fragmentOutput, nativeOutputs);
                         if (variant.stereo == "multiview" && (!actual.vertexEyeRoutingObserved && !variant.viewInvariant || variant.requiresFragmentEyeRouting && !actual.fragmentEyeRoutingObserved))
@@ -167,6 +179,7 @@ namespace GloomhavenVR.Quest.Editor
                         if (programs.Count % 100 == 0) Debug.Log("Campaign native Android bank coverage: " + programs.Count);
                         continue;
                     }
+                    ++LastNativeCompileCount;
                     var vertex = pass.CompileVariant(ShaderType.Vertex, variant.keywords, ShaderCompilerPlatform.GLES3x, BuildTarget.Android, (GraphicsTier)variant.hardwareTier);
                     // GLES3x returns the entire linked native bank through the
                     // Vertex query. Verify both emitted stages in those bytes.
@@ -196,6 +209,25 @@ namespace GloomhavenVR.Quest.Editor
                 }
                 RejectShaderErrors(shader);
             }
+            VerifyImportedMaterials(input, shaders);
+            if (reused)
+            {
+                if (QuestCampaignShaderCache.ClosureHash(before) != QuestCampaignShaderCache.ClosureHash(QuestCampaignShaderCache.Capture(input, manifestPath)))
+                    throw new InvalidOperationException("Native graphics inputs changed during completed evidence reuse.");
+                LastValidationCacheReused = true;
+                Debug.Log("PASS reused completed Campaign Android shader gate: shaders=" + input.shaders.Length + ", native aliases=" + input.shaders.Sum(row => row.variants.Length) + ", materials=" + input.materials.Length + ". Native outputs verified; original pixels and headset remain separate gates.");
+                return;
+            }
+            File.WriteAllText(receiptPath, JsonUtility.ToJson(new Receipt {
+                unityVersion = Application.unityVersion, compilerPlatform = vulkan ? "Vulkan" : "GLES3x", graphicsApi = vulkan ? "Vulkan" : "GLES3", sourceManifestSha256 = Hash(File.ReadAllBytes(manifestPath)),
+                materialCount = input.materials.Length, programs = programs.ToArray()
+            }, true) + "\n");
+            if (vulkan) QuestCampaignShaderCache.Complete(input, before, QuestCampaignShaderCache.Capture(input, manifestPath), outputPath);
+            Debug.Log("PASS Campaign Android shader gate: materials=" + input.materials.Length + ", actual banks=" + programs.Count + ". Original pixels and headset remain separate gates.");
+        }
+
+        public static void VerifyImportedMaterials(Manifest input, Dictionary<string, Shader> shaders)
+        {
             foreach (var row in input.materials)
             {
                 string path = ExactAsset(row.guid, row.assetPath);
@@ -218,11 +250,24 @@ namespace GloomhavenVR.Quest.Editor
                 if (!shaders.TryGetValue(row.shaderGuid, out shader) || material.shader != shader)
                     throw new InvalidOperationException("Campaign material no longer uses its exact original shader: " + row.guid);
             }
-            File.WriteAllText(receiptPath, JsonUtility.ToJson(new Receipt {
-                unityVersion = Application.unityVersion, compilerPlatform = vulkan ? "Vulkan" : "GLES3x", graphicsApi = vulkan ? "Vulkan" : "GLES3", sourceManifestSha256 = Hash(File.ReadAllBytes(manifestPath)),
-                materialCount = input.materials.Length, programs = programs.ToArray()
-            }, true) + "\n");
-            Debug.Log("PASS Campaign Android shader gate: materials=" + input.materials.Length + ", actual banks=" + programs.Count + ". Original pixels and headset remain separate gates.");
+        }
+
+        public static void VerifyImportedIdentities(Manifest input)
+        {
+            RequireGraphicsHost(input);
+            VerifyProgramSources(input);
+            var shaders = new Dictionary<string, Shader>(StringComparer.Ordinal);
+            foreach (var row in input.shaders)
+            {
+                string path = ExactAsset(row.guid, row.assetPath);
+                if (!SourceMatches(row, Hash(File.ReadAllBytes(path)))) throw new InvalidOperationException("Campaign translated shader bytes differ: " + row.guid);
+                var shader = AssetDatabase.LoadAssetAtPath<Shader>(path);
+                if (shader == null || shader.name != row.originalName || shader.name == "Hidden/InternalErrorShader") throw new InvalidOperationException("Campaign shader import changes its original identity: " + row.guid);
+                RejectShaderErrors(shader);
+                foreach (var bank in row.variants.GroupBy(value => value.subshader + "/" + value.pass + "/" + value.passType).Select(group => group.First())) ImportedCollectionPassType(shader, bank);
+                shaders.Add(row.guid, shader);
+            }
+            VerifyImportedMaterials(input, shaders);
         }
 
         public static void PrepareVariantCollection()
@@ -425,12 +470,18 @@ namespace GloomhavenVR.Quest.Editor
 
         private static void WriteNativeBank(string path, byte[] bytes, string expected)
         {
-            if (File.Exists(path))
-            {
-                if (Hash(File.ReadAllBytes(path)) != expected) throw new InvalidOperationException("Native Vulkan evidence bank bytes changed.");
-                return;
-            }
-            File.WriteAllBytes(path, bytes);
+            // Only a fresh, validated compiler payload can repair its own
+            // content-addressed evidence leaf. Never overwrite arbitrary files
+            // named by a stale receipt. Removing a damaged leaf also avoids
+            // mutating another file through an accidental hardlink/symlink.
+            if (!HashValue(expected) || bytes == null || Hash(bytes) != expected ||
+                !Regex.IsMatch(Path.GetFileName(path), "^" + expected + @"\.(vulkan|vertex\.spv|fragment\.spv)$"))
+                throw new InvalidOperationException("Native Vulkan evidence repair has an unsafe address or unverified payload.");
+            if (File.Exists(path) && Hash(File.ReadAllBytes(path)) == expected) return;
+            string temp = path + "." + System.Guid.NewGuid().ToString("N") + ".tmp";
+            using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write)) stream.Write(bytes, 0, bytes.Length);
+            if (File.Exists(path)) File.Delete(path);
+            File.Move(temp, path);
         }
 
         public static bool SourceMatches(OriginalShader row, string actual)
