@@ -115,6 +115,16 @@ def _instance_layout(row, cache):
                              str(Path(row['boundHlslPath']).with_suffix('.json')))[1]
 
 
+@functools.lru_cache(maxsize=None)
+def _native_light_field(interface_path):
+    interface = json.loads(Path(interface_path).read_text())
+    fields = [field for buffer in interface['buffers'] for field in buffer['fields'] if field['name'] == '_LightColor0']
+    for field in fields:
+        if field['type'] != 0 or field['rows'] != 1 or field['columns'] != 4 or field['matrix'] or field['arraySize']:
+            raise ValidationError('Original light color has an unsupported native field layout.')
+    return bool(fields)
+
+
 def _stage_block(banks, stage, include_paths):
     keys = sorted(set().union(*(set(k) for k in banks)))
     rows = ['#if defined(SHADER_STAGE_' + stage.upper() + ')']
@@ -237,8 +247,17 @@ def shader_source(form, record, cache, includes):
                 lines.append('#pragma skip_optimizations gles3')
             lines += _keyword_pragmas(vertex, fragment, keys, mandatory)
             lines += ['#pragma hardware_tier_variants gles3', '#pragma multi_compile_instancing', '#pragma multi_compile __ STEREO_INSTANCING_ON STEREO_MULTIVIEW_ON',
-                      '#define UNITY_LIGHT_PROBE_PROXY_VOLUME 1', '#include "UnityCG.cginc"', '#include "UnityLightingCommon.cginc"',
-                      _stage_block(vertex, 'vertex', includes), _stage_block(fragment, 'fragment', includes), 'ENDHLSL', '}']
+                      '#define UNITY_LIGHT_PROBE_PROXY_VOLUME 1', '#include "UnityCG.cginc"']
+            # The original instructions do not call high-level Unity lighting
+            # helpers. LightingCommon's fixed4 _SpecColor collides with an exact
+            # native material declaration, and its fixed4 light would narrow
+            # the original float payload. Keep the original engine-bound name
+            # and witnessed float4 field instead of importing unrelated types.
+            light_fields = {_native_light_field(str(cache / 'interfaces' / (identity + '.json')))
+                            for identity in {row['originalInterfaceSha256'] for row in variants}}
+            if True in light_fields:
+                lines.append('float4 _LightColor0;')
+            lines += [_stage_block(vertex, 'vertex', includes), _stage_block(fragment, 'fragment', includes), 'ENDHLSL', '}']
             for tier, selection in sorted({(row['hardwareTier'], tuple(sorted(set(row['keywords']) | mandatory))) for row in variants}):
                 selector = [*selection, 'UNITY_HARDWARE_TIER' + str(tier + 1)]
                 v, f = _selected(vertex, selector), _selected(fragment, selector)
@@ -275,6 +294,11 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
     # Bound inputs can be regenerated between invocations in one builder
     # process; cache within one immutable reconstruction operation only.
     _program_features.cache_clear()
+    _native_light_field.cache_clear()
+    recovery_module.cache_clear()
+    generator_paths = (Path(__file__), Path(integer_bits.__file__), Path(load_bounds.__file__),
+                       Path(__file__).resolve().parents[1] / 'quest-builder/full_shaders.py')
+    generator_hashes = {path.name: sha256(path) for path in generator_paths}
     project, cache, output = Path(project).resolve(), Path(cache).resolve(), Path(output).resolve()
     inventory = json.loads(Path(inventory_path).read_text())
     if inventory.get('blockedShaderCount') or inventory.get('errors'):
@@ -346,9 +370,9 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
     manifest = {'schema': 1, 'scope': 'campaign-compiler', 'requiredShaderCount': len(shaders),
                 'requiredMaterialCount': len(inventory['materials']), 'shaders': shaders,
                 'materials': inventory['materials'], 'programs': list(programs.values()), 'originalPixelParityVerified': False}
-    manifest['sourceGeneratorSha256'] = {path.name: sha256(path) for path in (
-        Path(__file__), Path(integer_bits.__file__), Path(load_bounds.__file__),
-        Path(__file__).resolve().parents[1] / 'quest-builder/full_shaders.py')}
+    if generator_hashes != {path.name: sha256(path) for path in generator_paths}:
+        raise ValidationError('Shader generator changed during reconstruction; rebuild from stable tooling.')
+    manifest['sourceGeneratorSha256'] = generator_hashes
     manifest['requiredHostRenderTargetCount'] = max([1, *[signature['semanticIndex'] + 1
         for shader in inventory['shaders'] for program in shader['variants']
         if program['stage'] == 'fragment' for signature in program['originalOutputSignature']

@@ -54,7 +54,16 @@ namespace GloomhavenVR.Quest.Editor
             public RenderCase[] renderCases;
             public SourceProgram[] programs;
         }
-        [Serializable] public sealed class SourceProgram { public string assetPath, sourceSha256, originalDxbcSha256, originalInterfaceSha256; }
+        [Serializable] public sealed class NativeSignature
+        {
+            public string semantic;
+            public int semanticIndex, componentType, mask, readWriteMask;
+        }
+        [Serializable] public sealed class SourceProgram
+        {
+            public string assetPath, sourceSha256, originalDxbcSha256, originalInterfaceSha256;
+            public NativeSignature[] originalOutputSignature;
+        }
         [Serializable] public sealed class CompiledProgram
         {
             public string guid, stereo, glesSha256, file;
@@ -92,6 +101,9 @@ namespace GloomhavenVR.Quest.Editor
                 throw new InvalidOperationException("Campaign compiler gate requires the Android/GLES3 project.");
             var shaders = new Dictionary<string, Shader>(StringComparer.Ordinal);
             var programs = new List<CompiledProgram>();
+            var originalOutputs = (input.programs ?? new SourceProgram[0])
+                .GroupBy(program => program.originalDxbcSha256, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First().originalOutputSignature, StringComparer.Ordinal);
             foreach (var row in input.shaders)
             {
                 string path = ExactAsset(row.guid, row.assetPath);
@@ -122,7 +134,10 @@ namespace GloomhavenVR.Quest.Editor
                     if (!vertex.Success || vertex.ShaderData == null || vertex.ShaderData.Length == 0)
                         throw new InvalidOperationException("Actual Campaign Android shader bank failed: " + row.guid + " / tier=" + variant.hardwareTier + " / " + string.Join(" ", variant.keywords) + " / " + string.Join("; ", vertex.Messages.Select(message => message.message + " at " + message.file + ":" + message.line)));
                     string source = new UTF8Encoding(false, true).GetString(vertex.ShaderData);
-                    try { VerifyBank(source, variant.fragmentOutput); }
+                    NativeSignature[] nativeOutputs = null;
+                    if (input.scope == "campaign-compiler" && (!originalOutputs.TryGetValue(variant.fragmentOriginalDxbcSha256, out nativeOutputs) || nativeOutputs == null))
+                        throw new InvalidOperationException("Native fragment output signature is missing from instruction evidence.");
+                    try { VerifyBank(source, variant.fragmentOutput, nativeOutputs); }
                     catch (InvalidOperationException error)
                     {
                         File.WriteAllBytes(Path.Combine(outputPath, "failed-native-bank.glsl"), vertex.ShaderData);
@@ -270,6 +285,11 @@ namespace GloomhavenVR.Quest.Editor
 
         public static void VerifyBank(string source, string originalFragmentOutput)
         {
+            VerifyBank(source, originalFragmentOutput, null);
+        }
+
+        public static void VerifyBank(string source, string originalFragmentOutput, NativeSignature[] nativeOutputs)
+        {
             // Validate real generated sections after removing comments. A token
             // inside a comment cannot establish a working native program.
             source = Regex.Replace(source, @"/\*.*?\*/", "", RegexOptions.Singleline);
@@ -294,9 +314,24 @@ namespace GloomhavenVR.Quest.Editor
             }
             else if (originalFragmentOutput == "color")
             {
-                var outputs = Regex.Matches(fragmentSource, @"layout\s*\(\s*location\s*=\s*0\s*\)\s*out\s+(?:(?:highp|mediump|lowp)\s+)?vec4\s+(\w+)\s*;");
-                if (outputs.Count != 1 || !Regex.IsMatch(fragmentSource, @"\b" + Regex.Escape(outputs[0].Groups[1].Value) + @"(?:\.[xyzwrgba]+)?\s*="))
-                    throw new InvalidOperationException("Campaign fragment bank does not emit a unique native color output.");
+                var expected = nativeOutputs == null ? new[] { new NativeSignature {
+                    semantic = "SV_Target", semanticIndex = 0, componentType = 3, mask = 15 } } :
+                    nativeOutputs.Where(value => value.semantic.Equals("SV_Target", StringComparison.OrdinalIgnoreCase)).ToArray();
+                if (expected.Length == 0) throw new InvalidOperationException("Native color bank lacks its original target signature.");
+                foreach (var target in expected)
+                {
+                    var outputs = Regex.Matches(fragmentSource, @"layout\s*\(\s*location\s*=\s*" + target.semanticIndex +
+                        @"\s*\)\s*out\s+(?:(?:highp|mediump|lowp)\s+)?(float|int|uint|[iu]?vec[234])\s+(\w+)\s*;");
+                    if (outputs.Count != 1) throw new InvalidOperationException("Campaign fragment bank loses a unique native render target.");
+                    string type = outputs[0].Groups[1].Value, name = outputs[0].Groups[2].Value;
+                    int componentType = type == "uint" || type.StartsWith("uvec", StringComparison.Ordinal) ? 1 :
+                        type == "int" || type.StartsWith("ivec", StringComparison.Ordinal) ? 2 : 3;
+                    int width = type.EndsWith("2", StringComparison.Ordinal) ? 2 : type.EndsWith("3", StringComparison.Ordinal) ? 3 : type.EndsWith("4", StringComparison.Ordinal) ? 4 : 1;
+                    int written = target.mask & ~target.readWriteMask;
+                    if (componentType != target.componentType || (written & ~((1 << width) - 1)) != 0 ||
+                        !Regex.IsMatch(fragmentSource, @"\b" + Regex.Escape(name) + @"(?:\.[xyzwrgba]+)?\s*="))
+                        throw new InvalidOperationException("Campaign fragment bank changes native target type/written components.");
+                }
             }
             else if (originalFragmentOutput != "none")
                 throw new InvalidOperationException("Campaign original fragment output contract is unknown.");

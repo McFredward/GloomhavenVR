@@ -26,6 +26,19 @@ class NativeBindings(unittest.TestCase):
         self.assertEqual(native.ENGINE_SHADER_GUIDS, {'0' * 16 + marker + '0' * 15 for marker in 'ef'})
         self.assertTrue(all(len(value) == 32 for value in native.ENGINE_SHADER_GUIDS))
 
+    def test_engine_light_declaration_requires_actual_float4_native_layout(self):
+        import json
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'interface.json'
+            value = field('_LightColor0', 0, 4)
+            path.write_text(json.dumps({'buffers': [{'fields': [value]}]}))
+            self.assertTrue(produce._native_light_field(str(path)))
+            produce._native_light_field.cache_clear()
+            path.write_text(json.dumps({'buffers': [{'fields': [{**value, 'columns': 3}]}]}))
+            with self.assertRaisesRegex(produce.ValidationError, 'native field layout'):
+                produce._native_light_field(str(path))
+            produce._native_light_field.cache_clear()
+
     def test_packed_stage_semantics_link_independently_of_register_numbers(self):
         rows = [{'register': 1, 'semantic': 'TEXCOORD', 'semanticIndex': 0, 'systemValue': 0, 'mask': 3, 'componentType': 3},
                 {'register': 1, 'semantic': 'COLOR', 'semanticIndex': 0, 'systemValue': 0, 'mask': 12, 'componentType': 3}]
