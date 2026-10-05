@@ -66,6 +66,7 @@ internal sealed class ActorBarPose
     private readonly Transform _root;
     private readonly Transform _head;
     private readonly Skin[] _skins;
+    private readonly Cloth[] _idleClothes;
     private readonly Animator? _animator;
     private readonly Dictionary<AnimationClip, Bounds> _loops = new();
     private readonly List<AnimatorClipInfo> _clips = new(4);
@@ -89,6 +90,7 @@ internal sealed class ActorBarPose
     private ActorBarPose(Transform root, Transform head, Bone[] bones, Skin[] skins)
     {
         _root = root; _head = head; _bones = bones; _skins = skins;
+        _idleClothes = root.GetComponentsInChildren<Cloth>(true);
         _animator = head.GetComponentInParent<Animator>(true);
         if (_animator != null && _animator.transform.IsChildOf(root)) PrepareLoops();
     }
@@ -101,6 +103,9 @@ internal sealed class ActorBarPose
     internal string AuditRefusal => _auditRefusal;
     internal Animator? NativeAnimator => _animator;
     internal GameObject NativeRoot => _root.gameObject;
+    // Cloth skins are intentionally absent from the sampled envelope. Never replace only
+    // the other body pieces while a native physics surface keeps its independent pose.
+    internal bool HasIdleCloth => _idleClothes.Length != 0;
 
     internal bool CopyIdleSkinSources(List<SkinnedMeshRenderer> result)
     {
@@ -117,6 +122,8 @@ internal sealed class ActorBarPose
 
     internal bool IsEventFreeNativeIdle()
     {
+        foreach (Cloth cloth in _idleClothes)
+            if (cloth != null && cloth.enabled && cloth.gameObject.activeInHierarchy) return false;
         if (!SparseEligible || _animator == null || !_animator.isActiveAndEnabled
             || _animator.runtimeAnimatorController != _preparedController || _animator.layerCount != 1
             || _animator.IsInTransition(0) || _animator.GetNextAnimatorStateInfo(0).fullPathHash != 0)

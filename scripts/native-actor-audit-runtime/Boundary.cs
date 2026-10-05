@@ -26,7 +26,11 @@ namespace GloomhavenVR.Core
             UnityEngine.Debug.Log(area + ": " + text);
         }
         internal static void Info(string area, string text) => UnityEngine.Debug.Log(area + ": " + text);
-        internal static void Debug(string area, string text) { }
+        internal static int VisibleIdleLodReports;
+        internal static void Debug(string area, string text)
+        {
+            if (text.StartsWith("Visible idle retains native LOD for ", StringComparison.Ordinal)) VisibleIdleLodReports++;
+        }
     }
     internal static class PerfMonitor
     {

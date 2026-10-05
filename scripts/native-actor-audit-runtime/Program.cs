@@ -213,6 +213,57 @@ public static class InteractionProgram
         for (int i = 0; i < 12; i++) { yield return null; moved |= Quaternion.Angle(wing.localRotation, startWing) > 0.1f; }
         Check(moved, "original AlwaysAnimate control still writes invisible native wing poses");
 
+        // Native LODGroup visibility is independent of renderer.enabled. Its hidden
+        // ForceLOD state cannot be reproduced by unrelated private MeshRenderers.
+        LODGroup[] nativeLods = root.GetComponentsInChildren<LODGroup>(true);
+        Check(nativeLods.Any(group => group.enabled && group.GetLODs().Length >= 3),
+            "publisher rig retains real active three-level LOD topology");
+        var lodSnapshot = new ScenarioVisibleIdleSnapshot(pose, host.transform);
+        lodSnapshot.Tick(true, .5f);
+        Check(lodSnapshot.HasActiveNativeLod && !lodSnapshot.AwaitingNativePose && !lodSnapshot.HasPose,
+            "active original LOD ownership declines visible idle sampling");
+        var lodRecord = new ScenarioIdleAnimationBudget.Record(actor, pose, animator) { Visible = lodSnapshot };
+        lodRecord.Tick(false, .5f);
+        Check(!lodRecord.Applied && animator.cullingMode == AnimatorCullingMode.AlwaysAnimate,
+            "unsupported visible idle does not silently activate the separate offscreen option");
+        nativeLods[0].ForceLOD(2); lodRecord.Tick(false, .5f);
+        Check(!lodRecord.Applied && !lodSnapshot.AwaitingNativePose,
+            "hidden native forced LOD remains original without warm retries");
+        nativeLods[0].ForceLOD(-1);
+        lodRecord.Tick(true, .5f);
+        Check(lodRecord.Applied && animator.cullingMode == AnimatorCullingMode.CullUpdateTransforms,
+            "native LOD refusal retains the independent offscreen idle budget");
+        lodRecord.Restore(); lodSnapshot.Dispose();
+        int previousLodReports = VRLog.VisibleIdleLodReports;
+        ScenarioIdleAnimationBudget.Install(host, () => false, () => .5f);
+        ScenarioIdleAnimationBudget.Register(actor, pose); yield return null;
+        Check(VRLog.VisibleIdleLodReports == previousLodReports + 1,
+            "native LOD refusal has one bounded initial Debug report");
+        for (int recapture = 0; recapture < 3; recapture++)
+        {
+            ScenarioIdleAnimationBudget.Register(actor, ActorBarPose.Capture(root, head)!);
+            yield return null;
+        }
+        Check(VRLog.VisibleIdleLodReports == previousLodReports + 1,
+            "native LOD Debug refusal stays deduplicated across pose recapture");
+        ScenarioIdleAnimationBudget.Shutdown();
+        // Destroy is end-of-frame. Retire this diagnostic owner before the later
+        // fixture resolves a fresh Driver through the real host's GetComponent.
+        yield return null;
+        var expiredActorObject = new GameObject("Expired native LOD refusal actor");
+        ActorBehaviour expiredActor = expiredActorObject.AddComponent<ActorBehaviour>(); expiredActor.enabled = false;
+        var expiredRecord = new ScenarioIdleAnimationBudget.Record(expiredActor, pose, animator)
+            { Visible = new ScenarioVisibleIdleSnapshot(pose, host.transform) };
+        expiredRecord.Tick(false, .5f);
+        Check(expiredRecord.VisibleLodRefused, "expired actor fixture begins with an actual native LOD refusal");
+        Object.DestroyImmediate(expiredActorObject);
+        Check(!expiredRecord.Tick(false, .5f) && !expiredRecord.VisibleLodRefused && !expiredRecord.VisiblePhysicsRefused,
+            "destroyed native actor clears diagnostic refusal before name or live property reads");
+        expiredRecord.Visible.Dispose();
+        // The following positive snapshot calibration deliberately disables native LOD
+        // ownership. It proves supported skins; it cannot establish native LOD coverage.
+        foreach (LODGroup group in nativeLods) group.enabled = false;
+
         // Run the real optional visible-idle owner against native publisher geometry,
         // clips and camera callbacks. No Animator timing or renderer visibility stub.
         var eyeObject = new GameObject("VisibleIdleEye");
@@ -361,6 +412,61 @@ public static class InteractionProgram
         host.SetActive(true);
         ScenarioIdleAnimationBudget.Shutdown();
         foreach (GameObject clone in crowd) Object.DestroyImmediate(clone);
+
+        // Observe late native renderer writes through the real camera callback boundary.
+        // Each case bakes actual publisher skin once, then changes one original flag
+        // before the next camera. A stale proxy must decline before the source is masked.
+        foreach (string property in new[] { "sorting", "motion", "occlusion", "lod" })
+        {
+            animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            animator.Play("Idle-Run", 0, 0f); animator.Update(.001f);
+            var lateSnapshot = new ScenarioVisibleIdleSnapshot(visiblePose, host.transform);
+            lateSnapshot.Tick(true, .5f); yield return null; lateSnapshot.AfterNativePose();
+            Check(lateSnapshot.HasPose, "late renderer fixture prepares actual native skin");
+            bool maskedAtCull = false;
+            Camera.CameraCallback acquire = camera =>
+            {
+                if (camera != eye) return;
+                lateSnapshot.BeforeCamera(true); maskedAtCull = lateSnapshot.IsMasked;
+            };
+            Camera.CameraCallback release = camera => { if (camera == eye) lateSnapshot.Release(); };
+            Camera.onPreCull += acquire; Camera.onPostRender += release;
+            eye.Render();
+            Check(maskedAtCull && visibleSkins.All(skin => !skin.forceRenderingOff),
+                "late renderer fixture starts from a restored native camera lease");
+            SkinnedMeshRenderer source = visibleSkins[0];
+            int originalOrder = source.sortingOrder;
+            var originalMotion = source.motionVectorGenerationMode;
+            bool originalOcclusion = source.allowOcclusionWhenDynamic;
+            if (property == "sorting") source.sortingOrder = originalOrder + 7;
+            if (property == "motion") source.motionVectorGenerationMode = originalMotion == UnityEngine.MotionVectorGenerationMode.ForceNoMotion
+                ? UnityEngine.MotionVectorGenerationMode.Camera : UnityEngine.MotionVectorGenerationMode.ForceNoMotion;
+            if (property == "occlusion") source.allowOcclusionWhenDynamic = !originalOcclusion;
+            if (property == "lod") nativeLods[0].enabled = true;
+            eye.Render();
+            Check(!maskedAtCull && !lateSnapshot.HasPose && visibleSkins.All(skin => !skin.forceRenderingOff),
+                "late native " + property + " edit declines the stale idle proxy before rendering");
+            source.sortingOrder = originalOrder; source.motionVectorGenerationMode = originalMotion;
+            source.allowOcclusionWhenDynamic = originalOcclusion; nativeLods[0].enabled = false;
+            Camera.onPreCull -= acquire; Camera.onPostRender -= release; lateSnapshot.Dispose();
+        }
+        var nativeCloth = visibleSkins[0].gameObject.AddComponent<Cloth>();
+        nativeCloth.enabled = false;
+        ActorBarPose clothPose = ActorBarPose.Capture(root, head)!;
+        Check(clothPose != null && clothPose.HasIdleCloth && clothPose.IsEventFreeNativeIdle(),
+            "disabled original cloth permits only the independent offscreen idle path");
+        var clothSnapshot = new ScenarioVisibleIdleSnapshot(clothPose!, host.transform);
+        clothSnapshot.Tick(true, .5f);
+        Check(!clothSnapshot.AwaitingNativePose && !clothSnapshot.HasPose,
+            "cloth body never enters a partial visible idle replacement");
+        var clothRecord = new ScenarioIdleAnimationBudget.Record(actor, clothPose!, animator) { Visible = clothSnapshot };
+        clothRecord.Tick(true);
+        Check(clothRecord.Applied, "disabled original cloth retains the optional offscreen budget");
+        nativeCloth.enabled = true; clothRecord.Tick(true);
+        Check(!clothPose!.IsEventFreeNativeIdle() && !clothRecord.Applied
+            && animator.cullingMode == AnimatorCullingMode.AlwaysAnimate,
+            "live native cloth activation restores original bone evaluation immediately");
+        clothSnapshot.Dispose(); Object.DestroyImmediate(nativeCloth);
         Object.DestroyImmediate(eye.targetTexture); Object.DestroyImmediate(eyeObject);
 
         // An eventful idle is deliberately NOT admitted, even though Unity continues

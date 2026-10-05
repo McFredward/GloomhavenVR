@@ -35,6 +35,8 @@ internal static class ScenarioIdleAnimationBudget
         PerfMonitor.Register("Figure.VisibleIdleBakes");
         PerfMonitor.Register("Figure.VisibleIdleSampling");
         PerfMonitor.Register("Figure.VisibleIdleSources");
+        PerfMonitor.Register("Figure.VisibleIdleLodRefused");
+        PerfMonitor.Register("Figure.VisibleIdlePhysicsRefused");
         try
         {
             VRSession.Harmony?.PatchAll(typeof(ScenarioIdleAnimationPlayPatch));
@@ -104,15 +106,20 @@ internal static class ScenarioIdleAnimationBudget
         internal int ResumeAfterFrame;
         internal ScenarioVisibleIdleSnapshot? Visible;
         internal float VisibleInterval;
+        internal bool VisibleLodRefused, VisiblePhysicsRefused;
         internal Record(ActorBehaviour actor, ActorBarPose pose, Animator animator)
         { Actor = actor; Pose = pose; Animator = animator; Original = animator.cullingMode; }
 
         internal bool Tick(bool enabled, float visibleInterval = 0f, bool scheduleVisible = true)
         {
-            if (Animator == null || Actor == null) { Restore(); return false; }
+            if (Animator == null || Actor == null)
+            { VisibleLodRefused = VisiblePhysicsRefused = false; Restore(); return false; }
             if (Applied && Animator.cullingMode != AnimatorCullingMode.CullUpdateTransforms)
             { Applied = false; Foreign = true; }
-            bool eligible = (enabled || visibleInterval > 0f) && !Foreign && Original == AnimatorCullingMode.AlwaysAnimate
+            VisibleLodRefused = visibleInterval > 0f && Visible?.HasActiveNativeLod == true;
+            VisiblePhysicsRefused = visibleInterval > 0f && Pose.HasIdleCloth;
+            bool visibleAllowed = visibleInterval > 0f && !VisibleLodRefused && !VisiblePhysicsRefused;
+            bool eligible = (enabled || visibleAllowed) && !Foreign && Original == AnimatorCullingMode.AlwaysAnimate
                 && Actor.gameObject.activeInHierarchy && !Actor.IsMoving
                 && !HeldFigures.Owns(Actor) && !NetHeldFigures.Owns(Actor) && !ActorPropBody.IsHeld(Actor)
                 && Time.frameCount >= ResumeAfterFrame && Pose.IsEventFreeNativeIdle();
@@ -123,8 +130,8 @@ internal static class ScenarioIdleAnimationBudget
                 if (Animator.cullingMode != Original) { Foreign = true; return true; }
                 Animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms; Applied = true;
             }
-            VisibleInterval = visibleInterval;
-            Visible?.Tick(true, visibleInterval, scheduleVisible);
+            VisibleInterval = visibleAllowed ? visibleInterval : 0f;
+            Visible?.Tick(true, VisibleInterval, scheduleVisible);
             return true;
         }
         internal void Resume()
@@ -154,6 +161,8 @@ internal static class ScenarioIdleAnimationBudget
         private int _nextBakeIndex;
         private int _nextRequestIndex;
         private readonly List<ActorBehaviour> _dead = new(8);
+        // Retain actor identity across pose recapture, with a bounded diagnostic-only set.
+        private readonly HashSet<ActorBehaviour> _lodReports = new();
         private readonly Stack<bool> _cameraPolicies = new();
         private void Awake()
         { Camera.onPreCull += BeforeCamera; Camera.onPostRender += AfterCamera; }
@@ -181,7 +190,7 @@ internal static class ScenarioIdleAnimationBudget
         internal void NativeAction(ActorBehaviour actor)
         { if (_records.TryGetValue(actor, out Record record)) record.Resume(); }
         internal void RestoreAll()
-        { foreach (Record record in _records.Values) { record.Restore(); record.Visible?.Dispose(); } _records.Clear(); _bakeOrder.Clear(); _cameraPolicies.Clear(); }
+        { foreach (Record record in _records.Values) { record.Restore(); record.Visible?.Dispose(); } _records.Clear(); _bakeOrder.Clear(); _cameraPolicies.Clear(); TraceVisibleIdleRefusalsReset(); }
         internal void RestoreAllSafely()
         {
             foreach (Record record in _records.Values)
@@ -189,6 +198,14 @@ internal static class ScenarioIdleAnimationBudget
             _records.Clear();
             _bakeOrder.Clear();
             _cameraPolicies.Clear();
+            TraceVisibleIdleRefusalsReset();
+        }
+        private void TraceVisibleIdleRefusalsReset() => _lodReports.Clear();
+        private void TraceVisibleIdleLodRefusal(ActorBehaviour actor)
+        {
+            if (VRLog.WantsDebug && _lodReports.Count < 128 && _lodReports.Add(actor))
+                VRLog.Debug("Perf", "Visible idle retains native LOD for " + actor.name
+                    + "; authored selection and ForceLOD remain on the original renderers.");
         }
         private void OnDestroy()
         { Camera.onPreCull -= BeforeCamera; Camera.onPostRender -= AfterCamera; RestoreAll(); }
@@ -268,13 +285,19 @@ internal static class ScenarioIdleAnimationBudget
             {
                 ReleaseCameraMasks();
             }
-            int applied = 0, originalAlways = 0, authoredCull = 0;
+            int applied = 0, originalAlways = 0, authoredCull = 0, lodRefused = 0, physicsRefused = 0;
             using (PerfMonitor.Scope("ScenarioIdleAnimation"))
             {
                 foreach (KeyValuePair<ActorBehaviour, Record> item in _records)
                 {
                     if (!item.Value.Tick(enabled, visibleInterval, false)) _dead.Add(item.Key);
                     if (item.Value.Applied) applied++;
+                    if (item.Value.VisibleLodRefused)
+                    {
+                        lodRefused++;
+                        TraceVisibleIdleLodRefusal(item.Key);
+                    }
+                    if (item.Value.VisiblePhysicsRefused) physicsRefused++;
                     if (item.Value.Original == AnimatorCullingMode.AlwaysAnimate) originalAlways++;
                     if (item.Value.Original == AnimatorCullingMode.CullUpdateTransforms) authoredCull++;
                 }
@@ -296,6 +319,8 @@ internal static class ScenarioIdleAnimationBudget
                 }
                 PerfMonitor.Count("Figure.VisibleIdleSampling", warming);
             }
+            PerfMonitor.Count("Figure.VisibleIdleLodRefused", lodRefused);
+            PerfMonitor.Count("Figure.VisibleIdlePhysicsRefused", physicsRefused);
             PerfMonitor.Count("Figure.IdleTransformCull", applied);
             PerfMonitor.Count("Figure.IdleTracked", _records.Count);
             PerfMonitor.Count("Figure.IdleOriginalAlways", originalAlways);

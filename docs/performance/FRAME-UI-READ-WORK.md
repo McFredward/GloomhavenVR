@@ -136,3 +136,14 @@ Verify both eyes, every show/hide intermediate frame and native controls. Repeat
 as Frame host/client with two and four players. Compare complete loaded FRAME
 windows and the existing `WorldUI.HiddenWindowVeil` / `CanvasConversion.LateTick`
 scope receipts; do not turn per-frame diagnostic detail into normal log streams.
+
+## Integrated Build627 review
+
+The complete current production consumer and its unsupported-runtime fallback were
+rerun in Unity2021.3.5f1 after common 627 integration. Receipt
+`shared-ui-window-runtime/run-mtq9v0_j` passes 1,651 production assertions, 1,650
+fallback assertions and all 11 causal controls. Read/write ordering, pooling,
+same-count registry mutations, same-frame hierarchy edits, renderer ownership and
+disposable failure cleanup remain intact; no further local UI source change was
+needed. This is source-bound work/parity evidence, not a Frame timing measurement.
+The parent still runs the final complete integration gate on its final tree.

@@ -31,7 +31,10 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
                 || Source.shadowCastingMode != Proxy.shadowCastingMode || Source.receiveShadows != Proxy.receiveShadows
                 || Source.lightProbeUsage != Proxy.lightProbeUsage || Source.reflectionProbeUsage != Proxy.reflectionProbeUsage
                 || Source.probeAnchor != Proxy.probeAnchor || Source.lightProbeProxyVolumeOverride != Proxy.lightProbeProxyVolumeOverride
-                || Source.renderingLayerMask != Proxy.renderingLayerMask) return false;
+                || Source.renderingLayerMask != Proxy.renderingLayerMask
+                || Source.motionVectorGenerationMode != Proxy.motionVectorGenerationMode
+                || Source.sortingLayerID != Proxy.sortingLayerID || Source.sortingOrder != Proxy.sortingOrder
+                || Source.allowOcclusionWhenDynamic != Proxy.allowOcclusionWhenDynamic) return false;
             current.Clear(); Source.GetSharedMaterials(current);
             if (current.Count != Materials.Length) return false;
             for (int i = 0; i < current.Count; i++) if (current[i] != Materials[i]) return false;
@@ -47,6 +50,7 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
 
     private readonly ActorBarPose _pose;
     private readonly Transform _host;
+    private readonly LODGroup[] _nativeLods;
     private readonly List<SkinnedMeshRenderer> _sources = new(8);
     private readonly List<Surface> _surfaces = new(8);
     private readonly List<Material> _materialScratch = new(8);
@@ -58,13 +62,28 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
     internal bool IsMasked { get; private set; }
     internal int MaskedSurfaceCount => IsMasked ? _surfaces.Count : 0;
     internal bool AwaitingNativePose => _sampleFrame >= 0;
+    internal bool HasActiveNativeLod
+    {
+        get
+        {
+            foreach (LODGroup group in _nativeLods)
+                if (group != null && group.enabled && group.gameObject.activeInHierarchy) return true;
+            return false;
+        }
+    }
 
     internal ScenarioVisibleIdleSnapshot(ActorBarPose pose, Transform host)
-    { _pose = pose; _host = host; }
+    {
+        _pose = pose; _host = host;
+        // A proxy outside the original LODGroup would draw all enabled LOD skins together.
+        // ForceLOD has hidden native state, so copying the group cannot prove equivalent
+        // selection. Cache identities during preparation and retain native LOD ownership.
+        _nativeLods = pose.NativeRoot.GetComponentsInChildren<LODGroup>(true);
+    }
 
     internal void Tick(bool eligible, float interval, bool requestSample = true)
     {
-        _active = eligible && interval > 0f && !_disposed;
+        _active = eligible && interval > 0f && !_disposed && !HasActiveNativeLod && !_pose.HasIdleCloth;
         _interval = interval;
         if (!_active) { Release(); _sampleFrame = -1; return; }
         if (requestSample) RequestSample(interval);
@@ -87,7 +106,8 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
         using var scope = PerfMonitor.Scope("Figure.VisibleIdleBake");
         try
         {
-            if (!_pose.CopyIdleSkinSources(_sources) || _sources.Count == 0) { Reset(); return; }
+            if (HasActiveNativeLod || _pose.HasIdleCloth
+                || !_pose.CopyIdleSkinSources(_sources) || _sources.Count == 0) { Reset(); return; }
             bool same = _sources.Count == _surfaces.Count;
             for (int i = 0; same && i < _sources.Count; i++)
                 same = _surfaces[i].Source == _sources[i] && _surfaces[i].Matches(_materialScratch);
@@ -127,6 +147,7 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
             proxy.probeAnchor = source.probeAnchor; proxy.lightProbeProxyVolumeOverride = source.lightProbeProxyVolumeOverride;
             proxy.renderingLayerMask = source.renderingLayerMask;
             proxy.motionVectorGenerationMode = source.motionVectorGenerationMode;
+            proxy.allowOcclusionWhenDynamic = source.allowOcclusionWhenDynamic;
             proxy.sortingLayerID = source.sortingLayerID; proxy.sortingOrder = source.sortingOrder;
             _surfaces.Add(new Surface { Source = source, Original = mesh, Baked = baked,
                 Proxy = proxy, Materials = proxy.sharedMaterials });
@@ -137,6 +158,7 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
     {
         Release();
         if (!admitted || !_active || _sampleFrame >= 0 || !HasPose || !_pose.IsEventFreeNativeIdle()) return;
+        if (HasActiveNativeLod || _pose.HasIdleCloth) { Reset(); return; }
         foreach (Surface surface in _surfaces) if (!surface.Matches(_materialScratch)) { Reset(); return; }
         foreach (Surface surface in _surfaces)
         {

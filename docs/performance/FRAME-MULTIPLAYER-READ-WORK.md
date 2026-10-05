@@ -118,3 +118,15 @@ Test two and four players on Frame as host and visitor and compare the existing
 config also changes local UI read work, so hardware A/B totals cannot isolate this
 mirror lane without considering those scopes separately. These checks establish exact
 read/write behavior and work counts; headset appearance and FPS still require hardware.
+
+## Integrated Build627 review
+
+Current production `Pair.Apply` was rerun against the pinned original and genuine
+Unity/uGUI source getters and synchronous destination callbacks. Receipt
+`remote-mirror-read-runtime/run-yznrkmed` passes 625 assertions, eight runtime
+causal controls and the nullable-wrapper scanner control. Hostile virtual Text/
+Graphic getter observations remain on the unchanged original path; native values
+are reused only between their comparison and immediate setter. No network
+scheduling, source visibility, geometry ownership or NPC transport changed in
+this review. The parent retains hashes with its final common-tree evidence and
+still runs the final gate; no headset picture or transport latency is established.

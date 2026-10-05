@@ -63,12 +63,62 @@ lighting is not established by the fixture's explicit Unlit color material.
 The production/causal suite covers native component admission, unsafe callbacks,
 active death dissolve, local/remote holding, native action faults, foreign culling
 edits, mask restoration, absent proxy pixels, source mesh corruption and immediate
-action restoration. Before the interruption, the bounded-request source passed
-423 production assertions and sixteen causal controls (17 variants). That receipt
-precedes final inactive-host restoration and completed-camera counter changes.
-The final fixture compiles those additions, but current permissions block Unity
-before assertions run. Historical success is not certification of the final
-combined tree; see [the final receipt](FRAME-625-IMPLEMENTATION.md).
+action restoration. The final 627 review reruns this source against actual Unity,
+including inactive-host restoration and completed-camera counters. Historical
+receipts below are superseded by the final focused receipts and the parent's
+integration gate; neither asserts headset quality or FPS.
+
+## Build627 admission review
+
+An active original `LODGroup` selects among skins without changing each skin's
+`Renderer.enabled`. A private renderer outside that group would draw all admitted
+LOD skins together, ignore far culling and miss the native group's hidden
+`ForceLOD` state. Original Drake groups have three authored levels. The review
+therefore declines visible pose sampling for a captured active native LOD group,
+rather than inferring another LOD selection. Disabling/re-enabling a captured group
+is read live, including immediately before camera masking. The independent
+offscreen idle option still uses native `CullUpdateTransforms`; enabling only the
+unsupported visible option cannot silently enable that separate option.
+
+Captured native Cloth also declines visible replacement, including disabled Cloth:
+those skins are deliberately absent from the bar envelope, so replacing the other
+pieces would be a partial body. Active Cloth immediately declines even the
+offscreen shortcut; disabling it can restore only the independent offscreen path.
+All checks use preparation-captured component identities; no steady subtree scan
+or repeated bake retry is needed for these stable refusals. Unknown components,
+events, constraints, native action states and held figures retain their original
+paths.
+
+`Figure.VisibleIdleLodRefused` and `Figure.VisibleIdlePhysicsRefused` count tracked
+records carrying those unsupported sources while visible sampling is requested;
+they are not unique actors, attempted bakes or measured CPU savings. LOD Debug
+reports are deduplicated by actor identity across pose recapture, capped at 128 per
+driver lifetime, and cleared on teardown. Normal player logging gains no recurring
+stream. Late native sorting, motion-vector and dynamic-occlusion edits now revoke
+the old proxy before that camera, preserving the original renderer state.
+
+The positive native pose/pixel calibration explicitly disables the publisher's LOD
+groups. Its original clips, bones and skin/material identities remain real; it
+proves the supported no-LOD path and must not be presented as proof that native
+LOD actors get this saving. Separate native tests keep the original LOD active,
+exercise hidden ForceLOD, verify no sampling/retry starts, and re-enable it after a
+successful pose to verify synchronous fallback. Cloth activation and every new
+late renderer field have their own causal controls.
+
+Current focused evidence: `native-actor-audit-runtime/run-5aqrou4u` passes 449
+production assertions on the final source. Six new admission/late-write controls
+pass at `run-kwea4eh3`; the 17 existing controls pass at `run-mo688vx2`, and two
+new diagnostic/lifetime controls pass at `run-t6fncqf1`. The latter run's production
+continuation exposed a fixture-only owner lookup: Unity's scheduled `Destroy`
+left the previous diagnostic Driver on the host until end-of-frame, so a later
+`GetComponent` read its retired dictionary. The fixture now retires that owner for
+one actual Unity frame before resolving its replacement; the production-only
+continuation passes without changing an admission or camera predicate. Compilation
+failures are retained and never count as controls. The current local UI lane passes 1,651 production and 1,650 unsupported-version fallback assertions plus
+11 controls at `shared-ui-window-runtime/run-mtq9v0_j`; the unchanged remote reader
+passes 625 assertions, eight runtime controls and its actual scanner control at
+`remote-mirror-read-runtime/run-yznrkmed`. Receipts and source hashes are private
+under the worker's `.planning/debug`; the parent archives them with final evidence.
 
 Original material lighting, near-view animation quality, simultaneous crowd cost,
 both-eye headset output, Frame FPS and multiplayer headroom remain hardware tests.
