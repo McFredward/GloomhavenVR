@@ -85,6 +85,61 @@ def windows_path_budget(root, asset_paths):
     return {'maximumPathUtf16Units': maximum, 'longestPath': longest}
 
 
+def fragment_stereo_input_order(hlsl, stage, signatures):
+    """Place Unity's extra user input before witnessed native front-face input.
+
+    Unity 2021.3.5 expands UNITY_VERTEX_OUTPUT_STEREO to BLENDINDICES0 in
+    multiview. Its D3D front-end rejects that ordinary input after the native
+    system-generated SV_IsFrontFace input. Preserve all original declarations
+    and their relative order, and move only the generated macro declaration.
+    The original input signature, not the shader's name, witnesses this case.
+    """
+    front_faces = [row for row in signatures if row['systemValue'] == 9]
+    if stage != 'fragment' or not front_faces:
+        return hlsl, []
+    if len(front_faces) != 1 or front_faces[0]['semantic'].upper() != 'SV_ISFRONTFACE':
+        raise ValidationError('Native fragment front-face input has an unsupported signature.')
+    structures = list(re.finditer(r'struct SPIRV_Cross_Input\s*\{(?P<body>.*?)\};', hlsl, re.S))
+    if len(structures) != 1:
+        raise ValidationError('Native front-face fragment input structure is missing or ambiguous.')
+    structure = structures[0]
+    body = structure['body']
+    native_fields = list(re.finditer(r'(?m)^[ \t]*bool\s+\w+\s*:\s*SV_IsFrontFace\s*;[ \t]*\n', body, re.I))
+    if len(native_fields) != 1:
+        raise ValidationError('Native front-face fragment declaration is absent or ambiguous.')
+    macros = list(re.finditer(r'(?m)^[ \t]*UNITY_VERTEX_OUTPUT_STEREO[ \t]*\n', body))
+    if len(macros) != 1 or not body.startswith('\n'):
+        raise ValidationError('Generated fragment stereo declaration has an unsupported source shape.')
+    macro = macros[0]
+    remainder = body[:macro.start()] + body[macro.end():]
+    # Keep the eye field after the original user fields on both stages. Moving
+    # it to the struct start changes FXC register packing and can mark a native
+    # smooth UV as flat on only one stage. Only the native FrontFace declaration
+    # must follow this extra ordinary input.
+    native_field = re.search(r'(?m)^[ \t]*bool\s+\w+\s*:\s*SV_IsFrontFace\s*;[ \t]*\n', remainder, re.I)
+    reordered = remainder[:native_field.start()] + macro[0] + remainder[native_field.start():]
+    result = hlsl[:structure.start('body')] + reordered + hlsl[structure.end('body'):]
+    return result, [{'kind': 'generated-stereo-input-before-native-front-face',
+                     'nativeSystemValue': 9, 'nativeSemantic': front_faces[0]['semantic'],
+                     'nativeSemanticIndex': front_faces[0]['semanticIndex'],
+                     'generatedDeclaration': 'UNITY_VERTEX_OUTPUT_STEREO',
+                     'originalDeclarationOrderPreserved': True, 'originalProgramMathChanged': False}]
+
+
+def repair_fragment_stereo_inputs(project, manifest_path=None, compiler_witness=None):
+    """Apply only a completed, byte-witnessed generated declaration repair.
+
+    This repair is for an existing stopped Editor project. Fresh reconstruction
+    already applies fragment_stereo_input_order. The private same-version
+    witness directory must contain WitnessInput.json, FoliageWitness/results.json
+    and sibling actual-driver/actual-vulkan-pipelines.json. No compiler success
+    is inferred from source checks; the original full-alias receipt is invalid
+    after these includes change and must never be reused as a new full PASS.
+    """
+    import stereo_repair
+    return stereo_repair.repair(project, manifest_path, compiler_witness)
+
+
 @functools.lru_cache(maxsize=1)
 def recovery_module():
     path = Path(__file__).resolve().parents[1] / 'quest-builder/full_shaders.py'
@@ -421,6 +476,7 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
             portable, sampling_adapters = native.portable_sampling_interface(bound.read_text())
             wrapped = native.stereo_wrapper(portable, row['stage'], row.get('outputInterfaceAdapters', []),
                                             input_signature, output_signature, graphics_api=graphics_api)
+            wrapped, stereo_order_proofs = fragment_stereo_input_order(wrapped, row['stage'], input_signature)
             wrapped, load_proofs = load_bounds.restore(wrapped)
             wrapped, integer_proof = integer_bits.restore(wrapped)
             wrapped, instance_read_proofs = instance_nan.restore(wrapped, json.loads((cache / "interfaces" / (key[1] + ".json")).read_text()))
@@ -433,6 +489,7 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
                                    'sourceSha256': sha256(target), 'boundHlslSha256': row['boundHlslSha256'],
                                    'outputInterfaceAdapters': row.get('outputInterfaceAdapters', []),
                                    'samplingInterfaceAdapters': sampling_adapters,
+                                   'fragmentStereoInputOrderProofs': stereo_order_proofs,
                                    'originalInputSignature': input_signature, 'originalOutputSignature': output_signature,
                                    'integerCarrierProof': integer_proof, 'textureLoadProofs': load_proofs,
                                    'nativeNaNInstanceReadProofs': instance_read_proofs}
