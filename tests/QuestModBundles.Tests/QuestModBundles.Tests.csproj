@@ -5,8 +5,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <QuestModBundleRecipeSource Condition="'$(QuestModBundleRecipeSource)' == ''">../../unity/GloomhavenVR.Assets/Assets/Editor/QuestModBundles.cs</QuestModBundleRecipeSource>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../unity/GloomhavenVR.Assets/Assets/Editor/QuestModBundles.cs" Link="QuestModBundles.cs" />
+    <Compile Include="$(QuestModBundleRecipeSource)" Link="QuestModBundles.cs" />
   </ItemGroup>
 </Project>
