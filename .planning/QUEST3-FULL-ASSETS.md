@@ -268,6 +268,28 @@ native-object cache every 128 associated locations.
 
 The separate root spinner validator was actually run in Unity 2021.3.5f1 with all
 four core spinner variants, both promotions and both native atlases. Its
-textureRect/padding checks passed for these actual assets. The broader ordinary
-Sprite Editor fixture is still running; source completion does not claim that its
-all-asset import gate or headset pictures have passed.
+textureRect/padding checks passed for these actual assets. The broader ordinary Sprite Editor fixture subsequently passed every one of the
+3,369 imported objects after the actual generated case migration retained all
+24 colliding path variants. All native GUID/local IDs, drawing fields, texture
+bindings, vertices and UVs passed the production gate. Source and Editor proof
+remain separate from unverified headset pictures.
+
+
+## Remaining native image containers
+
+The source-native audit additionally covers three Alpha8 font textures and four
+RenderTexture objects. The font data is uncompressed Alpha8 with one mip and no
+platform blob. RenderTextures contain runtime target descriptors, not serialized
+Windows texels: color GraphicsFormat 8, depth/stencil formats 90 or 92, 2D shape,
+MSAA1 and the original compatible-format fallback enabled. Unknown formats or
+native Texture3D/Texture2DArray/CubemapArray classes fail recovery explicitly.
+
+`full_textures.stage` now writes `native-platform-images.json` automatically. The
+production texture import gate actually imported all seven original GUID/local
+IDs, checked the three native Alpha8 dimensions/formats and successfully created
+the four original runtime render-target backings on Editor OpenGL. The combined
+receipt still distinguishes those Editor checks from unverified Android/Quest
+format support and original BC6H GPU parity. The actual final fixture receipts
+are retained under `atlas-import-v1/portable-texture-import.json` (31 cubes,
+1,272 face/mips, 132 half GPU readbacks, seven other native images) and
+`atlas-import-v1/portable-sprite-import.json` (all 3,369 ordinary sprites).

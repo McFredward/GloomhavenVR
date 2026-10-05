@@ -132,4 +132,43 @@ def stage(project, game_data, *, dotnet, tool_cache, cab_bundles):
              'source':'original-native-CAB-pathID-all-six-faces-all-original-mip-levels',
              'unityImportVerified':False,'originalGpuParityVerified':False,'headsetGpuVerified':False}
     write_json(project/'Assets/QuestOriginalCampaign/native-cubemaps.json',receipt)
+    receipt['platformImageAudit'] = audit_platform_images(project,game_data,objects,owners)
+    return receipt
+
+
+def audit_platform_images(project,game_data,objects,owners):
+    """Audit other native image containers rather than guessing from extensions."""
+    from pointer_recovery import load_native
+    from recover import sha256
+    import UnityPy
+    unsupported=[row for row in objects.values() if row['classId'] in (117,187,188)]
+    if unsupported:
+        raise BuildError('Native 3D/array images require exact format/mip recovery before importing this game version.')
+    targets=[row for row in objects.values() if row['classId']==84 or
+             row['classId']==28 and Path(row['path']).suffix.casefold()=='.texture2d']
+    assets=[]
+    for target in targets:
+        container=owners.get(target['collection'],target['collection'])
+        env=load_native(UnityPy,game_data/container)
+        matches=[obj for obj in env.objects if (obj.assets_file.name.casefold(),int(obj.path_id))==(target['collection'],target['pathId'])]
+        if len(matches)!=1:raise BuildError('Native platform-sensitive image identity is unresolved.')
+        fields=matches[0].read_typetree()
+        row={'assetPath':target['path'],'guid':target['guid'],'fileId':target['fileId'],'classId':target['classId'],
+             'originalCollection':target['collection'],'originalPathId':target['pathId'],
+             'sourceContainer':container,'sourceContainerSha256':sha256(game_data/container),
+             'sha256':sha256(project/target['path']),'width':fields['m_Width'],'height':fields['m_Height']}
+        if target['classId']==28:
+            if fields['m_TextureFormat']!=1 or fields.get('m_PlatformBlob') or fields['m_MipCount']!=1:
+                raise BuildError('Native font texture encoding changed; audit before this game version is ported.')
+            row.update(textureFormat=1,mipCount=1,nativeEncoding='uncompressed-Alpha8-no-platform-blob')
+        else:
+            if fields['m_ColorFormat']!=8 or fields['m_DepthStencilFormat'] not in (90,92) or not fields['m_EnableCompatibleFormat']:
+                raise BuildError('Native RenderTexture format/fallback contract changed.')
+            row.update(colorFormat=fields['m_ColorFormat'],depthStencilFormat=fields['m_DepthStencilFormat'],
+                       compatibleFormatFallback=fields['m_EnableCompatibleFormat'],dimension=fields['m_Dimension'],
+                       antiAliasing=fields['m_AntiAliasing'],nativeEncoding='runtime-render-target-no-serialized-PC-texels')
+        assets.append(row)
+    receipt={'schema':1,'nativePlatformImageCount':len(assets),'unsupportedImageClassCount':0,'assets':assets,
+             'androidGpuFormatsVerified':False,'headsetPictureVerified':False}
+    write_json(project/'Assets/QuestOriginalCampaign/native-platform-images.json',receipt)
     return receipt

@@ -13,6 +13,7 @@ namespace GloomhavenVR.Quest.Editor
     public static class QuestCampaignTextureValidation
     {
         public const string InputPath = "Assets/QuestOriginalCampaign/native-cubemaps.json";
+        public const string PlatformInputPath = "Assets/QuestOriginalCampaign/native-platform-images.json";
         [Serializable] public sealed class Mip { public int face, mip, size; public string sha256; }
         [Serializable] public sealed class Cube
         {
@@ -29,9 +30,21 @@ namespace GloomhavenVR.Quest.Editor
         }
         [Serializable] public sealed class Receipt
         {
-            public int schema = 1, nativeCubemapCount, importedMipCount, gpuReadbackMipCount;
+            public int schema = 1, nativeCubemapCount, importedMipCount, gpuReadbackMipCount, nativePlatformImageCount;
             public string unityVersion, graphicsDeviceType, sourceManifestSha256;
             public bool originalBc6GpuParityVerified, headsetGpuVerified;
+        }
+        [Serializable] public sealed class PlatformImage
+        {
+            public string assetPath,guid,sha256;
+            public int classId,width,height,textureFormat,mipCount,colorFormat,depthStencilFormat,dimension,antiAliasing;
+            public long fileId;
+            public bool compatibleFormatFallback;
+        }
+        [Serializable] public sealed class PlatformImages
+        {
+            public int schema,nativePlatformImageCount,unsupportedImageClassCount;
+            public PlatformImage[] assets;
         }
         public static Receipt Validate()
         {
@@ -83,9 +96,43 @@ namespace GloomhavenVR.Quest.Editor
                 }
                 receipt.nativeCubemapCount++;
             }
+            receipt.nativePlatformImageCount=ValidatePlatformImages();
             Directory.CreateDirectory("QuestCampaignEvidence");
             File.WriteAllText("QuestCampaignEvidence/native-cubemap-import.json", JsonUtility.ToJson(receipt,true));
             return receipt;
+        }
+        public static int ValidatePlatformImages()
+        {
+            var input=JsonUtility.FromJson<PlatformImages>(File.ReadAllText(PlatformInputPath));
+            if(input==null||input.schema!=1||input.unsupportedImageClassCount!=0||input.assets==null||input.nativePlatformImageCount!=input.assets.Length)
+                throw new InvalidDataException("Native platform-sensitive image inventory is incomplete.");
+            foreach(var row in input.assets)
+            {
+                var value=AssetDatabase.LoadMainAssetAtPath(row.assetPath);string guid;long fileId;
+                if(value==null||Hash(File.ReadAllBytes(row.assetPath))!=row.sha256||
+                   !AssetDatabase.TryGetGUIDAndLocalFileIdentifier(value,out guid,out fileId)||guid!=row.guid||fileId!=row.fileId)
+                    throw new InvalidDataException("Native platform-sensitive image failed import: "+row.assetPath);
+                if(row.classId==28)
+                {
+                    var texture=value as Texture2D;
+                    if(texture==null||texture.width!=row.width||texture.height!=row.height||
+                       (int)texture.format!=row.textureFormat||texture.mipmapCount!=row.mipCount||!SystemInfo.SupportsTextureFormat(texture.format))
+                        throw new InvalidDataException("Native Alpha8 font texture format failed import: "+row.assetPath);
+                }
+                else if(row.classId==84)
+                {
+                    var target=value as RenderTexture;
+                    if(target==null||target.width!=row.width||target.height!=row.height||
+                       (int)target.dimension!=row.dimension||target.antiAliasing!=row.antiAliasing||
+                       (int)target.graphicsFormat!=row.colorFormat||!row.compatibleFormatFallback)
+                        throw new InvalidDataException("Native runtime RenderTexture format failed import: "+row.assetPath);
+                    if(!target.Create()||!target.IsCreated())
+                        throw new InvalidDataException("Native runtime RenderTexture could not create its graphics backing: "+row.assetPath);
+                    target.Release();
+                }
+                else throw new InvalidDataException("Unknown native platform-sensitive image class.");
+            }
+            return input.assets.Length;
         }
         private static void RequireMip(byte[] data, Mip witness, string source)
         {
