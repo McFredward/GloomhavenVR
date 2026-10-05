@@ -1,9 +1,10 @@
 # Planning index
 
-Updated 2026-10-05 for Build622: paired NPC original publication, canonical merchant
-item fan/held transport, actual purse geometry and native enhancement rows, preserved
-normal service windows across map switches and source-verified story reconnection.
-Build621 remains the preceding graphics/wrist-board baseline. Hardware outcomes
+Updated 2026-10-05 for Build625: prepared cabinet clocks without whole-bank input
+serialization, exact native item and offered-widget admission, original purse-return
+motion and blessing sound, interpolated resident gaze and local map preparation.
+Build624 is the first-save onboarding baseline; Build623 records the preceding
+paired publication review. Hardware outcomes
 remain separate from source/runtime evidence. This directory holds internal
 engineering records, historical decisions and current status; it is not the player manual.
 
@@ -15,6 +16,9 @@ engineering records, historical decisions and current status; it is not the play
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [NPC-625-REVIEW.md](NPC-625-REVIEW.md) | Build624 paired evidence, actual queued cabinet delivery, native metadata, return/audio/loading fixes and 1:1 boundaries |
+| [ONBOARDING-624-REVIEW.md](ONBOARDING-624-REVIEW.md) | First-save native merchant continuation, genuine close intent and converted/immersive controls |
+| [NPC-623-REVIEW.md](NPC-623-REVIEW.md) | Paired publisher timing, common public input and prior native metadata preparation |
 | [NPC-622-REVIEW.md](NPC-622-REVIEW.md) | Paired evidence, causal corrections, 1:1 review and actual story reconnect flow |
 | [NPC622-MERCHANT-PROOF.md](NPC622-MERCHANT-PROOF.md) | Canonical public map item source, cabinet epochs and additive wire bounds |
 | [TOWN-PUBLISHER-622.md](TOWN-PUBLISHER-622.md) | Actual native publisher, cold original bank, dynamic rows and causal controls |

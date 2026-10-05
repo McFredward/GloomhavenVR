@@ -1,5 +1,40 @@
 # State — where the project stands
 
+**Build625 integration complete, 2026-10-05: 1.1.0.**
+
+Both supplied NPC peers are Build624. Prepared merchant input now publishes
+canonical clocks without serializing/compressing the complete original bank;
+cold/changed dependencies retain bounded exact repair. Real queued publisher
+completion keeps later heartbeat delivery live. Native TMP fallback graphics
+no longer reject Boots of Striding. Offered cards and confirmations retain every
+owner property against genuine frozen native defaults, with bounded cold retries
+and local original preparation. Disconnect retires those deferred frames;
+network reset rewarms existing originals without changing asset identities.
+
+The original purse return now carries its exact 0.35-second endpoints/age on
+additive TLV106. Blessing uses the game's configured sound at the common commit
+clock; only its duplicate immersive callback is suppressed. Resident gaze uses
+the displayed interpolated remote head. Map loading ends on actual local
+preparation, independent of election or remote original-bank acknowledgement.
+
+The complete local attempt recorded 137 scopes: 134 direct passes and three
+retained failures resolved by focused continuations (two missing fixture
+members, one deliberate source-stability rejection during the narrow reconnect
+fix). Successful unrelated scopes were not repeated. All 14 source gates plus
+the three affected continuations, 308248 golden assertions, strict Release with
+zero warnings/errors, documents, bundles and public surfaces pass. Of 3136
+production/asset inputs, only three reviewed reconnect lifecycle files changed
+after the complete attempt began; dedicated real native lifecycle evidence
+passes 30 assertions and two causal controls. The actual Build624→625 compiled
+comparison explains 25 changed and one added type, with no removals.
+
+No Build625 headset outcome exists yet. See [NPC-625-REVIEW.md](NPC-625-REVIEW.md)
+for measured causes, the 1:1 review, cold-repair limits and next paired checks.
+Exact reports and continuation boundaries are retained in
+`.planning/debug/npc625/validation-ledger.json`.
+
+---
+
 **Build624 integration complete, 2026-10-05: 1.1.0.**
 
 First-save converted merchant onboarding now completes its exact native BuyItem
