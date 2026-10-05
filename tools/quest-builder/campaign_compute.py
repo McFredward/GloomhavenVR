@@ -61,6 +61,8 @@ def stage(source, project, cache):
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(overlay / name, path)
     manifest["updatedManifests"] = remap_manifests(project, manifest["pathMap"])
+    references = campaign_shaders.load(source, "tools/quest-compute/references.py", "tools/quest-compute")
+    manifest["nativeComputeReferenceTypes"] = references.repair(project, manifest)
     write_json(project / "Assets/QuestOriginalCampaign/campaign-computes.json", manifest)
     write_json(project / "QuestStartupEvidence/compute-source-restoration.json", {
         "schema": 1, "scope": "complete-original-campaign-compute", "shaderCount": 13, "kernelCount": 36,
