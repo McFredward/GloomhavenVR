@@ -332,3 +332,38 @@ source snapshots rather than publishing a false replacement preparation receipt.
 The complete native-bank, IL2CPP, signed APK, delivered-content and Windows
 handoff gates remain pending at this checkpoint. No full hardware package is
 claimed yet.
+
+## Native compute importer references and portable build provenance
+
+The resumed actual Player passes original script-order restoration: 2,019
+imported MonoScripts have verified orders, including the exact original
+SRDebugger.Settings GUID/localID and explicit order zero. Audio, original UI,
+Bloom, camera-movie, and world-screen source gates also pass. The full typed
+asset gate then exposed twelve unresolved ComputeShader fields in the original
+PostProcessResources asset. The class72 targets had been converted from native
+`.asset` files to `.compute` sources; their owner PPtrs still used the native
+importer's type2 rather than ComputeShaderImporter's type3.
+
+A bounded actual Unity2021.3.5f1 fixture imports all 13 generated compute targets
+with unchanged GUID/localID7200000. All twelve original owner fields are null in
+the type2 baseline and resolve to their exact targets after changing only those
+twelve type tokens to3. The full-project source-backed repair census finds one
+owner and twelve changes. Correction `84340ebd` adds that exact native-class72
+repair to normal staging, with original CAB/pathID identities and owner before/
+after hashes. Forty focused compute checks pass; kernel code/math is unchanged.
+The retained project receives the same direct repair without changing its
+compute manifest, source/metas, Library, or the historical preparation receipt.
+
+The actual host modules, staged Editor files, and applied compute repair now
+participate in a separate derivative build key. Capture keeps the immutable
+`fa6c1f9a` / B623 / input7ecd runtime identity, hashes current and baseline tool
+sources independently, and rejects changing source bytes. The Player report,
+hashed build outputs, and Windows handoff carry portable `buildProvenance` and
+the actual packaged installer hashes. No private paths, signing fields, accounts,
+or environment dumps enter that evidence. Twenty-one provenance fixtures and
+twelve APK/handoff checks pass. Input evidence retains false hardware/import
+readiness flags; separate actual Unity results establish import proof.
+
+The full build resumes under derivative key `4785f5c9bedd` on the retained project.
+At this checkpoint complete Android banks, IL2CPP, the signed Player, delivered
+compute validation, and the Windows hardware package are still pending.
