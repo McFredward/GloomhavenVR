@@ -88,8 +88,9 @@ internal static partial class TownServiceMirror
             CatalogOriginalBank? bank = CatalogCache(peer, frame, true);
             if (bank == null || !MakeCatalogCacheRoom(peer, bank, frame.Module)) return;
             bank.Claim = frame.PublicClaim;
-            ulong key = TownCatalogBank.ContentKey(frame);
             if (!bank.Originals.TryGetValue(frame.Module, out var revisions)) bank.Originals.Add(frame.Module, revisions = new List<CatalogOriginal>(3));
+            CatalogOriginal? retained = revisions.Find(original => TownCatalogBank.SameRetainedContent(original.Frame, frame));
+            ulong key = retained?.Key ?? TownCatalogBank.ContentKey(frame);
             CatalogOriginal? previous = revisions.Find(original => original.Key == key);
             if (previous != null)
             { previous.LastUse = ++bank.Touch; previous.FirstSequence = Math.Min(previous.FirstSequence, frame.Sequence); if (previous.Frame.Sequence >= frame.Sequence) return; revisions.Remove(previous); }
@@ -146,6 +147,7 @@ internal static partial class TownServiceMirror
         var provided = new Dictionary<ushort, TownServiceFrame>();
         foreach (TownServiceFrame update in bank.Updates) provided.Add(update.Module, update);
         var updates = new TownServiceFrame[bank.Members.Length];
+        var originals = new Dictionary<ushort, (TownServiceFrame Frame, ulong Key)>();
         for (int i = 0; i < bank.Members.Length; i++)
         {
             TownCatalogBankMember member = bank.Members[i];
@@ -160,7 +162,10 @@ internal static partial class TownServiceMirror
             // Every dynamic header is authored by the newly admitted clock. Only
             // exact original node values are reused from the same sender/session.
             if (original.Key == member.ContentKey)
-            { retained.BaseSequence = 0; retained.Nodes = original.Frame.Nodes; }
+            {
+                retained.BaseSequence = 0; retained.Nodes = original.Frame.Nodes;
+                originals.Add(member.Id, (original.Frame, original.Key));
+            }
             else
             {
                 TownServiceFrame baseline = TownServiceDelta.Retain(retained); baseline.BaseSequence = 0;
@@ -173,7 +178,7 @@ internal static partial class TownServiceMirror
         }
         complete = new TownCatalogBank { Prepared = bank.Prepared, Members = bank.Members, Updates = updates };
         TownServiceFrame validation = TownServiceDelta.Retain(root); validation.CatalogBank = complete;
-        try { complete.Validate(validation); }
+        try { complete.Validate(validation, originals); }
         catch (InvalidDataException) { return false; }
         return ValidateCatalogBankOriginals(peer, validation, complete);
     }

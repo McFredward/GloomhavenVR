@@ -9,7 +9,7 @@ internal static partial class TownServiceMirror
 {
     private sealed class LocalCatalogBank
     {
-        internal bool Prepared, SeparateRepair;
+        internal bool Prepared;
         internal uint Turn, Claim, Session;
         internal TownCatalogBank? Last;
     }
@@ -74,39 +74,33 @@ internal static partial class TownServiceMirror
         // Keep complete immutable original updates on every heartbeat for this bank. Local
         // transport completion is not a remote acknowledgement; loss cannot expose a clock
         // without its genuinely changed original properties.
-        cache.Turn = rack.Turn; cache.Claim = _publicClaim; cache.Session = _session; cache.SeparateRepair = false;
+        cache.Turn = rack.Turn; cache.Claim = _publicClaim; cache.Session = _session;
         return cache.Last = new TownCatalogBank { Prepared = cache.Prepared, Members = refs, Updates = updates };
     }
-    // A complete shelf with its price/body/holder originals can exceed the packed
-    //102 envelope. Keep the same atomic content references and repair exact original
-    // members through their existing bounded queues instead of dropping every clock.
+    // Prepared cabinet clocks use exact original references. Full source metadata
+    // remains attached for the bounded send queue's independent dependency repair.
     private static byte[] WriteCatalogPacket(TownServiceFrame frame, Action<byte[], int, object?> send)
     {
-        if (frame.CatalogBank == null || !LocalCatalogBanks.TryGetValue(frame.Module, out LocalCatalogBank? bank))
+        if (frame.CatalogBank == null || !LocalCatalogBanks.ContainsKey(frame.Module))
             return WriteNativeTownFrame(frame);
-        if (!bank.SeparateRepair)
+        // Build624 rebuilt and compressed every original card/price/body on each
+        // page turn before the send queue constructed the same small reference
+        // clock. The paired trace measures 170-244 ms publication spikes while
+        // the ordinary visible catalogue tick remains about 1 ms. Preparation
+        // already owns exact immutable originals; a turn changes their current
+        // headers, not those pixels. Publish those headers directly. Keep the
+        // complete bank on the callback's frame: the bounded native send queue
+        // still repairs every missing or genuinely changed original independently.
+        // No source property, input, holder animation or receiver admission is
+        // skipped, and a cold receiver still needs all exact dependency keys.
+        if (frame.CatalogBank.Prepared)
         {
-            try { return TownServiceCodec.Write(frame); }
-            catch (InvalidDataException error) when (error.Message == "Original catalog updates exceed the packed bank bound."
-                || error.Message == "Original catalog updates exceed the raw bank bound.")
-            { bank.SeparateRepair = true; }
+            TownServiceFrame reference = TownCatalogClock.Create(frame, NoCatalogPatchBases);
+            return TownServiceCodec.Write(reference);
         }
         // TLV103 headers describe a prepared original bank. Do not turn a still-
         // loading catalogue into a prepared clock merely to fit its repair packet.
-        if (!frame.CatalogBank.Prepared)
-            throw new InvalidDataException("Original catalog repair awaits completed preparation.");
-        foreach (TownServiceFrame original in frame.CatalogBank.Updates)
-        {
-            TownServiceFrame repair = TownServiceDelta.Retain(original);
-            repair.HighPriority = true;
-            byte[] part = WriteNativeTownFrame(repair);
-            send(part, part.Length, repair);
-        }
-        // Individual repairs supply immutable properties, but the clock must also
-        // carry every current owner header. Bare content references cannot restore
-        // pose, parenting and rack epoch after a late join or a lost heartbeat.
-        TownServiceFrame reference = TownCatalogClock.Create(frame, NoCatalogPatchBases);
-        return TownServiceCodec.Write(reference);
+        return TownServiceCodec.Write(frame);
     }
 
     private static bool AdvertiseCatalogModule(LocalModule module)

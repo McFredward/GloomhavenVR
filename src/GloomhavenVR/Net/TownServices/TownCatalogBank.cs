@@ -95,7 +95,26 @@ internal sealed partial class TownCatalogBank
         return result == 0 ? 1UL : result; // Zero is reserved for an unknown original.
     }
 
-    internal void Validate(TownServiceFrame root)
+    // A prepared reference reconstructs headers over immutable, already checked
+    // receiver originals. Reuse their keys only for the very same node array and
+    // every canonical header field; a native patch or changed header still hashes
+    // the actual complete content. Wire readers never supply this private cache.
+    internal static bool SameRetainedContent(TownServiceFrame original, TownServiceFrame current)
+    {
+        if (!ReferenceEquals(original.Nodes, current.Nodes) || original.Template != current.Template
+            || original.TemplateAddress != current.TemplateAddress || original.Structure != current.Structure
+            || original.ParentBinding != current.ParentBinding || original.HasCanvasFrame != current.HasCanvasFrame
+            || original.CanvasSortingLayer != current.CanvasSortingLayer || original.CanvasSortingOrder != current.CanvasSortingOrder
+            || original.CanvasRect.Length != current.CanvasRect.Length || original.CanvasSettings.Length != current.CanvasSettings.Length)
+            return false;
+        for (int i = 0; i < original.CanvasRect.Length; i++) if (original.CanvasRect[i] != current.CanvasRect[i]) return false;
+        for (int i = 0; i < original.CanvasSettings.Length; i++) if (original.CanvasSettings[i] != current.CanvasSettings[i]) return false;
+        return true;
+    }
+
+    internal void Validate(TownServiceFrame root) => Validate(root, null);
+    internal void Validate(TownServiceFrame root,
+        IReadOnlyDictionary<ushort, (TownServiceFrame Frame, ulong Key)>? retainedOriginals)
     {
         if (root == null || !root.PublicCatalog || root.VisitorStock || root.Service != 1
             || root.Module >= TownServiceFrame.VoiceModule || root.Rack == null || root.RackMember != null
@@ -145,8 +164,12 @@ internal sealed partial class TownCatalogBank
                 var probe = TownServiceDelta.Retain(update); probe.Visible = false;
                 TownServiceCodec.Validate(probe);
             }
-            else if (ContentKey(update) != expected)
-                throw new InvalidDataException("Original catalog content key mismatch.");
+            else
+            {
+                ulong actual = retainedOriginals != null && retainedOriginals.TryGetValue(update.Module, out var retained)
+                    && SameRetainedContent(retained.Frame, update) ? retained.Key : ContentKey(update);
+                if (actual != expected) throw new InvalidDataException("Original catalog content key mismatch.");
+            }
             updates.Add(update.Module, update);
         }
         // Cached parents are resolved by the receiver. A cycle already present entirely

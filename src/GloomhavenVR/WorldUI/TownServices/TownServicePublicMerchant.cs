@@ -30,8 +30,12 @@ internal static class TownServicePublicMerchant
     // controlled; never turn an art dependency or another visitor into a gameplay lease.
     internal static bool PrepareCatalogForLoading()
     {
-        if (_catalog == null || !_catalog.PrepareOriginalBankForLoading()) return false;
-        return TownServiceMirror.IsPublicAuthor ? TownServiceSync.HasPreparedPublicCatalog : TownServiceMirror.HasReadyPublicBank;
+        // Local loading ends when the genuine local rows, sprites and observer
+        // templates are ready. The independent shared bank still repairs itself
+        // through its original network queues. Waiting here for authority election
+        // or a remote loss-repair acknowledgement left the map spinner running over
+        // an already playable local scene (Build624 paired hardware report).
+        return _catalog != null && _catalog.PrepareOriginalBankForLoading();
     }
     internal static bool CanClaim
     {
