@@ -698,3 +698,31 @@ B612–B615 startup APK copies reclaim another 5,033,417,543 bytes; their small
 diagnostic documents remain. Current Library, native linker/source, transaction
 rollback, B622 baseline, supplied captures, signing state and other dev work are
 preserved. Private completed-removal receipts record each scope and identity.
+
+## Actual bundled graphics retention defect and bounded repair witness
+
+The read-only native audit resolves original public Material/Shader roots to the
+actual cooked CAB/pathID, instead of matching names. Three original Materials
+retain their original keywords and enabled instancing, but reference reduced
+native Shader banks. The same defect remains in the completed 096d native bank:
+Amp_Basic_N_MRAO lacks 960 original aliases, FoliageLow lacks 918 and NMRAOLow
+lacks 2,040. Their non-instanced omissions are 480, 567 and 1,260 respectively.
+Source retention requests and zero compiler errors therefore do not establish
+complete delivered graphics. The existing native audit did not check class48.
+
+A separate original Foliage/Vulkan Addressables witness uses Unity2021.3.5 and
+unchanged original source. Its control already sets KeepAll instancing but keeps
+the collection only in Player Resources: actual bundles retain 45 of 1,275
+original aliases. Giving a separate native copy of that collection to the
+Addressables build retains all 1,275, including every instanced and non-instanced
+alias. Exact native ownership and three combined VS/FS payload samples are checked
+after Unity exits. This bounded actual bundle comparison does not invoke the
+51,564-program developer sweep and is not a headset result.
+
+The retained/full Player is not restarted while live. The reviewed correction
+will retain original public Shader ownership and expose only missing private
+Shader roots for an exact delivered GUID-to-CAB/pathID audit. Shader names are
+not identity: 50 original names are duplicated, with up to 324 objects per name.
+The final production gate must inspect actual bundled aliases and material
+bindings before accepting the full hardware package. 096d remains a candidate,
+not an accepted complete graphics delivery.
