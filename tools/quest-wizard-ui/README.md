@@ -7,6 +7,14 @@ native argument array to Python; paths containing spaces are not assembled into
 an interpolated command string. The console remains the backend's lifetime owner.
 `-NoBrowser` suppresses automatic browser opening; the backend prints its URL.
 
+The default private state/build root is `%USERPROFILE%\.ghvrq`, rather than the
+downloaded checkout directory. This shortens generated Windows Unity paths and
+preserves downloads, original exports and imported projects across moving or
+replacing the launcher folder. `-StateRoot` overrides that location explicitly.
+The pinned Python installation and virtual environment remain script-local.
+The backend's ownership marker and kernel guard also protect this shared user
+workspace against two launchers attempting to build simultaneously.
+
 The UI has no external fonts, remote artwork, analytics, CDN or hosted service.
 The Unity terms link is an explicit external link. German and English strings are
 kept in `i18n.mjs`. Further technical settings and bounded logs are collapsed.

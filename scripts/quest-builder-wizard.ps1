@@ -22,7 +22,13 @@ try {
     . (Join-Path $bootstrapDirectory "bootstrap.ps1")
     $pythonExecutable = Get-QuestInstallerPython -ScriptDirectory $PSScriptRoot `
         -RequirementsFile (Join-Path $bootstrapDirectory "requirements.txt")
-    if (-not $StateRoot) { $StateRoot = Join-Path $PSScriptRoot ".quest-wizard" }
+    if (-not $StateRoot) {
+        # Keep generated Unity paths short and retain resumable builds when the
+        # downloaded source folder is replaced or moved. Python stays script-local.
+        $questUserProfile = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
+        if (-not $questUserProfile) { throw "The Windows user profile folder could not be determined." }
+        $StateRoot = Join-Path $questUserProfile ".ghvrq"
+    }
     $wizardArguments = @($wizardScript, "serve", "--state-root", $StateRoot, "--ui-root", $uiDirectory)
     if (-not $NoBrowser) { $wizardArguments += "--open-browser" }
     Write-Host "GloomhavenVR Quest Wizard - local browser interface"
