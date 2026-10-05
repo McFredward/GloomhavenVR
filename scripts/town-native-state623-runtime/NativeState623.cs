@@ -25,6 +25,29 @@ public static partial class MirrorProgram
         (bool)typeof(TownServiceMirror).GetMethod("MagePictureReady", PrivateStatic)!
             .Invoke(null, new object[] { 2, session, pending })!;
 
+    private static string NativePlaybackState623(int peer)
+    {
+        var detail = new System.Text.StringBuilder(" owner=" + TownServiceMirror.InteractionOwner(3));
+        if (!TownServiceMirror.RemoteSessions.TryGetValue(peer, out TownServiceSessionInfo session))
+            return detail + " session=absent";
+        detail.Append(" session=" + session.Session + " active=" + session.Active
+            + " staleAge=" + (Time.unscaledTime - session.LastSeenTime).ToString("F3"));
+        var pending = (Dictionary<int, Dictionary<ushort, TownServiceFrame>>)typeof(TownServiceMirror)
+            .GetField("Pending", PrivateStatic)!.GetValue(null)!;
+        pending.TryGetValue(peer, out Dictionary<ushort, TownServiceFrame>? received);
+        foreach (ushort id in session.Modules)
+        {
+            TownServiceFrame? frame = null;
+            received?.TryGetValue(id, out frame);
+            detail.Append(" module=" + id + ":pending=" + (frame?.Sequence.ToString() ?? "absent")
+                + ":base=" + (frame?.BaseSequence.ToString() ?? "absent")
+                + ":native=" + (frame?.NativeTemplateBasisKey.ToString("X") ?? "absent")
+                + ":admitted=" + (Remote(peer, id) != null));
+        }
+        detail.Append(" reports=" + string.Join(" | ", GloomhavenVR.Core.VRLog.Messages));
+        return detail.ToString();
+    }
+
     private static IEnumerator NativeState623()
     {
         TownServiceMirror.Shutdown(); Baselines.Clear();
@@ -186,16 +209,26 @@ public static partial class MirrorProgram
             TransactionActive = true, Modules = session.Modules, Pose = offered.Pose };
         Receive(2, new[] { TownServiceCodec.Write(manifest), TownServiceCodec.Write(aura), current });
         TownServiceMirror.SharedFrameForRemote = _ => observer;
-        // Both endpoints are represented in this process. Let the existing lease
-        // settle while the face is missing, before measuring atomic admission.
-        for (float until = Time.unscaledTime + .15f; Time.unscaledTime < until;) yield return null;
+        // Both endpoints are represented in this process. Await the actual existing
+        // lease while the face is missing, rather than assuming editor scheduling
+        // settled it within a fixed delay. The final one-pass admission remains strict.
+        float leaseDeadline = Time.unscaledTime + 1f;
+        while (TownServiceMirror.InteractionOwner(3) != 2 && Time.unscaledTime < leaseDeadline)
+        {
+            TownServiceMirror.TickRemote(_ => observer);
+            Check(Remote(2, 10) == null && Remote(2, 12) == null,
+                "actual playback never exposes option holes or a ring before the complete offered card");
+            yield return null;
+        }
+        Check(TownServiceMirror.InteractionOwner(3) == 2,
+            "actual remote mage lease settles before missing-card admission" + NativePlaybackState623(2));
         TownServiceMirror.TickRemote(_ => observer);
         Check(Remote(2, 10) == null && Remote(2, 12) == null,
             "actual playback never exposes option holes or a ring before the complete offered card");
         Receive(2, new[] { TownServiceCodec.Write(offered) });
         TownServiceMirror.TickRemote(_ => observer);
         Check(Remote(2, 10) != null && Remote(2, 11) != null && Remote(2, 12) != null,
-            "one actual playback pass presents the complete original mage picture");
+            "one actual playback pass presents the complete original mage picture" + NativePlaybackState623(2));
         Check(Remote(2, 10)!.Root.Find("Name").GetComponent<TextMeshProUGUI>().text == _text.text,
             "actual compact receiver preserves the owner upgrade text");
         Check(GameplayFixture.Awakes == awakes && GameplayFixture.Enables == enables,
