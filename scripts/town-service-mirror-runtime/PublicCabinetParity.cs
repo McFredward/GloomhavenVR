@@ -197,7 +197,9 @@ public static partial class MirrorProgram
         TownServiceSync.UseProductionPublish = true; TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f);
         List<byte[]> initial = Capture();
         ushort farPrice = TownServiceSync.PublicModuleId(catalog.Entries[2].RowContent!);
-        Check(!initial.Any(p => ReadModule(p) == farPrice), "prepared dormant original is retained without a redundant initial wire snapshot");
+        Check(initial.Any(p => { var frame = Decode(p); return frame.Module == farPrice && frame.BaseSequence == 0
+            && frame.PublicCatalog && frame.RackMember != null && !frame.RackMember.Detached && frame.Nodes.Length > 0; }),
+            "prepared dormant original sends a genuine complete loading prewarm snapshot");
         Check(TownServiceSync.HasPreparedPublicCatalog, "loading preparation retains a complete source bank before first far category input");
         catalog.OriginalBankPrepared = false; TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f);
         List<byte[]> partial = Capture();
