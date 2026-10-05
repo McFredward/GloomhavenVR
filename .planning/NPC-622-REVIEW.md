@@ -135,6 +135,25 @@ The corrected schedule retains the existing board/use-bar publishers and places
 only the read-only town capture after all original town/layout writers. A focused
 probe binds the real registered step list, not a rearranged simulation.
 
+The final golden-vector run also caught a transport boundary missed by the local
+widget probes: rounding the expanded presence envelope to 8192 required eleven
+existing datagrams, exceeding its unchanged five-second deadline under saturated
+traffic. The legal 7700-byte presence and 7957-byte writer now fit an 8000-byte
+envelope and ten datagrams. All 32 simultaneous streams complete again without a
+scheduler/deadline change. The original six failed vectors and subsequent limited
+repairs are retained; the final full vector run passed 307957 assertions.
+
+Original bank bounds are based on actual asset measurements, not the earlier
+five-node fixture. The real inactive/inert native ItemCard has 25 nodes and its
+complete codec module is 17933 bytes. Twelve/24/36/48 metadata-distinct faces need
+215244/430488/645732/860976 bytes before outer bank stamps; already 36 exceed 512 KiB.
+The bank therefore uses a bounded 4 MiB inflation limit, unchanged 55 KiB compressed
+limit and unchanged 60000-byte outer packet/32-frame bundle limits. Exact bank
+round trips preserve every measured original node/material/text. These are
+card-face lower bounds: original price/body/holder partitions and three editor-
+unbound packed atlases are explicitly outside the measurement, so 4 MiB is a
+conservative chosen bound, not a proved whole-game worst case.
+
 ## Additional 1:1 review
 
 The offered-face/aura path is sampled after the final owner-facing pose. The
@@ -159,3 +178,46 @@ use the receiving game's localization. No new language divergence policy is adde
 The complete existing scenario item/fan path remains covered by the integrated
 gate. Public map metadata is guarded out of scenario sampling and reception;
 selection secrecy and local controlled-card visibility are unchanged.
+
+## Additional causal review of the prepared bank
+
+The first prepared-bank fixture was invalid: its nested iterator was included but
+never executed. Running the four causal controls exposed that omission. The actual
+Editor driver also ignored yielded wait objects. It now executes nested iterators,
+CustomYieldInstruction and native AsyncOperation waits, disposes nested routines,
+and fails on an unsupported yield. Each run first checks nested entry, waiting,
+completion and cancellation. The cold-bank proof verifies actual native unload
+completion. Old apparent positives and escaped controls are retained as failures.
+
+Once the bank case really executed, it found another production defect: registering
+all dormant originals once meant a category change no longer registered new modules.
+The current advertised member list could therefore remain obsolete until the
+five-second manifest heartbeat. Rack membership changes must publish their matching
+census immediately, rather than relying on initial registration.
+
+Native motion is part of parity. A changed original price/availability target is
+admitted atomically, but its existing 0.1-second colour transition is retained.
+The proof checks the actual target immediately and rendered colour after that native
+transition; requiring a snap would have incorrectly removed approved presentation.
+
+Preparing hidden originals also exposed a lifetime defect. Native pools can lend
+the same card GameObject to a different catalogue mount. Replacing its SourceEntry
+without retiring the prior resident partitions left old modules registered and
+outside the ownership census. The replacement now unregisters those old resident
+modules before publishing the new borrower. Ordinary non-bank/private lifetime
+handling is unchanged. A real mount change proves the old ID is gone and the
+registered count stays constant; its causal control reproduces the leak.
+
+The dormant ownership walk is bounded to a half-second census. Current or newly
+seen sources and destroyed native objects still retire immediately. Stable hidden
+originals no longer traverse their parent hierarchy every rendered frame. This is
+an implementation access reduction, not a measured headset FPS improvement.
+
+The actual original-card transport measurement is retained in
+`.planning/debug/npc622/bank-transport622/`. With representative competing production
+streams, 12/24/36/48 original card faces assemble in 700/850/900/950 ms after a
+category change. Those are lower bounds, excluding network transit, physical
+holder/price/control partitions and rendering. They are not headset results or
+proof of an immediate cold-category response. Applying a bank's sampled animation
+age only at receipt also replays an obsolete transition; the corrected playback
+uses a newer, matching native session clock when one has already arrived.

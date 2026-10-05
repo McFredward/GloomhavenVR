@@ -122,3 +122,34 @@ invented artwork or a recurring clone/log loop. Scenario activation is unchanged
 - Final Debug build before the read-only unsupported-graphic precheck:
   `/tmp/npc622-merchant-final-build.log`, zero warnings/errors. Primary final gate
   compiles and tests the integrated final tree.
+
+## Actual prepared original bank and final causal checks
+
+The final review found that the old positive cabinet probes did not execute their
+nested iterator or honour native wait objects. The repaired common Editor runner
+executes nested routines, real waits and AsyncOperation completion; a scheduler
+self-check runs before each production/control run. Invalid positives and escaped
+controls remain in the evidence archive and are not counted as passing coverage.
+
+The complete native catalogue prepares hidden original card/price/body/holder
+partitions during loading. Dormant originals remain registered but unexposed.
+Additive102 carries the exact current/from/to dependency keys and complete original
+updates with the same owner clock. Receiver admission validates the original root,
+parent bindings, content keys and matching service/session/claim before changing
+any pending state. A changed member list publishes its matching manifest immediately.
+The receiver uses the owner's known newer session age rather than replaying an old
+turn from packet arrival; local send completion never substitutes for reception.
+
+The native pool borrower boundary retires previous resident modules before a new
+SourceEntry replaces them. Dormant ownership checks are bounded without deferring
+current/destroyed source retirement. Final lifetime production passes214159
+assertions plus the focused pooled-borrower control; affected public-bank
+production passes14772. The bank/clock admission controls, original price colour
+transition and failed originals are retained in
+`.planning/debug/npc622/final-bank-proof622/README.md` (18 compact runs).
+
+All seven affected integrated production scopes then passed on the final bank tree;
+the later narrow borrower fix has its own lifetime/public-bank continuation.
+Neither these probes nor the native-card packet measurements establish a Build622
+headset picture or an instantaneous first cold category. The actual scheduler's
+remaining transfer latency and subsequent fast-clock work are recorded separately.

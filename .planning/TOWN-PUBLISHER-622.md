@@ -62,3 +62,26 @@ generated Unity caches and duplicate engine references are discarded.
 
 This is source and automated runtime evidence. The supplied hardware evidence
 remains Build 620; no Build 622 headset result is claimed.
+
+## Final registered capture boundary
+
+`check-town-final-capture.py` binds the complete actual `BuildTickSteps` and
+`LateUpdate` dispatcher, the existing use-bar sampler and the final town entry.
+The 44 Update stages remain unchanged. A read-only 21st Late stage publishes town
+after original town handoff/Sync, grip-bar tween and final canvas sorting. The
+probe sees the real intermediate original card plane, row hover/scroll/rect state,
+confirmation alpha, grip geometry and sort order from that same registered frame.
+Five controls restore early sampling, duplicate/missing capture, capture before
+tween or capture before sorting; each must reach its precise causal assertion.
+The retained result has 26 assertions plus those five detected controls.
+
+This is independent of the native catalogue bank proof. A page-dependency fixture
+which includes a case but fails to execute its nested iterator is not evidence;
+escaped controls invalidate that apparent positive result. Its original logs are
+retained before the corrected iterator entry is accepted.
+
+The common Editor runner now honours nested IEnumerator, CustomYieldInstruction
+and native AsyncOperation completion instead of silently advancing the parent.
+Its scheduling self-check runs before production and every control. Unknown waits
+fail closed. A yielded original unused-asset operation is also checked for actual
+completion. This repairs the test boundary; it does not change player animation.
