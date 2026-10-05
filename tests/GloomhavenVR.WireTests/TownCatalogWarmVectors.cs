@@ -235,6 +235,7 @@ internal static class TownCatalogWarmVectors
             var frame = Header((ushort)id);
             frame.Nodes = new[] { new TownServiceNode { Binding = 7 } };
             frame.Nodes[0].Values[TownServiceProperty.Active] = new TownServiceValue { Numbers = new[] { 1f } };
+            frame.Nodes[0].Values[TownServiceProperty.TmpText] = new TownServiceValue { Text = new[] { "", "" } };
             return frame;
         }).ToArray();
         root.CatalogBank!.Updates = members;
@@ -271,6 +272,9 @@ internal static class TownCatalogWarmVectors
             t.Equal(members.Length, encoded, "each immutable original is encoded once rather than once per page");
             TownServiceFrame next = TownServiceDelta.Retain(root); next.Sequence++;
             next.Rack = next.Rack!.Copy(); next.Rack.Turn++;
+            next.CatalogBank = new TownCatalogBank { Prepared = true, Members = root.CatalogBank.Members,
+                Updates = members.Select(frame => { var current = TownServiceDelta.Retain(frame);
+                    current.RackMember = frame.RackMember!.Copy(); current.RackMember.Turn = next.Rack.Turn; return current; }).ToArray() };
             byte[] nextClock = TownServiceCodec.Write(TownCatalogClock.Create(next, new Dictionary<ushort, TownServiceFrame>()));
             queue.Enqueue(nextClock, nextClock.Length, next);
             bool nextArrived = false;
@@ -285,10 +289,12 @@ internal static class TownCatalogWarmVectors
             t.True(nextArrived, "later page clock remains immediately schedulable after original repair completes");
             t.Equal(members.Length, encoded, "warm page changes never rebuild unchanged original packets");
 
-            var changed = TownServiceDelta.Copy(members[0]); changed.Sequence++;
-            changed.Nodes[0].Values[TownServiceProperty.TmpText] = new TownServiceValue { Text = new[] { RandomText(22000, 625) } };
+            var changed = TownServiceDelta.Copy(next.CatalogBank.Updates[0]); changed.Sequence++;
+            string patchText = RandomText(22000, 625);
+            changed.Nodes[0].Values[TownServiceProperty.TmpText] = new TownServiceValue { Text = new[] { patchText[..16000], patchText[16000..] } };
             var oversized = TownServiceDelta.Retain(next); oversized.Sequence++; oversized.Rack = next.Rack.Copy(); oversized.Rack.Turn++;
-            var targets = members.Select(frame => frame.Module == changed.Module ? changed : frame).ToArray();
+            var targets = next.CatalogBank.Updates.Select(frame => { var current = TownServiceDelta.Retain(frame.Module == changed.Module ? changed : frame);
+                current.RackMember = frame.RackMember!.Copy(); current.RackMember.Turn = oversized.Rack.Turn; return current; }).ToArray();
             oversized.CatalogBank = new TownCatalogBank { Prepared = true, Updates = targets,
                 Members = targets.Select(frame => new TownCatalogBankMember(frame.Module, TownCatalogBank.ContentKey(frame))).ToArray() };
             t.True(Throws(() => TownServiceCodec.Write(TownCatalogClock.Create(oversized, members.ToDictionary(frame => frame.Module)))),

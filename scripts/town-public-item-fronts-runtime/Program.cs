@@ -62,6 +62,13 @@ public static partial class MirrorProgram
         fallback.gameObject.SetActive(false);
         var subMesh = fallback.gameObject.AddComponent<TMPro.TMP_SubMeshUI>();
         subMesh.enabled = false;
+        var poolBorrow = Go("Inactive original pooled item validation"); poolBorrow.SetActive(false);
+        var borrowed = UnityEngine.Object.Instantiate(root.gameObject, poolBorrow.transform, false);
+        TownServiceNeutralize.Apply(borrowed);
+        var retained = borrowed.transform.Find("Original TMP fallback renderer").GetComponent<TMPro.TMP_SubMeshUI>();
+        Check(retained != null && !retained.enabled && !retained.raycastTarget,
+            "original pooled item fallback text renderer survives inert public cloning");
+        UnityEngine.Object.DestroyImmediate(poolBorrow);
         return root;
     }
     private static IEnumerator OriginalPublicItemFronts()
@@ -124,10 +131,8 @@ public static partial class MirrorProgram
         Check(!held.Root.Find("UnusedOriginalSlot").gameObject.activeSelf
             && !fan.Root.Find("UnusedOriginalSlot").gameObject.activeSelf,
             "original inactive item slots stay inactive on observers");
-        Check(held.Root.Find("Original TMP fallback renderer").GetComponent<TMPro.TMP_SubMeshUI>() != null
-            && !held.Root.Find("Original TMP fallback renderer").gameObject.activeSelf
-            && !held.Root.Find("Original TMP fallback renderer").GetComponent<TMPro.TMP_SubMeshUI>().enabled,
-            "original pooled item fallback text renderer survives inert public cloning");
+        Check(held.Root.Find("Original TMP fallback renderer") == null,
+            "frozen mirror prunes generated fallback meshes for normal TMP regeneration without rejecting the native front");
         Check(held.Root.GetComponentsInChildren<GameplayFixture>(true).Length == 0
             && fan.Root.GetComponentsInChildren<GameplayFixture>(true).Length == 0,
             "public item fronts remain inert presentation without game controllers");

@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -32,6 +33,36 @@ def sources(root):
     bound['BundleShaders.cs'] = (base / 'Core/BundleShaders.cs').read_text()
     bound["PresentationCompression.cs"] = (base / "Net/PresentationCompression.cs").read_text()
     bound["NetPacket.cs"] = (base / "Net/NetPacket.cs").read_text()
+    # Exercise the actual town queue and transport in the prepared-cabinet proof.
+    # This fixture never enqueues unrelated scenario snapshot identities. Keep the
+    # production town identity branch and generic boundary-retention algorithm;
+    # the complete wire gate independently covers every other identity branch.
+    extras = (base / "Net/ExtrasSendQueue.cs").read_text()
+    extras = extras[:extras.index("\n/// <summary>", extras.index("internal sealed class ExtrasSendQueue"))]
+    start = extras.index("        internal static bool Same(Pending a, Pending b) =>")
+    end = extras.index(";", start) + 1
+    town_branch = "a.Identity is TownServices.TownServiceFrame v && b.Identity is TownServices.TownServiceFrame u\n                            && TownServices.TownServiceSendQueue.SameIdentity(v, u)"
+    if extras.count(town_branch) != 1: raise RuntimeError("Town queue identity binding drift")
+    extras = extras[:start] + "        internal static bool Same(Pending a, Pending b) => " + town_branch + ";" + extras[end:]
+    bound["ExtrasSendQueue.cs"] = extras
+    pending = (base / "Net/PresentationPending.cs").read_text()
+    bound["PresentationPending.cs"] = "using System;\nusing System.Collections.Generic;\nnamespace GloomhavenVR.Net;\ninternal static class PresentationPending {\n" + method(pending, "internal static void Append<T>(List<T> samples, T value, Func<T, T, bool> sameIdentity)") + "\n}\n"
+    bound["ExtrasFragments.cs"] = (base / "Net/ExtrasFragments.cs").read_text()
+    bound["TownServiceFragments.cs"] = (base / "Net/TownServices/TownServiceFragments.cs").read_text()
+    bound["TownServiceSendQueue.cs"] = (base / "Net/TownServices/TownServiceSendQueue.cs").read_text()
+    # Inline only production compile-time constants omitted by the small fixture
+    # protocol seam. Their values and full source are retained in the source hashes.
+    protocol = (base / "Net/NetProtocol.cs").read_text()
+    queue_constants = ("MsgExtras", "MsgExtrasFragments", "MsgPresentationCompression", "ExtIdExtrasFragment", "ExtIdPresentationCompression",
+        "MsgUseBarAnimation", "MsgCardPlume", "MsgNativeUseBar", "MsgNativeBoard", "MsgCardAppearance", "MsgNativeDecisionPrompt",
+        "MsgItemAppearance", "MsgMapButtonTooltip", "MsgNativeUseBarFragments")
+    for name in ("ExtrasSendQueue.cs", "ExtrasFragments.cs", "TownServiceFragments.cs"):
+        for constant in queue_constants:
+            value = re.search(r"public const byte " + constant + r" = (\d+);", protocol)
+            if value is None: raise RuntimeError("Town queue protocol binding drift: " + constant)
+            bound[name] = re.sub(r"\bNetProtocol\." + constant + r"\b", value[1], bound[name])
+    bound["QueueProtocolBinding.cs"] = "// Production protocol constants used by the queue fixture: " + ", ".join(
+        constant + "=" + re.search(r"public const byte " + constant + r" = (\d+);", protocol)[1] for constant in queue_constants) + "\n"
     stock = base / "Net/TownServices/TownServiceMirror.Stock.cs"
     if stock.exists(): bound[stock.name] = stock.read_text()
     merchant_control = base / "Net/TownServices/TownServiceMirror.MerchantControl.cs"
