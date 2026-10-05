@@ -4,9 +4,43 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 
-from storage import BuildError, digest, value_hash
+from storage import BuildError, digest, value_hash, write_json
 
 REPORT = "quest-campaign-report.json"
+# Pinned exporter's Editor-only helper restores missing audio-effect parameter
+# names through Unity's original importer while retaining existing native GUIDs.
+RECOVERY_EDITOR_SOURCES = {
+    "Assets/Editor/AssetRipperPatches/AudioMixerPostprocessor.cs":
+        "9dcc222df079f5e4c15c6a9f2d50d0eb2b11c7eeeb7c36aa16f21530ced7bd5c"
+}
+
+
+def ensure_packed_sprite_manifest(project: Path) -> None:
+    """Complete the generated import contract from witnessed legacy stage receipts."""
+    target = project / "Assets/QuestOriginalCampaign/packed-sprites.json"
+    if target.is_file(): return
+    pointer = json.loads((project / "QuestRecovery/full-native-pointer-repair.json").read_text())
+    if pointer.get("complete") is not True or pointer.get("remainingMissingPointerCount"):
+        raise BuildError("Packed Sprite import requires completed original native pointer recovery.")
+    sprites, atlases = [], []
+    for row in pointer["additionalNativeTargets"]:
+        if row["classId"] != 687078895: continue
+        relative = "QuestRecovery/packed-sprites-" + row["guid"] + ".json"
+        receipt = json.loads((project / relative).read_text())
+        if (receipt.get("schema") != 1 or receipt["originalAtlasCollection"] != row["collection"]
+                or receipt["originalAtlasPathId"] != row["pathId"]
+                or len(receipt["restoredMembers"]) != receipt["originalMemberCount"]):
+            raise BuildError("Packed Sprite receipt differs from its original native atlas.")
+        for sprite in receipt["restoredMembers"]:
+            if digest(project / sprite["assetPath"]) != sprite["sha256"]:
+                raise BuildError("Packed Sprite bytes changed after native restoration.")
+        sprites.extend(receipt["restoredMembers"])
+        atlases.append({"assetPath": row["path"], "guid": row["guid"], "sourceCollection": row["collection"],
+                       "sourcePathId": row["pathId"], "spriteCount": receipt["originalMemberCount"], "receiptPath": relative})
+    if not atlases or not sprites:
+        raise BuildError("Campaign import has no restored original packed Sprite atlas.")
+    write_json(target, {"schema": 1, "spriteCount": len(sprites), "atlases": atlases, "sprites": sprites,
+                        "unityImportVerified": False, "headsetPictureVerified": False})
 
 
 def stage_file_backed_extras(project: Path, game: Path) -> list[str]:
@@ -71,7 +105,9 @@ def inspect_project(root: Path, game_key: str, game_files: list[dict]) -> dict:
         if (local.is_symlink() or not local.is_file() or local.stat().st_size != row["size"]
                 or digest(local) != row["sha256"]):
             raise BuildError("Campaign recovery bytes changed: " + relative)
-        if path.suffix.lower() in (".cs", ".exe", ".so", ".env", ".keystore", ".jks", ".key", ".pem"):
+        if path.suffix.lower() == ".cs" and RECOVERY_EDITOR_SOURCES.get(relative) != row["sha256"]:
+            raise BuildError("Recovered Editor source differs from the pinned exporter helper: " + relative)
+        if path.suffix.lower() in (".exe", ".so", ".env", ".keystore", ".jks", ".key", ".pem"):
             raise BuildError("A reused native export cannot inject executable source or secrets: " + relative)
         if path.suffix.lower() == ".dll":
             original = originals.get(path.name)

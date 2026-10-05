@@ -340,6 +340,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             shutil.copytree(recovered, project, ignore=shutil.ignore_patterns("Library", "Temp", "Logs", ".git", ".snapshot.json"))
             if inputs.get("campaignProject"):
                 campaign.verify_copy(project, inputs["campaignProject"])
+                campaign.ensure_packed_sprite_manifest(project)
         else:
             project.mkdir(parents=True)
         # Retain original built-in modules (video, particles, cloth, etc.) while

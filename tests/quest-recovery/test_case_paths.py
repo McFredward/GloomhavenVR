@@ -85,6 +85,38 @@ class CasePathContracts(unittest.TestCase):
         self.assertEqual(report["files"][0]["guid"], "2" * 32)
         self.assertFalse(case_paths.plan(case_paths.nodes(self.project), set())[0])
 
+    def test_full_campaign_only_bundle_moves_all_import_contracts_keeps_original_keys(self):
+        core, variant = "Assets/Resources/Hex.prefab", "Assets/Resources/hex.prefab"
+        self.asset(core, "1" * 32)
+        self.asset(variant, "2" * 32, "native PPtr bytes\n")
+        root = self.project / "Assets/QuestOriginalCampaign"
+        root.mkdir()
+        original = {"assetPath": variant, "originalAssetPath": variant, "recoveredGuid": "2" * 32,
+                    "provider": "BundledAssetProvider", "keys": [variant, "campaign-key"], "nativeKeys": [variant],
+                    "labels": ["DLC2", "high_detail"], "nativeFileId": 123}
+        docs = {
+            "campaign-addressables.json": {"schema": 1, "entries": [original]},
+            "campaign-scenes.json": {"schema": 1, "scenes": [{"path": variant, "guid": "2" * 32}]},
+            "script-bindings.json": {"schema": 1, "assetPaths": [variant], "bindings": [{"oldGuid": "2" * 32}]},
+            "campaign-shaders.json": {"schema": 1, "shaders": [{"assetPath": variant, "sourceSha256": "3" * 64}],
+                                       "materials": [{"assetPath": variant}], "programs": []},
+            "packed-sprites.json": {"schema": 1, "atlases": [{"assetPath": variant}], "sprites": [{"assetPath": variant}]}}
+        for name, document in docs.items(): (root / name).write_text(json.dumps(document))
+        report = case_paths.migrate(self.project)
+        destination = case_paths.mapped(variant, report["pathMappings"])
+        self.assertNotEqual(destination, variant)
+        self.assertFalse(case_paths.resource_path(destination))
+        self.assertEqual((self.project / destination).read_text(), "native PPtr bytes\n")
+        rows = json.loads((root / "campaign-addressables.json").read_text())["entries"]
+        self.assertEqual(rows, [{**original, "assetPath": destination}])
+        self.assertEqual(json.loads((root / "script-bindings.json").read_text())["assetPaths"], [destination])
+        self.assertEqual(json.loads((root / "campaign-scenes.json").read_text())["scenes"][0]["path"], destination)
+        self.assertEqual(json.loads((root / "campaign-shaders.json").read_text())["shaders"][0],
+                         {"assetPath": destination, "sourceSha256": "3" * 64})
+        self.assertEqual(json.loads((root / "packed-sprites.json").read_text())["sprites"][0]["assetPath"], destination)
+        self.assertEqual(len([name for name in report["manifestSha256"] if name.startswith("Assets/QuestOriginalCampaign/")]), 5)
+        self.assertEqual(case_paths.migrate(self.project), report)
+
     def test_folder_metadata_and_nested_references_move_with_owner(self):
         self.asset("Assets/A/Child.asset", "1" * 32)
         self.asset("Assets/a/Child.asset", "2" * 32, "m_Target: {fileID: 71}\n")

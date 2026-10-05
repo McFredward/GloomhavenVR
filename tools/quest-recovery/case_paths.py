@@ -120,7 +120,7 @@ def campaign_manifest_updates(project, moves):
     """Migrate generated paths while retaining all original keys and identities."""
     updates = {}
     root = "Assets/QuestOriginalCampaign/"
-    for name in ("campaign-addressables.json", "campaign-scenes.json", "script-bindings.json", "campaign-shaders.json"):
+    for name in ("campaign-addressables.json", "campaign-scenes.json", "script-bindings.json", "campaign-shaders.json", "packed-sprites.json"):
         path = root + name
         if not (project / path).is_file(): continue
         document = json.loads((project / path).read_text())
@@ -133,8 +133,11 @@ def campaign_manifest_updates(project, moves):
             for row in document["scenes"]: row["path"] = mapped(row["path"], moves)
         elif name == "script-bindings.json":
             document["assetPaths"] = [mapped(path, moves) for path in document["assetPaths"]]
-        else:
+        elif name == "campaign-shaders.json":
             for key in ("shaders", "materials", "programs"):
+                for row in document.get(key, []): row["assetPath"] = mapped(row["assetPath"], moves)
+        else:
+            for key in ("atlases", "sprites"):
                 for row in document.get(key, []): row["assetPath"] = mapped(row["assetPath"], moves)
         updates[path] = document
     return updates

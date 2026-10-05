@@ -21,6 +21,9 @@ namespace GloomhavenVR.Quest
             PreserveList<GlobalData.KeyBinding>();
             PreserveList<PartyAdventureData>();
             PreserveList<GHRuleset>();
+            PreserveList<ClientIndependantValues.CIVKeyValuePair>();
+            PreserveList<System.Tuple<string, int>>();
+            PreserveList<System.Tuple<string, int, string>>();
             var dictionary = new DictionaryFormatter<string, int>();
             dictionary.Serialize(null, null);
             dictionary.Deserialize(null);
@@ -34,13 +37,29 @@ namespace GloomhavenVR.Quest
             PreserveComplex<StatsDataStorage>();
             PreserveComplex<IEqualityComparer<string>>();
             PreserveComplex<IEqualityComparer<int>>();
-            var keyBinding = new ReflectionFormatter<GlobalData.KeyBinding>();
-            keyBinding.Serialize(null, null);
-            keyBinding.Deserialize(null);
+            PreserveComplex<ClientIndependantValues.CIVKeyValuePair>();
+            PreserveComplex<System.Tuple<string, int>>();
+            PreserveComplex<System.Tuple<string, int, string>>();
+            PreserveComplex<ClientIndependantValues>();
+            PreserveComplex<SaveOwner>();
+            PreserveComplex<SaveOwner.SerializedAvatar>();
+            PreserveReflection<GlobalData.KeyBinding>();
+            PreserveReflection<ClientIndependantValues.CIVKeyValuePair>();
+            PreserveReflection<System.Tuple<string, int>>();
+            PreserveReflection<System.Tuple<string, int, string>>();
             PreserveSerializable<GlobalData>();
             PreserveSerializable<StatsDataStorage>();
             PreserveSerializable<PartyAdventureData>();
             PreserveSerializable<GHRuleset>();
+            PreserveSerializable<ClientIndependantValues>();
+            PreserveSerializable<SaveOwner>();
+            PreserveSerializable<SaveOwner.SerializedAvatar>();
+            var avatarBytes = new PrimitiveArrayFormatter<byte>();
+            avatarBytes.Serialize(null, null);
+            avatarBytes.Deserialize(null);
+            new BinaryDataWriter().WritePrimitiveArray<byte>(null);
+            byte[] bytes;
+            new BinaryDataReader().ReadPrimitiveArray<byte>(out bytes);
         }
 
         [Preserve]
@@ -60,9 +79,17 @@ namespace GloomhavenVR.Quest
         }
 
         [Preserve]
-        static void PreserveSerializable<T>()
+        static void PreserveSerializable<T>() where T : System.Runtime.Serialization.ISerializable
         {
             var formatter = new SerializableFormatter<T>();
+            formatter.Serialize(default(T), null);
+            formatter.Deserialize(null);
+        }
+
+        [Preserve]
+        static void PreserveReflection<T>()
+        {
+            var formatter = new ReflectionFormatter<T>();
             formatter.Serialize(default(T), null);
             formatter.Deserialize(null);
         }
