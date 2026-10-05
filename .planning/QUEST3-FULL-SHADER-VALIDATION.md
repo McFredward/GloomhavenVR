@@ -272,3 +272,35 @@ matches the original native Amp DXBC byte-for-byte in all eight D3D11 pictures
 eye). Both executable negative controls are rejected. This remains the bounded
 original forward-pass fixture; native bones, every material/program, Android
 pixels and headset performance are not inferred from it.
+
+### Full game Vulkan platform contract
+
+The full Campaign target uses Vulkan. Original Windows DXBC already contains
+Unity's reversed-Z shadow-bias, fog/depth and top-origin texture branches.
+Unity 2021.3.5's exact `HLSLSupport.cginc` enables `UNITY_REVERSED_Z` and
+`UNITY_UV_STARTS_AT_TOP` for both D3D11 and Vulkan; GLES has different near-clip
+and depth conventions. Compiling those baked Windows branches unchanged for
+GLES is insufficient. The full target keeps the original math and uses its
+matching Vulkan conventions. The separate startup/probe retains GLES.
+
+`QuestVulkanShaderValidation.Compile(shader, subshader, pass, keywords, tier)`
+accepts `int` or `GraphicsTier` and returns the real combined bank, decoded
+`vertex` and `fragment` SPIR-V bytes and SHA-256 values, image descriptors and
+stage interfaces. Unity's Vulkan Vertex query contains both stages; an empty
+Fragment query is expected. The six-entry Unity stage table is bounded and its
+SMOL-V payloads are decoded with the pinned official modern format, classified
+by their actual `OpEntryPoint` rather than table order. Resource debug names
+are stripped, so texture property identities join actual
+`CompileVariant.TextureBindings` packed descriptor coordinates to decoded
+`OpTypeImage` dimensions. No name guessing supplies missing properties.
+`RequirePosition`, `RequireColorOutput`, and `RequirePlain2D` enforce the narrow
+original contracts used by the retained UI/video/world gates.
+
+Actual original Amp trial: 23,916-byte vertex and 98,116-byte fragment SPIR-V
+modules compiled for Android Vulkan. The managed SMOL-V decoder produced
+byte-identical modules to independently built official smol-v C++ at commit
+`55000efe742f56d8b51223b9ea7775a8f0501881`. All ten used original sampled
+resources matched their actual cooked descriptor/property/dimension bindings.
+The separate eight-source legacy fixture also passed 27 Vulkan banks/54 stages.
+These are compiler/format evidence, not headset image validation or a full
+Campaign native driver census.
