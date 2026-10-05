@@ -54,6 +54,19 @@ layout fails open. Every foreign/native buffer, including another event, remains
 a native-renderer consumer. Private buffers detach after each render, remain
 bounded to eight camera identities per group, and release when the group retires.
 
+Prepared-group debug lines do not prove applied rendering. With performance
+attribution enabled, the existing bounded counter stream additionally reports
+`Environment.RenderCameras`, `Environment.ChunkSources`,
+`Environment.ChunkGroups`, `Environment.InstanceSources`, and
+`Environment.InstanceGroups`. They sample actual surviving masks at camera
+completion before restitution; late revoked draws contribute zero source savings.
+`Environment.NativeBufferFallback` counts camera invocations which retained
+originals because a foreign/native command buffer consumed their identities.
+Counters sum camera invocations, including both MultiPass eyes and nested cameras;
+they are not unique scene renderer totals or measured GPU draw calls. Zero entries
+are omitted by the existing counter stream. No per-frame information log or scene
+census is added, and mask-count traversal is skipped when attribution is Off.
+
 ## Mesh bank and source provenance
 
 The offline tool reads MeshFilter originals from original PCG database bundles;
@@ -152,3 +165,5 @@ pre-cull and after nested-camera source restitution, and same-frame original
 fallback after newly overlapping instance bounds. The strict Release build passed
 with zero warnings/errors. The structural-instancing suite and four focused
 source checks also passed; the integrator still owns the complete final-tree gate.
+The subsequent applied-counter change passed the affected production fixture
+with **11,230 assertions**; the final complete-tree gate includes it.

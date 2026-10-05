@@ -320,6 +320,7 @@ internal static class ScenarioEnvironmentBudget
         internal readonly List<Surface> Sources = new();
         internal readonly List<Matrix4x4> Matrices = new();
         private bool _owned;
+        internal int MaskedSourceCount => _owned ? Sources.Count : 0;
         private readonly List<Material> _materialScratch = new(1);
 
         internal void Validate()
@@ -388,6 +389,7 @@ internal static class ScenarioEnvironmentBudget
         private readonly Bounds[] _bounds = new Bounds[MaxBatchMembers];
         private readonly List<Material> _scratch = new();
         private bool _owned;
+        internal int MaskedSourceCount => _owned ? Sources.Count : 0;
         private sealed class Submission { internal Camera Camera = null!; internal CommandBuffer Buffer = null!; internal bool Active; }
         private readonly List<Submission> _submitted = new();
 
@@ -1104,6 +1106,7 @@ internal static class ScenarioEnvironmentBudget
                 // Keep these sources available with native flags for command-buffer
                 // consumers; such cameras use originals, never a substitute mask.
                 bool foreignCommands = camera != null && HasNativeCommandBufferConsumers(camera);
+                PerfMonitor.Count("Environment.NativeBufferFallback", foreignCommands && (_batches.Count > 0 || _instances.Count > 0) ? 1 : 0);
                 if (camera != null && camera.commandBufferCount > 0 && foreignCommands)
                     foreach (Batch batch in _batches) { batch.Unmask(); }
                 else ValidateBatches();
@@ -1116,6 +1119,7 @@ internal static class ScenarioEnvironmentBudget
         {
             if (_renderDepth <= 0) return;
             if (_renderCameras.Count == 0 || _renderCameras[_renderCameras.Count - 1] != camera) { RecoverRenderLeases(); return; }
+            ReportCameraDrawCounts();
             _renderCameras.RemoveAt(_renderCameras.Count - 1);
             --_renderDepth;
             foreach (InstanceBatch batch in _instances) batch.EndCamera(camera);
@@ -1127,6 +1131,29 @@ internal static class ScenarioEnvironmentBudget
             }
             foreach (Batch batch in _batches) batch.Unmask();
             foreach (Ambient ambient in _ambient.Values) ambient.Unmask();
+        }
+        private void ReportCameraDrawCounts()
+        {
+            if (!PerfMonitor.StepsActive) return;
+            int chunkSources = 0, chunkGroups = 0, instanceSources = 0, instanceGroups = 0;
+            foreach (Batch batch in _batches)
+            {
+                int count = batch.MaskedSourceCount;
+                chunkSources += count; if (count > 0) ++chunkGroups;
+            }
+            foreach (InstanceBatch batch in _instances)
+            {
+                int count = batch.MaskedSourceCount;
+                instanceSources += count; if (count > 0) ++instanceGroups;
+            }
+            // Count completed camera leases before restitution, after any late native
+            // writes have revoked obsolete geometry. These are per-camera sums, not
+            // prepared membership, scene renderer totals, draw-call counts or FPS.
+            PerfMonitor.Count("Environment.RenderCameras");
+            PerfMonitor.Count("Environment.ChunkSources", chunkSources);
+            PerfMonitor.Count("Environment.ChunkGroups", chunkGroups);
+            PerfMonitor.Count("Environment.InstanceSources", instanceSources);
+            PerfMonitor.Count("Environment.InstanceGroups", instanceGroups);
         }
         private void ValidateBatches() { foreach (Batch batch in _batches) batch.Validate(); }
         private void ReleaseBatches()

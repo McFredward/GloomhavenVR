@@ -62,6 +62,10 @@ namespace GloomhavenVR.Core
     {
         private readonly struct QuietScope : IDisposable { public void Dispose() { } }
         internal static bool ThrowDrawTrace;
+        internal static bool StepsActive = true;
+        internal static readonly Dictionary<string,long> Counts = new Dictionary<string,long>();
+        internal static void Count(string name,long amount=1L)
+        {if(!StepsActive||amount==0)return;Counts.TryGetValue(name,out long old);Counts[name]=old+amount;}
         internal static IDisposable Scope(string name)
         {
             if (ThrowDrawTrace && name == "WallFade.DrawTrace") throw new InvalidOperationException("fixture diagnostic fault");

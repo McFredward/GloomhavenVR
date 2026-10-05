@@ -70,6 +70,7 @@ public static partial class EnvironmentProgram
         {
             VRSession.IsRunning = true;
             VRLog.Faults.Clear();
+            PerfMonitor.Counts.Clear();
             VRLog.DebugLines.Clear(); VRLog.DebugEnabled = true; PerfMonitor.ThrowDrawTrace = false;
             Configure(false, false, 100);
             PerfConfig.SharedEnvironmentMaterialReadsOn = true; PerfConfig.EnvironmentMeshBankOn = false; PerfConfig.EnvironmentDrawInstancingOn = false;
@@ -348,6 +349,8 @@ public static partial class EnvironmentProgram
         Check(drawn > 20 && same, "actual graphics rendering preserves the native opaque floor pixels after combining");
         Check(drawLease && !first.forceRenderingOff && !second.forceRenderingOff && !chunk.enabled,
             "real camera callback pair owns masks only during rendering");
+        Check(PerfMonitor.Counts["Environment.ChunkSources"]==2&&PerfMonitor.Counts["Environment.ChunkGroups"]==1,
+            "completed exact chunk camera reports actually leased sources and groups");
         Check(collider.enabled && first.gameObject.activeInHierarchy, "native collider and hierarchy survive render substitution");
 
         var clone = UnityEngine.Object.Instantiate(first.gameObject,room.Generated.transform,false);

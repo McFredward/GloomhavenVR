@@ -43,6 +43,9 @@ The generated scene covers:
   exact native buffer identities because Unity returns new managed wrappers. Original
   source cloning during rendering and after interrupted rendering runs the production
   Apparance prefix and retains the original nonempty mesh/material slots and draw flags.
+- Completed-camera counters report two actually substituted sources and one active
+  group, while late-revoked instancing reports zero source savings. An actual foreign
+  camera command buffer reports the fallback reason and keeps native sources.
 - Native floor pixels before/after combining, same-render fallback after visibility,
   mesh, transform, material array, property block and common render-flag changes.
 - Render-only leases, real balanced and nested camera callback execution, original
