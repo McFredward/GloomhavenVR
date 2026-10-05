@@ -16,6 +16,15 @@ namespace GloomhavenVR.Quest.Editor
     /// <summary>Validates imported original Bloom assets and their actual Android compiler output.</summary>
     public static class QuestPostEffectValidation
     {
+#if GHVR_QUEST_GAME
+        private const GraphicsDeviceType RequiredGraphicsApi = GraphicsDeviceType.Vulkan;
+        private const string CompilerPlatform = "Vulkan";
+        private const bool VulkanBackend = true;
+#else
+        private const GraphicsDeviceType RequiredGraphicsApi = GraphicsDeviceType.OpenGLES3;
+        private const string CompilerPlatform = "GLES3x";
+        private const bool VulkanBackend = false;
+#endif
         public const string InputPath = "QuestStartupEvidence/legacy-post-effects.json";
         public const string ReceiptPath = "QuestStartupEvidence/legacy-post-effects.android-validation.json";
 
@@ -72,13 +81,13 @@ namespace GloomhavenVR.Quest.Editor
             public int importedSubshaderCount, importedPassCount;
             public bool shaderHasError;
             public CompilerMessage[] messages;
-            public CompiledProgram[] glesPrograms;
+            public CompiledProgram[] glesPrograms, vulkanPrograms;
         }
         [Serializable] public sealed class ValidationReceipt
         {
             public int schema = 1;
             public string unityVersion, sourceReceiptSha256, activeBuildTarget, compilerPlatform;
-            public bool androidAssetsBuilt, allImportedAssetsVerified, allGlesPassStagesCompiled;
+            public bool androidAssetsBuilt, allImportedAssetsVerified, allGlesPassStagesCompiled, allVulkanPassStagesCompiled;
             public int combinedProgramCount, compiledStageSections;
             public bool originalPixelParityVerified;
             public ValidatedAsset[] shaders;
@@ -92,8 +101,8 @@ namespace GloomhavenVR.Quest.Editor
             if (!Directory.Exists("Assets/Quest"))
                 throw new InvalidOperationException("Post-effect validation requires the generated Quest project.");
             if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.Android ||
-                !PlayerSettings.GetGraphicsAPIs(BuildTarget.Android).Contains(GraphicsDeviceType.OpenGLES3))
-                throw new InvalidOperationException("Post-effect validation requires the configured Android/GLES3 build target.");
+                !PlayerSettings.GetGraphicsAPIs(BuildTarget.Android).Contains(RequiredGraphicsApi))
+                throw new InvalidOperationException("Post-effect validation requires the configured Android " + CompilerPlatform + " build target.");
             SafePath(InputPath);
             if (!File.Exists(InputPath) || new FileInfo(InputPath).Length > 1024 * 1024)
                 throw new InvalidOperationException("Legacy post-effect source receipt is missing or invalid.");
@@ -153,6 +162,17 @@ namespace GloomhavenVR.Quest.Editor
                         var pass = subshader.GetPass(index);
                         if (pass == null || !pass.HasShaderStage(ShaderType.Vertex) || !pass.HasShaderStage(ShaderType.Fragment))
                             throw new InvalidOperationException("Imported post-effect stage is missing: " + expected.name + " " + index);
+#if GHVR_QUEST_GAME
+                        var compiled = QuestVulkanShaderValidation.Compile(shader, 0, index, new string[0], GraphicsTier.Tier2);
+                        QuestVulkanShaderValidation.RequireColorOutput(compiled);
+                        programs.Add(new CompiledProgram {
+                            passIndex = index, success = true, compiledBytes = compiled.vertex.Length + compiled.fragment.Length,
+                            sha256 = compiled.bankSha256, messages = new CompilerMessage[0],
+                            vertexSectionVerified = true, fragmentSectionVerified = true,
+                            vertexSectionBytes = compiled.vertex.Length, fragmentSectionBytes = compiled.fragment.Length,
+                            vertexSectionSha256 = compiled.vertexSha256, fragmentSectionSha256 = compiled.fragmentSha256
+                        });
+#else
                         var compiled = pass.CompileVariant(ShaderType.Vertex, new string[0], ShaderCompilerPlatform.GLES3x, BuildTarget.Android);
                         var messages = Messages(compiled.Messages);
                         if (!compiled.Success || compiled.ShaderData == null || compiled.ShaderData.Length == 0 ||
@@ -168,6 +188,7 @@ namespace GloomhavenVR.Quest.Editor
                             vertexSectionBytes = vertex.Length, fragmentSectionBytes = fragment.Length,
                             vertexSectionSha256 = Hash(vertex), fragmentSectionSha256 = Hash(fragment)
                         });
+#endif
                     }
                 }
                 RejectErrors(shader, expected.name);
@@ -177,16 +198,19 @@ namespace GloomhavenVR.Quest.Editor
                     unityObjectToClipPosUpgradeApplied = importedSha256 == expected.upgradeSha256,
                     importedSubshaderCount = data.SubshaderCount,
                     importedPassCount = subshader.PassCount, shaderHasError = false,
-                    messages = Messages(ShaderUtil.GetShaderMessages(shader)), glesPrograms = programs.ToArray()
+                    messages = Messages(ShaderUtil.GetShaderMessages(shader)),
+                    glesPrograms = VulkanBackend ? new CompiledProgram[0] : programs.ToArray(),
+                    vulkanPrograms = VulkanBackend ? programs.ToArray() : new CompiledProgram[0]
                 });
             }
             var receipt = new ValidationReceipt {
                 unityVersion = Application.unityVersion, sourceReceiptSha256 = Hash(inputBytes),
-                activeBuildTarget = BuildTarget.Android.ToString(), compilerPlatform = ShaderCompilerPlatform.GLES3x.ToString(),
+                activeBuildTarget = BuildTarget.Android.ToString(), compilerPlatform = CompilerPlatform,
                 androidAssetsBuilt = androidAssetsBuilt, allImportedAssetsVerified = true,
-                allGlesPassStagesCompiled = androidAssetsBuilt,
-                combinedProgramCount = results.Sum(result => result.glesPrograms.Length),
-                compiledStageSections = results.Sum(result => result.glesPrograms.Length) * 2,
+                allGlesPassStagesCompiled = androidAssetsBuilt && !VulkanBackend,
+                allVulkanPassStagesCompiled = androidAssetsBuilt && VulkanBackend,
+                combinedProgramCount = results.Sum(result => result.glesPrograms.Length + result.vulkanPrograms.Length),
+                compiledStageSections = results.Sum(result => result.glesPrograms.Length + result.vulkanPrograms.Length) * 2,
                 originalPixelParityVerified = false, shaders = results.ToArray()
             };
             Directory.CreateDirectory(Path.GetDirectoryName(ReceiptPath));
@@ -197,8 +221,8 @@ namespace GloomhavenVR.Quest.Editor
                 File.Move(temporary, ReceiptPath);
             }
             finally { if (File.Exists(temporary)) File.Delete(temporary); }
-            Debug.Log("[GloomhavenVR Quest] original Bloom shaders verified: passes=11/2/5, GLES stages=" +
-                (androidAssetsBuilt ? "18 combined programs / 36 verified sections" : "pending Android assets build"));
+            Debug.Log("[GloomhavenVR Quest] original Bloom shaders verified: passes=11/2/5, " + CompilerPlatform + " stages=" +
+                (androidAssetsBuilt ? "18 programs / 36 verified stages" : "pending Android assets build"));
         }
 
         private static string[] VerifiedGlesSections(byte[] bytes, string name, int pass)

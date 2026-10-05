@@ -16,6 +16,15 @@ namespace GloomhavenVR.Quest.Editor
     /// <summary>Checks restored original EULA/promotion shaders and their Android keyword banks.</summary>
     public static class QuestUiAssetValidation
     {
+#if GHVR_QUEST_GAME
+        private const GraphicsDeviceType RequiredGraphicsApi = GraphicsDeviceType.Vulkan;
+        private const string CompilerPlatform = "Vulkan";
+        private const bool VulkanBackend = true;
+#else
+        private const GraphicsDeviceType RequiredGraphicsApi = GraphicsDeviceType.OpenGLES3;
+        private const string CompilerPlatform = "GLES3x";
+        private const bool VulkanBackend = false;
+#endif
         public const string InputPath = "QuestStartupEvidence/original-ui-assets.json";
         public const string ReceiptPath = "QuestStartupEvidence/original-ui-assets.android-validation.json";
         private static readonly SourceShader[] Expected = {
@@ -55,11 +64,11 @@ namespace GloomhavenVR.Quest.Editor
         [Serializable] public sealed class ValidationReceipt
         {
             public int schema = 1;
-            public string unityVersion, sourceReceiptSha256;
-            public bool androidAssetsBuilt, allGlesPassStagesCompiled, originalPixelParityVerified;
+            public string compilerPlatform, unityVersion, sourceReceiptSha256;
+            public bool androidAssetsBuilt, allGlesPassStagesCompiled, allVulkanPassStagesCompiled, originalPixelParityVerified;
             public int importedPassCount;
             public SourceShader[] shaders;
-            public CompiledBank[] glesPrograms;
+            public CompiledBank[] glesPrograms, vulkanPrograms;
         }
 
         public static void Validate(bool androidAssetsBuilt)
@@ -69,8 +78,8 @@ namespace GloomhavenVR.Quest.Editor
             if (File.Exists(ReceiptPath)) File.Delete(ReceiptPath);
             if (!Directory.Exists("Assets/Quest") ||
                 EditorUserBuildSettings.activeBuildTarget != BuildTarget.Android ||
-                !PlayerSettings.GetGraphicsAPIs(BuildTarget.Android).Contains(GraphicsDeviceType.OpenGLES3))
-                throw new InvalidOperationException("Original UI validation requires the generated Android/GLES3 Quest project.");
+                !PlayerSettings.GetGraphicsAPIs(BuildTarget.Android).Contains(RequiredGraphicsApi))
+                throw new InvalidOperationException("Original UI validation requires the generated Android " + CompilerPlatform + " Quest project.");
             SafePath(InputPath);
             if (!File.Exists(InputPath) || new FileInfo(InputPath).Length > 1024 * 1024)
                 throw new InvalidOperationException("Original UI source receipt is missing or oversized.");
@@ -123,6 +132,16 @@ namespace GloomhavenVR.Quest.Editor
                     foreach (string keyword in source.keywords)
                     {
                         string[] keywords = keyword.Length == 0 ? new string[0] : new[] { keyword };
+#if GHVR_QUEST_GAME
+                        var compiled = QuestVulkanShaderValidation.Compile(shader, 0, 0, keywords, GraphicsTier.Tier2);
+                        QuestVulkanShaderValidation.RequireColorOutput(compiled);
+                        programs.Add(new CompiledBank {
+                            name = source.name, keyword = keyword, sha256 = compiled.bankSha256,
+                            bytes = compiled.vertex.Length + compiled.fragment.Length, fragmentOutput = "location0-float4",
+                            vertexSha256 = compiled.vertexSha256, vertexBytes = compiled.vertex.Length,
+                            fragmentSha256 = compiled.fragmentSha256, fragmentBytes = compiled.fragment.Length
+                        });
+#else
                         var compiled = pass.CompileVariant(ShaderType.Vertex, keywords, ShaderCompilerPlatform.GLES3x, BuildTarget.Android);
                         if (!compiled.Success || compiled.ShaderData == null || compiled.ShaderData.Length == 0 ||
                             (compiled.Messages ?? new ShaderMessage[0]).Any(message => message.severity == ShaderCompilerMessageSeverity.Error))
@@ -135,6 +154,7 @@ namespace GloomhavenVR.Quest.Editor
                             vertexSha256 = Hash(Encoding.UTF8.GetBytes(vertex)), vertexBytes = Encoding.UTF8.GetByteCount(vertex),
                             fragmentSha256 = Hash(Encoding.UTF8.GetBytes(fragment)), fragmentBytes = Encoding.UTF8.GetByteCount(fragment)
                         });
+#endif
                     }
                 }
                 if (ShaderUtil.ShaderHasError(shader) || (ShaderUtil.GetShaderMessages(shader) ?? new ShaderMessage[0])
@@ -142,9 +162,11 @@ namespace GloomhavenVR.Quest.Editor
                     throw new InvalidOperationException("Imported original UI shader has compiler errors.");
             }
             var receipt = new ValidationReceipt {
-                unityVersion = Application.unityVersion, sourceReceiptSha256 = Hash(bytes), shaders = input.shaders,
-                androidAssetsBuilt = androidAssetsBuilt, allGlesPassStagesCompiled = true, importedPassCount = Expected.Length,
-                originalPixelParityVerified = false, glesPrograms = programs.ToArray()
+                compilerPlatform = CompilerPlatform, unityVersion = Application.unityVersion, sourceReceiptSha256 = Hash(bytes), shaders = input.shaders,
+                androidAssetsBuilt = androidAssetsBuilt, allGlesPassStagesCompiled = !VulkanBackend, allVulkanPassStagesCompiled = VulkanBackend, importedPassCount = Expected.Length,
+                originalPixelParityVerified = false,
+                glesPrograms = VulkanBackend ? new CompiledBank[0] : programs.ToArray(),
+                vulkanPrograms = VulkanBackend ? programs.ToArray() : new CompiledBank[0]
             };
             Directory.CreateDirectory(Path.GetDirectoryName(ReceiptPath));
             string temporary = ReceiptPath + ".tmp-" + Guid.NewGuid().ToString("N");
@@ -154,7 +176,7 @@ namespace GloomhavenVR.Quest.Editor
                 File.Move(temporary, ReceiptPath);
             }
             finally { if (File.Exists(temporary)) File.Delete(temporary); }
-            Debug.Log("[GloomhavenVR Quest] original UI shaders verified: passes=2, keyword banks=" + programs.Count);
+            Debug.Log("[GloomhavenVR Quest] original UI shaders verified: passes=2, " + CompilerPlatform + " keyword banks=" + programs.Count);
         }
 
         internal static string[] VerifiedGlesSections(byte[] bytes)

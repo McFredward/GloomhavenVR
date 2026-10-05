@@ -15,6 +15,15 @@ namespace GloomhavenVR.Quest.Editor
     /// <summary>Separate original blur provenance and actual Android program gate.</summary>
     public static class QuestBlurValidation
     {
+#if GHVR_QUEST_GAME
+        private const GraphicsDeviceType RequiredGraphicsApi = GraphicsDeviceType.Vulkan;
+        private const string CompilerPlatform = "Vulkan";
+        private const bool VulkanBackend = true;
+#else
+        private const GraphicsDeviceType RequiredGraphicsApi = GraphicsDeviceType.OpenGLES3;
+        private const string CompilerPlatform = "GLES3x";
+        private const bool VulkanBackend = false;
+#endif
         public const string InputPath = "QuestStartupEvidence/original-ui-blur.json";
         public const string ReceiptPath = "QuestStartupEvidence/original-ui-blur.android-validation.json";
         private const string AssetPath = "Assets/Shader/Custom_SimpleGrabPassBlur.shader";
@@ -42,9 +51,9 @@ namespace GloomhavenVR.Quest.Editor
         [Serializable] public sealed class ValidationReceipt
         {
             public int schema = 1, importedDrawPassCount, importedGrabPassCount;
-            public string unityVersion, sourceReceiptSha256;
-            public bool androidAssetsBuilt, allGlesPassStagesCompiled, originalPixelParityVerified;
-            public Bank[] glesPrograms;
+            public string compilerPlatform, unityVersion, sourceReceiptSha256;
+            public bool androidAssetsBuilt, allGlesPassStagesCompiled, allVulkanPassStagesCompiled, originalPixelParityVerified;
+            public Bank[] glesPrograms, vulkanPrograms;
         }
 
         public static void Validate(bool androidAssetsBuilt)
@@ -52,8 +61,8 @@ namespace GloomhavenVR.Quest.Editor
             Safe(ReceiptPath);
             if (File.Exists(ReceiptPath)) File.Delete(ReceiptPath);
             if (!Directory.Exists("Assets/Quest") || EditorUserBuildSettings.activeBuildTarget != BuildTarget.Android ||
-                !PlayerSettings.GetGraphicsAPIs(BuildTarget.Android).Contains(GraphicsDeviceType.OpenGLES3))
-                throw new InvalidOperationException("Original UI blur validation requires generated Android/GLES3.");
+                !PlayerSettings.GetGraphicsAPIs(BuildTarget.Android).Contains(RequiredGraphicsApi))
+                throw new InvalidOperationException("Original UI blur validation requires generated Android " + CompilerPlatform + ".");
             Safe(InputPath);
             if (!File.Exists(InputPath) || new FileInfo(InputPath).Length > 64 * 1024)
                 throw new InvalidOperationException("Original UI blur source receipt is missing or oversized.");
@@ -102,6 +111,17 @@ namespace GloomhavenVR.Quest.Editor
                 if (!vertex) continue;
                 foreach (string keyword in index == 5 ? new[] { "", "UNITY_ASTC_NORMALMAP_ENCODING" } : new[] { "" })
                 {
+#if GHVR_QUEST_GAME
+                    var compiled = QuestVulkanShaderValidation.Compile(shader, 0, index,
+                        keyword.Length == 0 ? new string[0] : new[] { keyword }, GraphicsTier.Tier2);
+                    QuestVulkanShaderValidation.RequireColorOutput(compiled);
+                    compiledBanks.Add(new Bank {
+                        pass = index, keyword = keyword, bytes = compiled.vertex.Length + compiled.fragment.Length,
+                        sha256 = compiled.bankSha256, vertexBytes = compiled.vertex.Length,
+                        vertexSha256 = compiled.vertexSha256, fragmentBytes = compiled.fragment.Length,
+                        fragmentSha256 = compiled.fragmentSha256
+                    });
+#else
                     var compiled = pass.CompileVariant(ShaderType.Vertex, keyword.Length == 0 ? new string[0] : new[] { keyword },
                         ShaderCompilerPlatform.GLES3x, BuildTarget.Android);
                     if (!compiled.Success || compiled.ShaderData == null || compiled.ShaderData.Length == 0 ||
@@ -113,15 +133,18 @@ namespace GloomhavenVR.Quest.Editor
                         pass = index, keyword = keyword, bytes = compiled.ShaderData.Length, sha256 = Hash(compiled.ShaderData),
                         vertexBytes = v.Length, vertexSha256 = Hash(v), fragmentBytes = f.Length, fragmentSha256 = Hash(f)
                     });
+#endif
                 }
             }
             if (ShaderUtil.ShaderHasError(shader) || (ShaderUtil.GetShaderMessages(shader) ?? new ShaderMessage[0])
                 .Any(message => message.severity == ShaderCompilerMessageSeverity.Error))
                 throw new InvalidOperationException("Original UI blur imported shader has errors.");
             var receipt = new ValidationReceipt {
-                unityVersion = Application.unityVersion, sourceReceiptSha256 = Hash(bytes), androidAssetsBuilt = androidAssetsBuilt,
-                importedDrawPassCount = 3, importedGrabPassCount = 3, allGlesPassStagesCompiled = true,
-                originalPixelParityVerified = false, glesPrograms = compiledBanks.ToArray()
+                compilerPlatform = CompilerPlatform, unityVersion = Application.unityVersion, sourceReceiptSha256 = Hash(bytes), androidAssetsBuilt = androidAssetsBuilt,
+                importedDrawPassCount = 3, importedGrabPassCount = 3, allGlesPassStagesCompiled = !VulkanBackend, allVulkanPassStagesCompiled = VulkanBackend,
+                originalPixelParityVerified = false,
+                glesPrograms = VulkanBackend ? new Bank[0] : compiledBanks.ToArray(),
+                vulkanPrograms = VulkanBackend ? compiledBanks.ToArray() : new Bank[0]
             };
             Directory.CreateDirectory(Path.GetDirectoryName(ReceiptPath));
             string temporary = ReceiptPath + ".tmp-" + System.Guid.NewGuid().ToString("N");
@@ -131,7 +154,7 @@ namespace GloomhavenVR.Quest.Editor
                 File.Move(temporary, ReceiptPath);
             }
             finally { if (File.Exists(temporary)) File.Delete(temporary); }
-            Debug.Log("[GloomhavenVR Quest] original UI blur verified: original grab/draw pairs=3, Android GLES banks=4");
+            Debug.Log("[GloomhavenVR Quest] original UI blur verified: original grab/draw pairs=3, Android " + CompilerPlatform + " banks=4");
         }
 
         private static void Safe(string relative)

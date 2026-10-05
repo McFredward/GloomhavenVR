@@ -13,9 +13,18 @@ using UnityEngine.Rendering;
 
 namespace GloomhavenVR.Quest.Editor
 {
-    /// <summary>Verifies the actual world-screen GLES samplers in each Quest XR bank.</summary>
+    /// <summary>Verifies the actual world-screen capture samplers for the configured Android backend.</summary>
     public static class QuestWorldScreenValidation
     {
+#if GHVR_QUEST_GAME
+        private const GraphicsDeviceType RequiredGraphicsApi = GraphicsDeviceType.Vulkan;
+        private const string CompilerPlatform = "Vulkan";
+        private const bool VulkanBackend = true;
+#else
+        private const GraphicsDeviceType RequiredGraphicsApi = GraphicsDeviceType.OpenGLES3;
+        private const string CompilerPlatform = "GLES3x";
+        private const bool VulkanBackend = false;
+#endif
         public const string SourcePath = "Assets/Quest/Resources/QuestWorldScreen.shader";
         public const string ReceiptPath = "QuestStartupEvidence/world-screen.android-validation.json";
         [Serializable] public sealed class Bank
@@ -27,8 +36,9 @@ namespace GloomhavenVR.Quest.Editor
         [Serializable] public sealed class Receipt
         {
             public int schema = 1, passes = 1, compiledStages = 6;
-            public string unityVersion, sourceSha256;
-            public bool androidAssetsBuilt, allGlesPassStagesCompiled, hardwareVisualsVerified;
+            public string compilerPlatform, unityVersion, sourceSha256, stereoRenderingPath;
+            public bool androidAssetsBuilt, allGlesPassStagesCompiled, allVulkanPassStagesCompiled, hardwareVisualsVerified;
+            public bool multiPassTextureRouting;
             public Bank[] banks;
         }
 
@@ -36,8 +46,8 @@ namespace GloomhavenVR.Quest.Editor
         {
             if (File.Exists(ReceiptPath)) File.Delete(ReceiptPath);
             if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.Android ||
-                !PlayerSettings.GetGraphicsAPIs(BuildTarget.Android).Contains(GraphicsDeviceType.OpenGLES3))
-                throw new InvalidOperationException("World-screen validation requires Android GLES3.");
+                !PlayerSettings.GetGraphicsAPIs(BuildTarget.Android).Contains(RequiredGraphicsApi))
+                throw new InvalidOperationException("World-screen validation requires configured Android " + CompilerPlatform + ".");
             var shader = AssetDatabase.LoadAssetAtPath<Shader>(SourcePath);
             if (shader == null || shader.name != "Hidden/GloomhavenVR/QuestWorldScreen" || shader.GetPropertyCount() != 3)
                 throw new InvalidOperationException("Quest world-screen shader identity or ABI differs.");
@@ -56,6 +66,30 @@ namespace GloomhavenVR.Quest.Editor
                 throw new InvalidOperationException("Quest world-screen pass count differs.");
             var pass = data.GetSubshader(0).GetPass(0);
             var banks = new List<Bank>();
+#if GHVR_QUEST_GAME
+            // The existing mod selects its left/right ordinary capture on each
+            // camera eye pass. Its Vulkan MultiPass shader therefore samples the
+            // live _MainTex without a GPU eye varying. A future single-pass mod
+            // must prove both reflected captures and fragment eye routing here.
+            if (PlayerSettings.stereoRenderingPath != StereoRenderingPath.MultiPass)
+                throw new InvalidOperationException("Quest Vulkan world-screen currently requires the mod's validated MultiPass routing; single-pass eye routing has not been validated.");
+            var compiled = QuestVulkanShaderValidation.Compile(shader, 0, 0, new string[0], GraphicsTier.Tier2);
+            QuestVulkanShaderValidation.RequireColorOutput(compiled);
+            QuestVulkanShaderValidation.RequirePlain2D(compiled, "_MainTex");
+            banks.Add(new Bank {
+                keyword = "", compiledSha256 = compiled.bankSha256,
+                compiledBytes = compiled.vertex.Length + compiled.fragment.Length,
+                vertexSha256 = compiled.vertexSha256, fragmentSha256 = compiled.fragmentSha256,
+                plainCaptureSamplers = true, stereoEyeRouting = false
+            });
+            var receipt = new Receipt {
+                compilerPlatform = CompilerPlatform, unityVersion = Application.unityVersion,
+                sourceSha256 = Hash(File.ReadAllBytes(SourcePath)), compiledStages = 2,
+                androidAssetsBuilt = androidAssetsBuilt, allGlesPassStagesCompiled = false,
+                allVulkanPassStagesCompiled = true, stereoRenderingPath = "MultiPass", multiPassTextureRouting = true,
+                hardwareVisualsVerified = false, banks = banks.ToArray()
+            };
+#else
             foreach (string keyword in new[] { "", "STEREO_INSTANCING_ON", "STEREO_MULTIVIEW_ON" })
             {
                 var compiled = pass.CompileVariant(ShaderType.Vertex,
@@ -72,13 +106,15 @@ namespace GloomhavenVR.Quest.Editor
                 });
             }
             var receipt = new Receipt {
-                unityVersion = Application.unityVersion, sourceSha256 = Hash(File.ReadAllBytes(SourcePath)),
-                androidAssetsBuilt = androidAssetsBuilt, allGlesPassStagesCompiled = true,
+                compilerPlatform = CompilerPlatform, unityVersion = Application.unityVersion, sourceSha256 = Hash(File.ReadAllBytes(SourcePath)),
+                androidAssetsBuilt = androidAssetsBuilt, allGlesPassStagesCompiled = !VulkanBackend, allVulkanPassStagesCompiled = VulkanBackend,
+                stereoRenderingPath = PlayerSettings.stereoRenderingPath.ToString(),
                 hardwareVisualsVerified = false, banks = banks.ToArray()
             };
+#endif
             Directory.CreateDirectory(Path.GetDirectoryName(ReceiptPath));
             File.WriteAllText(ReceiptPath, JsonUtility.ToJson(receipt, true) + "\n");
-            Debug.Log("[GloomhavenVR Quest] world-screen actual GLES banks verified: mono/instancing/multiview, stages=6");
+            Debug.Log("[GloomhavenVR Quest] world-screen " + CompilerPlatform + " programs verified: stages=" + receipt.compiledStages + ", stereo=" + receipt.stereoRenderingPath + "");
         }
 
         internal static string[] VerifiedBank(byte[] bytes, string keyword)
