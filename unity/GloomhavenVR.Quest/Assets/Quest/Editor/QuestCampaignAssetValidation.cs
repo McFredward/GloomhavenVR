@@ -179,6 +179,7 @@ namespace GloomhavenVR.Quest.Editor
             var audio = ValidateBundledAudio();
             var closures = new List<SceneClosure>();
             var previous = EditorSceneManager.GetSceneManagerSetup();
+            Exception validationError = null;
             try
             {
                 foreach (var original in sceneInput.scenes.OrderBy(scene => scene.index))
@@ -219,7 +220,22 @@ namespace GloomhavenVR.Quest.Editor
                         componentCount = componentCount, dependencies = dependencies });
                 }
             }
-            finally { EditorSceneManager.RestoreSceneManagerSetup(previous); }
+            catch (Exception error)
+            {
+                validationError = error;
+                throw;
+            }
+            finally
+            {
+                try { RestoreSceneSetup(previous); }
+                catch (Exception cleanupError)
+                {
+                    if (validationError == null) throw;
+                    // Keep the actual content failure as the thrown exception;
+                    // scene cleanup is secondary evidence, never its replacement.
+                    UnityEngine.Debug.LogError("[Quest Campaign] Scene cleanup failed after validation failure: " + cleanupError);
+                }
+            }
             Directory.CreateDirectory(Path.GetDirectoryName(ReceiptPath));
             File.WriteAllText(ReceiptPath, JsonUtility.ToJson(new Receipt { unityVersion = Application.unityVersion,
                 catalogSha256 = input.catalogSha256, sourceManifestSha256 = Hash(InputPath),
@@ -231,6 +247,19 @@ namespace GloomhavenVR.Quest.Editor
                 typedOriginalObjectsImported = true, allNativeScenesImported = true,
                 objects = imported.ToArray(), scenes = closures.ToArray() }, true), new UTF8Encoding(false));
             UnityEngine.Debug.Log("[Quest Campaign] Imported " + imported.Count + " exact original typed objects and all 13 native scene closures.");
+        }
+
+        private static void RestoreSceneSetup(SceneSetup[] previous)
+        {
+            // The first full batch build opened all 13 scenes successfully, then
+            // Unity rejected its original empty setup: there was no loaded active
+            // scene to restore. A new empty Editor scene is the valid equivalent
+            // of that initial state. Preserve an actual loaded/active setup through
+            // Unity's normal restoration, including additive and unloaded scenes.
+            if (previous != null && previous.Any(scene => scene.isLoaded && scene.isActive))
+                EditorSceneManager.RestoreSceneManagerSetup(previous);
+            else
+                EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         }
 
         public static BundledAudio ValidateBundledAudio()
