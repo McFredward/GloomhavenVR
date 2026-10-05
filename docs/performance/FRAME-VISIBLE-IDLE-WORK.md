@@ -63,9 +63,12 @@ lighting is not established by the fixture's explicit Unlit color material.
 The production/causal suite covers native component admission, unsafe callbacks,
 active death dissolve, local/remote holding, native action faults, foreign culling
 edits, mask restoration, absent proxy pixels, source mesh corruption and immediate
-action restoration. The previously successful unbounded-request checkpoint passed
-328 production assertions and 15 causal controls; the final bounded-request source
-must pass the complete suite again. Exact final receipts belong in the handover.
+action restoration. Before the interruption, the bounded-request source passed
+423 production assertions and sixteen causal controls (17 variants). That receipt
+precedes final inactive-host restoration and completed-camera counter changes.
+The final fixture compiles those additions, but current permissions block Unity
+before assertions run. Historical success is not certification of the final
+combined tree; see [the final receipt](FRAME-625-IMPLEMENTATION.md).
 
 Original material lighting, near-view animation quality, simultaneous crowd cost,
 both-eye headset output, Frame FPS and multiplayer headroom remain hardware tests.

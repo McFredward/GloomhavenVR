@@ -95,6 +95,10 @@ Debug `Environment.ChunkSources/ChunkGroups`, `InstanceSources/InstanceGroups`
 and `RenderCameras` count completed camera leases after late revocation, before
 restoration. `NativeBufferFallback` records consumer fallback. These are camera
 sums (including eyes), not unique scene objects, GPU draw calls or FPS.
+Terrain triangle/cheap-surface counters currently record admitted pre-cull leases;
+a later native writer may revoke those leases. They measure neither completed GPU
+submissions nor final visible coverage. Prefer completed environment/idle lease
+counters and actual application timings when assessing the combined hardware run.
 
 ## Coarser 3D walls and cheaper materials
 
@@ -169,7 +173,42 @@ asset availability, not shader support/appearance on Frame.
 
 ## Final validation and handover boundary
 
-Validation is being completed on the preserved candidate. Historical focused
+The final complete local attempt recorded **141/141 scopes: 82 passes and
+59 failures**. No tracked production/test/asset input changed during or after that
+attempt (10,343 captured files). The complete source group passes **14/14**; the
+pinned scheduler inventory passes after registering the four new local suites.
+
+The final guard exits unsuccessfully at that failed local stage, before its
+byte-vector execution or compiled snapshot. The wrapper's generic “wire format
+changed” line is not evidence of a changed packet. The independently executed
+current golden-vector binary passes **308,254 assertions**, six above the clean
+Build625 receipt; no protocol source changes. Separate strict Debug and Release
+builds pass with **zero errors/warnings**. Cached package identities match the main
+checkout; offline/local-source, single-process MSBuild arguments avoid unavailable
+feeds and compiler-server sockets without relaxing the compiler warning gate.
+
+All bank/package hashes, four Unity2021.3.5f1 bundle headers, 1,594 figure
+derivatives in 66 parts, EN/DE document checks and public surfaces pass. There
+are **669 config keys (+9), 214 literal patch registrations and 4,790 log tokens**,
+with no removals. The private compiled comparison against clean dev625 contains
+**16 changed existing types and six added types**, plus explained build stamps
+and decompiler-relative HintPaths; reference identities/resolved files are
+unchanged and no entry is removed. Packaging layout/text/Frame setup checks pass.
+The local archive is a packaging proof only: it still carries base ModBuild625
+and must not be distributed or used for a paired hardware test.
+
+The failure audit identifies socket/display, read-only cache, NuGet-feed/audit
+or external-download rejection for 58 failed local scopes. None records a C#
+compiler error. Quest-weaver initially emits only an unsuccessful build; its
+separate single-processor continuation passes 33 executable assertions. A focused
+offline continuation also repairs the merchant-tutorial-text audit dependency
+(29 assertions and six controls); perf-census then compiles every variant but
+cannot start Unity. The original **82-pass/59-failure** complete attempt remains
+unchanged. Partial continuations do not make the complete gate successful.
+Exact final/failed reports and failure classification remain in the candidate's
+`.planning/debug/`.
+
+Historical focused
 Unity receipts belong to their captured source trees: environment 11,231
 production assertions with its failure-bridge control; visible idle 423 assertions
 and sixteen causal controls before the latest disable/counter changes; terrain
