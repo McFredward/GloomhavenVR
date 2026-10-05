@@ -12,6 +12,7 @@ using UnityEditor.AddressableAssets.Settings;
 using UnityEditor.AddressableAssets.Settings.GroupSchemas;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
+using UnityEngine.Rendering;
 
 namespace GloomhavenVR.Quest.Editor
 {
@@ -155,6 +156,7 @@ namespace GloomhavenVR.Quest.Editor
                         nativeKeys.Add(NativeKey(association));
                     }
                 }
+                if (campaign) AddCampaignShaderRetention(settings);
                 foreach (string label in required)
                     if (!labels.Contains(label)) throw new InvalidDataException("Required original startup label was not recovered: " + label);
                 EditorUtility.SetDirty(settings);
@@ -183,6 +185,133 @@ namespace GloomhavenVR.Quest.Editor
             }, true));
             AssetDatabase.Refresh();
             Debug.Log("[Quest startup build] native Android catalog assets=" + entries.Count + " original-key aliases=" + aliases.Count + " labels=" + labels.Count);
+        }
+
+        internal const string CampaignShaderCollectionPath = "Assets/Resources/QuestCampaignShaderVariants.shadervariants";
+        internal const string CampaignAddressableShaderCollectionPath = "Assets/Quest/CampaignShaders/QuestCampaignShaderVariants.shadervariants";
+        internal const string CampaignShaderRetentionGroup = "Owned Campaign native shader variants";
+
+        internal static void ConfigureCampaignInstancingRetention()
+        {
+            // Native dc3 APK/bundle readback lost original INSTANCING_ON banks
+            // even though their original materials enable GPU instancing. Unity
+            // 2021.3.5 exposes this setting through its public GraphicsSettings
+            // object/SerializedObject API; it has no typed KeepAll setter.
+            var graphics = new SerializedObject(GraphicsSettings.GetGraphicsSettings());
+            var instancing = graphics.FindProperty("m_InstancingStripping");
+            if (instancing == null || instancing.propertyType != SerializedPropertyType.Enum)
+                throw new InvalidDataException("Unity 2021.3.5 instancing retention enum is unavailable.");
+            var names = instancing.enumNames.Select(name => string.Concat(name.Where(char.IsLetterOrDigit))).ToArray();
+            if (!names.SequenceEqual(new[] { "StripUnused", "StripAll", "KeepAll" }))
+                throw new InvalidDataException("Unity instancing retention choices differ: " + string.Join(",", names));
+            // Resolve the actual native enum name rather than guessing its ABI.
+            // This is generated Quest project state only.
+            instancing.enumValueIndex = Array.IndexOf(names, "KeepAll");
+            graphics.ApplyModifiedPropertiesWithoutUndo();
+            graphics.Update();
+            if (graphics.FindProperty("m_InstancingStripping").intValue != 2)
+                throw new InvalidDataException("Original instancing banks were not retained.");
+        }
+
+        internal static void AddCampaignShaderRetention(AddressableAssetSettings settings)
+        {
+            // Resources SVC retention protects the Player, but is not an input
+            // to the separate native Addressables usage-tag calculation. Actual
+            // dc3 bundle banks lost non-instanced LIGHTPROBE_SH/shadow aliases.
+            // Include the exact same original-alias SVC as a native AA root;
+            // preserve original per-bundle ownership, keys and preload labels.
+            ConfigureCampaignInstancingRetention();
+            var input = JsonUtility.FromJson<QuestCampaignShaderValidation.Manifest>(
+                File.ReadAllText(QuestCampaignShaderValidation.DefaultManifest));
+            var collection = AssetDatabase.LoadAssetAtPath<ShaderVariantCollection>(CampaignShaderCollectionPath);
+            if (input == null || input.schema != 1 || input.scope != "campaign-compiler" || input.graphicsApi != "Vulkan" ||
+                input.shaders == null || input.shaders.Length == 0 || input.requiredShaderCount != input.shaders.Length ||
+                collection == null || collection.shaderCount != input.shaders.Length)
+                throw new InvalidDataException("Original native shader collection is incomplete before Addressables.");
+            var retained = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var row in input.shaders)
+            {
+                var shader = AssetDatabase.LoadAssetAtPath<Shader>(row.assetPath);
+                if (shader == null || shader.name != row.originalName || AssetDatabase.AssetPathToGUID(row.assetPath) != row.guid ||
+                    row.variants == null || row.variants.Length == 0)
+                    throw new InvalidDataException("Native shader collection changes an original shader identity.");
+                foreach (var bank in row.variants)
+                {
+                    PassType pass;
+                    if (bank == null || bank.keywords == null || !Enum.TryParse(bank.passType, out pass) ||
+                        !collection.Contains(new ShaderVariantCollection.ShaderVariant(shader, pass, bank.keywords)))
+                        throw new InvalidDataException("Native Addressables collection omits an original shader alias.");
+                    retained.Add(row.guid + "/" + pass + "/" + string.Join(" ", bank.keywords.OrderBy(key => key, StringComparer.Ordinal)));
+                }
+            }
+            if (collection.variantCount != retained.Count)
+                throw new InvalidDataException("Native Addressables collection adds or removes original keyword aliases.");
+            // Addressables owns an independent copy outside Resources. Never
+            // move/remove the Player's collection or mark its Resources path as
+            // Addressable; both native build phases need their own root.
+            Directory.CreateDirectory(Path.GetDirectoryName(CampaignAddressableShaderCollectionPath));
+            var addressable = AssetDatabase.LoadAssetAtPath<ShaderVariantCollection>(CampaignAddressableShaderCollectionPath);
+            if (addressable == null)
+            {
+                if (File.Exists(CampaignAddressableShaderCollectionPath))
+                    throw new InvalidDataException("Shader retention destination contains an unowned asset.");
+                addressable = new ShaderVariantCollection();
+                EditorUtility.CopySerialized(collection, addressable);
+                AssetDatabase.CreateAsset(addressable, CampaignAddressableShaderCollectionPath);
+            }
+            else
+            {
+                EditorUtility.CopySerialized(collection, addressable);
+                EditorUtility.SetDirty(addressable);
+            }
+            if (addressable.shaderCount != collection.shaderCount || addressable.variantCount != collection.variantCount)
+                throw new InvalidDataException("Native Addressables collection changed during copying.");
+            string guid = AssetDatabase.AssetPathToGUID(CampaignAddressableShaderCollectionPath);
+            if (!System.Text.RegularExpressions.Regex.IsMatch(guid ?? "", "^[0-9a-f]{32}$"))
+                throw new InvalidDataException("Native shader collection has no imported asset identity.");
+            var group = GetOrCreateOwnedGroup(settings, CampaignShaderRetentionGroup, false);
+            var originalShaderGuids = new HashSet<string>(input.shaders.Select(row => row.guid), StringComparer.Ordinal);
+            if (group.entries.Any(entry => entry.guid != guid && !originalShaderGuids.Contains(entry.guid)))
+                throw new InvalidDataException("Native shader retention group contains an unowned asset.");
+            var priorCollectionEntry = settings.FindAssetEntry(guid);
+            if (priorCollectionEntry != null && priorCollectionEntry.parentGroup != group)
+                throw new InvalidDataException("Native shader collection already belongs to another Addressables group.");
+            var schema = group.GetSchema<BundledAssetGroupSchema>();
+            schema.BundleMode = BundledAssetGroupSchema.BundlePackingMode.PackTogether;
+            schema.IncludeAddressInCatalog = schema.IncludeGUIDInCatalog = true;
+            schema.IncludeLabelsInCatalog = false;
+            var root = settings.CreateOrMoveEntry(guid, group, false, false);
+            root.address = "quest-campaign-native-shader-variants";
+            if (root.labels.Count != 0)
+                throw new InvalidDataException("Shader retention must not join original runtime preload labels.");
+            // A native SVC contains cooked CAB/pathID pointers, not original
+            // GUIDs, and original shader names are not unique. Public Shader
+            // roots expose the exact asset path in AssetBundle.m_Container so
+            // delivery audits can prove every original shader/PPtr identity.
+            // Never move the existing original catalog's public Shader roots
+            // or alter their labels, addresses, ownership or runtime aliases.
+            int addedShaderRoots = 0;
+            foreach (var row in input.shaders)
+            {
+                var existing = settings.FindAssetEntry(row.guid);
+                if (existing != null)
+                {
+                    if (existing.AssetPath != row.assetPath || existing.parentGroup == null)
+                        throw new InvalidDataException("A native shader root changes original asset ownership.");
+                    if (existing.parentGroup == group && (existing.address != row.guid || existing.labels.Count != 0))
+                        throw new InvalidDataException("Private shader retention root changes its address or runtime labels.");
+                    continue;
+                }
+                var shaderRoot = settings.CreateOrMoveEntry(row.guid, group, false, false);
+                shaderRoot.address = row.guid;
+                if (shaderRoot.AssetPath != row.assetPath || shaderRoot.labels.Count != 0)
+                    throw new InvalidDataException("Private shader retention root changes original identity or runtime labels.");
+                addedShaderRoots++;
+            }
+            EditorUtility.SetDirty(group);
+            Debug.Log("[Quest Campaign] Native Addressables shader retention input: shaders=" + collection.shaderCount +
+                " unique original aliases=" + collection.variantCount + " new private shader roots=" + addedShaderRoots +
+                " instancing=KeepAll; no shader warmup.");
         }
 
         internal static AddressableAssetGroup GetOrCreateOwnedGroup(AddressableAssetSettings settings, string name, bool setAsDefault)

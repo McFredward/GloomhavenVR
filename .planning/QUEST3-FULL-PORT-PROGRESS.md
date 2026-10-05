@@ -726,3 +726,30 @@ not identity: 50 original names are duplicated, with up to 324 objects per name.
 The final production gate must inspect actual bundled aliases and material
 bindings before accepting the full hardware package. 096d remains a candidate,
 not an accepted complete graphics delivery.
+
+## Native retention correction and warm large-APK packaging
+
+The production correction uses a separate copied native SVC outside Resources
+and Unity's actual public serialized KeepAll enum. The original mapping contains
+70 existing bundled Shader entries; 112 further typed catalog Shader locations
+belong to LegacyResourcesProvider. The native build adds the 618 missing private
+Shader roots without changing those 70 existing owners, addresses or labels.
+A second actual small native build verifies private-root creation inside the
+production asset-edit batch, unchanged Player collection, the native SVC's exact
+CAB/pathID pointer and all 1,275 original Foliage aliases. Six focused tests,
+including sixteen negative controls, pass; real SDK compilation also passes.
+
+096d completes native Shader compilation with zero compiler errors, including
+the corrected ForwardAdd and Layer cases. Its subsequent Gradle package task
+fails while reading the previous 2,352,116,065-byte cached APK: its resource
+entry starts at unsigned offset 2,161,209,495 and AGP reports a negative signed
+offset. Removing only that obsolete generated launcher APK allows the actual
+unchanged generated Player to package successfully, producing 2,352,232,793 bytes
+in 161 seconds. No Shader or C++ compilation is repeated for this control.
+Known bundled graphics omissions still prevent accepting it as the full delivery.
+
+The Quest Android callback now removes only large generated cached APKs before
+Gradle packaging. Real sparse-filesystem controls preserve small APKs, non-APK
+files, native inputs and files outside the generated APK directory. The exact
+callback compiles against the pinned Unity Android/Editor SDK. Imports, Library,
+C++ objects, signing data, saves and other Gradle task outputs remain reusable.

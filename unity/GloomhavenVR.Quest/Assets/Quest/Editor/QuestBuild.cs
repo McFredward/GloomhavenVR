@@ -242,6 +242,9 @@ namespace GloomhavenVR.Quest.Editor
             // Keep the existing diagnostic backends and desktop settings intact.
             PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] {
                 fullCampaign ? GraphicsDeviceType.Vulkan : GraphicsDeviceType.OpenGLES3 });
+#if GHVR_QUEST_GAME
+            if (fullCampaign) QuestStartupAddressablesBuild.ConfigureCampaignInstancingRetention();
+#endif
             // The current mod's authored shaders and per-eye callbacks require
             // MultiPass. Query its public contract so future mod changes remain
             // authoritative; the independent hardware probe can still use SPI.
