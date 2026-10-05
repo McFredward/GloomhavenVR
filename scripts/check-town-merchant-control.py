@@ -36,7 +36,11 @@ def main():
     parser.add_argument('--no-negative-controls', action='store_true')
     parser.add_argument('--negative-control', action='append', default=[],
                         help='Run only the named negative controls with the production case.')
+    parser.add_argument('--skip-production', action='store_true',
+                        help='Resume selected negative controls when production already passed on the same source tree.')
     args = parser.parse_args()
+    if args.skip_production and not args.negative_control:
+        parser.error('--skip-production requires --negative-control')
     root = args.source_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
@@ -99,6 +103,7 @@ def main():
     program = (fixture / 'Program.cs').read_text().replace('        NativeBankPreparationProof(inventory, anchor.transform);',
         '        NativeBankPreparationProof(inventory, anchor.transform);\n        MerchantControlProof(inventory, anchor.transform);')
     (fixture / 'Program.cs').write_text(program)
+    reset = method(bound['TownMerchantControlSync.cs'], 'internal static void Reset()')
     variants = [('production', None, None, None, '')]
     if not args.no_negative_controls:
         variants += [
@@ -113,8 +118,8 @@ def main():
             ('bank-authority-reset', 'PublicControl.cs', 'TownServiceMerchantDrawer rack = _catalog.Drawers[0];',
              'TownServiceMirror.ClaimPublicCatalog(); TownServiceMerchantDrawer rack = _catalog.Drawers[0];',
              'public input preserves the complete prepared original bank'),
-            ('request-nonce-reset', 'TownMerchantControlSync.cs', '_stateSequence = 0;',
-             '_requestSequence = _stateSequence = 0;',
+            ('request-nonce-reset', 'TownMerchantControlSync.cs', reset,
+             reset.replace('_stateSequence = 0;', '_requestSequence = _stateSequence = 0;', 1),
              'presentation rebuild retains monotone requester nonces against the surviving host'),
             ('crank-fixed-lead', 'TownServiceMerchantDrawer.cs', '_pull = Mathf.Clamp01(leadAngle / 35f);',
              '_pull = 0f;',
@@ -148,6 +153,8 @@ def main():
         unknown = selected - {variant[0] for variant in variants[1:]}
         if unknown: parser.error('Unknown negative control: ' + ', '.join(sorted(unknown)))
         variants = [variant for variant in variants if variant[0] == 'production' or variant[0] in selected]
+    if args.skip_production:
+        variants = [variant for variant in variants if variant[0] != 'production']
     unity = Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity'))
     ui = root / 'ressources/GH_Data/Managed/UnityEngine.UI.dll'
     manifest = {'result': str(run / 'results.txt'), 'cases': []}
