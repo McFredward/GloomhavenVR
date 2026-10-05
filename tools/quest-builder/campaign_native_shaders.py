@@ -3,6 +3,9 @@
 No compiler is invoked. Native Vulkan stores VS+FS together in progVertex.
 The original coarse SVC projection is checked separately from pass/tier aliases.
 """
+import argparse
+import os
+import sys
 import hashlib
 import struct
 import re
@@ -10,6 +13,10 @@ import json
 import gc
 import zipfile
 from pathlib import Path
+
+# Direct execution also works under the builder's isolated Python (-I).
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from storage import BuildError, digest, write_json
 
@@ -427,3 +434,138 @@ def validate_delivered(source, project, apk, bank, evidence, *, material_sample_
         'Actual native artifact changed during Shader delivery audit')
     write_json(Path(evidence), result)
     return result
+
+
+def _is_path_link(path):
+    return path.is_symlink() or (hasattr(path, 'is_junction') and path.is_junction())
+
+
+def _local_directory(value):
+    """Reject links in the actual path, including ancestors of owned inputs."""
+    path = Path(value).absolute()
+    require(all(not _is_path_link(parent) for parent in (path, *path.parents)),
+        'Native Shader audit directory contains a symbolic link')
+    require(path.is_dir(), 'Native Shader audit directory is missing')
+    return path
+
+
+def _local_file(root, relative):
+    require(isinstance(relative, str) and relative and '\\' not in relative and '\0' not in relative
+        and ':' not in relative and not relative.startswith('/')
+        and all(part not in ('', '.', '..') for part in relative.split('/')),
+        'Unsafe native Shader audit file path')
+    path = root.joinpath(*relative.split('/'))
+    require(all(not _is_path_link(component) for component in (path, *path.parents)),
+        'Native Shader audit file contains a symbolic link')
+    require(path.is_file() and path.resolve().is_relative_to(root.resolve()),
+        'Native Shader audit file is missing or outside its owner directory')
+    return path
+
+
+def _file_identity(path):
+    value = path.stat()
+    return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+
+
+def _read_native_file(path, identities):
+    before = _file_identity(path)
+    with path.open('rb') as stream:
+        value = stream.read()
+        opened = stream.fileno()
+        current = os.fstat(opened)
+        require(before == (current.st_dev, current.st_ino, current.st_size,
+            current.st_mtime_ns, current.st_ctime_ns), 'Native Shader audit file changed while being read')
+    require(len(value) == before[2] and _file_identity(path) == before,
+        'Native Shader audit file changed while being read')
+    identities[path] = before
+    return value
+
+
+def validate_native_directory(source, project, nativeRoot, evidence, *, material_sample_count=16):
+    """Check native AA closure before packing; this does not audit an APK.
+
+    Only the exact catalog dependencies of all original Shader/SVC roots and a
+    bounded original-material sample are read. Native bytes are hashed once;
+    unchanged file metadata is checked again before publishing the receipt.
+    """
+    import UnityPy
+    import campaign_shaders
+    source, project, native_root = map(_local_directory, (source, project, nativeRoot))
+    identities = {}
+    manifest_path = _local_file(project, 'Assets/QuestOriginalCampaign/campaign-shaders.json')
+    manifest_bytes = _read_native_file(manifest_path, identities)
+    manifest = json.loads(manifest_bytes)
+    contracts, _ = contract_rows(manifest, full=True)
+    decoder_path = _local_file(source, 'tools/quest-recovery/catalog.py')
+    identities[decoder_path] = _file_identity(decoder_path)
+    decoder = campaign_shaders.load(source, 'tools/quest-recovery/catalog.py', 'tools/quest-recovery')
+    catalog_path = _local_file(native_root, 'catalog.json')
+    catalog_raw = _read_native_file(catalog_path, identities)
+    decoded = decoder.decode_catalog(json.loads(catalog_raw))
+    plan = catalog_plan(decoded, contracts, manifest.get('materials', []), material_sample_count)
+    selected = []
+    for entry in plan['bundles']:
+        prefix = 'StreamingAssets/aa/'
+        require(entry.startswith(prefix), 'Native Shader dependency has an unknown content root')
+        path = _local_file(native_root, entry[len(prefix):])
+        identities[path] = _file_identity(path)
+        selected.append((entry, path))
+    require(len({path for _, path in selected}) == len(selected), 'Duplicate native Shader dependency identity')
+
+    def material_contract(row):
+        path = _local_file(project, row['assetPath'])
+        identities[path] = _file_identity(path)
+        value = source_material(project, row)
+        require(_file_identity(path) == identities[path], 'Original material changed during native Shader audit')
+        return value
+
+    audit = NativeBundleAudit(contracts, plan, material_contract)
+    for entry, path in selected:
+        require(_file_identity(path) == identities[path], 'Native Shader dependency changed before its audit')
+        raw = _read_native_file(path, identities)
+        env = UnityPy.load(raw)
+        try:
+            audit.observe(env, entry, hashlib.sha256(raw).hexdigest())
+        finally:
+            del env, raw
+            gc.collect()
+    result = audit.finish()
+    for path, before in identities.items():
+        require(not _is_path_link(path) and path.is_file() and _file_identity(path) == before,
+            'Native Shader audit input changed before publishing evidence')
+        # Check newly substituted ancestor links without re-reading native data.
+        root = native_root if path.is_relative_to(native_root) else project if path.is_relative_to(project) else source
+        _local_file(root, path.relative_to(root).as_posix())
+    result.update(scope='actual-native-addressables-before-player',
+        originalManifestSha256=hashlib.sha256(manifest_bytes).hexdigest(),
+        actualNativeCatalogSha256=hashlib.sha256(catalog_raw).hexdigest(),
+        selectedNativeBundleCount=len(selected), actualNativeDirectoryFilesVerified=True,
+        signedApkAuditPerformed=False, fullDeliveredArtifactAuditPerformed=False,
+        allNativeContentFilesAudited=False)
+    write_json(Path(evidence), result)
+    return result
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description='Verify exact native AA Shader retention before packing.')
+    parser.add_argument('--source', required=True)
+    parser.add_argument('--project', required=True)
+    parser.add_argument('--native-root', required=True)
+    parser.add_argument('--evidence', required=True)
+    arguments = parser.parse_args(argv)
+    try:
+        result = validate_native_directory(arguments.source, arguments.project,
+            arguments.native_root, arguments.evidence)
+    except Exception as error:
+        print(json.dumps({'schema': 1, 'status': 'failed',
+            'scope': 'actual-native-addressables-before-player',
+            'errorType': type(error).__name__, 'error': str(error)[:1024]}), file=sys.stderr)
+        return 1
+    print(json.dumps({key: result[key] for key in ('schema', 'scope', 'shaderCount',
+        'originalNativeAliasCount', 'selectedNativeBundleCount', 'materialSampleCount',
+        'compilerQueries', 'signedApkAuditPerformed', 'hardwarePictureVerified')}))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

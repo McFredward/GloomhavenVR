@@ -296,4 +296,125 @@ class ProgramDirectoryTests(unittest.TestCase):
                 with self.assertRaises(BuildError): gate.program_sample(value, [0])
 
 
+class EarlyNativeDirectoryTests(unittest.TestCase):
+    def setUp(self):
+        import json
+        self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name)
+        self.source = self.root / 'source'; self.project = self.root / 'project'; self.native = self.root / 'native'
+        for folder in (self.source, self.project, self.native): folder.mkdir()
+        self.decoder_path = self.source / 'tools/quest-recovery/catalog.py'; self.decoder_path.parent.mkdir(parents=True)
+        self.decoder_path.write_text('# authored decoder fixture\n')
+        self.manifest = self.project / 'Assets/QuestOriginalCampaign/campaign-shaders.json'; self.manifest.parent.mkdir(parents=True)
+        self.manifest.write_text(json.dumps({'schema': 1, 'scope': 'campaign-compiler', 'graphicsApi': 'Vulkan',
+            'compilerPlatform': 'Vulkan', 'shaders': [expected()], 'materials': [
+                {'guid': MAT, 'assetPath': 'Assets/Material/a.mat', 'shaderGuid': GUID}]}))
+        material = self.project / 'Assets/Material/a.mat'; material.parent.mkdir(parents=True); material.write_text('authored material bytes')
+        self.catalog = self.native / 'catalog.json'; self.catalog.write_text('{}')
+        self.bank = self.native / 'Android/authored.bundle'; self.bank.parent.mkdir(); self.bank.write_bytes(b'authored native bank fixture')
+        self.evidence = self.root / 'evidence.json'
+        self.decoded = {'locations': [location(0, PATH, 'UnityEngine.Shader', [3]),
+            location(1, gate.COLLECTION_PATH, 'UnityEngine.ShaderVariantCollection', [3]),
+            location(2, 'Assets/Material/a.mat', 'UnityEngine.Material', [3]),
+            location(3, '{UnityEngine.AddressableAssets.Addressables.RuntimePath}/Android/authored.bundle', 'bundle')]}
+        owner = file('CAB-authored')
+        self.env = bundle([obj('Shader', 48, native(), owner),
+            obj('Material', 21, {'m_Shader': {'m_FileID': 0, 'm_PathID': 48},
+                'm_EnableInstancingVariants': True, 'm_ValidKeywords': ['FEATURE'], 'm_InvalidKeywords': []}, owner),
+            obj('ShaderVariantCollection', 200, collection({'m_FileID': 0, 'm_PathID': 48}), owner)],
+            [(PATH, 48), ('Assets/Material/a.mat', 21), (gate.COLLECTION_PATH, 200)], owner)
+        # A deliberately small authored fixture, never called a688/full-game
+        # PASS. Only the fixed full census is substituted; actual closure and
+        # filesystem/public-pointer method bodies still execute unchanged.
+        original = gate.contract_rows
+        self.contract = patch.object(gate, 'contract_rows', side_effect=lambda manifest, *, full: original(manifest, full=False))
+        self.contract_mock = self.contract.start()
+        self.unity = patch.dict(sys.modules, {'UnityPy': types.SimpleNamespace(load=lambda _: self.env)}); self.unity.start()
+        self.sample = patch.object(gate, 'program_sample', return_value=[]); self.sample.start()
+        self.material = patch.object(gate, 'source_material', side_effect=lambda project, row: source_mat(row)); self.material.start()
+        import campaign_shaders
+        self.loader = patch.object(campaign_shaders, 'load', return_value=types.SimpleNamespace(decode_catalog=lambda _: self.decoded)); self.loader.start()
+
+    def tearDown(self):
+        for value in (self.loader, self.material, self.sample, self.unity, self.contract): value.stop()
+        self.temp.cleanup()
+
+    def run_gate(self):
+        return gate.validate_native_directory(self.source, self.project, self.native, self.evidence, material_sample_count=1)
+
+    def test_directory_mount_uses_same_exact_native_roots_and_truthful_preplayer_receipt(self):
+        import json
+        result = self.run_gate()
+        self.assertEqual(result['scope'], 'actual-native-addressables-before-player')
+        self.assertEqual(result['shaderCount'], 1); self.assertEqual(result['materialSampleCount'], 1)
+        self.assertEqual(result['selectedNativeBundleCount'], 1)
+        self.assertTrue(result['materials'][0]['exactNativeShaderPPtrVerified'])
+        self.assertFalse(result['signedApkAuditPerformed']); self.assertFalse(result['hardwarePictureVerified'])
+        self.assertFalse(result['allNativeContentFilesAudited']); self.assertEqual(result['compilerQueries'], 0)
+        self.assertEqual(json.loads(self.evidence.read_text()), result)
+        self.contract_mock.assert_called_once(); self.assertTrue(self.contract_mock.call_args.kwargs['full'])
+
+    def test_missing_bank_symlink_file_ancestor_and_directory_are_rejected(self):
+        target = self.root / 'external.bundle'; target.write_bytes(self.bank.read_bytes())
+        self.bank.unlink()
+        with self.assertRaises(BuildError): self.run_gate()
+        self.bank.symlink_to(target)
+        with self.assertRaises(BuildError): self.run_gate()
+        self.bank.unlink(); self.bank.write_bytes(target.read_bytes())
+        actual = self.native / 'Actual'; self.bank.parent.rename(actual)
+        (self.native / 'Android').symlink_to(actual, target_is_directory=True)
+        with self.assertRaises(BuildError): self.run_gate()
+        (self.native / 'Android').unlink(); actual.rename(self.native / 'Android')
+        alias = self.root / 'native-link'; alias.symlink_to(self.native, target_is_directory=True)
+        with self.assertRaises(BuildError): gate.validate_native_directory(self.source, self.project, alias, self.evidence)
+        self.assertFalse(self.evidence.exists())
+
+    def test_junction_ancestor_is_rejected_when_host_exposes_public_path_api(self):
+        with patch.object(Path, 'is_junction', lambda path: path == self.bank.parent, create=True):
+            with self.assertRaises(BuildError): self.run_gate()
+        self.assertFalse(self.evidence.exists())
+
+    def test_unsafe_or_missing_native_catalog_dependencies_fail_before_parse(self):
+        for suffix in ('../outside.bundle', 'Android/../authored.bundle', 'C:/outside.bundle', 'Android/missing.bundle'):
+            with self.subTest(path=suffix):
+                self.decoded['locations'][3]['internalId'] = '{UnityEngine.AddressableAssets.Addressables.RuntimePath}/' + suffix
+                with self.assertRaises(BuildError): self.run_gate()
+        self.assertFalse(self.evidence.exists())
+
+    def test_file_manifest_and_catalog_mutations_during_decode_are_rejected(self):
+        for selected in (self.bank, self.catalog, self.manifest, self.decoder_path):
+            before = selected.read_bytes()
+            with self.subTest(path=selected.name):
+                def changed(_): selected.write_bytes(before + b' '); return self.env
+                with patch.dict(sys.modules, {'UnityPy': types.SimpleNamespace(load=changed)}):
+                    with self.assertRaises(BuildError): self.run_gate()
+                selected.write_bytes(before)
+        self.assertFalse(self.evidence.exists())
+
+    def test_original_alias_loss_and_wrong_native_collection_pointer_fail_before_receipt(self):
+        shader = self.env.objects[1].read_typetree(); shader['m_ParsedForm']['m_SubShaders'][0]['m_Passes'][0]['progVertex']['m_SubPrograms'] = []
+        self.env.objects[1].read_typetree = lambda: shader
+        with self.assertRaises(BuildError): self.run_gate()
+        self.env.objects[1].read_typetree = native
+        self.env.objects[3].read_typetree = lambda: collection({'m_FileID': 0, 'm_PathID': 999})
+        with self.assertRaises(BuildError): self.run_gate()
+        self.assertFalse(self.evidence.exists())
+
+    def test_cli_isolated_execution_bootstraps_sibling_modules_and_emits_one_error_line(self):
+        import shutil
+        import subprocess
+        cli = self.root / 'cli'; cli.mkdir()
+        shutil.copyfile(gate.__file__, cli / 'campaign_native_shaders.py')
+        import storage
+        shutil.copyfile(storage.__file__, cli / 'storage.py')
+        result = subprocess.run([sys.executable, '-I', str(cli / 'campaign_native_shaders.py'),
+            '--source', str(self.source), '--project', str(self.project), '--native-root', str(self.native),
+            '--evidence', str(self.evidence)], text=True, capture_output=True)
+        import json
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(result.stderr.splitlines()), 1)
+        self.assertEqual(json.loads(result.stderr)['status'], 'failed')
+        self.assertNotIn('No module named \'storage\'', result.stderr)
+        self.assertFalse(result.stdout)
+
+
 if __name__ == '__main__': unittest.main()

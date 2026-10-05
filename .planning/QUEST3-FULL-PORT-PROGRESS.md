@@ -767,8 +767,12 @@ an additional native backend. Targeted readback shows that EyeHistogram still
 matches its previously witnessed desktop-OpenGL bank, while the1,421,936-byte
 original postprocess bundle contains the other12 compute objects with both
 desktop OpenGL17/11 and Android Vulkan21/0. The Vulkan validator remains unchanged;
-exact additional-bank qualification is being completed before the retained build
-retry. This rejected candidate has not replaced the last accepted hardware APK.
+exact additional-bank qualification now passes for all13 objects and36 Vulkan
+kernels, with the frozen Vulkan validator unchanged. Each extra desktop bank is
+qualified against exact original owner/source/interface and actual bank hashes;
+six new negative controls reject owner, source and backend drift. This candidate
+has not replaced the last accepted hardware APK because graphics closure remains
+a separate delivery gate.
 
 The Windows Campaign Editor launcher now requests the same OpenGLCore import
 backend as the witnessed Linux compiler host, instead of introducing an untested
@@ -776,3 +780,38 @@ default Direct3D compute bank. Unity2021.3 documents the `-force-glcore` Editor
 switch in its [command-line reference](https://docs.unity3d.com/2021.3/Documentation/Manual/EditorCommandLineArguments.html).
 Two focused launch-contract controls pass. This does not claim a complete clean
 Windows build or qualification of a differently generated native backend.
+
+## Early native fog retention diagnosis, 2026-10-06
+
+The 60be retained native Addressables build produces 3,256 bundles and 6,367 content
+files. A bounded actual-byte census resolves all 688 original GUID/root identities
+and 51,564 original alias requirements. Exactly one Shader, original Ambient
+Occlusion GUID 5a1f387d3c895934bba5174e16819fb6, loses 27 FOG aliases: nine each
+for linear, exponential and exponential-squared fog. All other original alias
+requirements and the native SVC's 688 identities/16,201 projections are retained.
+The incomplete build is stopped before Player packaging; its failure receipt,
+typed census and imported/compiler caches are preserved. No B623 delivery is
+claimed.
+
+Actual Unity 2021.3.5 property inspection verifies FogStripping enum choices
+Automatic/Custom and three Boolean keep flags. The generated project's Automatic
+mode ignores the already-enabled flags. The Campaign-only builder now requests
+Custom and verifies all three original modes, alongside KeepAll instancing.
+Seven focused production-body tests pass, including 25 failure controls and exact
+original-owner/collection preservation. The actual small AO native comparison
+now reproduces the exact 27 missing aliases in Automatic mode and retains all
+54 original aliases with the production Custom setting. Both native Addressables
+builds use unchanged original Shader/include/metadata bytes. Exact native GUID,
+SVC/PPtr, program-directory ranges and combined VS/FS payload samples pass; all
+42 original source/metadata file hashes remain unchanged after Unity exits.
+The complete retained retry and signed delivery remain pending.
+
+The early native-directory gate now runs immediately after the actual
+Addressables build and before large archive/Player production. It reads only the
+typed Shader/SVC/material dependency closure and invokes no compiler. The signed
+Player and delivered content still require their final independent closure gate.
+All 377 integrated Quest-builder tests pass, including 34 native-graphics
+controls; unsafe, missing or concurrently changed native inputs are rejected.
+The Windows CLI retains isolated Python execution and junction rejection.
+Unity's [Graphics settings reference](https://docs.unity3d.com/2021.3/Documentation/Manual/class-GraphicsSettings.html)
+documents automatic scene-based stripping and explicit Custom fog retention.

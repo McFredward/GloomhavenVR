@@ -109,5 +109,13 @@ class NativeContentPack(unittest.TestCase):
         self.assertEqual(actual["GHVR_QUEST_CONTENT_PACK_HELPER"], str(Path(packer.__file__).resolve()))
         self.assertEqual(inherited["GHVR_QUEST_CONTENT_PACK_HELPER"], "untrusted helper"); self.assertEqual(actual["OTHER"], "kept")
 
+    def test_campaign_gate_uses_host_helper_and_exact_frozen_source(self):
+        inherited = {"GHVR_QUEST_NATIVE_SHADER_HELPER": "untrusted helper", "GHVR_QUEST_NATIVE_SHADER_SOURCE": "untrusted source", "OTHER": "kept"}
+        actual = builder.campaign_native_shader_environment(inherited, self.root)
+        self.assertEqual(actual["GHVR_QUEST_NATIVE_SHADER_HELPER"], str(Path(builder.__file__).resolve().with_name("campaign_native_shaders.py")))
+        self.assertEqual(actual["GHVR_QUEST_NATIVE_SHADER_SOURCE"], str(self.root.resolve()))
+        self.assertEqual(actual["OTHER"], "kept")
+        self.assertEqual(inherited["GHVR_QUEST_NATIVE_SHADER_HELPER"], "untrusted helper")
+
 
 if __name__ == "__main__": unittest.main()

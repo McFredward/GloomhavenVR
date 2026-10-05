@@ -171,6 +171,7 @@ namespace GloomhavenVR.Quest.Editor
             string built = Addressables.BuildPath;
             if (!File.Exists(Path.Combine(built, "settings.json")))
                 throw new InvalidDataException("Native Android Addressables did not produce actual RuntimeSettings.");
+            if (campaign) ValidateNativeCampaignShaders(built);
             RepackContent(built);
             var content = JsonUtility.FromJson<ContentManifest>(File.ReadAllText("Assets/Quest/Resources/quest-startup-content.json"));
             File.WriteAllText("Assets/Quest/Resources/quest-startup-addressables.json", JsonUtility.ToJson(new RuntimeManifest
@@ -191,7 +192,7 @@ namespace GloomhavenVR.Quest.Editor
         internal const string CampaignAddressableShaderCollectionPath = "Assets/Quest/CampaignShaders/QuestCampaignShaderVariants.shadervariants";
         internal const string CampaignShaderRetentionGroup = "Owned Campaign native shader variants";
 
-        internal static void ConfigureCampaignInstancingRetention()
+        internal static void ConfigureCampaignShaderRetention()
         {
             // Native dc3 APK/bundle readback lost original INSTANCING_ON banks
             // even though their original materials enable GPU instancing. Unity
@@ -211,6 +212,30 @@ namespace GloomhavenVR.Quest.Editor
             graphics.Update();
             if (graphics.FindProperty("m_InstancingStripping").intValue != 2)
                 throw new InvalidDataException("Original instancing banks were not retained.");
+
+            // Actual 60be native Addressables bytes retained 687 original Shader
+            // banks but lost all 27 original FOG_* aliases in Ambient Occlusion.
+            // Automatic scene-based fog stripping ignores the keep flags, even
+            // when the exact original SVC is included. Scenery is loaded later
+            // through Addressables, so retain its original fog modes explicitly.
+            var fog = graphics.FindProperty("m_FogStripping");
+            if (fog == null || fog.propertyType != SerializedPropertyType.Enum ||
+                !fog.enumNames.SequenceEqual(new[] { "Automatic", "Custom" }))
+                throw new InvalidDataException("Unity 2021.3.5 fog retention enum is unavailable.");
+            fog.enumValueIndex = Array.IndexOf(fog.enumNames, "Custom");
+            string[] fogModes = { "m_FogKeepLinear", "m_FogKeepExp", "m_FogKeepExp2" };
+            foreach (string mode in fogModes)
+            {
+                var keep = graphics.FindProperty(mode);
+                if (keep == null || keep.propertyType != SerializedPropertyType.Boolean)
+                    throw new InvalidDataException("Unity original fog retention flag is unavailable: " + mode);
+                keep.boolValue = true;
+            }
+            graphics.ApplyModifiedPropertiesWithoutUndo();
+            graphics.Update();
+            if (graphics.FindProperty("m_FogStripping").intValue != 1 ||
+                fogModes.Any(mode => !graphics.FindProperty(mode).boolValue))
+                throw new InvalidDataException("Original fog shader banks were not retained.");
         }
 
         internal static void AddCampaignShaderRetention(AddressableAssetSettings settings)
@@ -220,7 +245,7 @@ namespace GloomhavenVR.Quest.Editor
             // dc3 bundle banks lost non-instanced LIGHTPROBE_SH/shadow aliases.
             // Include the exact same original-alias SVC as a native AA root;
             // preserve original per-bundle ownership, keys and preload labels.
-            ConfigureCampaignInstancingRetention();
+            ConfigureCampaignShaderRetention();
             var input = JsonUtility.FromJson<QuestCampaignShaderValidation.Manifest>(
                 File.ReadAllText(QuestCampaignShaderValidation.DefaultManifest));
             var collection = AssetDatabase.LoadAssetAtPath<ShaderVariantCollection>(CampaignShaderCollectionPath);
@@ -352,6 +377,55 @@ namespace GloomhavenVR.Quest.Editor
         {
             public int schema = 1;
             public string projectRoot, nativeRoot;
+        }
+
+        [Serializable] sealed class NativeShaderReceipt
+        {
+            public int schema, shaderCount, originalNativeAliasCount, compilerQueries;
+            public string scope;
+            public bool allOriginalAliasesRetained, signedApkAuditPerformed, hardwarePictureVerified;
+        }
+
+        static void ValidateNativeCampaignShaders(string nativeRoot)
+        {
+            // Read the actual small typed Shader dependency closure before the
+            // large content archive and Player are produced. This catches native
+            // stripping defects without repeating the opt-in compiler matrix.
+            string python = Environment.GetEnvironmentVariable("GHVR_QUEST_CONTENT_PACK_PYTHON");
+            string helper = Environment.GetEnvironmentVariable("GHVR_QUEST_NATIVE_SHADER_HELPER");
+            string source = Environment.GetEnvironmentVariable("GHVR_QUEST_NATIVE_SHADER_SOURCE");
+            if (string.IsNullOrEmpty(python) || string.IsNullOrEmpty(helper) || string.IsNullOrEmpty(source) ||
+                !File.Exists(python) || !File.Exists(helper) || !Directory.Exists(source))
+                throw new InvalidOperationException("The builder's verified native Shader gate is required.");
+            const string evidence = "QuestCampaignShaderEvidence/native-addressables-validation.json";
+            using (var process = new System.Diagnostics.Process())
+            {
+                process.StartInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = python,
+                    Arguments = "-I -B -X utf8 " + QuoteArgument(helper) + " --source " + QuoteArgument(source) +
+                        " --project " + QuoteArgument(Directory.GetCurrentDirectory()) +
+                        " --native-root " + QuoteArgument(Path.GetFullPath(nativeRoot)) +
+                        " --evidence " + QuoteArgument(Path.GetFullPath(evidence)),
+                    UseShellExecute = false, CreateNoWindow = true,
+                    RedirectStandardOutput = true, RedirectStandardError = true,
+                    WorkingDirectory = Directory.GetCurrentDirectory()
+                };
+                process.Start();
+                process.StandardOutput.ReadToEnd();
+                string error = process.StandardError.ReadToEnd();
+                process.WaitForExit();
+                if (process.ExitCode != 0)
+                    throw new InvalidDataException("Actual native Shader gate failed (" + process.ExitCode + "): " +
+                        error.Substring(0, Math.Min(error.Length, 2048)));
+            }
+            var receipt = JsonUtility.FromJson<NativeShaderReceipt>(File.ReadAllText(evidence));
+            if (receipt == null || receipt.schema != 1 || receipt.scope != "actual-native-addressables-before-player" ||
+                receipt.shaderCount != 688 || receipt.originalNativeAliasCount != 51564 ||
+                !receipt.allOriginalAliasesRetained || receipt.compilerQueries != 0 ||
+                receipt.signedApkAuditPerformed || receipt.hardwarePictureVerified)
+                throw new InvalidDataException("Early native Shader gate lacks the exact original Campaign closure.");
+            Debug.Log("[Quest Campaign build] native Addressables retain all 688 original Shaders / 51564 original aliases; Player delivery gate pending.");
         }
         [Serializable] sealed class NativePackReceipt
         {

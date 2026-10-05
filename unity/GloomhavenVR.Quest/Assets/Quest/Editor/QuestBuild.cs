@@ -243,7 +243,7 @@ namespace GloomhavenVR.Quest.Editor
             PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] {
                 fullCampaign ? GraphicsDeviceType.Vulkan : GraphicsDeviceType.OpenGLES3 });
 #if GHVR_QUEST_GAME
-            if (fullCampaign) QuestStartupAddressablesBuild.ConfigureCampaignInstancingRetention();
+            if (fullCampaign) QuestStartupAddressablesBuild.ConfigureCampaignShaderRetention();
 #endif
             // The current mod's authored shaders and per-eye callbacks require
             // MultiPass. Query its public contract so future mod changes remain

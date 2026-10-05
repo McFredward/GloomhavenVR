@@ -37,7 +37,7 @@ class RetentionMethods(unittest.TestCase):
         cls.root = Path(cls.temporary.name)
         text = SOURCE.read_text()
         bodies = "\n".join(method(text, declaration) for declaration in (
-            "internal static void ConfigureCampaignInstancingRetention()",
+            "internal static void ConfigureCampaignShaderRetention()",
             "internal static void AddCampaignShaderRetention(AddressableAssetSettings settings)",
             "internal static AddressableAssetGroup GetOrCreateOwnedGroup("))
         constants = "\n".join(re.findall(r'        internal const string Campaign\w+ = "[^"\n]+";', text))
@@ -69,6 +69,11 @@ class RetentionMethods(unittest.TestCase):
         for case in ("enum-kind", "enum-name", "enum-absent", "enum-unwritten"):
             with self.subTest(case=case): self.run_case(case)
 
+    def test_native_fog_contract_rejects_missing_or_unwritten_modes(self):
+        for case in ("fog-enum-kind", "fog-enum-name", "fog-enum-absent", "fog-enum-unwritten",
+                     "fog-flag-kind", "fog-flag-absent", "fog-linear-unwritten", "fog-exp-unwritten", "fog-exp2-unwritten"):
+            with self.subTest(case=case): self.run_case(case)
+
     def test_original_shader_and_alias_identity_negative_controls(self):
         for case in ("scope", "api", "guid", "name", "missing-alias", "extra-alias", "pass-type"):
             with self.subTest(case=case): self.run_case(case)
@@ -84,13 +89,16 @@ class BuildScope(unittest.TestCase):
         build = method(text, "public static void Build()")
         self.assertIn('if (campaign) AddCampaignShaderRetention(settings);', build)
         self.assertLess(build.index("AddCampaignShaderRetention(settings)"), build.index("AddressableAssetSettings.BuildPlayerContent"))
+        self.assertLess(build.index("AddressableAssetSettings.BuildPlayerContent"), build.index("ValidateNativeCampaignShaders(built)"))
+        self.assertLess(build.index("ValidateNativeCampaignShaders(built)"), build.index("RepackContent(built)"))
+        self.assertIn("if (campaign) ValidateNativeCampaignShaders(built);", build)
         self.assertIn("PlayerBuildOption.DoNotBuildWithPlayer", build)
         self.assertNotIn("WarmUp(", text)
         self.assertIn("EditorUtility.CopySerialized(collection, addressable)", text)
 
     def test_android_player_setting_is_quest_campaign_guarded(self):
         path = ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs"
-        self.assertRegex(path.read_text(), r"#if GHVR_QUEST_GAME\s+if \(fullCampaign\) QuestStartupAddressablesBuild.ConfigureCampaignInstancingRetention\(\);\s+#endif")
+        self.assertRegex(path.read_text(), r"#if GHVR_QUEST_GAME\s+if \(fullCampaign\) QuestStartupAddressablesBuild.ConfigureCampaignShaderRetention\(\);\s+#endif")
 
 
 if __name__ == "__main__": unittest.main()

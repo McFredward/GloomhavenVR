@@ -27,16 +27,24 @@ namespace UnityEngine.Rendering
 }
 namespace UnityEditor
 {
- public enum SerializedPropertyType { Integer,Enum }
+ public enum SerializedPropertyType { Integer,Enum,Boolean }
  public class SerializedProperty
  {
   public static SerializedPropertyType Type=SerializedPropertyType.Enum;public static string[] Names=new[]{"StripUnused","StripAll","KeepAll"};public static int Value;public static bool Available=true,Writable=true;
-  public SerializedPropertyType propertyType {get{return Type;}}public string[] enumNames {get{return Names;}}
-  public int enumValueIndex {get{return Value;}set{if(Writable)Value=value;}}public int intValue {get{return Value;}}
+  public static SerializedPropertyType FogType=SerializedPropertyType.Enum,FogFlagType=SerializedPropertyType.Boolean;
+  public static string[] FogNames=new[]{"Automatic","Custom"};public static int FogValue;public static bool FogAvailable=true,FogWritable=true,FogFlagAvailable=true;
+  public static readonly Dictionary<string,bool> FogFlags=new Dictionary<string,bool>();public static string UnwritableFogFlag;
+  readonly string name;public SerializedProperty(string propertyName){name=propertyName;}
+  public SerializedPropertyType propertyType {get{return name=="m_InstancingStripping"?Type:name=="m_FogStripping"?FogType:FogFlagType;}}
+  public string[] enumNames {get{return name=="m_InstancingStripping"?Names:FogNames;}}
+  public int enumValueIndex {get{return intValue;}set{if(name=="m_InstancingStripping"){if(Writable)Value=value;}else if(FogWritable)FogValue=value;}}
+  public int intValue {get{return name=="m_InstancingStripping"?Value:FogValue;}}
+  public bool boolValue {get{return FogFlags[name];}set{if(name!=UnwritableFogFlag)FogFlags[name]=value;}}
  }
  public class SerializedObject
  {
-  public SerializedObject(UnityEngine.Object ignored){}public SerializedProperty FindProperty(string name){return SerializedProperty.Available&&name=="m_InstancingStripping"?new SerializedProperty():null;}
+  public SerializedObject(UnityEngine.Object ignored){}
+  public SerializedProperty FindProperty(string name){bool available=name=="m_InstancingStripping"?SerializedProperty.Available:name=="m_FogStripping"?SerializedProperty.FogAvailable:SerializedProperty.FogFlags.ContainsKey(name)&&SerializedProperty.FogFlagAvailable;return available?new SerializedProperty(name):null;}
   public void ApplyModifiedPropertiesWithoutUndo(){}public void Update(){}
  }
  public static class EditorUtility

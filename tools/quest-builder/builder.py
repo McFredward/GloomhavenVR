@@ -1129,6 +1129,8 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                     "GHVR_QUEST_ANDROID_SDK": tools["androidSdk"],
                     "GHVR_QUEST_ANDROID_NDK": tools["androidNdk"], "GHVR_QUEST_JDK": tools["jdk"]})
         env = content_pack_environment(env)
+        if args.target == "game":
+            env = campaign_native_shader_environment(env, source)
         if args.target in ("startup", "game"):
             # Unity 2021.3's Android toolchain otherwise selects old NDK r21 BFD.
             # Keep the supported linker selection local to this Android build process.
@@ -1151,6 +1153,9 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
         if args.target == "game":
             import campaign_compute
             import campaign_native_shaders
+            early_receipt = apk.parent / "shaders-addressables-validation.json"
+            shutil.copyfile(_ordinary_owned(project / "QuestCampaignShaderEvidence/native-addressables-validation.json"), early_receipt)
+            evidence.append(early_receipt)
             content_files = [output / row["path"] for row in details["contentFiles"]]
             if len(content_files) != 1:
                 raise BuildError("Full Campaign graphics require one exact delivered native content bank.")
@@ -1226,6 +1231,17 @@ def recover_delivery_pending(output: Path, key: str, provenance: dict) -> bool:
     except (OSError, ValueError, TypeError) as exc:
         raise BuildError(message) from exc
     return True
+
+
+def campaign_native_shader_environment(base, source):
+    """Use captured host-owned validation and the exact frozen source decoder."""
+    helper = Path(__file__).resolve().with_name("campaign_native_shaders.py")
+    if not helper.is_file() or helper.is_symlink():
+        raise BuildError("Verified native Shader gate is missing from the selected builder.")
+    result = dict(base)
+    result.update(GHVR_QUEST_NATIVE_SHADER_HELPER=str(helper),
+                  GHVR_QUEST_NATIVE_SHADER_SOURCE=str(Path(source).resolve()))
+    return result
 
 
 def content_pack_environment(base):
