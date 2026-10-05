@@ -113,13 +113,41 @@ class Engine:
         editors, hubs = discovery.unity_paths()
         if not selected:
             selected = next((row["path"] for row in editors if row["version"] == provision.LOCK["unity"]["version"] and row["androidSupport"]), None)
-        if not selected:
+        existing_editor = selected or next((row["path"] for row in editors if row["version"] == provision.LOCK["unity"]["version"]), None)
+        if not selected or not (Path(selected).parent / "Data/PlaybackEngines/AndroidPlayer/NDK/source.properties").is_file():
             hub = state["choices"].get("unityHub") or next(iter(hubs), None)
-            if not hub: raise WizardError("unity_hub_required", "Install Unity Hub and sign in once, then continue.", "Unity Hub installieren und einmal anmelden, dann fortsetzen.", url=provision.LOCK["unity"]["hubDownloadUrl"])
             if not state["choices"]["acceptUnityTerms"]:
                 raise WizardError("unity_terms_required", "Review Unity and Android module terms before installation.", "Vor der Installation die Bedingungen von Unity und den Android-Modulen bestätigen.")
-            supervisor.run([hub, "--", "--headless", "install", "--version", "2021.3.5f1", "--changeset", "40eb3a945986",
-                            "--module", "android", "--childModules", "--errors"], self.log(state, "unity"))
+            if not hub:
+                if os.name != "nt": raise WizardError("windows_required", "Automatic Unity provisioning currently supports Windows.")
+                setup = provision.download(provision.LOCK["unityHub"], self.store.root / "tools/downloads/UnityHubSetup-3.22.2-x64.exe",
+                                           lambda: self.store.check_cancel(state["session"]))
+                try:
+                    # Unity documents the installer window, not an unattended
+                    # installation/license promise. Its verified setup is started
+                    # automatically; the user completes the displayed setup.
+                    supervisor.run([setup], self.log(state, "unity"))
+                except OSError as error:
+                    if getattr(error, "winerror", None) != 740: raise
+                    os.startfile(str(setup), "runas")
+                    raise WizardError("unity_hub_setup", "Complete the verified Unity Hub setup window, then continue.",
+                                      "Das Fenster der geprüften Unity-Hub-Installation abschließen, dann fortsetzen.",
+                                      installer=str(setup), requiresUserInteraction=True)
+                editors, hubs = discovery.unity_paths(); hub = next(iter(hubs), None)
+                if not hub: raise WizardError("unity_hub_setup", "Complete the Unity Hub setup window, then select its installed location.",
+                                              "Die Unity-Hub-Installation abschließen und ihren Installationsort wählen.", installer=str(setup))
+                raise WizardError("unity_login_required", "Sign in to Unity Hub and activate an eligible license, then continue. The Editor and Android modules will be installed automatically.",
+                                  "In Unity Hub anmelden und eine passende Lizenz aktivieren, dann fortsetzen. Editor und Android-Module werden automatisch installiert.",
+                                  url=provision.LOCK["unity"]["licenseUrl"])
+            help_log = self.store.session_dir(state["session"]) / "logs/unity-hub-help.log"
+            supervisor.run([hub, "--", "--headless", "help", "--errors"], help_log)
+            supported = help_log.read_text(encoding="utf-8", errors="replace")
+            if not re.search(r"\binstall\b", supported) or not re.search(r"\beditors\b", supported):
+                raise WizardError("unity_cli_unavailable", "This Hub has no supported archived-Editor CLI. Install Unity2021.3.5f1 and Android modules in its Installs screen, then continue.",
+                                  "Dieser Hub bietet keine unterstützte CLI für den archivierten Editor. Unity2021.3.5f1 mit Android-Modulen unter Installationen hinzufügen, dann fortsetzen.",
+                                  url=provision.LOCK["unity"]["installDocumentation"])
+            install = ["install-modules", "--version", "2021.3.5f1"] if existing_editor else ["install", "--version", "2021.3.5f1", "--changeset", "40eb3a945986"]
+            supervisor.run([hub, "--", "--headless", *install, "--module", "android", "--childModules", "--errors"], self.log(state, "unity"))
             editors, _ = discovery.unity_paths()
             selected = next((row["path"] for row in editors if row["version"] == "2021.3.5f1" and row["androidSupport"]), None)
             if not selected: raise WizardError("unity_install_incomplete", "Unity installation has not produced the required Editor and Android modules.", "Die Unity-Installation enthält den benötigten Editor und die Android-Module noch nicht.")

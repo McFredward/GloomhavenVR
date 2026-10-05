@@ -37,7 +37,7 @@ HTTP uses GET `/api/discover`, `/api/status?session=ID`,
 `/api/events?session=ID&after=N`, `/api/log?session=ID&stage=STAGE`; POST
 `/api/plan {choices,session?}`, `/api/run {session}`,
 `/api/cancel {session}`, `/api/browse {kind:game|unity}`. Native browse is Windows
-only. Artwork, capture and cache cleanup capabilities currently remain false.
+only. Artwork becomes available only after an inspect receipt and server-owned recovery cache witness matching original PNGs. GET `/api/artwork?session=ID&id=OPAQUE` checks the token/origin and image SHA again; status exposes only opaque IDs/URLs, never a filesystem path. Capture and cache cleanup capabilities remain false.
 Discovery lists recent opaque session IDs because browser storage belongs to the
 random port's origin. Reopening a session does not start any work automatically.
 
@@ -53,11 +53,19 @@ workspace lock releases after process death; no persisted PID authorizes killing
 another process. Windows children start suspended and join a kill-on-close Job
 Object before resuming; cancellation waits for owned descendants to exit.
 
-Unity installation uses an existing Unity Hub's documented archived-version CLI
-only after explicit acceptance of applicable terms. Hub installation and license
-activation/sign-in remain visible user actions; a version check does **not** prove
-license activation. `licenseVerified:false` is explicit. This backend does not
+Unity Hub is downloaded automatically from a versioned official URL and verified
+against the publisher SHA512/size pin before its installer window starts. Setup,
+sign-in and license activation remain visible user actions where Unity/Windows
+require them. The installed Hub's archived-version CLI is checked at runtime before
+Editor/module automation; the existing Editor receives only its missing Android
+modules. Unity documents this Hub CLI as deprecated with minimal support from
+3.18; an absent command produces a specific actionable fallback, never a pretend
+installation. A version check does **not** prove license activation. `licenseVerified:false` is explicit. This backend does not
 promise unattended Unity licensing. Unity failure logs remain local.
+
+After hard process death, a saved running session is marked interrupted only
+when the kernel workspace lock has no active owner; a live external run remains
+protected. No persisted PID is terminated during reconciliation.
 
 The central builder's interrupted imported workspace currently needs its pending
 transactional resume integration: the backend retains such a workspace and

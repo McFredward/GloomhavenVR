@@ -115,6 +115,22 @@ class Store:
     def load(self, session):
         value = read_json(self.session_dir(session) / "state.json")
         if value.get("session") != session: raise WizardError("invalid_session", "Wizard session identity changed.")
+        if value.get("status") == "running":
+            try:
+                with file_lock(self.root / "run.lock"):
+                    # Re-read after acquiring ownership: another process may
+                    # have completed between the first read and the lock.
+                    value = read_json(self.session_dir(session) / "state.json")
+                    if value.get("status") == "running":
+                        value["status"] = "interrupted"
+                        for row in value["stages"]:
+                            if row["status"] == "running": row["status"] = "interrupted"
+                        value["needsActions"] = [{"code": "interrupted", "message": {
+                            "en": "The previous run stopped. Continue to verify and resume its retained work.",
+                            "de": "Der vorige Lauf wurde beendet. Fortsetzen prüft und verwendet die erhaltene Arbeit."}}]
+                        self.event(value, "interrupted")
+            except WizardError as error:
+                if error.code != "already_running": raise
         return value
 
     def save(self, state):

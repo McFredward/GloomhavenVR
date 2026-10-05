@@ -39,5 +39,16 @@
     "installDocumentation": "https://docs.unity.com/en-us/hub/install-editors",
     "cliDocumentation": "https://docs.unity.com/en-us/hub/hub-cli-reference"
   },
-  "source": {"url": "https://github.com/McFredward/GloomhavenVR.git", "ref": "feature/quest3-standalone"}
+  "source": {
+    "url": "https://github.com/McFredward/GloomhavenVR.git",
+    "ref": "feature/quest3-standalone"
+  },
+  "unityHub": {
+    "version": "3.22.2",
+    "url": "https://public-cdn.cloud.unity3d.com/hub/prod/3.22.2/UnityHubSetup-3.22.2-x64.exe",
+    "algorithm": "sha512",
+    "hash": "116c8e0dd15cd9ce00cc19bccb7a4da29a0b2fea760d9404f3223e973689f9f4cc287fe630b9593205f0e3f559d18802c870ff022e9e6cfd0e4ce122c0338474",
+    "size": 193623232,
+    "source": "https://public-cdn.cloud.unity3d.com/hub/prod/latest.yml"
+  }
 }

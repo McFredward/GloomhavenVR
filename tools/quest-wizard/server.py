@@ -2,12 +2,14 @@
 from __future__ import annotations
 import ctypes
 import hmac
+import importlib.util
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import mimetypes
 import os
 from pathlib import Path, PurePosixPath
 import secrets
+import re
 import threading
 from urllib.parse import parse_qs, unquote, urlsplit
 import webbrowser
@@ -61,9 +63,50 @@ class LocalServer(ThreadingHTTPServer):
         self.token = secrets.token_urlsafe(32)
         self.engine_factory, self.discover = engine_factory, discover
         self.jobs, self.jobs_lock, self.browse_lock = {}, threading.Lock(), threading.Lock()
+        self.artwork_cache, self.artwork_lock = {}, threading.Lock()
         super().__init__(("127.0.0.1", port), Handler)
         self.origin = "http://127.0.0.1:" + str(self.server_address[1])
         self.url = self.origin + "/#" + self.token
+
+    def artwork(self, session, state):
+        """Resolve only witnessed recovery caches, never a browser filesystem path."""
+        adapter_path = ordinary(self.ui_root / "artwork.py")
+        if not adapter_path.is_file(): return []
+        engine = self.engine_factory(self.store)
+        proof = self.store.valid(session, "inspect", engine.key(state, "inspect"))
+        if not proof: return []
+        game_key = proof.get("details", {}).get("gameKey")
+        if not isinstance(game_key, str) or not re.fullmatch(r"[0-9a-f]{64}", game_key): return []
+        recovery = ordinary(self.store.root / "build/cache/recovery")
+        if not recovery.is_dir(): return []
+        candidates = []
+        for path in recovery.iterdir():
+            if not re.fullmatch(r"[0-9a-f]{64}", path.name): continue
+            project = ordinary(path / "project")
+            report = ordinary(project / "quest-campaign-report.json")
+            if report.is_file(): candidates.append((report.stat().st_mtime_ns, project, report.stat().st_size))
+        candidates.sort(key=lambda row: row[0], reverse=True); candidates = candidates[:8]
+        signature = (game_key, tuple((time, str(project), size) for time, project, size in candidates), adapter_path.stat().st_mtime_ns)
+        with self.artwork_lock:
+            cached = self.artwork_cache.get(session)
+            if cached and cached[0] == signature: return cached[1]
+            spec = importlib.util.spec_from_file_location("_quest_wizard_owned_artwork", adapter_path)
+            adapter = importlib.util.module_from_spec(spec); spec.loader.exec_module(adapter)
+            rows = []
+            for _, project, _ in candidates:
+                rows = adapter.verified_project_artwork(project, game_key, limit=3)
+                if rows: break
+            result = [(row, adapter.read_artwork) for row in rows]
+            self.artwork_cache[session] = (signature, result)
+            return result
+
+    def visible_state(self, session, state):
+        try: rows = self.artwork(session, state)
+        except (OSError, ValueError, WizardError, ImportError, AttributeError): rows = []
+        value = dict(state)
+        value["artwork"] = [{"id": row["id"], "url": "/api/artwork?session=" + session + "&id=" + row["id"], "altCode": row["altCode"]} for row, _ in rows]
+        value["capabilities"] = {"artwork": bool(rows)}
+        return value
 
     def run_session(self, session):
         self.store.load(session)
@@ -99,6 +142,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status); self.common_headers(); self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(raw))); self.end_headers(); self.wfile.write(raw)
 
+    def send_raster(self, raw):
+        self.send_response(200); self.common_headers(); self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(raw))); self.end_headers(); self.wfile.write(raw)
+
     def common_headers(self):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -132,7 +179,9 @@ class Handler(BaseHTTPRequestHandler):
             parsed = urlsplit(self.path)
             if parsed.path.startswith("/api/"):
                 self.authorize(); value = self.api(parsed)
-                self.send_json(value); return
+                if isinstance(value, bytes): self.send_raster(value)
+                else: self.send_json(value)
+                return
             if self.command != "GET": raise WizardError("route", "Unsupported local route.")
             self.static(parsed.path)
         except (WizardError, OSError, ValueError, KeyError) as error:
@@ -152,7 +201,14 @@ class Handler(BaseHTTPRequestHandler):
         if self.command == "GET":
             if parsed.path == "/api/discover": return self.server.discover(REPO, self.server.store)
             session = selected("session"); state = self.server.store.load(session)
-            if parsed.path == "/api/status": return {"schema": 1, "event": "status", "session": session, "state": state}
+            if parsed.path == "/api/status": return {"schema": 1, "event": "status", "session": session, "state": self.server.visible_state(session, state)}
+            if parsed.path == "/api/artwork":
+                identity = selected("id")
+                for row, read in self.server.artwork(session, state):
+                    if identity == row["id"]:
+                        raw = read(row)
+                        if raw is not None: return raw
+                raise WizardError("artwork_unavailable", "Verified owned artwork is unavailable.")
             if parsed.path == "/api/events":
                 after = int(selected("after"))
                 if after < 0: raise WizardError("request_query", "Invalid event cursor.")

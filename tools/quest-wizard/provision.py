@@ -124,7 +124,12 @@ def tools(store, session, supervisor):
         expected = "git version " + spec["version"] if name == "git" else spec["version"]
         if log.read_text(encoding="utf-8").strip() != expected:
             raise WizardError("tool_version", "A provisioned tool reported an unexpected version.")
-        found[name] = str(executable); outputs += [executable, executable.parent.parent / "wizard-tool.json" if name == "git" else executable.parent / "wizard-tool.json", log]
+        found[name] = str(executable)
+        tool_root = executable.parent.parent if name == "git" else executable.parent
+        # A missing SDK support DLL must invalidate this receipt even when the
+        # launcher EXE itself still matches. Extraction then repairs exact ZIP
+        # members without redownloading a valid pinned archive.
+        outputs += [*sorted(path for path in tool_root.rglob("*") if path.is_file()), log]
     path = store.session_dir(session) / "tools.json"
     atomic_json(path, {"schema": 1, **found, "pins": {name: value_hash(LOCK[name]) for name in found}})
     return [path, *outputs], found
@@ -193,7 +198,7 @@ def source_checkout(store, session, choices, details, supervisor, repo):
     if checkout.exists() and not (checkout / ".git").is_dir(): shutil.rmtree(checkout)
     if not checkout.exists():
         argv = [git, "-c", "core.longpaths=true", "clone", "--no-checkout", "--no-hardlinks"]
-        if not local: argv += ["--single-branch", "--branch", choices.get("sourceRef") or LOCK["source"]["ref"]]
+        if not local: argv += ["--depth", "1", "--single-branch", "--branch", choices.get("sourceRef") or LOCK["source"]["ref"]]
         supervisor.run([*argv, origin, checkout], log_root / "source-clone.log", env=env)
     commit = choices.get("sourceCommit")
     resolution = store.session_dir(session) / "source-resolution.json"
@@ -205,6 +210,16 @@ def source_checkout(store, session, choices, details, supervisor, repo):
         supervisor.run([git, "-C", checkout, "rev-parse", "HEAD"], log_root / "source-commit.log", env=env)
         commit = (log_root / "source-commit.log").read_text(encoding="utf-8").strip()
     if not re.fullmatch(r"[0-9a-f]{40}", commit): raise WizardError("source_commit", "Source did not resolve to one immutable commit.")
+    if not local and choices.get("sourceCommit"):
+        # An explicitly selected older commit may lie outside the shallow ref.
+        # Fetch that immutable object alone instead of the project's asset history.
+        try:
+            supervisor.run([git, "-C", checkout, "cat-file", "-e", commit + "^{commit}"],
+                           log_root / "source-selected-present.log", env=env)
+        except WizardError as error:
+            if error.code != "child_failed": raise
+            supervisor.run([git, "-C", checkout, "fetch", "--depth", "1", origin, commit],
+                           log_root / "source-selected-commit.log", env=env)
     atomic_json(resolution, {"schema": 1, "commit": commit})
     supervisor.run([git, "-C", checkout, "checkout", "--detach", commit], log_root / "source-checkout.log", env=env)
     def source_inventory(directory, filename):

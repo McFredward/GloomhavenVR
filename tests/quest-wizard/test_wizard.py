@@ -239,7 +239,6 @@ class HttpTests(Fixture):
         code,value=self.request('/api/artwork?session='+self.plan()['session']+'&id=../secret');self.assertEqual(code,400)
 
 
-if __name__=='__main__':unittest.main()
 
 class SourceDependencyTests(Fixture):
     def test_declared_projects_fetch_all_before_build_and_use_owned_game(self):
@@ -330,3 +329,131 @@ class UiModuleIntegrationTests(Fixture):
         self.assertEqual(response.getheader('Content-Type'),'text/javascript; charset=utf-8')
         self.assertIn('img-src \'self\' data: blob:',response.getheader('Content-Security-Policy'))
         self.assertIn(b'export const value',response.read());connection.close()
+
+class UnityProvisionTests(Fixture):
+    def test_missing_hub_is_downloaded_verified_and_setup_started(self):
+        import types
+        saved=self.plan(acceptUnityTerms=True);setup=self.store.root/'setup.exe';setup.write_bytes(b'fixture verified setup')
+        supervisor=mock.Mock()
+        with mock.patch.object(wizard.discovery,'unity_paths',side_effect=[([],[]),([],['installed-hub.exe'])]),mock.patch.object(wizard.provision,'download',return_value=setup) as download,mock.patch.object(wizard,'os',types.SimpleNamespace(name='nt')):
+            with self.assertRaises(state.WizardError) as error:wizard.Engine(self.store).stage_unity(saved,supervisor)
+        self.assertEqual(error.exception.code,'unity_login_required');download.assert_called_once();supervisor.run.assert_called_once()
+        self.assertEqual(supervisor.run.call_args.args[0],[setup])
+        self.assertEqual(download.call_args.args[0]['algorithm'],'sha512')
+    def test_terms_gate_precedes_every_download_or_install(self):
+        saved=self.plan();supervisor=mock.Mock()
+        with mock.patch.object(wizard.discovery,'unity_paths',return_value=([],[])),mock.patch.object(wizard.provision,'download') as download:
+            with self.assertRaises(state.WizardError) as error:wizard.Engine(self.store).stage_unity(saved,supervisor)
+        self.assertEqual(error.exception.code,'unity_terms_required');download.assert_not_called();supervisor.run.assert_not_called()
+    def test_current_hub_help_is_checked_before_archived_install(self):
+        saved=self.plan(acceptUnityTerms=True,unityHub=str(self.root/'Hub.exe'));supervisor=mock.Mock()
+        def help_output(argv,log,**_):log.parent.mkdir(parents=True,exist_ok=True);log.write_text('CLI unsupported')
+        supervisor.run.side_effect=help_output
+        with mock.patch.object(wizard.discovery,'unity_paths',return_value=([],[])):
+            with self.assertRaises(state.WizardError) as error:wizard.Engine(self.store).stage_unity(saved,supervisor)
+        self.assertEqual(error.exception.code,'unity_cli_unavailable');self.assertEqual(supervisor.run.call_count,1)
+    def test_existing_editor_gets_android_modules_and_preserves_license_unknown(self):
+        saved=self.plan(acceptUnityTerms=True,unityHub=str(self.root/'Hub.exe'));editor=self.root/'Unity/2021.3.5f1/Editor/Unity.exe';editor.parent.mkdir(parents=True);editor.write_bytes(b'editor fixture')
+        calls=[]
+        def process(argv,log,**_):
+            calls.append(list(map(str,argv)));log.parent.mkdir(parents=True,exist_ok=True)
+            if 'help' in argv:log.write_text('install editors install-modules')
+            elif 'install-modules' in argv:
+                ndk=editor.parent/'Data/PlaybackEngines/AndroidPlayer/NDK/source.properties';ndk.parent.mkdir(parents=True);ndk.write_text('revision=21');log.write_text('installed')
+            else:log.write_text('2021.3.5f1')
+        supervisor=mock.Mock();supervisor.run.side_effect=process
+        before=[{'path':str(editor),'version':'2021.3.5f1','androidSupport':False}];after=[{**before[0],'androidSupport':True}]
+        with mock.patch.object(wizard.discovery,'unity_paths',side_effect=[(before,[]),(after,[])]):
+            outputs,details=wizard.Engine(self.store).stage_unity(saved,supervisor)
+        self.assertIn('install-modules',calls[1]);self.assertNotIn('install',calls[1]);self.assertFalse(details['licenseVerified']);self.assertTrue(outputs[0].is_file())
+
+class HardDeathStateTests(Fixture):
+    def test_running_state_without_kernel_owner_becomes_retryable(self):
+        saved=self.plan();calls=[]
+        wizard.Engine(self.store,actions=self.actions(calls,lambda stage,_:stage=='build')).run(saved['session'])
+        value=self.store.load(saved['session']);value['status']='running';value['stages'][5]['status']='running';self.store.save(value)
+        resumed=state.Store(self.store.root).load(saved['session'])
+        self.assertEqual(resumed['status'],'interrupted');self.assertEqual(resumed['needsActions'][0]['code'],'interrupted')
+        final=wizard.Engine(self.store,actions=self.actions(calls)).run(saved['session'])
+        self.assertEqual(final['status'],'complete');self.assertEqual(calls.count('tools'),1)
+    def test_active_external_kernel_owner_remains_protected(self):
+        saved=self.plan();saved['status']='running';saved['stages'][0]['status']='running';self.store.save(saved)
+        script='import sys,time;from pathlib import Path;sys.path.insert(0,sys.argv[1]);from state import file_lock;\nwith file_lock(Path(sys.argv[2])):\n print("locked",flush=True);time.sleep(30)'
+        process=subprocess.Popen([sys.executable,'-I','-B','-c',script,str(ROOT/'tools/quest-wizard'),str(self.store.root/'run.lock')],stdout=subprocess.PIPE,text=True)
+        try:
+            self.assertEqual(process.stdout.readline().strip(),'locked')
+            self.assertEqual(self.store.load(saved['session'])['status'],'running')
+            with self.assertRaises(state.WizardError):self.store.amend(saved['session'],dict(saved['choices'],install=False))
+            process.kill();process.wait()
+            self.assertEqual(self.store.load(saved['session'])['status'],'interrupted')
+        finally:
+            if process.poll() is None:process.kill();process.wait()
+            process.stdout.close()
+
+class ArtworkHttpTests(Fixture):
+    def setUp(self):
+        super().setUp();self.ui=self.root/'ui';self.ui.mkdir();(self.ui/'index.html').write_text('owned UI')
+        # Adapter contract fixture: its own tests verify actual recovered PNG
+        # identity selection. These tests verify backend ownership, HTTP privacy
+        # and revalidation rather than reimplementing the image selection rules.
+        (self.ui/'artwork.py').write_text('''import json,hashlib
+from pathlib import Path
+def verified_project_artwork(project,key,limit):
+ report=json.loads((project/'quest-campaign-report.json').read_text())
+ if report['sourceBuilderFingerprint']!=key:return []
+ return [dict(report['image'],projectRoot=str(project))]
+def read_artwork(row):
+ raw=(Path(row['projectRoot'])/row['assetPath']).read_bytes()
+ return raw if hashlib.sha256(raw).hexdigest()==row['sha256'] else None
+''')
+        self.saved=self.plan();key='a'*64
+        self.saved['completed']={name:{'key':'fixture-'+name,'details':{}} for name in ('tools','source','unity','profile')}
+        inspect_key=wizard.Engine(self.store).key(self.saved,'inspect')
+        manifest=self.store.session_dir(self.saved['session'])/'input.json';state.atomic_json(manifest,{'schema':1,'gameKey':key})
+        self.store.publish(self.saved['session'],'inspect',inspect_key,[manifest],{'gameKey':key});self.store.save(self.saved)
+        self.project=self.store.root/'build/cache/recovery'/('b'*64)/'project';self.project.mkdir(parents=True)
+        self.image=self.project/'Assets/Texture2D/portrait.png';self.image.parent.mkdir(parents=True);self.raw=b'\x89PNG\r\n\x1a\n'+b'fixture bounded original artwork';self.image.write_bytes(self.raw)
+        state.atomic_json(self.project/'quest-campaign-report.json',{'schema':1,'sourceBuilderFingerprint':key,'image':{'id':'c'*32,'assetPath':'Assets/Texture2D/portrait.png','sha256':hashlib.sha256(self.raw).hexdigest(),'size':len(self.raw),'altCode':'ownedArtwork'}})
+        self.http=server.LocalServer(self.store,self.ui);self.thread=threading.Thread(target=self.http.serve_forever,daemon=True);self.thread.start()
+    def tearDown(self):self.http.shutdown();self.http.close_owned();self.thread.join();super().tearDown()
+    def get(self,route,headers=None):
+        connection=http.client.HTTPConnection(*self.http.server_address,timeout=3)
+        connection.request('GET',route,headers=headers if headers is not None else {'X-Quest-Token':self.http.token,'Origin':self.http.origin})
+        response=connection.getresponse();result=(response.status,response.getheader('Content-Type'),response.read());connection.close();return result
+    def test_opaque_gallery_and_token_guarded_actual_image(self):
+        _,_,raw=self.get('/api/status?session='+self.saved['session']);value=json.loads(raw)
+        self.assertTrue(value['state']['capabilities']['artwork']);descriptor=value['state']['artwork'][0]
+        self.assertEqual(set(descriptor),{'id','url','altCode'});self.assertNotIn(str(self.project),raw.decode())
+        status,mime,raw=self.get(descriptor['url']);self.assertEqual((status,mime,raw),(200,'image/png',self.raw))
+        self.assertEqual(self.get(descriptor['url'],headers={})[0],403)
+    def test_changed_image_unknown_id_or_invalid_inspect_receipt_refused(self):
+        route='/api/artwork?session='+self.saved['session']+'&id='+'c'*32
+        self.image.write_bytes(b'changed');self.assertEqual(self.get(route)[0],400)
+        self.assertEqual(self.get(route.replace('c'*32,'../private'))[0],400)
+        self.store.receipt(self.saved['session'],'inspect').unlink();self.assertEqual(self.get(route)[0],400)
+    def test_symlinked_recovery_directory_cannot_expose_outside_image(self):
+        if os.name=='nt':self.skipTest('symlink rights vary on Windows')
+        outside=self.root/'foreign';outside.mkdir();(outside/'project').mkdir()
+        (self.store.root/'build/cache/recovery'/('d'*64)).symlink_to(outside,target_is_directory=True)
+        _,_,raw=self.get('/api/status?session='+self.saved['session']);self.assertFalse(json.loads(raw)['state']['capabilities']['artwork'])
+
+class SourceHistoryTests(Fixture):
+    def test_remote_source_is_shallow_and_explicit_commit_fetch_is_bounded(self):
+        chosen='e'*40;saved=self.plan(sourceCommit=chosen);calls=[]
+        def run(argv,log,**_):
+            args=list(map(str,argv));calls.append(args);log.parent.mkdir(parents=True,exist_ok=True);log.write_text('')
+            if 'clone' in args:
+                checkout=Path(args[-1]);(checkout/'.git').mkdir(parents=True);(checkout/'source.py').write_text('selected immutable source')
+            elif 'cat-file' in args:raise state.WizardError('child_failed','not present in shallow ref')
+            elif '-c' in args and 'import sys;' in args[args.index('-c')+1]:
+                record=Path(args[-1]);checkout=Path(args[-2]);state.atomic_json(record,{'schema':1,'files':[{'path':'source.py','sha256':state.digest(checkout/'source.py'),'size':(checkout/'source.py').stat().st_size}],'commit':chosen,'dirty':False})
+        supervisor=mock.Mock();supervisor.run.side_effect=run
+        details={'git':'portable-git','dotnet8':'portable-net8','dotnet10':'portable-net10'}
+        derived=self.root/'dependencies.json';state.atomic_json(derived,{'schema':1})
+        with mock.patch.object(provision,'derive_runtime_dependencies',return_value=derived):
+            _,proof=provision.source_checkout(self.store,saved['session'],saved['choices'],details,supervisor,self.root/'release-archive')
+        clone=next(row for row in calls if 'clone' in row);self.assertEqual(clone[clone.index('--depth')+1],'1')
+        fetch=next(row for row in calls if 'fetch' in row);self.assertEqual(fetch[-1],chosen);self.assertEqual(fetch[fetch.index('--depth')+1],'1')
+        self.assertEqual(proof['commit'],chosen)
+
+if __name__=='__main__':unittest.main()
