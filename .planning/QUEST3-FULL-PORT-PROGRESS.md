@@ -769,3 +769,10 @@ original postprocess bundle contains the other12 compute objects with both
 desktop OpenGL17/11 and Android Vulkan21/0. The Vulkan validator remains unchanged;
 exact additional-bank qualification is being completed before the retained build
 retry. This rejected candidate has not replaced the last accepted hardware APK.
+
+The Windows Campaign Editor launcher now requests the same OpenGLCore import
+backend as the witnessed Linux compiler host, instead of introducing an untested
+default Direct3D compute bank. Unity2021.3 documents the `-force-glcore` Editor
+switch in its [command-line reference](https://docs.unity3d.com/2021.3/Documentation/Manual/EditorCommandLineArguments.html).
+Two focused launch-contract controls pass. This does not claim a complete clean
+Windows build or qualification of a differently generated native backend.

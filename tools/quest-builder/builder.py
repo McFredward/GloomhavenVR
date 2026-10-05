@@ -78,6 +78,11 @@ def unity_launcher(editor, *, graphics=False):
         if not display:
             raise BuildError("The Linux full Campaign build requires xvfb-run for its real OpenGLCore shader compiler host.")
         return [display, "-a", *arguments, "-force-glcore"]
+    if sys.platform == "win32":
+        # Use the same witnessed Editor compute backend as the Linux builder.
+        # Unity 2021.3 supports this switch on Windows; otherwise its default
+        # D3D import bank is an unqualified extra in the Android content build.
+        return arguments + ["-force-glcore"]
     return arguments
 
 
