@@ -1,5 +1,39 @@
 # State — where the project stands
 
+**Build626 integration complete, 2026-10-05: 1.1.0.**
+
+Both supplied NPC peers are Build625. Exact native class-highlight admission and
+preparation of an offered party member's artwork fix the observer's repeated
+Brute rejection. Enhancement originals establish one complete baseline; ordinary
+hover/scroll/selection use cumulative native deltas. The native selectable areas
+fit the actual physical print, including pivot, inset and rotation; original
+widgets and callbacks remain intact.
+
+Additive TLV107 carries the actual town card-return age, curve, endpoints and
+child geometry. Merchant stock, owned-item glide/collapse and enchantress ability
+returns replay every render frame. Stock originals are prepared while the
+canonical avatar masks their duplicate. New clock/root pairs get bounded priority
+inside the same 864-byte, 15 Hz event; accepted temple TLV106 is unchanged.
+
+The complete local attempt recorded 137 scopes: 133 direct passes and four
+retained failures resolved with explicit focused continuations. They cover a
+missing fixture field, actual page-completion prerequisite, prepared-held
+publication invariant and native mage lease prerequisite. The last failure's
+historical cause remains unresolved; byte-identical production already passed
+before the diagnostic fixture improvement. Successful unrelated scopes were not
+repeated. All 14 source gates with the isolated diagnostic continuation, 308352
+wire/golden assertions, strict Release with zero warnings/errors, documents,
+bundles and unchanged public surfaces pass. All production/asset inputs remain
+unchanged after the complete attempt began; only four fixture files changed.
+Actual compiled output explains 20 changed and one added type, with no removals.
+
+No Build626 headset outcome exists yet. See [NPC-626-REVIEW.md](NPC-626-REVIEW.md)
+and [NPC-626-FLIGHTS.md](NPC-626-FLIGHTS.md) for paired evidence, 1:1 boundaries,
+source-bound native/flight proofs and next hardware checks. Original reports and
+continuations remain in `.planning/debug/npc626/validation-ledger.json`.
+
+---
+
 **Build625 integration complete, 2026-10-05: 1.1.0.**
 
 Both supplied NPC peers are Build624. Prepared merchant input now publishes
