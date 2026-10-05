@@ -447,3 +447,40 @@ progress, cancellation/resume views and optional verified local game artwork.
 Seven focused UI tests and four artwork tests pass. Real HTTP integration,
 automatic prerequisite installation and transactional Unity resume remain in
 progress; this UI checkpoint is not a completed clean-PC builder claim.
+
+## Completed shader reuse and batched native content preparation
+
+The full f905 PASS is now sealed by an actual Unity2021.3.5f1 migration run:
+all688 shaders/all51,564 aliases/all9,187 materials, all20,930 native output
+files, the stable24,781-file input capture and original launch provenance match.
+The original receipt hash is
+`32a2fdcb487e20ee35ed87e63029a51e0e4c4c1ae4ab5fac3fa33062e7182922`.
+The completed graphics closure is
+`2d67bf67108358d3be36d1402116c8e571d68cc459b6dbe51e09f1e3806d483d`.
+No native sweep was repeated to introduce reuse. Generated Addressables .asset
+metadata is excluded from the graphics-only closure; explicit imported
+dependencies, sources/includes/unknown files and XR settings remain bound.
+The actual bounded Unity controls prove those distinctions.
+
+The ensuing full-content preparation exposed repeated imports while creating
+3,254 native source-bundle groups. Correction `d2e090a8` batches group/schema
+imports using native StartAssetEditing/StopAssetEditing and completes interrupted
+schemas through the package API. It preserves independent ownership, keys,
+labels, preload semantics and profile links. Actual Unity/package1.19.19 and a
+separate Editor reopen pass973 checks. The24-group fixture measures763.66ms/
+121 import callbacks before and278.85ms/two callbacks after (2.74x); native
+SaveAssets calls remain49 in both. This does not predict full-project speed.
+
+The verified owned f905 process was terminated after the complete shader PASS
+to apply these Editor-only changes. Raw PlayerSettings stayed identical. The
+same Library, frozen game/mod snapshots and all previous evidence were retained;
+five explicit Editor ledger entries now include one added helper with no
+fabricated preparation baseline. The resumed driver verifies all unchanged
+preparation outputs and reuses the verified weave/standalone stages. Signed
+full Player and delivered-bank validation remain pending.
+
+The Wizard now has automatic pinned Hub setup, explicit sign-in/license actions,
+kernel-lock detection of interrupted runs, and an opaque local-art endpoint.
+Forty focused backend checks and an actual loopback HTTP/Chrome test pass.
+Windows provisioning and seamless interruption during Unity/content generation
+still need their own implementation/runtime evidence.
