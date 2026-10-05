@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using GloomhavenVR.WorldUI.MapRoom;
+using GloomhavenVR.WorldUI;
 
 namespace UnityEngine.UI
 {
@@ -13,6 +14,9 @@ namespace UnityEngine.UI
         internal bool IsOpen = true;
         internal bool Destination, Permanent, Mandatory, Semantic;
         internal int Escapes, Hides, ExplicitHides;
+        internal int CloseCaptures, CloseCompletions;
+        internal TownServiceTutorialPatches.MerchantClose? PendingClose, CompletedClose;
+        internal bool ClosedAtCompletion, FloatReleasedAtCompletion, CanvasReleasedAtCompletion;
         internal Action? EscapeAction, HideAction;
         internal bool EscapeResult = false;
         internal readonly List<(string Operation, bool Explicit)> Calls = new();
@@ -56,6 +60,25 @@ namespace GloomhavenVR.WorldUI.MapRoom
 namespace GloomhavenVR.WorldUI
 {
     using UnityEngine.UI;
+    // The separate onboarding suite executes actual promise eligibility and dedup.
+    // This port observes only the opaque capture/completion call order and inputs.
+    internal static class TownServiceTutorialPatches
+    {
+        internal sealed class MerchantClose { }
+        internal static MerchantClose? CaptureConvertedMerchantClose(UIWindow window)
+        {
+            window.CloseCaptures++; window.Observe("CaptureMerchantClose"); return window.PendingClose;
+        }
+        internal static void CompleteConvertedMerchantClose(UIWindow window, MerchantClose? close)
+        {
+            window.CloseCompletions++; window.Observe("CompleteMerchantClose"); window.CompletedClose = close;
+            window.ClosedAtCompletion = !window.IsOpen;
+            window.FloatReleasedAtCompletion = ModalFallback.HasPanel && ModalFallback.Panel.UserClosing;
+            var group = ModalFallback.Panel.WindowCanvasGroup;
+            window.CanvasReleasedAtCompletion = group != null && group.alpha == 0
+                && !group.blocksRaycasts && !group.interactable;
+        }
+    }
     internal static class MessageWindowContinuation
     {
         internal static bool TryClose(UIWindow window)

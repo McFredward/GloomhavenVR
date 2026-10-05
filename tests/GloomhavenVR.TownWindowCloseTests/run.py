@@ -36,9 +36,13 @@ def main():
              '            MapRoom.GuildmasterDestinations.IsDestination(window));')
     leave = '        MapRoom.GuildmasterDestinations.LeaveMode(window, "X button");'
     permanent = '        if (IsMapRoomPermanent(window))'
+    capture = '        var merchantClose = TownServiceTutorialPatches.CaptureConvertedMerchantClose(window);'
+    completion = '        TownServiceTutorialPatches.CompleteConvertedMerchantClose(window, merchantClose);'
+    menu_reset = '        ResetEscMenuToggleGroup(window);'
     cleanup = 'if (_entered) _depth--;'
     thread = '[ThreadStatic] private static int _depth;'
-    for original, text in ((close, entry), (close, leave), (close, permanent), (scope, cleanup), (scope, thread)):
+    for original, text in ((close, entry), (close, leave), (close, permanent), (close, capture),
+                           (close, completion), (close, menu_reset), (scope, cleanup), (scope, thread)):
         if original.count(text) != 1: raise SystemExit('Explicit close mutation source binding drift: ' + text)
     controls = {
         'missing-scope': (close.replace(entry, ''), scope, 'native destination leave observes explicit close intent'),
@@ -54,6 +58,18 @@ def main():
                                   'disabled nested scope preserves enclosing explicit close intent'),
         'shared-thread-scope': (close, scope.replace(thread, 'private static int _depth;'),
                                "thread-local scope cannot borrow another native close's intent"),
+        'missing-merchant-capture': (close.replace(capture, '        TownServiceTutorialPatches.MerchantClose? merchantClose = null;'), scope,
+                                   'opaque merchant continuation is captured before native LeaveMode cleanup'),
+        'late-merchant-capture': (close.replace(capture, '').replace(leave, leave + '\n' + capture), scope,
+                                'opaque merchant continuation is captured before native LeaveMode cleanup'),
+        'unscoped-merchant-capture': (close.replace(capture, '').replace(entry, capture + '\n' + entry), scope,
+                                    'converted merchant snapshot and continuation remain inside explicit close intent'),
+        'missing-merchant-completion': (close.replace(completion, ''), scope,
+                                      'converted merchant continuation follows native close or final VR release'),
+        'early-merchant-completion': (close.replace(completion, '').replace(capture, capture + '\n' + completion), scope,
+                                    'converted merchant continuation follows native close or final VR release'),
+        'late-merchant-completion': (close.replace(completion, '').replace(menu_reset, menu_reset + '\n' + completion), scope,
+                                   'converted merchant continuation precedes unrelated menu-reset failures'),
     }
     if args.only_mutation and args.only_mutation not in controls:
         parser.error('Unknown causal control: ' + args.only_mutation)
