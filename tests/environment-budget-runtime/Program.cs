@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using GloomhavenVR.Core;
 using UnityEngine;
@@ -386,6 +387,21 @@ public static partial class EnvironmentProgram
         Tick("HandlePreCull",room.Camera); ((Behaviour)Driver).enabled = false;
         Check(!first.forceRenderingOff && !chunk.enabled, "actual MonoBehaviour disable releases an interrupted camera mask");
         ((Behaviour)Driver).enabled = true;
+
+        // Static Camera callbacks remain subscribed when the mod host is inactive.
+        // Proxy chunks live outside that host, so a missing admission guard would
+        // still submit their geometry. Observe the real render and original pixels.
+        room.Host.SetActive(false);
+        bool inactiveOriginals = false;
+        room.ObserveRender = () => inactiveOriginals = !first.forceRenderingOff
+            && !second.forceRenderingOff && !chunk.enabled;
+        Color32[] inactivePixels = room.Render(); room.ObserveRender = null;
+        Check(inactiveOriginals && room.LastRenderedChunks == 0
+            && originalPixels.SequenceEqual(inactivePixels),
+            "inactive environment host uses original camera pixels without private chunk leases");
+        room.Host.SetActive(true); room.Render();
+        Check(room.LastRenderedChunks == 1 && !first.forceRenderingOff && !chunk.enabled,
+            "reactivated environment host resumes its completed private draw lease");
 
         first.enabled = false; room.Render();
         Check(room.LastRenderedChunks == 0 && !second.forceRenderingOff, "real camera pre-cull rejects changed native visibility in the same render");

@@ -80,6 +80,10 @@ def main():
         ('visible-idle-crowd-unbounded', 'ScenarioIdleAnimationBudget.cs',
          'item.Value.Tick(enabled, visibleInterval, false)', 'item.Value.Tick(enabled, visibleInterval, true)',
          'visible idle crowd warms at most two actual native poses concurrently'),
+        ('inactive-idle-mode-not-restored', 'ScenarioIdleAnimationBudget.cs',
+         'ReleaseCameraMasks(); foreach (Record record in _records.Values) record.Restore();',
+         'ReleaseCameraMasks(); /* injected: inactive host keeps transform culling */',
+         'inactive idle host retains original native modes and visible skins across actual camera callbacks'),
         ('eventful-idle-admitted', 'ActorBarPose.cs', 'if (clip.events.Length == 0) _eventFreeIdleLoops.Add(clip);',
          'if (true) _eventFreeIdleLoops.Add(clip);', 'native eventful idle remains fully evaluated'),
     ]

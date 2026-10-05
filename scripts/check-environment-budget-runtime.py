@@ -122,6 +122,7 @@ def main():
     variants = [('production',source,'')]
     if not args.production_only:
         changes = [
+            ('inactive-host-acquires-render-lease', '!isActiveAndEnabled || !_active', '!_active', 'inactive environment host uses original camera pixels without private chunk leases', 1),
             ('material-read-toggle-stuck', 'bool share = PerfConfig.SharedEnvironmentMaterialReadsOn;', 'bool share = true;', 'shared material read option Off repeats every original per-surface validation', 1),
             ('private-bank-toggle-ignored', 'surface.ReadableMesh == null && _meshBankOn && ScenarioEnvironmentMeshBank.TryGetExact', 'surface.ReadableMesh == null && ScenarioEnvironmentMeshBank.TryGetExact', 'private mesh bank option Off restores unreadable original rendering immediately', 1),
             ('private-bank-never-used', 'surface.ReadableMesh == null && _meshBankOn && ScenarioEnvironmentMeshBank.TryGetExact', 'surface.ReadableMesh == null && bool.Parse("false") && ScenarioEnvironmentMeshBank.TryGetExact', 'verified unreadable native floor originals create a bounded private exact chunk', 1),
