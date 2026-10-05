@@ -1178,11 +1178,12 @@ public static partial class MirrorProgram
             }
             Check(calls.Exists(c => c.Key == piece.Key && c.Source == piece.Content && c.Provenance == piece.Source
                 && c.CloneOf!(piece.Source) == piece.Content), "physical ritual keeps original native inscription provenance");
-            Check(calls.Exists(c => c.Key == piece.BodyKey && c.Source == piece.Body), "ritual mirrors exact physical coin or rune body");
+            Check(calls.Exists(c => c.Key == (service == 2 ? "ritual.purse.held" : piece.BodyKey) && c.Source == piece.Body), "ritual mirrors exact physical coin or rune body");
             if (service == 2)
-                Check(calls.FindAll(c => c.Key == "ritual.purse").Count == 1,
+                Check(calls.FindAll(c => c.Key == "ritual.purse.held").Count == 1,
                     "the owner's actual carried purse stays shared while its pre-drop ghost stays local");
-            Check(calls.Exists(c => c.Key == piece.DetailKey && c.Source == piece.DetailContent && c.Provenance == piece.DetailSource),
+            Check(calls.Exists(c => c.Key == (service == 2 ? "temple.tooltip.counters.0" : piece.DetailKey)
+                && c.Source == piece.DetailContent && c.Provenance == piece.DetailSource),
                 "held ritual description mirrors actual owner presentation");
             Check(!calls.Exists(c => c.Source == ritual.Zone),
                 "all town pre-drop guides remain visitor-local while actual offered originals stay shared");

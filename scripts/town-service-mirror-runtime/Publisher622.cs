@@ -261,6 +261,25 @@ public static partial class MirrorProgram
             "first temple publication registers actual body before original inscription artwork");
         Check(Publisher622Priority(TownServiceSync.ModuleId(piece.Body)) && Publisher622Priority(TownServiceSync.ModuleId(piece.Content)),
             "first temple body and its original inscriptions both receive actual artwork priority");
+        ushort bodyId = TownServiceSync.ModuleId(piece.Body), inscriptionId = TownServiceSync.ModuleId(piece.Content);
+        int allocated = TownServiceSync.AllocatedIds;
+        // This is the actual TickCore -> PublishNative -> RegisterModule path. The
+        // older motion proof registered one fixed ID by hand and consequently never
+        // exercised the Build622 address switch on pickup.
+        foreach (bool held in new[] { true, false, true, false })
+        {
+            piece.Token.IsHeld = held;
+            piece.Token.IsMoving = held;
+            piece.Token.PhysicalAtHome = !held;
+            TownServiceSync.Calls.Clear(); TownServiceSync.Tick(author, author);
+            Check(TownServiceSync.ModuleId(piece.Body) == bodyId
+                && TownServiceSync.ModuleId(piece.Content) == inscriptionId
+                && TownServiceSync.AllocatedIds == allocated,
+                "actual purse pickup keeps its prepared original module and template identity");
+            Check(TownServiceSync.Calls.Exists(call => call.Source == piece.Body
+                && call.Key == "ritual.purse.held" && call.Prewarm),
+                "actual purse wrist hold and return all retain prepared original visitor artwork");
+        }
     }
 
     public static IEnumerator RunPublisher622(string output, string variant, string suite)

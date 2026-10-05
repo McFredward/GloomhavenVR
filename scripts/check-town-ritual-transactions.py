@@ -203,10 +203,11 @@ def inspect_purse_contract(source, offering, sync, mirror, templates):
         missing.append("physical purse hand filter is coupled to donation availability")
     if "Token.PickCollider.enabled = false" in source or "&& _available()" in source[source.index("inspect: () =>"):source.index("zoneHalfWidth:")]:
         missing.append("physical purse pickup is disabled by native row eligibility")
-    if "Publish(service == 2 && piece.Token.IsHeld ? \"ritual.purse.held\" : piece.BodyKey," not in sync \
+    if "Publish(service == 2 ? \"ritual.purse.held\" : piece.BodyKey," not in sync \
+            or "piece.Body, prewarm: service == 2);" not in sync \
             or "if (piece.Token.IsMoving)" not in sync \
             or "PriorityRoots.Add(piece.Body);" not in sync:
-        missing.append("held physical purse does not publish its owner-authored pose")
+        missing.append("physical purse changes its original identity or loses prewarm on pickup")
     # Personal wrist and held bodies survive another visitor's shared UI lease.
     # A cumulative delta can omit Mesh, so the ordinary purse address is admitted
     # provisionally and classified only after expansion. That must not admit a
@@ -218,7 +219,7 @@ def inspect_purse_contract(source, offering, sync, mirror, templates):
         (frame, '|| frame.Service == 2 && frame.TemplateAddress == "ritual.purse|" && PhysicalPurse(frame.Nodes);'),
         (physical, "if (node.Values.ContainsKey(TownServiceProperty.Mesh)) return true;"),
         (address, 'if (service == 2)\n            return address.StartsWith("ritual.purse.held|", StringComparison.Ordinal)\n'
-         '                || address.StartsWith("temple.row|", StringComparison.Ordinal);'),
+         '                || address.StartsWith("temple.row|", StringComparison.Ordinal)'),
         (retained, "IndependentVisitorModule(pair.Value.LastFrame, peer, !session.TransactionActive)"),
         (retained, "IndependentVisitorModule(session.Service, pair.Value.Address, TownServiceFrame.ManifestModule, peer, !session.TransactionActive)"),
     )
@@ -273,8 +274,8 @@ def sources(root):
     else:
         raise RuntimeError("Temple purse busy-visitor grab negative control did not fail")
     muted_pose = replace_once(sync_raw,
-        'Publish(service == 2 && piece.Token.IsHeld ? "ritual.purse.held" : piece.BodyKey,',
-        'Publish(piece.BodyKey,')
+        'Publish(service == 2 ? "ritual.purse.held" : piece.BodyKey,',
+        'Publish(service == 2 && piece.Token.IsHeld ? "ritual.purse.held" : piece.BodyKey,')
     try:
         inspect_purse_contract(raw, offering_raw, muted_pose, mirror_raw, templates_raw)
     except RuntimeError:
@@ -378,7 +379,7 @@ def sources(root):
               "TownServiceSync.cs": hashlib.sha256(sync_raw.encode()).hexdigest(),
               "NativeTemplates.cs": hashlib.sha256(templates_raw.encode()).hexdigest()}
     for name in ("TownServiceFrame.cs", "TownServiceDelta.cs", "TownRackState.cs", "TownCatalogLayout.cs",
-                 "TownCatalogBank.cs", "TownServiceCodec.cs"):
+                 "TownCatalogBank.cs", "TownCatalogBank.Headers.cs", "TownServiceCodec.cs"):
         native = (root / "src/GloomhavenVR/Net/TownServices" / name).read_text()
         bound[name] = native
         hashes["Net/TownServices/" + name] = hashlib.sha256(native.encode()).hexdigest()
@@ -390,7 +391,7 @@ def sources(root):
 
 def mutations():
     return [
-        ("purse-visitor-root-lease", "TemplePurseVisitor.cs", '|| address.StartsWith("temple.row|", StringComparison.Ordinal);', '|| false;', "another visitor retains the original labelled wrist purse root"),
+        ("purse-visitor-root-lease", "TemplePurseVisitor.cs", '|| address.StartsWith("temple.row|", StringComparison.Ordinal)', '|| false', "another visitor retains the original labelled wrist purse root"),
         ("purse-visitor-held-lease", "TemplePurseVisitor.cs", 'return address.StartsWith("ritual.purse.held|", StringComparison.Ordinal)', 'return false', "another visitor retains the original held purse body"),
         ("purse-visitor-sparse-received", "TemplePurseVisitor.cs", '&& !(received.Service == 2 && received.TemplateAddress == "ritual.purse|"))', '&& true)', "cumulative purse delta reaches expansion without repeating its native mesh"),
         # Removing the Mesh fence first misclassifies the unexpanded sparse frame;

@@ -226,17 +226,25 @@ internal sealed partial class TownServiceSync
                         PriorityRoots.Add(piece.Body);
                         if (piece.Content != null) PriorityRoots.Add(piece.Content);
                     }
-                    Publish(service == 2 && piece.Token.IsHeld ? "ritual.purse.held" : piece.BodyKey,
-                        piece.Body);
+                    // Wrist preview, physical hold, bowl deposit and return are the
+                    // same original purse. Build622 changed its template address on
+                    // pickup, retiring the ready wrist module and waiting for a new
+                    // complete artwork snapshot under the held address. Keep that
+                    // identity warm throughout; only its existing numeric hand,
+                    // parent, pose and opacity change. The independent visitor
+                    // address also retains a non-elected visitor's real purse.
+                    Publish(service == 2 ? "ritual.purse.held" : piece.BodyKey,
+                        piece.Body, prewarm: service == 2);
                     Publish(piece.Key, piece.Content, piece.Source.transform, piece.CloneOf);
                     // The priestess has one shared stand but each visitor can hold their
-                    // own purse. A distinct held address lets observers keep that prop
+                    // own purse. A stable independent address lets observers keep that prop
                     // from a non-elected visitor without cloning the rest of the stand.
 
                     if (piece.DetailContent != null && piece.DetailSource != null)
                     {
                         UITooltip? detailTooltip = piece.DetailSource.GetComponent<UITooltip>();
-                        Publish(detailTooltip != null ? NativeTemplates.TooltipKey(detailTooltip) : piece.DetailKey,
+                        Publish(service == 2 ? NativeTemplates.TempleTooltipKey(piece.DetailSource)
+                            : detailTooltip != null ? NativeTemplates.TooltipKey(detailTooltip) : piece.DetailKey,
                             piece.DetailContent, piece.DetailSource, piece.DetailCloneOf);
                     }
                 }

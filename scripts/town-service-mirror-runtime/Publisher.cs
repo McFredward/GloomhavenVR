@@ -163,6 +163,7 @@ namespace GloomhavenVR.WorldUI
         internal static Transform? Original(string key) => Originals.TryGetValue(key, out var value) ? value : null;
         internal static string CardKey(AbilityCardUI card) => "card." + card.CardID;
         internal static string TooltipKey(UITooltip tooltip) => "tooltip.fixture";
+        internal static string TempleTooltipKey(Transform source) => "temple.tooltip.counters.0";
     }
     internal static class TownServicePresentation
     {
