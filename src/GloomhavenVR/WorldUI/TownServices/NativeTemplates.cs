@@ -15,7 +15,7 @@ namespace GloomhavenVR.WorldUI;
 
 /// <summary>Canonical original prefab provenance for town widgets. The bank owns only inactive,
 /// neutralized copies; a visitor's gameplay window is never opened to build another visitor's UI.</summary>
-internal static class NativeTemplates
+internal static partial class NativeTemplates
 {
     internal sealed class Part
     {
@@ -36,7 +36,7 @@ internal static class NativeTemplates
     private static bool _ready;
     private static uint _assetGeneration;
     private static TownServiceTray? _tray;
-    private static GameObject? _catalogNavigation, _cardBody;
+    private static GameObject? _catalogNavigation, _cardBody, _mapBacking;
     private static readonly List<GameObject> PhysicalTemplates = new();
     internal static UITooltip? Tooltip { get; private set; }
     internal static bool Ready => _ready && _hud != null && _bank != null;
@@ -50,6 +50,7 @@ internal static class NativeTemplates
             // Network teardown may clear descriptors while the original native template bank
             // survives. Restore immutable identities before another capture/preload can run.
             if (_assetGeneration != TownServiceMirror.Assets.Generation) BindOriginalBackdrops();
+            PrepareEnhancementOriginals();
             return true;
         }
         Shutdown(); _hud = hud;
@@ -89,7 +90,7 @@ internal static class NativeTemplates
         _cardBody = TownServiceCardBody.Create(_bank.transform);
         Add("merchant.cardbody", _cardBody.transform);
         Add("merchant.heldstock.body", _cardBody.transform);
-        Add("map.cardbody", GloomhavenVR.Cards.CardsDriver.CardBackingPrefab?.transform);
+        Add("map.cardbody", OriginalMapBacking());
         Add("temple", hud.templeWindow);
         Add("temple.inventory", hud.templeWindow.Shop);
         Add("temple.row", hud.templeWindow.Shop.slotPrefab);
@@ -243,7 +244,7 @@ internal static class NativeTemplates
     internal static IReadOnlyList<Part> Parts(string key)
     {
         EnsureNativeProp(key);
-        EnsureCard(key); EnsureTooltip(key);
+        EnsureCard(key); EnsureTempleTooltip(key); EnsureTooltip(key);
         if (!Entries.TryGetValue(key, out Entry? entry)) throw new InvalidDataException("Missing original town widget: " + key);
         return entry.Parts;
     }
@@ -262,6 +263,17 @@ internal static class NativeTemplates
             ? "merchant.cardbody" : key, clone);
         TownServiceInspectionBody.RebindClone(key, clone);
         TownServiceWorkspacePractical.RebindClone(key, clone);
+    }
+    private static Transform? OriginalMapBacking()
+    {
+        GameObject? owned = GloomhavenVR.Cards.CardsDriver.CardBackingPrefab;
+        if (owned != null) return owned.transform;
+        // A newly joined observer may not own a character/ability-card driver.
+        // The original shared backing asset is still resident in the normal mod
+        // bundle; absence of CardsDriver is not absence of that original geometry.
+        if (_mapBacking == null)
+            _mapBacking = WorldUIAssets.TryLoadPrefab("Assets/Bundle/Table/CardBacking.prefab");
+        return _mapBacking != null ? _mapBacking.transform : null;
     }
     private static void EnsureNativeProp(string key)
     {
@@ -288,7 +300,7 @@ internal static class NativeTemplates
         if (key == "ritual.coin") source = TownServiceDecor.CoinTemplate;
         else if (key == "ritual.purse" || key == "ritual.purse.held")
             source = TownServiceDecor.MoneyBagTemplate;
-        else if (key == "map.cardbody") source = GloomhavenVR.Cards.CardsDriver.CardBackingPrefab?.transform;
+        else if (key == "map.cardbody") source = OriginalMapBacking();
         else if (key.StartsWith("decor.", StringComparison.Ordinal))
         {
             string[] parts = key.Split('.');
@@ -432,6 +444,7 @@ internal static class NativeTemplates
         _tray?.Dispose(); _tray = null; Tooltip = null;
         if (_catalogNavigation != null) Object.Destroy(_catalogNavigation);
         _catalogNavigation = null; _cardBody = null;
+        ResetEnhancementPreparation(); _mapBacking = null;
         PhysicalTemplates.Clear(); // Their common inactive bank owns destruction.
         if (_bank != null) Object.Destroy(_bank); _bank = null;
     }

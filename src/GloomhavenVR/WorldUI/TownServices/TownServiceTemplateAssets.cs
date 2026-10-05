@@ -71,6 +71,7 @@ internal static class TownServiceTemplateAssets
         // artwork keeps the model-aware/native resource identities, not the first borrower's.
         bool modelFace = template.StartsWith("item.", StringComparison.Ordinal)
             || template.StartsWith("face.", StringComparison.Ordinal)
+            || template.StartsWith("card.", StringComparison.Ordinal)
             || template.StartsWith("inspectionbody.", StringComparison.Ordinal);
         // The order and paths are authored prefab identities, never instance IDs or visit order.
         Visit(assets, root, "native-town|template|" + template, root, modelFace);

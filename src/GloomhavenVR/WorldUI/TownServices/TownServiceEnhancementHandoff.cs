@@ -368,11 +368,14 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         // only this player's current hand mode after physical Mage focus wins;
         // other residents and visitors retain their independent presentation.
         // Rebuild is synchronous before the native card census below.
-        if (destination == EGuildmasterMode.Merchant && magePreferred)
-            MapRoomHand.SetMerchantInspection(false);
-        if (destination == EGuildmasterMode.Temple && magePreferred)
-            MapRoomHand.SetTempleInspection(false);
-        bool hasCard = HasOwnedMapCard();
+        // A nearby resident can win hand focus without winning the native
+        // destination. Do not republish the ability fan while a real merchant
+        // item fan still exists: a purchase/cancel refresh otherwise stacks both.
+        // The immutable owned loadout is sufficient to decide whether a visit is
+        // possible; the actual successful destination edge owns fan replacement.
+        bool hasCard = magePreferred && (destination == EGuildmasterMode.Merchant
+            || destination == EGuildmasterMode.Temple)
+            ? MapRoomHand.HasOwnedTownAbilityCards() : HasOwnedMapCard();
         bool canVisit = hasCard && MapRoomDriver.CanVisitTownService(EGuildmasterMode.Enchantress);
         if (!hasCard || !canVisit)
         {
@@ -392,6 +395,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
                 suppressNativeSound: true);
         if (opened)
         {
+            if (destination == EGuildmasterMode.Merchant) MapRoomHand.SetMerchantInspection(false);
+            if (destination == EGuildmasterMode.Temple) MapRoomHand.SetTempleInspection(false);
             _pendingApproach = false;
             // Changing native guildmaster destinations can select the first assigned
             // character. Keep the exact native slot the visitor was inspecting.
