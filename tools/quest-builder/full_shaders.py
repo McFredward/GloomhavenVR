@@ -151,6 +151,34 @@ def signature(chunk):
     return rows
 
 
+def native_buffer_layouts(program):
+    """Witness each structured/raw resource stride from original DXBC tokens."""
+    _, chunks = dxbc_container(program)
+    code = chunks.get(b"SHDR", chunks.get(b"SHEX"))
+    if code is None or len(code) % 4:
+        raise ShaderRecoveryError("Original buffer layout requires a DXBC instruction bank.")
+    words = struct.unpack("<" + "I" * (len(code) // 4), code)
+    if len(words) < 2 or words[1] != len(words):
+        raise ShaderRecoveryError("Original DXBC instruction extent differs.")
+    position, result = 2, []
+    while position < len(words):
+        opcode, length = words[position] & 2047, (words[position] >> 24) & 127
+        if opcode == 0x35:  # D3D10 custom data carries its length in word two.
+            length = words[position + 1]
+        if not length or position + length > len(words):
+            raise ShaderRecoveryError("Truncated original DXBC instruction.")
+        if opcode in (0xa1, 0xa2):  # dcl_resource_raw / dcl_resource_structured
+            expected = 3 if opcode == 0xa1 else 4
+            if length != expected or words[position + 1] != 0x107000:
+                raise ShaderRecoveryError("Unsupported original indexed GPU buffer declaration.")
+            stride = 0 if opcode == 0xa1 else words[position + 3]
+            if stride < 0 or stride % 4 or stride > 4096:
+                raise ShaderRecoveryError("Original GPU buffer stride is invalid.")
+            result.append({"slot": words[position + 2], "kind": "raw" if opcode == 0xa1 else "structured", "strideBytes": stride})
+        position += length
+    return result
+
+
 def portable_layer_interface(spirv, outputs):
     """Retain vertex layer math while Unity supplies Quest framebuffer routing.
 
@@ -227,7 +255,7 @@ def translate(program, output, vkd3d="vkd3d-compiler", spirv_cross="spirv-cross"
     return {"originalDxbcSha256": key, "spirvSha256": hashlib.sha256(spirv.read_bytes()).hexdigest(),
             "translatedHlslSha256": hashlib.sha256(result.stdout.encode()).hexdigest(), "hlslPath": str(hlsl),
             "inputSignature": signature(chunks[b"ISGN"]) if b"ISGN" in chunks else [],
-            "outputSignature": outputs, "outputInterfaceAdapters": adapters,
+            "outputSignature": outputs, "outputInterfaceAdapters": adapters, "originalBufferLayouts": native_buffer_layouts(raw),
             "compilerSpirvSha256": hashlib.sha256(portable).hexdigest(), "hlslShaderModel": 50,
             "unityUniformsRestored": False, "androidShaderCompiled": False, "pixelParityVerified": False}
 
@@ -449,7 +477,7 @@ def native_loop_domains(body, read_offset):
     return domains
 
 
-def restore_uniforms(hlsl, interface, input_signature=()):
+def restore_uniforms(hlsl, interface, input_signature=(), resource_layouts=()):
     """Bind translated original math to recovered Unity material/builtin data.
 
     Every cbuffer component read by the actual program must have original
@@ -551,13 +579,84 @@ def restore_uniforms(hlsl, interface, input_signature=()):
         if missing:
             raise ShaderRecoveryError("Original metadata cannot explain used cbuffer scalars: " + binding["name"] + " " + repr(missing))
         observed.append({"slot": slot, "originalBuffer": binding["name"], "usedScalars": len(used), "usedScalarIndices": sorted(used), "allUsedScalarsBound": True})
-        for index in range(size):
-            values = [components.get(index * 4 + component, "0.0") for component in range(4)]
-            initializers.append(variable + "[" + str(index) + "] = float4(" + ", ".join(values) + ");")
+        structures = buffer.get("structures", [])
+        if structures:
+            if len(structures) != 1 or structures[0]["byteOffset"] or buffer["fields"]:
+                raise ShaderRecoveryError("Original instance buffer needs a proven homogeneous structure.")
+            structure = structures[0]
+            stride = structure["stride"] // 16
+            instance_body = hlsl[match.end():]
+            def structured_read(read):
+                expression, mask = read[1], read[2] or "xyzw"
+                residues = index_residues(expression, instance_body[:read.start()], stride,
+                                          loop_domains=native_loop_domains(instance_body, read.start()))
+                cases = []
+                for residue in sorted(residues):
+                    values = {}
+                    for field in structure["fields"]:
+                        dynamic = {**field, "name": structure["name"] + "[((" + expression + ") / " + str(stride) + ")]." + field["name"]}
+                        values.update(field_components(dynamic))
+                    components_used = [residue * 4 + "xyzw".index(component) for component in mask]
+                    if any(index not in values for index in components_used):
+                        raise ShaderRecoveryError("Original dynamic instance read reaches unexplained padding.")
+                    result = [values[index] for index in components_used]
+                    result = result[0] if len(result) == 1 else "float" + str(len(result)) + "(" + ", ".join(result) + ")"
+                    cases.append((residue, result))
+                value = cases[-1][1]
+                for residue, result in reversed(cases[:-1]):
+                    value = "(((" + expression + ") % " + str(stride) + ") == " + str(residue) + " ? " + result + " : " + value + ")"
+                return "(" + value + ")"
+            # Unity's two-element compiler array is a flexible native GPU
+            # instance buffer, not a two-object limit. Read its actual runtime
+            # element directly instead of copying only elements zero and one.
+            hlsl = hlsl[:match.end()] + re.sub(r"\b" + re.escape(variable) + r"\[([^]]+)\](?:\.([xyzw]+))?", structured_read, instance_body)
+        else:
+            for index in range(size):
+                values = [components.get(index * 4 + component, "0.0") for component in range(4)]
+                initializers.append(variable + "[" + str(index) + "] = float4(" + ", ".join(values) + ");")
     hlsl = pattern.sub(lambda match: "static float4 " + match[2] + "[" + match[3] + "];", hlsl)
     if re.search(r"\bcbuffer\b", hlsl):
         raise ShaderRecoveryError("Translated shader contains an unsupported original cbuffer declaration.")
     textures = {}
+    layouts = {row["slot"]: row for row in resource_layouts}
+    typed_buffers = {}
+    def typed_buffer(match):
+        original_slot = re.fullmatch(r"t(\d+)", match[1])
+        slot = int(original_slot[1]) if original_slot else -1
+        binding, layout = bindings.get(("buffer", slot)), layouts.get(slot)
+        if binding is None or layout is None:
+            raise ShaderRecoveryError("Original typed GPU buffer lacks its native register/stride witness.")
+        typed_buffers[match[1]] = (binding["name"], layout)
+        count = layout["strideBytes"] // 4
+        if layout["kind"] == "raw":
+            return "ByteAddressBuffer " + binding["name"] + ";"
+        if count == 1:
+            return "StructuredBuffer<uint> " + binding["name"] + ";"
+        structure = "QuestNativeBufferWords" + str(count)
+        declarations[structure] = "struct " + structure + " { uint words[" + str(count) + "]; };"
+        return "StructuredBuffer<" + structure + "> " + binding["name"] + ";"
+    hlsl = re.sub(r"Buffer<uint4>\s+(\w+)\s*:\s*register\(t\d+(?:,\s*space0)?\);", typed_buffer, hlsl)
+    for variable, (name, layout) in typed_buffers.items():
+        pattern = re.compile(r"\b" + re.escape(variable) + r"\.Load\(")
+        while True:
+            match = pattern.search(hlsl)
+            if match is None:
+                break
+            depth, end = 1, match.end()
+            while depth and end < len(hlsl):
+                depth += (hlsl[end] == '(') - (hlsl[end] == ')')
+                end += 1
+            if depth or hlsl[end:end + 2] != ".x":
+                raise ShaderRecoveryError("Original typed buffer has an unsupported non-scalar word read.")
+            expression = hlsl[match.end():end - 1]
+            count = layout["strideBytes"] // 4
+            if layout["kind"] == "raw":
+                value = name + ".Load((" + expression + ") * 4u)"
+            elif count == 1:
+                value = name + "[" + expression + "]"
+            else:
+                value = name + "[(" + expression + ") / " + str(count) + "u].words[(" + expression + ") % " + str(count) + "u]"
+            hlsl = hlsl[:match.start()] + value + hlsl[end + 2:]
     def texture(match):
         original_slot = re.fullmatch(r"t(\d+)", match[2])
         if original_slot is None:
@@ -595,7 +694,9 @@ def restore_uniforms(hlsl, interface, input_signature=()):
             return match[1] + " " + name + ";"
         # Unity associates an independent sampler with its texture by the
         # literal sampler<TextureName> convention, including its underscore.
-        source_name = sorted(names)[0]
+        if len(names) != 1:
+            raise ShaderRecoveryError("Original sampler has ambiguous texture ownership.")
+        source_name = next(iter(names))
         name = "sampler" + source_name
         sampler_names[match[2]] = name
         if source_name in BUILTIN_TEXTURES:
@@ -819,7 +920,8 @@ def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=Non
                                           ("binderSha256", "originalInterfaceSha256", "boundHlslSha256", "usedOriginalBuffers")}
                         else:
                             translated = translate(program["dxbc"], cache / "translated", vkd3d, spirv_cross)
-                        bound, used = restore_uniforms(Path(translated["hlslPath"]).read_text(), program["interface"], translated["inputSignature"])
+                        translated["originalBufferLayouts"] = native_buffer_layouts(program["dxbc"])
+                        bound, used = restore_uniforms(Path(translated["hlslPath"]).read_text(), program["interface"], translated["inputSignature"], translated["originalBufferLayouts"])
                         bound_path.parent.mkdir(parents=True, exist_ok=True)
                         bound_path.write_text(bound)
                         proof = {**translated, "originalInterfaceSha256": interface_key,
@@ -1011,6 +1113,8 @@ def render_state(state):
                                         ("fail", "Fail", STENCIL_OP), ("zFail", "ZFail", STENCIL_OP)):
             rows.append(command + suffix + " " + state_value(actual[field], mapping))
     rows.append("}")
-    if state.get("fogMode", -1) != -1:
+    if state.get("fogMode", -1) == 0:
+        rows.append("Fog { Mode Off }")
+    elif state.get("fogMode", -1) != -1:
         raise ShaderRecoveryError("Original fixed-function fog state requires a separate portable proof.")
     return "\n".join(rows)
