@@ -55,6 +55,13 @@ public static partial class MirrorProgram
         image.material = material; Assets.Add(material);
         Transform hidden = Rect("UnusedOriginalSlot", root, Vector2.zero, new Vector2(30, 30));
         hidden.gameObject.AddComponent<Image>().sprite = coin; hidden.gameObject.SetActive(false);
+        // The real pooled Boots of Striding card in Build624 retained this ordinary
+        // inactive TMP fallback child. It is engine rendering output, not a custom
+        // game Graphic. Rejecting it prevented the entire original front appearing.
+        Transform fallback = Rect("Original TMP fallback renderer", root, Vector2.zero, new Vector2(30, 30));
+        fallback.gameObject.SetActive(false);
+        var subMesh = fallback.gameObject.AddComponent<TMPro.TMP_SubMeshUI>();
+        subMesh.enabled = false;
         return root;
     }
     private static IEnumerator OriginalPublicItemFronts()
@@ -117,6 +124,10 @@ public static partial class MirrorProgram
         Check(!held.Root.Find("UnusedOriginalSlot").gameObject.activeSelf
             && !fan.Root.Find("UnusedOriginalSlot").gameObject.activeSelf,
             "original inactive item slots stay inactive on observers");
+        Check(held.Root.Find("Original TMP fallback renderer").GetComponent<TMPro.TMP_SubMeshUI>() != null
+            && !held.Root.Find("Original TMP fallback renderer").gameObject.activeSelf
+            && !held.Root.Find("Original TMP fallback renderer").GetComponent<TMPro.TMP_SubMeshUI>().enabled,
+            "original pooled item fallback text renderer survives inert public cloning");
         Check(held.Root.GetComponentsInChildren<GameplayFixture>(true).Length == 0
             && fan.Root.GetComponentsInChildren<GameplayFixture>(true).Length == 0,
             "public item fronts remain inert presentation without game controllers");

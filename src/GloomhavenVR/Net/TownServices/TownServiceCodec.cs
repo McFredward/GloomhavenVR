@@ -515,7 +515,8 @@ internal static class TownServiceCodec
             || frame.Modules == null || frame.Modules.Length > TownServiceFrame.MaxModules
             || (frame.Module != TownServiceFrame.ManifestModule && frame.Modules.Length != 0))
             throw new InvalidDataException("Invalid town-service module identity.");
-        if (frame.NativeTemplateBasisKey != 0 && ((frame.Service != 3 && !(frame.Service == 1 && frame.PublicCatalog))
+        if (frame.NativeTemplateBasisKey != 0 && ((frame.Service != 3 && !(frame.Service == 1 && (frame.PublicCatalog
+                || frame.TemplateAddress.StartsWith("item.confirm.part.", StringComparison.Ordinal))))
             || frame.VisitorStock || frame.Module >= TownServiceFrame.VoiceModule
             || frame.BaseSequence != 0 || frame.CatalogBank != null || frame.Rack != null))
             throw new InvalidDataException("Original template state belongs to a complete original town module.");

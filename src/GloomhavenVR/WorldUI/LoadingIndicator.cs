@@ -322,7 +322,6 @@ internal sealed class LoadingIndicator
     private bool _townReloadActive;
     private bool _townReloadVisual;
     private float _townReloadStartedAt;
-    private const float TownReloadMinimumSeconds = 0.5f;
     private const float TownReloadMaximumSeconds = 45f;
 
     // Boot clause state.
@@ -590,14 +589,15 @@ internal sealed class LoadingIndicator
                 + "native service windows remain the fallback.");
             return false;
         }
-        if (elapsed < TownReloadMinimumSeconds || TownServiceAssets.IsLoading)
+        if (TownServiceAssets.IsLoading)
             return true;
         for (byte service = 1; service <= 3; service++)
             if (TownServiceAvailability.NativeUnlocked(service) && !TownServicePopulation.Available(service))
                 return true;
         // Original avatar art alone does not prepare the cabinet's hidden native
         // price/body/card partitions. Prepare both before dismissing this display
-        // spinner; native input and loading flags remain independent.
+        // spinner; native input and loading flags remain independent. Remote bank
+        // delivery/election is not local loading work and must not hold this spinner.
         if (TownServiceAvailability.NativeUnlocked(1) && TownServiceGrantSync.CanUseImmersive
             && !TownServicePresentation.NativeFallbackFor(1)
             && (TownServicePublicMerchant.Catalog == null

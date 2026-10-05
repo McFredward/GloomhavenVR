@@ -67,6 +67,12 @@ def main():
     variants = [('production', '', '', '', '')]
     if not args.no_negative_controls:
         variants += [
+            ('native-tmp-rejected', 'TownServiceNeutralize.cs', '|| type == typeof(TMP_SubMeshUI);',
+             '|| false && type == typeof(TMP_SubMeshUI);',
+             'Native custom graphic requires an explicit original mesh adapter: TMPro.TMP_SubMeshUI'),
+            ('native-tmp-retired', 'TownServiceNeutralize.cs', '|| EngineGraphic(type)',
+             '|| EngineGraphic(type) && type != typeof(TMP_SubMeshUI)',
+             'original pooled item fallback text renderer survives inert public cloning'),
             ('borrow-order-alias', 'TownServiceTemplateAssets.cs', 'bool modelFace = template.StartsWith("item.", StringComparison.Ordinal)',
              'bool modelFace = false && template.StartsWith("item.", StringComparison.Ordinal)',
              'different borrow orders retain model-aware artwork identity'),

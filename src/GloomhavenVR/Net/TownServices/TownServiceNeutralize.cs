@@ -11,14 +11,21 @@ namespace GloomhavenVR.Net.TownServices;
 /// custom Graphic callbacks, layout drivers, animations and input never run on an observer.</summary>
 internal static class TownServiceNeutralize
 {
+    // TMP creates these engine-owned child renderers for fallback fonts and inline
+    // sprites. Item cards such as Boots of Striding can retain an inactive fallback
+    // child from a previous pooled repaint. Rejecting it as a gameplay Graphic
+    // permanently withholds an otherwise complete original public card.
+    internal static bool EngineGraphic(Type type) => type == typeof(Image)
+        || type == typeof(RawImage) || type == typeof(Text) || type == typeof(TextMeshProUGUI)
+        || type == typeof(TMP_SubMeshUI);
+
     internal static void Apply(GameObject root)
     {
         if (root.activeInHierarchy) throw new InvalidOperationException("Town template must be inert before neutralization.");
         foreach (Graphic graphic in root.GetComponentsInChildren<Graphic>(true))
         {
             Type type = graphic.GetType();
-            if (type != typeof(Image) && type != typeof(RawImage) && type != typeof(Text)
-                && type != typeof(TextMeshProUGUI))
+            if (!EngineGraphic(type))
                 throw new InvalidDataException("Native custom graphic requires an explicit original mesh adapter: " + type.FullName);
             graphic.raycastTarget = false;
         }
@@ -44,7 +51,7 @@ internal static class TownServiceNeutralize
     }
     private static bool Keep(Type type) => type == typeof(Transform) || type == typeof(RectTransform)
         || type == typeof(Canvas) || type == typeof(CanvasRenderer) || type == typeof(CanvasGroup)
-        || type == typeof(Image) || type == typeof(RawImage) || type == typeof(Text) || type == typeof(TextMeshProUGUI)
+        || EngineGraphic(type)
         || type == typeof(Mask) || type == typeof(RectMask2D) || type == typeof(Shadow) || type == typeof(Outline)
         || type == typeof(MeshFilter) || type == typeof(MeshRenderer);
 }

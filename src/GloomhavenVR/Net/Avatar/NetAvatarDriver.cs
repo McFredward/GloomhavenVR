@@ -802,9 +802,15 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     {
         head = Vector3.zero;
         NetAvatarDriver? driver = _instance;
-        return driver != null && driver._avatars.TryGetValue(player, out RemoteAvatar avatar)
-            && avatar != null && avatar.TimeSinceUpdate <= NetProtocol.StaleTimeoutSeconds
-            && avatar.TryGetHeadWorld(out head);
+        if (driver == null || !driver._avatars.TryGetValue(player, out RemoteAvatar avatar)
+            || avatar == null || avatar.TimeSinceUpdate > NetProtocol.StaleTimeoutSeconds
+            || !avatar.TryGetHeadWorld(out head)) return false;
+        // Gaze follows the same already-interpolated head the player can see. The
+        // raw target is still required for freshness/first activation, but following
+        // its 15 Hz steps introduces a second stuttering path beside the smooth mask.
+        if (avatar.HeadHolder != null && avatar.HeadHolder.gameObject.activeInHierarchy)
+            head = avatar.HeadHolder.position;
+        return true;
     }
 
     /// <summary>Use the same interpolated rig hand that already carries remote

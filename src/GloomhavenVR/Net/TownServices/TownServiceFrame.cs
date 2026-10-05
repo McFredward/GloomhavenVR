@@ -76,6 +76,9 @@ internal sealed class TownServiceFrame
 internal static class TownServiceDelivery
 {
     internal static Action<TownServiceFrame>? Completed = null;
+    // The engine presentation owner can encode exact resident-template metadata.
+    // Wire-only consumers retain the ordinary codec without a Unity dependency.
+    internal static Func<TownServiceFrame, byte[]>? EncodeOriginal;
     private sealed class RetiredLane
     {
         internal byte Service;

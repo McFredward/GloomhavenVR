@@ -13,6 +13,9 @@ internal sealed class TownServiceLaneSendQueue
     private readonly Dictionary<ushort, ExtrasSendQueue> _clocks = new();
     private readonly HashSet<ushort> _catalogOriginals = new();
     private readonly Dictionary<ushort, TownServiceFrame> _catalogBases = new();
+    private readonly Dictionary<ushort, ulong> _catalogBaseKeys = new(), _catalogQueuedKeys = new();
+    private readonly Dictionary<ushort, TownServiceFrame> _catalogRepairs = new();
+    private static readonly Dictionary<ushort, TownServiceFrame> NoCatalogPatchBases = new();
     private int _clockCursor;
     private bool _clockRepairDue;
     private int _cursor;
@@ -78,7 +81,12 @@ internal sealed class TownServiceLaneSendQueue
             {
                 _catalogOriginals.Add(frame.Module);
                 if (frame.BaseSequence == 0 && !_catalogBases.ContainsKey(frame.Module))
+                {
                     _catalogBases[frame.Module] = frame;
+                    _catalogBaseKeys[frame.Module] = TownCatalogBank.ContentKey(frame);
+                }
+                if (frame.BaseSequence == 0)
+                    _catalogQueuedKeys[frame.Module] = TownCatalogBank.ContentKey(frame);
             }
             if (frame.PublicCatalog && frame.BaseSequence == 0 && frame.CatalogBank?.Prepared == true)
             {
@@ -91,13 +99,37 @@ internal sealed class TownServiceLaneSendQueue
                 }
                 if (clock != null)
                 {
-                    TownServiceFrame reference = TownCatalogClock.Create(frame, _catalogBases);
-                    foreach (TownServiceFrame current in frame.CatalogBank.Updates)
-                        if (!_catalogBases.ContainsKey(current.Module)) _catalogBases[current.Module] = current;
-                    // Latest waiting clock, never four obsolete full keyframes. This
-                    // queue does not invoke local original-delivery completion.
+                    for (int i = 0; i < frame.CatalogBank.Updates.Length; i++)
+                    {
+                        TownServiceFrame current = frame.CatalogBank.Updates[i];
+                        ulong key = frame.CatalogBank.Members[i].ContentKey;
+                        if (!_catalogBases.ContainsKey(current.Module))
+                        { _catalogBases[current.Module] = current; _catalogBaseKeys[current.Module] = key; }
+                        if (!_catalogQueuedKeys.TryGetValue(current.Module, out ulong queued) || queued != key)
+                        {
+                            // Keep immutable originals, not serialized copies of the
+                            // entire bank on every button press. Loss repair still owns
+                            // real property delivery and late-join preparation.
+                            TownServiceFrame repair = TownServiceDelta.Retain(current);
+                            repair.HighPriority = true;
+                            _catalogRepairs[current.Module] = repair;
+                        }
+                    }
+                    TownServiceFrame reference = TownCatalogClock.Create(frame, _catalogBases, _catalogBaseKeys);
+                    // The original root remains in _order for arbitration, but only
+                    // this current header clock is queued. A second full bank would
+                    // repeat multi-megabyte native serialization on every page turn.
                     try { byte[] referenceBytes = TownServiceCodec.Write(reference); clock.Enqueue(referenceBytes, referenceBytes.Length); }
-                    catch (System.IO.InvalidDataException) { /* A large changed original uses the unchanged full repair. */ }
+                    catch (System.IO.InvalidDataException)
+                    {
+                        // A large property delta can exceed the atomic header bound.
+                        // Keep the complete current target keys and headers; bounded
+                        // individual original repairs supply their exact dependencies.
+                        // Never drop the owner's turn or publish a partial ready bank.
+                        byte[] referenceBytes = TownServiceCodec.Write(TownCatalogClock.Create(frame, NoCatalogPatchBases));
+                        clock.Enqueue(referenceBytes, referenceBytes.Length);
+                    }
+                    return;
                 }
             }
             if (frame.HighPriority)
@@ -120,7 +152,7 @@ internal sealed class TownServiceLaneSendQueue
         // Only a first immutable original may borrow an early global turn.
         // Continuous pose/hover deltas already have the independent numeric lane;
         // letting them borrow forever would steal the cold cabinet's fair share.
-        bool waiting = _coldPriority.Count > 0 && (_urgentBundle.HasInFlight || _urgentBundle.HasPending);
+        bool waiting = _catalogRepairs.Count > 0 || _coldPriority.Count > 0 && (_urgentBundle.HasInFlight || _urgentBundle.HasPending);
         foreach (ushort id in _coldPriority)
             if (_queues.TryGetValue(id, out var queue) && (queue.HasPending || queue.HasInFlight)) { waiting = true; break; }
         if (!waiting) return null;
@@ -147,6 +179,7 @@ internal sealed class TownServiceLaneSendQueue
     }
     internal byte[]? Next(double now)
     {
+        PrepareOneCatalogRepair();
         byte[]? census = NextManifest(now);
         if (census != null) return census;
         // Two urgent turns, then one background turn. A held face cannot wait behind
@@ -177,6 +210,10 @@ internal sealed class TownServiceLaneSendQueue
         }
         selected = Take(now, true);
         if (selected != null) { _priorityTurns++; _clockRepairDue = false; return selected; }
+        // With prepared-only clocks there may be no full root repair queued.
+        // Giving repair its turn must not block later category clocks forever
+        // behind an unrelated nonempty background original bank.
+        _clockRepairDue = false;
         // An oversize full root uses this same module namespace directly. Finish
         // its interrupted clock before trying background; otherwise a nonempty
         // dormant bank could keep that assembly blocked indefinitely.
@@ -187,6 +224,19 @@ internal sealed class TownServiceLaneSendQueue
         selected = TakeClock(now);
         if (selected != null) _priorityTurns++;
         return selected;
+    }
+    private void PrepareOneCatalogRepair()
+    {
+        // One native member per actual send turn, never all page originals inside
+        // the input/capture frame. The ordinary queues keep first-baseline and fair
+        // urgent/background delivery semantics; periodic dormant repair remains.
+        if (_catalogRepairs.Count == 0) return;
+        ushort id = 0; TownServiceFrame? repair = null;
+        foreach (var pair in _catalogRepairs) { id = pair.Key; repair = pair.Value; break; }
+        _catalogRepairs.Remove(id);
+        if (repair == null) return;
+        byte[] packet = TownServiceDelivery.EncodeOriginal?.Invoke(repair) ?? TownServiceCodec.Write(repair);
+        Enqueue(packet, packet.Length, repair);
     }
     private byte[]? TakeClock(double now, bool unfinishedOnly = false)
     {
@@ -288,7 +338,8 @@ internal sealed class TownServiceLaneSendQueue
             _sequences[id] = _queues[id].Sequence; _queues[id].Clear(); _queues.Remove(id); _order.RemoveAt(i);
             if (_clocks.TryGetValue(id, out var clock))
             { _sequences[id] = Math.Max(_sequences[id], clock.Sequence); clock.Clear(); _clocks.Remove(id); }
-            _catalogBases.Remove(id); _catalogOriginals.Remove(id); _priority.Remove(id); _coldPriority.Remove(id);
+            _catalogBases.Remove(id); _catalogBaseKeys.Remove(id); _catalogQueuedKeys.Remove(id); _catalogRepairs.Remove(id);
+            _catalogOriginals.Remove(id); _priority.Remove(id); _coldPriority.Remove(id);
             _bundleBytes.Remove(id); _promotedBundle.Remove(id);
             if (_normalActive == id) _normalActive = null;
             if (_priorityActive == id) _priorityActive = null;
@@ -306,7 +357,7 @@ internal sealed class TownServiceLaneSendQueue
     internal void Clear()
     { foreach (var pair in _queues) { _sequences[pair.Key] = pair.Value.Sequence; pair.Value.Clear(); }
         foreach (var pair in _clocks) { _sequences[pair.Key] = Math.Max(_sequences.TryGetValue(pair.Key, out var sequence) ? sequence : 0, pair.Value.Sequence); pair.Value.Clear(); }
-        _clocks.Clear(); _catalogOriginals.Clear(); _catalogBases.Clear(); _clockCursor = 0; _clockRepairDue = false;
+        _clocks.Clear(); _catalogOriginals.Clear(); _catalogBases.Clear(); _catalogBaseKeys.Clear(); _catalogQueuedKeys.Clear(); _catalogRepairs.Clear(); _clockCursor = 0; _clockRepairDue = false;
         _bundle.Clear(); _urgentBundle.Clear(); _bundleFrames.Clear(); _urgentBundleFrames.Clear(); _bundleBytes.Clear(); _promotedBundle.Clear(); _queues.Clear(); _order.Clear(); _priority.Clear(); _coldPriority.Clear(); _cursor = _priorityCursor = _priorityTurns = 0;
         _normalActive = _priorityActive = null; _manifestBytes = null; _manifestFrame = _sentManifest = null; _nextManifest = 0; }
     internal static bool SameIdentity(TownServiceFrame a, TownServiceFrame b) => a.VisitorStock == b.VisitorStock && a.PublicCatalog == b.PublicCatalog && a.PublicClaim == b.PublicClaim && a.Session == b.Session

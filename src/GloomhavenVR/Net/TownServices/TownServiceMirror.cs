@@ -51,6 +51,7 @@ internal static partial class TownServiceMirror
     static TownServiceMirror()
     {
         TownServiceDelivery.Completed = SnapshotSent;
+        TownServiceDelivery.EncodeOriginal = WriteNativeTownFrame;
         TownServiceVoice.RelayRequest = QueueVoiceReaction;
         TownServiceVoice.StockRelayRequest = QueueStockVoiceReaction;
     }
@@ -938,7 +939,9 @@ internal static partial class TownServiceMirror
     internal static bool ReceiveParsed(int peer, TownServiceFrame frame)
     {
         if (peer <= 0) return false;
-        if (!TryExpandNativeTemplateState(frame, out frame)) return false;
+        TownServiceFrame original = frame;
+        if (!TryExpandNativeTemplateState(frame, out frame))
+            return RetainUnpreparedNativeTemplate(peer, original);
         if (frame.Module == TownServiceFrame.VoiceModule)
         { if (frame.VisitorStock) ReceiveStockVoice(peer, frame); else ReceiveVoice(peer, frame); return true; }
         if (frame!.VisitorStock)
@@ -1029,6 +1032,7 @@ internal static partial class TownServiceMirror
     /// <summary>Shared frame is supplied by the room owner. No observer-local fit or gaze pose is consulted.</summary>
     internal static void TickRemote(Func<int, Transform?> sharedFrame)
     {
+        RetryUnpreparedNativeTemplates();
         float now = Time.unscaledTime;
         StagePreviousPublicPicture();
         foreach (var entry in Sessions)

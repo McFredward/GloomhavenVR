@@ -17,6 +17,7 @@ internal static class TownCatalogWarmVectors
         ExactPropertyPatch(t);
         HeaderBounds(t);
         QueueAssemblyAndFairness(t);
+        PreparedClockWork(t);
         ActualSourceRetirement(t);
     }
 
@@ -213,14 +214,106 @@ internal static class TownCatalogWarmVectors
                 foreach (byte[] packet in frames)
                 {
                     if (!TownServiceCodec.TryRead(packet, packet.Length, out var frame)) throw new Exception("Actual completed queue packet is invalid.");
-                    if (frame!.Module == root.Module) { if (frame.CatalogBank!.Updates.Length == 0) warmAt = tick; else fullAt = tick; }
+                    if (frame!.Module == root.Module) { if (frame.CatalogBank!.Updates.Length == 0) warmAt = tick; }
+                    else if (frame.Module == member.Module && frame.BaseSequence == 0
+                        && TownCatalogBank.ContentKey(frame) == root.CatalogBank.Members[0].ContentKey) fullAt = tick;
                     else if (frame.Module == background.Module) bgAt = tick;
                 }
             }
-            t.True(clockPages > 2 && warmAt >= 0 && warmAt < fullAt, "a multi-fragment clock completes before retained full repair with background=" + backgroundAtStart);
+            t.True(clockPages > 2 && warmAt >= 0 && warmAt < fullAt, "a multi-fragment clock completes before retained exact original repair with background=" + backgroundAtStart);
             t.True(worstClockGap <= 2 && bgPages > 0 && bgAt >= 0 && fullPages > 0, "every third background share survives while urgent clock assembly finishes");
             t.True(fullAt < 600 && bgAt < 600, "complete repair and background both assemble inside the unchanged120-second lifetime");
         }
+    }
+
+    private static void PreparedClockWork(Harness t)
+    {
+        t.Case("Prepared page input defers each exact original once and never blocks later clocks");
+        var root = HeaderRoot(); root.HighPriority = true;
+        var members = Enumerable.Range(12, 6).Select(id =>
+        {
+            var frame = Header((ushort)id);
+            frame.Nodes = new[] { new TownServiceNode { Binding = 7 } };
+            frame.Nodes[0].Values[TownServiceProperty.Active] = new TownServiceValue { Numbers = new[] { 1f } };
+            return frame;
+        }).ToArray();
+        root.CatalogBank!.Updates = members;
+        root.CatalogBank.Members = members.Select(frame => new TownCatalogBankMember(frame.Module, TownCatalogBank.ContentKey(frame))).ToArray();
+        root.Rack!.Members = members.Select(frame => new TownRackMember(frame.Module, 0, false)).ToArray();
+        var queue = new TownServiceLaneSendQueue(65536); var receiver = new TownServiceFragments();
+        int encoded = 0;
+        Func<TownServiceFrame, byte[]>? prior = TownServiceDelivery.EncodeOriginal;
+        TownServiceDelivery.EncodeOriginal = frame => { encoded++; return TownServiceCodec.Write(frame); };
+        try
+        {
+            byte[] clock = TownServiceCodec.Write(TownCatalogClock.Create(root, new Dictionary<ushort, TownServiceFrame>()));
+            queue.Enqueue(clock, clock.Length, root);
+            t.Equal(0, encoded, "page input serializes no complete original dependency synchronously");
+            var originals = new HashSet<ushort>();
+            bool firstClock = false;
+            for (int tick = 0; tick < 300; tick++)
+            {
+                int before = encoded;
+                byte[]? page = queue.Next(tick / 15d);
+                t.True(encoded - before <= 1, "one bounded native original per actual send turn");
+                if (page == null) continue;
+                byte[]? done = receiver.Accept(2, page, page.Length, tick / 15d);
+                if (done == null) continue;
+                foreach (byte[] packet in TownServiceCodec.TryReadBundle(done, done.Length, out var parts) ? parts! : new[] { done })
+                {
+                    t.True(TownServiceCodec.TryRead(packet, packet.Length, out var frame), "deferred actual native packet decodes");
+                    if (frame!.Module == root.Module) firstClock = frame.CatalogBank!.Updates.Length == 0;
+                    else originals.Add(frame.Module);
+                }
+                if (firstClock && originals.Count == members.Length) break;
+            }
+            t.True(firstClock && originals.Count == members.Length, "cold clock and every exact required native dependency assemble");
+            t.Equal(members.Length, encoded, "each immutable original is encoded once rather than once per page");
+            TownServiceFrame next = TownServiceDelta.Retain(root); next.Sequence++;
+            next.Rack = next.Rack!.Copy(); next.Rack.Turn++;
+            byte[] nextClock = TownServiceCodec.Write(TownCatalogClock.Create(next, new Dictionary<ushort, TownServiceFrame>()));
+            queue.Enqueue(nextClock, nextClock.Length, next);
+            bool nextArrived = false;
+            for (int tick = 300; tick < 600 && !nextArrived; tick++)
+            {
+                byte[]? page = queue.Next(tick / 15d); if (page == null) continue;
+                byte[]? done = receiver.Accept(2, page, page.Length, tick / 15d); if (done == null) continue;
+                foreach (byte[] packet in TownServiceCodec.TryReadBundle(done, done.Length, out var parts) ? parts! : new[] { done })
+                    if (TownServiceCodec.TryRead(packet, packet.Length, out var frame) && frame!.Rack?.Turn == next.Rack.Turn)
+                        nextArrived = true;
+            }
+            t.True(nextArrived, "later page clock remains immediately schedulable after original repair completes");
+            t.Equal(members.Length, encoded, "warm page changes never rebuild unchanged original packets");
+
+            var changed = TownServiceDelta.Copy(members[0]); changed.Sequence++;
+            changed.Nodes[0].Values[TownServiceProperty.TmpText] = new TownServiceValue { Text = new[] { RandomText(22000, 625) } };
+            var oversized = TownServiceDelta.Retain(next); oversized.Sequence++; oversized.Rack = next.Rack.Copy(); oversized.Rack.Turn++;
+            var targets = members.Select(frame => frame.Module == changed.Module ? changed : frame).ToArray();
+            oversized.CatalogBank = new TownCatalogBank { Prepared = true, Updates = targets,
+                Members = targets.Select(frame => new TownCatalogBankMember(frame.Module, TownCatalogBank.ContentKey(frame))).ToArray() };
+            t.True(Throws(() => TownServiceCodec.Write(TownCatalogClock.Create(oversized, members.ToDictionary(frame => frame.Module)))),
+                "changed original truly exceeds the packed patch limit rather than testing a nominal fallback");
+            byte[] currentHeaders = TownServiceCodec.Write(TownCatalogClock.Create(oversized, new Dictionary<ushort, TownServiceFrame>()));
+            queue.Enqueue(currentHeaders, currentHeaders.Length, oversized);
+            bool targetArrived = false, turnArrived = false;
+            for (int tick = 600; tick < 1500 && !(targetArrived && turnArrived); tick++)
+            {
+                byte[]? page = queue.Next(tick / 15d); if (page == null) continue;
+                byte[]? done = receiver.Accept(2, page, page.Length, tick / 15d); if (done == null) continue;
+                foreach (byte[] packet in TownServiceCodec.TryReadBundle(done, done.Length, out var parts) ? parts! : new[] { done })
+                    if (TownServiceCodec.TryRead(packet, packet.Length, out var frame))
+                    {
+                        if (frame!.Module == root.Module && frame.Rack?.Turn == oversized.Rack.Turn)
+                            turnArrived = frame.CatalogBank!.Headers.Length == members.Length
+                                && frame.CatalogBank.Members[0].ContentKey == TownCatalogBank.ContentKey(changed);
+                        else if (frame.Module == changed.Module)
+                            targetArrived = TownCatalogBank.ContentKey(frame) == TownCatalogBank.ContentKey(changed);
+                    }
+            }
+            t.True(turnArrived && targetArrived, "oversize patch retains the current owner turn and every exact target-original dependency");
+            t.Equal(members.Length + 1, encoded, "oversize patch encodes only its genuinely changed original");
+        }
+        finally { TownServiceDelivery.EncodeOriginal = prior; }
     }
 
     private static void ActualSourceRetirement(Harness t)

@@ -228,8 +228,7 @@ internal static partial class RemoteItemCardSource
                 foreach (var graphic in cardGo.GetComponentsInChildren<UnityEngine.UI.Graphic>(true))
                 {
                     var type = graphic.GetType();
-                    if (type != typeof(UnityEngine.UI.Image) && type != typeof(UnityEngine.UI.RawImage)
-                        && type != typeof(UnityEngine.UI.Text) && type != typeof(TMPro.TextMeshProUGUI))
+                    if (!TownServices.TownServiceNeutralize.EngineGraphic(type))
                         throw new System.IO.InvalidDataException("Native custom graphic requires an explicit original mesh adapter: " + type.FullName);
                 }
             bool shown = art.ShowFront(cardGo, key, skinSource: null, beforeActivate: clone =>
