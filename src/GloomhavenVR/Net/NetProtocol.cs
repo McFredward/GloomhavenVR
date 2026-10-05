@@ -140,7 +140,7 @@ internal static class NetProtocol
     /// clock. Adds no gameplay action or private card identity to the avatar stream.</summary>
     public const byte ExtIdTownCatalogBank = 102;
     public const byte ExtIdTownCatalogHeaders = 103;
-    /// <summary>Reliable host-coordinated public cabinet presentation input and clock.</summary>
+    /// <summary>Reliable common-author public cabinet presentation input and clock.</summary>
     public const byte MsgTownMerchantControl = 27;
     public const byte ExtIdTownMerchantControl = 104;
     /// <summary>Owner properties against an exact locally available native prefab basis.</summary>
@@ -588,7 +588,7 @@ internal static class NetProtocol
     // authorship/banks on input, purse identity replacement on pickup, and cold native
     // enchantment templates. Sample at the existing15 Hz transport clock; reuse decoded
     // immutable frames and canonical content hashes for pose-only changes. Record104
-    // carries reliable public cabinet inputs to the host and its common analytic clock.
+    // carries reliable public cabinet inputs to the active original author and its clock.
     // Record105 carries original native property differences against a validated local
     // prefab basis, with complete repairs; pixels are never transported. A mage picture
     // is admitted together with its original card, ring and required option rows.
