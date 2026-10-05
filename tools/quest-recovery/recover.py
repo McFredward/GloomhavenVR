@@ -31,7 +31,9 @@ from md4 import script_file_id
 HERE = Path(__file__).resolve().parent
 RECIPE_VERSION = 1
 RECEIPT = "quest-recovery-report.json"
-YAML_EXTENSIONS = {".unity", ".prefab", ".asset", ".mat", ".controller", ".overrideController", ".anim", ".mask"}
+YAML_EXTENSIONS = {".unity", ".prefab", ".asset", ".mat", ".controller", ".overrideController", ".anim", ".mask",
+                   ".mixer", ".renderTexture", ".texture2D", ".playable", ".lighting", ".flare", ".spriteatlas",
+                   ".cubemap", ".physicMaterial", ".physicsMaterial2D", ".terrainlayer", ".guiskin", ".fontsettings"}
 SCRIPT_POINTER = re.compile(r"m_Script:\s*\{fileID:\s*(-?\d+),\s*guid:\s*([0-9a-f]{32})")
 GUID_PATTERN = re.compile(r"^guid:\s*([0-9a-f]{32})\s*$", re.MULTILINE)
 
@@ -390,13 +392,52 @@ def audit_script_bindings(project, types, original_identities=()):
             "unityImportVerified": False}
 
 
-def audit_asset_references(project):
-    """Check serialized PPtr GUID closure, excluding GUID text in native names.
+def is_unity_yaml(path):
+    """Recognize native serialized documents independently of their suffix."""
+    path = Path(path)
+    if path.suffix == ".meta":
+        return True
+    with path.open("rb") as stream:
+        prefix = stream.read(64)
+    return prefix.startswith((b"%YAML ", b"--- !u!"))
 
-    Unity's exported external object references are flow mappings with fileID,
-    guid and type. Names, render-data keys and other scalar strings can contain
-    the word guid without representing an external object reference.
-    """
+
+def serialized_pointer_tokens(text):
+    """Yield GUID/token spans from actual YAML PPtr nodes, never scalar names."""
+    import yaml
+    from yaml.nodes import MappingNode, ScalarNode, SequenceNode
+    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+    headers = list(re.finditer(r"^--- !u!\d+ &-?\d+[ \t]*$", text, re.M))
+    ranges = [(header.start(), headers[index + 1].start() if index + 1 < len(headers) else len(text))
+              for index, header in enumerate(headers)] if headers else [(0, len(text))]
+    for start, end in ranges:
+        block = text[start:end]
+        if "fileID:" not in block or not re.search(r"guid:\s*[0-9a-f]{32}", block):
+            continue
+        clean = re.sub(r"^%[^\n]*", lambda match: " " * len(match[0]), block, flags=re.M)
+        clean = re.sub(r"^--- !u!\d+ &-?\d+[ \t]*$", lambda match: "---" + " " * (len(match[0]) - 3), clean, flags=re.M)
+        node = yaml.compose(clean, Loader=loader)
+        stack = [node]
+        while stack:
+            current = stack.pop()
+            if isinstance(current, MappingNode):
+                values = {key.value: value for key, value in current.value if isinstance(key, ScalarNode)}
+                if set(values) == {"fileID", "guid", "type"} and all(isinstance(value, ScalarNode) for value in values.values()):
+                    guid = values["guid"]
+                    if not re.fullmatch(r"[0-9a-f]{32}", guid.value):
+                        raise RecoveryError("Native serialized PPtr has an invalid GUID.")
+                    left, right = start + guid.start_mark.index, start + guid.end_mark.index
+                    if text[left:right] != guid.value:
+                        raise RecoveryError("Unknown quoted native serialized PPtr GUID representation.")
+                    yield guid.value, left, right
+                else:
+                    stack.extend(value for _, value in current.value)
+            elif isinstance(current, SequenceNode):
+                stack.extend(current.value)
+
+
+def audit_asset_references(project):
+    """Check all native YAML/importer PPtr GUIDs, regardless of asset suffix."""
     guids = {}
     for metadata in (project / "Assets").rglob("*.meta"):
         match = GUID_PATTERN.search(metadata.read_text(encoding="utf-8", errors="replace"))
@@ -405,10 +446,9 @@ def audit_asset_references(project):
     missing = collections.defaultdict(set)
     references = 0
     for asset in (project / "Assets").rglob("*"):
-        if asset.suffix not in YAML_EXTENSIONS:
+        if not asset.is_file() or not is_unity_yaml(asset):
             continue
-        for guid in re.findall(r"\{fileID:\s*-?\d+,\s*guid:\s*([0-9a-f]{32}),\s*type:\s*\d+\s*\}",
-                               asset.read_text(encoding="utf-8", errors="replace")):
+        for guid, _, _ in serialized_pointer_tokens(asset.read_text(encoding="utf-8", errors="replace")):
             references += 1
             if not guid.startswith("0000000000000000") and guid not in guids:
                 missing[guid].add(asset.relative_to(project).as_posix())

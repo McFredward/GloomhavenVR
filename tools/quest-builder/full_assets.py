@@ -63,6 +63,45 @@ def _catalog_roots(canonical_startup, full_manifest):
     return roots
 
 
+def repair_reused_stage(project):
+    """Upgrade a generated copy of an older full stage using retained proofs.
+
+    Call after copying the immutable recovered stage, before Unity import. This
+    derives missing canonical PPtr fixes and the typed packed-sprite manifest
+    from that copy's own source receipts; no private overlay is required.
+    """
+    canonical, _, _, _, _, recover, _ = _modules()
+    project = Path(project).resolve()
+    canonical_report = canonical.repair_remaining_references(project)
+    pointer = json.loads((project / "QuestRecovery/full-native-pointer-repair.json").read_text())
+    if pointer.get("complete") is not True or pointer.get("remainingMissingPointerCount") != 0:
+        raise BuildError("Reused Campaign stage has incomplete native pointer evidence.")
+    sprites, atlases = [], []
+    for target in pointer["additionalNativeTargets"]:
+        if target["classId"] != 687078895:
+            continue
+        receipt_name = "packed-sprites-" + target["guid"] + ".json"
+        source = project / "QuestRecovery" / receipt_name
+        receipt = json.loads(source.read_text())
+        if len(receipt["restoredMembers"]) != receipt["originalMemberCount"]:
+            raise BuildError("Reused Campaign stage lacks exact native packed-Sprite members.")
+        for row in receipt["restoredMembers"]:
+            if recover.sha256(project / row["assetPath"]) != row["sha256"]:
+                raise BuildError("Reused packed-Sprite source bytes changed: " + row["assetPath"])
+        sprites.extend(receipt["restoredMembers"])
+        path = target["path"].replace(".spriteatlas", ".asset")
+        if not (project / path).is_file():
+            raise BuildError("Reused native packed atlas is missing.")
+        atlases.append({"assetPath": path, "guid": target["guid"], "sourceCollection": target["collection"],
+                       "sourcePathId": target["pathId"], "spriteCount": receipt["originalMemberCount"],
+                       "receiptPath": "QuestRecovery/" + receipt_name})
+    manifest = project / "Assets/QuestOriginalCampaign/packed-sprites.json"
+    write_json(manifest, {"schema": 1, "spriteCount": len(sprites), "atlases": atlases, "sprites": sprites,
+                         "unityImportVerified": False, "headsetPictureVerified": False})
+    return {"canonicalReferenceRepair": canonical_report, "packedSpriteManifest": manifest.relative_to(project).as_posix(),
+            "packedSpriteManifestSha256": recover.sha256(manifest), "nativeSpriteCount": len(sprites)}
+
+
 def stage(source, game_data, output, tmp_archive, *, canonical_project=None,
           canonical_startup=None, managed_types, cab_bundles, unitypy=None):
     """Return a full asset manifest/report; modify only the fresh output tree.

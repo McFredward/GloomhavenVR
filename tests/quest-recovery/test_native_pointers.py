@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/quest-recovery"))
-from recover import RecoveryError, audit_asset_references
+from recover import RecoveryError, audit_asset_references, serialized_pointer_tokens
 from pointer_recovery import MISSING_GUID, native_pointers, native_target, yaml_missing, native_recipe_fields
 from packed_sprites import field_edits, vertex_bytes, packed_uv, rectangle
 from native_targets import engine_redirects
@@ -19,12 +19,29 @@ class NativePointers(unittest.TestCase):
             (project / "Assets").mkdir()
             missing = "b162c21018d6e5a4a8f81bece580e557"
             native = project / "Assets/original.prefab"
-            native.write_text("GameObject:\n  m_Name: 'Original (Missing Prefab with guid: " + missing + ")'\n")
+            native.write_text("%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!1 &1\nGameObject:\n  m_Name: 'Original (Missing Prefab with guid: " + missing + ")'\n")
             self.assertEqual(audit_asset_references(project)["missingGuidCount"], 0)
             native.write_text(native.read_text() + "  m_Mesh: {fileID: 4300000, guid: " + missing + ", type: 2}\n")
             result = audit_asset_references(project)
             self.assertEqual(result["missingGuidCount"], 1)
             self.assertEqual(result["referenceCount"], 1)
+
+    def test_complete_pointer_text_inside_scalar_is_not_an_object_reference(self):
+        guid = "b162c21018d6e5a4a8f81bece580e557"
+        literal = "{fileID: 1, guid: " + guid + ", type: 2}"
+        text = "--- !u!1 &1\nGameObject:\n  m_Name: 'Example " + literal + "'\n  m_Help: |\n    " + literal + "\n"
+        self.assertEqual(list(serialized_pointer_tokens(text)), [])
+
+    def test_reference_audit_includes_unknown_native_suffix_and_importer_metadata(self):
+        with tempfile.TemporaryDirectory() as folder:
+            project = Path(folder)
+            (project / "Assets").mkdir()
+            guid = "b162c21018d6e5a4a8f81bece580e557"
+            (project / "Assets/original.unknown").write_text("--- !u!114 &1\nMonoBehaviour:\n  target: {fileID: 1, guid: " + guid + ", type: 2}\n")
+            (project / "Assets/import.png.meta").write_text("fileFormatVersion: 2\nTextureImporter:\n  external: {fileID: 1, guid: " + guid + ", type: 2}\n")
+            result = audit_asset_references(project)
+            self.assertEqual(result["referenceCount"], 2)
+            self.assertEqual(len(result["missing"][guid]), 2)
 
     def test_native_map_supports_exact_exported_dictionary_and_pair_paths(self):
         native = {"m_TexEnvs": [("_Mask", {"m_Texture": {"m_FileID": 2, "m_PathID": 53}})]}

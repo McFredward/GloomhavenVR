@@ -16,7 +16,7 @@ from export_identity import (build_tool, identity_remaps, object_index, read_ide
 import native_evidence
 from recover import (RecoveryError, YAML_EXTENSIONS, audit_asset_references,
                      audit_export_log, repair_managed_plugins, run_export,
-                     sha256, stage_input, write_json)
+                     sha256, stage_input, write_json, is_unity_yaml)
 
 
 def catalog_bundle_plan(game_data, byte_limit=768 * 1024 * 1024):
@@ -86,7 +86,7 @@ def merge_export(project, incoming_project, incoming_rows, canonical_objects):
         if destination.exists() or destination.with_name(destination.name + ".meta").exists():
             raise RecoveryError("New recovered GUID overlaps an existing generated asset: " + row["guid"])
         destination.parent.mkdir(parents=True, exist_ok=True)
-        if source.suffix in YAML_EXTENSIONS:
+        if is_unity_yaml(source):
             text = remap_yaml(source.read_text(encoding="utf-8"), pointers)
             destination.write_text(text, encoding="utf-8")
         else:

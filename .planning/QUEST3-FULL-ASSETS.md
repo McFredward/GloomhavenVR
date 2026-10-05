@@ -129,6 +129,17 @@ smoke test, which restored the missing atlas reference and all 895 sprites witho
 the precomputed overlay. The production Editor packed-sprite validator passed
 the same 895 imported sprites.
 
+An additional source audit now discovers native YAML by its actual document
+header and includes importer metadata. Actual YAML PPtr nodes determine GUID
+closure, so quoted names and literal text blocks containing pointer-like text
+never count as references. This found five trap Timeline assets skipped by the
+historical suffix list during canonical remapping. Their six dangling animation
+references have exact targets in the retained native GUID witness map.
+`full_assets.repair_reused_stage(generated_project)` repairs those tokens and
+derives the packed-sprite manifest from that copy's own retained receipts, allowing
+an older immutable verified source stage to be used without private overlays.
+Fresh recovery/remapping also covers all actual serialized native asset types.
+
 ## Exact compiled shader recovery
 
 Original custom shaders are predominantly stripped D3D11 programs. A generic
@@ -160,9 +171,10 @@ retain original behavior rather than declare a translated fragment alone complet
 - `test_campaign_contracts.py`: 8 checks for scene/graph GUID witnesses, canonical
   path/pointer preservation, exact used-uniform coverage, original resource
   register recovery, matrix/integer packing and original input semantics.
-- `test_native_pointers.py`: 11 checks for exact native field paths, missing-GUID
+- `test_native_pointers.py`: 13 checks for exact native field paths, missing-GUID
   parsing, dependency indices, genuine redirect evidence and witnessed packed
-  Sprite UV/rectangle/stream rules.
+  Sprite UV/rectangle/stream rules, arbitrary native suffixes, importer metadata
+  and literal scalar text.
 - `py_compile` on the new recovery/builder modules and `git diff --check`.
 
 These checks do not establish correct headset pictures or playable Campaign flow.

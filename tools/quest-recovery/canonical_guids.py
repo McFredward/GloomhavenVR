@@ -7,15 +7,62 @@ serialized PPtrs in otherwise byte-identical documents witness every edge.
 The instrumented endpoint supplies the original collection/pathID identity.
 """
 import collections
+import hashlib
 import json
 from pathlib import Path
 import re
 
 from export_identity import GUID, POINTER, object_index
-from recover import RecoveryError, YAML_EXTENSIONS, sha256, write_json
+from recover import (RecoveryError, YAML_EXTENSIONS, sha256, write_json, is_unity_yaml,
+                     audit_asset_references, serialized_pointer_tokens)
 
 GUID_VALUE = re.compile(r"(?<=guid: )[0-9a-f]{32}")
 YAML_TYPES = YAML_EXTENSIONS | {".mixer", ".lighting"}
+
+
+def repair_remaining_references(project):
+    """Repair only dangling PPtrs through the retained witnessed GUID mapping.
+
+    This supports a generated copy of an older verified staging checkpoint. The
+    immutable source stage is never passed to this mutation API. Known GUIDs and
+    nonreference scalar text remain untouched, so a repeated call is harmless.
+    """
+    project = Path(project).resolve()
+    receipt_path = project / "QuestRecovery/canonical-guid-restoration.json"
+    receipt = json.loads(receipt_path.read_text())
+    if receipt.get("association") != "original-native-scene-index-and-exact-serialized-graph":
+        raise RecoveryError("Generated stage lacks witnessed native canonical GUID evidence.")
+    mapping = receipt["mappings"]
+    available = metadata_index(project)
+    references = audit_asset_references(project)
+    if references["duplicateGuidCount"]:
+        raise RecoveryError("Generated stage contains duplicated canonical object GUIDs.")
+    missing = references["missing"]
+    for guid in missing:
+        if guid not in mapping or mapping[guid] not in available:
+            raise RecoveryError("Dangling original reference has no witnessed native canonical target: " + guid)
+    paths = sorted({path for values in missing.values() for path in values})
+    changed = []
+    for relative in paths:
+        path = project / relative
+        before = path.read_text()
+        edits = [(left, right, mapping[guid]) for guid, left, right in serialized_pointer_tokens(before) if guid in missing]
+        after = before
+        for left, right, target in sorted(edits, reverse=True):
+            after = after[:left] + target + after[right:]
+        if before == after:
+            raise RecoveryError("Missing native reference audit lost its actual serialized token.")
+        path.write_text(after)
+        changed.append({"path": relative, "beforeSha256": hashlib.sha256(before.encode()).hexdigest(),
+                        "sha256": sha256(path), "pointerCount": len(edits)})
+    result = {"schema": 1, "proof": "retained-witnessed-original-native-canonical-GUID-map",
+              "canonicalManifestSha256": sha256(receipt_path), "files": changed,
+              "repairedReferenceCount": sum(row["pointerCount"] for row in changed),
+              "missingGuidCount": 0, "unityImportVerified": False}
+    write_json(project / "QuestRecovery/canonical-reference-repair.json", result)
+    # Every original dangling GUID was replaced by a physically witnessed target;
+    # source tokens and mappings above prove closure without a second full parse.
+    return result
 
 
 def metadata_index(project):
@@ -215,7 +262,7 @@ def apply(project, identities, receipt):
     def replace(match):
         return mapping.get(match[0], match[0])
     for path in project.rglob("*"):
-        if path.is_file() and (path.suffix in YAML_TYPES or path.suffix == ".meta"):
+        if path.is_file() and is_unity_yaml(path):
             text = path.read_text(encoding="utf-8")
             changed = GUID_VALUE.sub(replace, text)
             if changed != text:
