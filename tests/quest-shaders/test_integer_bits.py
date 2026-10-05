@@ -69,8 +69,17 @@ class IntegerBits(unittest.TestCase):
         source = ('void main(){\n float2 raw = position.xy + offset.zw;\n'
                   ' value = asuint(raw);\n}\n')
         result, _ = integer_bits.restore(source)
-        self.assertIn('QuestCapturedBits_0 = asuint(position.xy + offset.zw);', result)
+        self.assertIn('QuestCapturedBits_0 = uint2(asuint(float2(position.xy + offset.zw)));', result)
         self.assertNotIn('asuint(position.xy + offset)).zw', result)
+
+    def test_builtin_fixed_values_keep_original_float_conversion_width(self):
+        source = ('static float4 cb0[1];\nvoid main(){\n'
+                  ' cb0[0] = float4(_LightColor0.x, _LightColor0.y, _LightColor0.z, _LightColor0.w);\n'
+                  ' index = asuint(cb0[0].x);\n}\n')
+        result, proof = integer_bits.restore(source)
+        self.assertIn('uint4(asuint(float(_LightColor0.x)), asuint(float(_LightColor0.y)), asuint(float(_LightColor0.z)), asuint(float(_LightColor0.w)))', result)
+        self.assertIn('cb0[0] = float4(_LightColor0.x, _LightColor0.y, _LightColor0.z, _LightColor0.w);', result)
+        self.assertEqual(proof['registerCount'], 1)
 
 
 if __name__ == '__main__':

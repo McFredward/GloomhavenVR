@@ -129,14 +129,32 @@ def restore(hlsl):
     if not needed:
         return hlsl, {'registerCount': 0, 'mirroredWrites': 0, 'capturedBitcasts': 0}
 
-    def bits(expression, literal_is_float=True):
+    def expression_width(expression):
+        expression = expression.strip()
+        reference = re.fullmatch(REF, expression)
+        if reference:
+            return len(reference['swizzle'][1:]) if reference['swizzle'] else declarations.get(reference['name'])
+        swizzle = primary_swizzle(expression)
+        if swizzle:
+            return len(swizzle[1].rsplit('.', 1)[-1])
+        constructor = call(expression, r'(?:float|uint|int)[1-4]')
+        if constructor:
+            return int(constructor[0][-1])
+        if re.fullmatch(r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?[fF]?', expression):
+            return 1
+        return None
+
+    def bits(expression, literal_is_float=True, width=None):
         expression = expression.strip()
         reference = re.fullmatch(REF, expression)
         if reference and reference['name'] in needed:
             return 'QuestOriginalBits_' + reference['name'] + reference['index'] + (reference['swizzle'] or '')
         swizzle = primary_swizzle(expression)
-        if swizzle:
-            return '(' + bits(swizzle[0], literal_is_float) + ')' + swizzle[1]
+        if swizzle and not reference:
+            # Unknown builtin/material references may be fixed/half. Their
+            # original float assignment includes a numeric conversion; retain
+            # that conversion on the actual selected lanes before bit capture.
+            return '(' + bits(swizzle[0], literal_is_float, expression_width(swizzle[0])) + ')' + swizzle[1]
         bitcast = call(expression, 'asfloat')
         if bitcast:
             # asuint/asint of an integer expression reinterprets its signedness;
@@ -144,12 +162,18 @@ def restore(hlsl):
             return 'asuint(' + bitcast[1] + ')'
         constructor = call(expression, r'float[1-4]')
         if constructor:
-            return constructor[0].replace('float', 'uint') + '(' + ', '.join(bits(arg) for arg in arguments(constructor[1])) + ')'
+            args = arguments(constructor[1])
+            return constructor[0].replace('float', 'uint') + '(' + ', '.join(
+                bits(arg, width=expression_width(arg) or (int(constructor[0][-1]) if len(args) == 1 else None))
+                for arg in args) + ')'
         if re.fullmatch(r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?[fF]?', expression):
             if not literal_is_float and re.fullmatch(r'[+-]?\d+', expression):
                 return str(int(expression) & 0xffffffff) + 'u'
             raw = struct.unpack('<I', struct.pack('<f', float(expression.rstrip('fF'))))[0]
             return str(raw) + 'u'
+        if width:
+            shape = 'float' + (str(width) if width > 1 else '')
+            return 'asuint(' + shape + '(' + expression + '))'
         return 'asuint(' + expression + ')'
 
     extracted = 0
@@ -175,7 +199,7 @@ def restore(hlsl):
         shape = 'uint' + (str(width) if width > 1 else '')
         indent = assignment['indent']
         mirror = 'QuestOriginalBits_' + assignment['lhs']
-        replacement = (indent + shape + ' ' + temporary + ' = ' + bits(rhs) + ';\n' +
+        replacement = (indent + shape + ' ' + temporary + ' = ' + bits(rhs, width=width) + ';\n' +
                        indent + (assignment['declaration'] or '') + assignment['lhs'] + ' = ' + rhs + ';\n' + indent + mirror + ' = ' + temporary + ';')
         changes.append((assignment.start(), assignment.end(), replacement)); mirrored += 1
     for start, end, replacement in reversed(changes):

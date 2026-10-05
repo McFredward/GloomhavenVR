@@ -257,3 +257,18 @@ with these integer carriers passed all 624 Android compiler aliases and its
 The full 1,432-pass census and all 103,128 compiler aliases remain independent
 outstanding checks; these counts do not establish a headset result or all-pixel
 parity with the PC game.
+
+The all-family census exposed a fixed/half builtin conversion that the carrier
+must retain: copying Unity's `_LightColor0` into an original float register
+implicitly converts its selected lanes to float. The parallel uint capture now
+applies that same assignment-width conversion before extracting bits. It does
+not reinterpret a different builtin storage type. The emitted manifest records
+the source hashes of the producer, native binding helper, integer carrier and
+typed-load adapters; generated source is regenerated on every prepare operation.
+
+With the integer carrier enabled, a freshly rebuilt Windows candidate still
+matches the original native Amp DXBC byte-for-byte in all eight D3D11 pictures
+(baseline, geometry, lighting, diffuse, UV, opacity, vertex animation and camera
+eye). Both executable negative controls are rejected. This remains the bounded
+original forward-pass fixture; native bones, every material/program, Android
+pixels and headset performance are not inferred from it.

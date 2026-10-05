@@ -346,6 +346,9 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
     manifest = {'schema': 1, 'scope': 'campaign-compiler', 'requiredShaderCount': len(shaders),
                 'requiredMaterialCount': len(inventory['materials']), 'shaders': shaders,
                 'materials': inventory['materials'], 'programs': list(programs.values()), 'originalPixelParityVerified': False}
+    manifest['sourceGeneratorSha256'] = {path.name: sha256(path) for path in (
+        Path(__file__), Path(integer_bits.__file__), Path(load_bounds.__file__),
+        Path(__file__).resolve().parents[1] / 'quest-builder/full_shaders.py')}
     manifest['requiredHostRenderTargetCount'] = max([1, *[signature['semanticIndex'] + 1
         for shader in inventory['shaders'] for program in shader['variants']
         if program['stage'] == 'fragment' for signature in program['originalOutputSignature']
