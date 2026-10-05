@@ -73,7 +73,15 @@ public static partial class MirrorProgram
             Check(Remote(-2,52)!.Root.GetComponent<MeshRenderer>().forceRenderingOff,"hidden physical body uses its explicit page gate");
             clock=new TownRackState{Crank=2,Turn=1,Elapsed=.1f,Page=0,From=0,To=1,Members=members.ToArray()};
             rack.localRotation=Quaternion.Euler(0,15+360*TownRackState.Progress(.1f),0);
-            TownServiceMirror.SetRack(1,clock);var beginning=Capture();Receive(2,beginning);TownServiceMirror.TickRemote(_=>observer);
+            TownServiceMirror.SetRack(1,clock);var beginning=Capture();
+            // A changed owner pose can publish a new complete native-template
+            // state for the same original. Withhold the dependency by module,
+            // not by the identity of its first packet; a retransmission is a
+            // legitimate repair and must not accidentally satisfy this probe.
+            int repeatedPrice=beginning.Count(bytes=>TownServiceCodec.TryRead(bytes,bytes.Length,out var frame)&&frame!.Module==98);
+            Debug.Log("Rack-clock absent original: scale="+scale+", withheld turn-start price packets="+repeatedPrice);
+            Receive(2,beginning.Where(bytes=>!TownServiceCodec.TryRead(bytes,bytes.Length,out var frame)||frame!.Module!=98));
+            TownServiceMirror.TickRemote(_=>observer);
             Receive(3,first);Receive(3,beginning);TownServiceMirror.TickRemote(_=>observer);
             Check(Remote(-3,1)==null,"second visitor cannot replace the active shared rack owner");
             TownServiceMirror.RemovePeer(3);
