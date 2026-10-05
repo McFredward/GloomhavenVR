@@ -506,3 +506,38 @@ transport and byte hashes of the original images. The private fixture uses
 existing inspected inputs and does not claim a fresh conversion, Unity install,
 Windows execution or headset installation. No original game artwork is tracked
 or distributed by this UI.
+
+## Actual native content build and additional Foliage permutations
+
+The actual62b4 content preparation completed all3,254 source-bundle groups.
+The native Android build now produced3,255 bundle files totalling9,188,027,820
+bytes and proceeds through catalog packaging and the complete content ZIP.
+No full signed hardware artifact is available yet.
+
+This real bundle invocation exposes26 compiler errors in `Amp_Basic_Foliage`:
+additional `STEREO_MULTIVIEW_ON` keyword combinations beyond the original51,564
+manifest aliases put Unity's generated stereo input after `SV_IsFrontFace`.
+All90 original FrontFace program interfaces belong to this Shader. A separate
+bounded native witness reproduces those26 original failures. Moving only the
+generated declaration allows the first previously failing bank to compile but
+also reveals a vertex/fragment interpolation mismatch that still needs repair.
+Neither this partial positive nor the earlier original-alias PASS is treated as
+proof of complete cooked graphics or a headset picture. Native calculations,
+original identities and mono outputs must remain preserved by the correction.
+
+The original Player remains unchanged while those isolated checks run. It has
+also reported25,696 native keyword-space assertions during dependency usage
+calculation, then progressed into bundle compilation, compression and catalog
+processing. Unity's2021.3.11f1 release notes describe an AssetBundle assertion fix
+for the same message (UUM-11958); that source does not establish today's exact
+cause or authorize ignoring actual compiler failures. No Unity upgrade or
+repeated exhaustive shader sweep has been initiated.
+
+The Wizard launcher now keeps its durable workspace at `%USERPROFILE%/.ghvrq`
+by default, preserving script-local Python. Isolated reviewed checkpoints also
+provide transactional export/build restart, stable owned original-asset import
+workspace across mod/profile changes, pre-first-import Linear/Vulkan settings,
+and shorter generated program/cache paths. Those captured central tools remain
+held until a safe Player boundary. Further isolated archive work targets exact
+unchanged-content reuse and avoids recompressing native Unity bundles; no timing
+improvement is claimed before its actual focused evidence.
