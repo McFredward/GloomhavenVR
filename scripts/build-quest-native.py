@@ -16,6 +16,21 @@ HEADERS = {
 TAG = "release-1.1.63"
 
 
+def compiler_command(ndk, platform=None):
+    platform = platform or sys.platform
+    hosts = {"linux": "linux-x86_64", "darwin": "darwin-x86_64", "win32": "windows-x86_64"}
+    host = hosts.get(platform)
+    if not host:
+        raise RuntimeError(f"Unsupported NDK build host: {platform}")
+    toolchain = ndk / "toolchains/llvm/prebuilt" / host
+    compiler = toolchain / "bin" / ("clang++.exe" if platform == "win32" else "clang++")
+    if not compiler.is_file() or not (toolchain / "sysroot").is_dir():
+        raise RuntimeError(f"Android ARM64 compiler/sysroot is missing: {compiler}")
+    # Invoke the executable directly. Windows batch wrappers parse otherwise
+    # literal path characters through cmd.exe even with shell=False.
+    return [str(compiler), "--target=aarch64-linux-android29", "--sysroot=" + str(toolchain / "sysroot")]
+
+
 def fetch_headers(cache):
     folder = cache / "openxr"
     folder.mkdir(parents=True, exist_ok=True)
@@ -42,15 +57,7 @@ def main():
     parser.add_argument("--cache", type=Path, required=True)
     args = parser.parse_args()
     include = fetch_headers(args.cache.resolve())
-    hosts = {"linux": "linux-x86_64", "darwin": "darwin-x86_64", "win32": "windows-x86_64"}
-    host = hosts.get(sys.platform)
-    if not host:
-        raise RuntimeError(f"Unsupported NDK build host: {sys.platform}")
-    compiler = args.ndk / "toolchains/llvm/prebuilt" / host / "bin/aarch64-linux-android29-clang++"
-    if sys.platform == "win32":
-        compiler = compiler.with_suffix(".cmd")
-    if not compiler.is_file():
-        raise RuntimeError(f"Android ARM64 compiler is missing: {compiler}")
+    compiler = compiler_command(args.ndk)
     native = Path(__file__).resolve().parents[1] / "tools/quest-native"
     source = native / "passthrough.cpp"
     hash_source = native / "content_hash.cpp"
@@ -58,7 +65,7 @@ def main():
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_suffix(".partial.so")
-    subprocess.run([str(compiler), "-std=c++17", "-O2", "-fPIC", "-shared", "-fvisibility=hidden",
+    subprocess.run(compiler + ["-std=c++17", "-O2", "-fPIC", "-shared", "-fvisibility=hidden",
                     "-static-libstdc++", "-Wl,--no-undefined", "-Wl,-soname,libghvr_quest_passthrough.so",
                     "-I", str(include), str(source), str(hash_source), "-o", str(temporary)], check=True)
     header = temporary.read_bytes()[:20]

@@ -179,7 +179,7 @@ Its existing per-eye camera callbacks and authored Shader banks therefore use
 their supported route, and the Quest flat-screen adapter selects the completed
 eye texture through that same route. Desktop mode selection is unchanged.
 
-Current focused Python builder gate passes196 tests in the provisioned private
+Current focused Python builder gate passes200 tests in the provisioned private
 Python environment; compute fixtures pass27 and case-path fixtures pass12. Own
 superseded APKs are removed; B622 native symbols are retained with matching build
 ID9a2274f00b636520 before deleting its generated28-GB Library. Final full-player
@@ -212,6 +212,16 @@ all36 pipelines and executes the original Lerp, cleared Vectorscope, Gather and
 MSVO dispatch-edge fixtures with robustness disabled. This does not establish
 Quest driver performance, all post-effect pixel parity or a hardware playthrough.
 The signed-player delivery gate records backend-specific executable-byte proof.
+
+The Windows x64 Python3.14 dependency audit resolves all19 binary-only pinned
+packages to compatible wheels whose hashes are already allowed; the intentional
+pure-Python source dependency retains its separate verified source-install route.
+Native compiler calls now select real LLVM executables with explicit Android29
+target/sysroot, and APK verification invokes the JDK executable and apksigner JAR
+directly. Actual ARM64 passthrough compilation and existing-player certificate
+verification pass using literal paths containing spaces, ampersands and percent
+signs. This is host/argument evidence; it does not certify a Windows full build or
+the not-yet-built full Campaign APK.
 
 The complete native Vulkan pass smoke test compiles all1,432 original pass banks
 and resolves all9,187 original material associations. Independent executable

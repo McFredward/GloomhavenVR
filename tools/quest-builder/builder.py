@@ -267,21 +267,23 @@ def toolchain(args, output: Path) -> dict:
     if not sdk_tools:
         raise BuildError("The selected Android SDK has no installed build-tools/aapt.")
     build_tools = sdk_tools[-1]
-    apk_signer = build_tools / ("apksigner.bat" if os.name == "nt" else "apksigner")
+    apk_signer = build_tools / "lib/apksigner.jar"
+    java = jdk / "bin" / ("java" + suffix)
     keytool = jdk / "bin" / ("keytool" + suffix)
-    if not apk_signer.is_file() or not keytool.is_file() or not (ndk / "source.properties").is_file():
-        raise BuildError("The selected Android SDK/NDK/JDK is incomplete (apksigner, keytool or NDK revision missing).")
+    if not apk_signer.is_file() or not java.is_file() or not keytool.is_file() or not (ndk / "source.properties").is_file():
+        raise BuildError("The selected Android SDK/NDK/JDK is incomplete (apksigner.jar, Java, keytool or NDK revision missing).")
     version = command([str(editor), "-version"], output / "logs/unity-version.log").strip().splitlines()
     found = next((v.strip() for v in version if re.fullmatch(r"20\d{2}\.\d+\.\d+[abfp]\d+", v.strip())), None)
     if not found:
         raise BuildError("The Unity executable did not report a recognizable editor version.")
     selected = {"editor": str(editor), "unityVersion": found, "androidSdk": str(sdk),
                 "androidNdk": str(ndk), "jdk": str(jdk), "aapt": str(build_tools / ("aapt" + suffix)),
-                "apksigner": str(apk_signer), "keytool": str(keytool),
+                "apksigner": str(apk_signer), "java": str(java), "keytool": str(keytool),
+                "apksignerSha256": digest(apk_signer), "javaSha256": digest(java),
                 "editorSha256": digest(editor), "buildToolsVersion": build_tools.name,
                 "ndkPropertiesSha256": digest(ndk / "source.properties")}
     selected["key"] = value_hash({k: v for k, v in selected.items() if k not in (
-        "editor", "androidSdk", "androidNdk", "jdk", "aapt", "apksigner", "keytool")})
+        "editor", "androidSdk", "androidNdk", "jdk", "aapt", "apksigner", "java", "keytool")})
     write_json(output / "toolchain.json", selected)
     return selected
 
@@ -984,7 +986,7 @@ def validate_apk(apk: Path, report: Path, inputs: dict, tools: dict, output: Pat
     verify_env = dict(os.environ)
     if tools.get("jdk"):
         verify_env["JAVA_HOME"] = tools["jdk"]
-    signing_text = command([tools["apksigner"], "verify", "--verbose", "--print-certs", str(apk)],
+    signing_text = command([tools["java"], "-jar", tools["apksigner"], "verify", "--verbose", "--print-certs", str(apk)],
                            output / "logs/apk-signature.log", env=verify_env)
     matched = re.search(r"certificate SHA-256 digest:\s*([0-9a-fA-F]+)", signing_text)
     if not matched:

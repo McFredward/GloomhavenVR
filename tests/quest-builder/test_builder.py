@@ -280,7 +280,7 @@ class ApkTests(Temporary):
         super().setUp()
         self.output = self.root
         self.inputs = {"target": "probe", "inputKey": "chosen", "profileKey": "identity", "profile": {"isDummy": True}}
-        self.tools = {"unityVersion": "2021.3.5f1", "apksigner": "fixture-apksigner", "aapt": "fixture-aapt"}
+        self.tools = {"unityVersion": "2021.3.5f1", "java": "fixture-java", "apksigner": "fixture-apksigner.jar", "aapt": "fixture-aapt"}
         profile = self.output / "identities/identity/quest-profile.json"
         storage.write_json(profile, identity.dummy_identity())
         self.apk = self.output / "fixture.apk"
@@ -305,7 +305,8 @@ class ApkTests(Temporary):
                 archive.writestr(extra, b"fixture only")
 
     def tool_output(self, argv, *args, **kwargs):
-        if argv[0] == "fixture-apksigner":
+        if argv[0] == "fixture-java":
+            self.assertEqual(argv[1:3], ["-jar", "fixture-apksigner.jar"])
             return "Signer #1 certificate SHA-256 digest: " + "a" * 64
         return "package: name='" + builder.PACKAGE + "' versionCode='1'"
 
@@ -373,6 +374,19 @@ class ApkTests(Temporary):
         storage.write_json(self.output / "signing/certificate.json", {"sha256": "b" * 64})
         with patch.object(builder, "command", self.tool_output), self.assertRaises(storage.BuildError):
             builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+
+    def test_signer_receives_literal_apk_path_through_java(self):
+        self.fixture_apk()
+        renamed = self.apk.with_name("Campaign & 100% literal.apk")
+        self.apk.rename(renamed)
+        calls = []
+        def run(argv, *args, **kwargs):
+            calls.append(argv)
+            return self.tool_output(argv, *args, **kwargs)
+        with patch.object(builder, "command", run):
+            builder.validate_apk(renamed, self.evidence, self.inputs, self.tools, self.output)
+        self.assertEqual(calls[0], ["fixture-java", "-jar", "fixture-apksigner.jar", "verify",
+                                   "--verbose", "--print-certs", str(renamed)])
 
     def test_quest_passthrough_openxr_and_loader_are_mandatory(self):
         for name in ("libghvr_quest_passthrough.so", "libUnityOpenXR.so", "libopenxr_loader.so"):
