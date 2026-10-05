@@ -139,6 +139,11 @@ internal static class TownServiceMerchantHandoff
     internal static void LateTick()
     {
         if (!Active || _station == null) return;
+        // Another station can commit its native hand mode after this owner's Tick.
+        // Retire the old item fan before final publication on that same frame.
+        if (GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Enchantress
+            || TownServiceEnhancementHandoff.WantsAbilityFan || TownServiceTempleOffering.WantsPurseFocus)
+        { Reset(); return; }
         MapRoomHand.SetMerchantInspection(true); // A native buy/sell refresh never restores the ordinary ability fan here.
         _palm ??= Find(_station.Root, "ActivityOfferingPalm");
         if (_palm == null) return;

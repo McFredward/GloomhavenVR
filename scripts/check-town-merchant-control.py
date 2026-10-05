@@ -109,6 +109,10 @@ def main():
              'simultaneous public crank grabs cannot steal the first visitor'),
             ('crank-unbounded-sample', 'TownMerchantControlSync.cs', 'Time.unscaledTime < _nextCrankSend',
              'false', 'manual crank sampling is bounded to 15 Hz independently of render frequency'),
+            ('stale-aged-page', 'TownMerchantControlSync.cs',
+             '_displayClock.Page = TownRackState.Progress(_displayClock.Elapsed) < .5f\n                        ? _displayClock.From : _displayClock.To;',
+             '_displayClock.Page = latest.Clock!.Page;',
+             'completed reliable drawer clock keeps the destination page before its next heartbeat'),
         ]
     if args.negative_control:
         selected = set(args.negative_control)

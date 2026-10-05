@@ -390,6 +390,14 @@ public static class InteractionProgram
       && !TownServiceMerchantHandoff.HasParkedOffer,
       "revoked host grant cancels the original merchant callback and returns its parked card");
   GloomhavenVR.Net.TownServices.TownServiceMirror.GrantSettled=true;
+  GuildmasterDestinations.Mode=EGuildmasterMode.Enchantress;
+  MapRoomHand.SetMerchantInspection(false); // The actual successful native mage transition.
+  var committedAbilityFan=new List<VRCard>(); CardsDriver.OffScenarioFanCards=committedAbilityFan;
+  TownServiceMerchantHandoff.LateTick();
+  Check(!TownServiceMerchantHandoff.Active && ReferenceEquals(CardsDriver.OffScenarioFanCards,committedAbilityFan),
+      "same-frame native mage transition retires the old item fan before final publication");
+  GuildmasterDestinations.Mode=EGuildmasterMode.None;
+  TownServiceMerchantHandoff.Tick();
   Action foreign=()=>{}; Singleton<UIItemConfirmationBox>.Instance._onConfirmedCallback=foreign;
   Singleton<UIItemConfirmationBox>.Instance.IsActive=true;
   TownServiceMerchantHandoff.Reset();

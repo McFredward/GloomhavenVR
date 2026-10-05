@@ -86,6 +86,13 @@ public static partial class InteractionProgram
         Check(TownMerchantControlSync.Receive(1, committed, committed.Length) && peerRack.TurnEpoch == hostRack.TurnEpoch
             && peerRack.FromPage == hostRack.FromPage && peerRack.ToPage == hostRack.ToPage,
             "host commit drives the observer's original local drawer with the same page and animation epoch");
+        // Advance only the receiver timestamp of the actual production age calculation;
+        // no fake clock or drawer controller chooses the resulting page.
+        typeof(TownMerchantControlSync).GetField("_receivedTime",System.Reflection.BindingFlags.Static
+            |System.Reflection.BindingFlags.NonPublic)!.SetValue(null,Time.unscaledTime-TownRackState.TurnDuration-.01f);
+        TownMerchantControlSync.Tick(peerTransport,Time.unscaledTime);
+        Check(peerRack.Page == hostRack.ToPage && TownMerchantControlSync.SharedClock!.Page == hostRack.ToPage,
+            "completed reliable drawer clock keeps the destination page before its next heartbeat");
         byte[] malformed = (byte[])committed.Clone(); malformed[7]++;
         Check(!TownMerchantControlCodec.TryRead(malformed, malformed.Length, out _), "wrong TLV payload length is rejected");
         malformed = (byte[])committed.Clone(); malformed[47] = 0; malformed[48] = 0;

@@ -28,8 +28,13 @@ internal static class TownMerchantControlSync
         get
         {
             if (_displayClock != null && _latest is TownMerchantControlMessage latest)
+            {
                 _displayClock.Elapsed = Mathf.Clamp(latest.Clock!.Elapsed + Mathf.Max(0f,
                     Time.unscaledTime - _receivedTime), 0f, TownRackState.TurnDuration);
+                if (_displayClock.Turn != 0)
+                    _displayClock.Page = TownRackState.Progress(_displayClock.Elapsed) < .5f
+                        ? _displayClock.From : _displayClock.To;
+            }
             return _displayClock;
         }
     }
