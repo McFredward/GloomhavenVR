@@ -244,6 +244,9 @@ internal static class TownCatalogWarmVectors
         var queue = new TownServiceLaneSendQueue(65536); var receiver = new TownServiceFragments();
         int encoded = 0;
         Func<TownServiceFrame, byte[]>? prior = TownServiceDelivery.EncodeOriginal;
+        Action<TownServiceFrame>? priorCompleted = TownServiceDelivery.Completed;
+        var completedRoots = new List<ulong>();
+        TownServiceDelivery.Completed = frame => { if (frame.Module == root.Module) completedRoots.Add(frame.Sequence); };
         TownServiceDelivery.EncodeOriginal = frame => { encoded++; return TownServiceCodec.Write(frame); };
         try
         {
@@ -269,6 +272,7 @@ internal static class TownCatalogWarmVectors
                 if (firstClock && originals.Count == members.Length) break;
             }
             t.True(firstClock && originals.Count == members.Length, "cold clock and every exact required native dependency assemble");
+            t.True(completedRoots.Contains(root.Sequence), "prepared clock completion retains the actual captured source identity for native refresh bookkeeping");
             t.Equal(members.Length, encoded, "each immutable original is encoded once rather than once per page");
             TownServiceFrame next = TownServiceDelta.Retain(root); next.Sequence++;
             next.Rack = next.Rack!.Copy(); next.Rack.Turn++;
@@ -287,6 +291,7 @@ internal static class TownCatalogWarmVectors
                         nextArrived = true;
             }
             t.True(nextArrived, "later page clock remains immediately schedulable after original repair completes");
+            t.True(completedRoots.Contains(next.Sequence), "warm page clock reports its exact newest source completion");
             t.Equal(members.Length, encoded, "warm page changes never rebuild unchanged original packets");
 
             var changed = TownServiceDelta.Copy(next.CatalogBank.Updates[0]); changed.Sequence++;
@@ -319,7 +324,7 @@ internal static class TownCatalogWarmVectors
             t.True(turnArrived && targetArrived, "oversize patch retains the current owner turn and every exact target-original dependency");
             t.Equal(members.Length + 1, encoded, "oversize patch encodes only its genuinely changed original");
         }
-        finally { TownServiceDelivery.EncodeOriginal = prior; }
+        finally { TownServiceDelivery.EncodeOriginal = prior; TownServiceDelivery.Completed = priorCompleted; }
     }
 
     private static void ActualSourceRetirement(Harness t)

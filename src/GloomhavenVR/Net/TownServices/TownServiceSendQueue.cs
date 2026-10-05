@@ -119,7 +119,7 @@ internal sealed class TownServiceLaneSendQueue
                     // The original root remains in _order for arbitration, but only
                     // this current header clock is queued. A second full bank would
                     // repeat multi-megabyte native serialization on every page turn.
-                    try { byte[] referenceBytes = TownServiceCodec.Write(reference); clock.Enqueue(referenceBytes, referenceBytes.Length); }
+                    try { byte[] referenceBytes = TownServiceCodec.Write(reference); clock.Enqueue(referenceBytes, referenceBytes.Length, frame); }
                     catch (System.IO.InvalidDataException)
                     {
                         // A large property delta can exceed the atomic header bound.
@@ -127,7 +127,7 @@ internal sealed class TownServiceLaneSendQueue
                         // individual original repairs supply their exact dependencies.
                         // Never drop the owner's turn or publish a partial ready bank.
                         byte[] referenceBytes = TownServiceCodec.Write(TownCatalogClock.Create(frame, NoCatalogPatchBases));
-                        clock.Enqueue(referenceBytes, referenceBytes.Length);
+                        clock.Enqueue(referenceBytes, referenceBytes.Length, frame);
                     }
                     return;
                 }
@@ -248,7 +248,7 @@ internal sealed class TownServiceLaneSendQueue
             if (unfinishedOnly && !clock.HasInFlight) continue;
             if (!clock.HasInFlight) clock.AdvanceSequence(complete.Sequence);
             byte[]? page = clock.Next(now);
-            if (page != null) { _clockRepairDue = !clock.HasInFlight; return page; }
+            if (page != null) { Completed(clock); _clockRepairDue = !clock.HasInFlight; return page; }
         }
         return null;
     }
