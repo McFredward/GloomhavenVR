@@ -292,12 +292,6 @@ class PackageApiStageTests(Temporary):
         self.assertEqual(set(first["sdkAssemblies"]), {name + ".dll" for name in SDK_NAMES})
         self.assertEqual(set(first["inputAssemblies"]), {"GH.Runtime.dll", "GloomhavenVR.dll"})
 
-    def test_complete_sdk_import_uses_the_full_player_graphics_target(self):
-        self.args.target = "game"
-        with patch.object(builder, "command", side_effect=self.command):
-            report = self.bind()
-        self.assertTrue(report["complete"])
-        self.assertEqual(self.import_count, 1)
         self.assertEqual(first["sdkAssemblies"], {row["path"]: row["sha256"] for row in storage.inventory(self.sdk, [name + ".dll" for name in SDK_NAMES])})
         for path, data in before.items():
             self.assertEqual(path.read_bytes(), data)
@@ -311,6 +305,13 @@ class PackageApiStageTests(Temporary):
                          {"Assets/Plugins/GH.Runtime.dll", "Assets/Plugins/QuestGame/GloomhavenVR.dll"})
         self.assertTrue(storage.verify_files(self.project, contract["plugins"]))
         self.assertEqual(contract["sdkRoot"], "QuestStartupEvidence/PlayerSdk")
+
+    def test_complete_sdk_import_uses_the_full_player_graphics_target(self):
+        self.args.target = "game"
+        with patch.object(builder, "command", side_effect=self.command):
+            report = self.bind()
+        self.assertTrue(report["complete"])
+        self.assertEqual(self.import_count, 1)
 
     def test_editor_or_wrong_player_compilation_cannot_reach_api_audit(self):
         for key, value in (("compilation", "Editor"), ("target", "StandaloneWindows64"), ("backend", "Mono"),
