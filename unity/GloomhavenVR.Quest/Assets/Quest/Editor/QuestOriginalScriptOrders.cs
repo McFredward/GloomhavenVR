@@ -17,6 +17,7 @@ namespace GloomhavenVR.Quest.Editor
     {
         public const string InputPath = "Assets/QuestOriginalStartup/script-orders.json";
         public const string ReceiptPath = "QuestStartupEvidence/script-orders.json";
+        public const string SourceProofPath = "QuestStartupEvidence/script-orders-source.json";
 
         [Serializable] public sealed class Entry
         {
@@ -61,6 +62,20 @@ namespace GloomhavenVR.Quest.Editor
             public bool allMappedOrdersVerified;
         }
 
+        [Serializable] public sealed class SourceFile
+        {
+            public string path, sha256;
+            public long size;
+        }
+
+        [Serializable] public sealed class SourceProof
+        {
+            public int schema, sourceRecordCount, sourceDistinctCount;
+            public string scope;
+            public SourceFile source, manifest, bindingManifest;
+            public Excluded[] excluded;
+        }
+
         private sealed class Plan
         {
             public MonoScript script;
@@ -76,6 +91,9 @@ namespace GloomhavenVR.Quest.Editor
                 !IsHex(input.sourceSha256, 64))
                 throw new InvalidOperationException("Original script order manifest is invalid.");
 
+            if (input.excluded.Any(row => row != null && row.reason == "assembly-outside-campaign-closure"))
+                ValidateCampaignExclusions(input, bytes);
+
             var identities = new HashSet<string>(StringComparer.Ordinal);
             var sourceIds = new HashSet<string>(StringComparer.Ordinal);
             var exclusions = new List<Excluded>();
@@ -83,7 +101,7 @@ namespace GloomhavenVR.Quest.Editor
             {
                 if (excluded == null || excluded.referenced ||
                     (excluded.reason != "assembly-outside-startup-closure" && excluded.reason != "no-original-top-level-type" &&
-                     excluded.reason != "original-static-utility"))
+                     excluded.reason != "original-static-utility" && excluded.reason != "assembly-outside-campaign-closure"))
                     throw new InvalidOperationException("Original script order exclusion has no supported source evidence.");
                 ValidateIdentity(excluded.assemblyName, excluded.fullName, excluded.sourcePathIds, identities, sourceIds);
                 if (excluded.reason == "original-static-utility") ValidateStaticUtility(excluded);
@@ -200,6 +218,50 @@ namespace GloomhavenVR.Quest.Editor
             return !string.IsNullOrEmpty(path) && path.StartsWith("Assets/", StringComparison.Ordinal) &&
                 path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) && path.IndexOf('\\') < 0 &&
                 !path.Split('/').Any(part => part.Length == 0 || part == "." || part == "..");
+        }
+
+        private static void ValidateCampaignExclusions(Input input, byte[] manifestBytes)
+        {
+            // The full-game producer retains the Startup output path, but its
+            // authoritative closure/scope lives in the source receipt. The first
+            // complete build exposed 113 original TestRunner scripts absent from
+            // Campaign, all unreferenced with default order. Accept that exact
+            // source-backed contract; do not extend Startup's exclusion policy or
+            // turn arbitrary missing game assemblies into optional lifecycle code.
+            if (!File.Exists(SourceProofPath))
+                throw new InvalidOperationException("Campaign script order exclusion source evidence is missing.");
+            var proof = JsonUtility.FromJson<SourceProof>(File.ReadAllText(SourceProofPath));
+            if (proof == null || proof.schema != 1 ||
+                proof.scope != "original campaign closure; exact imported scripts verified after SDK remapping" ||
+                proof.source == null || proof.source.path != "globalgamemanagers.assets" || proof.source.size <= 0 ||
+                proof.source.sha256 != input.sourceSha256 || proof.excluded == null ||
+                proof.excluded.Length != input.excluded.Length ||
+                proof.sourceDistinctCount != input.entries.Length + input.excluded.Length ||
+                proof.sourceRecordCount < proof.sourceDistinctCount ||
+                !MatchesFile(proof.manifest, InputPath, manifestBytes) ||
+                !MatchesFile(proof.bindingManifest, "Assets/QuestOriginalCampaign/script-bindings.json", null))
+                throw new InvalidOperationException("Campaign script order exclusion source evidence differs from the declared closure.");
+            var campaign = input.excluded.Where(row => row != null && row.reason == "assembly-outside-campaign-closure").ToArray();
+            if (proof.excluded.Count(row => row != null && row.reason == "assembly-outside-campaign-closure") != campaign.Length)
+                throw new InvalidOperationException("Campaign script order exclusion source coverage differs.");
+            foreach (var row in campaign)
+            {
+                var originals = proof.excluded.Where(source => source != null && source.assemblyName == row.assemblyName &&
+                    source.fullName == row.fullName).ToArray();
+                if (row.assemblyName != "UnityEngine.TestRunner" || row.referenced || row.executionOrder != 0 ||
+                    row.sourcePathIds == null || originals.Length != 1 || originals[0].reason != row.reason ||
+                    originals[0].referenced || originals[0].executionOrder != 0 || originals[0].sourcePathIds == null ||
+                    !originals[0].sourcePathIds.SequenceEqual(row.sourcePathIds))
+                    throw new InvalidOperationException("Campaign script order exclusion lacks the exact original TestRunner identity: " + row.fullName);
+            }
+        }
+
+        private static bool MatchesFile(SourceFile record, string path, byte[] bytes)
+        {
+            if (record == null || record.path != path || record.size <= 0 || !IsHex(record.sha256, 64) || !File.Exists(path))
+                return false;
+            if (bytes == null) bytes = File.ReadAllBytes(path);
+            return record.size == bytes.LongLength && record.sha256 == Hash(bytes);
         }
 
         private static void ValidateStaticUtility(Excluded excluded)

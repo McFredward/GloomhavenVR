@@ -36,3 +36,12 @@ invoke static methods.
 
 These checks establish importer semantics and fail-closed mapping behavior; the
 actual prepared-game receipt and headset startup remain separate evidence.
+
+`dotnet run --project tests/QuestScriptOrderEditor.Tests/QuestScriptOrderConsumer.Tests.csproj`
+compiles the production consumer with explicit Unity API stubs. It checks the
+source-backed Campaign TestRunner exclusions, unchanged Startup exclusions,
+retained authored order, and malformed source/type/hash/reference controls before
+any importer mutation. This is a portable contract check, not native Unity proof.
+An optional prepared-project path after `--` performs a read-only preflight of the
+actual 113 TestRunner exclusions by copying only its three manifest files to a
+temporary fixture; it never runs Unity or modifies the supplied project.
