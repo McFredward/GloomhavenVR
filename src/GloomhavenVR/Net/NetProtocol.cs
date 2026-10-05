@@ -586,7 +586,27 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 625;
+    public const ushort ModBuild = 626;
+
+    // ModBuild 626 — paired Build625 enhancement admission and continuous town returns.
+    // The observer repeatedly rejected the game's exact HeroHighlight_Brute wrapper.
+    // Admit only the audited finite native class-highlight descriptors and prepare
+    // the offered party member's original portrait even before local selection.
+    // Native mage originals establish one complete owner-property baseline; hover,
+    // scroll and highlight changes use the existing cumulative deltas instead of
+    // restarting that full baseline every turn. Complete keyframes avoid a sparse
+    // native-basis mismatch waiting for ten-second repair. Bounded Debug admission
+    // traces distinguish missing modules, original dependencies and first-ready age.
+    // Fit original enhancement children against the actual adopted printed rectangle,
+    // retaining native geometry/state and restoring pooled root transforms on exit.
+    // Additive TLV107 carries exact original town card-return endpoints, child offsets,
+    // curves and clocks. Replay stock SmoothStep, owned-item glide/collapse and native
+    // VRCard SmootherStep/arc each rendered frame. Prepare the stock original while its
+    // canonical avatar hold masks only the duplicate. New returns and their matching
+    // roots receive a coherent finite turn inside the unchanged 864-byte/15Hz budget;
+    // subsequent ages keep normal fair recovery. Accepted purse TLV106 and temple
+    // blessing/audio are unchanged. Fixtures establish source-bound geometry, exact
+    // bytes and continuous motion, not a new headset latency or appearance outcome.
 
     // ModBuild 625 — Build624 paired NPC publication and local map loading review.
     // Prepared cabinet turns retain exact immutable originals and send current
