@@ -261,12 +261,19 @@ class VulkanNativeInterface(unittest.TestCase):
                   'SPIRV_Cross_Output main(SPIRV_Cross_Input stage_input) { '
                   'SPIRV_Cross_Output stage_output; stage_output.o1=uint(_DepthSlice); return stage_output; }')
         adapter = {'kind': 'native-vertex-layer-to-unity-framebuffer', 'nativeOutput': 'o1', 'portableLocation': 3}
-        actual = native.stereo_wrapper(source, 'vertex', [adapter], graphics_api='Vulkan')
+        signature = [{'semantic': 'SV_RenderTargetArrayIndex', 'register': 1, 'componentType': 1, 'mask': 1, 'systemValue': 4}]
+        actual = native.stereo_wrapper(source, 'vertex', [adapter], output_signature=signature, graphics_api='Vulkan')
         self.assertIn('o1 : SV_RenderTargetArrayIndex;', actual)
         self.assertIn('stage_output.o1=uint(_DepthSlice);', actual)
         self.assertIn('UNITY_VERTEX_OUTPUT_STEREO_EYE_INDEX', actual)
         self.assertNotIn('stereoTargetEyeIndexAsRTArrayIdx', actual)
-        signed = native.stereo_wrapper(source.replace('uint o1', 'int o1'), 'vertex', [adapter], graphics_api='Vulkan')
-        self.assertIn('int o1 : SV_RenderTargetArrayIndex;', signed)
+        signed_source = 'static int o1;\n' + source.replace('uint o1', 'int o1').replace('stage_output.o1=uint(_DepthSlice);', 'o1=int(uint(_DepthSlice)); stage_output.o1=o1;')
+        signed = native.stereo_wrapper(signed_source, 'vertex', [adapter], output_signature=signature, graphics_api='Vulkan')
+        self.assertIn('uint o1 : SV_RenderTargetArrayIndex;', signed)
+        self.assertIn('static int o1;', signed)
+        self.assertIn('o1=int(uint(_DepthSlice));', signed)
+        self.assertIn('stage_output.o1 = asuint(o1);', signed)
+        with self.assertRaisesRegex(native.ShaderRecoveryError, 'exact native scalar uint'):
+            native.stereo_wrapper(source, 'vertex', [adapter], output_signature=[{**signature[0], 'componentType': 2}], graphics_api='Vulkan')
         with self.assertRaisesRegex(native.ShaderRecoveryError, 'witnessed native output'):
-            native.stereo_wrapper(source.replace('TEXCOORD3', 'TEXCOORD4'), 'vertex', [adapter], graphics_api='Vulkan')
+            native.stereo_wrapper(source.replace('TEXCOORD3', 'TEXCOORD4'), 'vertex', [adapter], output_signature=signature, graphics_api='Vulkan')

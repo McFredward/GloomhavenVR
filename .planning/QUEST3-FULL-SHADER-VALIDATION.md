@@ -336,3 +336,17 @@ reported by Unity; no device spoofing was used. This bounded family fixture
 does not prove original bones, full Campaign materials, Android stereo or a
 Quest display. A native shadow/depth witness and full original alias sweep
 remain independent follow-up gates.
+
+The authoritative native Vulkan sweep also caught a signed interface mismatch in
+`Hidden/PostProcessing/FinalPass` with `FXAA`, `FXAA_KEEP_ALPHA` and
+`STEREO_INSTANCING_ENABLED`. Its original vertex DXBC
+`e05376780aeac23832d154e456d37dc27878a5654ec78c11c84e2bc1b8443bfc`
+explicitly declares `SV_RenderTargetArrayIndex` as scalar uint in OSGN.
+SPIRV-Cross exposes its internal Vulkan Layer carrier as int. The wrapper now
+requires that exact original signature, retains the signed internal carrier and
+all of its instructions, and writes its bits through `asuint` to the original
+uint interface. A real Unity Android Vulkan retest compiled all 27 affected
+FinalPass banks, including the previously rejected alias. The focused test rejects
+an unproven signed original signature and verifies the unchanged internal math.
+Evidence: private `full-production-vulkan-shard-2/QuestPostLayerEvidence` and
+`unity-post-layer.log`. This does not assert a headset picture.

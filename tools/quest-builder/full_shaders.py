@@ -1141,10 +1141,24 @@ def stereo_wrapper(hlsl, stage, output_adapters=(), input_signature=(), output_s
             if adapter["kind"] != "native-vertex-layer-to-unity-framebuffer" or not re.fullmatch(r"o\d+", adapter["nativeOutput"]):
                 raise ShaderRecoveryError("Unproven original Vulkan output-interface adapter.")
             name = re.escape(adapter["nativeOutput"])
-            pattern = r"(\b(?:uint|int)\s+" + name + r"\s*:\s*)TEXCOORD" + str(adapter["portableLocation"]) + r";"
-            hlsl, count = re.subn(pattern, r"\1SV_RenderTargetArrayIndex;", hlsl)
+            native_outputs = [row for row in output_signature if row["semantic"].upper() == "SV_RENDERTARGETARRAYINDEX" and
+                              row["register"] == int(adapter["nativeOutput"][1:])]
+            if len(native_outputs) != 1 or native_outputs[0]["componentType"] != 1 or native_outputs[0]["mask"] != 1:
+                raise ShaderRecoveryError("Original Vulkan layer lacks its exact native scalar uint signature.")
+            pattern = r"\b(?P<type>uint|int)\s+" + name + r"\s*:\s*TEXCOORD" + str(adapter["portableLocation"]) + r";"
+            matches = list(re.finditer(pattern, hlsl))
+            hlsl, count = re.subn(pattern, "uint " + adapter["nativeOutput"] + " : SV_RenderTargetArrayIndex;", hlsl)
             if count != 1:
                 raise ShaderRecoveryError("Original Vulkan layer cannot recover its witnessed native output.")
+            if matches[0]["type"] == "int":
+                # SPIRV-Cross represents the Vulkan Layer builtin as int, while
+                # its original DXBC OSGN and FXC SV_RenderTargetArrayIndex require
+                # uint. Retain every original signed internal instruction and
+                # restore only the exact interface bits at the output boundary.
+                assignment = r"stage_output\." + name + r"\s*=\s*" + name + r";"
+                hlsl, count = re.subn(assignment, "stage_output." + adapter["nativeOutput"] + " = asuint(" + adapter["nativeOutput"] + ");", hlsl)
+                if count != 1:
+                    raise ShaderRecoveryError("Original signed Layer carrier lost its exact uint output assignment.")
     if input_signature:
         hlsl = native_stage_interface(hlsl, input_signature, "input")
     if output_signature:
