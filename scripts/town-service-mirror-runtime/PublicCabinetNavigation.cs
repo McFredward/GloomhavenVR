@@ -15,10 +15,12 @@ public static partial class MirrorProgram
     // Native row/prefab construction and local player identity are boundaries.
     // Category OnPoke/Tick, drawer Select/Begin/Tick/Follow, publisher TickPublic,
     // capture, wire codec, template neutralization and remote playback are exact
-    // production code. This includes the non-author publisher withdrawal which
-    // the older manually-authored SetRack handover fixture did not exercise.
+    // production code. Reliable client intents reach the same host drawer without
+    // transferring prepared-bank ownership to the visitor. The original artwork
+    // publisher remains stable for every category/page control event.
     private static IEnumerator PublicCabinetNavigation()
     {
+        TownMerchantControlSync.Reset(); FFSNet.FFSNetwork.IsOnline = false;
         TownServiceSync.ResetNetwork(); TownServiceMirror.Shutdown(); Baselines.Clear();
         NetPlayerActors.Peer = 1;
         Transform owner = Go("public navigation native frame").transform;
@@ -81,10 +83,20 @@ public static partial class MirrorProgram
         TownServiceSync.TickPublic(owner, owner, catalog, 882, 1f);
         Check(TownServiceSync.PublicModuleCount == 0,
             "real observer publisher withdraws its local native modules instead of publishing a second cabinet");
+        var channel = new PublicNavigationChannel(identities);
+        TownServicePublicMerchant.Session = 882;
+        channel.Install(2);
         TownServiceMirror.BeginSession(1, 883, owner, owner);
         TownServiceMirror.SetLocalTransactionActive(1, true);
+        TownServicePublicMerchant.FixtureFollowPublicRack();
+        Check(drawer.Page == 256 && !TownServiceMirror.HasReadyPublicPresentation,
+            "peer physical category button adopts the public page despite missing artwork and a separate merchant transaction");
         catalog.Categories[0].OnPoke(hand);
-        Check(TownServiceMirror.IsPublicAuthor && drawer.FixtureFollowingTurn && hand.Haptics == 1
+        Check(TownServiceMirror.PublicAuthor == 1 && !TownServiceMirror.IsPublicAuthor
+            && !drawer.FixtureFollowingTurn && hand.Haptics == 1 && channel.PendingRequests == 1,
+            "visitor category press sends one reliable intent without replacing the prepared bank author");
+        channel.DeliverRequests(2);
+        Check(TownServiceMirror.PublicAuthor == 1 && drawer.FixtureFollowingTurn && hand.Haptics == 1
             && drawer.FromPage == 256 && drawer.ToPage == 0,
             "peer physical category button adopts the public page despite missing artwork and a separate merchant transaction");
         float start = Time.unscaledTime;
@@ -99,16 +111,16 @@ public static partial class MirrorProgram
             // Match its actual production once-per-frame owner; preserve every parity term.
             if (advancedFrame == Time.frameCount) { yield return null; continue; }
             advancedFrame = Time.frameCount;
-            identities.Switch(2);
+            channel.Install(1);
             drawer.FixtureTick(); foreach (var key in catalog.Categories) key.Tick(1f);
             TownServiceSync.TickPublic(owner, owner, catalog, 882, 1f);
             List<byte[]> packets = Capture();
-            identities.Switch(3); Receive(2, packets); TownServiceMirror.TickRemote(_ => observer);
+            identities.Switch(3); Receive(1, packets); TownServiceMirror.TickRemote(_ => observer);
             TownRackState? state = TownServiceMirror.PublicRack;
             if (!sampled && state != null && drawer.FixtureFollowClock > .15f && drawer.FixtureFollowClock < .35f)
             {
                 ushort housingId = TownServiceSync.PublicModuleId(housing);
-                Transform remoteHousing = Remote(-2, housingId)!.Root;
+                Transform remoteHousing = Remote(-1, housingId)!.Root;
                 bool matches = TownServiceMirror.HasReadyPublicPresentation && state.From == 256 && state.To == 0
                     && Vector3.Distance(housing.Find("Cassette").localPosition, remoteHousing.Find("Cassette").localPosition) < .005f;
                 Check(matches,
@@ -119,30 +131,31 @@ public static partial class MirrorProgram
                     + " remote=" + remoteHousing.Find("Cassette").localPosition.ToString("F6")
                     + (matches ? "" : " readiness=" + NavigationReadiness(state)));
                 foreach (var key in catalog.Categories)
-                    Check(Vector3.Distance(key.Root.position, Remote(-2, TownServiceSync.PublicModuleId(key.Root))!.Root.position) < .003f,
+                    Check(Vector3.Distance(key.Root.position, Remote(-1, TownServiceSync.PublicModuleId(key.Root))!.Root.position) < .003f,
                         "actual category key depression survives original capture and cross-client playback: owner=" + key.Root.position
-                        + " remote=" + Remote(-2, TownServiceSync.PublicModuleId(key.Root))!.Root.position);
-                identities.Switch(1);
+                        + " remote=" + Remote(-1, TownServiceSync.PublicModuleId(key.Root))!.Root.position);
+                channel.Install(1);
                 drawer.Follow(new TownRackState { Page = 0, From = 0, To = 0, Elapsed = TownRackState.TurnDuration });
                 drawer._hand = hand; // Actual manual grab owns the crank input; animated turns do not.
                 catalog.Categories[1].OnPoke(hand);
-                Check(TownServiceMirror.PublicAuthor == 2 && hand.Haptics == 1,
-                    "a manual crank grab prevents a competing category input from stealing authority");
-                Check(!TownServicePublicMerchant.TryTurnPage(drawer, 1) && TownServiceMirror.PublicAuthor == 2,
-                    "a manual crank grab prevents a competing page input from stealing authority");
+                Check(TownServiceMirror.PublicAuthor == 1 && hand.Haptics == 1,
+                    "a manual crank grab rejects a competing category input without changing the prepared bank author");
+                Check(!TownServicePublicMerchant.TryTurnPage(drawer, 1) && TownServiceMirror.PublicAuthor == 1,
+                    "a manual crank grab rejects a competing page input without changing the prepared bank author");
                 drawer._hand = null;
-                TownServicePublicMerchant.FixtureFollowPublicRack();
+                // Restore the host original after the explicit manual-input arrangement.
+                // Only observer proxies consume the separately received SharedClock.
+                drawer.Follow(TownServiceMirror.PublicRack!.Copy());
                 sampled = true;
             }
             yield return null;
         }
         Check(sampled && TownServiceMirror.PublicRack?.Page == 0 && TownServiceMirror.HasReadyPublicPresentation,
-            "real category publication completes on the same populated public page after ownership withdrawal and takeover");
-        identities.Switch(1);
-        TownServicePublicMerchant.FixtureFollowPublicRack();
+            "real shared category publication completes on the same populated public page without ownership migration");
+        channel.Install(1);
         catalog.Categories[1].OnPoke(hand);
         Check(TownServiceMirror.IsPublicAuthor && drawer.FromPage == 0 && drawer.ToPage == 256 && hand.Haptics == 2,
-            "a subsequent different peer category press adopts the shared page before beginning its own return animation");
+            "a subsequent host category press starts the same shared return animation without replacing originals");
         advancedFrame = -1;
         for (float until = Time.unscaledTime + TownRackState.TurnDuration + .03f; Time.unscaledTime < until;)
         {
@@ -154,7 +167,7 @@ public static partial class MirrorProgram
         Check(TownServicePublicMerchant.TryTurnPage(drawer, 1) && TownServiceMirror.IsPublicAuthor
             && drawer.FromPage == 256 && drawer.ToPage == 257,
             "a peer page request keeps the shared category and starts the exact native page animation");
-        NetPlayerActors.Peer = 1;
+        channel.Dispose(); NetPlayerActors.Peer = 1;
         TownServiceMirror.CommitPublicVisibility = null;
         TownServiceSync.UseProductionPublish = false; TownServiceSync.ResetNetwork();
         TownServicePublicMerchant.Catalog = null; TownServicePublicMerchant.FixtureResetVisibility();
@@ -162,6 +175,54 @@ public static partial class MirrorProgram
         TownServiceMirror.Shutdown(); Baselines.Clear();
         IEnumerator preparedBank = PreparedCatalogBankParity();
         while (preparedBank.MoveNext()) yield return preparedBank.Current;
+    }
+
+    private sealed class PublicNavigationChannel : IDisposable
+    {
+        private readonly PublicNavigationIdentities _identities;
+        private readonly List<byte[]> _requests = new();
+        private readonly List<byte[]> _states = new();
+        private readonly NavigationTransport _transport = new();
+        internal int PendingRequests => _requests.Count;
+        internal PublicNavigationChannel(PublicNavigationIdentities identities)
+        {
+            _identities = identities;
+            FFSNet.FFSNetwork.IsOnline = true; FFSNet.PlayerRegistry.HostPlayerID = 1;
+            TownMerchantControlSync.SendReliable = (bytes, count, hostOnly) =>
+            {
+                var packet = new byte[count]; Buffer.BlockCopy(bytes, 0, packet, 0, count);
+                (hostOnly ? _requests : _states).Add(packet); return true;
+            };
+        }
+        internal void Install(int peer)
+        {
+            _identities.Switch(peer); _transport.LocalPlayerId = peer;
+            TownMerchantControlSync.Tick(_transport, Time.unscaledTime);
+        }
+        internal void DeliverRequests(int peer)
+        {
+            Install(1); _states.Clear();
+            foreach (byte[] request in _requests)
+                Check(TownMerchantControlSync.Receive(peer, request, request.Length),
+                    "actual reliable category intent reaches the host coordinator");
+            _requests.Clear();
+            Check(_states.Count != 0, "actual host control emits a shared authored clock");
+            byte[] committed = _states[_states.Count - 1]; _states.Clear();
+            Install(peer);
+            Check(TownMerchantControlSync.Receive(1, committed, committed.Length),
+                "actual reliable host commit reaches the visitor's original control proxy");
+        }
+        public void Dispose()
+        { TownMerchantControlSync.SendReliable = null; TownMerchantControlSync.Reset(); FFSNet.FFSNetwork.IsOnline = false; }
+        private sealed class NavigationTransport : INetTransport
+        {
+            public bool IsOnline => true;
+            public int LocalPlayerId { get; set; }
+            public event Action<int, byte[], int>? PacketReceived { add { } remove { } }
+            public void Send(byte[] bytes, int length, object? identity = null) { }
+            public void Install() { }
+            public void Uninstall() { }
+        }
     }
 
     private static string NavigationReadiness(TownRackState state)

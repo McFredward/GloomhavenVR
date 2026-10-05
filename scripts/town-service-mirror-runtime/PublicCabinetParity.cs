@@ -96,10 +96,13 @@ public static partial class MirrorProgram
             "public observer originals never acquire the author's native category callback");
 
         NetPlayerActors.Peer = 3;
-        key.onClick.Invoke(); // Actual public category callback invokes production Claim.
-        Check(TownServiceMirror.IsPublicAuthor && !TownServicePublicMerchant.FixtureObserving
-            && !rack.GetComponent<Renderer>().forceRenderingOff,
-            "joining peer's physical category press immediately claims and reveals its own complete native stock");
+        key.onClick.Invoke(); // Inspection alone does not replace the prepared native bank.
+        Check(TownServiceMirror.PublicAuthor == 2 && !TownServiceMirror.IsPublicAuthor
+            && TownServicePublicMerchant.FixtureObserving && rack.GetComponent<Renderer>().forceRenderingOff,
+            "joining peer inspection retains the complete original bank author and visible observer copy");
+        // Explicit bank-owner replacement is a separate mirror lifetime boundary,
+        // not the normal category/page input path exercised by Navigation.cs.
+        TownServiceMirror.ClaimPublicCatalog();
         using (TownServiceMirror.UsePublicLane()) SetPopulatedRack(1, 256);
         List<byte[]> changed = Capture().Where(bytes => ReadModule(bytes) != 31).ToList(); NetPlayerActors.Peer = 10;
         List<byte[]> missing = changed.Where(bytes => ReadModule(bytes) != 23).ToList();
@@ -146,8 +149,9 @@ public static partial class MirrorProgram
             && ReferenceEquals(second, third) && Remote(-3, 12)!.Root.gameObject.activeInHierarchy && Remote(-3, 13)!.Root.gameObject.activeInHierarchy,
             "the same author's next complete category reuses the populated original native group");
         NetPlayerActors.Peer = 2; key.onClick.Invoke();
-        Check(TownServiceMirror.IsPublicAuthor && key.interactable && !TownServicePublicMerchant.FixtureObserving,
-            "a later different visitor can press the native category again after both validated replacements");
+        Check(TownServiceMirror.PublicAuthor == 3 && !TownServiceMirror.IsPublicAuthor && key.interactable
+            && TownServicePublicMerchant.FixtureObserving,
+            "later visitor inspection does not replace the prepared bank after validated owner replacements");
         NetPlayerActors.Peer = 10;
         TownServiceMirror.CommitPublicVisibility = null;
         catalog.Drawers[0].FixtureDisposeFollower(); TownServicePublicMerchant.Catalog = null;
@@ -197,9 +201,22 @@ public static partial class MirrorProgram
         TownServiceSync.UseProductionPublish = true; TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f);
         List<byte[]> initial = Capture();
         ushort farPrice = TownServiceSync.PublicModuleId(catalog.Entries[2].RowContent!);
-        Check(initial.Any(p => { var frame = Decode(p); return frame.Module == farPrice && frame.BaseSequence == 0
-            && frame.PublicCatalog && frame.RackMember != null && !frame.RackMember.Detached && frame.Nodes.Length > 0; }),
-            "prepared dormant original sends a genuine complete loading prewarm snapshot");
+        bool FarOriginalReady() => initial.Any(p => { var frame = Decode(p); return frame.Module == farPrice && frame.BaseSequence == 0
+            && frame.PublicCatalog && frame.RackMember != null && !frame.RackMember.Detached && frame.Nodes.Length > 0; });
+        // Dormant loss-repair originals are deliberately bounded loading slices.
+        // Drive the actual publisher/capture over native frames instead of requiring
+        // the removed all-stock serialization spike in the first capture call.
+        float preparationDeadline = Time.unscaledTime + 2f;
+        while (!FarOriginalReady() && Time.unscaledTime < preparationDeadline)
+        {
+            yield return null;
+            TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f);
+            initial.AddRange(Capture());
+        }
+        Check(FarOriginalReady(), "prepared dormant original sends a genuine complete loading prewarm snapshot"
+            + ": farPrice=" + farPrice + " prepared=" + TownServiceSync.HasPreparedPublicCatalog
+            + " packets=" + string.Join(",", initial.Select(p => { var f=Decode(p); return f.Module + ":" + f.BaseSequence + ":" + (f.RackMember != null) + ":" + f.Nodes.Length; }))
+            + " logs=" + string.Join(" | ", GloomhavenVR.Core.VRLog.Messages.TakeLast(12)));
         Check(TownServiceSync.HasPreparedPublicCatalog, "loading preparation retains a complete source bank before first far category input");
         catalog.OriginalBankPrepared = false; TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f);
         List<byte[]> partial = Capture();
@@ -261,32 +278,34 @@ public static partial class MirrorProgram
         TownServiceFrame bankRoot = changed.Select(Decode).Single(f => f.CatalogBank != null);
         Check(bankRoot.BaseSequence == 0, "atomic bank contains its complete original rack root without an older baseline dependency");
         CatalogBankAdmissionProbes(bankRoot);
-        identities.Switch(2); catalog.Categories[1].OnPoke(hand);
-        rack.FixtureTick(); // Expose the just-reset native _clock through the fixture's field adapter.
+        var channel = new PublicNavigationChannel(identities);
+        TownServicePublicMerchant.Session = 997; channel.Install(2);
+        catalog.Categories[1].OnPoke(hand); channel.DeliverRequests(2);
+        channel.Install(1);
         TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f); List<byte[]> takeover = Capture(); identities.Switch(3);
         Check(takeover.Select(Decode).Single(f => f.CatalogBank != null).Rack!.Elapsed < .05f,
             "delayed bank probe actually withholds the first owner turn frame rather than an already completed turn");
-        Receive(2, takeover.Where(p => Decode(p).RackMember == null)); TownServiceMirror.TickRemote(_ => viewer);
+        Receive(1, takeover.Where(p => Decode(p).RackMember == null)); TownServiceMirror.TickRemote(_ => viewer);
         Check(TownServiceMirror.HasReadyPublicPresentation && TownServiceMirror.PublicRack!.From == 1280 && TownServiceMirror.PublicRack.To == 768,
-            "unassigned peer takeover carries both original pages and canonical clock without ordinary member packets");
+            "unassigned peer input retains the same author and both original pages without ordinary member packets");
         // Keep the exact newly captured atomic turn in flight. The independent native
         // owner manifest advances while its large bank is delayed in the real queue.
-        identities.Switch(2); float finishedAt = Time.unscaledTime + TownRackState.TurnDuration + .12f;
+        channel.Install(1); float finishedAt = Time.unscaledTime + TownRackState.TurnDuration + .12f;
         while (Time.unscaledTime < finishedAt) { rack.FixtureTick(); yield return null; }
         TownServicePublicMerchant.FixtureCommitVisibility(); rack.FixtureTick();
         TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f); TownServiceMirror.RequestFullRefresh();
         List<byte[]> latest = Capture(); identities.Switch(4);
-        TownServiceMirror.RemovePeer(2); // A genuinely new observer has no earlier rendered turn to coast forward.
-        Receive(2, latest.Where(p => Decode(p).Module == TownServiceFrame.ManifestModule));
-        Receive(2, takeover.Where(p => { var f=Decode(p); return f.RackMember==null && f.Module!=TownServiceFrame.ManifestModule; }));
+        TownServiceMirror.RemovePeer(1); // A genuinely new observer has no earlier rendered turn to coast forward.
+        Receive(1, latest.Where(p => Decode(p).Module == TownServiceFrame.ManifestModule));
+        Receive(1, takeover.Where(p => { var f=Decode(p); return f.RackMember==null && f.Module!=TownServiceFrame.ManifestModule; }));
         TownServiceMirror.TickRemote(_ => viewer);
         var clocks = (IDictionary)typeof(TownServiceMirror).GetField("RemoteRacks", PrivateStatic)!.GetValue(null)!;
-        ushort rackId = TownServiceSync.PublicModuleId(housing); object clock = ((IDictionary)clocks[-2]!)[rackId]!;
+        ushort rackId = TownServiceSync.PublicModuleId(housing); object clock = ((IDictionary)clocks[-1]!)[rackId]!;
         var clockFlags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
         Check(TownServiceMirror.HasReadyPublicPresentation && (ushort)clock.GetType().GetField("DisplayPage", clockFlags)!.GetValue(clock)! == 768
             && !(bool)clock.GetType().GetField("Turning", clockFlags)!.GetValue(clock)!,
             "delayed atomic bank seeks newer same-owner manifest age without replaying an obsolete rack turn");
-        identities.Switch(1); TownServiceMirror.CommitPublicVisibility = null; TownServiceSync.UseProductionPublish = false;
+        channel.Dispose(); identities.Switch(1); TownServiceMirror.CommitPublicVisibility = null; TownServiceSync.UseProductionPublish = false;
         TownServiceSync.ResetNetwork(); TownServicePublicMerchant.Catalog = null; TownServicePublicMerchant.FixtureResetVisibility();
         rack.FixtureDisposeFollower(); NativeTemplates.BoundaryRoots.Clear(); TownServiceCatalog.CardMounts.Clear(); TownServiceMirror.Shutdown(); Baselines.Clear();
         yield return null;
