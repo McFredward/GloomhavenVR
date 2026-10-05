@@ -22,7 +22,12 @@ namespace TMPro
     public class TMP_Text : MonoBehaviour { public string text = ""; public float fontSize; public RectTransform rectTransform => (RectTransform)transform; }
 }
 namespace ScenarioRuleLibrary { public sealed class CAbilityCard { public int ID; } }
-public sealed class Owner { public string CharacterID = "owner"; }
+public sealed class Owner
+{
+    public string CharacterID = "owner";
+    // Native owned loadout exists independently of a visible/inspection fan.
+    public readonly List<ScenarioRuleLibrary.CAbilityCard> AbilityLoadout = new();
+}
 public class Singleton<T> { public static T? Instance; }
 public class UIEnhancementConfirmationBox : MonoBehaviour
 {
@@ -188,6 +193,12 @@ namespace GloomhavenVR.WorldUI.MapRoom
         public static int TempleInspectionReleases;
         public static bool InspectionBlocked;
         public static Owner? OwnedMerchantCharacter() => LocalCharacter;
+        public static bool HasOwnedTownAbilityCards()
+        {
+            if (!MapRoomDriver.Active || LocalCharacter == null) return false;
+            foreach (var card in LocalCharacter.AbilityLoadout) if (card != null) return true;
+            return false;
+        }
         public static void SetMerchantInspection(bool active)
         { if (!active) { InspectionReleases++; InspectionBlocked = false; } }
         public static void SetTempleInspection(bool active)

@@ -1151,6 +1151,25 @@ public static class InteractionProgram
         { FirstSlot = firstSlot, SelectedUISlot = selectedSlot };
         MapRoomDriver.SwitchForcesFirst = true;
         var card = new GameObject("OwnedCard", typeof(VRCard)).GetComponent<VRCard>(); card.transform.SetParent(root.transform, false);
+        var previousOwner = MapRoomHand.LocalCharacter;
+        MapRoomHand.LocalCharacter = card.Owner;
+        Check(!MapRoomHand.HasOwnedTownAbilityCards(), "empty native owned loadout cannot open another service");
+        card.Owner.AbilityLoadout.Add(card.Model);
+        MapRoomHand.InspectionBlocked = true;
+        int releasesBeforeCensus = MapRoomHand.InspectionReleases;
+        var fanBeforeCensus = CardsDriver.OffScenarioFanCards;
+        Check(MapRoomHand.HasOwnedTownAbilityCards() && MapRoomHand.InspectionBlocked
+            && MapRoomHand.InspectionReleases == releasesBeforeCensus
+            && ReferenceEquals(CardsDriver.OffScenarioFanCards, fanBeforeCensus)
+            && ReferenceEquals(NewPartyDisplayUI.PartyDisplay.SelectedUISlot, selectedSlot),
+            "native availability census preserves selected character and hidden inspection fan");
+        MapRoomHand.LocalCharacter = null;
+        Check(!MapRoomHand.HasOwnedTownAbilityCards(), "unassigned visitor has no owned native ability loadout");
+        MapRoomHand.LocalCharacter = card.Owner;
+        MapRoomDriver.Active = false;
+        Check(!MapRoomHand.HasOwnedTownAbilityCards(), "inactive map has no owned town ability availability");
+        MapRoomDriver.Active = true;
+        MapRoomHand.InspectionBlocked = false;
         var hand = new VRHand(); hand.Grabber.Held = card; VRHands.Left = hand;
         var fanPalm = new GameObject("FanPalm").transform; hand.Rig.PalmCenter = fanPalm;
         CardsDriver.OffScenarioFanCards = new[] { card };
@@ -1222,7 +1241,7 @@ public static class InteractionProgram
         Check(MapRoomDriver.Visits == 4 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
             "intentional fan-hand focus switches the local native destination from merchant to enchantress");
         Check(MapRoomHand.InspectionReleases == 1,
-            "merchant item fan is released before the native enchantress reads owned ability cards");
+            "merchant item fan is released after the native enchantress visit succeeds");
         GuildmasterDestinations.Mode = EGuildmasterMode.None;
         System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
         Check(MapRoomDriver.Visits == 4,
@@ -1280,7 +1299,7 @@ public static class InteractionProgram
         Check(MapRoomDriver.Visits == 10 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
             "deliberate fan-hand focus switches from a completed temple visit");
         Check(MapRoomHand.TempleInspectionReleases == 1 && !MapRoomHand.InspectionBlocked,
-            "temple purse is released before the enchantress reads the owned ability fan");
+            "temple purse hand is released after the native enchantress visit succeeds");
         Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Merchant;
         var confirmation = new GameObject("Trade confirmation", typeof(UIWindow), typeof(UIItemConfirmationBox))
             .GetComponent<UIItemConfirmationBox>();
@@ -1372,5 +1391,6 @@ public static class InteractionProgram
         TownServicePopulation.MerchantStation = null;
         UnityEngine.Object.DestroyImmediate(root); VRHands.Left = null; VRRigDriver.HeadCamera = null; TownServicePopulation.Station = null;
         NewPartyDisplayUI.PartyDisplay = null; MapRoomDriver.SwitchForcesFirst = false;
+        MapRoomHand.LocalCharacter = previousOwner;
     }
 }
