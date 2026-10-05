@@ -67,93 +67,101 @@ namespace GloomhavenVR.Quest.Editor
             AddressableAssetSettingsDefaultObject.Settings = settings;
             settings.BuildRemoteCatalog = false;
             settings.DisableCatalogUpdateOnStartup = true;
-            var group = settings.FindGroup("Owned original startup")
-                ?? settings.CreateGroup("Owned original startup", true, false, false, null,
-                    typeof(BundledAssetGroupSchema), typeof(ContentUpdateGroupSchema));
-            settings.DefaultGroup = group;
-            var bundled = group.GetSchema<BundledAssetGroupSchema>();
-            bundled.BundleMode = BundledAssetGroupSchema.BundlePackingMode.PackTogether;
-            bundled.IncludeAddressInCatalog = true;
-            bundled.IncludeGUIDInCatalog = true;
-            bundled.IncludeLabelsInCatalog = true;
             var aliases = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-            var ownedGroups = new Dictionary<string, AddressableAssetGroup>(StringComparer.Ordinal);
-            var nativeOwners = new Dictionary<string, AddressableAssetGroup>(StringComparer.Ordinal);
             var labels = new HashSet<string>(StringComparer.Ordinal);
             var entries = new HashSet<string>(StringComparer.Ordinal);
-            // The original AssetBundleManager preloads UnityEngine.Object only.
-            // Catalog locations for serialized enum/value types are not objects
-            // and must not become fabricated native assets during this startup check.
-            Association[] objects = mapping.entries.Where(row => campaign ? row.status == "associated" : row.initialObjectLoadEligible).ToArray();
-            if (objects.Length == 0) throw new InvalidDataException("Original startup contains no proven Unity object locations.");
-            var keyTargets = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-            foreach (Association association in objects)
-                foreach (string key in association.keys ?? Array.Empty<string>())
-                {
-                    if (!keyTargets.TryGetValue(key, out HashSet<string> targets))
-                        keyTargets.Add(key, targets = new HashSet<string>(StringComparer.Ordinal));
-                    targets.Add(NativeKey(association));
-                }
-            foreach (Association association in objects)
-            {
-                if (string.IsNullOrEmpty(association.assetPath) || string.IsNullOrEmpty(association.recoveredGuid))
-                    throw new InvalidDataException("Startup mapping contains an unresolved source asset.");
-                string guid = AssetDatabase.AssetPathToGUID(association.assetPath);
-                if (guid != association.recoveredGuid || AssetDatabase.LoadMainAssetAtPath(association.assetPath) == null)
-                    throw new InvalidDataException("Original startup asset identity failed import: " + association.assetPath);
-                AddressableAssetGroup owner = group;
-                if (campaign)
-                {
-                    // Retain independent content lifetimes. A single all-game
-                    // bundle would make loading one actor pin every scenario.
-                    string bundle = string.IsNullOrEmpty(association.sourceBundle) ? "original-core" : association.sourceBundle;
-                    if (!ownedGroups.TryGetValue(bundle, out owner))
-                    {
-                        string name = "Owned Campaign " + StableName(bundle);
-                        owner = settings.FindGroup(name) ?? settings.CreateGroup(name, false, false, false, null,
-                            typeof(BundledAssetGroupSchema), typeof(ContentUpdateGroupSchema));
-                        var schema = owner.GetSchema<BundledAssetGroupSchema>();
-                        schema.BundleMode = BundledAssetGroupSchema.BundlePackingMode.PackTogether;
-                        schema.IncludeAddressInCatalog = schema.IncludeGUIDInCatalog = schema.IncludeLabelsInCatalog = true;
-                        ownedGroups.Add(bundle, owner);
-                    }
-                    if (nativeOwners.TryGetValue(guid, out AddressableAssetGroup previousOwner)) owner = previousOwner;
-                    else nativeOwners.Add(guid, owner);
-                    if (!string.IsNullOrEmpty(association.subObjectName)
-                        && !AssetDatabase.LoadAllAssetsAtPath(association.assetPath).Any(asset => asset != null && asset.name == association.subObjectName))
-                        throw new InvalidDataException("Original catalog subobject was lost: " + association.assetPath + "[" + association.subObjectName + "]");
-                }
-                var entry = settings.CreateOrMoveEntry(guid, owner, false, false);
-                entry.address = guid;
-                entries.Add(guid);
-                foreach (string label in association.labels ?? Array.Empty<string>())
-                {
-                    settings.AddLabel(label, false);
-                    entry.SetLabel(label, true, false, false);
-                    labels.Add(label);
-                }
-                foreach (string key in association.keys ?? Array.Empty<string>())
-                {
-                    // Labels resolve their whole group through the native catalog;
-                    // aliases route only exact original object keys to exact targets.
-                    if ((association.labels ?? Array.Empty<string>()).Contains(key)) continue;
-                    if (!campaign && keyTargets[key].Count > 1)
-                    {
-                        // Original bucket keys may address several typed objects.
-                        // Native labels preserve that whole set and its type filtering.
-                        settings.AddLabel(key, false);
-                        entry.SetLabel(key, true, false, false);
-                        continue;
-                    }
-                    if (!aliases.TryGetValue(key, out HashSet<string> nativeKeys))
-                        aliases.Add(key, nativeKeys = new HashSet<string>(StringComparer.Ordinal));
-                    nativeKeys.Add(NativeKey(association));
-                }
-            }
             string[] required = { "always_loaded_base", "always_loaded_standalone", "always_loaded_base_high" };
-            foreach (string label in required)
-                if (!labels.Contains(label)) throw new InvalidDataException("Required original startup label was not recovered: " + label);
-            EditorUtility.SetDirty(settings);
+            // Native AddSchema still saves assets. Pause their individual imports
+            // while retaining its original schema/profile initialization and all
+            // per-bundle groups. Stop before the explicit save and native build.
+            AssetDatabase.StartAssetEditing();
+            try
+            {
+                var group = GetOrCreateOwnedGroup(settings, "Owned original startup", true);
+                settings.DefaultGroup = group;
+                var bundled = group.GetSchema<BundledAssetGroupSchema>();
+                bundled.BundleMode = BundledAssetGroupSchema.BundlePackingMode.PackTogether;
+                bundled.IncludeAddressInCatalog = true;
+                bundled.IncludeGUIDInCatalog = true;
+                bundled.IncludeLabelsInCatalog = true;
+                var ownedGroups = new Dictionary<string, AddressableAssetGroup>(StringComparer.Ordinal);
+                var nativeOwners = new Dictionary<string, AddressableAssetGroup>(StringComparer.Ordinal);
+                // The original AssetBundleManager preloads UnityEngine.Object only.
+                // Catalog locations for serialized enum/value types are not objects
+                // and must not become fabricated native assets during this startup check.
+                Association[] objects = mapping.entries.Where(row => campaign ? row.status == "associated" : row.initialObjectLoadEligible).ToArray();
+                if (objects.Length == 0) throw new InvalidDataException("Original startup contains no proven Unity object locations.");
+                var keyTargets = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+                foreach (Association association in objects)
+                    foreach (string key in association.keys ?? Array.Empty<string>())
+                    {
+                        if (!keyTargets.TryGetValue(key, out HashSet<string> targets))
+                            keyTargets.Add(key, targets = new HashSet<string>(StringComparer.Ordinal));
+                        targets.Add(NativeKey(association));
+                    }
+                foreach (Association association in objects)
+                {
+                    if (string.IsNullOrEmpty(association.assetPath) || string.IsNullOrEmpty(association.recoveredGuid))
+                        throw new InvalidDataException("Startup mapping contains an unresolved source asset.");
+                    string guid = AssetDatabase.AssetPathToGUID(association.assetPath);
+                    if (guid != association.recoveredGuid || AssetDatabase.LoadMainAssetAtPath(association.assetPath) == null)
+                        throw new InvalidDataException("Original startup asset identity failed import: " + association.assetPath);
+                    AddressableAssetGroup owner = group;
+                    if (campaign)
+                    {
+                        // Retain independent content lifetimes. A single all-game
+                        // bundle would make loading one actor pin every scenario.
+                        string bundle = string.IsNullOrEmpty(association.sourceBundle) ? "original-core" : association.sourceBundle;
+                        if (!ownedGroups.TryGetValue(bundle, out owner))
+                        {
+                            string name = "Owned Campaign " + StableName(bundle);
+                            owner = GetOrCreateOwnedGroup(settings, name, false);
+                            var schema = owner.GetSchema<BundledAssetGroupSchema>();
+                            schema.BundleMode = BundledAssetGroupSchema.BundlePackingMode.PackTogether;
+                            schema.IncludeAddressInCatalog = schema.IncludeGUIDInCatalog = schema.IncludeLabelsInCatalog = true;
+                            ownedGroups.Add(bundle, owner);
+                        }
+                        if (nativeOwners.TryGetValue(guid, out AddressableAssetGroup previousOwner)) owner = previousOwner;
+                        else nativeOwners.Add(guid, owner);
+                        if (!string.IsNullOrEmpty(association.subObjectName)
+                            && !AssetDatabase.LoadAllAssetsAtPath(association.assetPath).Any(asset => asset != null && asset.name == association.subObjectName))
+                            throw new InvalidDataException("Original catalog subobject was lost: " + association.assetPath + "[" + association.subObjectName + "]");
+                    }
+                    var entry = settings.CreateOrMoveEntry(guid, owner, false, false);
+                    entry.address = guid;
+                    entries.Add(guid);
+                    foreach (string label in association.labels ?? Array.Empty<string>())
+                    {
+                        settings.AddLabel(label, false);
+                        entry.SetLabel(label, true, false, false);
+                        labels.Add(label);
+                    }
+                    foreach (string key in association.keys ?? Array.Empty<string>())
+                    {
+                        // Labels resolve their whole group through the native catalog;
+                        // aliases route only exact original object keys to exact targets.
+                        if ((association.labels ?? Array.Empty<string>()).Contains(key)) continue;
+                        if (!campaign && keyTargets[key].Count > 1)
+                        {
+                            // Original bucket keys may address several typed objects.
+                            // Native labels preserve that whole set and its type filtering.
+                            settings.AddLabel(key, false);
+                            entry.SetLabel(key, true, false, false);
+                            continue;
+                        }
+                        if (!aliases.TryGetValue(key, out HashSet<string> nativeKeys))
+                            aliases.Add(key, nativeKeys = new HashSet<string>(StringComparer.Ordinal));
+                        nativeKeys.Add(NativeKey(association));
+                    }
+                }
+                foreach (string label in required)
+                    if (!labels.Contains(label)) throw new InvalidDataException("Required original startup label was not recovered: " + label);
+                EditorUtility.SetDirty(settings);
+            }
+            finally
+            {
+                AssetDatabase.StopAssetEditing();
+            }
             AssetDatabase.SaveAssets();
             AddressableAssetSettings.BuildPlayerContent(out AddressablesPlayerBuildResult result);
             if (!string.IsNullOrEmpty(result.Error)) throw new InvalidOperationException("Native startup Addressables failed: " + result.Error);
@@ -174,6 +182,18 @@ namespace GloomhavenVR.Quest.Editor
             }, true));
             AssetDatabase.Refresh();
             Debug.Log("[Quest startup build] native Android catalog assets=" + entries.Count + " original-key aliases=" + aliases.Count + " labels=" + labels.Count);
+        }
+
+        internal static AddressableAssetGroup GetOrCreateOwnedGroup(AddressableAssetSettings settings, string name, bool setAsDefault)
+        {
+            var group = settings.FindGroup(name) ?? settings.CreateGroup(name, setAsDefault, false, false, null,
+                typeof(BundledAssetGroupSchema), typeof(ContentUpdateGroupSchema));
+            // A previous interrupted editor run may already have registered the
+            // group while retaining only one schema. Complete it through the
+            // package's native API rather than cloning or guessing serialized IDs.
+            if (group.GetSchema<BundledAssetGroupSchema>() == null) group.AddSchema<BundledAssetGroupSchema>(false);
+            if (group.GetSchema<ContentUpdateGroupSchema>() == null) group.AddSchema<ContentUpdateGroupSchema>(false);
+            return group;
         }
 
         static string NativeKey(Association association)
