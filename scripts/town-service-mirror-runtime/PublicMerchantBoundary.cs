@@ -102,4 +102,4 @@ namespace FFSNet
     internal static class PlayerRegistry { internal static int HostPlayerID = 1; }
 }
 namespace GloomhavenVR.Net.TownServices
-{ internal static class TownServiceGrantSync { internal static bool CoordinatorReady = true; } }
+{ internal static partial class TownServiceGrantSync { internal static bool CoordinatorReady = true; } }

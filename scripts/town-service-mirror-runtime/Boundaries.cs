@@ -135,7 +135,7 @@ namespace GloomhavenVR.Net.TownServices
 {
     // Network grants are exercised by TownGrantCases. This Unity fixture isolates
     // original-widget publication and playback with no Bolt transport attached.
-    internal static class TownServiceGrantSync
+    internal static partial class TownServiceGrantSync
     {
         internal static int GrantedOwner(byte service) => 0;
         internal static void SetOffer(byte service, uint session, bool active) { }
