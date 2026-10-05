@@ -416,7 +416,19 @@ def serialized_pointer_tokens(text):
             continue
         clean = re.sub(r"^%[^\n]*", lambda match: " " * len(match[0]), block, flags=re.M)
         clean = re.sub(r"^--- !u!\d+ &-?\d+[ \t]*$", lambda match: "---" + " " * (len(match[0]) - 3), clean, flags=re.M)
-        node = yaml.compose(clean, Loader=loader)
+        try:
+            node = yaml.compose(clean, Loader=loader)
+        except yaml.scanner.ScannerError as error:
+            # Original Unity null managed-reference registries use this compact
+            # empty flow mapping. PyYAML's Python parser accepts it; libyaml's C
+            # parser rejects its colon. Fall back only at that exact original
+            # syntax, without inserting bytes or shifting later GUID tokens.
+            empty_types = list(re.finditer(r"(?m)^[ \t]+type:[ \t]*(\{class:, ns:, asm:\})[ \t]*$", clean))
+            index = error.problem_mark.index if error.problem_mark is not None else -1
+            if (loader is yaml.SafeLoader or error.problem != "found unexpected ':'" or
+                    not any(match.start(1) <= index < match.end(1) for match in empty_types)):
+                raise
+            node = yaml.compose(clean, Loader=yaml.SafeLoader)
         stack = [node]
         while stack:
             current = stack.pop()
