@@ -199,7 +199,8 @@ public static partial class MirrorProgram
         TownServicePublicMerchant.Catalog = catalog; TownServicePublicMerchant.FixtureResetVisibility();
         TownServiceMirror.CommitPublicVisibility = TownServicePublicMerchant.FixtureCommitVisibility;
         TownServiceSync.UseProductionPublish = true; TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f);
-        List<byte[]> initial = Capture();
+        var transport = new PreparedCabinetWire625();
+        List<byte[]> initial = transport.Capture();
         ushort farPrice = TownServiceSync.PublicModuleId(catalog.Entries[2].RowContent!);
         bool FarOriginalReady() => initial.Any(p => { var frame = Decode(p); return frame.Module == farPrice && frame.BaseSequence == 0
             && frame.PublicCatalog && frame.RackMember != null && !frame.RackMember.Detached && frame.Nodes.Length > 0; });
@@ -211,21 +212,41 @@ public static partial class MirrorProgram
         {
             yield return null;
             TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f);
-            initial.AddRange(Capture());
+            initial.AddRange(transport.Capture());
         }
         Check(FarOriginalReady(), "prepared dormant original sends a genuine complete loading prewarm snapshot"
             + ": farPrice=" + farPrice + " prepared=" + TownServiceSync.HasPreparedPublicCatalog
             + " packets=" + string.Join(",", initial.Select(p => { var f=Decode(p); return f.Module + ":" + f.BaseSequence + ":" + (f.RackMember != null) + ":" + f.Nodes.Length; }))
             + " logs=" + string.Join(" | ", GloomhavenVR.Core.VRLog.Messages.TakeLast(12)));
         Check(TownServiceSync.HasPreparedPublicCatalog, "loading preparation retains a complete source bank before first far category input");
+        Check(transport.CompletedRoots > 0 && transport.LastCompletedSequence >= transport.LastSourceBank!.Sequence,
+            "queued canonical clock completion releases the actual publisher heartbeat suppression");
+        ulong firstBankSequence = transport.LastSourceBank!.Sequence;
+        // Expire only this real module's ordinary refresh deadline; no asset, bank,
+        // baseline or completion state is injected. Avoid a five-second harness wait
+        // while exercising the actual LastSent gate and publisher heartbeat path.
+        object lane = typeof(TownServiceMirror).GetField("PublicLane", PrivateStatic)!.GetValue(null)!;
+        var moduleFlags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        var modules = (IDictionary)lane.GetType().GetField("Modules", moduleFlags)!.GetValue(lane)!;
+        object sourceRack = modules[transport.LastSourceBank.Module]!;
+        sourceRack.GetType().GetField("NextRefresh", moduleFlags)!.SetValue(sourceRack, Time.unscaledTime - .01f);
+        TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f);
+        initial.AddRange(transport.Capture());
+        Check(transport.LastSourceBank!.Sequence > firstBankSequence && transport.CompletedRoots >= 2,
+            "actual completed canonical clock allows a later unchanged-owner loss-repair heartbeat");
         catalog.OriginalBankPrepared = false; TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f);
-        List<byte[]> partial = Capture();
+        List<byte[]> partial = transport.Capture();
         Check(partial.Any(p => Decode(p).CatalogBank?.Prepared == false),
             "partial dormant preparation never claims a complete original bank");
         catalog.OriginalBankPrepared = true; TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f);
-        initial.AddRange(Capture());
+        initial.AddRange(transport.Capture());
         var identities = new PublicNavigationIdentities(); identities.Switch(2);
-        Receive(1, initial); TownServiceMirror.TickRemote(_ => viewer);
+        byte[] coldClock = initial.First(p => Decode(p).CatalogBank?.Prepared == true);
+        Check(!TownServiceMirror.Receive(1, coldClock, coldClock.Length),
+            "actual queued prepared clock cannot expose an original bank before exact cold dependency delivery");
+        Receive(1, initial.Where(p => Decode(p).CatalogBank == null));
+        Receive(1, initial.Where(p => Decode(p).CatalogBank != null));
+        TownServiceMirror.TickRemote(_ => viewer);
         Check(TownServiceMirror.HasReadyPublicPresentation, "prepared initial original bank mounts dependencies in parent order on one receiver tick");
         identities.Switch(1); catalog.Categories[2].OnPoke(hand);
         int previousFrame = -1; bool checkedBoundary = false;
@@ -233,10 +254,10 @@ public static partial class MirrorProgram
         {
             if (previousFrame == Time.frameCount) { yield return null; continue; } previousFrame = Time.frameCount;
             identities.Switch(1); TownServicePublicMerchant.FixtureCommitVisibility(); rack.FixtureTick(); TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f);
-            List<byte[]> packets = Capture();
+            List<byte[]> packets = transport.Capture();
             identities.Switch(2);
-            // Every stock member refresh is deliberately withheld. Only the existing root
-            // clock with its canonical original bank, ordinary controls and census arrive.
+            // Every ordinary stock member refresh is deliberately withheld. The actual
+            // queue sends only canonical header/patch clocks, controls and census here.
             Receive(1, packets.Where(p => { var f = Decode(p); return f.RackMember == null; }));
             TownServiceMirror.TickRemote(_ => viewer);
             if (!checkedBoundary && rack.FixtureFollowClock > .47f)
@@ -257,7 +278,7 @@ public static partial class MirrorProgram
         }
         Check(checkedBoundary, "cold bank proof samples actual owner replacement boundary");
         identities.Switch(1); TownServicePublicMerchant.FixtureCommitVisibility(); catalog.Entries[2].RowContent!.GetComponent<Image>().color = Color.red;
-        TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f); List<byte[]> changed = Capture(); identities.Switch(2);
+        TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f); List<byte[]> changed = transport.Capture(); identities.Switch(2);
         Receive(1, changed.Where(p => Decode(p).RackMember == null)); TownServiceMirror.TickRemote(_ => viewer);
         var owners = (IDictionary)typeof(TownServiceMirror).GetField("Remote", PrivateStatic)!.GetValue(null)!;
         object observedPrice = ((IDictionary)owners[-1]!)[farPrice]!;
@@ -275,33 +296,43 @@ public static partial class MirrorProgram
             + catalog.Entries[2].RowContent!.GetComponent<Image>().color + " remote=" + Remote(-1, farPrice)!.Root.GetComponent<Image>().color
             + " packets=" + string.Join(",", changed.Select(p => { var f=Decode(p); var price=f.CatalogBank?.Updates.FirstOrDefault(u=>u.Module==farPrice); return f.Module + ":" + f.Sequence + ":bank=" + (f.CatalogBank?.Updates.Length.ToString()??"-")+":price="+(price==null?"-":string.Join("/",price.Nodes[0].Values[TownServiceProperty.Graphic].Numbers)); }))
             + " ready=" + NavigationReadiness(TownServiceMirror.PublicRack!) + " logs=" + string.Join(" | ", GloomhavenVR.Core.VRLog.Messages.TakeLast(8)));
-        TownServiceFrame bankRoot = changed.Select(Decode).Single(f => f.CatalogBank != null);
+        TownServiceFrame bankRoot = transport.LastSourceBank!;
+        Check(changed.Select(Decode).Single(f => f.CatalogBank != null).CatalogBank!.Updates.Length == 0
+            && bankRoot.CatalogBank!.Updates.Length == bankRoot.CatalogBank.Members.Length,
+            "actual prepared publisher retains complete source metadata separately from sparse transmitted clock");
         Check(bankRoot.BaseSequence == 0, "atomic bank contains its complete original rack root without an older baseline dependency");
         CatalogBankAdmissionProbes(bankRoot);
         var channel = new PublicNavigationChannel(identities);
         TownServicePublicMerchant.Session = 997; channel.Install(2);
         catalog.Categories[1].OnPoke(hand); channel.DeliverRequests(2);
         channel.Install(1);
-        TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f); List<byte[]> takeover = Capture(); identities.Switch(3);
+        TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f); List<byte[]> takeover = transport.Capture(); identities.Switch(3);
         Check(takeover.Select(Decode).Single(f => f.CatalogBank != null).Rack!.Elapsed < .05f,
             "delayed bank probe actually withholds the first owner turn frame rather than an already completed turn");
         Receive(1, takeover.Where(p => Decode(p).RackMember == null)); TownServiceMirror.TickRemote(_ => viewer);
         Check(TownServiceMirror.HasReadyPublicPresentation && TownServiceMirror.PublicRack!.From == 1280 && TownServiceMirror.PublicRack.To == 768,
             "unassigned peer input retains the same author and both original pages without ordinary member packets");
         // Keep the exact newly captured atomic turn in flight. The independent native
-        // owner manifest advances while its large bank is delayed in the real queue.
+        // owner manifest advances while its header clock is delayed after bounded repairs.
         channel.Install(1); float finishedAt = Time.unscaledTime + TownRackState.TurnDuration + .12f;
         while (Time.unscaledTime < finishedAt) { rack.FixtureTick(); yield return null; }
         TownServicePublicMerchant.FixtureCommitVisibility(); rack.FixtureTick();
         TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f); TownServiceMirror.RequestFullRefresh();
-        List<byte[]> latest = Capture(); identities.Switch(4);
+        var lateJoinTransport = new PreparedCabinetWire625();
+        List<byte[]> latest = lateJoinTransport.Capture(); identities.Switch(4);
         TownServiceMirror.RemovePeer(1); // A genuinely new observer has no earlier rendered turn to coast forward.
         // A new observer receives the real unpaged category/crank originals as
-        // well as the latest census. Stable author controls are not resent by
-        // every ordinary page request; only the old large bank remains delayed.
-        Receive(1, latest.Where(p => { var f=Decode(p); return f.Module == TownServiceFrame.ManifestModule
-            || f.Rack == null && f.RackMember == null; }));
-        Receive(1, takeover.Where(p => { var f=Decode(p); return f.RackMember==null && f.Module!=TownServiceFrame.ManifestModule; }));
+        // well as the latest census and independent exact stock repairs. Stable author controls are not resent by
+        // every ordinary page request; only the old turn clock remains delayed.
+        // Its outgoing category is absent from the new idle bank. Deliver the genuine
+        // queued dormant prewarm originals as loss repair, including the exact old
+        // price basis needed by the real changed-property patch in that old clock.
+        Receive(1, initial.Where(p => { var f = Decode(p); return f.RackMember != null && f.BaseSequence == 0; }));
+        Receive(1, latest.Where(p => { var f=Decode(p); return f.CatalogBank == null; }));
+        foreach (byte[] delayed in takeover.Where(p => { var f = Decode(p); return f.RackMember == null && f.Module != TownServiceFrame.ManifestModule; }))
+            Check(TownServiceMirror.Receive(1, delayed, delayed.Length),
+                "actual late-join originals admit the deliberately delayed queued clock: " + CatalogKeys625(Decode(delayed)));
+
         TownServiceMirror.TickRemote(_ => viewer);
         var clocks = (IDictionary)typeof(TownServiceMirror).GetField("RemoteRacks", PrivateStatic)!.GetValue(null)!;
         ushort rackId = TownServiceSync.PublicModuleId(housing); object clock = ((IDictionary)clocks[-1]!)[rackId]!;
@@ -323,6 +354,88 @@ public static partial class MirrorProgram
         rack.FixtureDisposeFollower(); NativeTemplates.BoundaryRoots.Clear(); TownServiceCatalog.CardMounts.Clear(); TownServiceMirror.Shutdown(); Baselines.Clear();
         yield return null;
     }
+    // This fixture exercises the same immutable metadata contract used by the actual
+    // sender. A prepared source keeps originals for dependency repair; its emitted
+    // byte packet contains only existing TLV103 canonical headers. Never turn those
+    // bytes back into an invented full bank to make a receiver test pass.
+    private sealed class PreparedCabinetWire625
+    {
+        private readonly TownServiceLaneSendQueue _queue = new TownServiceLaneSendQueue(65536);
+        private readonly TownServiceFragments _fragments = new TownServiceFragments();
+        private double _now;
+        internal TownServiceFrame? LastSourceBank;
+        internal int Datagrams, CompletePackets, CompletedRoots;
+        internal ulong LastCompletedSequence;
+        internal List<byte[]> Capture()
+        {
+            Action<byte[], int, object?> send = (bytes, length, metadata) =>
+            {
+                Check(length == bytes.Length && metadata is TownServiceFrame,
+                    "actual prepared capture carries its full native metadata to the real queue");
+                var source = (TownServiceFrame)metadata!;
+                TownServiceFrame emitted = Decode(bytes);
+                if (source.CatalogBank != null)
+                {
+                    LastSourceBank = source;
+                    if (source.CatalogBank.Prepared)
+                        Check(emitted.CatalogBank!.Updates.Length == 0
+                            && emitted.CatalogBank.Headers.Length == source.CatalogBank.Members.Length,
+                            "actual prepared source emits only canonical headers while retaining exact original dependencies");
+                }
+                _queue.Enqueue(bytes, length, source);
+            };
+            typeof(TownServiceMirror).GetMethod("CaptureCore", PrivateStatic)!
+                .Invoke(null, new object[] { send, false });
+            var packets = new List<byte[]>(); int idle = 0;
+            Action<TownServiceFrame>? completed = TownServiceDelivery.Completed;
+            TownServiceDelivery.Completed = frame =>
+            {
+                if (frame.CatalogBank != null)
+                { CompletedRoots++; LastCompletedSequence = Math.Max(LastCompletedSequence, frame.Sequence); }
+                completed?.Invoke(frame);
+            };
+            try
+            {
+                for (int turn = 0; turn < 4096 && idle < 4; turn++)
+                {
+                    _now += .050001;
+                    byte[]? page = _queue.Next(_now);
+                    if (page == null) { idle++; continue; }
+                    idle = 0; Datagrams++;
+                    Check(page.Length <= ExtrasFragments.MaxDatagramBytes,
+                        "actual prepared cabinet delivery retains the existing datagram cap");
+                    byte[]? complete = _fragments.Accept(1, page, page.Length, _now);
+                    if (complete == null) continue;
+                    byte[][] members = TownServiceCodec.TryReadBundle(complete, complete.Length, out byte[][]? bundle)
+                        ? bundle! : new[] { complete };
+                    foreach (byte[] member in members)
+                    {
+                        Decode(member); packets.Add(member); CompletePackets++;
+                    }
+                }
+            }
+            finally { TownServiceDelivery.Completed = completed; }
+            Check(idle == 4, "bounded actual cabinet queue and fragment assemblies finish without an invented full-bank fallback");
+            return packets;
+        }
+    }
+
+    private static string CatalogKeys625(TownServiceFrame frame)
+    {
+        if (frame.CatalogBank == null) return "module=" + frame.Module + " ordinary";
+        var banks = (IDictionary)typeof(TownServiceMirror).GetField("CatalogOriginalBanks", PrivateStatic)!.GetValue(null)!;
+        if (!banks.Contains(-1)) return "no exact source cache";
+        object bank = banks[-1]!;
+        var entries = (IDictionary)bank.GetType().GetField("Originals", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(bank)!;
+        return string.Join(",", frame.CatalogBank.Members.Select(member =>
+        {
+            if (!entries.Contains(member.Id)) return member.Id + " missing";
+            var keys = ((IList)entries[member.Id]!).Cast<object>().Select(original =>
+                (ulong)original.GetType().GetField("Key", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(original)!);
+            return member.Id + ":target=" + member.ContentKey + ":cache=" + string.Join("/", keys);
+        }));
+    }
+
     private static TownServiceFrame Decode(byte[] bytes)
     { if (!TownServiceCodec.TryRead(bytes, bytes.Length, out var frame)) throw new InvalidOperationException("bank packet decode failed"); return frame!; }
 
