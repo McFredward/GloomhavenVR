@@ -199,3 +199,23 @@ Both Windows converter executables have actually executed under Wine against
 All SPIR-V bytes and normalized HLSL text match the pinned Linux converter
 output. `converter-tools/win-parity-v1/converter-byte-parity.json` records that
 bounded parity check; it is not an all-program or headset parity claim.
+
+The original D3D stage signatures can pack several semantics into one register.
+The emitter splits/reassembles those native semantics and preserves their
+component types; vertex and fragment register numbers need not match. A fresh
+graphics-enabled Unity compiler project passed 624 complete bank aliases across
+Amp characters, Zephyr, map hatch, low GUI ghost and TMP distance-field families.
+The complete source inventory is 688 shaders, 9,187 materials, 97,224 native
+stage/tier aliases and 11,099 distinct original DXBC streams. The emitted compiler
+manifest includes 103,128 complete native/Quest stereo aliases. Full compilation
+remains in progress; those totals are source coverage, not a completed gate.
+
+An actual GLES driver test then found the native point-shadow comparison bank
+emitted an invalid explicit-LOD cube-shadow call. The platform adapter follows
+the exact original Unity2021.3.5 `HLSLSupport.cginc` convention:
+`UNITY_SAMPLE_TEXCUBE_SHADOW` uses `SampleCmp` on GLES/GL/Vulkan/Switch and
+`SampleCmpLevelZero` elsewhere. Only witnessed `TextureCube` comparison calls
+receive this change; original sampler and texture bindings, depth arguments and
+2D shadow instructions remain intact. The manifest records each such adapter.
+This is native engine platform behavior, not replacement shadow math. The
+hardware picture and actual multiview driver remain separate outstanding checks.

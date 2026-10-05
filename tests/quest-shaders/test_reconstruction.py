@@ -102,6 +102,22 @@ class NativeBindings(unittest.TestCase):
         with self.assertRaisesRegex(native.ShaderRecoveryError, 'ambiguous texture ownership'):
             native.restore_uniforms(hlsl, interface)
 
+    def test_cube_comparison_matches_native_unity_platform_sampling(self):
+        source = ('TextureCube<float4> _CubeShadow;\nTexture2D<float4> _DepthShadow;\n'
+                  'float a = _CubeShadow.SampleCmpLevelZero(sampler_CubeShadow, xyz, depth);\n'
+                  'float b = _DepthShadow.SampleCmpLevelZero(sampler_DepthShadow, xy, depth);\n')
+        result, adapters = native.portable_sampling_interface(source)
+        self.assertIn('_CubeShadow.QUEST_NATIVE_CUBE_SHADOW_COMPARE(sampler_CubeShadow, xyz, depth)', result)
+        self.assertIn('_DepthShadow.SampleCmpLevelZero(sampler_DepthShadow, xy, depth)', result)
+        self.assertIn('#define QUEST_NATIVE_CUBE_SHADOW_COMPARE SampleCmpLevelZero', result)
+        self.assertIn('defined(SHADER_API_GLES3)', result)
+        self.assertEqual(adapters[0]['texture'], '_CubeShadow')
+        self.assertEqual(adapters[0]['instructionCount'], 1)
+        # An untyped/2D native sampler must never be rewritten by a name guess.
+        unchanged, none = native.portable_sampling_interface(source.replace('TextureCube<float4>', 'Texture2D<float4>'))
+        self.assertEqual(unchanged, source.replace('TextureCube<float4>', 'Texture2D<float4>'))
+        self.assertEqual(none, [])
+
     def test_unknown_resource_register_fails_instead_of_remaining_remapped(self):
         with self.assertRaisesRegex(native.ShaderRecoveryError, 'unbound original resource'):
             native.restore_uniforms('RWBuffer<uint> mystery : register(u7);\nvoid frag_main() {}', {'buffers': [], 'bindings': []})

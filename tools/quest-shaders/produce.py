@@ -293,7 +293,8 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
             bound = Path(row['boundHlslPath'])
             if sha256(bound) != row['boundHlslSha256']:
                 raise ValidationError('Bound original shader bytes changed before reconstruction.')
-            wrapped = native.stereo_wrapper(bound.read_text(), row['stage'], row.get('outputInterfaceAdapters', []),
+            portable, sampling_adapters = native.portable_sampling_interface(bound.read_text())
+            wrapped = native.stereo_wrapper(portable, row['stage'], row.get('outputInterfaceAdapters', []),
                                             row['originalInputSignature'], row['originalOutputSignature'])
             path = Path('Assets/QuestOriginalCampaign/ShaderPrograms') / (key[0] + '-' + key[1] + '.hlsl')
             target = output / path
@@ -302,7 +303,8 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
             includes[key] = str(path)
             programs[str(path)] = {'assetPath': str(path), 'originalDxbcSha256': key[0], 'originalInterfaceSha256': key[1],
                                    'sourceSha256': sha256(target), 'boundHlslSha256': row['boundHlslSha256'],
-                                   'outputInterfaceAdapters': row.get('outputInterfaceAdapters', [])}
+                                   'outputInterfaceAdapters': row.get('outputInterfaceAdapters', []),
+                                   'samplingInterfaceAdapters': sampling_adapters}
     shaders = []
     for shader in inventory['shaders']:
         form = json.loads((cache / 'forms' / (shader['originalParsedFormSha256'] + '.json')).read_text())

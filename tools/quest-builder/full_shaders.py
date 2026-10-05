@@ -1083,6 +1083,32 @@ def native_stage_interface(hlsl, signatures, direction):
     return hlsl
 
 
+def portable_sampling_interface(hlsl):
+    """Apply the engine's exact cube-shadow platform sampling convention.
+
+    Unity2021.3.5 HLSLSupport.cginc UNITY_SAMPLE_TEXCUBE_SHADOW uses
+    SampleCmp on GL/GLES/Vulkan/Switch, because GLSL has no explicit-LOD
+    cube comparison overload. Desktop DXBC retains SampleCmpLevelZero.
+    Preserve the witnessed texture and comparison sampler, changing only
+    that same engine platform choice; 2D comparison instructions are intact.
+    """
+    cubes = set(re.findall(r"\bTextureCube(?:_[A-Za-z]+)?\s*(?:<[^>]+>)?\s+(\w+)\s*;", hlsl))
+    adapters = []
+    for texture in sorted(cubes):
+        pattern = r"\b" + re.escape(texture) + r"\.SampleCmpLevelZero\s*\("
+        hlsl, count = re.subn(pattern, texture + ".QUEST_NATIVE_CUBE_SHADOW_COMPARE(", hlsl)
+        if count:
+            adapters.append({"kind": "unity-native-cube-shadow-platform-sampling", "texture": texture,
+                             "originalOperation": "SampleCmpLevelZero", "portableOperation": "SampleCmp",
+                             "instructionCount": count,
+                             "source": "Unity2021.3.5f1/CGIncludes/HLSLSupport.cginc:UNITY_SAMPLE_TEXCUBE_SHADOW"})
+    if adapters:
+        hlsl = ("#if defined(SHADER_API_GLCORE) || defined(SHADER_API_GLES3) || defined(SHADER_API_VULKAN) || defined(SHADER_API_SWITCH)\n"
+                "#define QUEST_NATIVE_CUBE_SHADOW_COMPARE SampleCmp\n#else\n"
+                "#define QUEST_NATIVE_CUBE_SHADOW_COMPARE SampleCmpLevelZero\n#endif\n" + hlsl)
+    return hlsl, adapters
+
+
 def stereo_wrapper(hlsl, stage, output_adapters=(), input_signature=(), output_signature=()):
     if input_signature:
         hlsl = native_stage_interface(hlsl, input_signature, "input")
