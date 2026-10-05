@@ -407,3 +407,24 @@ interface check, with corrupt/stale-cache negatives. Output equivalence cannot
 justify omitting an uncompiled input. Root's six retained shader contracts differ
 from historical translated inputs; actual Root bytes govern reuse. These
 optimizations remain future work pending measured cold/warm Windows builds.
+
+### Maintainer ruling: minimum production builder work
+
+The maintainer clarified on2026-10-05 that the exhaustive51,564-alias shader
+matrix is development validation, and must not run routinely in the later
+player-facing Builder. The current QuestBuild path still calls that full matrix
+unconditionally; this is a present implementation gap, not existing production
+behavior. Keep this first complete development Player's gates intact while
+recording the future separation explicitly.
+
+Introduce distinct developer-validation and normal-player build contracts. The
+normal build still performs the player's necessary real Android conversion and
+Unity compilation, retains all required native variants, and checks basic
+completeness, recognized input/tool identities and native build errors. It reuses
+valid local artifacts and reruns only affected dependencies. Ordinary mod C#,
+profile or package changes must not invalidate unrelated game shader/import work.
+The exhaustive native query/decode/reflection/driver/readback matrix belongs to
+development, release recipe validation and genuinely changed supported shader
+closures. Do not describe caching that still repeats the full matrix on every
+first player build as satisfying this ruling. This separation is required future
+Builder/Wizard work; it is not yet shipped or measured on Windows.
