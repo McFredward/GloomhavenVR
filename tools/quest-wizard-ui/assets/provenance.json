@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "assets": [
+    {
+      "path": "gloomhavenvr-logo.png",
+      "source": "docs/img/logo.png",
+      "transformation": "none",
+      "sha256": "6f90bc4496158b9d234536ae47a9bce4b486c72c000032aaa04d8a20e4c45916"
+    }
+  ],
+  "originalGameArtworkIncluded": false
+}
