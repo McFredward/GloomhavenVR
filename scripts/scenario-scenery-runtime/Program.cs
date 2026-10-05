@@ -72,6 +72,40 @@ public static class InteractionProgram
         for(int frame=0;frame<2000&&HasQueuedDiscovery(driver);frame++)Tick(driver);
         Check(!HasQueuedDiscovery(driver),"native queued discovery finishes within the bounded fixture update window");
     }
+    private static void CheckPositiveCreationFastPath(Transform parent, Transform holder)
+    {
+        // Probe this independent creation contract before the large discovery workload.
+        // Otherwise a realtime-budgeted traversal can fail first and conceal the
+        // specific causal marker for an unnecessary original-template walk.
+        var template=Node(holder,"FR_Tree_05");
+        NativeLeaf(template.transform,"FR_Tree_05","CR_FR_Tree_05",false);
+        template.AddComponent<BoxCollider>();template.AddComponent<MaterialLoader>();
+        var prefix=typeof(ApparanceEntity_DecorativePlacementPatch).GetMethod("Prefix",BindingFlags.NonPublic|BindingFlags.Static)!;
+        var scopePrefix=typeof(ApparanceEntity_ObjectPlacementContextPatch).GetMethod("Prefix",BindingFlags.NonPublic|BindingFlags.Static)!;
+        var scopeFinalizer=typeof(ApparanceEntity_ObjectPlacementContextPatch).GetMethod("Finalizer",BindingFlags.NonPublic|BindingFlags.Static)!;
+        object?[] leafScope={0,null};scopePrefix.Invoke(null,leafScope);
+        try
+        {
+            foreach(int density in new[]{1,50,100})
+            {
+                PerfConfig.ScenarioSceneryDensityPercentValue=density;
+                PerfConfig.ScenarioVegetationDensityPercentValue=density;
+                PerfConfig.ScenarioDecorationDensityPercentValue=density;
+                object?[] createArgs={template,new Vector3(4,5,6),new Vector3(2,3,4),Quaternion.Euler(0,37,0),parent,null};
+                int proofEntries=SceneryTemplateProofProbe.Entries;
+                Check((bool)prefix.Invoke(null,createArgs)!&&createArgs[5]==null&&SceneryTemplateProofProbe.Entries==proofEntries,
+                    "all positive budgets retain native creation without template proof at "+density+" percent");
+            }
+        }
+        finally
+        {
+            scopeFinalizer.Invoke(null,new object?[]{null,leafScope[1]});
+            PerfConfig.ScenarioSceneryDensityPercentValue=100;
+            PerfConfig.ScenarioVegetationDensityPercentValue=100;
+            PerfConfig.ScenarioDecorationDensityPercentValue=100;
+            UnityEngine.Object.DestroyImmediate(template);
+        }
+    }
     public static int Run()
     {
         _count = 0; VRLog.Messages.Clear(); PerfMonitor.Marks.Clear(); SceneRegistry.MapTiles.Tiles.Clear();
@@ -97,6 +131,7 @@ public static class InteractionProgram
         Component? driver = null;
         try
         {
+            CheckPositiveCreationFastPath(generated.transform,host.transform);
             var roots = Node(generated.transform, "PCG_FR_Floor_Grass_Roots_06_PR");
             var grass = Leaf(roots.transform, "FR_Floor_Detail_Grass_01");
             Check(Classify(grass, tile) == "Eligible", "hardware grass outside old Hex generator is admitted by full classifier");
@@ -605,15 +640,6 @@ public static class InteractionProgram
             PerfConfig.ScenarioVegetationDensityPercentValue=100;
             createArgs=new object?[]{template,pos,scaled,rot,full.transform,null};
             Check((bool)prefix.Invoke(null,createArgs)!,"vegetation 100 always uses native original prefab creation");
-            foreach(int density in new[]{1,50,100})
-            {
-                PerfConfig.ScenarioSceneryDensityPercentValue=density;
-                PerfConfig.ScenarioVegetationDensityPercentValue=density;
-                PerfConfig.ScenarioDecorationDensityPercentValue=density;
-                createArgs=new object?[]{template,pos,scaled,rot,full.transform,null};
-                int proofEntries=SceneryTemplateProofProbe.Entries;
-                Check((bool)prefix.Invoke(null,createArgs)!&&createArgs[5]==null&&SceneryTemplateProofProbe.Entries==proofEntries,"all positive budgets retain native creation without template proof at "+density+" percent");
-            }
             PerfConfig.ScenarioSceneryDensityPercentValue=0;
             PerfConfig.ScenarioDecorationDensityPercentValue=0;
             PerfConfig.ScenarioVegetationDensityPercentValue=0;

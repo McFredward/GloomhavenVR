@@ -18,7 +18,9 @@ def main():
     parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity')))
     parser.add_argument('--no-negative-controls', action='store_true')
     parser.add_argument('--variant', action='append', help='Run production and only the named negative variant(s); partial coverage')
+    parser.add_argument('--skip-production', action='store_true', help='Resume only --variant controls after production passed on the same source tree')
     args = parser.parse_args()
+    if args.skip_production and not args.variant: parser.error('--skip-production requires --variant')
     if not args.unity.is_file(): parser.error('Real Unity 2021.3.5 is required; this proof cannot silently skip')
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
@@ -103,7 +105,7 @@ def main():
         known = {v[0] for v in variants}
         missing = set(args.variant) - known
         if missing: parser.error('Unknown negative variant(s): ' + ', '.join(sorted(missing)))
-        variants = [v for v in variants if v[0] == 'production' or v[0] in args.variant]
+        variants = [v for v in variants if (v[0] == 'production' and not args.skip_production) or v[0] in args.variant]
     manifest = {'result': str(run/'results.txt'), 'cases': []}
     dotnet = shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
     for name, filename, before, after, expected in variants:
