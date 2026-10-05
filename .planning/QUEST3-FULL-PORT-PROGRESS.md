@@ -367,3 +367,29 @@ readiness flags; separate actual Unity results establish import proof.
 The full build resumes under derivative key `4785f5c9bedd` on the retained project.
 At this checkpoint complete Android banks, IL2CPP, the signed Player, delivered
 compute validation, and the Windows hardware package are still pending.
+
+## Actual complete typed import gate passed
+
+Derivative `4785f5c9bedd` opens every original scene after the compute repair, but
+Unity rejects restoring its initial empty batch SceneManagerSetup. Editor-only
+correction `fc1505af` preserves ordinary loaded/active setups and restores an empty
+start as one valid empty Editor scene. Cleanup failures cannot replace an original
+content exception. A bounded actual Unity fixture passes 29 checks, including the
+original invalid-empty native control, all13 synthetic scenes, one/two-scene
+restoration, and a preserved scene-order failure without a success receipt. The
+pinned Editor has no public OpenPreviewScene API; no unsupported workaround or
+Paths initialization was added.
+
+The retained full project now has exactly two explicitly recorded Editor-source
+overrides. Its actual derivative `efa973d1498f` passes the complete typed import
+gate: 6,531 original objects, 4,066 serialized-value locations, all13 original
+scene closures, 1,790 packed sprites/two atlases, and six bundled audio clips.
+The source/import receipt does not claim an Android Player or playable Campaign.
+
+Actual native texture/sprite gates also pass: 33 precision-sensitive Texture2Ds
+with294 GPU mip readbacks, 64 native texture targets/69 references in65 owners,
+31 Cubemaps/1,272 imported face-mips, and all5,159 original Sprite identities
+(3,369 non-packed/1,790 packed). Readbacks use the real GLCore Editor host;
+BC6 GPU parity and headset pictures remain explicitly unverified. Complete
+Android shader/content banks, IL2CPP, signed delivery, and Windows packaging
+continue after these gates.
