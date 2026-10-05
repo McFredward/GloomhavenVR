@@ -8,5 +8,6 @@
   <ItemGroup>
     <Compile Include="../../src/GloomhavenVR/WorldUI/TownServices/TownServiceAvailability.cs" Link="Production/TownServiceAvailability.cs" />
     <Compile Include="../../src/GloomhavenVR/WorldUI/TownServices/TownServiceTutorialPatches.cs" Link="Production/TownServiceTutorialPatches.cs" />
+    <Compile Include="../../src/GloomhavenVR/WorldUI/MapRoom/TownWindowCloseScope.cs" Link="Production/TownWindowCloseScope.cs" />
   </ItemGroup>
 </Project>
