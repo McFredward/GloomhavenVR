@@ -26,9 +26,11 @@ public sealed class QuestShaderReferenceProbe : MonoBehaviour
         public string[] keywords, features;
         public FloatProperty[] floats;
         public VectorProperty[] vectors;
+        public TextureProperty[] textures;
         public OriginalAsset originalMaterial, originalMesh;
         public float alphaValue = 0.25f, animationValue = 0.35f;
     }
+    [Serializable] public sealed class TextureProperty { public string name; public Color color; }
     [Serializable] public sealed class FloatProperty { public string name; public float value; }
     [Serializable] public sealed class VectorProperty { public string name; public Vector4 value; }
     [Serializable] public sealed class Configuration
@@ -97,15 +99,39 @@ public sealed class QuestShaderReferenceProbe : MonoBehaviour
 
     private IEnumerator Start()
     {
-        yield return null;
-        try
+        // Unity updates native light, skin and culling state at frame boundaries.
+        // Keep each comparison pair in one frame and settle deliberate input edits
+        // before rendering; scaled shader time stays fixed during the probe.
+        var execution = Execute();
+        while (true)
         {
+            bool advanced;
+            try { advanced = execution.MoveNext(); }
+            catch (Exception error)
+            {
+                _errors.Add(error.ToString());
+                WriteReceipt(false);
+                Debug.LogError("Original Campaign shader reference probe failed: " + error);
+                Application.Quit(1);
+                yield break;
+            }
+            if (!advanced) break;
+            yield return execution.Current;
+        }
+        WriteReceipt(true);
+        Debug.Log("PASS original Campaign shader D3D11 pixels: pictures=" + _pictures.Count + ", negative controls=" + _negativeControls.Count + ". Android/headset pictures are separate evidence.");
+        Application.Quit(0);
+    }
+
+    private IEnumerator Execute()
+    {
             if (Application.unityVersion != "2021.3.5f1" || SystemInfo.graphicsDeviceType != GraphicsDeviceType.Direct3D11)
                 throw new InvalidOperationException("Original DXBC comparison requires actual original-version Unity Direct3D11.");
             if (QualitySettings.activeColorSpace.ToString() != _configuration.colorSpace)
                 throw new InvalidOperationException("Native shader reference color-space contract differs.");
             var candidates = Bundle(_configuration.candidateBundlePath);
             ConfigureScene();
+            yield return null;
             foreach (var input in _configuration.cases)
             {
                 var originalMaterialAsset = Original<Material>(input.originalMaterial);
@@ -128,9 +154,21 @@ public sealed class QuestShaderReferenceProbe : MonoBehaviour
                     originalMaterial.SetVector(row.name, row.value);
                     candidateMaterial.SetVector(row.name, row.value);
                 }
+                var fixtureTextures = new List<Texture2D>();
+                foreach (var row in input.textures ?? new TextureProperty[0])
+                {
+                    RequireProperty(originalMaterial, row.name);
+                    RequireProperty(candidateMaterial, row.name);
+                    var texture = new Texture2D(1, 1, TextureFormat.RGBA32, false, true);
+                    texture.SetPixel(0, 0, row.color); texture.Apply(false, false);
+                    originalMaterial.SetTexture(row.name, texture);
+                    candidateMaterial.SetTexture(row.name, texture);
+                    fixtureTextures.Add(texture);
+                }
                 if (_configuration.trialProbe)
                 {
                     var checker = Checker(1);
+                    fixtureTextures.Add(checker);
                     RequireProperty(originalMaterial, input.textureProperty);
                     RequireProperty(candidateMaterial, input.textureProperty);
                     originalMaterial.SetTexture(input.textureProperty, checker);
@@ -146,6 +184,7 @@ public sealed class QuestShaderReferenceProbe : MonoBehaviour
                     candidateMaterial.shaderKeywords = input.keywords;
                 }
                 ConfigureSubject(originalMesh, input);
+                yield return null;
                 _renderer.enabled = false;
                 _clear = Capture(originalMaterial, originalMesh);
                 _renderer.enabled = true;
@@ -153,37 +192,31 @@ public sealed class QuestShaderReferenceProbe : MonoBehaviour
                 var baselineCandidate = Capture(candidateMaterial, candidateMesh);
                 Compare(input.id, "baseline", _baseline, baselineCandidate, _baseline, true);
                 foreach (string feature in input.features)
-                    ProbeFeature(input, feature, originalMaterial, candidateMaterial, originalMesh, candidateMesh);
+                {
+                    var probe = ProbeFeature(input, feature, originalMaterial, candidateMaterial, originalMesh, candidateMesh);
+                    while (probe.MoveNext()) yield return probe.Current;
+                }
                 NegativeShader(input, candidateMaterial);
                 if (input.features.Contains("texture")) NegativeTexture(input, originalMaterial, candidateMaterial, originalMesh, candidateMesh);
                 DestroyImmediate(_subject);
                 DestroyImmediate(originalMaterial);
                 DestroyImmediate(candidateMaterial);
+                foreach (var texture in fixtureTextures) DestroyImmediate(texture);
                 _subject = null;
                 if (_errors.Count != 0) throw new InvalidOperationException("Native Unity renderer reported a shader/import failure.");
             }
-            WriteReceipt(true);
-            Debug.Log("PASS original Campaign shader D3D11 pixels: pictures=" + _pictures.Count + ", negative controls=" + _negativeControls.Count + ". Android/headset pictures are separate evidence.");
-            Application.Quit(0);
-        }
-        catch (Exception error)
-        {
-            _errors.Add(error.ToString());
-            WriteReceipt(false);
-            Debug.LogError("Original Campaign shader reference probe failed: " + error);
-            Application.Quit(1);
-        }
     }
 
     private void ConfigureScene()
     {
         foreach (var camera in FindObjectsOfType<Camera>()) camera.enabled = false;
+        Time.timeScale = 0;
         QualitySettings.antiAliasing = 0;
         QualitySettings.shadows = ShadowQuality.Disable;
         RenderSettings.fog = false;
         RenderSettings.skybox = null;
         RenderSettings.ambientMode = AmbientMode.Flat;
-        RenderSettings.ambientLight = new Color(0.19f, 0.13f, 0.09f, 1);
+        RenderSettings.ambientLight = Color.black;
         _camera = new GameObject("OriginalShaderReferenceCamera").AddComponent<Camera>();
         _camera.enabled = false;
         _camera.clearFlags = CameraClearFlags.SolidColor;
@@ -270,7 +303,7 @@ public sealed class QuestShaderReferenceProbe : MonoBehaviour
         }
     }
 
-    private void ProbeFeature(RenderCase input, string feature, Material original, Material candidate, Mesh originalMesh, Mesh candidateMesh)
+    private IEnumerator ProbeFeature(RenderCase input, string feature, Material original, Material candidate, Mesh originalMesh, Mesh candidateMesh)
     {
         var left = new Material(original);
         var right = new Material(candidate);
@@ -336,6 +369,7 @@ public sealed class QuestShaderReferenceProbe : MonoBehaviour
                     break;
                 default: throw new InvalidOperationException("Unknown rendering hypothesis: " + feature);
             }
+            yield return null;
             _featureReference = Capture(left, leftMesh);
             Compare(input.id, feature, _featureReference, Capture(right, rightMesh), _baseline, true);
         }

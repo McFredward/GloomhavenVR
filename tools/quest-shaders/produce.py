@@ -1,0 +1,272 @@
+"""Reconstruct original ShaderLab passes around strictly bound native DXBC math.
+
+Writes a private overlay; the original/staged game remains read only. Compiler
+coverage is independent of representative renderer fixtures: native fullscreen
+and internal shaders do not need invented meshes/materials to enter the bank.
+"""
+from __future__ import annotations
+
+import argparse
+import collections
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import re
+import shutil
+
+from manifest import ValidationError, sha256
+
+
+def recovery_module():
+    path = Path(__file__).resolve().parents[1] / 'quest-builder/full_shaders.py'
+    spec = importlib.util.spec_from_file_location('quest_native_shader_recovery', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def properties(form):
+    lines = []
+    for row in form['m_PropInfo']['m_Props']:
+        name = row['m_Name']
+        if not re.fullmatch(r'[A-Za-z_]\w*', name):
+            raise ValidationError('Original ShaderLab property has an invalid identifier.')
+        values = [format(row['m_DefValue_' + str(i) + '_'], '.9g') for i in range(4)]
+        kind = row['m_Type']
+        if kind in (0, 1):
+            shape, value = ('Color' if kind == 0 else 'Vector'), '(' + ','.join(values) + ')'
+        elif kind in (2, 3):
+            shape = 'Float' if kind == 2 else 'Range(' + values[1] + ',' + values[2] + ')'
+            value = values[0]
+        elif kind == 4:
+            try:
+                shape = {2: '2D', 3: '3D', 4: 'Cube', 5: '2DArray', 6: 'CubeArray'}[row['m_DefTexture']['m_TexDim']]
+            except KeyError as error:
+                raise ValidationError('Unsupported original ShaderLab texture dimension.') from error
+            value = json.dumps(row['m_DefTexture']['m_DefaultName']) + ' {}'
+        else:
+            raise ValidationError('Unsupported original ShaderLab property kind: ' + str(kind))
+        attributes = []
+        for text in row['m_Attributes']:
+            if '[' in text or ']' in text or '\n' in text:
+                raise ValidationError('Original ShaderLab property attribute cannot be represented.')
+            attributes.append('[' + text + ']')
+        lines.append(' '.join(attributes + [name]) + ' (' + json.dumps(row['m_Description']) + ', ' + shape + ') = ' + value)
+    return '\n'.join(lines)
+
+
+def _banks(variants, stage):
+    groups = collections.defaultdict(list)
+    for row in variants:
+        if row['stage'] == stage:
+            groups[tuple(sorted(row['keywords']))].append(row)
+    banks = {}
+    for keywords, rows in groups.items():
+        distinct = {(r['originalDxbcSha256'], r['originalInterfaceSha256']) for r in rows}
+        for row in rows:
+            identity = (row['originalDxbcSha256'], row['originalInterfaceSha256'])
+            selection = keywords if len(distinct) == 1 else tuple(sorted([*keywords, 'UNITY_HARDWARE_TIER' + str(row['hardwareTier'] + 1)]))
+            if selection in banks and banks[selection]['identity'] != identity:
+                raise ValidationError('One original native hardware-tier bank has conflicting bytecode.')
+            banks[selection] = {'identity': identity, 'row': row}
+    return banks
+
+
+def _selected(banks, keys):
+    candidates = [(len(key), key, row) for key, row in banks.items() if set(key) <= set(keys)]
+    if not candidates:
+        raise ValidationError('Native pass has no original stage matching its keyword bank.')
+    highest = max(row[0] for row in candidates)
+    best = [row for row in candidates if row[0] == highest]
+    if len({row[2]['identity'] for row in best}) != 1:
+        raise ValidationError('Original stage keyword selection is ambiguous.')
+    return best[0][2]['row']
+
+
+def _fragment_eye(row, cache):
+    interface = json.loads((cache / 'interfaces' / (row['originalInterfaceSha256'] + '.json')).read_text())
+    proof = json.loads(Path(row['boundHlslPath']).with_suffix('.json').read_text())
+    observed = {value['originalBuffer']: set(value['usedScalarIndices']) for value in proof['usedOriginalBuffers']}
+    native = recovery_module()
+    names = {field['name'] for buffer in interface['buffers'] for field in buffer['fields']
+             if set(native.field_components(field)) & observed.get(buffer['name'], set())}
+    # These are Unity's explicit stereo array aliases. Their original native
+    # field identities, rather than shader/pass display names, require an eye.
+    return any(name.startswith('unity_Stereo') and name != 'unity_StereoEyeIndex' for name in names) or bool(names & {'_WorldSpaceCameraPos', 'unity_MatrixV', 'unity_MatrixInvV', 'unity_MatrixP',
+                         'unity_MatrixInvP', 'unity_MatrixVP', 'unity_CameraProjection', 'unity_CameraInvProjection',
+                         'unity_WorldToCamera', 'unity_CameraToWorld'})
+
+
+def _stage_block(banks, stage, include_paths):
+    keys = sorted(set().union(*(set(k) for k in banks)))
+    rows = ['#if defined(SHADER_STAGE_' + stage.upper() + ')']
+    for index, (selection, bank) in enumerate(sorted(banks.items(), key=lambda row: (-len(row[0]), row[0]))):
+        # Only keywords present in this original stage participate. A fragment
+        # keyword absent from vertex metadata must not reject the vertex bank.
+        condition = ['defined(' + key + ')' for key in selection]
+        condition += ['!defined(' + key + ')' for key in keys if key not in selection and not key.startswith('UNITY_HARDWARE_TIER')]
+        rows.append(('#if ' if index == 0 else '#elif ') + (' && '.join(condition) or '1'))
+        if 'STEREO_INSTANCING_ON' in bank['row']['keywords']:
+            rows.append('#define QUEST_NATIVE_STEREO_INSTANCE_ID 1')
+        rows.append('#include ' + json.dumps(include_paths[bank['identity']]))
+    rows += ['#else', '#error No exact original native keyword bank is available', '#endif', '#endif']
+    return '\n'.join(rows)
+
+
+def shader_source(form, record, cache, includes):
+    native = recovery_module()
+    lines = ['Shader ' + json.dumps(form['m_Name']) + ' {', 'Properties {', properties(form), '}']
+    compiler_variants = []
+    for si, subshader in enumerate(form['m_SubShaders']):
+        lines += ['SubShader {', native.tags(subshader['m_Tags'])]
+        if subshader.get('m_LOD'):
+            lines.append('LOD ' + str(subshader['m_LOD']))
+        for pi, original_pass in enumerate(subshader['m_Passes']):
+            if original_pass['m_Type'] == 1:
+                if not original_pass['m_UseName']:
+                    raise ValidationError('Original UsePass lacks its native qualified address.')
+                lines.append('UsePass ' + json.dumps(original_pass['m_UseName']))
+                continue
+            if original_pass['m_Type'] == 2:
+                # SerializedPassType is source-proven: Pass=0, UsePass=1,
+                # GrabPass=2. The original framebuffer-grab pass has no banks.
+                lines.append('GrabPass { ' + (json.dumps(original_pass['m_TextureName']) if original_pass['m_TextureName'] else '') + ' }')
+                continue
+            if original_pass['m_Type'] != 0:
+                raise ValidationError('Unsupported original native ShaderLab pass type.')
+            variants = [row for row in record['variants'] if row['subshader'] == si and row['pass'] == pi]
+            if {row['stage'] for row in variants} - {'vertex', 'fragment'}:
+                raise ValidationError('Original geometry/tessellation stage requires a proven Quest translation.')
+            vertex, fragment = _banks(variants, 'vertex'), _banks(variants, 'fragment')
+            if not vertex or not fragment:
+                raise ValidationError('Original programmed pass has no complete native stage bank.')
+            keys = sorted(set().union(*(set(row['keywords']) for row in variants)))
+            light_modes = {str(value).upper() for key, value in original_pass['m_State']['m_Tags']['tags'] if key.upper() == 'LIGHTMODE'}
+            if len(light_modes) > 1:
+                raise ValidationError('Original native pass has ambiguous LightMode state.')
+            pass_type = {'FORWARDBASE': 'ForwardBase', 'FORWARDADD': 'ForwardAdd', 'SHADOWCASTER': 'ShadowCaster',
+                         'DEFERRED': 'Deferred', 'META': 'Meta', 'MOTIONVECTORS': 'MotionVectors',
+                         'PREPASSBASE': 'LightPrePassBase', 'PREPASSFINAL': 'LightPrePassFinal',
+                         'VERTEX': 'Vertex', 'VERTEXLM': 'VertexLM', 'VERTEXLMRGBM': 'VertexLMRGBM',
+                         'ALWAYS': 'Normal', 'SRPDEFAULTUNLIT': 'ScriptableRenderPipelineDefaultUnlit'}
+            mode = next(iter(light_modes), 'ALWAYS')
+            if mode not in pass_type:
+                raise ValidationError('Original native LightMode requires a ShaderVariantCollection mapping: ' + mode)
+            mandatory = (set.intersection(*(set(k) for k in vertex)) | set.intersection(*(set(k) for k in fragment))) - {'UNITY_HARDWARE_TIER1', 'UNITY_HARDWARE_TIER2', 'UNITY_HARDWARE_TIER3'}
+            lines += ['Pass {', native.render_state(original_pass['m_State']), 'HLSLPROGRAM',
+                      '#pragma target 4.5', '#pragma vertex QuestOriginalVertex', '#pragma fragment QuestOriginalFragment']
+            for key in keys:
+                if key not in {'INSTANCING_ON', 'STEREO_INSTANCING_ON', 'STEREO_MULTIVIEW_ON'}:
+                    lines.append(('#pragma multi_compile ' if key in mandatory else '#pragma shader_feature ') + key)
+            lines += ['#pragma hardware_tier_variants gles3', '#pragma multi_compile_instancing', '#pragma multi_compile __ STEREO_INSTANCING_ON STEREO_MULTIVIEW_ON',
+                      '#define UNITY_LIGHT_PROBE_PROXY_VOLUME 1', '#include "UnityCG.cginc"', '#include "UnityLightingCommon.cginc"',
+                      _stage_block(vertex, 'vertex', includes), _stage_block(fragment, 'fragment', includes), 'ENDHLSL', '}']
+            for tier, selection in sorted({(row['hardwareTier'], tuple(sorted(set(row['keywords']) | mandatory))) for row in variants}):
+                selector = [*selection, 'UNITY_HARDWARE_TIER' + str(tier + 1)]
+                v, f = _selected(vertex, selector), _selected(fragment, selector)
+                compiler_variants.append({'subshader': si, 'pass': pi, 'passType': pass_type[mode], 'hardwareTier': tier, 'keywords': list(selection),
+                    'stereo': 'multiview' if 'STEREO_MULTIVIEW_ON' in selection else 'instancing' if 'STEREO_INSTANCING_ON' in selection else 'mono',
+                    'vertexOriginalDxbcSha256': v['originalDxbcSha256'], 'fragmentOriginalDxbcSha256': f['originalDxbcSha256'],
+                    'fragmentOutput': f['fragmentOutput'], 'requiresFragmentEyeRouting': _fragment_eye(f, cache),
+                    'viewInvariant': not _fragment_eye(v, cache) and not _fragment_eye(f, cache)})
+            # Quest needs both views even when desktop has no native multiview
+            # alias. The same exact desktop math receives Unity's view matrices.
+            for tier, selection in sorted({(row['hardwareTier'], tuple(sorted(set(row['keywords']) | mandatory))) for row in variants if not set(row['keywords']) & {'STEREO_MULTIVIEW_ON', 'STEREO_INSTANCING_ON'}}):
+                selector = [*selection, 'UNITY_HARDWARE_TIER' + str(tier + 1)]
+                v, f = _selected(vertex, selector), _selected(fragment, selector)
+                compiler_variants.append({'subshader': si, 'pass': pi, 'passType': pass_type[mode], 'hardwareTier': tier, 'keywords': sorted([*selection, 'STEREO_MULTIVIEW_ON']),
+                    'stereo': 'multiview', 'vertexOriginalDxbcSha256': v['originalDxbcSha256'],
+                    'fragmentOriginalDxbcSha256': f['originalDxbcSha256'], 'fragmentOutput': f['fragmentOutput'],
+                    'requiresFragmentEyeRouting': _fragment_eye(f, cache),
+                    'viewInvariant': not _fragment_eye(v, cache) and not _fragment_eye(f, cache)})
+        lines.append('}')
+    # Preserve the original intended fallback as metadata only; every required
+    # native bank still passes the explicit compiler gate before shipping.
+    if form.get('m_FallbackName'):
+        lines.append('Fallback ' + json.dumps(form['m_FallbackName']))
+    else:
+        lines.append('Fallback Off')
+    lines.append('}')
+    unique = {}
+    for row in compiler_variants:
+        unique[(row['subshader'], row['pass'], row['hardwareTier'], tuple(row['keywords']))] = row
+    return '\n'.join(lines) + '\n', list(unique.values())
+
+
+def restore_project(project, inventory_path, cache, output, preserved_sources=None):
+    project, cache, output = Path(project).resolve(), Path(cache).resolve(), Path(output).resolve()
+    inventory = json.loads(Path(inventory_path).read_text())
+    if inventory.get('blockedShaderCount') or inventory.get('errors'):
+        raise ValidationError('Original shader instruction/interface recovery has unresolved failures.')
+    if output == project or project in output.parents or output in project.parents:
+        raise ValidationError('Shader reconstruction requires a disjoint private overlay.')
+    preserved_sources = preserved_sources or {}
+    output.mkdir(parents=True, exist_ok=True)
+    native = recovery_module()
+    includes, programs = {}, {}
+    for shader in inventory['shaders']:
+        if not shader.get('allOriginalInstructionsExtracted') or not shader.get('allOriginalInterfacesBound'):
+            raise ValidationError('Original shader bank lacks complete instruction/binding proof.')
+        for row in shader['variants']:
+            key = (row['originalDxbcSha256'], row['originalInterfaceSha256'])
+            if key in includes:
+                continue
+            bound = Path(row['boundHlslPath'])
+            if sha256(bound) != row['boundHlslSha256']:
+                raise ValidationError('Bound original shader bytes changed before reconstruction.')
+            wrapped = native.stereo_wrapper(bound.read_text(), row['stage'], row.get('outputInterfaceAdapters', []))
+            path = Path('Assets/QuestOriginalCampaign/ShaderPrograms') / (key[0] + '-' + key[1] + '.hlsl')
+            target = output / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(wrapped)
+            includes[key] = str(path)
+            programs[str(path)] = {'assetPath': str(path), 'originalDxbcSha256': key[0], 'originalInterfaceSha256': key[1],
+                                   'sourceSha256': sha256(target), 'boundHlslSha256': row['boundHlslSha256'],
+                                   'outputInterfaceAdapters': row.get('outputInterfaceAdapters', [])}
+    shaders = []
+    for shader in inventory['shaders']:
+        form = json.loads((cache / 'forms' / (shader['originalParsedFormSha256'] + '.json')).read_text())
+        source, variants = shader_source(form, shader, cache, includes)
+        retained = preserved_sources.get(shader['guid'])
+        target = output / shader['assetPath']
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if retained:
+            original = project / shader['assetPath']
+            if sha256(original) != retained['sourceSha256'] or not retained.get('originalProvenance'):
+                raise ValidationError('Retained original shader source contract is incomplete or changed.')
+            shutil.copy2(original, target)
+        else:
+            target.write_text(source)
+        meta = project / (shader['assetPath'] + '.meta')
+        if not meta.is_file() or re.search(r'(?m)^guid: ' + shader['guid'] + r'$', meta.read_text()) is None:
+            raise ValidationError('Original shader GUID/meta changed before private reconstruction.')
+        shutil.copy2(meta, target.with_name(target.name + '.meta'))
+        shaders.append({**{key: shader[key] for key in ('guid', 'assetPath', 'originalName', 'originalSerializedFile', 'originalPathId')},
+                        'sourceSha256': sha256(target), 'variants': variants,
+                        'sourceRestoration': 'retained-source-contract' if retained else 'exact-original-dxbc',
+                        'retainedSourceContract': retained})
+    manifest = {'schema': 1, 'scope': 'campaign-compiler', 'requiredShaderCount': len(shaders),
+                'requiredMaterialCount': len(inventory['materials']), 'shaders': shaders,
+                'materials': inventory['materials'], 'programs': list(programs.values()), 'originalPixelParityVerified': False}
+    receipt = output / 'QuestRecovery/campaign-shaders.json'
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_text(json.dumps(manifest, sort_keys=True, indent=2) + '\n')
+    return manifest
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--project', type=Path, required=True)
+    parser.add_argument('--inventory', type=Path, required=True)
+    parser.add_argument('--cache', type=Path, required=True)
+    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--preserved-sources', type=Path)
+    args = parser.parse_args()
+    retained = json.loads(args.preserved_sources.read_text()) if args.preserved_sources else None
+    result = restore_project(args.project, args.inventory, args.cache, args.output, retained)
+    print('Exact original shader sources: ' + str(len(result['shaders'])))
+
+
+if __name__ == '__main__':
+    main()

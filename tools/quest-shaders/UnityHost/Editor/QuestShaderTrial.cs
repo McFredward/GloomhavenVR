@@ -27,7 +27,7 @@ public static class QuestShaderTrial
         var result = BuildPipeline.BuildAssetBundles("TrialWindows", new[] { new AssetBundleBuild {
             assetBundleName = "quest-campaign-shader-candidates", assetNames = new[] { "Assets/TrialMaterial.mat", "Assets/TrialMesh.asset" },
             addressableNames = new[] { "candidate-material", "candidate-mesh" }
-        } }, BuildAssetBundleOptions.StrictMode, BuildTarget.StandaloneWindows64);
+        } }, BuildAssetBundleOptions.StrictMode | BuildAssetBundleOptions.ForceRebuildAssetBundle, BuildTarget.StandaloneWindows64);
         if (result == null) throw new InvalidOperationException("Actual bound original forward Windows bundle failed.");
     }
     [Serializable] public sealed class Receipt

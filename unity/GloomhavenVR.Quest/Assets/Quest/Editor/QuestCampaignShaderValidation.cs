@@ -24,9 +24,10 @@ namespace GloomhavenVR.Quest.Editor
 
         [Serializable] public sealed class Variant
         {
-            public int subshader, pass;
-            public string stereo, vertexOriginalDxbcSha256, fragmentOriginalDxbcSha256, fragmentOutput = "color";
+            public int subshader, pass, hardwareTier;
+            public string stereo, passType, vertexOriginalDxbcSha256, fragmentOriginalDxbcSha256, fragmentOutput = "color";
             public string[] keywords;
+            public bool requiresFragmentEyeRouting, viewInvariant;
         }
         [Serializable] public sealed class OriginalShader
         {
@@ -37,6 +38,8 @@ namespace GloomhavenVR.Quest.Editor
         [Serializable] public sealed class OriginalMaterial
         {
             public string guid, assetPath, shaderGuid;
+            public bool originalEngineBuiltinShader, originalShaderNull, nativeFontImporterSubObject;
+            public long shaderFileId;
         }
         [Serializable] public sealed class RenderCase
         {
@@ -44,18 +47,20 @@ namespace GloomhavenVR.Quest.Editor
         }
         [Serializable] public sealed class Manifest
         {
-            public int schema, requiredMaterialCount;
+            public int schema, requiredShaderCount, requiredMaterialCount;
             public string scope;
             public OriginalShader[] shaders;
             public OriginalMaterial[] materials;
             public RenderCase[] renderCases;
+            public SourceProgram[] programs;
         }
+        [Serializable] public sealed class SourceProgram { public string assetPath, sourceSha256, originalDxbcSha256, originalInterfaceSha256; }
         [Serializable] public sealed class CompiledProgram
         {
             public string guid, stereo, glesSha256, file;
-            public int subshader, pass;
+            public int subshader, pass, hardwareTier;
             public string[] keywords;
-            public bool vertexCompiled, fragmentCompiled, vertexEyeRoutingObserved;
+            public bool vertexCompiled, fragmentCompiled, vertexEyeRoutingObserved, fragmentEyeRoutingObserved, multiviewLayoutObserved;
         }
         [Serializable] public sealed class Receipt
         {
@@ -76,6 +81,7 @@ namespace GloomhavenVR.Quest.Editor
             if (Application.unityVersion != "2021.3.5f1")
                 throw new InvalidOperationException("Campaign shader evidence requires original Unity 2021.3.5f1.");
             var input = Read(manifestPath);
+            VerifyProgramSources(input);
             Directory.CreateDirectory(outputPath);
             string receiptPath = Path.Combine(outputPath, "android-compiler.json");
             if (File.Exists(receiptPath)) File.Delete(receiptPath);
@@ -103,32 +109,51 @@ namespace GloomhavenVR.Quest.Editor
                     if (variant.pass < 0 || variant.pass >= subshader.PassCount)
                         throw new InvalidOperationException("Campaign shader loses an original pass.");
                     var pass = subshader.GetPass(variant.pass);
-                    var vertex = pass.CompileVariant(ShaderType.Vertex, variant.keywords, ShaderCompilerPlatform.GLES3x, BuildTarget.Android);
+                    var vertex = pass.CompileVariant(ShaderType.Vertex, variant.keywords, ShaderCompilerPlatform.GLES3x, BuildTarget.Android, (GraphicsTier)variant.hardwareTier);
                     // GLES3x returns the entire linked native bank through the
                     // Vertex query. Verify both emitted stages in those bytes.
                     if (!vertex.Success || vertex.ShaderData == null || vertex.ShaderData.Length == 0)
-                        throw new InvalidOperationException("Actual Campaign Android shader bank failed: " + row.guid + " / " + string.Join(" ", variant.keywords));
+                        throw new InvalidOperationException("Actual Campaign Android shader bank failed: " + row.guid + " / tier=" + variant.hardwareTier + " / " + string.Join(" ", variant.keywords) + " / " + string.Join("; ", vertex.Messages.Select(message => message.message + " at " + message.file + ":" + message.line)));
                     string source = new UTF8Encoding(false, true).GetString(vertex.ShaderData);
                     VerifyBank(source, variant.fragmentOutput);
                     bool eyeRouting = Regex.IsMatch(source, @"\bgl_ViewID_OVR\b") || Regex.IsMatch(source, @"\bgl_InstanceID\b") && Regex.IsMatch(source, @"\bunity_StereoEyeIndex\b");
-                    if (variant.stereo == "multiview" && !eyeRouting)
-                        throw new InvalidOperationException("Campaign multiview bank omits actual vertex eye routing.");
-                    string key = row.guid + "-" + variant.subshader + "-" + variant.pass + "-" + Hash(Encoding.UTF8.GetBytes(string.Join("\n", variant.keywords))).Substring(0, 16);
+                    string fragmentBank = source.Substring(source.IndexOf("#ifdef FRAGMENT", StringComparison.Ordinal));
+                    bool fragmentEye = Regex.IsMatch(fragmentBank, @"\b(?:unity_StereoEyeIndex|vs_BLENDINDICES0)\b");
+                    bool multiviewLayout = Regex.IsMatch(source, @"layout\s*\(\s*num_views\s*=\s*2\s*\)");
+                    if (variant.stereo == "multiview" && (!multiviewLayout || !eyeRouting && !variant.viewInvariant || variant.requiresFragmentEyeRouting && !fragmentEye))
+                        throw new InvalidOperationException("Campaign multiview bank omits required native eye routing.");
+                    string key = row.guid + "-" + variant.subshader + "-" + variant.pass + "-t" + variant.hardwareTier + "-" + Hash(Encoding.UTF8.GetBytes(string.Join("\n", variant.keywords))).Substring(0, 16);
                     string file = key + ".glsl";
                     File.WriteAllBytes(Path.Combine(outputPath, file), vertex.ShaderData);
                     programs.Add(new CompiledProgram {
-                        guid = row.guid, subshader = variant.subshader, pass = variant.pass, stereo = variant.stereo,
+                        guid = row.guid, subshader = variant.subshader, pass = variant.pass, hardwareTier = variant.hardwareTier, stereo = variant.stereo,
                         keywords = variant.keywords, vertexCompiled = true, fragmentCompiled = true,
-                        vertexEyeRoutingObserved = eyeRouting, glesSha256 = Hash(vertex.ShaderData), file = file
+                        vertexEyeRoutingObserved = eyeRouting, fragmentEyeRoutingObserved = fragmentEye, multiviewLayoutObserved = multiviewLayout, glesSha256 = Hash(vertex.ShaderData), file = file
                     });
+                    if (programs.Count % 100 == 0) Debug.Log("Campaign native Android bank coverage: " + programs.Count);
                 }
                 RejectShaderErrors(shader);
             }
             foreach (var row in input.materials)
             {
-                var material = AssetDatabase.LoadAssetAtPath<Material>(ExactAsset(row.guid, row.assetPath));
+                string path = ExactAsset(row.guid, row.assetPath);
+                var material = row.nativeFontImporterSubObject ? AssetDatabase.LoadAllAssetsAtPath(path).OfType<Material>().SingleOrDefault() : AssetDatabase.LoadAssetAtPath<Material>(path);
+                if (material == null) throw new InvalidOperationException("Campaign native material is missing: " + row.guid);
+                if (row.originalShaderNull)
+                {
+                    if (!Regex.IsMatch(File.ReadAllText(path), @"(?m)^  m_Shader: \{fileID: 0\}$"))
+                        throw new InvalidOperationException("Original null shader PPtr has changed: " + row.guid);
+                    continue;
+                }
+                if (row.originalEngineBuiltinShader)
+                {
+                    string guid; long fileId;
+                    if (!AssetDatabase.TryGetGUIDAndLocalFileIdentifier(material.shader, out guid, out fileId) || guid != row.shaderGuid || fileId != row.shaderFileId)
+                        throw new InvalidOperationException("Original engine shader PPtr has changed: " + row.guid);
+                    continue;
+                }
                 Shader shader;
-                if (material == null || !shaders.TryGetValue(row.shaderGuid, out shader) || material.shader != shader)
+                if (!shaders.TryGetValue(row.shaderGuid, out shader) || material.shader != shader)
                     throw new InvalidOperationException("Campaign material no longer uses its exact original shader: " + row.guid);
             }
             File.WriteAllText(receiptPath, JsonUtility.ToJson(new Receipt {
@@ -136,6 +161,54 @@ namespace GloomhavenVR.Quest.Editor
                 materialCount = input.materials.Length, programs = programs.ToArray()
             }, true) + "\n");
             Debug.Log("PASS Campaign Android shader gate: materials=" + input.materials.Length + ", actual banks=" + programs.Count + ". Original pixels and headset remain separate gates.");
+        }
+
+        public static void PrepareVariantCollection()
+        {
+            PrepareVariantCollection(Environment.GetEnvironmentVariable("GHVR_QUEST_SHADER_MANIFEST") ?? DefaultManifest);
+        }
+
+        public static void PrepareVariantCollection(string manifestPath)
+        {
+            var input = Read(manifestPath);
+            VerifyProgramSources(input);
+            const string path = "Assets/Resources/QuestCampaignShaderVariants.shadervariants";
+            Directory.CreateDirectory("Assets/Resources");
+            var collection = new ShaderVariantCollection();
+            foreach (var row in input.shaders)
+            {
+                var shader = AssetDatabase.LoadAssetAtPath<Shader>(ExactAsset(row.guid, row.assetPath));
+                if (shader == null || shader.name != row.originalName) throw new InvalidOperationException("Native shader source is missing before variant retention.");
+                foreach (var bank in row.variants)
+                {
+                    PassType type;
+                    if (string.IsNullOrEmpty(bank.passType) || !Enum.TryParse(bank.passType, false, out type))
+                        throw new InvalidOperationException("Original native LightMode has no proven shader collection PassType.");
+                    collection.Add(new ShaderVariantCollection.ShaderVariant(shader, type, bank.keywords));
+                }
+            }
+            var existing = AssetDatabase.LoadAssetAtPath<ShaderVariantCollection>(path);
+            if (existing != null) { EditorUtility.CopySerialized(collection, existing); UnityEngine.Object.DestroyImmediate(collection); }
+            else AssetDatabase.CreateAsset(collection, path);
+            AssetDatabase.SaveAssets();
+            // Keeping the collection in Resources retains its exact witnessed
+            // banks without warming tens of thousands of programs at startup.
+            // The game does not need to call WarmUp or load it synchronously.
+            Debug.Log("Retained original Campaign shader banks in Resources; no startup shader warmup.");
+        }
+
+        private static void VerifyProgramSources(Manifest input)
+        {
+            if (input.scope != "campaign-compiler") return;
+            if (input.programs == null || input.programs.Length == 0) throw new InvalidOperationException("Native instruction include manifest is missing.");
+            foreach (var program in input.programs)
+            {
+                string path = program.assetPath.Replace('\\', '/');
+                if (!path.StartsWith("Assets/QuestOriginalCampaign/ShaderPrograms/", StringComparison.Ordinal) || path.Contains("..") ||
+                    !HashValue(program.originalDxbcSha256) || !HashValue(program.originalInterfaceSha256) ||
+                    Hash(File.ReadAllBytes(path)) != program.sourceSha256)
+                    throw new InvalidOperationException("Native shader instruction include changed: " + path);
+            }
         }
 
         public static void BuildReferenceCandidateBundle()
@@ -163,7 +236,7 @@ namespace GloomhavenVR.Quest.Editor
                 assetBundleName = "quest-campaign-shader-candidates",
                 assetNames = assetPaths.ToArray(), addressableNames = addresses.ToArray()
             } };
-            var result = BuildPipeline.BuildAssetBundles(outputPath, builds, BuildAssetBundleOptions.StrictMode | BuildAssetBundleOptions.ChunkBasedCompression, BuildTarget.StandaloneWindows64);
+            var result = BuildPipeline.BuildAssetBundles(outputPath, builds, BuildAssetBundleOptions.StrictMode | BuildAssetBundleOptions.ChunkBasedCompression | BuildAssetBundleOptions.ForceRebuildAssetBundle, BuildTarget.StandaloneWindows64);
             if (result == null) throw new InvalidOperationException("Actual Windows candidate shader bundle build failed.");
             foreach (var row in input.shaders)
                 RejectShaderErrors(AssetDatabase.LoadAssetAtPath<Shader>(ExactAsset(row.guid, row.assetPath)));
@@ -208,9 +281,10 @@ namespace GloomhavenVR.Quest.Editor
         private static Manifest Read(string path)
         {
             var input = JsonUtility.FromJson<Manifest>(File.ReadAllText(path));
-            if (input == null || input.schema != 1 || input.scope != "campaign" || input.shaders == null || input.shaders.Length == 0 ||
-                input.materials == null || input.materials.Length == 0 || input.materials.Length != input.requiredMaterialCount ||
-                input.renderCases == null || input.renderCases.Length == 0)
+            if (input == null || input.schema != 1 || input.scope != "campaign" && input.scope != "campaign-compiler" || input.shaders == null || input.shaders.Length == 0 ||
+                input.materials == null || input.scope == "campaign" && input.materials.Length == 0 || input.materials.Length != input.requiredMaterialCount ||
+                input.scope == "campaign" && (input.renderCases == null || input.renderCases.Length == 0) ||
+                input.scope == "campaign-compiler" && input.requiredShaderCount != input.shaders.Length)
                 throw new InvalidOperationException("Campaign shader identity/coverage receipt is incomplete.");
             var shaderGuids = new HashSet<string>(StringComparer.Ordinal);
             foreach (var row in input.shaders)
@@ -220,18 +294,18 @@ namespace GloomhavenVR.Quest.Editor
                     throw new InvalidOperationException("Campaign shader identity/provenance is incomplete or duplicated.");
                 var banks = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var bank in row.variants)
-                    if (bank == null || bank.subshader < 0 || bank.pass < 0 || bank.keywords == null ||
-                        bank.keywords.Any(keyword => !Regex.IsMatch(keyword, @"^[A-Z0-9_]+$")) || bank.keywords.Distinct().Count() != bank.keywords.Length ||
+                    if (bank == null || bank.subshader < 0 || bank.pass < 0 || bank.hardwareTier < 0 || bank.hardwareTier > 2 || bank.keywords == null ||
+                        bank.keywords.Any(keyword => !Regex.IsMatch(keyword, @"^[A-Za-z0-9_]+$")) || bank.keywords.Distinct().Count() != bank.keywords.Length ||
                         !HashValue(bank.vertexOriginalDxbcSha256) || !HashValue(bank.fragmentOriginalDxbcSha256) ||
                         bank.stereo != "mono" && bank.stereo != "instancing" && bank.stereo != "multiview" ||
                         bank.stereo == "multiview" && !bank.keywords.Contains("STEREO_MULTIVIEW_ON") ||
-                        !banks.Add(bank.subshader + ":" + bank.pass + ":" + string.Join(" ", bank.keywords.OrderBy(value => value, StringComparer.Ordinal))))
+                        !banks.Add(bank.subshader + ":" + bank.pass + ":" + bank.hardwareTier + ":" + string.Join(" ", bank.keywords.OrderBy(value => value, StringComparer.Ordinal))))
                         throw new InvalidOperationException("Campaign original shader bank provenance is invalid or duplicated.");
             }
             if (input.materials.Select(row => row.guid).Distinct().Count() != input.materials.Length ||
-                input.materials.Any(row => !Guid(row.guid) || !shaderGuids.Contains(row.shaderGuid)))
+                input.materials.Any(row => !Guid(row.guid) || !shaderGuids.Contains(row.shaderGuid) && !row.originalShaderNull && !row.originalEngineBuiltinShader))
                 throw new InvalidOperationException("Campaign original material coverage is invalid.");
-            if (!shaderGuids.SetEquals(input.renderCases.Select(row => row.shaderGuid)))
+            if (input.scope == "campaign" && !shaderGuids.SetEquals(input.renderCases.Select(row => row.shaderGuid)))
                 throw new InvalidOperationException("Campaign shader reference rendering coverage is incomplete.");
             return input;
         }

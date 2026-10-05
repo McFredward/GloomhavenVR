@@ -56,11 +56,14 @@ def load(path: Path, project: Path | None = None):
     if len(raw) > 64 * 1024 * 1024:
         raise ValidationError("Shader identity manifest is oversized.")
     manifest = json.loads(raw)
-    if manifest.get("schema") != 1 or manifest.get("scope") != "campaign":
+    if manifest.get("schema") != 1 or manifest.get("scope") not in ("campaign", "campaign-compiler", "campaign-pixels"):
         raise ValidationError("Expected original Campaign shader identity manifest schema 1.")
     shaders = _rows(manifest.get("shaders"), "shader")
-    materials = _rows(manifest.get("materials"), "material")
-    cases = _rows(manifest.get("renderCases"), "native render")
+    materials = [] if manifest.get("scope") == "campaign-compiler" and manifest.get("materials") == [] else _rows(manifest.get("materials"), "material")
+    compiler_only = manifest.get("scope") == "campaign-compiler"
+    cases = [] if compiler_only else _rows(manifest.get("renderCases"), "native render")
+    if compiler_only and manifest.get("requiredShaderCount") != len(shaders):
+        raise ValidationError("Original Campaign shader coverage is incomplete.")
     if manifest.get("requiredMaterialCount") != len(materials):
         raise ValidationError("Original Campaign material coverage is incomplete.")
     shader_index = {}
@@ -83,7 +86,7 @@ def load(path: Path, project: Path | None = None):
                 if type(variant.get(field)) is not int or variant[field] < 0:
                     raise ValidationError("Invalid original shader pass identity.")
             keys = variant.get("keywords")
-            if not isinstance(keys, list) or any(not isinstance(k, str) or not re.fullmatch(r"[A-Z0-9_]+", k) for k in keys) or len(set(keys)) != len(keys):
+            if not isinstance(keys, list) or any(not isinstance(k, str) or not re.fullmatch(r"[A-Za-z0-9_]+", k) for k in keys) or len(set(keys)) != len(keys):
                 raise ValidationError("Invalid original shader keyword bank.")
             stereo = variant.get("stereo")
             if variant.get("fragmentOutput", "color") not in ("color", "depth", "none"):
@@ -92,7 +95,7 @@ def load(path: Path, project: Path | None = None):
                 raise ValidationError("Missing explicit native shader eye mode.")
             if stereo == "multiview" and "STEREO_MULTIVIEW_ON" not in keys:
                 raise ValidationError("Multiview evidence requires its actual keyword bank.")
-            variant_id = (guid, variant["subshader"], variant["pass"], tuple(sorted(keys)))
+            variant_id = (guid, variant["subshader"], variant["pass"], variant.get("hardwareTier", 0), tuple(sorted(keys)))
             if variant_id in variant_ids:
                 raise ValidationError("Duplicate declared original shader variant.")
             variant_ids.add(variant_id)
@@ -106,10 +109,14 @@ def load(path: Path, project: Path | None = None):
     material_index = {}
     for material in materials:
         guid = _guid(material.get("guid"), "material")
-        if guid in material_index or material.get("shaderGuid") not in shader_index:
+        builtin = material.get("originalEngineBuiltinShader") is True and material.get("shaderGuid") in ("0000000000000000e0000000000000000", "0000000000000000f0000000000000000") and type(material.get("shaderFileId")) is int
+        native_null = material.get("originalShaderNull") is True and material.get("shaderGuid") is None
+        if guid in material_index or material.get("shaderGuid") not in shader_index and not (compiler_only and (builtin or native_null)):
             raise ValidationError("Duplicate material or unresolved exact original shader reference.")
         material_index[guid] = material
         asset_path(material.get("assetPath"))
+    if compiler_only:
+        return manifest
     covered = set()
     case_ids = set()
     features = set()
@@ -150,17 +157,25 @@ def validate_receipt(manifest, manifest_sha, receipt):
         raise ValidationError("Native shader receipt refers to different source identities.")
     if receipt.get("unityVersion") != "2021.3.5f1" or receipt.get("compilerPlatform") != "GLES3x":
         raise ValidationError("Native shader receipt uses a different compiler contract.")
-    expected = {(s["guid"], v["subshader"], v["pass"], tuple(sorted(v["keywords"])))
+    expected = {(s["guid"], v["subshader"], v["pass"], v.get("hardwareTier", 0), tuple(sorted(v["keywords"])))
                 for s in manifest["shaders"] for v in s["variants"]}
+    expected_variants = {(s["guid"], v["subshader"], v["pass"], v.get("hardwareTier", 0), tuple(sorted(v["keywords"]))): v
+                         for s in manifest["shaders"] for v in s["variants"]}
     actual = set()
     for row in receipt.get("programs", []):
-        key = (row.get("guid"), row.get("subshader"), row.get("pass"), tuple(sorted(row.get("keywords", []))))
+        key = (row.get("guid"), row.get("subshader"), row.get("pass"), row.get("hardwareTier", 0), tuple(sorted(row.get("keywords", []))))
         if key in actual or not row.get("vertexCompiled") or not row.get("fragmentCompiled"):
             raise ValidationError("Native GLES bank failed or is duplicated.")
         actual.add(key)
         _hash(row.get("glesSha256"), "actual native GLES bank")
-        if row.get("stereo") == "multiview" and not row.get("vertexEyeRoutingObserved"):
-            raise ValidationError("Actual multiview vertex bank lacks observed eye routing.")
+        original = expected_variants.get(key)
+        if original is None or row.get("stereo") != original["stereo"]:
+            raise ValidationError("Native GLES bank changes its declared stereo contract.")
+        if original["stereo"] == "multiview":
+            if not row.get("vertexEyeRoutingObserved") and not original.get("viewInvariant"):
+                raise ValidationError("Actual multiview vertex bank lacks observed eye routing.")
+            if original.get("requiresFragmentEyeRouting") and not row.get("fragmentEyeRoutingObserved"):
+                raise ValidationError("Actual multiview fragment bank loses its required eye.")
     if actual != expected or receipt.get("materialCount") != len(manifest["materials"]):
         raise ValidationError("Native shader receipt omits original material/variant coverage.")
     if receipt.get("originalPixelParityVerified") is not False or receipt.get("headsetPictureVerified") is not False:

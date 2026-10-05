@@ -81,10 +81,11 @@ def build_host(unity: Path, output: Path, color_space="Linear"):
     (project / "ProjectSettings").mkdir(exist_ok=True)
     (project / "Packages/manifest.json").write_text(json.dumps({"dependencies": {
         "com.unity.modules.assetbundle": "1.0.0", "com.unity.modules.jsonserialize": "1.0.0",
-        "com.unity.modules.animation": "1.0.0"}}) + "\n")
+        "com.unity.modules.animation": "1.0.0", "com.unity.modules.imageconversion": "1.0.0"}}) + "\n")
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
     source = Path(__file__).parent / "UnityHost"
-    for path in ("Editor/QuestShaderHostBuild.cs", "Runtime/QuestShaderReferenceProbe.cs"):
+    host_sources = ("Editor/QuestShaderHostBuild.cs", "Runtime/QuestShaderReferenceProbe.cs", "Runtime/QuestSpriteReferenceOracle.cs")
+    for path in host_sources:
         destination = assets / path
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source / path, destination)
@@ -94,7 +95,7 @@ def build_host(unity: Path, output: Path, color_space="Linear"):
     if not executable.is_file():
         raise ValidationError("Native shader reference executable is missing.")
     (output / "host-source.json").write_text(json.dumps({"unityVersion": "2021.3.5f1", "colorSpace": color_space,
-        "sources": {path: sha256(source / path) for path in ("Editor/QuestShaderHostBuild.cs", "Runtime/QuestShaderReferenceProbe.cs")},
+        "sources": {path: sha256(source / path) for path in host_sources},
         "executableSha256": sha256(executable)}, indent=2) + "\n")
     return executable
 

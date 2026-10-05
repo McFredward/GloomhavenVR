@@ -120,3 +120,48 @@ Eight tests pass, including planted identity/coverage/receipt defects and a real
 positive/negative GLES driver compilation. Full recovered Campaign shader,
 material, pass, variant and native-reference coverage is still required before
 the root treats this lane as completed port evidence.
+## Production orchestration checkpoint
+
+The recovery helper now extracts and binds all 688 physical Shader objects,
+97,224 original stage/tier aliases and 11,099 distinct DXBC programs. The private
+native inventory has 9,187 material identities and zero instruction/interface
+failures. This establishes source recovery, not complete Android compilation.
+The production Amp fixture has exposed additional exact-engine declaration and
+sampler adaptations; these remain a compiler gate, never a generic shader fallback.
+
+`tools/quest-shaders/produce.py` exports
+`restore_project(project, inventory_path, cache, output, preserved_sources=None)`.
+`project` is the private recovered/repaired Unity project, `inventory_path` is
+the native `original-shader-inventory.json`, and `cache` is its native binding
+cache. `output` is a disjoint private overlay. `preserved_sources` maps original
+GUIDs to `{ "sourceSha256": "<exact staged source hash>", "originalProvenance":
+{ "recipe": "<the existing source/receipt contract>", ... } }`. Those sources
+are copied byte-for-byte from `project`; a changed hash or absent provenance
+fails. The original pass/keyword/tier coverage is still retained in the manifest.
+Pass aliases and source includes use native object/register identities.
+
+`tools/quest-shaders/bootstrap.py` exports
+`prepare(overlay, original_project, output)` for an isolated compiler-only Unity
+2021.3.5f1 project. It does not invent rendering fixtures. The Editor methods
+`QuestCampaignShaderValidation.Validate(manifestPath, outputPath)` and
+`PrepareVariantCollection(manifestPath)` respectively compile every required
+Android/GLES bank and retain witnessed build variants in a Resources collection.
+The collection is not a startup warmup; compiler receipts explicitly leave
+original pixels and headset outcomes false.
+
+`tools/quest-shaders/converters.py` exports
+`ensure(cache, tool_archive=None) -> { "vkd3d": Path, "spirv_cross": Path }`.
+The Windows builder archive should include the checked open-source-only
+`quest-converters-win64-v1.zip`, or pass its location explicitly. The package
+contains static Windows executables, their complete official source archives,
+licenses and the source build recipe. It contains no proprietary game bytes.
+The package SHA-256 is
+`61f7d664384b12663fb4fb799ffb8566bf11e99e15ce72c7afb00d5b62199f2d`.
+The reproducible developer source recipe is `build_converters.py --cache PATH`;
+Windows players do not need MinGW, Visual Studio or a Windows SDK.
+
+The new native `QuestSpriteReferenceOracle` reads an exact public original Sprite
+route, follows its native atlas binding with `CanBindTo`, and exports all packed
+rectangles, geometry, UVs and GPU texture readback. The BattleOverlayCanvas proof
+contains 895 source sprites, a 4096x4096 original packed texture, and nonzero
+22-vertex AA_Immune UV data. It does not invoke native game Mono callbacks.

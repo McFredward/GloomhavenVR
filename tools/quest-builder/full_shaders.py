@@ -5,6 +5,7 @@ parameter table still records each native cbuffer field and resource binding.
 This module recovers those exact interfaces before an open-source DXBC compiler
 translates the instruction stream. Unknown layouts stop conversion explicitly.
 """
+import ast
 import hashlib
 import json
 import collections
@@ -150,6 +151,57 @@ def signature(chunk):
     return rows
 
 
+def portable_layer_interface(spirv, outputs):
+    """Retain vertex layer math while Unity supplies Quest framebuffer routing.
+
+    DXBC post-processing emits SV_RenderTargetArrayIndex from _DepthSlice.
+    GLES multiview routes layers through the native ViewID, rather than this
+    unsupported desktop vertex output. Relocate only that interface decoration
+    to an ordinary, unused output; every original instruction remains intact.
+    """
+    expected = {row["register"] for row in outputs if row["semantic"].upper() == "SV_RENDERTARGETARRAYINDEX"}
+    if not expected:
+        return spirv, []
+    words = list(struct.unpack("<" + "I" * (len(spirv) // 4), spirv))
+    if words[0] != 0x07230203:
+        raise ShaderRecoveryError("Layer adapter requires a valid original translated SPIR-V module.")
+    names, decorations, stages = {}, [], []
+    position = 5
+    while position < len(words):
+        size, opcode = words[position] >> 16, words[position] & 65535
+        if size == 0 or position + size > len(words):
+            raise ShaderRecoveryError("Truncated original SPIR-V instruction in native layer adapter.")
+        values = words[position + 1:position + size]
+        if opcode == 5:  # OpName
+            names[values[0]] = struct.pack("<" + "I" * (len(values) - 1), *values[1:]).split(b"\0", 1)[0].decode()
+        elif opcode == 15:  # OpEntryPoint
+            stages.append(values[0])
+        elif opcode == 71:  # OpDecorate
+            decorations.append((position, values))
+        position += size
+    if stages != [0]:
+        raise ShaderRecoveryError("Quest layer adapter only supports an original vertex entry point.")
+    used = {values[2] for _, values in decorations if len(values) == 3 and values[1] == 30}
+    relocated = []
+    for position, values in decorations:
+        if len(values) != 3 or values[1:] != [11, 9]:  # BuiltIn Layer
+            continue
+        name = names.get(values[0])
+        match = re.fullmatch(r"o(\d+)", name or "")
+        if match is None or int(match[1]) not in expected:
+            raise ShaderRecoveryError("Native layer output lost its original DXBC register identity.")
+        location = next(index for index in range(32) if index not in used)
+        used.add(location)
+        words[position + 2:position + 4] = [30, location]  # Location, original instructions untouched
+        relocated.append({"kind": "native-vertex-layer-to-unity-framebuffer", "nativeOutput": name,
+                          "originalSemantic": "SV_RenderTargetArrayIndex", "portableLocation": location,
+                          "originalInstructionsChanged": False, "questLayerRouting": "Unity stereo macros / OVR ViewID",
+                          "headsetLayerRoutingVerified": False})
+    if {int(row["nativeOutput"][1:]) for row in relocated} != expected:
+        raise ShaderRecoveryError("Original layer signature and SPIR-V builtin decorations differ.")
+    return struct.pack("<" + "I" * len(words), *words), relocated
+
+
 def translate(program, output, vkd3d="vkd3d-compiler", spirv_cross="spirv-cross"):
     """Translate exact DXBC math; output still needs recovered Unity uniforms."""
     raw, chunks = dxbc_container(program)
@@ -162,14 +214,21 @@ def translate(program, output, vkd3d="vkd3d-compiler", spirv_cross="spirv-cross"
                             capture_output=True, text=True)
     if result.returncode:
         raise ShaderRecoveryError("Exact original DXBC translation failed: " + result.stderr[-2000:])
-    result = subprocess.run([str(spirv_cross), str(spirv), "--hlsl", "--shader-model", "50"], capture_output=True, text=True)
+    outputs = signature(chunks[b"OSGN"]) if b"OSGN" in chunks else []
+    portable, adapters = portable_layer_interface(spirv.read_bytes(), outputs)
+    compiler_input = spirv
+    if adapters:
+        compiler_input = output / (key + ".portable-io.spv")
+        compiler_input.write_bytes(portable)
+    result = subprocess.run([str(spirv_cross), str(compiler_input), "--hlsl", "--shader-model", "50"], capture_output=True, text=True)
     if result.returncode:
         raise ShaderRecoveryError("Original instruction stream HLSL translation failed: " + result.stderr[-2000:])
     hlsl.write_text(result.stdout)
     return {"originalDxbcSha256": key, "spirvSha256": hashlib.sha256(spirv.read_bytes()).hexdigest(),
             "translatedHlslSha256": hashlib.sha256(result.stdout.encode()).hexdigest(), "hlslPath": str(hlsl),
             "inputSignature": signature(chunks[b"ISGN"]) if b"ISGN" in chunks else [],
-            "outputSignature": signature(chunks[b"OSGN"]) if b"OSGN" in chunks else [],
+            "outputSignature": outputs, "outputInterfaceAdapters": adapters,
+            "compilerSpirvSha256": hashlib.sha256(portable).hexdigest(), "hlslShaderModel": 50,
             "unityUniformsRestored": False, "androidShaderCompiled": False, "pixelParityVerified": False}
 
 
@@ -229,6 +288,8 @@ def merge_interface(common, names, delta):
     for binding in common.get("m_BufferParams", []):
         bindings.append({"name": names[binding["m_NameIndex"]], "kind": "buffer", "slot": binding["m_Index"],
                          "arraySize": binding["m_ArraySize"]})
+    for binding in common.get("m_Samplers", []):
+        bindings.append({"kind": "sampler", "slot": binding["bindPoint"], "nativeState": binding["sampler"]})
     bindings.extend(delta["bindings"])
     unique = {}
     for binding in bindings:
@@ -239,9 +300,18 @@ def merge_interface(common, names, delta):
     return {"buffers": list(buffers.values()), "bindings": list(unique.values())}
 
 
+# Exact Unity 2021.3.5f1 Windows compiler calibration. See the reproducible
+# QuestShaderSamplerCalibration fixture and native-inline-samplers proof.
+NATIVE_INLINE_SAMPLERS = {0: "point_repeat", 1: "linear_repeat", 2: "trilinear_repeat",
+                         84: "point_clamp", 85: "linear_clamp", 86: "trilinear_clamp",
+                         168: "point_mirror", 169: "linear_mirror", 170: "trilinear_mirror",
+                         252: "point_mirroronce", 253: "linear_mirroronce", 254: "trilinear_mirroronce"}
+
 BUILTIN = {"_Time", "_SinTime", "_CosTime", "unity_DeltaTime", "_WorldSpaceCameraPos", "_ProjectionParams",
-           "_ScreenParams", "_ZBufferParams", "_OrthoParams", "_WorldSpaceLightPos0", "_LightColor0",
-           "_LightMatrix0", "_LightSplitsNear", "_LightSplitsFar", "_ShadowMapTexture_TexelSize"}
+           "_ScreenParams", "_ZBufferParams", "_WorldSpaceLightPos0", "_LightColor0",
+           "_LightSplitsNear", "_LightSplitsFar",
+           "_LightShadowData", "_LightPositionRange", "_LightProjectionParams",
+           "glstate_lightmodel_ambient", "glstate_matrix_transpose_modelview0"}
 MATRIX_ALIASES = {"unity_MatrixVP": "UNITY_MATRIX_VP", "unity_MatrixV": "UNITY_MATRIX_V",
                   "unity_MatrixP": "UNITY_MATRIX_P", "glstate_matrix_projection": "UNITY_MATRIX_P"}
 BUILTIN_TEXTURES = {"unity_SpecCube0", "unity_SpecCube1", "unity_ProbeVolumeSH", "unity_Lightmap",
@@ -273,16 +343,130 @@ def field_components(field):
     return result
 
 
+def vector_component(expression, index):
+    """Scalarize native vector integer SSA without changing its equations."""
+    expression = re.sub(r"(\d+)[uU]\b", r"\1", expression)
+    expression = re.sub(r"\b(?:asint|asuint|asfloat|int|uint)\s*\(", "(", expression)
+    try: root = ast.parse(expression, mode="eval").body
+    except SyntaxError: return None
+    def scalar(node):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and re.fullmatch(r"(?:float|int|uint)[1-4]", node.func.id):
+            if len(node.args) == 1: return node.args[0]
+            if index < len(node.args): return node.args[index]
+            return None
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.attr and set(node.attr) <= set("xyzw"):
+            if len(node.attr) == 1: return node
+            if index < len(node.attr): return ast.Attribute(value=node.value, attr=node.attr[index], ctx=ast.Load())
+            return None
+        if isinstance(node, ast.Constant): return node
+        if isinstance(node, ast.Name): return ast.Attribute(value=node, attr="xyzw"[index], ctx=ast.Load())
+        if isinstance(node, ast.BinOp):
+            left, right = scalar(node.left), scalar(node.right)
+            if left is not None and right is not None: return ast.BinOp(left=left, op=node.op, right=right)
+        if isinstance(node, ast.UnaryOp):
+            value = scalar(node.operand)
+            if value is not None: return ast.UnaryOp(op=node.op, operand=value)
+        return None
+    result = scalar(root)
+    return ast.unparse(result) if result is not None else None
+
+
+def index_residues(expression, prefix, modulus, depth=0, loop_domains=None):
+    """Prove dynamic original integer-index residues from actual assignments.
+
+    Unknown data keeps every residue. Multiplication by a native structure
+    stride and explicit offsets narrow the domain without assuming an instance
+    number, dropping a swizzle or treating unread alignment as shader input.
+    """
+    unknown = set(range(modulus))
+    if depth > 512:
+        return unknown
+    loop_domains = loop_domains or {}
+    expression = re.sub(r"\b0\.0+f\b", "0", expression)
+    expression = re.sub(r"(\d+)[uU]\b", r"\1", expression)
+    expression = re.sub(r"\b(?:asint|asuint|asfloat|int|uint)\s*\(", "(", expression)
+    try:
+        tree = ast.parse(expression, mode="eval").body
+    except SyntaxError:
+        return unknown
+    def visit(node):
+        if isinstance(node, ast.Constant) and type(node.value) is int:
+            return {node.value % modulus}
+        if isinstance(node, (ast.Name, ast.Attribute)):
+            name = ast.unparse(node)
+            if name in loop_domains:
+                return {value % modulus for value in loop_domains[name]}
+            pattern = re.compile(r"(?m)^\s*(?:(?:float|int|uint)[1-4]?\s+)?" + re.escape(name) + r"\s*=\s*([^;]+);")
+            matches = [(m.start(), m[1], m) for m in pattern.finditer(prefix)]
+            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and len(node.attr) == 1 and node.attr in "xyzw":
+                whole = re.compile(r"(?m)^\s*(?:(?:float|int|uint)[1-4]?\s+)?" + re.escape(node.value.id) + r"\s*=\s*([^;]+);")
+                for match in whole.finditer(prefix):
+                    value = vector_component(match[1], "xyzw".index(node.attr))
+                    if value is not None:
+                        matches.append((match.start(), value, match))
+            if not matches:
+                return unknown
+            _, value, match = max(matches, key=lambda row: row[0])
+            return index_residues(value, prefix[:match.start()], modulus, depth + 1, loop_domains)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            values = visit(node.operand)
+            return values if isinstance(node.op, ast.UAdd) else {(-v) % modulus for v in values}
+        if isinstance(node, ast.BinOp):
+            left, right = visit(node.left), visit(node.right)
+            if isinstance(node.op, ast.Add): return {(a + b) % modulus for a in left for b in right}
+            if isinstance(node.op, ast.Sub): return {(a - b) % modulus for a in left for b in right}
+            if isinstance(node.op, ast.Mult): return {(a * b) % modulus for a in left for b in right}
+            if isinstance(node.op, ast.LShift) and isinstance(node.right, ast.Constant) and type(node.right.value) is int and 0 <= node.right.value < 32:
+                return {(a << node.right.value) % modulus for a in left}
+        return unknown
+    return visit(tree)
+
+
+def native_loop_domains(body, read_offset):
+    """Recognize exact original bounded integer loops, otherwise keep unknown."""
+    domains = {}
+    for loop in re.finditer(r"for\s*\(\s*;\s*;\s*\)\s*\{", body):
+        opening = body.find("{", loop.start())
+        nesting, closing = 1, opening + 1
+        while closing < len(body) and nesting:
+            nesting += (body[closing] == "{") - (body[closing] == "}")
+            closing += 1
+        if nesting or not opening < read_offset < closing:
+            continue
+        content = body[opening + 1:closing - 1]
+        guard = re.search(r"(\w+\.[xyzw])\s*=\s*asfloat\(\(asint\((\w+\.[xyzw])\)\s*>=\s*(\d+)\)\s*\?\s*4294967295u\s*:\s*0u\);\s*if\s*\(asuint\(\1\)\s*!=\s*0u\)\s*\{\s*break;\s*\}", content)
+        if guard is None:
+            continue
+        counter, limit = guard[2], int(guard[3])
+        if not 0 < limit <= 4096:
+            continue
+        increments = list(re.finditer(re.escape(counter) + r"\s*=\s*asfloat\(asint\(" + re.escape(counter) + r"\)\s*\+\s*1\);", content))
+        writes = list(re.finditer(re.escape(counter) + r"\s*=", content))
+        initial = list(re.finditer(re.escape(counter) + r"\s*=\s*([^;]+);", body[:loop.start()]))
+        if len(increments) != 1 or len(writes) != 1 or not initial or initial[-1][1].strip() not in ("0.0f", "asfloat(0)", "asfloat(0u)"):
+            continue
+        domains[counter] = set(range(limit))
+    return domains
+
+
 def restore_uniforms(hlsl, interface, input_signature=()):
     """Bind translated original math to recovered Unity material/builtin data.
 
     Every cbuffer component read by the actual program must have original
     metadata. Only unread padding receives zero; missing used uniforms fail.
     """
+    # SPIRV-Cross inserts this Vulkan-to-HLSL adapter, which is not part
+    # of the original DXBC interface. Native HLSL SV_InstanceID/SV_VertexID
+    # already have the original D3D system-value contract; Vulkan draw-base
+    # subtraction must not create an unbound private constant buffer.
+    adapter = re.compile(r"cbuffer SPIRV_Cross_VertexInfo\s*\{\s*int SPIRV_Cross_BaseVertex;\s*int SPIRV_Cross_BaseInstance;\s*\};", re.S)
+    if adapter.search(hlsl):
+        hlsl = adapter.sub("", hlsl)
+        hlsl = re.sub(r"\bSPIRV_Cross_Base(?:Vertex|Instance)\b", "0", hlsl)
     buffers = {buffer["name"]: buffer for buffer in interface["buffers"]}
     bindings = {(binding["kind"], binding["slot"]): binding for binding in interface["bindings"]}
     declarations, initializers, observed = {}, [], []
-    pattern = re.compile(r"cbuffer \w+\s*:\s*register\(b(\d+)\)\s*\{\s*float4 (\w+)\[(\d+)\]\s*:\s*packoffset\(c0\);\s*\};", re.S)
+    pattern = re.compile(r"cbuffer \w+\s*:\s*register\(b(\d+)(?:,\s*space0)?\)\s*\{\s*float4 (\w+)\[(\d+)\]\s*:\s*packoffset\(c0\);\s*\};", re.S)
     matches = list(pattern.finditer(hlsl))
     for match in matches:
         variable, size = match[2], int(match[3])
@@ -305,7 +489,7 @@ def restore_uniforms(hlsl, interface, input_signature=()):
                     raise ShaderRecoveryError("Recovered original cbuffer fields overlap.")
                 components[component] = expression
             name = field["name"]
-            if not name.startswith("unity_") and name not in BUILTIN and name not in MATRIX_ALIASES:
+            if (not name.startswith("unity_") or name in {"unity_Projector", "unity_WorldToLight"}) and name not in BUILTIN and name not in MATRIX_ALIASES:
                 scalar_type = "int" if field["type"] == 1 else "float"
                 shape = (str(field["rows"]) + "x" + str(field["columns"])) if field["matrix"] else (str(field["columns"]) if field["columns"] > 1 else "")
                 declaration = scalar_type + shape + " " + name + ("[" + str(field["arraySize"]) + "]" if field["arraySize"] else "") + ";"
@@ -344,15 +528,29 @@ def restore_uniforms(hlsl, interface, input_signature=()):
         for read in reads:
             number = re.fullmatch(r"(\d+)[uU]?", read[1])
             if number is None:
-                # Dynamic indexing can read any scalar in its original bound.
-                used.update(range(size * 4))
+                # Dynamic vector indexing preserves its actual read swizzle.
+                # Reading x/y in every instance never reads z/w alignment gaps.
+                mask = read[2] or "xyzw"
+                structures = buffer.get("structures", [])
+                strides = {row["stride"] // 16 for row in structures if row["stride"] % 16 == 0}
+                residues = None
+                loop_domains = native_loop_domains(body, read.start())
+                if len(strides) == 1 and len(structures) == 1 and structures[0]["byteOffset"] == 0:
+                    stride = next(iter(strides))
+                    residues = index_residues(read[1], body[:read.start()], stride, loop_domains=loop_domains)
+                elif loop_domains:
+                    stride = size
+                    residues = index_residues(read[1], body[:read.start()], stride, loop_domains=loop_domains)
+                used.update(index * 4 + "xyzw".index(component)
+                            for index in range(size) if residues is None or index % stride in residues
+                            for component in mask)
             else:
                 index = int(number[1])
                 used.update(index * 4 + "xyzw".index(component) for component in (read[2] or "xyzw"))
         missing = sorted(used - components.keys())
         if missing:
             raise ShaderRecoveryError("Original metadata cannot explain used cbuffer scalars: " + binding["name"] + " " + repr(missing))
-        observed.append({"slot": slot, "originalBuffer": binding["name"], "usedScalars": len(used), "allUsedScalarsBound": True})
+        observed.append({"slot": slot, "originalBuffer": binding["name"], "usedScalars": len(used), "usedScalarIndices": sorted(used), "allUsedScalarsBound": True})
         for index in range(size):
             values = [components.get(index * 4 + component, "0.0") for component in range(4)]
             initializers.append(variable + "[" + str(index) + "] = float4(" + ", ".join(values) + ");")
@@ -372,7 +570,7 @@ def restore_uniforms(hlsl, interface, input_signature=()):
         if binding["name"] in BUILTIN_TEXTURES:
             return "// Native Unity include supplies " + binding["name"] + "."
         return match[1] + " " + binding["name"] + ";"
-    hlsl = re.sub(r"(Texture\w+(?:<[^>]+>)?)\s+(\w+)\s*:\s*register\(t(\d+)\);", texture, hlsl)
+    hlsl = re.sub(r"(Texture\w+(?:<[^>]+>)?)\s+(\w+)\s*:\s*register\(t(\d+)(?:,\s*space0)?\);", texture, hlsl)
     def structured_buffer(match):
         original_slot = re.fullmatch(r"t(\d+)", match[2])
         binding = bindings.get(("buffer", int(original_slot[1]))) if original_slot else None
@@ -380,25 +578,32 @@ def restore_uniforms(hlsl, interface, input_signature=()):
             raise ShaderRecoveryError("Translated GPU buffer lost its original native resource binding.")
         textures[match[2]] = binding["name"]
         return match[1] + " " + binding["name"] + ";"
-    hlsl = re.sub(r"((?:StructuredBuffer|ByteAddressBuffer)(?:<[^>]+>)?)\s+(\w+)\s*:\s*register\(t(\d+)\);", structured_buffer, hlsl)
+    hlsl = re.sub(r"((?:StructuredBuffer|ByteAddressBuffer)(?:<[^>]+>)?)\s+(\w+)\s*:\s*register\(t(\d+)(?:,\s*space0)?\);", structured_buffer, hlsl)
     sampler_names = {}
     def sampler(match):
-        original_slot = re.fullmatch(r"s(\d+)", match[1])
+        original_slot = re.fullmatch(r"s(\d+)", match[2])
         if original_slot is None:
             raise ShaderRecoveryError("Translated sampler lost its original DXBC register identity.")
         slot = int(original_slot[1])
         names = {binding["name"] for binding in interface["bindings"] if binding["kind"] == "texture" and binding["samplerSlot"] == slot}
         if not names:
-            raise ShaderRecoveryError("Translated sampler has no original sampler binding.")
+            native = bindings.get(("sampler", slot))
+            if native is None or native["nativeState"] not in NATIVE_INLINE_SAMPLERS:
+                raise ShaderRecoveryError("Translated sampler has no proven original sampler binding.")
+            name = "QuestOriginal_" + NATIVE_INLINE_SAMPLERS[native["nativeState"]] + "_sampler"
+            sampler_names[match[2]] = name
+            return match[1] + " " + name + ";"
         # Unity associates an independent sampler with its texture by the
         # literal sampler<TextureName> convention, including its underscore.
         source_name = sorted(names)[0]
         name = "sampler" + source_name
-        sampler_names[match[1]] = name
+        sampler_names[match[2]] = name
         if source_name in BUILTIN_TEXTURES:
             return "// Native Unity include supplies " + name + "."
-        return "SamplerState " + name + ";"
-    hlsl = re.sub(r"SamplerState\s+(\w+)\s*:\s*register\(s(\d+)\);", sampler, hlsl)
+        return match[1] + " " + name + ";"
+    hlsl = re.sub(r"(Sampler(?:Comparison)?State)\s+(\w+)\s*:\s*register\(s(\d+)(?:,\s*space0)?\);", sampler, hlsl)
+    if re.search(r":\s*register\s*\(", hlsl):
+        raise ShaderRecoveryError("Translated program retains an unbound original resource register.")
     for original, restored in {**textures, **sampler_names}.items():
         hlsl = re.sub(r"\b" + re.escape(original) + r"\b", restored, hlsl)
     for field in input_signature:
@@ -551,6 +756,12 @@ def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=Non
     import attrs
     project, cache = Path(project).resolve(), Path(cache).resolve()
     cache.mkdir(parents=True, exist_ok=True)
+    import inspect
+    binder_source = "\n".join(inspect.getsource(function) for function in
+                              (field_components, vector_component, index_residues, native_loop_domains, restore_uniforms))
+    binder_source += repr((sorted(BUILTIN), sorted(MATRIX_ALIASES.items()), sorted(BUILTIN_TEXTURES), sorted(NATIVE_INLINE_SAMPLERS.items())))
+    binder_sha256 = hashlib.sha256(binder_source.encode()).hexdigest()
+    bound_cache = {}
     shaders, errors, unique_programs, total_aliases = [], [], set(), 0
     for obj, original, source_container in native_assets(game_data, identities, cab_bundles, unitypy):
         shader = original.read()
@@ -577,8 +788,8 @@ def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=Non
                 _, chunks = dxbc_container(program["dxbc"])
                 outputs = signature(chunks[b"OSGN"]) if b"OSGN" in chunks else []
                 variant = {key: value for key, value in program.items() if key not in ("raw", "dxbc", "interface")}
-                variant["fragmentOutput"] = "color" if any(row["systemValue"] == 64 for row in outputs) else \
-                    "depth" if any(row["systemValue"] in (65, 67, 68) for row in outputs) else "none"
+                variant["fragmentOutput"] = "color" if any(row["systemValue"] == 64 or row["semantic"].upper() == "SV_TARGET" for row in outputs) else \
+                    "depth" if any(row["systemValue"] in (65, 67, 68) or row["semantic"].upper().startswith("SV_DEPTH") for row in outputs) else "none"
                 variant["originalInputSignature"] = signature(chunks[b"ISGN"]) if b"ISGN" in chunks else []
                 variant["originalOutputSignature"] = outputs
                 interface_key = hashlib.sha256(json.dumps(program["interface"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -589,21 +800,36 @@ def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=Non
                 if bind_programs:
                     bound_path = cache / "bound" / (program["originalDxbcSha256"] + "-" + interface_key + ".hlsl")
                     proof_path = bound_path.with_suffix(".json")
-                    if bound_path.exists() and proof_path.exists():
+                    proof_key = (program["originalDxbcSha256"], interface_key)
+                    if proof_key in bound_cache:
+                        proof = bound_cache[proof_key]
+                    elif bound_path.exists() and proof_path.exists():
                         proof = json.loads(proof_path.read_text())
                         if _hash(bound_path) != proof["boundHlslSha256"]:
                             raise ShaderRecoveryError("Recovered shader bank cache changed.")
                     else:
-                        translated = translate(program["dxbc"], cache / "translated", vkd3d, spirv_cross)
+                        proof = None
+                    if proof is None or proof.get("binderSha256") != binder_sha256:
+                        previous = proof
+                        # Rebind a previously witnessed instruction translation
+                        # without rerunning external tools when its bytes match.
+                        # Every native interface and binder change is reapplied.
+                        if previous and Path(previous["hlslPath"]).is_file() and _hash(previous["hlslPath"]) == previous["translatedHlslSha256"]:
+                            translated = {key: value for key, value in previous.items() if key not in
+                                          ("binderSha256", "originalInterfaceSha256", "boundHlslSha256", "usedOriginalBuffers")}
+                        else:
+                            translated = translate(program["dxbc"], cache / "translated", vkd3d, spirv_cross)
                         bound, used = restore_uniforms(Path(translated["hlslPath"]).read_text(), program["interface"], translated["inputSignature"])
                         bound_path.parent.mkdir(parents=True, exist_ok=True)
                         bound_path.write_text(bound)
                         proof = {**translated, "originalInterfaceSha256": interface_key,
                                  "boundHlslSha256": _hash(bound_path), "usedOriginalBuffers": used,
-                                 "unityUniformsRestored": True}
+                                 "unityUniformsRestored": True, "binderSha256": binder_sha256}
                         _json(proof_path, proof)
+                    bound_cache[proof_key] = proof
                     variant["boundHlslPath"] = str(bound_path)
                     variant["boundHlslSha256"] = proof["boundHlslSha256"]
+                    variant["outputInterfaceAdapters"] = proof.get("outputInterfaceAdapters", [])
                 record["variants"].append(variant)
             record["originalDxbcSha256"] = sorted({row["originalDxbcSha256"] for row in programs})
             record["allOriginalInstructionsExtracted"] = True
@@ -634,7 +860,9 @@ def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=Non
                 binary_materials.append(obj)
                 continue
             raise ShaderRecoveryError("Original material has no actual shader PPtr: " + obj["path"])
+        builtin = shader[2] in {"0000000000000000e0000000000000000", "0000000000000000f0000000000000000"}
         materials.append({"guid": obj["guid"], "assetPath": obj["path"], "shaderGuid": shader[2],
+                          **({"originalEngineBuiltinShader": True, "shaderFileId": int(shader[1])} if builtin else {}),
                           "originalSerializedFile": obj["collection"], "originalPathId": obj["pathId"]})
     if binary_materials:
         rows = [{"guid": obj["guid"], "path": obj["path"], "objects": [obj]} for obj in binary_materials]
@@ -654,7 +882,7 @@ def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=Non
                 # Native Font importers use Unity's fixed engine text shader;
                 # its actual original external pointer is not a game asset.
                 materials.append({"guid": obj["guid"], "assetPath": obj["path"],
-                                  "shaderGuid": "0000000000000000f0000000000000000", "shaderFileId": 10101,
+                                  "shaderGuid": "0000000000000000e0000000000000000", "shaderFileId": 10101,
                                   "originalEngineBuiltinShader": True, "nativeFontImporterSubObject": True,
                                   "originalSerializedFile": obj["collection"], "originalPathId": obj["pathId"]})
                 continue
@@ -671,14 +899,17 @@ def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=Non
     return report
 
 
-def stereo_wrapper(hlsl, stage):
+def stereo_wrapper(hlsl, stage, output_adapters=()):
     """Route both native stereo eyes before original uniform reconstruction."""
     if stage not in ("vertex", "fragment"):
         raise ShaderRecoveryError("Quest stereo wrapper only accepts native vertex/fragment programs.")
     entry = "QuestOriginalVertex" if stage == "vertex" else "QuestOriginalFragment"
-    main = re.search(r"(?P<return>\w+) main\(SPIRV_Cross_Input stage_input\)\s*\{", hlsl)
+    main = re.search(r"(?P<return>\w+) main\((?P<input>SPIRV_Cross_Input stage_input)?\)\s*\{", hlsl)
     if main is None:
         raise ShaderRecoveryError("Original translated stage has an unsupported native entry signature.")
+    if not main["input"]:
+        hlsl = hlsl[:main.start()] + "struct SPIRV_Cross_Input {\n};\n\n" + hlsl[main.start():].replace("main()", "main(SPIRV_Cross_Input stage_input)", 1)
+        main = re.search(r"(?P<return>\w+) main\(SPIRV_Cross_Input stage_input\)\s*\{", hlsl)
     hlsl = hlsl[:main.start()] + hlsl[main.start():].replace(" main(", " " + entry + "(", 1)
     def add_fields(structure, addition):
         nonlocal hlsl
@@ -697,10 +928,17 @@ def stereo_wrapper(hlsl, stage):
         # Unity derives the eye and the true object instance from the native
         # SV_InstanceID; the original desktop instruction stream expects only
         # the object instance, including the native base-instance offset.
-        hlsl = re.sub(r"gl_InstanceIndex = stage_input\.\w+;", "gl_InstanceIndex = unity_InstanceID;", hlsl)
+        hlsl = re.sub(r"gl_InstanceIndex = (?:int\()?stage_input\.\w+\)?;",
+                      "#if defined(QUEST_NATIVE_STEREO_INSTANCE_ID)\n    gl_InstanceIndex = int((unity_InstanceID - unity_BaseInstanceID) * 2 + unity_StereoEyeIndex);\n#else\n    gl_InstanceIndex = int(unity_InstanceID - unity_BaseInstanceID);\n#endif", hlsl)
         hlsl = re.sub(r"(" + entry + r"\(SPIRV_Cross_Input stage_input\)\s*\{)",
                       r"\1\n    UNITY_SETUP_INSTANCE_ID(stage_input);", hlsl)
-        hlsl = hlsl.replace("return stage_output;", "UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(stage_output);\n    return stage_output;")
+        layer = []
+        for adapter in output_adapters:
+            if adapter["kind"] != "native-vertex-layer-to-unity-framebuffer" or not re.fullmatch(r"o\d+", adapter["nativeOutput"]):
+                raise ShaderRecoveryError("Unproven original output-interface adapter.")
+            layer += ["#if defined(UNITY_STEREO_INSTANCING_ENABLED)",
+                      "    stage_output.stereoTargetEyeIndexAsRTArrayIdx = stage_output." + adapter["nativeOutput"] + ";", "#endif"]
+        hlsl = hlsl.replace("return stage_output;", "UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(stage_output);\n" + "\n".join(layer) + "\n    return stage_output;")
     else:
         add_fields("SPIRV_Cross_Input", "UNITY_VERTEX_OUTPUT_STEREO")
         hlsl = re.sub(r"(" + entry + r"\(SPIRV_Cross_Input stage_input\)\s*\{)",
