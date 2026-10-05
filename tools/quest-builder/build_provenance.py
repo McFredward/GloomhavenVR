@@ -20,6 +20,7 @@ _TEMPLATE = Path("unity/GloomhavenVR.Quest")
 _DRIVER = Path("tools/quest-builder")
 _COMPUTE_RECEIPT = Path("QuestCampaignEvidence/compute-reference-types.json")
 _COMPUTE_SCOPE = "native-class72-ComputeShaderImporter-PPtr-types"
+_SHADER_MANIFEST = Path("Assets/QuestOriginalCampaign/campaign-shaders.json")
 _TOOL_FIELDS = (
     "unityVersion", "buildDriverSha256", "key", "editorSha256", "javaSha256",
     "apksignerSha256", "ndkPropertiesSha256", "buildToolsVersion",
@@ -197,6 +198,54 @@ def _compute_repair(project, drivers, witnessed):
         raise BuildError("Build provenance could not capture recognized compute repair evidence.") from exc
 
 
+def _shader_manifest(project, witnessed):
+    """Bind actual compiler/pass metadata without exporting shader contents."""
+    path = _real_path(project / _SHADER_MANIFEST, "campaign shader manifest")
+    if not path.exists():
+        witnessed.append((path, None))
+        return None
+    try:
+        # The complete native manifest is currently about 73 MB. Bound the JSON
+        # parse while retaining the authoritative full manifest byte hash.
+        if not path.is_file() or path.stat().st_size > 256 * 1024 * 1024:
+            raise BuildError("Build provenance campaign shader manifest is invalid or too large.")
+        record = record_file(path, _SHADER_MANIFEST.as_posix())
+        witnessed.append((path, record))
+        with path.open(encoding="utf-8") as stream:
+            manifest = json.load(stream)
+        if (not isinstance(manifest, dict) or type(manifest.get("schema")) is not int or manifest["schema"] != 1
+                or manifest.get("scope") != "campaign-compiler" or not isinstance(manifest.get("shaders"), list)
+                or not manifest["shaders"] or not isinstance(manifest.get("materials"), list)
+                or any(type(manifest.get(key)) is not int or manifest[key] < 0 for key in (
+                    "requiredShaderCount", "requiredMaterialCount", "requiredOriginalNativeAliasCount", "requiredSyntheticAliasCount"))
+                or manifest["requiredShaderCount"] != len(manifest["shaders"])
+                or manifest["requiredMaterialCount"] != len(manifest["materials"])):
+            raise BuildError("Build provenance has unrecognized campaign shader manifest metadata.")
+        guids, paths, alias_count = set(), set(), 0
+        for shader in manifest["shaders"]:
+            if (not isinstance(shader, dict) or not isinstance(shader.get("assetPath"), str)
+                    or not shader["assetPath"].startswith("Assets/") or not shader["assetPath"].endswith(".shader")
+                    or "\\" in shader["assetPath"] or any(part in ("", ".", "..") for part in shader["assetPath"].split("/"))
+                    or shader["assetPath"] in paths or not isinstance(shader.get("guid"), str)
+                    or not re.fullmatch(r"[0-9a-f]{32}", shader["guid"]) or shader["guid"] in guids
+                    or not isinstance(shader.get("sourceSha256"), str) or not _HASH.fullmatch(shader["sourceSha256"])
+                    or not isinstance(shader.get("variants"), list) or not shader["variants"]):
+                raise BuildError("Build provenance campaign shader record shape is invalid.")
+            paths.add(shader["assetPath"]); guids.add(shader["guid"])
+            for variant in shader["variants"]:
+                if (not isinstance(variant, dict) or not isinstance(variant.get("passType"), str) or not variant["passType"]
+                        or any(type(variant.get(key)) is not int or variant[key] < 0 for key in ("subshader", "pass", "hardwareTier"))
+                        or not isinstance(variant.get("keywords"), list)
+                        or any(not isinstance(keyword, str) for keyword in variant["keywords"])):
+                    raise BuildError("Build provenance campaign shader variant shape is invalid.")
+            alias_count += len(shader["variants"])
+        if alias_count != manifest["requiredOriginalNativeAliasCount"] + manifest["requiredSyntheticAliasCount"]:
+            raise BuildError("Build provenance campaign shader alias count differs from its manifest.")
+        return record
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise BuildError("Build provenance could not capture recognized campaign shader metadata.") from exc
+
+
 def capture(inputs, project, source, driver_dir, toolchain):
     """Capture sorted stable bytes without exposing paths, accounts or secrets.
 
@@ -221,6 +270,7 @@ def capture(inputs, project, source, driver_dir, toolchain):
     if next(row for row in driver_records if row["path"] == "tools/quest-builder/builder.py")["sha256"] != tools["buildDriverSha256"]:
         raise BuildError("Build provenance driver differs from the recorded toolchain.")
     compute_repair = _compute_repair(project, drivers, witnessed)
+    shader_manifest = _shader_manifest(project, witnessed)
 
     # A module imported earlier or a source changed during capture is not a
     # trustworthy launch record. Recheck membership and both sets of bytes.
@@ -241,4 +291,6 @@ def capture(inputs, project, source, driver_dir, toolchain):
               "buildDriverModules": driver_records, "stagedEditorSources": editor_records}
     if compute_repair is not None:
         result["campaignComputeReferenceRepair"] = compute_repair
+    if shader_manifest is not None:
+        result["campaignShaderManifest"] = shader_manifest
     return result

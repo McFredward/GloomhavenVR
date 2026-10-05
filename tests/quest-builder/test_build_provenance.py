@@ -87,6 +87,20 @@ class BuildProvenanceTests(unittest.TestCase):
         path = self.project / "QuestCampaignEvidence/compute-reference-types.json"
         self.write(path, (json.dumps(receipt, sort_keys=True) + "\n").encode())
 
+    def shader_manifest(self):
+        manifest = {"schema": 1, "scope": "campaign-compiler", "requiredShaderCount": 1,
+                    "requiredMaterialCount": 1, "requiredOriginalNativeAliasCount": 1, "requiredSyntheticAliasCount": 0,
+                    "materials": [{"assetPath": "Assets/Original/Original.mat"}],
+                    "shaders": [{"assetPath": "Assets/Original/Original.shader", "guid": "6" * 32,
+                        "sourceSha256": "7" * 64, "originalName": "PRIVATE INTERNAL CONTENT",
+                        "variants": [{"subshader": 0, "pass": 0, "hardwareTier": 0, "passType": "Normal", "keywords": []}]}]}
+        self.store_shader_manifest(manifest)
+        return manifest
+
+    def store_shader_manifest(self, manifest):
+        self.write(self.project / "Assets/QuestOriginalCampaign/campaign-shaders.json",
+                   (json.dumps(manifest, sort_keys=True) + "\n").encode())
+
     def test_unchanged_sources_are_exact_sorted_portable_records(self):
         result = self.capture()
         self.assertEqual(result["schema"], 1)
@@ -361,6 +375,96 @@ class BuildProvenanceTests(unittest.TestCase):
             return row
         with patch.object(build_provenance, "record_file", concurrent_change):
             with self.assertRaisesRegex(BuildError, "bytes changed"): self.capture()
+
+    def test_campaign_shader_pass_metadata_changes_derivative_key_without_exporting_contents(self):
+        self.assertNotIn("campaignShaderManifest", self.capture())
+        manifest = self.shader_manifest()
+        before = self.capture()
+        self.assertEqual(set(before["campaignShaderManifest"]), {"path", "sha256", "size"})
+        self.assertEqual(before["campaignShaderManifest"]["path"], "Assets/QuestOriginalCampaign/campaign-shaders.json")
+        self.assertEqual(before["campaignShaderManifest"]["sha256"], digest(self.project / before["campaignShaderManifest"]["path"]))
+        self.assertNotIn("PRIVATE INTERNAL CONTENT", json.dumps(before))
+        self.assertNotIn("passType", json.dumps(before))
+        self.assertNotIn(str(self.root), json.dumps(before))
+        manifest["shaders"][0]["variants"][0]["passType"] = "Vertex"
+        self.store_shader_manifest(manifest)
+        after = self.capture()
+        self.assertEqual(before["runtime"], after["runtime"])
+        self.assertNotEqual(value_hash(before), value_hash(after))
+        self.assertEqual(after, self.capture())
+
+    def test_campaign_shader_manifest_scope_shape_and_counts_are_checked(self):
+        manifest = self.shader_manifest()
+        controls = (
+            lambda x: x.update(schema=2), lambda x: x.update(schema=True),
+            lambda x: x.update(scope="unrelated private dump"), lambda x: x.update(shaders=[]),
+            lambda x: x.update(materials={}), lambda x: x.update(requiredShaderCount=2),
+            lambda x: x.update(requiredMaterialCount=0), lambda x: x.update(requiredOriginalNativeAliasCount=2),
+            lambda x: x.update(requiredSyntheticAliasCount=-1), lambda x: x.update(requiredShaderCount=True),
+            lambda x: x["shaders"][0].update(assetPath="Assets/../Original.shader"),
+            lambda x: x["shaders"][0].update(assetPath="PRIVATE/Original.shader"),
+            lambda x: x["shaders"][0].update(guid="not an original GUID"),
+            lambda x: x["shaders"][0].update(sourceSha256="not a source hash"),
+            lambda x: x["shaders"][0].update(variants=[]),
+            lambda x: x["shaders"][0]["variants"][0].update(passType=""),
+            lambda x: x["shaders"][0]["variants"][0].update({"pass": -1}),
+            lambda x: x["shaders"][0]["variants"][0].update(subshader=True),
+            lambda x: x["shaders"][0]["variants"][0].update(hardwareTier="0"),
+            lambda x: x["shaders"][0]["variants"][0].update(keywords="PRIVATE CONTENT"),
+            lambda x: x["shaders"][0]["variants"][0].update(keywords=[None]),
+        )
+        for index, mutate in enumerate(controls):
+            with self.subTest(defect=index):
+                bad = copy.deepcopy(manifest); mutate(bad); self.store_shader_manifest(bad)
+                with self.assertRaises(BuildError): self.capture()
+
+    def test_campaign_shader_manifest_duplicate_native_identities_are_rejected(self):
+        manifest = self.shader_manifest()
+        manifest["requiredShaderCount"] = 2; manifest["requiredOriginalNativeAliasCount"] = 2
+        manifest["shaders"].append(copy.deepcopy(manifest["shaders"][0]))
+        for duplicate in ("guid", "assetPath"):
+            with self.subTest(identity=duplicate):
+                bad = copy.deepcopy(manifest)
+                if duplicate == "guid": bad["shaders"][1]["assetPath"] = "Assets/Original/Second.shader"
+                else: bad["shaders"][1]["guid"] = "8" * 32
+                self.store_shader_manifest(bad)
+                with self.assertRaises(BuildError): self.capture()
+
+    def test_campaign_shader_manifest_file_and_parent_symlinks_are_rejected(self):
+        self.shader_manifest()
+        for path in (self.project / "Assets/QuestOriginalCampaign/campaign-shaders.json",
+                     self.project / "Assets/QuestOriginalCampaign"):
+            with self.subTest(path=path.name):
+                moved = path.with_name(path.name + "-retained"); path.rename(moved)
+                path.symlink_to(moved, target_is_directory=moved.is_dir())
+                try:
+                    with self.assertRaises(BuildError): self.capture()
+                finally: path.unlink(); moved.rename(path)
+
+    def test_campaign_shader_manifest_changed_during_capture_is_rejected(self):
+        manifest = self.shader_manifest()
+        target = self.project / "Assets/QuestOriginalCampaign/campaign-shaders.json"
+        changed = False
+        def concurrent_change(path, relative):
+            nonlocal changed
+            row = record_file(path, relative)
+            if path == target and not changed:
+                changed = True
+                manifest["shaders"][0]["variants"][0]["passType"] = "Vertex"
+                self.store_shader_manifest(manifest)
+            return row
+        with patch.object(build_provenance, "record_file", concurrent_change):
+            with self.assertRaisesRegex(BuildError, "bytes changed"): self.capture()
+
+    def test_campaign_shader_manifest_removed_after_first_hash_is_rejected(self):
+        self.shader_manifest()
+        target = self.project / "Assets/QuestOriginalCampaign/campaign-shaders.json"
+        def concurrent_remove(path, relative):
+            row = record_file(path, relative)
+            if path == target: target.unlink()
+            return row
+        with patch.object(build_provenance, "record_file", concurrent_remove):
+            with self.assertRaises(BuildError): self.capture()
 
 
 if __name__ == "__main__":
