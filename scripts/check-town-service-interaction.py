@@ -70,6 +70,7 @@ def sources(root):
         + method(motion, 'internal static void RegisterMotionReturn(Transform source, TownServiceToken token)') + '\n'
         + method(motion, 'internal static void RegisterMotionHand(Transform source, VRHand? hand, bool followsRotation = true)') + '\n'
         + method(motion, 'private static VRHand? MotionHand(Transform source, out bool followsRotation)').replace('private static VRHand?', 'internal static VRHand?', 1) + '\n} }\n')
+    bound['TownCardReturnMotion.cs'] = (root / 'src/GloomhavenVR/Net/TownServices/TownCardReturnMotion.cs').read_text()
     bound['ReturnMotion.cs'] = (base / 'Net/TownServices/TownServiceReturnMotion.cs').read_text()
     hashes['Net/TownServices/TownServiceReturnMotion.cs'] = hashlib.sha256(bound['ReturnMotion.cs'].encode()).hexdigest()
     hashes['Net/TownServices/TownServiceMirror.Motion.cs'] = hashlib.sha256(motion.encode()).hexdigest()
@@ -113,7 +114,35 @@ def sources(root):
     constant = next(line.strip() for line in vr.splitlines() if 'internal const float PinchGripFraction =' in line)
     sweep = (base / "Cards/FanSweep.cs").read_text()
     interface = sweep[sweep.index('internal interface IFanSweepTarget'):sweep.index('\n}', sweep.index('internal interface IFanSweepTarget')) + 2]
-    bound["ItemContracts.cs"] = 'using UnityEngine; namespace GloomhavenVR.Cards { internal static class VRCard { ' + constant + ' }\n' + interface + '\n}'
+    bound["ItemContracts.cs"] = 'using UnityEngine; namespace GloomhavenVR.Cards { internal static class VRCard { ' + constant + '\n' + method(vr, 'internal static float SmootherStep(') + '\n' + vr[vr.index('    internal static Vector3 FlyArcOffset('):vr.index(';', vr.index('    internal static Vector3 FlyArcOffset(')) + 1] + ' }\n' + interface + '\n}'
+    item_source = (base / "Cards/Piles/ItemsPile.cs").read_text()
+    ability_pose = vr[vr.index("            float ft = _flyDuration"):vr.index("            if (ft >= 1f)", vr.index("            float ft = _flyDuration"))]
+    collapse_pose = item_source[item_source.index("                float cdur = Mathf.Max"):item_source.index("                if (ct >= 1f)", item_source.index("                float cdur = Mathf.Max"))]
+    open_at = item_source.index("                _releaseGlide -= udt;", item_source.index("            else if (_releaseGlide > 0f)"))
+    open_pose = item_source[open_at:item_source.index("\n            }", open_at)]
+    getter = method(item_source, "internal bool TryTownReturnMotion(", indent="        ").replace("CardsConfig.", "CardReturnConfig626.").replace("Defaults.FanSelectedPopForward", "CardReturnConfig626.FanSelectedPopForward.Value")
+    helpers = "\n".join(next(line.strip() for line in item_source.splitlines() if signature in line) for signature in ("private static float SeedScale()", "private static float EaseInBack(", "private static float Overshoot()"))
+    helpers = helpers.replace("CardsConfig.", "CardReturnConfig626.")
+    bound["CardOwnerReturns626.cs"] = ("using System;using UnityEngine;using GloomhavenVR.Hands;namespace GloomhavenVR.Cards { "
+        "internal sealed class TownAbilityReturnOwner626:MonoBehaviour {internal bool _flying=true,_flyIntro=true;internal VRHand? Holder;"
+        "internal uint _townReturnRevision=1;internal float _flyDuration=.45f,_flyElapsed,_flyArcHeight;"
+        "internal Vector3 _flyFromPos,_flyToPos,_flyFromScale=Vector3.one,_flyToScale=Vector3.one,_flyArcUp;"
+        "internal Quaternion _flyRot=Quaternion.identity;"
+        + method(vr,"internal bool TryTownReturnMotion(")
+        + " internal void Advance(float age){_flyElapsed=age;" + ability_pose.replace("SmootherStep(ft)","VRCard.SmootherStep(ft)").replace("FlyArcOffset(s,", "VRCard.FlyArcOffset(s,") + "} }"
+        "internal static class CardReturnConfig626 {internal static ConfigFloat ItemFanCloseDuration=new(){Value=.24f},"
+        "ItemFanSeedScale=new(){Value=.04f},ItemFanSettleOvershoot=new(){Value=.8f},"
+        "FanSelectedPopForward=new(){Value=.012f},CardLerpSpeed=new(){Value=20f};}"
+        "internal sealed class TownItemReturnOwner626:MonoBehaviour {internal bool IsTownInspection=true,TownOffering,PendingUse,_emerging,_inspectionArtPending,_collapsing;"
+        "internal VRHand? Holder; internal uint _townReturnRevision=1;"
+        "internal float _collapseTime,_collapseDelay,_collapseFromScale=1f,_releaseGlide=.35f,_homeScale=.18f,_pop;"
+        "internal Vector3 _collapseFrom,_collapseWorld,_homePos;internal Quaternion _collapseFromRot=Quaternion.identity,_collapseSpin=Quaternion.identity,_homeRot=Quaternion.identity;"
+        "private const float PopUp=.012f,PopScale=1.18f;" + getter + helpers
+        + "internal void AdvanceCollapse(float age){_collapseTime=age;" + collapse_pose.replace("CardsConfig.","CardReturnConfig626.") + "}"
+        + "internal void AdvanceOpen(float udt){Vector3 posTarget=_homePos;float scaleTarget=_homeScale;" + open_pose.replace("CardsConfig.","CardReturnConfig626.") + "} } }")
+    hashes["Cards/VRCard.cs"] = hashlib.sha256(vr.encode()).hexdigest()
+    hashes["Cards/Piles/ItemsPile.cs"] = hashlib.sha256(item_source.encode()).hexdigest()
+    hashes["Net/TownServices/TownCardReturnMotion.cs"] = hashlib.sha256(bound["TownCardReturnMotion.cs"].encode()).hexdigest()
     ritual = (base / "WorldUI/TownServices/TownServiceRitual.cs").read_text()
     bound['PursePieceVisibility.cs'] = ('using System; using System.Collections.Generic; using UnityEngine; '
         'namespace GloomhavenVR.WorldUI { internal static class TownServiceCardBody { internal static void SetVisibility(GameObject body, float visibility) {} } '
@@ -281,6 +310,7 @@ def main():
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
     parser.add_argument("--only-mutation", action="append", help="Run production and selected negative controls")
     parser.add_argument("--purse-transition-only", action="store_true", help="Run only the original purse home/grab/bowl/return transition probe")
+    parser.add_argument("--card-return-only", action="store_true", help="Run actual native stock release/palm withdrawal and return geometry only")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
@@ -297,6 +327,7 @@ def main():
     (run / "source-hashes.json").write_text(json.dumps({"root": str(args.source_root.resolve()), "sha256": hashes}, indent=2) + "\n")
     manifest = {"result": str(run / "results.txt"), "cases": []}
     variants = [("production", None, None, None, "")]
+
     if args.only_mutation:
         requested = set(args.only_mutation)
         selected = [case for case in mutations() if case[0] in requested]
@@ -358,6 +389,7 @@ def main():
                "-nativeBookObj", str(native_book), "-logFile", str(log)]
     command += ['-nativePurseData', str(native_purse)]
     if args.purse_transition_only: command += ['-purseTransitionsOnly']
+    if args.card_return_only: command += ['-cardReturnOnly']
     completed = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=240)
     result = Path(manifest["result"])
     if result.exists():

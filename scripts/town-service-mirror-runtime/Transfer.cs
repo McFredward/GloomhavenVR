@@ -38,7 +38,7 @@ namespace GloomhavenVR.Cards
         public string SweepName=>name;
         public bool TrySweepDistance(Vector3 point,out float distance) {distance=point.magnitude;return true;}
     }
-    internal sealed class VRCard : TransferProbe { }
+    internal sealed partial class VRCard : TransferProbe { internal bool TryTownReturnMotion(Transform source,Transform shared,Hands.VRHand? hand,out uint revision,out float[] values) {revision=0;values=System.Array.Empty<float>();return false;} }
     internal sealed class MerchantProbe : TransferProbe,IItemCardHold
     {
         public bool IsItemCard=>true; public Transform HeldRoot=>transform;

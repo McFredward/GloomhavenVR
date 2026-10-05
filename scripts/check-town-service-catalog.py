@@ -40,7 +40,7 @@ def sources(root):
     constant = next(line.strip() for line in vr.splitlines() if 'internal const float PinchGripFraction =' in line)
     sweep = (root / "src/GloomhavenVR/Cards/FanSweep.cs").read_text()
     interface = sweep[sweep.index('internal interface IFanSweepTarget'):sweep.index('\n}', sweep.index('internal interface IFanSweepTarget')) + 2]
-    bound["ItemContracts.cs"] = 'using UnityEngine; namespace GloomhavenVR.Cards { internal static class VRCard { ' + constant + ' }\n' + interface + '\n}'
+    bound["ItemContracts.cs"] = 'using UnityEngine; namespace GloomhavenVR.Cards { internal static class VRCard { ' + constant + '\n' + method(vr, 'internal static float SmootherStep(') + '\n' + vr[vr.index('    internal static Vector3 FlyArcOffset('):vr.index(';', vr.index('    internal static Vector3 FlyArcOffset(')) + 1] + ' }\n' + interface + '\n}'
     contact = (root / "src/GloomhavenVR/Cards/Driver/CardsDriver.3.Laser.cs").read_text()
     signatures = ("internal static void StandDownForItemFanContact", "private static bool TryContactInChips",
         "private struct ContactGeometry", "private static bool TryHandContact(VRHand hand, ItemsPile.ItemChip?",
@@ -66,6 +66,7 @@ def sources(root):
         if "internal static readonly Vector3 " + field + " =" in line)
         for field in ("Center", "PurseSeat"))
     bound["TempleBowlSeat.cs"] = "using UnityEngine; namespace GloomhavenVR.WorldUI; internal static class TownServiceTempleBowl {\n" + seat + "\n}"
+    bound['TownCardReturnMotion.cs'] = (root / 'src/GloomhavenVR/Net/TownServices/TownCardReturnMotion.cs').read_text()
     hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
     hashes["TownServiceTempleBowl.cs"] = hashlib.sha256(bowl.encode()).hexdigest()
     return bound, hashes

@@ -23,7 +23,7 @@ public sealed class DecisionHoverProbe : MonoBehaviour, IPointerEnterHandler
     public void OnPointerEnter(PointerEventData data) { Entries++; }
 }
 
-public static class InteractionProgram
+public static partial class InteractionProgram
 {
     private class LegacyGrab : IGrabbable, IGrabbableHandFilter
     {
@@ -1254,6 +1254,8 @@ public static class InteractionProgram
     public static int Run()
     {
         _assertions = 0;
+        if (Array.IndexOf(Environment.GetCommandLineArgs(), "-cardReturnOnly") >= 0)
+        { try { StockCardReturns626(); CardOwnerReturns626(); return _assertions; } finally { Clean(); } }
         try
         {
             if (Array.IndexOf(Environment.GetCommandLineArgs(), "-purseTransitionsOnly") >= 0)

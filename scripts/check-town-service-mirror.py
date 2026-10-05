@@ -31,6 +31,9 @@ def sources(root):
     bound['NativePurse.cs'] = (root / 'scripts/town-purse-runtime/NativePurse.cs').read_text()
     bound['TownServicePursePresentation.cs'] = (base / 'WorldUI/TownServices/TownServicePursePresentation.cs').read_text()
     bound['BundleShaders.cs'] = (base / 'Core/BundleShaders.cs').read_text()
+    vr = (base / "Cards/VRCard.cs").read_text()
+    bound["CardCurve626.cs"] = "using UnityEngine; namespace GloomhavenVR.Cards; internal sealed partial class VRCard {\n" + method(vr, "internal static float SmootherStep(") + "\n" + expression(vr, "internal static Vector3 FlyArcOffset(") + "\n}"
+    bound["TownServiceNativeEnhancementCardMask.cs"] = (base / "WorldUI/TownServices/TownServiceNativeEnhancementCardMask.cs").read_text()
     bound["PresentationCompression.cs"] = (base / "Net/PresentationCompression.cs").read_text()
     bound["NetPacket.cs"] = (base / "Net/NetPacket.cs").read_text()
     # Exercise the actual town queue and transport in the prepared-cabinet proof.
@@ -69,7 +72,7 @@ def sources(root):
     if merchant_control.exists(): bound[merchant_control.name] = merchant_control.read_text()
     native_publication = base / "Net/TownServices/TownServiceMirror.NativePublication.cs"
     if native_publication.exists(): bound[native_publication.name] = native_publication.read_text()
-    for fast in ("TownServiceFastNumbers", "TownServiceMotionCodec", "TownServiceMotionBudget", "TownServiceReturnMotion", "TownServiceMirror.Motion"):
+    for fast in ("TownServiceFastNumbers", "TownServiceMotionCodec", "TownServiceMotionBudget", "TownServiceReturnMotion", "TownCardReturnMotion", "TownServiceMirror.Motion"):
         path = base / "Net/TownServices" / (fast + ".cs")
         if path.exists(): bound[path.name] = path.read_text()
     pad = base / "Hands/Interact/PokeOnlyTarget.cs"
@@ -169,7 +172,7 @@ def main():
     parser.add_argument("--fixture-dir", type=Path, default=repo / "scripts/town-service-mirror-runtime",
                         help="Runtime fixture to bind when resuming an integrated checkout's control")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
-    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock", "catalog-lifetime", "public-catalog", "voice-relay", "shared-interaction", "item-transfer", "motion-fast"), default="full")
+    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock", "catalog-lifetime", "public-catalog", "voice-relay", "shared-interaction", "item-transfer", "motion-fast", "card-return"), default="full")
     parser.add_argument("--bank-controls", action="store_true", help="Run only production plus prepared cabinet bank counterfactuals")
     parser.add_argument("--no-negative-controls", action="store_true")
     parser.add_argument("--only-mutation", help="Run production plus one selected negative control after a focused fixture fix")
@@ -316,6 +319,14 @@ def main():
                 ("roller-missing-direction", "TownServiceMirror.Racks.cs", "TownCassetteMotion.Apply(rack.Binding.Root, replaying ? clock.Elapsed / TownRackState.TurnDuration : 1f, state.ScrollDirection);", "TownCassetteMotion.Apply(rack.Binding.Root, replaying ? clock.Elapsed / TownRackState.TurnDuration : 1f, 0);", "late observer reconstructs exact owner holder translation and hinge angle in either scroll direction"),
                 ("cassette-skip-motion", "TownServiceMirror.Racks.cs", "TownCassetteMotion.Apply(rack.Binding.Root, replaying ? clock.Elapsed / TownRackState.TurnDuration : 1f, state.ScrollDirection);", "TownCassetteMotion.Apply(rack.Binding.Root, 1f, 0);", "actual peer category callback preserves the same intermediate authored cassette motion remotely"),
                 ("secondary-item-erasure", "TownServiceMirror.cs", "(session.Service == 1 || session.Service == 2 || session.Service == 3);", "(session.Service == 2 || session.Service == 3);", "non-elected visitor's original held item face and backing remain visible to third player"),
+            ]
+    if args.suite == "card-return":
+        variants = [("production", None, None, None, "")]
+        if not args.no_negative_controls:
+            variants += [
+                ("card-return-sampled-only", "TownServiceMirror.Motion.cs", "ApplyCardReturnMotion(module, flight, composed, composed.Merged, now);", "_ = now;", "native card return advances on every rendered frame without another packet"),
+                ("card-return-wrong-child", "TownCardReturnMotion.cs", "rotation * Rotation(values, 28)", "rotation", "the exact original card face follows its authored root-relative rotation"),
+                ("card-return-held-duplicate", "TownServiceMirror.Stock.cs", "bool shown = !held && current.Visible;", "bool shown = current.Visible;", "prepared stock original stays hidden while the canonical avatar holds its one card"),
             ]
     if args.suite == "item-transfer":
         variants = [("production", None, None, None, "")]

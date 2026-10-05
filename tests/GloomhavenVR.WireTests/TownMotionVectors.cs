@@ -11,7 +11,84 @@ internal static class TownMotionVectors
     internal static TownServiceFrame? CapturedFront;
     internal static void Run(Harness t)
     {
-        Codec(t); Packed(t); MotionBudget(t); VisibleFanBudget(t); Saturation(t); ReturnClock(t);
+        Codec(t); Packed(t); MotionBudget(t); VisibleFanBudget(t); Saturation(t); ReturnClock(t); CardReturnClock(t); CardReturnBudget(t);
+    }
+    private static void CardReturnBudget(Harness t)
+    {
+        t.Case("New short returns admit coherent roots before busy native motion without starving repair");
+        var live = new List<TownServiceMotionPending>(); var fan = new List<TownServiceMotionPending>();
+        var cold = new List<TownServiceMotionPending>();
+        for (ushort id = 1; id <= 120; id++)
+        {
+            float[] values = Pose(id * .001367f); values[1] = id * .003917f; values[2] = id * -.019713f;
+            var slot = new TownServiceMotionPending { Entry = new TownServiceMotionEntry { Kind = 2, Service = 1,
+                Session = 7, Structure = 2, Module = id, Binding = 2, Property = TownServiceProperty.Transform, Numbers = values } };
+            (id <= 80 ? live : id <= 100 ? fan : cold).Add(slot);
+        }
+        var returns = new List<TownServiceMotionPending>();
+        for (ushort id = 201; id <= 203; id++)
+        {
+            live.Add(new TownServiceMotionPending { Entry = new TownServiceMotionEntry { Kind = 1, Lane = 2,
+                Service = 1, Session = 7, Module = id, Structure = 2, Visible = true, ParentAlpha = 1f, Pose = Pose() } });
+            var clock = new TownServiceMotionPending { Entry = new TownServiceMotionEntry { Kind = 8, Lane = 2,
+                Service = 1, Session = 7, Module = id, Structure = 2, Revision = 3,
+                Numbers = new[] {0f,.35f,0f,0f,1f,2f,3f,0f,0f,0f,1f,1f,1f,1f,
+                    0f,0f,0f,0f,0f,0f,1f,1f,1f,1f,0f,0f,0f,0f,.01f,.02f,.03f,0f,0f,0f,1f,1f,1f,1f} } };
+            live.Add(clock); returns.Add(clock);
+        }
+        int a = 0, b = 0, c = 0; var first = new Dictionary<ushort,int>(); var ordinary = new HashSet<ushort>();
+        for (int tick = 0; tick < 20; tick++)
+        {
+            float now = tick / 15f;
+            foreach (var group in new[] {live, fan, cold}) foreach (var slot in group) slot.Dirty = true;
+            foreach (var clock in returns) clock.Entry.Numbers[0] = Math.Min(.35f, now);
+            var packet = Packet(); packet.SampleTime = now;
+            byte[] bytes = TownServiceMotionBudget.FillPacked(packet, live, fan, cold, ref a, ref b, ref c, now);
+            t.True(bytes.Length <= 864 && TownServiceMotionCodec.TryRead(bytes,bytes.Length,out _),
+                "busy native card return retains the existing single 864-byte event");
+            foreach (var entry in packet.Entries)
+            {
+                if (entry.Kind == 2) ordinary.Add(entry.Module);
+                if (entry.Kind != 8 || first.ContainsKey(entry.Module)) continue;
+                first.Add(entry.Module,tick);
+                t.True(packet.Entries.Exists(root => root.Kind == 1 && root.Module == entry.Module
+                    && root.Lane == entry.Lane && root.Session == entry.Session && root.Structure == entry.Structure),
+                    "the first short return arrives atomically with its own matching original root");
+            }
+        }
+        t.Equal(3,first.Count,"every exact original card part receives a first clock under busy live contention");
+        foreach (int tick in first.Values) t.True(tick <= 1,"new short card returns cannot expire behind routine native properties");
+        t.Equal(120,ordinary.Count,"repeated return ages retain finite progress for live controls visible fans and recovery");
+    }
+    private static void CardReturnClock(Harness t)
+    {
+        t.Case("Additive107 preserves native town card return curves and exact root-relative original parts");
+        var values = new[] {.125f,.35f,0f,0f,1f,2f,3f,0f,0f,0f,1f,1f,1f,1f,
+            0f,0f,0f,0f,0f,0f,1f,1f,1f,1f,0f,0f,0f,0f,.01f,.02f,.03f,0f,0f,0f,1f,1f,1f,1f};
+        var flight = new TownServiceMotionEntry {Kind=8,Lane=2,Service=1,Session=7,Module=3,
+            Structure=4,Revision=5,Numbers=values};
+        byte[] bytes=TownServiceMotionCodec.Write(Packet(flight));
+        t.Wire(Hex.Bytes("31 52 56 47 03 1A 61 0D 00 01 00 00 00 00 00 00 00 00 00 00 40 6B AE 08 02 01 07 00 00 00 00 00 00 00 03 00 04 00 00 00 00 05 00 00 00 00 00 00 3E 33 33 B3 3E 00 00 00 00 00 00 00 00 00 00 80 3F 00 00 00 40 00 00 40 40 00 00 00 00 00 00 00 00 00 00 00 00 00 00 80 3F 00 00 80 3F 00 00 80 3F 00 00 80 3F 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 80 3F 00 00 80 3F 00 00 80 3F 00 00 80 3F 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 0A D7 23 3C 0A D7 A3 3C 8F C2 F5 3C 00 00 00 00 00 00 00 00 00 00 00 00 00 00 80 3F 00 00 80 3F 00 00 80 3F 00 00 80 3F"),bytes,bytes.Length,
+            "independent Python struct golden binds untouched97 envelope and exact107 flight grammar");
+        t.True(TownServiceMotionCodec.EntryBytes(flight)==bytes.Length-21,"card return fits the bounded numeric lane");
+        t.True(TownServiceMotionCodec.TryRead(bytes,bytes.Length,out var read) &&read!.Entries[0].Kind==8,
+            "card return metadata is additive rather than extending the old purse grammar");
+        for(int i=0;i<values.Length;i++)t.Equal(values[i],read!.Entries[0].Numbers[i],"exact original card flight property survives");
+        foreach(byte service in new byte[]{1,3})foreach(byte hand in new byte[]{0,3,4})foreach(float curve in new[]{0f,1f,2f,3f})
+        {
+            flight.Service=service;flight.Lane=0;flight.Hand=hand;flight.Numbers[2]=curve;
+            byte[] candidate=TownServiceMotionCodec.Write(Packet(flight));
+            t.True(TownServiceMotionCodec.TryRead(candidate,candidate.Length,out _),"all actual stock owned-item and ability return modes remain legal");
+        }
+        foreach(int count in new[]{0,21,22,23,50,bytes.Length-1})t.True(!TownServiceMotionCodec.TryRead(bytes,count,out _),
+            "a truncated original card return never publishes an incomplete endpoint");
+        byte[] bad=(byte[])bytes.Clone();bad[21]=106;
+        t.True(!TownServiceMotionCodec.TryRead(bad,bad.Length,out _),"107 cannot reinterpret accepted purse106 grammar");
+        foreach(int at in new[]{23+22+8,23+22+12,23+22+27*4,23+22+34*4})
+        {
+            bad=(byte[])bytes.Clone();for(int n=0;n<4;n++)bad[at+n]=255;
+            t.True(!TownServiceMotionCodec.TryRead(bad,bad.Length,out _),"malformed native curve parameter relative rotation or reserved fields fail atomically");
+        }
     }
     private static void ReturnClock(Harness t)
     {

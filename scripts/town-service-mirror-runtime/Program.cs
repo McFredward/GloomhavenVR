@@ -1197,6 +1197,7 @@ public static partial class MirrorProgram
         var returning = new GloomhavenVR.WorldUI.TownServiceEnhancementHandoff.ReturnPresentation
         { CardId = 123, Face = Go("actual-return-face").transform, Body = Go("actual-return-body").transform,
             Session = GloomhavenVR.WorldUI.TownServicePresentation.Session, SessionAge = 3f };
+        returning.Card=returning.Face!.gameObject.AddComponent<GloomhavenVR.Cards.VRCard>();
         GloomhavenVR.WorldUI.TownServiceEnhancementHandoff.Returning.Add(returning);
         calls.Clear(); GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, null);
         Check(calls.Exists(c => c.Key == "face.123" && c.Source == returning.Face && c.Provenance == null),
@@ -1427,6 +1428,12 @@ public static partial class MirrorProgram
             _camera.clearFlags = CameraClearFlags.SolidColor; _camera.backgroundColor = new Color(.025f, .03f, .04f, 1);
             GloomhavenVR.Rig.VRRigDriver.HeadCamera = _camera;
             if (variant == "production") PublisherNoCloth();
+            if (suite == "card-return")
+            {
+                IEnumerator returns = CardReturns626(); while (returns.MoveNext()) yield return returns.Current;
+                if (variant == "production") { IEnumerator areas = PrintedAreas626(); while (areas.MoveNext()) yield return areas.Current; }
+                File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\n");yield break;
+            }
             if (suite == "motion-fast")
             {
                 IEnumerator fast = MotionFast(); while (fast.MoveNext()) yield return fast.Current;

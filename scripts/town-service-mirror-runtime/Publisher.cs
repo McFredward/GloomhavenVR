@@ -87,8 +87,11 @@ namespace GloomhavenVR.WorldUI
         internal sbyte ScrollDirection; internal int PageCount = 1; internal Transform Root = null!, HousingRoot = null!; internal bool Moving,Selling; internal uint TurnEpoch; internal float TurnElapsed { get => Mathf.Clamp(_clock, 0f, TownRackState.TurnDuration); set => _clock = value; } internal float LeadAngle { get => _leadAngle; set => _leadAngle = value; } internal int Page,FromPage,ToPage; }
     internal sealed partial class TownServiceCatalogCategory { internal string Key = ""; internal Transform Root = null!; }
     internal sealed class TownServiceMerchantCounter { internal Transform Root = null!; }
-    internal sealed class TownServiceEnhancementHandoff {
-        internal sealed class ReturnPresentation { internal Transform? Face, Body, StationRoot; internal int CardId; internal uint Session; internal float SessionAge; }
+    internal sealed partial class TownServiceEnhancementHandoff {
+        internal static RectTransform? PhysicalCardFace;
+        internal static bool TryPhysicalCardHeight(out float height)
+        { height=PhysicalCardFace!=null?PhysicalCardFace.rect.height*PhysicalCardFace.TransformVector(Vector3.up).magnitude:0f;return height>0f; }
+        internal sealed class ReturnPresentation { internal GloomhavenVR.Cards.VRCard Card=null!; internal Transform? Face, Body, StationRoot; internal int CardId; internal uint Session; internal float SessionAge; }
         internal static readonly List<ReturnPresentation> Returning = new();
         internal Transform? Card, Face, Zone; internal AbilityCardUI? NativeSource;
         internal int OfferedCardId = -1;
@@ -133,11 +136,17 @@ namespace GloomhavenVR.WorldUI
     internal sealed class TownServiceToken
     {
         internal float[]? ReturnNumbers;
+        internal readonly Dictionary<Transform,float[]> ReturnSamples=new();
         internal float ReturnStarted;
         internal bool TryReturnMotion(Transform source, Hands.VRHand hand, Transform shared, out uint revision, out float[] values)
         { revision=5; values=ReturnNumbers == null ? Array.Empty<float>() : (float[])ReturnNumbers.Clone();
           if(values.Length>0)values[0]=Time.unscaledTime-ReturnStarted;return HasReturnMotion; }
         internal bool HasReturnMotion => ReturnNumbers != null && Time.unscaledTime-ReturnStarted<=.60f;
+        internal bool TryCardReturnMotion(Transform source, Transform shared, Hands.VRHand? hand,
+            out uint revision, out float[] values)
+        { revision=5;float[]? original=ReturnSamples.TryGetValue(source,out var sample)?sample:ReturnNumbers;
+          values=original==null?Array.Empty<float>():(float[])original.Clone();
+          if(values.Length>0)values[0]=Time.unscaledTime-ReturnStarted;return HasReturnMotion&&values.Length==38; }
         internal bool IsPhysical, IsMoving, IsHeld;
         internal bool PhysicalAtHome = true;
         internal GloomhavenVR.Hands.VRHand? HoldingHand;
@@ -264,6 +273,9 @@ namespace GloomhavenVR.Cards
             internal Transform? InspectionBody;
             internal GloomhavenVR.Hands.VRHand? Holder;
             internal bool TownOffering;
+            internal bool IsCollapsing;
+            internal bool TryTownReturnMotion(Transform source,Transform shared,Hands.VRHand? hand,out uint revision,out float[] values)
+            {revision=0;values=Array.Empty<float>();return false;}
             internal bool AvatarTransport;
             internal Item? Item;
         }
