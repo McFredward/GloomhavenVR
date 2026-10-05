@@ -237,3 +237,37 @@ The actual original BC6H GPU readback comparison and Quest-device format/picture
 validation remain distinct, unverified hardware evidence. The current import gate
 states both limitations explicitly rather than treating decoder or Editor success
 as original GPU parity.
+
+## Complete ordinary Sprite drawing recovery
+
+The original identity inventory contains 5,159 Sprite objects in 711 owning
+containers. The two native packed atlases already cover 1,790 objects. The other
+3,369 objects are not atlas-backed. The exporter can replace their authored
+rectangle/pivot/offset with the cropped drawing bounds, including the CAB-owned
+LoadingBase spinner layer; matching names to core resource sprites is unsafe.
+
+`full_sprites.stage(project, game_data, cab_bundles=...)` reads every remaining
+object by exact original CAB/pathID, restores its authored rectangle, offset,
+border, pivot and pixels-per-unit, and restores its original render crop/trim
+fields. Vertex positions and indices remain the original native geometry; UVs
+are reconstructed with the native float32 position/uvTransform/texture-size rule.
+Texture pointers resolve through captured native identities. The verified 1,790
+packed members are hash-checked and left untouched. Only a generated project
+changes. Loading hundreds of source bundles simultaneously is avoided by retaining
+only the current owner/dependency closure.
+
+The actual complete source run restored all 3,369 remaining sprites with zero
+unresolved native texture identities and preserved all 1,790 packed hashes.
+`Assets/QuestOriginalCampaign/native-sprites.json` carries each original object and
+container hash plus recovered drawing streams. The production
+`QuestCampaignSpriteValidation` gate checks imported GUID/local ID, rectangle,
+pivot, border, texture identity/size and vertices/UV. It does not call
+`Sprite.textureRect` for arbitrary tight-packed geometry. Its working cache is
+bounded; the complete typed Campaign asset gate also releases its validated
+native-object cache every 128 associated locations.
+
+The separate root spinner validator was actually run in Unity 2021.3.5f1 with all
+four core spinner variants, both promotions and both native atlases. Its
+textureRect/padding checks passed for these actual assets. The broader ordinary
+Sprite Editor fixture is still running; source completion does not claim that its
+all-asset import gate or headset pictures have passed.

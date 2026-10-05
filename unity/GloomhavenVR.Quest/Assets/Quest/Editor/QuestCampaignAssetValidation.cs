@@ -117,6 +117,14 @@ namespace GloomhavenVR.Quest.Editor
             foreach (var row in input.entries)
             {
                 if (row.status == "serialized-value-location-excluded") continue;
+                // Previous associations have already been checked and recorded as
+                // plain receipts. Release their native prefab/texture closures
+                // before loading the next bounded group on the player's PC.
+                if (imported.Count != 0 && imported.Count % 128 == 0 && objectCache.Count != 0)
+                {
+                    objectCache.Clear();
+                    EditorUtility.UnloadUnusedAssetsImmediate();
+                }
                 if (row.status != "associated" || string.IsNullOrEmpty(row.associationProof) ||
                     string.IsNullOrEmpty(row.originalCollection) || row.originalPathId == 0 ||
                     row.nativeFileId == 0 || row.nativeFileId != row.recoveredFileId)
@@ -165,6 +173,8 @@ namespace GloomhavenVR.Quest.Editor
             }
             if (imported.Count != input.associatedEntryCount)
                 throw new InvalidDataException("Campaign typed-object inventory count differs.");
+            objectCache.Clear();
+            EditorUtility.UnloadUnusedAssetsImmediate();
             var packed = ValidatePackedSprites();
             var audio = ValidateBundledAudio();
             var closures = new List<SceneClosure>();
