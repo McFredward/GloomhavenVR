@@ -197,7 +197,7 @@ namespace GloomhavenVR.Hands
     internal class RayUiFixture {internal bool HasHit,IsPressing;internal float HitDistance;}
     internal class RayGrabFixture {internal bool OwnsPointerFrame;}
     internal class GrabberFixture{internal GloomhavenVR.Hands.Interact.IGrabbable? Held;internal bool ForceGrab(GloomhavenVR.Hands.Interact.IGrabbable g,bool releaseOnTriggerUp){Held=g;return true;}internal void CancelAll(){Held=null;}}
-    public class HandRig{public Transform GrabAnchor=new GameObject("Hand").transform;public Transform IndexTip=>GrabAnchor;public Transform PalmCenter=>GrabAnchor;public FingerJoints GetFinger(Finger f)=>default;}
+    public class HandRig{public Transform GrabAnchor=new GameObject("Hand").transform;public Transform Root=>GrabAnchor;public Transform IndexTip=>GrabAnchor;public Transform PalmCenter=>GrabAnchor;public FingerJoints GetFinger(Finger f)=>default;}
 }
 namespace GloomhavenVR.Hands.Interact
 {

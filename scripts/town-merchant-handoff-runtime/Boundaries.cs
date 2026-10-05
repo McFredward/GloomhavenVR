@@ -4,7 +4,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-namespace TMPro { public class TextMeshProUGUI : UnityEngine.UI.Text { } public class TMP_Text : MonoBehaviour { public string text = ""; public RectTransform rectTransform => (RectTransform)transform; } }
+namespace TMPro { public class TMP_SubMeshUI : UnityEngine.UI.MaskableGraphic { } public class TextMeshProUGUI : UnityEngine.UI.Text { } public class TMP_Text : MonoBehaviour { public string text = ""; public RectTransform rectTransform => (RectTransform)transform; } }
 namespace FFSNet { public static class FFSNetwork { public static bool IsOnline; } }
 namespace ScenarioRuleLibrary { public class CAbilityCard { } public class CItem { public enum EItemSlotState{None,Spent,Consumed} public EItemSlotState SlotState; public CItem(){} public CItem(int id){ID=id;} public int ID; public bool Tradeable = true; } }
 namespace MapRuleLibrary.Party {
