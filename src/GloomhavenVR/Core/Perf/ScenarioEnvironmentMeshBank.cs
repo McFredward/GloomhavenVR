@@ -22,6 +22,10 @@ internal static class ScenarioEnvironmentMeshBank
     private static readonly Dictionary<string, bool> Provenance = new();
     private static readonly HashSet<string> Failed = new();
     private static bool _loaded;
+    private static Func<bool>? _ensureAssetsLoaded;
+    internal static void ConfigureAssetPreparation(Func<bool> ensureAssetsLoaded) => _ensureAssetsLoaded = ensureAssetsLoaded;
+    internal static bool IsReady => PrepareIndex();
+    internal static bool IsUnavailable => Failed.Contains("index") || Failed.Contains("asset-loader");
 
     internal static bool TryGetExact(Mesh native, out Mesh mesh) => TryGet(native, 100, out mesh);
     internal static bool TryGetDetail(Mesh native, int percent, out Mesh mesh) => TryGet(native, percent >= 100 ? 100 : percent >= 50 ? 50 : 0, out mesh);
@@ -110,6 +114,12 @@ internal static class ScenarioEnvironmentMeshBank
     }
     private static TextAsset? Asset(string filename)
     {
+        try { if (_ensureAssetsLoaded?.Invoke() == false) return null; }
+        catch (Exception error)
+        {
+            if (Failed.Add("asset-loader")) VRLog.Note("Perf", "Scenario environment asset preparation unavailable (" + error.Message + "); native surfaces retained.");
+            return null;
+        }
         string path = AssetRoot + filename;
         foreach (AssetBundle bundle in AssetBundle.GetAllLoadedAssetBundles())
             if (bundle != null && bundle.Contains(path)) return bundle.LoadAsset<TextAsset>(path);
