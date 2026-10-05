@@ -219,55 +219,81 @@ namespace GloomhavenVR.Quest.Editor
                 return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
         }
 
-        static void RepackContent(string nativeRoot)
+        [Serializable] sealed class NativePackRequest
         {
-            const string manifestPath = "Assets/Quest/Resources/quest-startup-content.json";
-            var manifest = JsonUtility.FromJson<ContentManifest>(File.ReadAllText(manifestPath));
-            string archive = Path.Combine("Assets/StreamingAssets", manifest.archive);
-            if (Hash(archive) != manifest.archiveSha256)
-                throw new InvalidDataException("Owned startup archive changed before native catalog packaging.");
-            var retained = manifest.files.Where(file => !file.path.StartsWith("StreamingAssets/aa/", StringComparison.Ordinal)).ToArray();
-            var nativeFiles = Directory.GetFiles(nativeRoot, "*", SearchOption.AllDirectories)
-                .Where(path => !path.EndsWith(".meta", StringComparison.Ordinal)).OrderBy(path => path, StringComparer.Ordinal).ToArray();
-            if (nativeFiles.Length == 0) throw new InvalidDataException("Native startup Addressables output is empty.");
-            var added = nativeFiles.Select(path => new ContentFile
-            {
-                path = "StreamingAssets/aa/" + path.Substring(nativeRoot.TrimEnd(Path.DirectorySeparatorChar).Length + 1).Replace('\\', '/'),
-                sha256 = Hash(path), size = new FileInfo(path).Length
-            }).ToArray();
-            string temp = archive + ".repack-" + Guid.NewGuid().ToString("N");
-            try
-            {
-                using (var input = new ZipArchive(File.OpenRead(archive), ZipArchiveMode.Read))
-                using (var output = new ZipArchive(File.Create(temp), ZipArchiveMode.Create))
-                {
-                    foreach (ContentFile file in retained)
-                    {
-                        ZipArchiveEntry old = input.GetEntry(file.path);
-                        if (old == null || old.Length != file.size) throw new InvalidDataException("Owned startup archive lost original file: " + file.path);
-                        Copy(old.Open, output, file.path);
-                    }
-                    for (int index = 0; index < nativeFiles.Length; ++index)
-                    {
-                        string source = nativeFiles[index];
-                        Copy(() => File.OpenRead(source), output, added[index].path);
-                    }
-                }
-                File.Delete(archive);
-                File.Move(temp, archive);
-                manifest.files = retained.Concat(added).OrderBy(file => file.path, StringComparer.Ordinal).ToArray();
-                manifest.archiveSha256 = Hash(archive);
-                File.WriteAllText(manifestPath, JsonUtility.ToJson(manifest, true));
-            }
-            finally { if (File.Exists(temp)) File.Delete(temp); }
+            public int schema = 1;
+            public string projectRoot, nativeRoot;
+        }
+        [Serializable] sealed class NativePackReceipt
+        {
+            public int schema, fileCount, nativeBundleCount;
+            public bool reused;
+            public string inputKey, archiveSha256;
         }
 
-        static void Copy(Func<Stream> source, ZipArchive archive, string name)
+        static void RepackContent(string nativeRoot)
         {
-            var entry = archive.CreateEntry(name, System.IO.Compression.CompressionLevel.Optimal);
-            entry.LastWriteTime = new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero);
-            using (Stream input = source())
-            using (Stream output = entry.Open()) input.CopyTo(output, 65536);
+            string python = Environment.GetEnvironmentVariable("GHVR_QUEST_CONTENT_PACK_PYTHON");
+            string helper = Environment.GetEnvironmentVariable("GHVR_QUEST_CONTENT_PACK_HELPER");
+            if (string.IsNullOrEmpty(python) || string.IsNullOrEmpty(helper)
+                || !File.Exists(python) || !File.Exists(helper))
+                throw new InvalidOperationException("The builder's verified Python content packer is required.");
+            const string evidence = "QuestStartupEvidence";
+            Directory.CreateDirectory(evidence);
+            string request = Path.GetFullPath(Path.Combine(evidence, "content-pack-request-" + Guid.NewGuid().ToString("N") + ".json"));
+            File.WriteAllText(request, JsonUtility.ToJson(new NativePackRequest
+            {
+                projectRoot = Directory.GetCurrentDirectory(), nativeRoot = Path.GetFullPath(nativeRoot)
+            }, true));
+            try
+            {
+                using (var process = new System.Diagnostics.Process())
+                {
+                    process.StartInfo = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = python, Arguments = "-I -B -X utf8 " + QuoteArgument(helper) + " --request " + QuoteArgument(request),
+                        UseShellExecute = false, CreateNoWindow = true,
+                        RedirectStandardOutput = true, RedirectStandardError = true,
+                        WorkingDirectory = Directory.GetCurrentDirectory()
+                    };
+                    // The standard-library helper emits one bounded result/error
+                    // line. It never dumps content, environment or private keys.
+                    process.Start();
+                    string output = process.StandardOutput.ReadToEnd();
+                    string error = process.StandardError.ReadToEnd();
+                    process.WaitForExit();
+                    if (process.ExitCode != 0)
+                        throw new InvalidDataException("Native content packer failed (" + process.ExitCode + "): "
+                            + error.Substring(0, Math.Min(error.Length, 2048)));
+                }
+                var receipt = JsonUtility.FromJson<NativePackReceipt>(File.ReadAllText(Path.Combine(evidence, "native-content-pack.json")));
+                var content = JsonUtility.FromJson<ContentManifest>(File.ReadAllText("Assets/Quest/Resources/quest-startup-content.json"));
+                if (receipt == null || receipt.schema != 1 || content == null
+                    || receipt.inputKey != content.inputKey || receipt.archiveSha256 != content.archiveSha256)
+                    throw new InvalidDataException("Native content packer lost the exact content identity.");
+                Debug.Log("[Quest content build] " + (receipt.reused ? "reused verified unchanged archive" : "packed native bundles without recompression")
+                    + " files=" + receipt.fileCount + " native-bundles=" + receipt.nativeBundleCount);
+            }
+            finally { if (File.Exists(request)) File.Delete(request); }
+        }
+
+        static string QuoteArgument(string value)
+        {
+            if (value.IndexOfAny(new[] { '\0', '\r', '\n' }) >= 0)
+                throw new InvalidDataException("Content packer argument contains a control character.");
+            // ProcessStartInfo arguments use literal quoting, never a shell.
+            // Double backslashes only before quotes and the closing quote.
+            var result = new System.Text.StringBuilder("\"");
+            int slashes = 0;
+            foreach (char character in value)
+            {
+                if (character == '\\') { ++slashes; continue; }
+                result.Append('\\', character == '\"' ? slashes * 2 + 1 : slashes);
+                result.Append(character);
+                slashes = 0;
+            }
+            result.Append('\\', slashes * 2);
+            return result.Append('\"').ToString();
         }
     }
 }

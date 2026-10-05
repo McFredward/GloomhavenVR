@@ -1098,6 +1098,7 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                     "GHVR_QUEST_KEYALIAS_PASSWORD": private["password"],
                     "GHVR_QUEST_ANDROID_SDK": tools["androidSdk"],
                     "GHVR_QUEST_ANDROID_NDK": tools["androidNdk"], "GHVR_QUEST_JDK": tools["jdk"]})
+        env = content_pack_environment(env)
         if args.target in ("startup", "game"):
             # Unity 2021.3's Android toolchain otherwise selects old NDK r21 BFD.
             # Keep the supported linker selection local to this Android build process.
@@ -1139,6 +1140,17 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
     print("build: verified " + str(apk) + (" (DIAGNOSTIC: " + args.target + ")" if args.target != "game" else "") +
           (" (DUMMY IDENTITY)" if inputs["profile"].get("isDummy") else ""), flush=True)
     return apk
+
+
+def content_pack_environment(base):
+    """Only the captured builder selects the literal standard-library packer."""
+    helper = Path(__file__).with_name("native_content_pack.py").resolve()
+    if not helper.is_file():
+        raise BuildError("The captured native content packer is missing.")
+    result = dict(base)
+    result.update(GHVR_QUEST_CONTENT_PACK_PYTHON=str(Path(sys.executable).resolve()),
+                  GHVR_QUEST_CONTENT_PACK_HELPER=str(helper))
+    return result
 
 
 def bind_startup_package_apis(args, output: Path, source: Path, project: Path,
