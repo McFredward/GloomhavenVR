@@ -377,10 +377,14 @@ def sources(root):
               "Net/TownServices/TownServiceMirror.cs": hashlib.sha256(mirror_raw.encode()).hexdigest(),
               "TownServiceSync.cs": hashlib.sha256(sync_raw.encode()).hexdigest(),
               "NativeTemplates.cs": hashlib.sha256(templates_raw.encode()).hexdigest()}
-    for name in ("TownServiceFrame.cs", "TownServiceDelta.cs", "TownRackState.cs", "TownCatalogLayout.cs"):
+    for name in ("TownServiceFrame.cs", "TownServiceDelta.cs", "TownRackState.cs", "TownCatalogLayout.cs",
+                 "TownCatalogBank.cs", "TownServiceCodec.cs"):
         native = (root / "src/GloomhavenVR/Net/TownServices" / name).read_text()
         bound[name] = native
         hashes["Net/TownServices/" + name] = hashlib.sha256(native.encode()).hexdigest()
+    protocol = (root / "tests/GloomhavenVR.TownServiceTests/ProtocolBoundary.cs").read_text()
+    bound["ProtocolBoundary.cs"] = protocol
+    hashes["TownServiceTests/ProtocolBoundary.cs"] = hashlib.sha256(protocol.encode()).hexdigest()
     return bound, hashes
 
 

@@ -595,11 +595,13 @@ internal sealed class LoadingIndicator
         for (byte service = 1; service <= 3; service++)
             if (TownServiceAvailability.NativeUnlocked(service) && !TownServicePopulation.Available(service))
                 return true;
-        // The merchant's public stock is a separate persistent presentation built
-        // after the resident. Do not dismiss the spinner with an empty cabinet.
+        // Original avatar art alone does not prepare the cabinet's hidden native
+        // price/body/card partitions. Prepare both before dismissing this display
+        // spinner; native input and loading flags remain independent.
         if (TownServiceAvailability.NativeUnlocked(1) && TownServiceGrantSync.CanUseImmersive
             && !TownServicePresentation.NativeFallbackFor(1)
             && (TownServicePublicMerchant.Catalog == null
+                || !TownServicePublicMerchant.PrepareCatalogForLoading()
                 || !NetAvatarDriver.PrepareMerchantCardsForLoading()))
             return true;
         _townReloadActive = false;

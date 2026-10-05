@@ -16,6 +16,8 @@ def main():
     parser.add_argument('--source-root', type=Path, default=ROOT)
     parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity')))
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/town-flame')
+    parser.add_argument('--no-negative-controls', action='store_true',
+                        help='Run production only when unchanged controls already have retained evidence')
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
@@ -34,7 +36,13 @@ for bundle,name in [('pcg_materials_assets_cr_st_candleflame.bundle','CandleAnim
     subprocess.run([str(python), '-c', extractor, str(args.source_root), str(run)], check=True)
     base = args.source_root / 'src/GloomhavenVR/Net/TownServices'
     sources = {name: (base / name).read_text().replace('Time.unscaledTime', 'FlameTestClock.Now') for name in (
-        'TownServiceAssets.cs', 'TownServiceFrame.cs', 'TownRackState.cs', 'TownCatalogLayout.cs', 'TownServiceDelta.cs', 'TownServiceMaterial.cs', 'TownServiceBinding.cs', 'TownServiceFlameClock.cs')}
+        'TownServiceAssets.cs', 'TownServiceFrame.cs', 'TownRackState.cs', 'TownCatalogLayout.cs',
+        'TownCatalogBank.cs', 'TownServiceCodec.cs', 'TownServiceDelta.cs', 'TownServiceMaterial.cs',
+        'TownServiceBinding.cs', 'TownServiceFlameClock.cs')}
+    # Frame/Delta retain the real optional original bank. Link its codec rather
+    # than replacing Copy with a fixture-only no-op; wire vectors pin these IDs.
+    sources['ProtocolBoundary.cs'] = (args.source_root /
+        'tests/GloomhavenVR.TownServiceTests/ProtocolBoundary.cs').read_text()
     # Binding prunes only verified invisible input pads; compile the exact shipped marker.
     pad = args.source_root / 'src/GloomhavenVR/Hands/Interact/PokeOnlyTarget.cs'
     sources[pad.name] = pad.read_text()
@@ -48,6 +56,8 @@ for bundle,name in [('pcg_materials_assets_cr_st_candleflame.bundle','CandleAnim
         ('clock-rewind', 'TownServiceFlameClock.cs', 'Mathf.Max(_ownerOffset, sample - now)', 'sample - now', 'coalesced late sample preserves elapsed owner clock'),
         ('drop-slot-properties', 'TownServiceFlameClock.cs', '_renderer.GetPropertyBlock(_block, _slot);', '_block.Clear();', 'unrelated slot properties survive playback'),
         ('no-dispose-restore', 'TownServiceFlameClock.cs', '_original.isEmpty ? null : _original', '_block', 'shader replacement restores the original slot property block')]
+    if args.no_negative_controls:
+        variants = variants[:1]
     manifest = {'result': str(run / 'results.txt'), 'cases': []}
     fixture = ROOT / 'scripts/town-flame-runtime'
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
@@ -96,6 +106,7 @@ for bundle,name in [('pcg_materials_assets_cr_st_candleflame.bundle','CandleAnim
     evidence = Path(manifest['result'])
     if evidence.exists(): print(evidence.read_text())
     if result.returncode or not evidence.exists(): raise SystemExit('FAIL: ' + str(run / 'unity.log'))
-    print('PASS: production flame clock/material/render tests, six compiled clock negatives and original billboard batching negative; evidence: ' + str(run))
+    print('PASS: production flame clock/material/render tests, '
+          + str(len(variants) - 1) + ' compiled clock negatives and original billboard batching negative; evidence: ' + str(run))
 
 if __name__ == '__main__': main()
