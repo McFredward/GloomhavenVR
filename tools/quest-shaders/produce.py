@@ -17,6 +17,8 @@ import re
 import shutil
 
 from manifest import ValidationError, sha256
+import integer_bits
+import load_bounds
 
 
 @functools.lru_cache(maxsize=1)
@@ -306,6 +308,8 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
             portable, sampling_adapters = native.portable_sampling_interface(bound.read_text())
             wrapped = native.stereo_wrapper(portable, row['stage'], row.get('outputInterfaceAdapters', []),
                                             input_signature, output_signature)
+            wrapped, load_proofs = load_bounds.restore(wrapped)
+            wrapped, integer_proof = integer_bits.restore(wrapped)
             path = Path('Assets/QuestOriginalCampaign/ShaderPrograms') / (key[0] + '-' + key[1] + '.hlsl')
             target = output / path
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -315,7 +319,8 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
                                    'sourceSha256': sha256(target), 'boundHlslSha256': row['boundHlslSha256'],
                                    'outputInterfaceAdapters': row.get('outputInterfaceAdapters', []),
                                    'samplingInterfaceAdapters': sampling_adapters,
-                                   'originalInputSignature': input_signature, 'originalOutputSignature': output_signature}
+                                   'originalInputSignature': input_signature, 'originalOutputSignature': output_signature,
+                                   'integerCarrierProof': integer_proof, 'textureLoadProofs': load_proofs}
     shaders = []
     for shader in inventory['shaders']:
         form = json.loads((cache / 'forms' / (shader['originalParsedFormSha256'] + '.json')).read_text())

@@ -1026,16 +1026,29 @@ def native_stage_interface(hlsl, signatures, direction):
             by_register[row["register"]].append(row)
     transfers = {}
     def declaration(match):
-        qualifier, source_kind, width_text, variable, slot, emitted_semantic = match.groups()
+        qualifier, source_kind, width_text, variable, emitted_semantic = match.groups()
+        numbered = re.fullmatch(symbol + r"(\d+)", variable)
+        generic_location = re.fullmatch(r"TEXCOORD(\d+)", emitted_semantic, re.I)
+        if numbered:
+            slot = int(numbered[1])
+        elif generic_location:
+            # SPIRV-Cross separates a mixed native register/system value into
+            # an anonymous field. Its unchanged generic TEXCOORD location is
+            # the original vkd3d register location, not a material-name guess.
+            slot = int(generic_location[1])
+        elif emitted_semantic.upper().startswith("SV_"):
+            return match[0]
+        else:
+            raise ShaderRecoveryError("Translated anonymous stage field lacks native register identity: " + variable)
         # Original Unity also uses SV-prefixed names as ordinary user varyings
         # (systemValue=0), notably the object instance transported to fragments.
         # Preserve actual engine system inputs/outputs, not a spelling guess.
-        if emitted_semantic.upper().startswith("SV_") and not by_register.get(int(slot)):
+        if emitted_semantic.upper().startswith("SV_") and not by_register.get(slot):
             return match[0]
         width = int(width_text or 1)
-        rows = by_register.get(int(slot), [])
+        rows = by_register.get(slot, [])
         if not rows:
-            if any(row["register"] == int(slot) and row["semantic"].upper() == "SV_RENDERTARGETARRAYINDEX" for row in signatures):
+            if any(row["register"] == slot and row["semantic"].upper() == "SV_RENDERTARGETARRAYINDEX" for row in signatures):
                 return match[0]  # Explicit portable native-layer adapter.
             raise ShaderRecoveryError("Translated stage field lacks original semantic identity: " + variable)
         occupied, declarations, values = set(), [], {}
@@ -1078,7 +1091,7 @@ def native_stage_interface(hlsl, signatures, direction):
             value = components[0] if width == 1 else source_kind + str(width) + "(" + ", ".join(components) + ")"
             transfers[variable] = variable + " = " + value + ";"
         return "\n    ".join(declarations)
-    pattern = re.compile(r"((?:(?:nointerpolation|noperspective|centroid|sample|linear)\s+)*)(float|int|uint)([1-4]?)\s+(" + symbol + r"(\d+))\s*:\s*(\w+)\s*;")
+    pattern = re.compile(r"((?:(?:nointerpolation|noperspective|centroid|sample|linear)\s+)*)(float|int|uint)([1-4]?)\s+(\w+)\s*:\s*(\w+)\s*;")
     body = pattern.sub(declaration, structure["body"])
     hlsl = hlsl[:structure.start("body")] + body + hlsl[structure.end("body"):]
     for variable, statements in transfers.items():

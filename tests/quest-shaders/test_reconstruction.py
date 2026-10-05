@@ -63,6 +63,22 @@ class NativeBindings(unittest.TestCase):
         with self.assertRaisesRegex(native.ShaderRecoveryError, 'read input is absent'):
             native.stereo_wrapper(source, 'fragment', input_signature=[{**r, 'readWriteMask': 1} if r['semanticIndex'] == 6 else r for r in signatures])
 
+    def test_anonymous_input_retains_original_mixed_register_identity(self):
+        signatures = [{'register': 9, 'semantic': 'SV_InstanceID', 'semanticIndex': 0,
+                       'systemValue': 0, 'mask': 1, 'readWriteMask': 1, 'componentType': 1},
+                      {'register': 9, 'semantic': 'SV_IsFrontFace', 'semanticIndex': 0,
+                       'systemValue': 9, 'mask': 2, 'readWriteMask': 2, 'componentType': 1}]
+        source = ('struct SPIRV_Cross_Input { nointerpolation uint _87 : TEXCOORD9; '
+                  'bool gl_FrontFacing : SV_IsFrontFace; };\n'
+                  'struct SPIRV_Cross_Output { float4 o0 : SV_Target0; };\n'
+                  'SPIRV_Cross_Output main(SPIRV_Cross_Input stage_input) { '
+                  '_87 = stage_input._87; return stage_output; }')
+        result = native.stereo_wrapper(source, 'fragment', input_signature=signatures)
+        self.assertIn('_87 = stage_input.questNative_SV_InstanceID0;', result)
+        self.assertIn('bool gl_FrontFacing : SV_IsFrontFace;', result)
+        with self.assertRaisesRegex(native.ShaderRecoveryError, 'register identity'):
+            native.stereo_wrapper(source.replace('TEXCOORD9', 'UNKNOWN9'), 'fragment', input_signature=signatures)
+
     def instance_interface(self):
         return {'buffers': [{'name': 'UnityInstancing_Fixture', 'bytes': 64, 'fields': [],
             'structures': [{'name': 'FixtureArray', 'stride': 32, 'byteOffset': 0, 'arraySize': 2,

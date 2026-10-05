@@ -230,3 +230,30 @@ No input read or shader math is invented. The five-family gate now passes all
 driver (92 unique emitted banks), including the two previously failing banks.
 An undefined-instruction copy of a real bank is rejected as a negative control.
 Actual multiview is unavailable on that EGL device and is not claimed.
+
+Native mixed input registers can contain an ordinary SV_InstanceID user varying
+and the real front-face system value. SPIRV-Cross emits an anonymous field for
+the user component; its unchanged TEXCOORD location witnesses the original
+register. The restorer now uses that exact location rather than requiring a
+numbered variable, and rejects anonymous fields without native identity.
+
+DXBC MOV instructions carry raw bits, even when SPIRV-Cross represents their
+temporary registers as floats. Subsequent HLSL compilation can flush subnormal
+integer payloads or canonicalize NaNs. `integer_bits.restore` keeps parallel
+uint carriers for the actual static and local float registers whose bits are
+extracted, including raw MOV dependencies and exact float-literal bits. It
+captures before each original write, so loop/self-assignment ordering and the
+original floating consumers remain intact. Native arithmetic is retained.
+
+The only two unique graphics programs using typed Texture.Load contain four
+actual mip-zero Texture2D reads. `load_bounds.restore` validates that native mip
+and dimension, evaluates the coordinates once, and returns zero outside the
+actual texture extent, matching D3D instead of relying on undefined GLES fetch
+results. Unknown dimensions, mips and overloads fail; no coordinate is clamped.
+
+The corrected complete overlay emits all 688 shaders. A fresh five-family gate
+with these integer carriers passed all 624 Android compiler aliases and its
+312 mono aliases again linked on the actual GLES driver (92 distinct banks).
+The full 1,432-pass census and all 103,128 compiler aliases remain independent
+outstanding checks; these counts do not establish a headset result or all-pixel
+parity with the PC game.
