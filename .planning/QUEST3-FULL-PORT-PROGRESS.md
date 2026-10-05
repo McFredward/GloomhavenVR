@@ -292,3 +292,43 @@ notice. A new matching prepared project, complete Unity/import/native-bank gates
 IL2CPP compilation, signed full player, adjacent complete content bank and Windows
 hardware package remain required. The prior successful prepared tree is retained
 only as non-final source evidence until its replacement is verified.
+
+## Complete imported Campaign and actual Android SDK (2026-10-05)
+
+The complete runtime/game source is frozen at `fa6c1f9a` / ModBuild623, including
+the excluded-mode admission guard. Input key `7ecd1e978c52` is prepared in the
+retained private project `91d2b825b6fc`. The actual Unity cold import completed;
+its 95.9-minute refresh and a subsequent 49.4-minute settings-triggered refresh
+are recorded as build-time costs in the Wizard audit. No asset cuts were made.
+
+The full project exposed a native Editor-host cursor failure under `-nographics`.
+GDB places it in Xcursor during default cursor initialization. The real GLCore
+Editor context under Xvfb retains the original cursor and completes the same
+imported project's actual Android SDK compilation without repeating the cold
+import. Build driver `1b898c21` selects this host only for the full-game target
+and records its own SHA independently of the frozen runtime input.
+
+The actual SDK contains 17 assemblies. The original package API gate resolves
+553 types and 1,464 members with five exact rebindings and zero issues. Independent
+review confirms the nine Campaign runtime types, 183 Campaign member references,
+45 native bindings with actual ARM64 exports, and the exact 75 plugin/eight SDK
+hash contract. These checks establish compilation/binding evidence, not headset
+execution or cross-platform room admission.
+
+The first full Player attempt stopped before asset-bank/IL2CPP compilation because
+the script-order consumer understood Startup exclusions but rejected the full
+Campaign producer's 113 TestRunner exclusions. Correction `4fe56275` accepts only
+those unreferenced, default-order original identities with the exact Campaign
+scope, manifest/binding hashes, and source rows. Unknown exclusions and missing
+required game scripts still fail before importer mutation. Production-consumer
+fixtures pass 92 checks and 29 negative controls; a separate compile against the
+actual Unity2021.3.5f1 Editor assemblies passes. The actual native restoration
+receipt remains a gate in the resumed full build.
+
+The retained project's one Editor-only correction is recorded separately in
+`full-game-editor-order-override.json`; the frozen game/mod runtime files remain
+unchanged. Resume verifies every other preparation output and both immutable
+source snapshots rather than publishing a false replacement preparation receipt.
+The complete native-bank, IL2CPP, signed APK, delivered-content and Windows
+handoff gates remain pending at this checkpoint. No full hardware package is
+claimed yet.
