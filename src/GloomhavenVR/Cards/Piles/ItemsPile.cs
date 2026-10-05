@@ -5895,6 +5895,7 @@ internal sealed partial class ItemsPile
 
         internal void BeginCollapse(Vector3 worldConverge, float delay = 0f, float spinSign = 1f)
         {
+            if (IsTownInspection && ++_townReturnRevision == 0) _townReturnRevision = 1;
             _emerging = false;
             _collapsing = true;
             _collapseWorld = worldConverge;
@@ -6204,7 +6205,47 @@ internal sealed partial class ItemsPile
         /// <summary>Requirement 6 — cancel the post-release glide-home (used when a drop CLIPS into the
         /// use slot instead of returning to the fan).</summary>
         internal void CancelReleaseGlide() => _releaseGlide = 0f;
-        internal void ResumeInspectionGlide() => _releaseGlide = ReleaseGlideSeconds;
+        private uint _townReturnRevision;
+        internal void ResumeInspectionGlide()
+        {
+            _releaseGlide = ReleaseGlideSeconds;
+            if (++_townReturnRevision == 0) _townReturnRevision = 1;
+        }
+
+        internal bool TryTownReturnMotion(Transform source, Transform shared, VRHand? hand,
+            out uint revision, out float[] numbers)
+        {
+            revision = _townReturnRevision; numbers = System.Array.Empty<float>();
+            if (!IsTownInspection || Holder != null || TownOffering || PendingUse || _emerging
+                || _inspectionArtPending || revision == 0
+                || !(source == transform || source.IsChildOf(transform))) return false;
+            if (_collapsing)
+            {
+                if (_collapseTime < _collapseDelay) return false;
+                Vector3 scale = Vector3.Scale(transform.parent != null ? transform.parent.lossyScale : Vector3.one,
+                    Vector3.one * _collapseFromScale);
+                numbers = Net.TownServices.TownCardReturnMotion.Capture(source, transform, shared, null,
+                    _collapseTime - _collapseDelay, Mathf.Max(.01f, CardsConfig.ItemFanCloseDuration.Value), 3, Overshoot(),
+                    Matrix4x4.TRS(_collapseFrom, _collapseFromRot, scale), _collapseFromRot,
+                    Matrix4x4.TRS(_collapseWorld, _collapseFromRot * _collapseSpin, scale * SeedScale()),
+                    _collapseFromRot * _collapseSpin, Vector3.zero);
+                return true;
+            }
+            if (_releaseGlide <= 0f || transform.parent == null) return false;
+            Transform parent = transform.parent;
+            float popForward = CardsConfig.FanSelectedPopForward != null
+                ? CardsConfig.FanSelectedPopForward.Value : Defaults.FanSelectedPopForward;
+            Vector3 target = _homePos + new Vector3(0f, PopUp * _pop, -popForward * _pop);
+            Vector3 scaleTarget = Vector3.one * (_homeScale * (1f + (PopScale - 1f) * _pop));
+            // The original ease is exponential. Starting from its actual current state with
+            // its remaining lifetime is exactly the same curve, including changing fan slots.
+            numbers = Net.TownServices.TownCardReturnMotion.Capture(source, transform, shared, hand,
+                0f, _releaseGlide, 1, CardsConfig.CardLerpSpeed.Value,
+                transform.localToWorldMatrix, transform.rotation,
+                parent.localToWorldMatrix * Matrix4x4.TRS(target, _homeRot, scaleTarget),
+                parent.rotation * _homeRot, Vector3.zero);
+            return true;
+        }
 
         /// <summary>Requirement 6 — return the chip to its fan home (the "return to deck" path on cancel):
         /// clear the clip state and start the same glide the post-release home uses.</summary>

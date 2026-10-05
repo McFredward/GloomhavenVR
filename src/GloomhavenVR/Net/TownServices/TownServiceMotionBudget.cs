@@ -9,6 +9,7 @@ internal class TownServiceMotionPending
     internal TownServiceMotionEntry Entry = null!;
     internal bool Dirty = true;
     internal float SentAt = float.NegativeInfinity;
+    internal uint AdmittedReturnRevision;
 }
 
 /// <summary>Live controls and held targets get a finite turn before cold fan heartbeats.
@@ -19,9 +20,9 @@ internal static class TownServiceMotionBudget
     private readonly struct Selected
     {
         internal readonly TownServiceMotionPending Slot;
-        internal readonly int Group, Next;
-        internal Selected(TownServiceMotionPending slot, int group, int next)
-        { Slot = slot; Group = group; Next = next; }
+        internal readonly int Group, Next, Bundle;
+        internal Selected(TownServiceMotionPending slot, int group, int next, int bundle = 0)
+        { Slot = slot; Group = group; Next = next; Bundle = bundle; }
     }
 
     /// <summary>Pack current numeric samples losslessly into the unchanged event budget.
@@ -38,6 +39,36 @@ internal static class TownServiceMotionBudget
         var seen = new HashSet<TownServiceMotionPending>();
         int initial = packet.Entries.Count, size = 21;
         foreach (TownServiceMotionEntry entry in packet.Entries) size += TownServiceMotionCodec.EntryBytes(entry);
+        // A new short original return must begin before routine material and hover numbers.
+        // Admit at most two complete clock/root pairs, preserving ordinary finite turns
+        // and the same event size. Compression trimming retains or removes each pair together.
+        int pairs = 0;
+        for (int i = 0; i < live.Count && pairs < 2; i++)
+        {
+            int index = (liveCursor + i) % live.Count;
+            TownServiceMotionPending clock = live[index];
+            if (clock.Entry.Kind != 8 || clock.SentAt == now || !clock.Dirty
+                || clock.AdmittedReturnRevision == clock.Entry.Revision) continue;
+            int rootIndex = -1;
+            for (int n = 0; n < live.Count; n++)
+            {
+                TownServiceMotionEntry root = live[n].Entry, flight = clock.Entry;
+                if (root.Kind == 1 && root.Lane == flight.Lane && root.Service == flight.Service
+                    && root.Session == flight.Session && root.PublicClaim == flight.PublicClaim
+                    && root.Module == flight.Module && root.Structure == flight.Structure && root.Hand == flight.Hand)
+                { rootIndex = n; break; }
+            }
+            if (rootIndex < 0) continue;
+            TownServiceMotionPending anchor = live[rootIndex];
+            int pairBytes = TownServiceMotionCodec.EntryBytes(anchor.Entry) + TownServiceMotionCodec.EntryBytes(clock.Entry);
+            if (size + pairBytes > TownServiceMotionCodec.MaxExpandedBytes
+                || packet.Entries.Count + 2 > TownServiceMotionCodec.MaxExpandedEntries) break;
+            int bundle = ++pairs;
+            packet.Entries.Add(anchor.Entry); packet.Entries.Add(clock.Entry);
+            selected.Add(new Selected(anchor, 0, rootIndex + 1, bundle));
+            selected.Add(new Selected(clock, 0, index + 1, bundle));
+            seen.Add(anchor); seen.Add(clock); size += pairBytes;
+        }
         int turn = 0;
         while (packet.Entries.Count < TownServiceMotionCodec.MaxExpandedEntries
             && (visited[0] < live.Count || visited[1] < visibleFan.Count || visited[2] < ordinary.Count))
@@ -50,6 +81,9 @@ internal static class TownServiceMotionBudget
             int index = (cursors[group] + visited[group]++) % waiting.Count;
             TownServiceMotionPending slot = waiting[index];
             if (slot.SentAt == now || !seen.Add(slot)) continue;
+            // A first clock waits for its complete priority pair rather than taking a
+            // later unpaired ordinary turn. Admitted clocks use normal bounded repair.
+            if (slot.Entry.Kind == 8 && slot.AdmittedReturnRevision != slot.Entry.Revision) continue;
             int bytes = TownServiceMotionCodec.EntryBytes(slot.Entry);
             if (size + bytes > TownServiceMotionCodec.MaxExpandedBytes) break;
             packet.Entries.Add(slot.Entry); selected.Add(new Selected(slot, group, index + 1)); size += bytes;
@@ -60,6 +94,8 @@ internal static class TownServiceMotionBudget
             // At most logarithmically many compression probes; real random float
             // payloads must retain a legacy-sized finite turn too.
             int keep = Math.Max(0, selected.Count * 3 / 4);
+            if (keep > 0 && keep < selected.Count && selected[keep - 1].Bundle != 0
+                && selected[keep - 1].Bundle == selected[keep].Bundle) keep--;
             selected.RemoveRange(keep, selected.Count - keep);
             packet.Entries.RemoveRange(initial + keep, packet.Entries.Count - initial - keep);
             if (packet.Entries.Count > 0) encoded = TownServiceMotionCodec.TryWritePacked(packet);
@@ -68,6 +104,7 @@ internal static class TownServiceMotionBudget
         foreach (Selected accepted in selected)
         {
             accepted.Slot.Dirty = false; accepted.Slot.SentAt = now;
+            if (accepted.Slot.Entry.Kind == 8) accepted.Slot.AdmittedReturnRevision = accepted.Slot.Entry.Revision;
             cursors[accepted.Group] = accepted.Next;
         }
         liveCursor = cursors[0]; visibleCursor = cursors[1]; ordinaryCursor = cursors[2];

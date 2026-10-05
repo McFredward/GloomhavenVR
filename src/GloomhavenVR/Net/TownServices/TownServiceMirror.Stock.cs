@@ -151,8 +151,45 @@ internal static partial class TownServiceMirror
         }
     }
 
+    private static void SuppressPreparedHeldStock()
+    {
+        foreach (var stock in StockPeers)
+        {
+            if (!Remote.TryGetValue(stock.Key, out Dictionary<ushort, RemoteModule>? modules)) continue;
+            foreach (RemoteModule module in modules.Values)
+            {
+                if (!module.Alive || module.Address != "merchant.heldstock|" || module.LastFrame == null) continue;
+                bool held = false;
+                foreach (RemoteModule item in modules.Values)
+                {
+                    TownServiceFrame? frame = EffectiveRemoteFrame(item);
+                    if (frame == null || !TryStockItemId(frame.TemplateAddress, out int id)
+                        || !NetAvatarDriver.TryGetTownHeldStock(stock.Value, id, out _)) continue;
+                    ushort parent = frame.ParentModule;
+                    for (int steps = 0; steps < modules.Count; steps++)
+                    {
+                        if (parent == module.LastFrame.Module) { held = true; break; }
+                        if (!modules.TryGetValue(parent, out RemoteModule? ancestor)
+                            || EffectiveRemoteFrame(ancestor) is not TownServiceFrame ancestorFrame
+                            || ancestorFrame.ParentModule == parent) break;
+                        parent = ancestorFrame.ParentModule;
+                    }
+                    if (held) break;
+                }
+                // Exact original metadata is prepared during the canonical avatar hold, but
+                // there is one visible card. Release exposes its already-warm return module
+                // immediately; it cannot await a different item's avatar or local distance.
+                module.StockMasked = held;
+                TownServiceFrame current = EffectiveRemoteFrame(module)!;
+                bool shown = !held && current.Visible;
+                if (module.Host.activeSelf != shown) module.Host.SetActive(shown);
+            }
+        }
+    }
+
     private static void SuppressRemoteStockDuplicates()
     {
+        SuppressPreparedHeldStock();
         StockHeldIds.Clear();
         if (StockLane.Active)
             foreach (LocalModule item in StockLane.Modules.Values)

@@ -131,6 +131,8 @@ internal sealed partial class TownServiceSync
         foreach (TownServiceEnhancementHandoff.ReturnPresentation returning in returns)
         {
             Transform? face = returning.Face, body = returning.Body;
+            if (face != null) TownServiceMirror.RegisterCardReturn(face, returning.Card.TryTownReturnMotion);
+            if (body != null) TownServiceMirror.RegisterCardReturn(body, returning.Card.TryTownReturnMotion);
             if (face != null) PriorityRoots.Add(face);
             if (body != null) PriorityRoots.Add(body);
             // The window's pooled selected-card widget may already be recycled. The actual
@@ -157,9 +159,13 @@ internal sealed partial class TownServiceSync
                 // the public cabinet's cold pages. Exact fan/holder provenance
                 // also lets peers ride the already smoothed rig hand each frame.
                 PriorityRoots.Add(mount); PriorityRoots.Add(face); if (body != null) PriorityRoots.Add(body);
-                VRHand? hand = chip.Holder ?? (!chip.TownOffering
+                VRHand? hand = chip.Holder ?? (!chip.TownOffering && !chip.IsCollapsing
                     ? VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left : null);
                 TownServiceMirror.RegisterMotionHand(mount, hand, followsRotation: chip.Holder != null);
+
+                TownServiceMirror.RegisterCardReturn(mount, chip.TryTownReturnMotion, hand);
+                TownServiceMirror.RegisterCardReturn(face, chip.TryTownReturnMotion, hand);
+                if (body != null) TownServiceMirror.RegisterCardReturn(body, chip.TryTownReturnMotion, hand);
                 TownServiceMirror.RegisterMotionOffering(mount, chip.TownOffering);
                 TownServiceMirror.RegisterMotionOffering(face, chip.TownOffering);
                 if (body != null) TownServiceMirror.RegisterMotionOffering(body, chip.TownOffering);

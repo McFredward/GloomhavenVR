@@ -29,7 +29,7 @@ internal sealed partial class TownServiceSync
         bool moving = false;
         if (catalog != null && station != null)
             foreach (TownServiceCatalog.Entry entry in catalog.Entries)
-                if (entry.Current && entry.Sample.IsMoving) { moving = true; break; }
+                if (entry.Current && (entry.Sample.IsMoving || entry.Sample.HasReturnMotion)) { moving = true; break; }
         if (!moving || catalog == null || station == null || session == 0)
         { ResetCore(); return; }
         _sharedFrame = sharedFrame;
@@ -63,7 +63,14 @@ internal sealed partial class TownServiceSync
     {
         foreach (TownServiceCatalog.Entry entry in catalog.Entries)
         {
-            if (!entry.Current || !entry.Sample.IsMoving || entry.Sample.IsHeld) continue;
+            if (!entry.Current || !entry.Sample.IsMoving && !entry.Sample.HasReturnMotion) continue;
+            // Freeze the same original while the avatar already owns the held pose.
+            // Waiting until release made every .35-second return race its cold artwork;
+            // observers mask this prepared duplicate only while the canonical avatar holds it.
+            TownServiceMirror.RegisterCardReturn(entry.MountRoot, entry.Sample.TryCardReturnMotion);
+            TownServiceMirror.RegisterCardReturn(entry.CardRoot, entry.Sample.TryCardReturnMotion);
+            if (entry.BodyRoot != null) TownServiceMirror.RegisterCardReturn(entry.BodyRoot, entry.Sample.TryCardReturnMotion);
+            if (entry.RowContent != null) TownServiceMirror.RegisterCardReturn(entry.RowContent, entry.Sample.TryCardReturnMotion);
             PriorityRoots.Add(entry.MountRoot); PriorityRoots.Add(entry.CardRoot);
             // The scenario's approved avatar holder already smooths the tracked
             // hand. Stock inspection must attach to that same frame rather than

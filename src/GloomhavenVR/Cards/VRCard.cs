@@ -1504,6 +1504,25 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     private float _flyElapsed;
     private float _flyDuration;
     private Action? _flyDone;
+    private uint _townReturnRevision;
+    internal bool TryTownReturnMotion(Transform source, Transform shared, VRHand? hand,
+        out uint revision, out float[] numbers)
+    {
+        revision = _townReturnRevision; numbers = Array.Empty<float>();
+        if (!_flying || !_flyIntro || Holder != null || _flyDuration <= 0f
+            || !(source == transform || source.IsChildOf(transform))) return false;
+        Matrix4x4 parent = transform.parent != null ? transform.parent.localToWorldMatrix : Matrix4x4.identity;
+        Vector3 fromScale = new Vector3(parent.GetColumn(0).magnitude * _flyFromScale.x,
+            parent.GetColumn(1).magnitude * _flyFromScale.y, parent.GetColumn(2).magnitude * _flyFromScale.z);
+        Vector3 toScale = new Vector3(parent.GetColumn(0).magnitude * _flyToScale.x,
+            parent.GetColumn(1).magnitude * _flyToScale.y, parent.GetColumn(2).magnitude * _flyToScale.z);
+        numbers = Net.TownServices.TownCardReturnMotion.Capture(source, transform, shared, null,
+            _flyElapsed, _flyDuration, 2, 0f,
+            Matrix4x4.TRS(_flyFromPos, _flyRot, fromScale), _flyRot,
+            Matrix4x4.TRS(_flyToPos, _flyRot, toScale), _flyRot, _flyArcUp * _flyArcHeight);
+        return revision != 0;
+    }
+
 
     /// <summary>
     /// Issue A/3 (user): the straight-line fly-to-pile passed THROUGH the control board, and even
@@ -1658,6 +1677,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _flyIntro = true; // fly-IN: settle at home on arrival, do NOT park
         _flyElapsed = 0f;
         _flyDuration = Mathf.Max(MinFlySeconds, duration);
+        if (++_townReturnRevision == 0) _townReturnRevision = 1;
         _flyFromPos = fromWorldPos;
         _flyToPos = toWorld;
         // Issue 1: arch along WORLD up (toward the ceiling / the player's head), never the tilted

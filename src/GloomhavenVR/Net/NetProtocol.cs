@@ -148,6 +148,8 @@ internal static class NetProtocol
     /// <summary>Exact owner-authored purse return endpoints, duration and shared age.
     /// Additive to numeric town motion; the existing record97 grammar is unchanged.</summary>
     public const byte ExtIdTownPurseReturn = 106;
+    /// <summary>Original town card return endpoints, easing and common age, independent of artwork.</summary>
+    public const byte ExtIdTownCardReturn = 107;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>

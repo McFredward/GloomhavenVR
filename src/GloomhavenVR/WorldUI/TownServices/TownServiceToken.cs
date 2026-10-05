@@ -527,6 +527,22 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         return true;
     }
 
+    internal bool TryCardReturnMotion(Transform source, Transform shared, VRHand? hand,
+        out uint revision, out float[] numbers)
+    {
+        revision = _returnRevision; numbers = Array.Empty<float>();
+        float age = Time.unscaledTime - _returnStarted;
+        if (!IsItemCard || !HasReturnMotion || _physical == null || _homeParent == null
+            || !(source == _physical || source.IsChildOf(_physical))) return false;
+        Matrix4x4 parent = _homeParent.localToWorldMatrix;
+        numbers = Net.TownServices.TownCardReturnMotion.Capture(source, _physical, shared, null,
+            age, ReturnSeconds, 0, 0f,
+            parent * Matrix4x4.TRS(_returnPosition, _returnRotation, _returnScale), _homeParent.rotation * _returnRotation,
+            parent * Matrix4x4.TRS(_homePosition, _homeRotation, _homeScale), _homeParent.rotation * _homeRotation,
+            Vector3.zero);
+        return true;
+    }
+
     private void WriteReturnPose(float[] values, int at, Vector3 position, Quaternion rotation,
         Vector3 scale, Matrix4x4 relative, Quaternion relativeRotation, VRHand hand, Transform shared)
     {
