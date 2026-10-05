@@ -281,7 +281,8 @@ def toolchain(args, output: Path) -> dict:
                 "apksigner": str(apk_signer), "java": str(java), "keytool": str(keytool),
                 "apksignerSha256": digest(apk_signer), "javaSha256": digest(java),
                 "editorSha256": digest(editor), "buildToolsVersion": build_tools.name,
-                "ndkPropertiesSha256": digest(ndk / "source.properties")}
+                "ndkPropertiesSha256": digest(ndk / "source.properties"),
+                "buildDriverSha256": digest(Path(__file__).resolve())}
     selected["key"] = value_hash({k: v for k, v in selected.items() if k not in (
         "editor", "androidSdk", "androidNdk", "jdk", "aapt", "apksigner", "java", "keytool")})
     write_json(output / "toolchain.json", selected)
@@ -1088,7 +1089,11 @@ def bind_startup_package_apis(args, output: Path, source: Path, project: Path,
     env = dict(os.environ)
     env.update({"GHVR_QUEST_PACKAGE": PACKAGE, "GHVR_QUEST_TARGET": args.target, "GHVR_QUEST_ANDROID_SDK": tools["androidSdk"],
                 "GHVR_QUEST_ANDROID_NDK": tools["androidNdk"], "GHVR_QUEST_JDK": tools["jdk"]})
-    command([tools["editor"], "-batchmode", "-nographics", "-quit", "-projectPath", str(project),
+    # The complete recovered project includes the original custom cursor. Once
+    # imported, Unity 2021.3's Null graphics host crashes in native cursor setup
+    # before this SDK method runs. Preserve the cursor and use the same real
+    # editor graphics host as the complete Campaign player build.
+    command(unity_launcher(tools["editor"], graphics=args.target == "game") + ["-quit", "-projectPath", str(project),
              "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuild.CompileStartupSdk", "-logFile",
              str(output / "logs" / ("package-import-" + build_key[:12] + ".log"))],
             output / "logs" / ("package-import-launch-" + build_key[:12] + ".log"), env=env)
