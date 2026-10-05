@@ -62,9 +62,15 @@ public static partial class MirrorProgram
                 Members = sources.Keys.Where(id => id < 30).Select(id => new TownRackMember(id, 0, false)).ToArray() });
         }
         List<TownServiceFrame> captured = Capture().Select(Decode).ToList();
+        // Dormant loss repair now has a CPU slice; execute actual later capture ticks
+        // rather than requiring an unbounded all-original serialization in one frame.
+        float preparationUntil = Time.unscaledTime + 3f;
+        while (captured.Where(f => f.RackMember != null && f.BaseSequence == 0).Select(f => f.Module).Distinct().Count() < 6
+            && Time.unscaledTime < preparationUntil)
+        { yield return new WaitForSecondsRealtime(.06f); captured.AddRange(Capture().Select(Decode)); }
         var originals = captured.Where(f => f.RackMember != null && f.BaseSequence == 0).GroupBy(f => f.Module).ToDictionary(g => g.Key, g => g.Last());
         Check(originals.Count == 6, "production loading capture genuinely sends dormant original modules before exposure");
-        TownServiceFrame initial = captured.Single(f => f.Module == 10);
+        TownServiceFrame initial = captured.Last(f => f.Module == 10);
         Check(initial.Nodes.Length > 1 && initial.Nodes.Any(n => n.Values.ContainsKey(TownServiceProperty.Mesh)),
             "timing root is the production factory housing with actual authored geometry");
         TownServiceFrame measured = TownServiceDelta.Copy(initial); measured.CatalogBank = null; measured.Rack!.Members = Array.Empty<TownRackMember>();
