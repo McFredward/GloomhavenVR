@@ -118,6 +118,71 @@ class Orders(unittest.TestCase):
         self.assertEqual(result["manifest"]["sha256"], production.digest(case.project / production.MANIFEST))
         self.assertEqual(result["plugins"][0]["afterSha256"], production.digest(case.meta))
 
+    def test_campaign_only_retains_exact_orders_pointers_and_editor_output_contract(self):
+        case = self.case([{"name": "Early", "order": -51}, {"name": "Default", "order": 0},
+                          {"assembly": "Cinemachine.dll", "name": "Brain", "order": 100}])
+        case.reference()
+        campaign = case.project / "Assets/QuestOriginalCampaign/script-bindings.json"
+        campaign.parent.mkdir()
+        case.bindings.replace(campaign)
+        case.bindings = campaign
+        before_scene, original_dll = case.scene.read_bytes(), case.plugin.read_bytes()
+        result = case.stage()
+        manifest = case.manifest()
+        self.assertEqual([(e["fullName"], e["executionOrder"]) for e in manifest["entries"]],
+                         [("Game.Default", 0), ("Game.Early", -51)])
+        entry = next(e for e in manifest["entries"] if e["fullName"] == "Game.Early")
+        self.assertEqual(entry["originalGuid"], case.guid)
+        self.assertEqual(entry["originalFileId"], str(production._file_id_function(case.source)("Game", "Early")))
+        self.assertTrue(entry["referenced"])
+        self.assertEqual(manifest["excluded"][0]["reason"], "assembly-outside-campaign-closure")
+        self.assertEqual(before_scene, case.scene.read_bytes())
+        self.assertEqual(original_dll, case.plugin.read_bytes())
+        self.assertIn(b'"Game.Default": 0', case.meta.read_bytes())
+        self.assertFalse((case.project / "Assets/QuestOriginalStartup/script-bindings.json").exists())
+        self.assertEqual(result["manifest"]["path"], production.MANIFEST)
+        self.assertEqual(result["bindingManifest"]["path"], "Assets/QuestOriginalCampaign/script-bindings.json")
+        self.assertEqual(result["bindingManifest"]["sha256"], production.digest(campaign))
+        self.assertEqual(result["scope"], "original campaign closure; exact imported scripts verified after SDK remapping")
+
+    def test_campaign_is_authoritative_over_stale_startup_sdk_exclusions(self):
+        case = self.case()
+        startup = case.bindings
+        campaign = case.project / "Assets/QuestOriginalCampaign/script-bindings.json"
+        campaign.parent.mkdir()
+        case.bindings = campaign
+        case.write_bindings([case.guid])
+        case.meta.write_bytes(case.meta.read_bytes().replace(b"      enabled: 1", b"      enabled: 0"))
+        result = case.stage()
+        self.assertTrue(all(e["package"] for e in case.manifest()["entries"]))
+        self.assertEqual(result["bindingManifest"]["sha256"], production.digest(campaign))
+        self.assertTrue(startup.is_file())
+        # A valid stale Startup declaration must never hide invalid Campaign
+        # declarations or missing referenced SDK providers.
+        before = case.meta.read_bytes()
+        case.write_bindings([case.guid, case.guid])
+        with self.assertRaisesRegex(BuildError, "invalid or duplicated"):
+            case.stage()
+        self.assertEqual(before, case.meta.read_bytes())
+        outside = "a" * 32
+        case.write_bindings([case.guid, outside], [{"oldGuid": outside}])
+        with self.assertRaisesRegex(BuildError, "still referenced in the campaign closure"):
+            case.stage()
+        self.assertEqual(before, case.meta.read_bytes())
+
+    def test_missing_or_invalid_campaign_manifest_never_falls_back_to_startup(self):
+        case = self.case()
+        folder = case.project / "Assets/QuestOriginalCampaign"
+        folder.mkdir()
+        before = case.meta.read_bytes()
+        with self.assertRaisesRegex(BuildError, "declared SDK binding manifest"):
+            case.stage()
+        self.assertEqual(before, case.meta.read_bytes())
+        (folder / "script-bindings.json").write_text("{broken")
+        with self.assertRaisesRegex(BuildError, "declared SDK binding manifest"):
+            case.stage()
+        self.assertEqual(before, case.meta.read_bytes())
+
     def test_reader_tree_and_endian_variants(self):
         case = self.case()
         for tree in (False, True):

@@ -216,8 +216,14 @@ def stage_script_orders(project: Path, game: Path, source: Path, cache: Path, do
             raise BuildError("Original script-order plugin has an ambiguous recovered GUID: " + dll.name)
         plugins[dll.name] = (dll, meta, text, hits[0])
         guids[hits[0]] = dll.name
-    binding_path = project / "Assets/QuestOriginalStartup/script-bindings.json"
+    # A full Campaign export is the authoritative SDK/pointer closure. Never
+    # adopt a stale Startup manifest when its Campaign manifest is missing or
+    # invalid. Output paths remain the existing Unity Editor import contract.
+    closure = "campaign" if (project / "Assets/QuestOriginalCampaign").exists() else "startup"
+    binding_path = project / ("Assets/QuestOriginalCampaign/script-bindings.json" if closure == "campaign"
+                              else "Assets/QuestOriginalStartup/script-bindings.json")
     try:
+        binding_record = record_file(binding_path, binding_path.relative_to(project).as_posix())
         bindings = json.loads(binding_path.read_text(encoding="utf-8"))
         disabled = bindings["disabledPluginGuids"]
     except (OSError, ValueError, KeyError, TypeError) as error:
@@ -248,7 +254,7 @@ def stage_script_orders(project: Path, game: Path, source: Path, cache: Path, do
                 references.add((guids[match.group(2)], int(match.group(1))))
     unused_disabled = disabled - set(guids)
     if unused_disabled & pointer_guids or any(b.get("oldGuid") in unused_disabled for b in bindings.get("bindings", [])):
-        raise BuildError("Declared excluded SDK provider is missing but still referenced in the startup closure.")
+        raise BuildError("Declared excluded SDK provider is missing but still referenced in the " + closure + " closure.")
     grouped = defaultdict(list)
     for item in records:
         grouped[(item["assembly"], item["namespace"], item["name"])].append(item)
@@ -267,7 +273,7 @@ def stage_script_orders(project: Path, game: Path, source: Path, cache: Path, do
         if assembly not in plugins or len(matches) != 1:
             if referenced:
                 raise BuildError("Referenced original script has no exact retained DLL type: " + assembly + ":" + base["fullName"])
-            excluded.append({**base, "reason": "assembly-outside-startup-closure" if assembly not in plugins else
+            excluded.append({**base, "reason": "assembly-outside-" + closure + "-closure" if assembly not in plugins else
                              "no-original-top-level-type", "referenced": False})
             continue
         identity = (assembly, identifier)
@@ -280,7 +286,7 @@ def stage_script_orders(project: Path, game: Path, source: Path, cache: Path, do
                  "package": plugin[3] in disabled}
         if _static_utility(matches[0]):
             if referenced:
-                raise BuildError("A static original utility cannot be a serialized startup component: " + assembly + ":" + base["fullName"])
+                raise BuildError("A static original utility cannot be a serialized " + closure + " component: " + assembly + ":" + base["fullName"])
             excluded.append({**base, "reason": "original-static-utility", "referenced": False,
                              "typeAttributes": matches[0]["attributes"],
                              "baseAssemblyName": matches[0]["baseAssemblyName"],
@@ -293,24 +299,26 @@ def stage_script_orders(project: Path, game: Path, source: Path, cache: Path, do
         # verification, but deleting its original importer evidence is unnecessary.
         by_plugin[assembly].append(entry)
     if references - mapped:
-        raise BuildError("Recovered startup contains script pointers absent from the original serialized script bank.")
+        raise BuildError("Recovered " + closure + " contains script pointers absent from the original serialized script bank.")
     for assembly, (_, meta, text, _) in plugins.items():
         after = _replace_orders(text, by_plugin[assembly])
         plans.append((meta, after, {"path": meta.relative_to(project).as_posix(), "beforeSha256": digest(meta),
                                    "originalAssemblySha256": digest(game / "Managed" / assembly)}))
     if bank_record != record_file(bank, "globalgamemanagers.assets"):
         raise BuildError("Original script bank changed while staging execution orders.")
+    if binding_record != record_file(binding_path, binding_record["path"]):
+        raise BuildError("Original script-order SDK binding manifest changed while staging execution orders.")
     # No project mutation occurs before all source identities/pointers validate.
     for meta, text, _ in plans:
         meta.write_bytes(text.encode("utf-8"))
     manifest = {"schema": 1, "sourceSha256": bank_record["sha256"], "entries": entries, "excluded": excluded}
     write_json(project / MANIFEST, manifest)
-    receipt = {"schema": 1, "source": bank_record,
+    receipt = {"schema": 1, "source": bank_record, "bindingManifest": binding_record,
                "sourceRecordCount": len(records), "sourceDistinctCount": len(grouped),
                "orderedRecordCount": sum(r["executionOrder"] != 0 for r in records),
                "manifest": record_file(project / MANIFEST, MANIFEST), "assetIdentityEvidence": assets,
                "unusedDisabledPluginGuids": sorted(unused_disabled),
                "excluded": excluded, "plugins": [{**proof, "afterSha256": digest(meta)} for meta, _, proof in plans],
-               "scope": "original startup closure; exact imported scripts verified after SDK remapping"}
+               "scope": "original " + closure + " closure; exact imported scripts verified after SDK remapping"}
     write_json(project / RECEIPT, receipt)
     return receipt
