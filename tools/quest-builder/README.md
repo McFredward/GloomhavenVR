@@ -33,9 +33,11 @@ python3 scripts/build-quest.py build --game-root /path/to/owned/Gloomhaven \
 
 The default `--target game` invokes recovery and complete static integration. A
 failed recovery, unsupported hook or failed tool invocation blocks that APK.
-An exporter exit code of zero is insufficient: its full-game readiness must be
-explicitly true, script bindings resolved, and the static integration report
-complete and free of issues. Rewritten original DLLs replace their recovered
+An exporter exit code of zero is insufficient: its complete original scene/catalog
+closure and script bindings must be proven, and static integration must be complete
+and free of issues. Complete asset, native ABI, Android shader/compute compilation
+and signed delivery checks remain mandatory; headset acceptance is separate.
+Rewritten original DLLs replace their recovered
 counterparts in place, retaining the exact `.meta` script mapping; the generated
 `link.xml` is deployed for AOT preservation.
 The explicitly selected `--target probe` is an OpenXR/passthrough/identity hardware
@@ -86,7 +88,7 @@ marked builder directory, or the repository's ignored `.planning/quest3-local`.
 Focused checks:
 
 ```sh
-python3 -m unittest discover -s tests/quest-builder -v
+/path/to/private/quest-output/tool-cache/build-python/bin/python -m unittest discover -s tests/quest-builder -v
 ```
 
 These tests verify mapping, active-account capture, ambiguity, process failures,
@@ -95,6 +97,17 @@ receipt invalidation, native-slice ingress, retained DLL script identity, path
 isolation, APK contracts and installation safety with negative controls. A real
 fixture exporter returning zero with 177 placeholder shaders is still rejected
 as a full game. They do not certify Quest hardware rendering or multiplayer.
+
+Use the provisioned builder Python for these checks; native image fixtures need
+its pinned recovery packages. On Windows the executable is beneath the same
+private environment's `Scripts` directory.
+
+The full player follows the current mod's public stereo contract. Its authored
+head/environment shaders and per-eye screen callbacks currently require MultiPass;
+the independent hardware probe retains SinglePassInstanced. The world-screen
+adapter selects actual eye-pass captures in MultiPass and paired GPU sampling only
+when the running XR mode draws both eyes together. Desktop session setup is unchanged.
+The mod-bank compiler setting is independent of the player session setting.
 
 APK validation requires the passthrough bridge, Unity OpenXR plugin and OpenXR
 loader alongside IL2CPP and Unity. Every packaged native library must have an

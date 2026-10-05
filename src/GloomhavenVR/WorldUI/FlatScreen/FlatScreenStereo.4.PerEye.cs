@@ -367,7 +367,7 @@ internal sealed partial class FlatScreenStereo
             : _videoShift && _rtLeftShifted != null ? _rtLeftShifted : _leftRt;
         Texture? rightEye = _mapBaseCapture || _videoSuspended ? target
             : _rtRight != null ? _rtRight : _leftRt;
-        if (_mapBaseCapture || _videoSuspended)
+        if (_mapBaseCapture || _videoSuspended || !QuestStandalonePlatform.SharedStereoEyeRouting)
             QuestStandalonePlatform.SetFlatScreenMono(mat, target);
         else
             QuestStandalonePlatform.SetFlatScreenEyes(mat, leftEye, rightEye);

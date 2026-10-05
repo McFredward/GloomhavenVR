@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using GloomhavenVR.Rig;
 using UnityEngine;
+using UnityEngine.XR;
 
 namespace GloomhavenVR.Core;
 
@@ -29,6 +30,9 @@ public static class QuestStandalonePlatform
     public static Camera? HeadCamera => RigReady ? VRRigDriver.HeadCamera : null;
     public static int PresentationLayer => VRLayers.ModLayer;
     public static bool DebugLogging => Enabled && VRLog.Wants(VRLogLevel.Debug);
+    /// <summary>The generated player follows the current mod's proven stereo contract.</summary>
+    public static bool RequiresMultiPassStereo => StereoModeConfig.Current == StereoModeConfig.Mode.MultiPass;
+    internal static bool SharedStereoEyeRouting => Enabled && XRSettings.stereoRenderingMode != XRSettings.StereoRenderingMode.MultiPass;
 
     /// <summary>
     /// The native Android movie adapter may write only the mod's current menu

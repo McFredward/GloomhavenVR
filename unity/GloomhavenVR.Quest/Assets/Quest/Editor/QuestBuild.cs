@@ -26,7 +26,7 @@ namespace GloomhavenVR.Quest.Editor
         {
             public int schema = 1;
             public string target, inputKey, package, profileSha256, unityVersion, buildResult;
-            public string il2CppCompilerConfiguration, additionalIl2CppArgs;
+            public string il2CppCompilerConfiguration, additionalIl2CppArgs, stereoRenderingPath, openXrRenderMode;
             public bool incrementalGc;
             public string[] scenes;
         }
@@ -55,7 +55,7 @@ namespace GloomhavenVR.Quest.Editor
             PlayerSettings.bundleVersion = "0.1.0.B" + manifest.mod.modBuild + "." + manifest.inputKey.Substring(0, 12);
             PlayerSettings.Android.bundleVersionCode = manifest.mod.modBuild;
             ConfigureNativePlugin();
-            ConfigureXr();
+            ConfigureXr(target != "probe");
             PrepareDiagnosticMaterials();
             PrepareDiagnosticResources();
             if (target == "probe") ValidateOwnedModel();
@@ -109,7 +109,9 @@ namespace GloomhavenVR.Quest.Editor
                 buildResult = report.summary.result.ToString(), scenes = scenes,
                 il2CppCompilerConfiguration = PlayerSettings.GetIl2CppCompilerConfiguration(BuildTargetGroup.Android).ToString(),
                 additionalIl2CppArgs = PlayerSettings.GetAdditionalIl2CppArgs(),
-                incrementalGc = PlayerSettings.gcIncremental
+                incrementalGc = PlayerSettings.gcIncremental,
+                stereoRenderingPath = PlayerSettings.stereoRenderingPath.ToString(),
+                openXrRenderMode = OpenXRSettings.GetSettingsForBuildTargetGroup(BuildTargetGroup.Android).renderMode.ToString()
             }, true));
             if (report.summary.result != BuildResult.Succeeded)
                 throw new InvalidOperationException("Android build failed: " + report.summary.result + ", errors=" + report.summary.totalErrors);
@@ -149,7 +151,11 @@ namespace GloomhavenVR.Quest.Editor
             PlayerSettings.colorSpace = ColorSpace.Linear;
             PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
             PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] { GraphicsDeviceType.OpenGLES3 });
-            PlayerSettings.stereoRenderingPath = StereoRenderingPath.SinglePass;
+            // The current mod's authored shaders and per-eye callbacks require
+            // MultiPass. Query its public contract so future mod changes remain
+            // authoritative; the independent hardware probe can still use SPI.
+            PlayerSettings.stereoRenderingPath = OriginalModUsesMultiPass(originalStartup)
+                ? StereoRenderingPath.MultiPass : StereoRenderingPath.SinglePass;
             PlayerSettings.runInBackground = true;
             if (configureSigning)
             {
@@ -382,7 +388,15 @@ namespace GloomhavenVR.Quest.Editor
                 restore.Clear();
             }
         }
-        static void ConfigureXr()
+        static bool OriginalModUsesMultiPass(bool originalMod)
+        {
+#if GHVR_QUEST_STARTUP
+            return originalMod && GloomhavenVR.Core.QuestStandalonePlatform.RequiresMultiPassStereo;
+#else
+            return false;
+#endif
+        }
+        static void ConfigureXr(bool originalMod)
         {
             XRGeneralSettingsPerBuildTarget perTarget;
             if (!EditorBuildSettings.TryGetConfigObject(XRGeneralSettings.k_SettingsKey, out perTarget))
@@ -409,7 +423,8 @@ namespace GloomhavenVR.Quest.Editor
             EnableFeature("com.unity.openxr.feature.input.oculustouch");
             EnableFeature("com.unity.openxr.feature.input.metaquestplus");
             var xr = OpenXRSettings.GetSettingsForBuildTargetGroup(BuildTargetGroup.Android);
-            xr.renderMode = OpenXRSettings.RenderMode.SinglePassInstanced;
+            xr.renderMode = OriginalModUsesMultiPass(originalMod)
+                ? OpenXRSettings.RenderMode.MultiPass : OpenXRSettings.RenderMode.SinglePassInstanced;
             EditorUtility.SetDirty(xr);
             EditorUtility.SetDirty(general);
             EditorUtility.SetDirty(manager);

@@ -88,8 +88,10 @@ namespace GloomhavenVR
             if (Application.unityVersion != "2021.3.5f1") throw new InvalidOperationException("Android mod bundles require exact Unity2021.3.5f1.");
             if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.Android)
                 throw new InvalidOperationException("Launch the private mod-art project with -buildTarget Android.");
-            // Match the generated Quest player's actual rendering contract rather
-            // than the copied desktop project's graphics and stereo defaults.
+            // Retain the standalone linear/GLES compiler contract. Mono banks
+            // serve the current mod's MultiPass player; this compiler setting
+            // also permits stereo-capable authored programs without choosing the
+            // generated player's OpenXR session mode.
             PlayerSettings.colorSpace = ColorSpace.Linear;
             PlayerSettings.stereoRenderingPath = StereoRenderingPath.SinglePass;
             PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
