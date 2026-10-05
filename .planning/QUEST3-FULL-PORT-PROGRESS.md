@@ -484,3 +484,25 @@ kernel-lock detection of interrupted runs, and an opaque local-art endpoint.
 Forty focused backend checks and an actual loopback HTTP/Chrome test pass.
 Windows provisioning and seamless interruption during Unity/content generation
 still need their own implementation/runtime evidence.
+
+## Actual full Player reuse and Wizard artwork integration
+
+Derivative `62b4af038a07` confirms the completed graphics-cache hit in the real
+full Campaign Player invocation: all688 shaders/all51,564 native aliases/all9,187
+materials are accepted with zero repeated native compiler queries. The same
+retained project and Library are used. At2026-10-05T15:54:32Z, native content
+preparation has reached2,909 of3,254 groups. Observed throughput is now several
+hundred groups per minute, versus about13 per minute before batching. This is
+actual group preparation evidence, not a prediction of bundle compilation,
+IL2CPP time or an APK completion percentage. Signed Player and delivered-bank
+validation remain pending.
+
+The integrated Wizard displays the project-owned logo and, only after matching
+local recovery evidence, three guarded images from the user's original game.
+Landscape DLC artwork preserves complete titles; accessible English/German
+descriptions remain. An independent Root run of the actual loopback backend and
+Chrome browser passes all8 tests, including JavaScript MIME/CSP, authenticated
+transport and byte hashes of the original images. The private fixture uses
+existing inspected inputs and does not claim a fresh conversion, Unity install,
+Windows execution or headset installation. No original game artwork is tracked
+or distributed by this UI.
