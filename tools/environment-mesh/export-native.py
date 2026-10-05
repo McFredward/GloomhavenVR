@@ -31,11 +31,16 @@ def write(mesh,path):
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--source-root',type=Path,required=True);p.add_argument('--output-dir',type=Path,required=True);p.add_argument('--only',nargs='*');a=p.parse_args()
-    a.output_dir.mkdir(parents=True,exist_ok=True)
     root=a.source_root/'ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64'
+    source_folder=root/'pcg_databases_assets_assets/pcg'
+    if not source_folder.is_dir():
+        raise SystemExit('Native environment source folder is missing: '+str(source_folder))
+    bundles=[path for path in sorted(source_folder.glob('*.bundle')) if not a.only or path.stem in a.only]
+    if not bundles:
+        raise SystemExit('No native environment bundles match the requested source selection.')
+    a.output_dir.mkdir(parents=True,exist_ok=True)
     records={};ambiguous=set(); skipped=[]
-    for path in sorted((root/'pcg_databases_assets_assets/pcg').glob('*.bundle')):
-        if a.only and path.stem not in a.only:continue
+    for path in bundles:
         env=UnityPy.load(str(path));bundle_sha=hashlib.sha256(path.read_bytes()).hexdigest()
         static={o.read().m_Mesh.path_id for o in env.objects if o.type.name=='MeshFilter'}
         for o in env.objects:
@@ -53,6 +58,8 @@ def main():
         print('Scanned '+path.name,flush=True)
     for key in ambiguous:
         records.pop(key,None);(a.output_dir/(key+'.bytes')).unlink(missing_ok=True)
+    if not records:
+        raise SystemExit('Native environment extraction produced no admissible originals; existing prepared assets must remain unchanged.')
     result={'format':1,'unitypy':UnityPy.__version__,'meshes':list(records.values()),'ambiguousRejected':sorted(ambiguous)}
     (a.output_dir/'sources.json').write_text(json.dumps(result,indent=2)+'\n')
     print(f'Exact static originals: {len(records)}, ambiguous identities rejected: {len(ambiguous)}')

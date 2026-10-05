@@ -62,8 +62,11 @@ def main():
         cmd=[str(Path.home()/'unitypy-venv/bin/python'),str(root/'tools/environment-mesh/export-native.py'),'--source-root',str(root),'--output-dir',str(native)]
         if a.only:cmd+=['--only']+a.only
         subprocess.run(cmd,check=True)
+    sources=json.loads((native/'sources.json').read_text())
+    if sources.get('format')!=1 or not sources.get('meshes'):
+        raise SystemExit('Native environment receipt has no admissible originals; existing prepared assets remain unchanged.')
     target=work/'prepared' if a.only else root/'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes';target.mkdir(parents=True,exist_ok=True)
-    sources=json.loads((native/'sources.json').read_text());entries=[];receipts=[];current=set()
+    entries=[];receipts=[];current=set()
     for source in sources['meshes']:
         data=(native/source['file']).read_bytes();assert hashlib.sha256(data).hexdigest()==source['sha256']
         variants=[]
