@@ -4,6 +4,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using UnityEngine;
+using GloomhavenVR.Core;
 
 namespace GloomhavenVR.Net.TownServices;
 
@@ -30,6 +31,57 @@ internal static partial class TownServiceMirror
         internal uint Generation;
     }
     private static readonly Dictionary<long, MageValidatedOriginal> MageValidatedOriginals = new();
+    private sealed class MageAdmissionTrace
+    {
+        internal uint Session;
+        internal ushort[] Modules = Array.Empty<ushort>();
+        internal float Started, ReportAt;
+        internal int Reports;
+        internal bool Ready;
+    }
+    private static readonly Dictionary<int, MageAdmissionTrace> MageAdmissionTraces = new();
+
+    private static void TraceMageAdmission(int peer, TownServiceSessionInfo session,
+        Dictionary<ushort, TownServiceFrame> pending, string? blocker, ushort module = 0,
+        string address = "")
+    {
+        // Debug-only first-picture evidence separates transport census waits from
+        // exact native asset validation. No hierarchy scan/formatting runs for users.
+        if (!VRLog.WantsDebug) return;
+        if (!session.TransactionActive) { MageAdmissionTraces.Remove(peer); return; }
+        bool same = MageAdmissionTraces.TryGetValue(peer, out MageAdmissionTrace? trace)
+            && trace.Session == session.Session && trace.Modules.Length == session.Modules.Length;
+        for (int i = 0; same && i < session.Modules.Length; i++)
+            same = trace!.Modules[i] == session.Modules[i];
+        if (!same)
+        {
+            if (MageAdmissionTraces.Count >= 24) MageAdmissionTraces.Clear();
+            trace = new MageAdmissionTrace { Session = session.Session,
+                Modules = (ushort[])session.Modules.Clone(), Started = Time.unscaledTime };
+            MageAdmissionTraces[peer] = trace;
+        }
+        float now = Time.unscaledTime;
+        if (blocker == null)
+        {
+            if (!trace!.Ready)
+                VRLog.Debug("TownServices", "Native enhancement picture admitted: peer=" + peer
+                    + " session=" + session.Session + " required=" + session.Modules.Length
+                    + " age=" + (now - trace.Started).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "s.");
+            trace!.Ready = true; return;
+        }
+        if (now < trace!.ReportAt || trace.Reports >= 8) return;
+        trace.ReportAt = now + 1f; trace.Reports++;
+        int received = 0;
+        foreach (ushort id in session.Modules)
+            if (pending.TryGetValue(id, out TownServiceFrame? frame)
+                && frame.Session == session.Session && frame.Service == 3) received++;
+        VRLog.Debug("TownServices", "Native enhancement picture waiting: peer=" + peer
+            + " session=" + session.Session + " required=" + session.Modules.Length
+            + " received=" + received + " blocker=" + blocker + " module=" + module
+            + " address=" + address + " age="
+            + (now - trace.Started).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "s.");
+    }
+
     private static readonly UTF8Encoding NativeTemplateUtf8 = new(false, true);
     private readonly struct UnpreparedKey : IEquatable<UnpreparedKey>
     {
@@ -54,6 +106,7 @@ internal static partial class TownServiceMirror
     {
         // Disconnect ends this peer's immutable admission lifetime. A still-cold
         // original must never recreate pending state after RemovePeer returns.
+        MageAdmissionTraces.Remove(peer);
         int remaining = UnpreparedNativeOrder.Count;
         while (remaining-- > 0)
         {
@@ -226,6 +279,14 @@ internal static partial class TownServiceMirror
             || complete.Module >= TownServiceFrame.VoiceModule || complete.BaseSequence != 0
             || complete.NativeTemplateBasisKey != 0 || complete.Nodes.Length == 0
             || complete.CatalogBank != null || complete.Rack != null) return false;
+        // A newly offered mage picture must not depend on the observer having
+        // borrowed precisely the same native material defaults. Build625's compact
+        // grammar saved little for these owner-authored widgets, but a genuine
+        // original-basis difference deferred first appearance until ten-second
+        // repair. Published mage keyframes carry the complete exact owner state;
+        // the existing lossless transport compression and cumulative deltas own
+        // bandwidth. The prepared public cabinet retains sparse native metadata.
+        if (complete.Service == 3 && Local.ContainsKey(complete.Module)) return false;
         try
         {
             NativeTemplateBasis? basis = NativeBasis(complete);
@@ -325,16 +386,19 @@ internal static partial class TownServiceMirror
         foreach (ushort id in session.Modules)
         {
             if (!pending.TryGetValue(id, out TownServiceFrame? received)
-                || received.Session != session.Session || received.Service != 3) return false;
+                || received.Session != session.Session || received.Service != 3)
+            { TraceMageAdmission(peer, session, pending, "module-not-received", id); return false; }
             TownServiceFrame? baseline = null;
             if (ReceivedBaselines.TryGetValue(peer, out var baselines)) baselines.TryGetValue(id, out baseline);
             TownServiceFrame? frame = TownServiceDelta.Expand(baseline, received);
-            if (frame == null || frame.NativeTemplateBasisKey != 0) return false;
+            if (frame == null || frame.NativeTemplateBasisKey != 0)
+            { TraceMageAdmission(peer, session, pending, "original-baseline", id, received.TemplateAddress); return false; }
             if (!frame.Visible || frame.ParentAlpha <= 0f) continue;
             try
             {
                 NativeTemplateBasis? basis = NativeBasis(frame);
-                if (basis == null || basis.Structure != frame.Structure) return false;
+                if (basis == null || basis.Structure != frame.Structure)
+                { TraceMageAdmission(peer, session, pending, "native-template", id, frame.TemplateAddress); return false; }
                 long key = ((long)peer << 16) | id;
                 if (MageValidatedOriginals.TryGetValue(key, out var validated)
                     && ReferenceEquals(validated.Received, received)
@@ -348,8 +412,11 @@ internal static partial class TownServiceMirror
                 MageValidatedOriginals[key] = new MageValidatedOriginal { Received = received,
                     Template = basis.Template, Generation = Assets.Generation };
             }
-            catch (Exception error) { Report("complete native enhancement picture", error); return false; }
+            catch (Exception error)
+            { TraceMageAdmission(peer, session, pending, error.Message, id, frame.TemplateAddress);
+              Report("complete native enhancement picture", error); return false; }
         }
+        TraceMageAdmission(peer, session, pending, null);
         return true;
     }
 
@@ -357,7 +424,7 @@ internal static partial class TownServiceMirror
     {
         unchecked { NativeTemplatePreparationRevision++; }
         foreach (NativeTemplateBasis basis in NativeTemplateBases.Values) basis.Binding.Dispose();
-        NativeTemplateBases.Clear(); MageValidatedOriginals.Clear();
+        NativeTemplateBases.Clear(); MageValidatedOriginals.Clear(); MageAdmissionTraces.Clear();
         UnpreparedNativeTemplates.Clear(); UnpreparedNativeOrder.Clear();
     }
 }

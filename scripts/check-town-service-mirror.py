@@ -246,8 +246,13 @@ def main():
             variants += [
                 ("no-original-identity", "TownServiceAssets.cs", "_originalKeys.Add(id, key); _keys[id] = key; _assets[key] = asset;", "return;", "explicit original sprite replaces its previously cached descriptor key"),
                 ("last-window-wins", "TownServiceAssets.cs", "if (_originalKeys.ContainsKey(id)) return;", "if (_originalKeys.ContainsKey(id)) { _keys[id] = key; return; }", "shared original keeps merchant provenance"),
+                ("class-highlight-wrapper", "TownServiceAssets.cs", "KnownHeroHighlight(texture.name)",
+                 '(texture.name == "HeroHighlight_Darken")',
+                 "Ambiguous native town-service texture requires an explicit binding: HeroHighlight_Brute"),
                 ("same-backdrop-key", "TownServiceBackdropAssets.cs", '"native-town|backdrop|" + template + "|texture"', '"native-town|backdrop|same|texture"', "Conflicting original town-service provenance"),
-                ("retain-cleared-provenance", "TownServiceAssets.cs", "_originalKeys.Clear();", "", "Ambiguous native town-service texture"),
+                # Retained instance provenance can alias the second lifetime before the
+                # later ambiguity scan. Bind the earliest actual reset defect.
+                ("retain-cleared-provenance", "TownServiceAssets.cs", "_originalKeys.Clear();", "", "different native backdrops retain distinct identities"),
             ]
     if args.suite == "catalog-lifetime":
         variants = [("production", None, None, None, "")]

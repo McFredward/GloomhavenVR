@@ -205,8 +205,120 @@ public static partial class MirrorProgram
             + "; changed native bytes=" + current.Length + "; complete native nodes=" + changed.Nodes.Length + "\n");
         IEnumerator coldProof = NativeColdOriginal625(author, observer);
         while (coldProof.MoveNext()) yield return coldProof.Current;
+        IEnumerator deltaProof = NativeQueuedDelta626(author, observer);
+        while (deltaProof.MoveNext()) yield return deltaProof.Current;
         IEnumerator bankProof = NativeBankSplit623(); while (bankProof.MoveNext()) yield return bankProof.Current;
         yield return null;
+    }
+
+    private static IEnumerator NativeQueuedDelta626(Transform author, Transform observer)
+    {
+        TownServiceMirror.Shutdown(); Baselines.Clear();
+        GloomhavenVR.Net.NetPlayerActors.Peer = 10;
+        Transform original = Source(author);
+        const string address = "enchant.inventory|";
+        TownServiceMirror.RegisterTemplate(3, 1, original, address: address);
+        TownServiceMirror.BeginSession(3, 626, author, author);
+        TownServiceMirror.RegisterModule(41, 1, original, address: address);
+        TownServiceMirror.SetPriority(41, true);
+        var wire = new TownServiceLaneSendQueue(0);
+        var fragments = new TownServiceFragments();
+        var samples = new List<TownServiceFrame>();
+        var lengths = new List<int>();
+        double clock = 0;
+        Action<byte[], int, object?> publish = (bytes, length, metadata) =>
+        {
+            Check(metadata is TownServiceFrame, "actual first-offer capture retains original queue metadata");
+            var frame = (TownServiceFrame)metadata!;
+            if (frame.Module != TownServiceFrame.ManifestModule)
+            {
+                Check(TownServiceCodec.TryRead(bytes, length, out TownServiceFrame? decoded),
+                    "actual original capture uses the production native codec");
+                samples.Add(decoded!); lengths.Add(length);
+            }
+            wire.Enqueue(bytes, length, frame);
+        };
+        Action capture = () => typeof(TownServiceMirror).GetMethod("CaptureCore", PrivateStatic)!
+            .Invoke(null, new object[] { publish, false });
+        Action pump = () =>
+        {
+            int idle = 0;
+            for (int turn = 0; turn < 512 && idle < 3; turn++)
+            {
+                clock += .050001;
+                byte[]? page = wire.Next(clock);
+                if (page == null) { idle++; continue; }
+                idle = 0;
+                Check(page.Length <= ExtrasFragments.MaxDatagramBytes,
+                    "native first-offer and hover preserve the bounded datagram budget");
+                byte[]? packet = fragments.Accept(2, page, page.Length, clock);
+                if (packet == null) continue;
+                byte[][] members = TownServiceCodec.TryReadBundle(packet, packet.Length, out byte[][]? bundle)
+                    ? bundle! : new[] { packet };
+                Receive(2, members);
+            }
+            Check(idle == 3, "native original queue drains without delayed periodic repair");
+        };
+        capture();
+        Check(samples.Count == 1 && samples[0].BaseSequence == 0 && samples[0].NativeTemplateBasisKey == 0,
+            "first captured enhancement original carries complete owner state without a template-repair wait");
+        TownServiceFrame first = samples[0]; int initialBytes = lengths[0];
+        pump();
+        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        TownServiceMirror.TickRemote(_ => observer);
+        Check(Remote(2, 41) != null, "real first-offer queue builds its complete original on reception");
+
+        _text.text = "Actual owner selected enhancement"; _text.fontSize += 1f;
+        _fill.fillAmount = .43f; _fill.color = Color.cyan;
+        _clip.padding = new Vector4(3f, 5f, 7f, 9f);
+        original.Find("Viewport/Oversized").localPosition += new Vector3(0f, 11f, 0f);
+        capture();
+        Check(samples.Count == 2 && samples[1].BaseSequence == first.Sequence
+            && samples[1].NativeTemplateBasisKey == 0,
+            "after the exact native original actual hover capture uses the existing cumulative owner delta");
+        TownServiceFrame changed = samples[1];
+        Check(lengths[1] < initialBytes,
+            "actual cumulative hover avoids repeating the complete owner native property table");
+        Check(TownServiceDelta.Expand(null, changed) == null,
+            "a missing genuine owner baseline never reconstructs hover from viewer defaults");
+        pump(); TownServiceMirror.TickRemote(_ => observer);
+        Check(Remote(2, 41)!.Root.Find("Name").GetComponent<TextMeshProUGUI>().text == _text.text,
+            "real cumulative native playback preserves selected upgrade owner text");
+        // The existing native animation adapter preserves intermediate hover
+        // movement instead of jumping from the previous original sample.
+        for (float until = Time.unscaledTime + .3f; Time.unscaledTime < until;)
+        { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+        Check(Remote(2, 41)!.Root.Find("Filled").GetComponent<Image>().color == _fill.color,
+            "real cumulative native playback preserves owner hover color");
+        Check(Remote(2, 41)!.Root.Find("Viewport").GetComponent<RectMask2D>().padding == _clip.padding,
+            "real cumulative native playback preserves owner scroll clipping");
+
+        // The delta may overtake its sparse original. Normal admission retains
+        // that exact owner original even though its sequence is older.
+        Check(TownServiceMirror.ReceiveParsed(4, changed), "reordered native hover is retained before its baseline");
+        Check(TownServiceMirror.ReceiveParsed(4, first), "reordered native sparse baseline admits through original expansion");
+        var received = (Dictionary<int, Dictionary<ushort, TownServiceFrame>>)typeof(TownServiceMirror)
+            .GetField("ReceivedBaselines", PrivateStatic)!.GetValue(null)!;
+        Check(received[4][41].Sequence == first.Sequence
+            && TownServiceDelta.Expand(received[4][41], changed) != null,
+            "late exact original unblocks its retained cumulative native hover");
+        TownServiceMirror.RemovePeer(4);
+
+        var modules = (IDictionary)typeof(TownServiceMirror).GetProperty("Local", PrivateStatic)!.GetValue(null)!;
+        object module = modules[(ushort)41]!;
+        module.GetType().GetField("NextBaseline", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(module, 0f);
+        module.GetType().GetField("NextRefresh", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(module, 0f);
+        capture();
+        Check(samples.Count == 3 && samples[2].BaseSequence == 0,
+            "periodic complete native repair still supplies a new exact owner baseline");
+        pump(); TownServiceMirror.TickRemote(_ => observer);
+        Check(Remote(2, 41)!.Root.Find("Name").GetComponent<TextMeshProUGUI>().text == _text.text,
+            "periodic native repair cannot roll selected upgrade artwork back");
+        File.WriteAllText(Path.Combine(_output, "native-queued-delta626.txt"),
+            "Actual CaptureCore -> immutable queue -> native bundle/fragments -> ReceiveParsed -> TickRemote.\n"
+            + "Initial original=" + initialBytes + " bytes; cumulative hover=" + lengths[1]
+            + " bytes; current complete repair=" + lengths[2] + " bytes.\n"
+            + "Reordered delta requires its exact independently expanded original baseline.\n");
     }
 
     private static IEnumerator NativeColdOriginal625(Transform author, Transform observer)

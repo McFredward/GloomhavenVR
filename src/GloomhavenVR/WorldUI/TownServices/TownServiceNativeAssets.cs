@@ -47,6 +47,11 @@ internal static class TownServiceNativeAssets
         if (card == null || UIInfoTools.Instance == null) return;
         try
         {
+            // A visitor can offer another party member's card before this client
+            // ever selects that character. Its original portrait/selection highlight
+            // is also used by the enhancement UI, not just the ability-card skin.
+            if (Enum.TryParse(card.ClassModel, out ECharacter character))
+                PrepareCharacter(character, card.ClassCharacterConfig);
             AbilityCardUISkin skin = UIInfoTools.Instance.GetCardSkin(card.ClassModel, card.ClassCharacterConfig);
             if (skin == null) return;
             Prepare(skin.TitleSprite);

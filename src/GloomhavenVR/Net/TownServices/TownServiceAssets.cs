@@ -173,7 +173,12 @@ internal sealed class TownServiceAssets
             // on the other peer even when their borrowed item rows arrive in another order.
             || texture.name == "T_Noise_Spherical_Sparks" && texture.width == 512 && texture.height == 512
                && texture.format == TextureFormat.RGB24 && texture.mipmapCount == 10
-            || texture.name == "HeroHighlight_Darken" && texture.width == 300 && texture.height == 218
+            // Build625's observer repeatedly rejected HeroHighlight_Brute while
+            // native pool wrappers appeared. Read-only census of every GH_Data
+            // *.assets verifies one texture and one sprite for each named class,
+            // all in sharedassets1 (Brute texture86/sprite928). Admit only that
+            // audited finite set with its full descriptor, never arbitrary prefixes.
+            || KnownHeroHighlight(texture.name) && texture.width == 300 && texture.height == 218
                && texture.format == TextureFormat.RGBA32 && texture.mipmapCount == 1
             || texture.name == "T_flowmap_outwards" && texture.width == 1024 && texture.height == 1024
                && texture.format == TextureFormat.DXT5 && texture.mipmapCount == 11
@@ -182,6 +187,15 @@ internal sealed class TownServiceAssets
             || texture.name.StartsWith("sactx-", StringComparison.Ordinal)
                && texture.name.Contains("BattleOverlayCanvas-");
     }
+    private static bool KnownHeroHighlight(string name) => name is
+        "HeroHighlight_Darken" or "HeroHighlight_Brute" or "HeroHighlight_Berserker"
+        or "HeroHighlight_Plagueherald" or "HeroHighlight_Soothsinger" or "HeroHighlight_Summoner"
+        or "HeroHighlight_Nightshroud" or "HeroHighlight_Sawbone" or "HeroHighlight_Quartermaster"
+        or "HeroHighlight_Spellweaver" or "HeroHighlight_Cragheart" or "HeroHighlight_Tinkerer"
+        or "HeroHighlight_Doomstalker" or "HeroHighlight_AddMercenary" or "HeroHighlight_BeastTyrant"
+        or "HeroHighlight_Elementalist" or "HeroHighlight_Scoundrel" or "HeroHighlight_Mindthief"
+        or "HeroHighlight_Sunkeeper";
+
     private static string Numbers(params float[] values)
     {
         var text = new string[values.Length];

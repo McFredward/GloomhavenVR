@@ -192,6 +192,40 @@ public static partial class MirrorProgram
             }
             Object.Destroy(original); Object.Destroy(wrapper); Object.Destroy(mismatch); Object.Destroy(mismatchTwin);
         }
+        foreach (string name in new[]
+        {
+            "HeroHighlight_Brute", "HeroHighlight_Berserker", "HeroHighlight_Plagueherald",
+            "HeroHighlight_Soothsinger", "HeroHighlight_Summoner", "HeroHighlight_Nightshroud",
+            "HeroHighlight_Sawbone", "HeroHighlight_Quartermaster", "HeroHighlight_Spellweaver",
+            "HeroHighlight_Cragheart", "HeroHighlight_Tinkerer", "HeroHighlight_Doomstalker",
+            "HeroHighlight_AddMercenary", "HeroHighlight_BeastTyrant", "HeroHighlight_Elementalist",
+            "HeroHighlight_Scoundrel", "HeroHighlight_Mindthief", "HeroHighlight_Sunkeeper"
+        })
+        {
+            var original = new Texture2D(300, 218, TextureFormat.RGBA32, false) { name = name };
+            var wrapper = new Texture2D(300, 218, TextureFormat.RGBA32, false) { name = name };
+            Sprite a = Sprite.Create(original, new Rect(0f, 0f, 300f, 218f), Vector2.one * .5f);
+            Sprite b = Sprite.Create(wrapper, new Rect(0f, 0f, 300f, 218f), Vector2.one * .5f);
+            a.name = b.name = name;
+            Check(owner.Key(original) == owner.Key(wrapper),
+                "audited class hover texture wrappers retain exact native identity: " + name);
+            string key = owner.Key(a);
+            Check(observer.Key(b) == key && observer.Resolve<Sprite>(key) == b,
+                "another visitor's original class hover sprite resolves immediately: " + name);
+            var wrong = new Texture2D(300, 218, TextureFormat.RGBA32, true) { name = name };
+            var wrongTwin = new Texture2D(300, 218, TextureFormat.RGBA32, true) { name = name };
+            owner.Key(wrong); refused = false;
+            try { owner.Key(wrongTwin); } catch (InvalidDataException) { refused = true; }
+            Check(refused, "audited class hover sprite cannot admit an invented mip chain: " + name);
+            Object.Destroy(a); Object.Destroy(b); Object.Destroy(original); Object.Destroy(wrapper);
+            Object.Destroy(wrong); Object.Destroy(wrongTwin);
+        }
+        var invented = new Texture2D(300, 218, TextureFormat.RGBA32, false) { name = "HeroHighlight_Unverified" };
+        var inventedTwin = new Texture2D(300, 218, TextureFormat.RGBA32, false) { name = invented.name };
+        owner.Key(invented); refused = false;
+        try { owner.Key(inventedTwin); } catch (InvalidDataException) { refused = true; }
+        Check(refused, "unverified HeroHighlight prefix remains fail closed");
+        Object.Destroy(invented); Object.Destroy(inventedTwin);
         Object.Destroy(red); Object.Destroy(redTwin); Object.Destroy(unknown); Object.Destroy(unknownTwin);
         Object.Destroy(wrongFormat); Object.Destroy(wrongFormatTwin); Object.Destroy(wrongMips); Object.Destroy(wrongMipsTwin);
         Object.Destroy(atlas); Object.Destroy(atlasTwin);

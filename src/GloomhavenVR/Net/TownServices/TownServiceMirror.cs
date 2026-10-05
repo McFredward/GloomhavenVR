@@ -883,7 +883,13 @@ internal static partial class TownServiceMirror
                         && (now < module.NextRefresh || module.Last != null && module.LastSent < module.Last.Sequence)) continue;
                     frame.Sequence = NextSequence();
                     TownServiceFrame emitted;
-                    if (UsesNativeTemplateState(frame) || frame.CatalogBank != null || module.Baseline == null || now >= module.NextBaseline || !TownServiceDelta.Compatible(module.Baseline, frame))
+                    // Exact native-template metadata initializes the same complete owner
+                    // baseline as every other original widget. Keeping this branch forced
+                    // for service 3 repeated its entire property table on every hover,
+                    // scroll and highlight revision, congesting first-offer delivery.
+                    // Reuse the existing cumulative owner delta after that first original;
+                    // periodic complete repair and topology/identity changes still win.
+                    if (frame.CatalogBank != null || module.Baseline == null || now >= module.NextBaseline || !TownServiceDelta.Compatible(module.Baseline, frame))
                     { emitted = TownServiceDelta.Retain(frame); module.Baseline = emitted; module.NextBaseline = float.PositiveInfinity; }
                     else emitted = TownServiceDelta.Create(module.Baseline, frame);
                     emitted.HighPriority = module.HighPriority || module.WasPriority || NeedsHeartbeat(module);
