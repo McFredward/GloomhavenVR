@@ -238,18 +238,34 @@ namespace GloomhavenVR.Quest.Editor
             const string path = "Assets/Resources/QuestCampaignShaderVariants.shadervariants";
             Directory.CreateDirectory("Assets/Resources");
             var collection = new ShaderVariantCollection();
+            var retained = new HashSet<string>(StringComparer.Ordinal);
+            int nativeAliases = 0;
             foreach (var row in input.shaders)
             {
                 var shader = AssetDatabase.LoadAssetAtPath<Shader>(ExactAsset(row.guid, row.assetPath));
                 if (shader == null || shader.name != row.originalName) throw new InvalidOperationException("Native shader source is missing before variant retention.");
+                var passTypes = new Dictionary<string, PassType>(StringComparer.Ordinal);
                 foreach (var bank in row.variants)
                 {
+                    string passKey = bank.subshader + "/" + bank.pass + "/" + bank.passType;
                     PassType type;
-                    if (string.IsNullOrEmpty(bank.passType) || !Enum.TryParse(bank.passType, false, out type))
-                        throw new InvalidOperationException("Original native LightMode has no proven shader collection PassType.");
-                    collection.Add(new ShaderVariantCollection.ShaderVariant(shader, type, bank.keywords));
+                    if (!passTypes.TryGetValue(passKey, out type))
+                    {
+                        type = ImportedCollectionPassType(shader, bank);
+                        passTypes.Add(passKey, type);
+                    }
+                    var variant = new ShaderVariantCollection.ShaderVariant(shader, type, bank.keywords);
+                    collection.Add(variant);
+                    if (!collection.Contains(variant)) throw new InvalidOperationException("Original native shader collection entry was not retained.");
+                    retained.Add(row.guid + "/" + type + "/" + string.Join(" ", bank.keywords.OrderBy(value => value, StringComparer.Ordinal)));
+                    ++nativeAliases;
                 }
             }
+            // SVC deliberately has no pass ordinal or hardware-tier field.
+            // Exact bank coverage still lives in the original native manifest;
+            // verify its complete projection into this coarser retention API.
+            if (collection.shaderCount != input.shaders.Length || collection.variantCount != retained.Count)
+                throw new InvalidOperationException("Original native shader collection census changed.");
             var existing = AssetDatabase.LoadAssetAtPath<ShaderVariantCollection>(path);
             if (existing != null) { EditorUtility.CopySerialized(collection, existing); UnityEngine.Object.DestroyImmediate(collection); }
             else AssetDatabase.CreateAsset(collection, path);
@@ -257,7 +273,42 @@ namespace GloomhavenVR.Quest.Editor
             // Keeping the collection in Resources retains its exact witnessed
             // banks without warming tens of thousands of programs at startup.
             // The game does not need to call WarmUp or load it synchronously.
-            Debug.Log("Retained original Campaign shader banks in Resources; no startup shader warmup.");
+            Debug.Log("Retained original Campaign shader banks in Resources: shaders=" + input.shaders.Length + ", native aliases=" + nativeAliases + ", unique collection entries=" + retained.Count + "; no startup shader warmup.");
+        }
+
+        public static PassType ImportedCollectionPassType(Shader shader, Variant bank)
+        {
+            PassType expected;
+            if (string.IsNullOrEmpty(bank.passType) || !Enum.TryParse(bank.passType, false, out expected) || !Enum.IsDefined(typeof(PassType), expected))
+                throw new InvalidOperationException("Original native LightMode has no proven shader collection PassType.");
+            var data = ShaderUtil.GetShaderData(shader);
+            if (bank.subshader < 0 || bank.subshader >= data.SubshaderCount)
+                throw new InvalidOperationException("Native collection entry loses its original subshader.");
+            var subshader = data.GetSubshader(bank.subshader);
+            if (bank.pass < 0 || bank.pass >= subshader.PassCount)
+                throw new InvalidOperationException("Native collection entry loses its original pass.");
+            string mode = subshader.GetPass(bank.pass).FindTagValue(new ShaderTagId("LightMode")).name;
+            PassType actual;
+            switch ((mode ?? "").ToUpperInvariant())
+            {
+                case "": case "ALWAYS": actual = PassType.Normal; break;
+                case "FORWARDBASE": actual = PassType.ForwardBase; break;
+                case "FORWARDADD": actual = PassType.ForwardAdd; break;
+                case "SHADOWCASTER": actual = PassType.ShadowCaster; break;
+                case "DEFERRED": actual = PassType.Deferred; break;
+                case "META": actual = PassType.Meta; break;
+                case "MOTIONVECTORS": actual = PassType.MotionVectors; break;
+                case "PREPASSBASE": actual = PassType.LightPrePassBase; break;
+                case "PREPASSFINAL": actual = PassType.LightPrePassFinal; break;
+                case "VERTEX": actual = PassType.Vertex; break;
+                case "VERTEXLM": actual = PassType.VertexLM; break;
+                case "VERTEXLMRGBM": actual = PassType.VertexLMRGBM; break;
+                case "SRPDEFAULTUNLIT": actual = PassType.ScriptableRenderPipelineDefaultUnlit; break;
+                default: throw new InvalidOperationException("Imported native LightMode is unsupported: " + mode);
+            }
+            if (actual != expected)
+                throw new InvalidOperationException("Native shader collection PassType differs from imported pass: " + shader.name + " / " + bank.subshader + "/" + bank.pass + " / expected=" + expected + " / actual=" + actual);
+            return actual;
         }
 
         private static void VerifyProgramSources(Manifest input)

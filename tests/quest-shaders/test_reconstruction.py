@@ -188,6 +188,24 @@ class NativeBindings(unittest.TestCase):
 
 
 class ReconstructionGraph(unittest.TestCase):
+    def test_legacy_untagged_lighting_retains_actual_unity_vertex_classification(self):
+        state = {'lighting': True, 'm_Tags': {'tags': []}}
+        self.assertEqual(produce.collection_pass_type(state), 'Vertex')
+        self.assertEqual(produce.collection_pass_type({**state, 'lighting': False}), 'Normal')
+        self.assertEqual(state, {'lighting': True, 'm_Tags': {'tags': []}})
+
+    def test_explicit_lightmode_overrides_legacy_lighting(self):
+        for mode, expected in [('Always', 'Normal'), ('forwardbase', 'ForwardBase'), ('Vertex', 'Vertex'), ('VertexLM', 'VertexLM'), ('ShadowCaster', 'ShadowCaster')]:
+            with self.subTest(mode=mode):
+                self.assertEqual(produce.collection_pass_type({'lighting': True, 'm_Tags': {'tags': [('LightMode', mode)]}}), expected)
+
+    def test_unknown_ambiguous_and_unwitnessed_pass_classification_fail(self):
+        for state in [{'m_Tags': {'tags': []}}, {'lighting': 1, 'm_Tags': {'tags': []}},
+                      {'lighting': False, 'm_Tags': {'tags': [('LightMode', 'Invented')]}},
+                      {'lighting': True, 'm_Tags': {'tags': [('LightMode', 'Always'), ('LightMode', 'Vertex')]}}]:
+            with self.subTest(state=state), self.assertRaises(produce.ValidationError):
+                produce.collection_pass_type(state)
+
     def test_native_exclusive_keyword_choices_have_no_invented_empty_bank(self):
         banks = {('POINT',): {}, ('SPOT',): {}, ('DIRECTIONAL',): {},
                  ('POINT', 'SHADOWS_CUBE'): {}, ('SPOT', 'SHADOWS_DEPTH'): {}}
@@ -240,7 +258,7 @@ class VulkanNativeInterface(unittest.TestCase):
         from unittest.mock import patch
         from types import SimpleNamespace
         form = {'m_Name': 'NativeFixture', 'm_PropInfo': {'m_Props': []}, 'm_SubShaders': [
-            {'m_Tags': {'tags': []}, 'm_Passes': [{'m_Type': 0, 'm_State': {'m_Tags': {'tags': []}}}]}]}
+            {'m_Tags': {'tags': []}, 'm_Passes': [{'m_Type': 0, 'm_State': {'lighting': False, 'm_Tags': {'tags': []}}}]}]}
         rows = [dict(stage=stage, subshader=0, **{'pass': 0}, hardwareTier=0, keywords=keys,
                      originalDxbcSha256=stage + str(n), originalInterfaceSha256='interface', fragmentOutput='color')
                 for n, keys in enumerate(([], ['NATIVE_ALPHA'])) for stage in ('vertex', 'fragment')]

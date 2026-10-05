@@ -190,6 +190,31 @@ def _keyword_pragmas(vertex, fragment, keys, mandatory):
     return rows
 
 
+def collection_pass_type(state):
+    """Preserve Unity's imported pass classification without changing ShaderLab.
+
+    Unity 2021.3.5 imports a programmed legacy `Lighting On` pass with no
+    LightMode as Vertex. An explicit Always tag still imports as Normal. The
+    native render state remains untouched; this only selects its SVC enum.
+    """
+    modes = {str(value).upper() for key, value in state['m_Tags']['tags'] if key.upper() == 'LIGHTMODE'}
+    if len(modes) > 1:
+        raise ValidationError('Original native pass has ambiguous LightMode state.')
+    types = {'FORWARDBASE': 'ForwardBase', 'FORWARDADD': 'ForwardAdd', 'SHADOWCASTER': 'ShadowCaster',
+             'DEFERRED': 'Deferred', 'META': 'Meta', 'MOTIONVECTORS': 'MotionVectors',
+             'PREPASSBASE': 'LightPrePassBase', 'PREPASSFINAL': 'LightPrePassFinal',
+             'VERTEX': 'Vertex', 'VERTEXLM': 'VertexLM', 'VERTEXLMRGBM': 'VertexLMRGBM',
+             'ALWAYS': 'Normal', 'SRPDEFAULTUNLIT': 'ScriptableRenderPipelineDefaultUnlit'}
+    if not modes:
+        if not isinstance(state.get('lighting'), bool):
+            raise ValidationError('Original untagged pass has no witnessed native lighting state.')
+        return 'Vertex' if state['lighting'] else 'Normal'
+    mode = next(iter(modes))
+    if mode not in types:
+        raise ValidationError('Original native LightMode requires a ShaderVariantCollection mapping: ' + mode)
+    return types[mode]
+
+
 def shader_source(form, record, cache, includes, graphics_api="Vulkan"):
     native = recovery_module()
     lines = ['Shader ' + json.dumps(form['m_Name']) + ' {', 'Properties {', properties(form), '}']
@@ -224,17 +249,7 @@ def shader_source(form, record, cache, includes, graphics_api="Vulkan"):
                     continue
                 raise ValidationError('Original programmed pass has no complete native stage bank: ' + record['guid'] + ' / ' + str(si) + '/' + str(pi))
             keys = sorted(set().union(*(set(row['keywords']) for row in variants)))
-            light_modes = {str(value).upper() for key, value in original_pass['m_State']['m_Tags']['tags'] if key.upper() == 'LIGHTMODE'}
-            if len(light_modes) > 1:
-                raise ValidationError('Original native pass has ambiguous LightMode state.')
-            pass_type = {'FORWARDBASE': 'ForwardBase', 'FORWARDADD': 'ForwardAdd', 'SHADOWCASTER': 'ShadowCaster',
-                         'DEFERRED': 'Deferred', 'META': 'Meta', 'MOTIONVECTORS': 'MotionVectors',
-                         'PREPASSBASE': 'LightPrePassBase', 'PREPASSFINAL': 'LightPrePassFinal',
-                         'VERTEX': 'Vertex', 'VERTEXLM': 'VertexLM', 'VERTEXLMRGBM': 'VertexLMRGBM',
-                         'ALWAYS': 'Normal', 'SRPDEFAULTUNLIT': 'ScriptableRenderPipelineDefaultUnlit'}
-            mode = next(iter(light_modes), 'ALWAYS')
-            if mode not in pass_type:
-                raise ValidationError('Original native LightMode requires a ShaderVariantCollection mapping: ' + mode)
+            pass_type = collection_pass_type(original_pass['m_State'])
             mandatory = (set.intersection(*(set(k) for k in vertex)) | set.intersection(*(set(k) for k in fragment))) - {'UNITY_HARDWARE_TIER1', 'UNITY_HARDWARE_TIER2', 'UNITY_HARDWARE_TIER3'}
             lines += ['Pass {', native.render_state(original_pass['m_State']), 'HLSLPROGRAM',
                       '#pragma target 4.5', '#pragma vertex QuestOriginalVertex', '#pragma fragment QuestOriginalFragment']
@@ -262,7 +277,7 @@ def shader_source(form, record, cache, includes, graphics_api="Vulkan"):
             for tier, selection in sorted({(row['hardwareTier'], tuple(sorted(set(row['keywords']) | mandatory))) for row in variants}):
                 selector = [*selection, 'UNITY_HARDWARE_TIER' + str(tier + 1)]
                 v, f = _selected(vertex, selector), _selected(fragment, selector)
-                compiler_variants.append({'subshader': si, 'pass': pi, 'passType': pass_type[mode], 'hardwareTier': tier, 'keywords': list(selection),
+                compiler_variants.append({'subshader': si, 'pass': pi, 'passType': pass_type, 'hardwareTier': tier, 'keywords': list(selection),
                     'coverageKind': 'original-native',
                     'stereo': 'multiview' if 'STEREO_MULTIVIEW_ON' in selection else 'instancing' if 'STEREO_INSTANCING_ON' in selection else 'mono',
                     'vertexOriginalDxbcSha256': v['originalDxbcSha256'], 'fragmentOriginalDxbcSha256': f['originalDxbcSha256'],
@@ -273,7 +288,7 @@ def shader_source(form, record, cache, includes, graphics_api="Vulkan"):
             for tier, selection in sorted({(row['hardwareTier'], tuple(sorted(set(row['keywords']) | mandatory))) for row in variants if not set(row['keywords']) & {'STEREO_MULTIVIEW_ON', 'STEREO_INSTANCING_ON'}}):
                 selector = [*selection, 'UNITY_HARDWARE_TIER' + str(tier + 1)]
                 v, f = _selected(vertex, selector), _selected(fragment, selector)
-                compiler_variants.append({'subshader': si, 'pass': pi, 'passType': pass_type[mode], 'hardwareTier': tier, 'keywords': sorted([*selection, 'STEREO_MULTIVIEW_ON']),
+                compiler_variants.append({'subshader': si, 'pass': pi, 'passType': pass_type, 'hardwareTier': tier, 'keywords': sorted([*selection, 'STEREO_MULTIVIEW_ON']),
                     'coverageKind': 'quest-synthetic',
                     'stereo': 'multiview', 'vertexOriginalDxbcSha256': v['originalDxbcSha256'],
                     'fragmentOriginalDxbcSha256': f['originalDxbcSha256'], 'fragmentOutput': f['fragmentOutput'],
