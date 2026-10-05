@@ -15,6 +15,7 @@ internal static class TownServiceTransportVectors
         SharedTempleAvailability(t);
         PrivateTransactionReservations(t);
         AdditiveReviewRecords(t);
+        NativeTemplateMetadata(t);
         t.Case("Town service original widgets use the real wire header and loss-safe module lanes");
         var frame = Frame(62000, 1);
         byte[] raw = TownServiceCodec.Write(frame);
@@ -614,6 +615,70 @@ internal static class TownServiceTransportVectors
         t.True(firstDepth == 0 && lastDepth == 0 && firstOpen == 1 && lastOpen == 1,
             "owner and observer cassette clocks share both visible endpoint poses");
     }
+    private static void NativeTemplateMetadata(Harness t)
+    {
+        t.Case("Original native metadata survives ordinary bundles and production fragments");
+        TownServiceFrame frame = Frame(41, 7, 8); frame.Service = 3;
+        frame.NativeTemplateBasisKey = 0x8877665544332211UL;
+        byte[] sparse = TownServiceCodec.Write(frame);
+        t.Wire(Hex.Bytes("69 09 01 11 22 33 44 55 66 77 88"),
+            Slice(sparse, sparse.Length - 11, 11), 11, "additive TLV105 has its independent version and immutable basis identity");
+        t.True(TownServiceCodec.TryRead(sparse, sparse.Length, out var decoded)
+            && decoded!.NativeTemplateBasisKey == frame.NativeTemplateBasisKey && decoded.BaseSequence == 0,
+            "native metadata is not a delta against a previous network image");
+        TownServiceFrame retained = TownServiceDelta.Retain(decoded!);
+        t.True(retained.NativeTemplateBasisKey == frame.NativeTemplateBasisKey,
+            "queue tagging preserves the native basis record");
+        var duplicate = new byte[sparse.Length + 11]; sparse.CopyTo(duplicate, 0);
+        Array.Copy(sparse, sparse.Length - 11, duplicate, sparse.Length, 11);
+        t.True(!TownServiceCodec.TryRead(duplicate, duplicate.Length, out _), "duplicate native metadata record is rejected");
+        byte[] malformed = (byte[])sparse.Clone(); malformed[malformed.Length - 9] = 2;
+        t.True(!TownServiceCodec.TryRead(malformed, malformed.Length, out _), "unknown native metadata version is rejected");
+        malformed = (byte[])sparse.Clone(); Array.Clear(malformed, malformed.Length - 8, 8);
+        t.True(!TownServiceCodec.TryRead(malformed, malformed.Length, out _), "zero native basis identity is rejected");
+        TownServiceFrame second = TownServiceDelta.Retain(frame); second.Module = 42;
+        byte[] bundle = TownServiceCodec.WriteBundle(new[] { sparse, TownServiceCodec.Write(second) });
+        foreach (bool compressed in new[] { false, true })
+        {
+            byte[][] pages = ExtrasFragments.Encode(bundle, bundle.Length,
+                65536UL + TownServiceFrame.BundleStream, TownServiceCodec.MessageType,
+                TownServiceCodec.FragmentType, TownServiceFrame.MaxBytes, compress: compressed);
+            var receiver = new TownServiceFragments(); byte[]? complete = null;
+            for (int i = pages.Length - 1; i >= 0; i--)
+            {
+                byte[]? received = receiver.Accept(2, pages[i], pages[i].Length, .1);
+                if (i != 0) t.True(received == null, "fragmented native bundle remains atomic before its final page");
+                complete = received ?? complete;
+            }
+            t.True(complete != null && TownServiceCodec.TryReadBundle(complete, complete.Length, out _),
+                "actual fragmented transport reconstructs the complete original metadata bundle");
+            TownServiceCodec.TryReadBundle(complete!, complete!.Length, out var parts);
+            t.Equal(2, parts!.Length, "both independent native modules survive the bundle");
+            foreach (byte[] part in parts)
+                t.True(TownServiceCodec.TryRead(part, part.Length, out var member)
+                    && member!.NativeTemplateBasisKey == frame.NativeTemplateBasisKey,
+                    "fragmented bundled modules preserve original immutable prefab metadata");
+        }
+        var queue = new TownServiceSendQueue(65536);
+        queue.Enqueue(sparse, sparse.Length, decoded!);
+        TownServiceFrame revision = TownServiceDelta.Retain(frame); revision.Sequence++;
+        byte[] latest = TownServiceCodec.Write(revision); queue.Enqueue(latest, latest.Length, revision);
+        var assembler = new TownServiceFragments(); ulong arrived = 0;
+        for (int i = 0; i < 150; i++)
+        {
+            byte[]? page = queue.Next(i * .05); if (page == null) continue;
+            byte[]? received = assembler.Accept(2, page, page.Length, i * .05); if (received == null) continue;
+            byte[][] parts = TownServiceCodec.TryReadBundle(received, received.Length, out var packed) ? packed! : new[] { received };
+            foreach (byte[] part in parts) if (TownServiceCodec.TryRead(part, part.Length, out var member))
+            {
+                t.True(member!.NativeTemplateBasisKey == frame.NativeTemplateBasisKey && member.BaseSequence == 0,
+                    "actual coalescing queue retains complete native metadata rather than an unusable network delta");
+                arrived = Math.Max(arrived, member.Sequence);
+            }
+        }
+        t.Equal(revision.Sequence, arrived, "coalescing delivers the newest complete native revision");
+    }
+
     private static byte[] Slice(byte[] bytes,int at,int count)
     {var result=new byte[count];Array.Copy(bytes,at,result,0,count);return result;}
     private static TownServiceFrame Frame(ushort module, ulong sequence, int count = 64)

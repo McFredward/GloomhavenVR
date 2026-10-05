@@ -149,18 +149,9 @@ public static partial class MirrorProgram
         }
         IEnumerator settle = FastSettle(observer, .22f); while (settle.MoveNext()) yield return settle.Current;
         Check(Remote(2, faceId) == null, "delayed original offered artwork remains a pending exact face");
-        for (int i = 0; i < rows.Count; i++)
-        {
-            TownServiceBinding? remote = Remote(2, ids[i]);
-            Check(remote != null && remote.Root.gameObject.activeInHierarchy,
-                "actual original row playback has no missing upgrade-option branches");
-            TextMeshProUGUI original = rows[i].Find("Original option").GetComponent<TextMeshProUGUI>();
-            TextMeshProUGUI copy = remote!.Root.Find("Original option").GetComponent<TextMeshProUGUI>();
-            Check(copy.text == original.text && copy.fontSize == original.fontSize && copy.color == original.color,
-                "original option text style and order survive real reverse message arrival");
-            Check(Vector2.Distance(((RectTransform)copy.transform).anchoredPosition, ((RectTransform)original.transform).anchoredPosition) < .001f,
-                "original option geometry survives actual capture codec and playback");
-        }
+        foreach (ushort id in ids)
+            Check(Remote(2, id) == null,
+                "actual original upgrade rows wait for the complete offered-card picture");
         card.position += new Vector3(.15f, -.07f, .1f); card.rotation = Quaternion.Euler(23, 81, 14);
         ((RectTransform)content).anchoredPosition += new Vector2(0, 27);
         rows[2].Find("Native highlight").GetComponent<Image>().color = Color.magenta;
@@ -173,6 +164,18 @@ public static partial class MirrorProgram
         TownServiceBinding? observedFace = Remote(2, faceId);
         Check(observedFace != null && observedFace.Root.gameObject.activeInHierarchy,
             "late exact offered face joins after earlier original motion and independent row artwork");
+        for (int i = 0; i < rows.Count; i++)
+        {
+            TownServiceBinding? remote = Remote(2, ids[i]);
+            Check(remote != null && remote.Root.gameObject.activeInHierarchy,
+                "actual original row playback has no missing upgrade-option branches");
+            TextMeshProUGUI original = rows[i].Find("Original option").GetComponent<TextMeshProUGUI>();
+            TextMeshProUGUI copy = remote!.Root.Find("Original option").GetComponent<TextMeshProUGUI>();
+            Check(copy.text == original.text && copy.fontSize == original.fontSize && copy.color == original.color,
+                "original option text style and order survive real reverse message arrival");
+            Check(Vector2.Distance(((RectTransform)copy.transform).anchoredPosition, ((RectTransform)original.transform).anchoredPosition) < .001f,
+                "original option geometry survives actual capture codec and playback");
+        }
         Vector3 expected = observer.TransformPoint(author.InverseTransformPoint(face.position));
         Quaternion rotation = observer.rotation * Quaternion.Inverse(author.rotation) * face.rotation;
         var geometry = new System.Text.StringBuilder();

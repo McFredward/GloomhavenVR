@@ -156,7 +156,7 @@ internal static partial class TownServiceMirror
         {
             NativeTemplateBasis? basis = NativeBasis(received);
             if (basis == null || basis.Structure != received.Structure || basis.Key != received.NativeTemplateBasisKey)
-                throw new InvalidDataException("Original enchantment metadata requires its exact frozen native template.");
+                throw new InvalidDataException("Original town metadata requires its exact frozen native template.");
             var changes = new Dictionary<uint, TownServiceNode>();
             foreach (TownServiceNode node in received.Nodes)
                 if (changes.ContainsKey(node.Binding)) return false;

@@ -17,7 +17,7 @@ internal static class TownServiceCodec
     internal const byte VisitorStockRecordId = NetProtocol.ExtIdTownVisitorStock;
     internal const byte CatalogBankRecordId = NetProtocol.ExtIdTownCatalogBank;
     internal const byte CatalogHeadersRecordId = NetProtocol.ExtIdTownCatalogHeaders;
-    internal const byte NativeTemplateStateRecordId = 105;
+    internal const byte NativeTemplateStateRecordId = NetProtocol.ExtIdTownNativeTemplateState;
     private static readonly UTF8Encoding Utf8 = new(false, true);
 
     internal static byte[] Write(TownServiceFrame frame)
@@ -518,7 +518,7 @@ internal static class TownServiceCodec
         if (frame.NativeTemplateBasisKey != 0 && ((frame.Service != 3 && !(frame.Service == 1 && frame.PublicCatalog))
             || frame.VisitorStock || frame.Module >= TownServiceFrame.VoiceModule
             || frame.BaseSequence != 0 || frame.CatalogBank != null || frame.Rack != null))
-            throw new InvalidDataException("Original template state belongs to a complete private enchantment module.");
+            throw new InvalidDataException("Original template state belongs to a complete original town module.");
         if (frame.CanvasPose == null || frame.CanvasPose.Length != 10 || frame.CanvasRect == null || frame.CanvasRect.Length != 4
             || frame.CanvasSettings == null || frame.CanvasSettings.Length != 5) throw new InvalidDataException("Invalid town canvas frame.");
         foreach (float value in frame.CanvasPose) Finite(value);
