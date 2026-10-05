@@ -254,7 +254,7 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     internal static Vector3 CardPosition(int index) => TownServiceMerchantLayout.StockPosition(index);
     internal void BeginLaser() => _laser = true;
     public void OnGrab(VRHand hand)
-    { if (!CanGrab) return; TownServicePublicMerchant.Claim(); TownServicePhysicalRay.Claim(hand); _hand = hand; _cursorStart = Root.parent.InverseTransformPoint(hand.Rig.GrabAnchor.position); _pull = 0f; }
+    { if (!CanGrab) return; TownServicePhysicalRay.Claim(hand); _hand = hand; _cursorStart = Root.parent.InverseTransformPoint(hand.Rig.GrabAnchor.position); _pull = 0f; }
     internal void Tick(float opacity)
     {
         if (_disposed) return;
@@ -287,7 +287,7 @@ internal sealed class TownServiceMerchantDrawer : IGrabbable, IGrabbableHandFilt
     }
     internal void Close() { }
     public void OnRelease(VRHand hand, Vector3 velocity)
-    { if (_hand != hand) return; TownServicePhysicalRay.Claim(hand); _hand = null; RequestTurn(); _laser = false; }
+    { if (_hand != hand) return; TownServicePhysicalRay.Claim(hand); _hand = null; TownServicePublicMerchant.TryTurnPage(this, 1); _laser = false; }
     public void OnGrabCancelled(VRHand hand)
     { if (_hand == hand) { _hand = null; _laser = false; _pull = 0f; Root.localRotation = Quaternion.identity; } }
     public void Dispose()

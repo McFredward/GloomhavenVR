@@ -46,35 +46,43 @@ internal static class TownServicePublicMerchant
             return TownServiceAvailability.NativeUnlocked(1);
         }
     }
-    internal static void Claim()
-    {
-        if (_catalog == null || !CanClaim || !MapRoomDriver.Active || StoryComposite.PointOfNoReturn) return;
-        if (!TownServiceMirror.IsPublicAuthor) FollowPublicRack();
-        TakePublicCatalog();
-    }
+    // A visitor only operates the common mechanism. It must not change native
+    // original-bank authorship merely by grabbing the crank or inspecting a card.
+    internal static void Claim() { }
     internal static bool TrySelectCategory(TownServiceMerchantDrawer rack, int category)
     {
-        if (_catalog == null || !CanClaim || !MapRoomDriver.Active || StoryComposite.PointOfNoReturn) return false;
-        if (!TownServiceMirror.IsPublicAuthor) FollowPublicRack();
-        // Follow the newest shared page before evaluating this cosmetic request.
-        // Animated turns allow another press; genuine manual crank ownership or
-        // an unchanged target can decline it without taking public authority.
-        if (!rack.Select(category, false)) return false;
-        TakePublicCatalog();
-        return true;
+        if (_catalog == null || !ReferenceEquals(_catalog.Drawers[0], rack) || !CanClaim
+            || !MapRoomDriver.Active || StoryComposite.PointOfNoReturn) return false;
+        return TownMerchantControlSync.RequestCategory(category);
     }
     internal static bool TryTurnPage(TownServiceMerchantDrawer rack, int direction)
     {
-        if (_catalog == null || !CanClaim || !MapRoomDriver.Active || StoryComposite.PointOfNoReturn) return false;
-        if (!TownServiceMirror.IsPublicAuthor) FollowPublicRack();
-        if (!rack.RequestTurn(direction)) return false;
-        TakePublicCatalog();
-        return true;
+        if (_catalog == null || !ReferenceEquals(_catalog.Drawers[0], rack) || !CanClaim
+            || !MapRoomDriver.Active || StoryComposite.PointOfNoReturn) return false;
+        return TownMerchantControlSync.RequestPage(direction);
     }
-    private static void TakePublicCatalog()
+    internal static bool ApplyOriginalControl(TownMerchantControlOperation operation, int value)
     {
-        if (_catalog == null) return;
-        TownServiceMirror.ClaimPublicCatalog(); _observingPublic = false; _catalog.SetObserver(false);
+        if (_catalog == null || !CanClaim || !MapRoomDriver.Active || StoryComposite.PointOfNoReturn) return false;
+        TownServiceMerchantDrawer rack = _catalog.Drawers[0];
+        return operation == TownMerchantControlOperation.Category ? rack.Select(value, false)
+            : operation == TownMerchantControlOperation.Page && rack.RequestTurn(value);
+    }
+    internal static TownRackState? ControlClock
+    {
+        get
+        {
+            if (_catalog == null || !MapRoomDriver.Active || StoryComposite.PointOfNoReturn) return null;
+            TownServiceMerchantDrawer rack = _catalog.Drawers[0];
+            return new TownRackState { Cassette = true, Turn = rack.TurnEpoch,
+                Elapsed = rack.TurnElapsed, LeadAngle = rack.LeadAngle,
+                Page = (ushort)rack.Page, From = (ushort)rack.FromPage, To = (ushort)rack.ToPage,
+                ScrollDirection = rack.ScrollDirection, PageCount = (ushort)rack.PageCount };
+        }
+    }
+    internal static void ApplySharedControlClock(TownRackState clock)
+    {
+        if (_catalog != null && !TownServiceMirror.IsPublicAuthor) _catalog.Drawers[0].Follow(clock);
     }
     // Artwork completeness gates the atomic picture replacement, not the public
     // mechanism or its local input proxy. One still-cold original image must not
@@ -84,7 +92,7 @@ internal static class TownServicePublicMerchant
     {
         if (_catalog == null || TownServiceMirror.PublicRack is not TownRackState state) return;
         if (state.Layout != null) _catalog.AdoptStockLayout(state.Layout);
-        _catalog.Drawers[0].Follow(state);
+        _catalog.Drawers[0].Follow(TownMerchantControlSync.SharedClock ?? state);
     }
     private static object? Context()
     {
