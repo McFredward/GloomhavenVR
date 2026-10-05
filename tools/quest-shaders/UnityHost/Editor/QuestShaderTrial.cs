@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using UnityEditor;
 using UnityEditor.Rendering;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 public static class QuestShaderTrial
 {
@@ -13,6 +14,7 @@ public static class QuestShaderTrial
         var shader = AssetDatabase.LoadAssetAtPath<Shader>("Assets/OriginalAmpForward.shader");
         if (shader == null) throw new InvalidOperationException("Original bound shader trial is missing.");
         var material = new Material(shader);
+        if (AssetDatabase.LoadAssetAtPath<Material>("Assets/TrialMaterial.mat") != null) AssetDatabase.DeleteAsset("Assets/TrialMaterial.mat");
         AssetDatabase.CreateAsset(material, "Assets/TrialMaterial.mat");
         var mesh = new Mesh {
             vertices = new[] { new Vector3(-0.7f, -0.7f, 0), new Vector3(0, 0.7f, 0), new Vector3(0.7f, -0.7f, 0) },
@@ -21,14 +23,19 @@ public static class QuestShaderTrial
             uv = new[] { Vector2.zero, new Vector2(0.5f, 1), Vector2.right }, triangles = new[] { 0, 1, 2 }
         };
         mesh.RecalculateBounds();
+        if (AssetDatabase.LoadAssetAtPath<Mesh>("Assets/TrialMesh.asset") != null) AssetDatabase.DeleteAsset("Assets/TrialMesh.asset");
         AssetDatabase.CreateAsset(mesh, "Assets/TrialMesh.asset");
         AssetDatabase.SaveAssets();
-        Directory.CreateDirectory("TrialWindows");
-        var result = BuildPipeline.BuildAssetBundles("TrialWindows", new[] { new AssetBundleBuild {
+        bool vulkan = Environment.GetEnvironmentVariable("GHVR_QUEST_SHADER_VULKAN_HOST") == "1";
+        var target = vulkan ? BuildTarget.StandaloneLinux64 : BuildTarget.StandaloneWindows64;
+        PlayerSettings.SetUseDefaultGraphicsAPIs(target, false);
+        PlayerSettings.SetGraphicsAPIs(target, new[] { vulkan ? GraphicsDeviceType.Vulkan : GraphicsDeviceType.Direct3D11 });
+        Directory.CreateDirectory(vulkan ? "TrialVulkan" : "TrialWindows");
+        var result = BuildPipeline.BuildAssetBundles(vulkan ? "TrialVulkan" : "TrialWindows", new[] { new AssetBundleBuild {
             assetBundleName = "quest-campaign-shader-candidates", assetNames = new[] { "Assets/TrialMaterial.mat", "Assets/TrialMesh.asset" },
             addressableNames = new[] { "candidate-material", "candidate-mesh" }
-        } }, BuildAssetBundleOptions.StrictMode | BuildAssetBundleOptions.ForceRebuildAssetBundle, BuildTarget.StandaloneWindows64);
-        if (result == null) throw new InvalidOperationException("Actual bound original forward Windows bundle failed.");
+        } }, BuildAssetBundleOptions.StrictMode | BuildAssetBundleOptions.ForceRebuildAssetBundle, vulkan ? BuildTarget.StandaloneLinux64 : BuildTarget.StandaloneWindows64);
+        if (result == null) throw new InvalidOperationException("Actual bound original forward native bundle failed.");
     }
     [Serializable] public sealed class Receipt
     {

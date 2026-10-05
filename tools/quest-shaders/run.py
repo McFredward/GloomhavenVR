@@ -112,9 +112,9 @@ def _native_path(path: Path):
     return str(absolute) if os.name == "nt" else "Z:" + str(absolute).replace("/", "\\")
 
 
-def validate_pixels(manifest, manifest_sha, receipt, output: Path):
+def validate_pixels(manifest, manifest_sha, receipt, output: Path, backend="Direct3D11"):
     if (receipt.get("schema") != 1 or receipt.get("sourceManifestSha256") != manifest_sha or
-            receipt.get("unityVersion") != "2021.3.5f1" or receipt.get("graphicsDeviceType") != "Direct3D11" or
+            receipt.get("unityVersion") != "2021.3.5f1" or receipt.get("graphicsDeviceType") != backend or
             not receipt.get("originalWindowsDxbcPixelsCompared") or not receipt.get("allCasesPassed") or receipt.get("errors") or
             receipt.get("androidMultiviewPixelsVerified") is not False or receipt.get("headsetPictureVerified") is not False):
         raise ValidationError("Original Windows/D3D11 pixel receipt is invalid or overstates its evidence.")

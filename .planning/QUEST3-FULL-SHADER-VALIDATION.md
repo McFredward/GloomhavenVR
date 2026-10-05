@@ -385,3 +385,79 @@ An actual complete producer execution emitted all688physical shaders,
 read sites qualified. The formerly failing alias passed the real Unity Vulkan
 gate. Its complete Campaign/shard census and affected-material pixel evidence
 remain separate ongoing checks.
+
+The source-identical final compiler census runs in three independent Unity
+projects with no shared Library: 361/130/197 shader identities, respectively
+17,994/16,785/16,785 original Vulkan aliases and 3,089/5,815/283 original material
+consumers. `shards.py partition` preserves every original shader, material and
+instruction record. `shards.py merge` requires the exact authoritative union,
+passing actual compiler receipts and unchanged bank/stage bytes; interrupted
+prefix progress is not a completed compiler receipt. Libraries/ShaderCache are
+retained as content-addressed donors, never as substitutes for the final gate.
+
+`vulkan.py` consumes the real Android compiler receipt, validates every distinct
+SPIR-V pair with `spirv-val --target-env vulkan1.0`, reflects actual descriptors,
+vertex locations and fragment output formats, and calls real Vulkan graphics
+pipeline creation through `vulkan_host.c`. The driver must reject a planted
+missing fragment entry point. The earlier representative census passed 1,432
+aliases/544 distinct pipeline pairs; full original-alias coverage is a separate
+ongoing run. This host gate does not execute the complete Campaign or certify
+its pictures.
+
+The actual original Amp forward oracle additionally has eight byte-exact
+Vulkan-versus-original-D3D pictures in private `amp-vulkan-parity-v2`, exercising
+geometry, lighting, UV/texture binding, opacity, vertex displacement and camera
+offset. Its camera-offset pictures are not OpenXR eye tracking. The original
+bundle bytes, original receipt/configuration and captured original readbacks
+are rechecked before/after the candidate run by `vulkan_reference.py`.
+
+The affected Amp_Low instance witness uses the actual native shader at
+`Assets/Content/Characters/Common/Shaders/Amp_low/Amp_CharShader_Low.shader`
+from `misc_shaders_assets_all.bundle` (CAB
+`cab-509d04608b9fcd2bc8f9848fff3298cf`, path ID -3001704411781366340), the exact
+eight failing keywords and hardware tier2. It executes real DrawMeshInstanced
+with two separately addressed instances. The first receives 0, .6, 1, -1,
+positive infinity, negative infinity and NaN; the second remains at .25.
+All seven original D3D and recovered Vulkan RGBAFloat readbacks matched exactly,
+including original clipping/nonfinite behavior, with zero finite error and zero
+nonfinite-class differences. The second instance remained unchanged in every
+case. Original readbacks and input/player hashes are in private
+`instance-nan-d3d-tier2-v1`; the candidate is
+`instance-nan-vulkan-tier2-v1`. These synthetic triangles establish bounded
+original instruction/address/NaN behavior, not complete character animation.
+
+The final full Amp source also passed the three-case original shadow/depth
+witness: a real directional-light shadow map, changed native shadow bias and
+the original alpha-clip path. Its 434 foreground depth samples and all changed
+samples matched exactly between the original Windows bank and Vulkan;
+`shadow-d3d-final-v2` and `shadow-vulkan-final-v2` retain raw float readbacks.
+Capture explicitly binds the native depth subelement in raw-depth sampling
+mode; a color blit of the current shadow target is not a valid depth oracle.
+Both the instance and shadow Vulkan renderers reject planted readback extents
+and wrong float pixels in separate copies; original input evidence is unchanged.
+
+`vulkan_native_reference.py` provides reproducible source/player/bank/readback
+provenance and the bounded runner. Build the tiny private host with the matching
+Unity2021.3.5 editor trial, then run:
+
+```sh
+python3 tools/quest-shaders/vulkan_native_reference.py --mode instance-nan original \
+  --executable PRIVATE/Windows/QuestShaderReference.exe \
+  --original OWNED/GH_Data/StreamingAssets/aa/StandaloneWindows64/misc_shaders_assets_all.bundle \
+  --auxiliary PRIVATE/InstanceWindows/instance-nan-witness \
+  --output PRIVATE/original-instance \
+  --wine /usr/lib/wine/wine64 --wine-prefix PRIVATE/wine-prefix
+python3 tools/quest-shaders/vulkan_native_reference.py --mode instance-nan vulkan \
+  --executable PRIVATE/Linux/QuestShaderReference \
+  --candidate PRIVATE/InstanceVulkan/instance-nan-witness \
+  --reference PRIVATE/original-instance --output PRIVATE/vulkan-instance \
+  --icd /usr/share/vulkan/icd.d/lvp_icd.json
+```
+
+The `negative` subcommand uses the same candidate/reference arguments and a
+separate output. The `shadow` mode uses `misc_high_shaders_assets_all.bundle`
+and the `ShadowWindows`/`ShadowVulkan` banks built by QuestShaderShadowTrial.
+The proof host forces the actually selected lavapipe device index0; it does not
+spoof a physical GPU. Wine's reported Windows adapter name is not evidence of
+that physical adapter. No hardware picture, Android dispatch, bone animation
+or all-material pixel parity is asserted by these bounded host fixtures.

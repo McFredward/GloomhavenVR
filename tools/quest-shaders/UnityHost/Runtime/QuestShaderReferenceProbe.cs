@@ -37,7 +37,8 @@ public sealed class QuestShaderReferenceProbe : MonoBehaviour
     {
         public int schema, width = 256, height = 256, allowedByteError = 3;
         public string sourceManifestSha256, outputRoot, candidateBundlePath, colorSpace;
-        public bool trialProbe;
+        public bool trialProbe, vulkanCandidate;
+        public string originalReadbackRoot;
         public RenderCase[] cases;
     }
     [Serializable] public sealed class Picture
@@ -119,14 +120,14 @@ public sealed class QuestShaderReferenceProbe : MonoBehaviour
             yield return execution.Current;
         }
         WriteReceipt(true);
-        Debug.Log("PASS original Campaign shader D3D11 pixels: pictures=" + _pictures.Count + ", negative controls=" + _negativeControls.Count + ". Android/headset pictures are separate evidence.");
+        Debug.Log("PASS original Campaign shader " + SystemInfo.graphicsDeviceType + " pixels: pictures=" + _pictures.Count + ", negative controls=" + _negativeControls.Count + ". Android/headset pictures are separate evidence.");
         Application.Quit(0);
     }
 
     private IEnumerator Execute()
     {
-            if (Application.unityVersion != "2021.3.5f1" || SystemInfo.graphicsDeviceType != GraphicsDeviceType.Direct3D11)
-                throw new InvalidOperationException("Original DXBC comparison requires actual original-version Unity Direct3D11.");
+            if (Application.unityVersion != "2021.3.5f1" || SystemInfo.graphicsDeviceType != (_configuration.vulkanCandidate ? GraphicsDeviceType.Vulkan : GraphicsDeviceType.Direct3D11))
+                throw new InvalidOperationException("Original DXBC comparison requires actual original-version Unity and its declared graphics backend.");
             if (QualitySettings.activeColorSpace.ToString() != _configuration.colorSpace)
                 throw new InvalidOperationException("Native shader reference color-space contract differs.");
             var candidates = Bundle(_configuration.candidateBundlePath);
@@ -134,10 +135,10 @@ public sealed class QuestShaderReferenceProbe : MonoBehaviour
             yield return null;
             foreach (var input in _configuration.cases)
             {
-                var originalMaterialAsset = Original<Material>(input.originalMaterial);
-                var originalMesh = _configuration.trialProbe && input.fixtureGeometry == "triangle" ? Triangle() : Original<Mesh>(input.originalMesh);
                 var candidateMaterialAsset = candidates.LoadAsset<Material>(input.materialGuid);
+                var originalMaterialAsset = _configuration.vulkanCandidate ? candidateMaterialAsset : Original<Material>(input.originalMaterial);
                 var candidateMesh = candidates.LoadAsset<Mesh>(input.meshGuid);
+                var originalMesh = _configuration.vulkanCandidate ? candidateMesh : (_configuration.trialProbe && input.fixtureGeometry == "triangle" ? Triangle() : Original<Mesh>(input.originalMesh));
                 if (originalMaterialAsset == null || originalMesh == null || candidateMaterialAsset == null || candidateMesh == null)
                     throw new InvalidOperationException("Exact original/candidate render assets failed to load: " + input.id);
                 var originalMaterial = new Material(originalMaterialAsset);
@@ -191,6 +192,7 @@ public sealed class QuestShaderReferenceProbe : MonoBehaviour
                 _baseline = Capture(originalMaterial, originalMesh);
                 var baselineCandidate = Capture(candidateMaterial, candidateMesh);
                 Compare(input.id, "baseline", _baseline, baselineCandidate, _baseline, true);
+                if (_configuration.vulkanCandidate) _baseline = OriginalReadback(input.id, "baseline", _baseline.Length);
                 foreach (string feature in input.features)
                 {
                     var probe = ProbeFeature(input, feature, originalMaterial, candidateMaterial, originalMesh, candidateMesh);
@@ -389,6 +391,8 @@ public sealed class QuestShaderReferenceProbe : MonoBehaviour
 
     private void Compare(string id, string feature, Color32[] reference, Color32[] candidate, Color32[] baseline, bool required)
     {
+        if (_configuration.vulkanCandidate)
+            reference = OriginalReadback(id, feature, reference.Length);
         int maximum = 0, differing = 0, foreground = 0, changed = 0;
         for (int index = 0; index < reference.Length; index++)
         {
@@ -409,6 +413,15 @@ public sealed class QuestShaderReferenceProbe : MonoBehaviour
         _pictures.Add(row);
         if (required && !passed)
             throw new InvalidOperationException("Original native picture hypothesis failed: " + id + " / " + feature + ", max error=" + maximum + ", changed=" + changed + ", foreground=" + foreground);
+    }
+
+    private Color32[] OriginalReadback(string id, string feature, int count)
+    {
+        byte[] native = File.ReadAllBytes(Path.Combine(_configuration.originalReadbackRoot, id + "-" + feature + "-original.rgba"));
+        if (native.Length != count * 4) throw new InvalidOperationException("Original native D3D readback extent differs.");
+        var pixels = new Color32[count];
+        for (int index = 0; index < count; index++) pixels[index] = new Color32(native[index * 4], native[index * 4 + 1], native[index * 4 + 2], native[index * 4 + 3]);
+        return pixels;
     }
 
     private void NegativeShader(RenderCase input, Material material)
@@ -546,7 +559,7 @@ public sealed class QuestShaderReferenceProbe : MonoBehaviour
     }
     private void WriteReceipt(bool passed)
     {
-        File.WriteAllText(Path.Combine(_configuration.outputRoot, "windows-pixels.json"), JsonUtility.ToJson(new Receipt {
+        File.WriteAllText(Path.Combine(_configuration.outputRoot, _configuration.vulkanCandidate ? "vulkan-pixels.json" : "windows-pixels.json"), JsonUtility.ToJson(new Receipt {
             sourceManifestSha256 = _configuration.sourceManifestSha256, unityVersion = Application.unityVersion,
             graphicsDeviceType = SystemInfo.graphicsDeviceType.ToString(), graphicsDeviceName = SystemInfo.graphicsDeviceName,
             originalWindowsDxbcPixelsCompared = _pictures.Count > 0, allCasesPassed = passed,
