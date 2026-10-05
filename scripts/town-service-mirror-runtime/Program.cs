@@ -1540,8 +1540,34 @@ public static partial class MirrorProgram
             _text.text = "Owner A <i>changed</i>"; _text.color = new Color(.45f, .95f, .65f, .7f);
             _fill.fillAmount = .31f; _group.alpha = .55f; _clip.padding = new Vector4(18, 8, 11, 3);
             source.Find("HandleMesh").GetComponent<MeshRenderer>().enabled = false;
-            yield return null;
-            List<byte[]> change = Capture(); Check(change.Count > 0, "native UI changes emit another packet");
+            // Editor updates need not advance the native frame. Wait for an actual
+            // changed-module packet, including the sampler's bounded retry clock;
+            // unrelated manifest traffic cannot satisfy the presentation assertion.
+            var change = new List<byte[]>(); bool changedModule = false;
+            int sampledFrame = Time.frameCount, exceptionBudget = 4;
+            EventHandler<System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs> captureException = (_, error) =>
+            {
+                if (error.Exception is IndexOutOfRangeException && exceptionBudget-- > 0)
+                    File.AppendAllText(Path.Combine(_output, "capture-exceptions.txt"), error.Exception + "\n");
+            };
+            AppDomain.CurrentDomain.FirstChanceException += captureException;
+            try
+            {
+                for (float until = Time.unscaledTime + 1.5f; !changedModule && Time.unscaledTime < until;)
+                {
+                    yield return null;
+                    if (sampledFrame == Time.frameCount) continue;
+                    sampledFrame = Time.frameCount;
+                    foreach (byte[] packet in Capture())
+                    {
+                        change.Add(packet);
+                        if (TownServiceCodec.TryRead(packet, packet.Length, out TownServiceFrame? frame)
+                            && frame!.Module == 10) changedModule = true;
+                    }
+                }
+            }
+            finally { AppDomain.CurrentDomain.FirstChanceException -= captureException; }
+            Check(changedModule, "native UI changes emit another packet");
             Receive(1, change); TownServiceMirror.TickRemote(_ => observer);
             for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
             { TownServiceMirror.TickRemote(_ => observer); yield return null; }
