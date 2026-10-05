@@ -15,6 +15,12 @@ import installer
 PROBE_APP_FILES = ("quest-hardware.log", "quest-hardware.log.previous", "quest-hardware-storage.json", "quest-hardware-state.json")
 STARTUP_APP_FILES = ("quest-startup.log", "quest-startup.previous.log", "quest-startup-state.json")
 APP_FILES = PROBE_APP_FILES + STARTUP_APP_FILES
+# Internal state uses a real Linux filesystem, outside Android/data. Capture
+# these two logs only; never enumerate Wine's prefix or transfer DLLs/saves.
+PROCEDURAL_APP_FILES = {
+    "quest-procedural-worker.log": "files/quest-procedural-state/procedural-worker.log",
+    "quest-procedural-engine.log": "files/quest-procedural-state/wine-prefix/drive_c/log.txt",
+}
 # Each diagnostic target emits its own files; absence is an explicit availability
 # gap, while a known-present file that cannot be transferred remains an error.
 OPTIONAL_APP_FILES = APP_FILES
@@ -187,7 +193,10 @@ class Capture:
 
     def save(self, name, content, kind):
         path = self.directory / name
-        path.write_text(content, encoding="utf-8")
+        if isinstance(content, bytes):
+            path.write_bytes(content)
+        else:
+            path.write_text(content, encoding="utf-8")
         self.manifest["files"].append({"path": name, "kind": kind, "bytes": path.stat().st_size,
                                        "sha256": installer.digest(path)})
 
@@ -241,6 +250,48 @@ class Capture:
             self.manifest.setdefault("optionalFilesUnavailable", []).append({"item": name, "reason": reason[:800]})
         else:
             self.failure(name, reason)
+
+    def procedural_file(self, name):
+        """Read one fixed private log as bytes through diagnostic APK run-as."""
+        if name not in PROCEDURAL_APP_FILES:
+            raise installer.InstallError("Internal procedural diagnostic filename is not allowlisted")
+        remote = PROCEDURAL_APP_FILES[name]
+        output, error = self.read("exec-out", "run-as", installer.PACKAGE, "stat", "-c", "%s", remote, limit=256, timeout=10)
+        size = output.strip()
+        if error or not re.fullmatch(r"\d{1,19}", size) or int(size) > 9223372036854775807:
+            # Old probes/startup builds and non-debuggable APKs cannot expose
+            # these files. Their existing captures remain complete and useful.
+            self.manifest.setdefault("proceduralFilesUnavailable", []).append({"item": name, "reason": (error or "Optional internal size query returned no usable byte count.")[:800]})
+            return
+        source_size = int(size)
+        retained = min(source_size, MAX_FILE)
+        content, error, stderr = b"", None, ""
+        if retained:
+            command = [self.adb.executable, "-s", self.serial, "exec-out", "run-as", installer.PACKAGE, "head", "-c", str(retained), remote]
+            try:
+                # Preserve Windows/ANSI log bytes. The host need not know the
+                # original engine's encoding to retain an exact diagnostic file.
+                result = self.adb.runner(command, capture_output=True, text=False, timeout=20, shell=False)
+                content = result.stdout or b""
+                stderr = (result.stderr or b"").decode("utf-8", errors="replace")
+                if result.returncode or re.match(r"^(adb: error:|error:|run-as:|head:)", stderr.strip(), re.I):
+                    error = "exit=" + str(result.returncode) + " " + (stderr.strip() or content[:500].decode("utf-8", errors="replace"))[:500]
+                elif len(content) != retained:
+                    error = "Internal log transfer byte count did not match its bounded size probe."
+            except subprocess.TimeoutExpired:
+                error = "Internal log transfer timed out."
+            except OSError as failure:
+                error = str(failure)
+            with self.adb.log.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps({"command": command, "error": error, "stderr": stderr[:500]}) + "\n")
+        if error:
+            # A successful size probe proved presence. Do not disguise a failed
+            # transfer as the optional absence of an older diagnostic target.
+            self.failure(name, error)
+            return
+        self.save(name, content, "procedural-file-run-as")
+        self.manifest["files"][-1].update(sourceBytes=source_size, truncated=source_size > retained,
+                                          retained="first-bytes", sourcePath=remote)
 
 
 def local_provenance(config_path, capture):
@@ -322,6 +373,8 @@ def collect(capture, config_path):
         manifest["app"]["installedApks"].append(info)
     for name in APP_FILES:
         capture.app_file(name)
+    for name in PROCEDURAL_APP_FILES:
+        capture.procedural_file(name)
     # Stat only these two fixed delivery paths. No archive, bundle, save or
     # profile content is transferred, and absence remains optional for old apps.
     manifest["startupDelivery"] = []
@@ -378,10 +431,11 @@ def main(argv=None, runner=None):
             manifest = {"schema": 1, "capturedUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "device": {"adbSerial": serial, "hardwareSerial": hardware, "transport": transport},
                         "limits": {"appFileBytes": MAX_FILE, "logcatBytes": MAX_LOGCAT, "logcatLines": 3000,
                                    "appHistoryBytes": MAX_HISTORY, "appHistoryLines": MAX_HISTORY_LINES, "appHistoryProcesses": MAX_HISTORY_PIDS,
-                                   "startupDeliveryPaths": len(DELIVERY_FILES)}, "files": [], "errors": []}
+                                   "startupDeliveryPaths": len(DELIVERY_FILES), "proceduralFileBytes": MAX_FILE,
+                                   "proceduralPaths": len(PROCEDURAL_APP_FILES)}, "files": [], "errors": []}
             capture = Capture(adb, serial, directory, manifest)
             collect(capture, config_path)
-            usable = any(row["bytes"] and row["kind"] in ("recent-main-crash-logcat", "owned-app-logcat-history", "app-file-pull", "app-file-run-as") for row in manifest["files"])
+            usable = any(row["bytes"] and row["kind"] in ("recent-main-crash-logcat", "owned-app-logcat-history", "app-file-pull", "app-file-run-as", "procedural-file-run-as") for row in manifest["files"])
             manifest["status"] = "partial" if manifest["errors"] else "complete"
             if not usable:
                 manifest["status"] = "no-readable-logs"

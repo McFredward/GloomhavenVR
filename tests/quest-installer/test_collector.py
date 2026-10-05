@@ -47,6 +47,12 @@ class CaptureAdb:
         self.pull_receipt = None
         self.pull_create_file = True
         self.run_as_allowed = False
+        self.internal_files = {}
+        self.internal_probe_sizes = {}
+        self.internal_head_payload = None
+        self.internal_head_code = 0
+        self.internal_head_stderr = b""
+        self.internal_head_timeout = False
         self.apk_path = "package:/data/app/~~fixture/dev.gloomhavenvr.quest-abc/base.apk"
         self.apk_sha = APK_SHA
         self.oversized = False
@@ -134,18 +140,37 @@ class CaptureAdb:
                 assert action[2] == self.apk_path.removeprefix("package:")
                 out = self.apk_sha + "  " + action[2]
             elif action[:3] == ["exec-out", "run-as", collector.installer.PACKAGE]:
-                assert action[3:6] == ["head", "-c", str(collector.MAX_FILE + 1)]
-                name = Path(action[6]).name
-                assert name in collector.APP_FILES
-                assert action[6] in (collector.REMOTE_FILES + "/" + name, "files/" + name)
-                if self.run_as_allowed and name in self.app_files:
-                    out = self.app_files[name]
+                remote = action[6]
+                if remote in collector.PROCEDURAL_APP_FILES.values():
+                    assert action[3] in ("stat", "head")
+                    assert len(action) == 7  # No shell, recursive query or wildcard.
+                    if not self.run_as_allowed or remote not in self.internal_files:
+                        out, code = "run-as: package not debuggable or log unavailable", 1
+                    elif action[3] == "stat":
+                        assert action[3:6] == ["stat", "-c", "%s"]
+                        out = str(self.internal_probe_sizes.get(remote, len(self.internal_files[remote])))
+                    else:
+                        assert options["text"] is False and int(action[5]) <= collector.MAX_FILE
+                        if self.internal_head_timeout:
+                            raise subprocess.TimeoutExpired(command, options["timeout"], output=b"partial")
+                        out = self.internal_files[remote][:int(action[5])] if self.internal_head_payload is None else self.internal_head_payload
+                        code, err = self.internal_head_code, self.internal_head_stderr
                 else:
-                    out, code = "run-as: package not debuggable", 1
+                    assert action[3:6] == ["head", "-c", str(collector.MAX_FILE + 1)]
+                    name = Path(remote).name
+                    assert name in collector.APP_FILES
+                    assert remote in (collector.REMOTE_FILES + "/" + name, "files/" + name)
+                    if self.run_as_allowed and name in self.app_files:
+                        out = self.app_files[name]
+                    else:
+                        out, code = "run-as: package not debuggable", 1
             else:
                 raise AssertionError("Unexpected capture command " + repr(action))
         else:
             raise AssertionError("Unexpected global command " + repr(args))
+        if options.get("text") is False:
+            out = out.encode() if isinstance(out, str) else out
+            err = err.encode() if isinstance(err, str) else err
         return subprocess.CompletedProcess(command, code, out, err)
 
 
@@ -204,7 +229,7 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(manifest["status"], "complete")
         for name, content in self.fake.app_files.items():
             self.assertEqual(files[name], content.encode())
-        self.assertFalse(any("run-as" in call for call in self.fake.calls))
+        self.assertFalse(any("run-as" in call and call[-1] not in collector.PROCEDURAL_APP_FILES.values() for call in self.fake.calls))
         self.assertTrue(all(row["kind"] == "app-file-pull" for row in manifest["files"] if row["path"] in collector.APP_FILES))
 
     def test_actual_b611_transfer_sizes_with_stderr_receipts_are_retained(self):
@@ -240,6 +265,103 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(manifest["errors"], [])
         self.assertFalse(set(collector.STARTUP_APP_FILES).intersection(files))
         self.assertEqual({row["item"] for row in manifest["optionalFilesUnavailable"]}, set(collector.STARTUP_APP_FILES))
+
+    def test_internal_original_logs_are_captured_as_exact_bytes_with_fixed_paths(self):
+        self.fake.run_as_allowed = True
+        self.fake.internal_files = {remote: b"Original ANSI log \xe4\xff\r\n" for remote in collector.PROCEDURAL_APP_FILES.values()}
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertEqual(manifest["status"], "complete")
+        for name, remote in collector.PROCEDURAL_APP_FILES.items():
+            self.assertEqual(files[name], self.fake.internal_files[remote])
+            row = next(row for row in manifest["files"] if row["path"] == name)
+            self.assertEqual(row["kind"], "procedural-file-run-as")
+            self.assertEqual(row["sourcePath"], remote)
+            self.assertFalse(row["truncated"])
+            self.assertEqual(row["sourceBytes"], len(files[name]))
+        self.assertFalse(manifest.get("proceduralFilesUnavailable"))
+        self.assertEqual(manifest["limits"]["proceduralPaths"], 2)
+        self.assertFalse(any("pull" in call and "quest-procedural-state" in str(call) for call in self.fake.calls))
+
+    def test_old_or_non_debuggable_apk_keeps_internal_logs_optional(self):
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertEqual(manifest["status"], "complete")
+        self.assertEqual(manifest["errors"], [])
+        self.assertEqual({row["item"] for row in manifest["proceduralFilesUnavailable"]}, set(collector.PROCEDURAL_APP_FILES))
+        self.assertFalse(set(collector.PROCEDURAL_APP_FILES).intersection(files))
+
+    def test_oversized_internal_log_retains_bounded_beginning_with_explicit_metadata(self):
+        self.fake.run_as_allowed = True
+        name, remote = next(iter(collector.PROCEDURAL_APP_FILES.items()))
+        self.fake.internal_files[remote] = b"initial loader failure\n" + b"x" * (collector.MAX_FILE + 50)
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertEqual(len(files[name]), collector.MAX_FILE)
+        self.assertTrue(files[name].startswith(b"initial loader failure"))
+        row = next(row for row in manifest["files"] if row["path"] == name)
+        self.assertTrue(row["truncated"])
+        self.assertEqual(row["sourceBytes"], len(self.fake.internal_files[remote]))
+        self.assertEqual(row["retained"], "first-bytes")
+        self.assertEqual(manifest["status"], "complete")
+
+    def test_known_present_internal_transfer_failure_is_reported_and_not_saved(self):
+        self.fake.run_as_allowed = True
+        name, remote = next(iter(collector.PROCEDURAL_APP_FILES.items()))
+        self.fake.internal_files[remote] = b"real original error"
+        self.fake.internal_head_code = 1
+        self.fake.internal_head_stderr = b"head: Permission denied"
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertEqual(manifest["status"], "partial")
+        self.assertNotIn(name, files)
+        self.assertTrue(any(row["item"] == name and "Permission denied" in row["reason"] for row in manifest["errors"]))
+        self.assertNotIn(name, {row["item"] for row in manifest["proceduralFilesUnavailable"]})
+
+    def test_partial_internal_bytes_and_timeouts_cannot_masquerade_as_success(self):
+        self.fake.run_as_allowed = True
+        name, remote = next(iter(collector.PROCEDURAL_APP_FILES.items()))
+        self.fake.internal_files[remote] = b"complete expected original log"
+        for variant in ("partial", "timeout", "stderr-error"):
+            self.output = self.root / variant
+            self.fake.internal_head_payload = b"part" if variant == "partial" else None
+            self.fake.internal_head_timeout = variant == "timeout"
+            self.fake.internal_head_stderr = b"run-as: denied" if variant == "stderr-error" else b""
+            self.assertEqual(self.run_cli(), 0, self.stderr)
+            manifest, files = self.capture()
+            self.assertEqual(manifest["status"], "partial")
+            self.assertNotIn(name, files)
+            self.assertTrue(any(row["item"] == name for row in manifest["errors"]))
+
+    def test_empty_internal_stderr_log_is_valid_evidence_without_reading_a_payload(self):
+        self.fake.run_as_allowed = True
+        name, remote = next(iter(collector.PROCEDURAL_APP_FILES.items()))
+        self.fake.internal_files[remote] = b""
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertEqual(files[name], b"")
+        self.assertFalse(any("head" in call and call[-1] == remote for call in self.fake.calls))
+        self.assertEqual(manifest["errors"], [])
+
+    def test_procedural_logs_alone_keep_a_capture_usable_after_unity_crash(self):
+        self.fake.pids, self.fake.logcat, self.fake.app_files = "", "", {}
+        self.fake.run_as_allowed = True
+        name, remote = next(iter(collector.PROCEDURAL_APP_FILES.items()))
+        self.fake.internal_files[remote] = b"original worker native startup failure\n"
+        self.assertEqual(self.run_cli(), 0, self.stderr)
+        manifest, files = self.capture()
+        self.assertEqual(manifest["status"], "complete")
+        self.assertIn(name, files)
+        self.assertNotIn("logcat.txt", files)
+
+    def test_unallowlisted_internal_path_is_rejected_before_any_device_command(self):
+        manifest = {"files": [], "errors": []}
+        adb = collector.installer.Adb(str(self.adb), self.root / "commands.log", self.fake)
+        capture = collector.Capture(adb, "USB-QUEST", self.root, manifest)
+        for name in ("ApparanceEngine.dll", "../quest-procedural-worker.log", "save.dat", "wine-prefix/*"):
+            with self.assertRaises(collector.installer.InstallError):
+                capture.procedural_file(name)
+        self.assertEqual(self.fake.calls, [])
 
     def test_previous_startup_run_is_retained_with_same_bounded_transfer_validation(self):
         self.fake.pull_stream = "stderr"
