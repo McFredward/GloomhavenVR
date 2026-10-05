@@ -393,3 +393,32 @@ with294 GPU mip readbacks, 64 native texture targets/69 references in65 owners,
 BC6 GPU parity and headset pictures remain explicitly unverified. Complete
 Android shader/content banks, IL2CPP, signed delivery, and Windows packaging
 continue after these gates.
+
+## Exact imported shader collection classification
+
+Derivative `efa973d1498f` reached the native shader retention gate after all
+complete typed/texture/sprite import checks passed. Unity rejected the original
+KriptoFX/RFX4/Particle collection entry as Normal. The two physical original
+shader identities each contain864 aliases with Lighting On and no explicit
+LightMode: Unity2021.3.5f1 imports these implicit legacy passes as Vertex.
+Explicit Always/ForwardBase modes and Lighting Off retain their existing types.
+
+Correction `69219e18` fixes producer classification and verifies subshader/pass
+ordinals against the actual imported public ShaderData API before retaining
+variants. A real Editor witness accepts all51,564 original aliases, checks
+Contains for each, serializes688 shader identities/16,201 unique SVC entries,
+and rejects eight wrong-type/missing-pass controls. All1,376 original shader/meta
+hashes remain unchanged. Actual producer execution for the two native originals
+also emits byte-identical ShaderLab. Fifty-four focused shader checks pass.
+
+The retained project applies only the verified1,728 Normal-to-Vertex metadata
+changes in those two GUIDs and the third explicit Editor-source override. All
+other manifest fields, native programs, compute kernels, source/meta files and
+Library remain intact. The actual manifest hash is now
+`36f7c1cb1882ff458693d4c06d0b4a0e185a6972af8bc560220d090b388e595f`.
+Correction `24bf10be` adds its portable path/hash/size to derivative provenance;
+27 focused provenance checks include scope/count/identity/race controls. No
+shader contents or private paths are exported. Runtime remains frozen at
+`fa6c1f9a` / B623 / input7ecd. The full Player resumes on the same imported
+project; Android banks, IL2CPP, signing and delivered-content gates still need
+to complete before a full hardware package can be claimed.
