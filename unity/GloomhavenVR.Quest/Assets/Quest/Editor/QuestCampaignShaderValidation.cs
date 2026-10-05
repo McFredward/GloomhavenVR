@@ -83,6 +83,7 @@ namespace GloomhavenVR.Quest.Editor
             var input = Read(manifestPath);
             RequireGraphicsHost(input);
             VerifyProgramSources(input);
+            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
             Directory.CreateDirectory(outputPath);
             string receiptPath = Path.Combine(outputPath, "android-compiler.json");
             if (File.Exists(receiptPath)) File.Delete(receiptPath);
@@ -96,6 +97,11 @@ namespace GloomhavenVR.Quest.Editor
                 string path = ExactAsset(row.guid, row.assetPath);
                 if (Hash(File.ReadAllBytes(path)) != row.sourceSha256)
                     throw new InvalidOperationException("Campaign translated shader bytes differ: " + row.guid);
+                // Complete pending imports before querying current banks.
+                // A diagnostic force reimport is available for an existing
+                // private library after replacing native instruction includes.
+                if (Environment.GetEnvironmentVariable("GHVR_QUEST_FORCE_SHADER_IMPORT") == "1")
+                    AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
                 var shader = AssetDatabase.LoadAssetAtPath<Shader>(path);
                 if (shader == null || shader.name != row.originalName || shader.name == "Hidden/InternalErrorShader")
                     throw new InvalidOperationException("Campaign shader import changes its original identity: " + row.guid);
@@ -116,7 +122,12 @@ namespace GloomhavenVR.Quest.Editor
                     if (!vertex.Success || vertex.ShaderData == null || vertex.ShaderData.Length == 0)
                         throw new InvalidOperationException("Actual Campaign Android shader bank failed: " + row.guid + " / tier=" + variant.hardwareTier + " / " + string.Join(" ", variant.keywords) + " / " + string.Join("; ", vertex.Messages.Select(message => message.message + " at " + message.file + ":" + message.line)));
                     string source = new UTF8Encoding(false, true).GetString(vertex.ShaderData);
-                    VerifyBank(source, variant.fragmentOutput);
+                    try { VerifyBank(source, variant.fragmentOutput); }
+                    catch (InvalidOperationException error)
+                    {
+                        File.WriteAllBytes(Path.Combine(outputPath, "failed-native-bank.glsl"), vertex.ShaderData);
+                        throw new InvalidOperationException(error.Message + " / " + row.guid + " / subshader=" + variant.subshader + " / pass=" + variant.pass + " / tier=" + variant.hardwareTier + " / " + string.Join(" ", variant.keywords), error);
+                    }
                     bool eyeRouting = Regex.IsMatch(source, @"\bgl_ViewID_OVR\b") || Regex.IsMatch(source, @"\bgl_InstanceID\b") && Regex.IsMatch(source, @"\bunity_StereoEyeIndex\b");
                     string fragmentBank = source.Substring(source.IndexOf("#ifdef FRAGMENT", StringComparison.Ordinal));
                     bool fragmentEye = Regex.IsMatch(fragmentBank, @"\b(?:unity_StereoEyeIndex|vs_BLENDINDICES0)\b");
@@ -269,11 +280,12 @@ namespace GloomhavenVR.Quest.Editor
                 throw new InvalidOperationException("Campaign bank lacks complete GLES stages.");
             string vertexSource = source.Substring(vertex, fragment - vertex);
             string fragmentSource = source.Substring(fragment);
+            VerifyStageLink(vertexSource, fragmentSource);
             if (!Regex.IsMatch(vertexSource, @"#version 3[01]0 es") || !Regex.IsMatch(fragmentSource, @"#version 3[01]0 es"))
                 throw new InvalidOperationException("Campaign bank is not native GLES3.");
             if (!Regex.IsMatch(vertexSource, @"\bvoid\s+main\s*\(\s*\)") || !Regex.IsMatch(fragmentSource, @"\bvoid\s+main\s*\(\s*\)"))
                 throw new InvalidOperationException("Campaign bank loses a native stage entry.");
-            if (!Regex.IsMatch(vertexSource, @"\bgl_Position\s*="))
+            if (!Regex.IsMatch(vertexSource, @"\bgl_Position(?:\.[xyzwrgba]+)?\s*="))
                 throw new InvalidOperationException("Campaign vertex bank does not emit geometry.");
             if (originalFragmentOutput == "depth")
             {
@@ -288,6 +300,29 @@ namespace GloomhavenVR.Quest.Editor
             }
             else if (originalFragmentOutput != "none")
                 throw new InvalidOperationException("Campaign original fragment output contract is unknown.");
+        }
+
+        private static void VerifyStageLink(string vertex, string fragment)
+        {
+            // CompileVariant success means HLSLcc emitted source. It does not
+            // prove that a GLES driver can link mismatched varying declarations.
+            // Compare actual emitted types and array extents. GLSL ES3.10
+            // permits interpolation qualifiers to differ between linked
+            // stages; the fragment qualifier controls the interpolation.
+            const string pattern = @"(?m)^\s*(?:layout\s*\([^\n]*\)\s*)?(?<qual>(?:(?:flat|smooth|centroid|noperspective|sample)\s+)*){0}\s+(?:(?:highp|mediump|lowp)\s+)?(?<type>\w+)\s+(?<name>\w+)\s*(?<array>\[[^\]\n]+\])?\s*;";
+            var outputs = Regex.Matches(vertex, string.Format(pattern, "out")).Cast<Match>()
+                .ToDictionary(match => match.Groups["name"].Value, match => match, StringComparer.Ordinal);
+            foreach (Match input in Regex.Matches(fragment, string.Format(pattern, "in")))
+            {
+                Match output;
+                string name = input.Groups["name"].Value;
+                if (!outputs.TryGetValue(name, out output) || output.Groups["type"].Value != input.Groups["type"].Value ||
+                    output.Groups["array"].Value != input.Groups["array"].Value)
+                    throw new InvalidOperationException("Campaign emitted GLES stages have incompatible native varying: " + name);
+            }
+            foreach (Match sampler in Regex.Matches(fragment, @"\buniform\s+(?:(?:highp|mediump|lowp)\s+)?samplerCubeShadow\s+(\w+)\s*;"))
+                if (Regex.IsMatch(fragment, @"\btextureLod\s*\(\s*" + Regex.Escape(sampler.Groups[1].Value) + @"\b"))
+                    throw new InvalidOperationException("Campaign cube shadow emits an unavailable GLES explicit-LOD overload.");
         }
 
         private static Manifest Read(string path)

@@ -147,7 +147,8 @@ def signature(chunk):
             raise ShaderRecoveryError("Original DXBC semantic name lies outside its signature.")
         name = chunk[name_offset:end].decode("ascii")
         rows.append({"semantic": name, "semanticIndex": semantic_index, "systemValue": system_value,
-                     "componentType": component_type, "register": register, "mask": mask & 255})
+                     "componentType": component_type, "register": register, "mask": mask & 255,
+                     "readWriteMask": (mask >> 8) & 255})
     return rows
 
 
@@ -1026,7 +1027,10 @@ def native_stage_interface(hlsl, signatures, direction):
     transfers = {}
     def declaration(match):
         qualifier, source_kind, width_text, variable, slot, emitted_semantic = match.groups()
-        if emitted_semantic.upper().startswith("SV_"):
+        # Original Unity also uses SV-prefixed names as ordinary user varyings
+        # (systemValue=0), notably the object instance transported to fragments.
+        # Preserve actual engine system inputs/outputs, not a spelling guess.
+        if emitted_semantic.upper().startswith("SV_") and not by_register.get(int(slot)):
             return match[0]
         width = int(width_text or 1)
         rows = by_register.get(int(slot), [])
@@ -1050,7 +1054,14 @@ def native_stage_interface(hlsl, signatures, direction):
             semantic = row["semantic"] + str(row["semanticIndex"])
             name = "questNative_" + semantic
             shape = kind + (str(len(components)) if len(components) > 1 else "")
-            declarations.append(qualifier + shape + " " + name + " : " + semantic + ";")
+            # Integer user varyings retain flat interpolation on both stages.
+            # An unqualified vertex integer can be packed beside a floating
+            # varying by the D3D front-end, causing HLSLcc to mark that whole
+            # output register flat while the native fragment remains smooth.
+            declaration_qualifier = qualifier
+            if kind in ("int", "uint") and not re.search(r"\bnointerpolation\b", declaration_qualifier):
+                declaration_qualifier = "nointerpolation " + declaration_qualifier
+            declarations.append(declaration_qualifier + shape + " " + name + " : " + semantic + ";")
             for index, component in enumerate(components):
                 value = "stage_input." + name + ("." + "xyzw"[index] if len(components) > 1 else "")
                 if kind != source_kind:
@@ -1114,6 +1125,34 @@ def stereo_wrapper(hlsl, stage, output_adapters=(), input_signature=(), output_s
         hlsl = native_stage_interface(hlsl, input_signature, "input")
     if output_signature:
         hlsl = native_stage_interface(hlsl, output_signature, "output")
+    if stage == "fragment" and input_signature:
+        # SPIRV-Cross omits declarations that the original input signature keeps
+        # (including unused SV_Position). The Unity front-end's stage packing
+        # must retain those exact native declarations/register order, otherwise
+        # HLSLcc associates a neighbouring integer's flat interpolation with a
+        # floating output. Do not invent a read of any absent native input.
+        pattern = re.compile(r"struct SPIRV_Cross_Input\s*\{(?P<body>.*?)\};", re.S)
+        structure = pattern.search(hlsl)
+        if structure:
+            field_pattern = re.compile(r"(?:(?:nointerpolation|noperspective|centroid|sample|linear)\s+)*(?:float|int|uint|bool)[1-4]?\s+\w+\s*:\s*(\w+)\s*;")
+            def semantic_key(value):
+                match = re.fullmatch(r"(.*?)(\d*)", value.upper())
+                return match[1], int(match[2] or 0)
+            fields = {semantic_key(field[1]): field[0] for field in field_pattern.finditer(structure['body'])}
+            rows = []
+            for signature in input_signature:
+                key = (signature['semantic'].upper(), signature['semanticIndex'])
+                if key in fields:
+                    rows.append(fields.pop(key)); continue
+                if signature.get('readWriteMask', 0) & signature['mask']:
+                    raise ShaderRecoveryError('Original read input is absent from the translated instruction interface: ' + str(key))
+                kind = {1: 'uint', 2: 'int', 3: 'float'}[signature['componentType']]
+                width = signature['mask'].bit_count()
+                semantic = signature['semantic'] + str(signature['semanticIndex'])
+                rows.append(('nointerpolation ' if kind in ('int', 'uint') else '') + kind + (str(width) if width > 1 else '') + ' questNativeUnused_' + semantic + ' : ' + semantic + ';')
+            if fields:
+                raise ShaderRecoveryError('Translated fragment input lacks native signature identity.')
+            hlsl = hlsl[:structure.start('body')] + '\n    ' + '\n    '.join(rows) + '\n' + hlsl[structure.end('body'):]
     """Route both native stereo eyes before original uniform reconstruction."""
     if stage not in ("vertex", "fragment"):
         raise ShaderRecoveryError("Quest stereo wrapper only accepts native vertex/fragment programs.")

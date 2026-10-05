@@ -293,9 +293,19 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
             bound = Path(row['boundHlslPath'])
             if sha256(bound) != row['boundHlslSha256']:
                 raise ValidationError('Bound original shader bytes changed before reconstruction.')
+            original = cache / 'translated' / (key[0] + '.dxbc')
+            if sha256(original) != key[0]:
+                raise ValidationError('Native stage signature bytes differ from their original DXBC identity.')
+            _, chunks = native.dxbc_container(original.read_bytes())
+            input_signature = native.signature(chunks[b'ISGN']) if b'ISGN' in chunks else []
+            output_signature = native.signature(chunks[b'OSGN']) if b'OSGN' in chunks else []
+            def prior_signature(values):
+                return [{k: v for k, v in signature.items() if k != 'readWriteMask'} for signature in values]
+            if prior_signature(input_signature) != prior_signature(row['originalInputSignature']) or prior_signature(output_signature) != prior_signature(row['originalOutputSignature']):
+                raise ValidationError('Original stage semantics differ from the recovered native inventory.')
             portable, sampling_adapters = native.portable_sampling_interface(bound.read_text())
             wrapped = native.stereo_wrapper(portable, row['stage'], row.get('outputInterfaceAdapters', []),
-                                            row['originalInputSignature'], row['originalOutputSignature'])
+                                            input_signature, output_signature)
             path = Path('Assets/QuestOriginalCampaign/ShaderPrograms') / (key[0] + '-' + key[1] + '.hlsl')
             target = output / path
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -304,7 +314,8 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
             programs[str(path)] = {'assetPath': str(path), 'originalDxbcSha256': key[0], 'originalInterfaceSha256': key[1],
                                    'sourceSha256': sha256(target), 'boundHlslSha256': row['boundHlslSha256'],
                                    'outputInterfaceAdapters': row.get('outputInterfaceAdapters', []),
-                                   'samplingInterfaceAdapters': sampling_adapters}
+                                   'samplingInterfaceAdapters': sampling_adapters,
+                                   'originalInputSignature': input_signature, 'originalOutputSignature': output_signature}
     shaders = []
     for shader in inventory['shaders']:
         form = json.loads((cache / 'forms' / (shader['originalParsedFormSha256'] + '.json')).read_text())

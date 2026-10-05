@@ -44,6 +44,25 @@ class NativeBindings(unittest.TestCase):
         with self.assertRaisesRegex(native.ShaderRecoveryError, 'overlap'):
             native.native_stage_interface(vertex, [rows[0], {**rows[1], 'mask': 3}], 'output')
 
+    def test_fragment_keeps_exact_unused_native_declarations_and_user_sv_prefix(self):
+        signatures = [{'register': 0, 'semantic': 'SV_POSITION', 'semanticIndex': 0, 'systemValue': 1, 'mask': 15, 'readWriteMask': 0, 'componentType': 3},
+                      {'register': 1, 'semantic': 'TEXCOORD', 'semanticIndex': 0, 'systemValue': 0, 'mask': 3, 'readWriteMask': 3, 'componentType': 3},
+                      {'register': 2, 'semantic': 'TEXCOORD', 'semanticIndex': 6, 'systemValue': 0, 'mask': 15, 'readWriteMask': 0, 'componentType': 3},
+                      {'register': 3, 'semantic': 'SV_InstanceID', 'semanticIndex': 0, 'systemValue': 0, 'mask': 1, 'readWriteMask': 1, 'componentType': 1}]
+        source = ('struct SPIRV_Cross_Input { float2 v1 : TEXCOORD0; nointerpolation uint v3 : SV_InstanceID0; };\n'
+                  'struct SPIRV_Cross_Output { float4 o0 : SV_Target0; };\n'
+                  'SPIRV_Cross_Output main(SPIRV_Cross_Input stage_input) { v1 = stage_input.v1; v3 = stage_input.v3; return stage_output; }')
+        result = native.stereo_wrapper(source, 'fragment', input_signature=signatures)
+        self.assertIn('questNativeUnused_SV_POSITION0 : SV_POSITION0;', result)
+        self.assertIn('questNativeUnused_TEXCOORD6 : TEXCOORD6;', result)
+        self.assertIn('v3 = stage_input.questNative_SV_InstanceID0;', result)
+        self.assertLess(result.index('questNativeUnused_SV_POSITION0'), result.index('questNative_TEXCOORD0'))
+        self.assertLess(result.index('questNativeUnused_TEXCOORD6'), result.index('questNative_SV_InstanceID0'))
+        # A real read must have a translated transfer; no missing native value
+        # is silently supplied merely to make a stage signature compile.
+        with self.assertRaisesRegex(native.ShaderRecoveryError, 'read input is absent'):
+            native.stereo_wrapper(source, 'fragment', input_signature=[{**r, 'readWriteMask': 1} if r['semanticIndex'] == 6 else r for r in signatures])
+
     def instance_interface(self):
         return {'buffers': [{'name': 'UnityInstancing_Fixture', 'bytes': 64, 'fields': [],
             'structures': [{'name': 'FixtureArray', 'stride': 32, 'byteOffset': 0, 'arraySize': 2,

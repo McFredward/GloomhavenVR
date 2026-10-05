@@ -219,3 +219,14 @@ receive this change; original sampler and texture bindings, depth arguments and
 2D shadow instructions remain intact. The manifest records each such adapter.
 This is native engine platform behavior, not replacement shadow math. The
 hardware picture and actual multiview driver remain separate outstanding checks.
+
+The actual driver also exposed a flat/smooth mismatch in instanced deferred SH.
+Its original fragment signature retained unused SV_Position/TEX6 declarations
+that SPIRV-Cross omitted. Restoring every native declaration in exact original
+signature order preserves Unity's native stage packing/interpolation metadata;
+SV-prefixed user varyings are identified by original systemValue, not their name.
+No input read or shader math is invented. The five-family gate now passes all
+624 actual compiler aliases and all 312 mono aliases link on the real local GLES
+driver (92 unique emitted banks), including the two previously failing banks.
+An undefined-instruction copy of a real bank is rejected as a negative control.
+Actual multiview is unavailable on that EGL device and is not claimed.
