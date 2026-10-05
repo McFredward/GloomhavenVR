@@ -132,8 +132,10 @@ class IntegerIdentityTests(unittest.TestCase):
             result = scalarize(expression, {})
             self.assertEqual(result[0].kind, kind)
         self.assertIn("303", scalarize("uint(0x12f)", {})[0].text)
-        self.assertEqual(scalarize("0.5f", {}), [None])
+        self.assertEqual(scalarize("0.5f", {})[0].text, "uint(0x3f000000)")
         self.assertEqual(scalarize("0.0f", {})[0].text, "0u")
+        self.assertEqual(scalarize("-0.0f", {})[0].text, "uint(0x80000000)")
+        self.assertEqual(scalarize("0.5f * textureValue", {}), None)
 
     def test_shared_and_final_writer_addresses_expose_only_thread_integer_identity(self):
         text = "groupshared uint g0[128];\nRWTexture2D<float4> Output;\nvoid comp_main()\n{\n    float4 r0;\n    r0.x = asfloat(int(gl_LocalInvocationID.x) + int(gl_LocalInvocationID.y) * 16);\n    g0[uint(asint(r0.x))] = 7u;\n    if (asuint(r0.x) == 0u)\n    {\n        Output[int2(0, 0)] = textureValue;\n    }\n}\n"
@@ -169,6 +171,15 @@ class IntegerIdentityTests(unittest.TestCase):
     def test_future_loops_and_unknown_integer_helpers_require_reaudit(self):
         for text in ("while (condition)\n{\n}\n", "uint spvBitfieldInsert(uint a)\n{ return 0; }\n"):
             with self.assertRaises(ValueError): restore_integer_addresses(text)
+
+    def test_subnormal_native_structured_byte_offsets_are_not_flushed(self):
+        text = "RWStructuredBuffer<uint> Output;\nvoid comp_main()\n{\n    float4 r0;\n    r0.x = 5.6051938572992682836949183331597e-45f;\n    r0.y = 1.1210387714598536567389836666319e-44f;\n    InterlockedAdd(Output[uint(asint(r0.x)) >> 2u], 1u);\n    InterlockedAdd(Output[uint(asint(r0.y)) >> 2u], 1u);\n}\n"
+        result, proof = restore_integer_addresses(text)
+        self.assertNotIn("asint(r0.x)", result)
+        self.assertNotIn("asint(r0.y)", result)
+        self.assertIn("uint(4)", result)
+        self.assertIn("uint(8)", result)
+        self.assertIn("5.6051938572992682836949183331597e-45f;", result)
 
 
 def cooked_fixture():

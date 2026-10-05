@@ -1,14 +1,16 @@
-"""Expose exact integer dispatch addresses hidden by DXBC float register bitcasts.
+"""Recover exact DXBC integer-bit carriers without changing floating point math.
 
-Only immutable thread IDs, constants and integer expressions are propagated.
-Unknown texture/uniform/float values stay untouched. Conditional writes are
-invalidated after their scope; no branch-selected address is guessed.
+Immutable dispatch expressions and IEEE float-literal bits are propagated.
+Unknown integer expressions are captured once in uint temporaries; actual float
+consumers stay in place. Float arithmetic invalidates bit aliases. Conditional
+writes are invalidated after their scope; no branch-selected value is guessed.
 """
 from __future__ import annotations
 
 import ast
 import copy
 import re
+import struct
 from dataclasses import dataclass
 
 
@@ -27,8 +29,12 @@ def scalarize(expression: str, values: dict[str, list[Scalar | None]]) -> list[S
         return None
     def visit(node):
         if isinstance(node, ast.Constant):
-            if type(node.value) is float and node.value == 0.0:
-                return [Scalar("bits-uint", "0u")]
+            if type(node.value) is float:
+                try:
+                    bits = struct.unpack("<I", struct.pack("<f", node.value))[0]
+                except OverflowError:
+                    return [None]
+                return [Scalar("bits-uint", "0u" if bits == 0 else "uint(0x" + format(bits, "08x") + ")")]
             return [Scalar("int", str(node.value))] if type(node.value) is int else [None]
         if isinstance(node, ast.Name):
             if node.id == "gl_LocalInvocationIndex":
@@ -93,6 +99,9 @@ def scalarize(expression: str, values: dict[str, list[Scalar | None]]) -> list[S
                         result.append(None)
                 return result
         if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd, ast.Invert)):
+            if isinstance(node.operand, ast.Constant) and type(node.operand.value) is float and isinstance(node.op, (ast.USub, ast.UAdd)):
+                literal = -node.operand.value if isinstance(node.op, ast.USub) else node.operand.value
+                return visit(ast.Constant(value=literal))
             argument = visit(node.operand)
             if argument is None:
                 return None

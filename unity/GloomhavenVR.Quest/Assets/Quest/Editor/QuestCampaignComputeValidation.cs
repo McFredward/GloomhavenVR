@@ -64,7 +64,9 @@ public static class QuestCampaignComputeValidation
         var result = JsonUtility.FromJson<Recovery>(File.ReadAllText(manifestPath));
         if (result == null || result.schema != 1 || result.shaderCount != 13 || result.kernelCount != 36
             || result.shaders == null || result.shaders.Length != 13
-            || result.shaders.Select(shader => shader.name).Distinct().Count() != 13)
+            || result.shaders.Select(shader => shader.name).Distinct().Count() != 13
+            || result.shaders.Any(shader => shader.kernels == null || shader.kernelCount != shader.kernels.Length)
+            || result.shaders.Sum(shader => shader.kernelCount) != 36)
             throw new InvalidDataException("Unknown complete original compute recovery contract.");
         return result;
     }

@@ -18,6 +18,9 @@ else:
 
 
 def validate_objects(manifest: dict, objects: list[dict]) -> dict:
+    if manifest.get("schema") != 1 or manifest.get("shaderCount") != 13 or manifest.get("kernelCount") != 36 \
+            or len(manifest.get("shaders", [])) != 13 or sum(len(row["kernels"]) for row in manifest["shaders"]) != 36:
+        raise ComputeRecoveryError("Cooked gate requires the complete 13-shader / 36-kernel original contract.")
     contracts = {shader["name"]: shader for shader in manifest["shaders"]}
     observed = {shader.get("m_Name"): shader for shader in objects}
     if len(observed) != len(objects) or observed.keys() != contracts.keys():
@@ -59,9 +62,17 @@ def validate_objects(manifest: dict, objects: list[dict]) -> dict:
                     # a typed samplerBuffer substitution loses native stride.
                     if actual_output["texDimension"] != -1 or not re.search(r"\bbuffer\s+" + re.escape(binding["name"]) + r"\b", text):
                         raise ComputeRecoveryError("Native structured output was not cooked as a GLES storage buffer.")
+                    structure = re.search(r"\bbuffer\s+" + re.escape(binding["name"])
+                        + r"\s*\{\s*(\w+)\s+\w+\[\]\s*;\s*\}", text)
+                    fields = None if structure is None else re.search(r"\bstruct\s+" + re.escape(structure[1])
+                        + r"\s*\{\s*uint\[(\d+)\]\s+\w+\s*;\s*\}", text)
+                    if fields is None or int(fields[1]) * 4 != binding["strideBytes"]:
+                        raise ComputeRecoveryError("Actual GLES structured output stride differs from native ComputeBuffer.")
                     continue
+                dimension = {2: "image2D", 3: "image3D", 5: "image2DArray"}.get(binding["dimension"])
+                if dimension is None: raise ComputeRecoveryError("Unknown original typed image dimension.")
                 match = re.search(r"(?m)^.*layout\([^\n]*\b" + re.escape(storage["glslImageQualifier"])
-                    + r"\b[^\n]*\)[^\n]*\bimage(?:2DArray|2D|3D)\s+" + re.escape(binding["name"]) + r"\s*;", text)
+                    + r"\b[^\n]*\)[^\n]*\b" + dimension + r"\s+" + re.escape(binding["name"]) + r"\s*;", text)
                 if match is None:
                     raise ComputeRecoveryError("Actual GLES image qualifier differs from native RenderTexture: " + name + "/" + binding["name"])
                 images.append({"name": binding["name"], "renderTextureFormat": storage["renderTextureFormat"],

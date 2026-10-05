@@ -25,6 +25,9 @@ GLES also needs two interfaces that a literal DXBC register translation loses:
   FXC denormal/NaN assumptions incorrectly deleting histogram/blur texture
   inputs. Reaching definitions are per-component and invalidate conditional
   writes. A new loop shape or changed pure bitfield helper requires review.
+  Exact IEEE float-literal bits also survive extraction: native byte offsets
+  such as 4 and 8 appear as subnormal float literals in translated registers and
+  must not be flushed to zero by a new floating point compilation.
 
 Unity's image qualifier contract is documented in the
 [official compute shader manual](https://docs.unity3d.com/2022.3/Documentation/Manual/class-ComputeShader.html).
@@ -96,3 +99,10 @@ Actual owner-data proof on 2026-10-05 passed both the Unity Android gate and the
 cooked-byte gate for 13 shaders / 36 kernels. The receipts explicitly keep
 `hardwareVerified` and `originalPixelParityVerified` false. Compilation and
 binding closure do not establish Quest GPU output or complete image parity.
+
+`host_histogram.py --bundle BANK --shader EyeHistogram|Waveform --receipt PATH`
+provides an additional real EGL/GLES dispatch proof on a host driver. Its
+binary-exact synthetic pixels exercise the original histogram weighting/bins
+and Waveform's separate RGB uint counters with native 16-byte stride. It uses
+the actual cooked GLSL, not a rewritten test shader. This host result remains
+separate from Quest hardware and full visual/pixel parity.
