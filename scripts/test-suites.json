@@ -1802,6 +1802,28 @@
         "local"
       ],
       "weight": 25
+    },
+    {
+      "id": "terrain-budget-runtime",
+      "command": [
+        "python3",
+        "scripts/check-terrain-budget-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 100
+    },
+    {
+      "id": "remote-mirror-read-runtime",
+      "command": [
+        "python3",
+        "scripts/check-remote-mirror-read-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
     }
   ]
 }

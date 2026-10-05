@@ -49,6 +49,7 @@ def main():
         ('actor-scope-bypass','node.GetComponent<ActorBehaviour>() != null','false','actor-owned source with genuine bank mesh is never scenery',source,1),
         ('late-interaction-bypass','|| !CurrentScope(surface.Renderer)','/* injected live native scope veto */','late native interaction veto',source,1),
         ('native-command-buffer-bypass','|| (_nativeCameraConsumers?.Invoke(camera) ?? camera.commandBufferCount > 0)','/* injected command-buffer veto */','native command-buffer camera',source,1),
+        ('inactive-host-masks-original','|| !isActiveAndEnabled','|| !enabled','deactivated terrain host retains original wall pixels',source,1),
         ('hand-proximity-bypass','NearHand(VRHands.Left, bounds)','false','tracked hand proximity restores',source,1),
         ('distant-detail-ignored','Mathf.Min(near, PerfConfig.DistantTerrainDetailPercent)','near','independent distant terrain detail cap',source,1),
         ('foreign-mesh-bypass','&& Filter.sharedMesh == Original','/* injected foreign mesh ownership */','foreign native mesh replacement',geometry,1),

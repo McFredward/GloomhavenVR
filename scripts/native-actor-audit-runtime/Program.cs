@@ -322,7 +322,45 @@ public static class InteractionProgram
         Check(animator.cullingMode == AnimatorCullingMode.AlwaysAnimate
             && visibleSkins.All(skin => !skin.forceRenderingOff), "zero visible interval restores original pose evaluation");
         Camera.onPreCull -= inspectLease;
+        // A crowd must retain its existing pictures while only bounded native sample
+        // slots warm. These are actual cloned publisher rigs, clips and native skins.
+        visibleInterval = .5f;
+        animator.Play("Idle-Run", 0, 0f); animator.Update(.001f);
+        var crowd = new List<GameObject>();
+        for (int index = 0; index < 4; index++)
+        {
+            GameObject clone = Object.Instantiate(root);
+            clone.transform.position = new Vector3(index - 2f, 0f, 0f);
+            Animator cloneAnimator = clone.GetComponentInChildren<Animator>();
+            cloneAnimator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            cloneAnimator.Rebind(); cloneAnimator.Play("Idle-Run", 0, 0f); cloneAnimator.Update(.001f);
+            Transform cloneHead = clone.GetComponentsInChildren<Transform>(true).First(t => t.name == "C_headSkel01_JNT");
+            ActorBarPose clonePose = ActorBarPose.Capture(clone, cloneHead)!;
+            Check(clonePose.IsEventFreeNativeIdle(), "crowd uses audited actual publisher idle rigs");
+            ScenarioIdleAnimationBudget.Register(clone.GetComponent<ActorBehaviour>(), clonePose);
+            crowd.Add(clone);
+        }
+        int priorSamples = records.Values.Sum(item => item.Visible?.Samples ?? 0);
+        for (int frame = 0; frame < 30; frame++)
+        {
+            yield return null; eye.Render();
+            Check(records.Values.Count(item => item.Visible?.AwaitingNativePose == true) <= 2,
+                "visible idle crowd warms at most two actual native poses concurrently");
+            int samples = records.Values.Sum(item => item.Visible?.Samples ?? 0);
+            Check(samples - priorSamples <= 2, "visible idle crowd bakes at most two actors per frame");
+            priorSamples = samples;
+            Check(crowd.SelectMany(item => item.GetComponentsInChildren<SkinnedMeshRenderer>(true)).All(skin => !skin.forceRenderingOff),
+                "all original crowd skins restore after each actual camera");
+        }
+        Check(records.Values.All(item => item.Visible?.HasPose == true),
+            "rotating visible idle sample lane eventually admits every actual crowd rig");
+        host.SetActive(false); eye.Render();
+        Check(records.Values.All(item => !item.Applied && item.Visible?.IsMasked == false)
+            && crowd.SelectMany(item => item.GetComponentsInChildren<SkinnedMeshRenderer>(true)).All(skin => !skin.forceRenderingOff),
+            "inactive idle host retains original native modes and visible skins across actual camera callbacks");
+        host.SetActive(true);
         ScenarioIdleAnimationBudget.Shutdown();
+        foreach (GameObject clone in crowd) Object.DestroyImmediate(clone);
         Object.DestroyImmediate(eye.targetTexture); Object.DestroyImmediate(eyeObject);
 
         // An eventful idle is deliberately NOT admitted, even though Unity continues

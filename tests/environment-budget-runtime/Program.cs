@@ -607,6 +607,21 @@ public static partial class EnvironmentProgram
         ScenarioEnvironmentBudget.MaterialReady(floor); ScenarioEnvironmentBudget.BeforeLoadingComplete();
         Check(VRLog.Faults.Count == 1 && floor.sharedMaterial == room.Original,
             "failed optional preparation remains disabled and reports its failure once");
+        int placed = 0, ready = 0, writes = 0;
+        ScenarioEnvironmentBudget.ConfigureTerrainIntegration(_ => placed++, _ => ready++,
+            renderer => { writes++; renderer.forceRenderingOff = false; }, () => { }, _ => false);
+        try
+        {
+            // The independent terrain owner may still have an active camera lease when
+            // only environment preparation fails. Its synchronous native seams stay live.
+            floor.forceRenderingOff = true;
+            ScenarioEnvironmentBudget.BeforeNativeRendererWrite(floor);
+            ScenarioEnvironmentBudget.MaterialReady(floor);
+            ScenarioEnvironmentBudget.Placed(room.Generated);
+            Check(placed == 1 && ready == 1 && writes == 1 && !floor.forceRenderingOff,
+                "terrain native write and placement bridges survive an independent environment failure");
+        }
+        finally { ScenarioEnvironmentBudget.ConfigureTerrainIntegration(_ => { }, _ => { }, _ => { }, () => { }, _ => false); }
     }
 
     private static void NativeWallChannelsAndRenderedClock()

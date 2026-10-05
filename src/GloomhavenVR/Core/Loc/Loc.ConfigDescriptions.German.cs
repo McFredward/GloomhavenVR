@@ -331,7 +331,7 @@ internal static partial class Loc
             ["Optimize/ScenarioDistantTerrainDetailPercent"] = "Zusätzliche Detailgrenze für die Umgebung ab dem gewählten Betrachtungsabstand. Alle aufgedeckten spielrelevanten Inhalte bleiben dargestellt.",
             ["Optimize/ScenarioTerrainDistanceMeters"] = "Betrachtungsabstand in VR, ab dem die Detailgrenze für entfernte Umgebung gilt.",
             ["Optimize/SharedEnvironmentMaterialReads"] = "Spart wiederholte identische Materialprüfungen innerhalb eines Kameraaufrufs. Aus ermöglicht den direkten Vergleich; die Darstellung bleibt gleich.",
-            ["Optimize/SharedUiWindowReads"] = "Spart wiederholte unveränderte Fensterabfragen. Inhalte, native Sichtbarkeit und Animation bleiben unmittelbar; Aus ermöglicht einen Vergleich.",
+            ["Optimize/SharedUiWindowReads"] = "Spart wiederholte Fensterabfragen und unmittelbare Originalabfragen in Multiplayer-Spiegeln. Inhalte, native Sichtbarkeit und Animation bleiben unmittelbar; Aus ermöglicht einen Vergleich.",
             ["Optimize/VisibleIdleAnimationIntervalSeconds"] = "0 erhält jede ursprüngliche Ruhepose. Höhere Werte entlasten optionale Ruhebewegungen; Aktionen und gehaltene Figuren behalten ihre Originalanimation.",
             ["Optimize/ScenarioEnvironmentEffectsDensityPercent"] =
                 "Anteil dekorativer Szenario-Umgebungseffekte, etwa Motten, Kerzen- und Fackelpartikel. "

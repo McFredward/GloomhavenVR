@@ -117,6 +117,26 @@ public static class TerrainProgram
         Check(clone.transform.childCount==0,"native clone inherits no private proxy"); Object.DestroyImmediate(clone);
         Check(wall.GetComponent<MeshRenderer>().isPartOfStaticBatch==false,"native source never acquires internal static batch state");
 
+        // Static Camera callbacks still run when their MonoBehaviour host is inactive.
+        // Compare actual camera pixels with the native route, not post-render flags alone.
+        PerfConfig.CheapWallShadingOn=false; Color[] nativeView=Pixels(camera);
+        PerfConfig.CheapWallShadingOn=true; host.SetActive(false);
+        bool inactiveMasksClear=DuringRender(camera,()=>!wall.forceRenderingOff&&!floor.forceRenderingOff
+            &&Proxies(host).TrueForAll(r=>!r.enabled));
+        Color[] inactiveView=Pixels(camera); bool sameInactiveView=true;
+        for(int pixel=0;pixel<nativeView.Length;pixel++)
+            if(Mathf.Abs(nativeView[pixel].r-inactiveView[pixel].r)>1e-5f
+                ||Mathf.Abs(nativeView[pixel].g-inactiveView[pixel].g)>1e-5f
+                ||Mathf.Abs(nativeView[pixel].b-inactiveView[pixel].b)>1e-5f)sameInactiveView=false;
+        Color nativeCenter=nativeView[48*96+48];
+        Check(nativeCenter.r+nativeCenter.g+nativeCenter.b>.05f&&sameInactiveView,
+            "deactivated terrain host retains original wall pixels instead of masking for inactive proxies");
+        Check(inactiveMasksClear&&!Driver(host).GetComponent<Behaviour>().isActiveAndEnabled,
+            "deactivated terrain host acquires no native masks in an actual camera callback");
+        host.SetActive(true);
+        Check(DuringRender(camera,()=>wall.forceRenderingOff&&Proxies(host).Exists(r=>r.enabled&&r.gameObject.activeInHierarchy)),
+            "reactivated terrain host resumes its paired live renderer lease");
+
         PerfConfig.CheapWallShadingOn=false; PerfConfig.TerrainDetailPercent=0; Tick(host,5f);
         MeshFilter proxyFilter=Proxies(host).Find(r=>r.transform.position==wall.transform.position)!.GetComponent<MeshFilter>();
         Pixels(camera);

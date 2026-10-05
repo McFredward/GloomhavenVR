@@ -52,7 +52,7 @@ internal static partial class PerfConfig
             "Reuse exact unchanged original-material reads within one camera invocation. Off repeats the original per-surface validation for A/B comparison. Every renderer and later camera retains live native state.");
         SharedUiWindowReads = file.Bind("Optimize", "SharedUiWindowReads",
             FrameDefaults.Active ? FrameDefaults.SharedUiWindowReads : Defaults.SharedUiWindowReads,
-            "Share exact current native window-registry reads across converted panels. Off retains independent reads for A/B comparison. Content, visibility and intermediate animation remain immediate.");
+            "Share exact current native window-registry reads across converted panels and reuse immediate original-property reads in multiplayer mirrors. Off retains independent reads for A/B comparison. Content, visibility and intermediate animation remain immediate.");
         VisibleIdleAnimationIntervalSeconds = file.Bind("Optimize", "VisibleIdleAnimationIntervalSeconds",
             FrameDefaults.Active ? FrameDefaults.VisibleIdleAnimationIntervalSeconds : Defaults.VisibleIdleAnimationIntervalSeconds,
             new ConfigDescription("Seconds between optional visible event-free scenario idle pose evaluations. 0 preserves every original idle pose. Actions, native state clocks, held figures and unknown/eventful clips retain their original paths; works live.", new AcceptableValueRange<float>(0f, .5f)));

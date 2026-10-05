@@ -77,6 +77,9 @@ def main():
         ('visible-idle-action-mask-deferred', 'ScenarioIdleAnimationBudget.cs',
          'Visible?.Tick(false, 0f);', '/* injected: visible mask release deferred */',
          'native action immediately releases visible idle masks before continuation'),
+        ('visible-idle-crowd-unbounded', 'ScenarioIdleAnimationBudget.cs',
+         'item.Value.Tick(enabled, visibleInterval, false)', 'item.Value.Tick(enabled, visibleInterval, true)',
+         'visible idle crowd warms at most two actual native poses concurrently'),
         ('eventful-idle-admitted', 'ActorBarPose.cs', 'if (clip.events.Length == 0) _eventFreeIdleLoops.Add(clip);',
          'if (true) _eventFreeIdleLoops.Add(clip);', 'native eventful idle remains fully evaluated'),
     ]

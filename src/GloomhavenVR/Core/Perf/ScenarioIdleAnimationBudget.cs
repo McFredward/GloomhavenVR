@@ -33,6 +33,8 @@ internal static class ScenarioIdleAnimationBudget
         PerfMonitor.Register("Figure.IdleTransformCull"); PerfMonitor.Register("Figure.IdleTracked");
         PerfMonitor.Register("Figure.IdleOriginalAlways"); PerfMonitor.Register("Figure.IdleAuthoredCull");
         PerfMonitor.Register("Figure.VisibleIdleBakes");
+        PerfMonitor.Register("Figure.VisibleIdleSampling");
+        PerfMonitor.Register("Figure.VisibleIdleSources");
         try
         {
             VRSession.Harmony?.PatchAll(typeof(ScenarioIdleAnimationPlayPatch));
@@ -105,7 +107,7 @@ internal static class ScenarioIdleAnimationBudget
         internal Record(ActorBehaviour actor, ActorBarPose pose, Animator animator)
         { Actor = actor; Pose = pose; Animator = animator; Original = animator.cullingMode; }
 
-        internal bool Tick(bool enabled, float visibleInterval = 0f)
+        internal bool Tick(bool enabled, float visibleInterval = 0f, bool scheduleVisible = true)
         {
             if (Animator == null || Actor == null) { Restore(); return false; }
             if (Applied && Animator.cullingMode != AnimatorCullingMode.CullUpdateTransforms)
@@ -122,7 +124,7 @@ internal static class ScenarioIdleAnimationBudget
                 Animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms; Applied = true;
             }
             VisibleInterval = visibleInterval;
-            Visible?.Tick(true, visibleInterval);
+            Visible?.Tick(true, visibleInterval, scheduleVisible);
             return true;
         }
         internal void Resume()
@@ -150,6 +152,7 @@ internal static class ScenarioIdleAnimationBudget
         private readonly Dictionary<ActorBehaviour, Record> _records = new();
         private readonly List<Record> _bakeOrder = new(32);
         private int _nextBakeIndex;
+        private int _nextRequestIndex;
         private readonly List<ActorBehaviour> _dead = new(8);
         private readonly Stack<bool> _cameraPolicies = new();
         private void Awake()
@@ -189,11 +192,16 @@ internal static class ScenarioIdleAnimationBudget
         }
         private void OnDestroy()
         { Camera.onPreCull -= BeforeCamera; Camera.onPostRender -= AfterCamera; RestoreAll(); }
+        private void OnDisable()
+        {
+            try { ReleaseCameraMasks(); foreach (Record record in _records.Values) record.Restore(); }
+            catch (Exception error) { FailOpen(error); }
+        }
         private void BeforeCamera(Camera camera)
         {
             try
             {
-                bool admitted = VRSession.IsRunning && NativeActionsReady && camera == HeadCamera()
+                bool admitted = isActiveAndEnabled && VRSession.IsRunning && NativeActionsReady && camera == HeadCamera()
                     && camera != null && !NativeCameraConsumers(camera);
                 _cameraPolicies.Push(admitted);
                 foreach (Record record in _records.Values)
@@ -211,6 +219,11 @@ internal static class ScenarioIdleAnimationBudget
         {
             try
             {
+                // Attribute only masks still owned after the actual camera; a native
+                // action/content callback may have revoked a planned substitute earlier.
+                int masked = 0;
+                foreach (Record record in _records.Values) masked += record.Visible?.MaskedSurfaceCount ?? 0;
+                PerfMonitor.Count("Figure.VisibleIdleSources", masked);
                 if (_cameraPolicies.Count > 0) _cameraPolicies.Pop();
                 bool restoreOuter = _cameraPolicies.Count > 0 && _cameraPolicies.Peek();
                 foreach (Record record in _records.Values)
@@ -260,13 +273,28 @@ internal static class ScenarioIdleAnimationBudget
             {
                 foreach (KeyValuePair<ActorBehaviour, Record> item in _records)
                 {
-                    if (!item.Value.Tick(enabled, visibleInterval)) _dead.Add(item.Key);
+                    if (!item.Value.Tick(enabled, visibleInterval, false)) _dead.Add(item.Key);
                     if (item.Value.Applied) applied++;
                     if (item.Value.Original == AnimatorCullingMode.AlwaysAnimate) originalAlways++;
                     if (item.Value.Original == AnimatorCullingMode.CullUpdateTransforms) authoredCull++;
                 }
                 foreach (ActorBehaviour actor in _dead) Release(actor);
                 _dead.Clear();
+                int warming = 0;
+                foreach (Record record in _bakeOrder)
+                    if (record.Visible?.AwaitingNativePose == true) warming++;
+                // Keep existing private poses visible while waiting for a sample slot.
+                // Warming every due skin at once would undo the transform saving for a
+                // large crowd even though the later BakeMesh lane itself was bounded.
+                for (int scanned = 0; scanned < _bakeOrder.Count && warming < 2; scanned++)
+                {
+                    if (_nextRequestIndex >= _bakeOrder.Count) _nextRequestIndex = 0;
+                    Record record = _bakeOrder[_nextRequestIndex++];
+                    bool awaiting = record.Visible?.AwaitingNativePose == true;
+                    record.Visible?.RequestSample(record.VisibleInterval);
+                    if (!awaiting && record.Visible?.AwaitingNativePose == true) warming++;
+                }
+                PerfMonitor.Count("Figure.VisibleIdleSampling", warming);
             }
             PerfMonitor.Count("Figure.IdleTransformCull", applied);
             PerfMonitor.Count("Figure.IdleTracked", _records.Count);

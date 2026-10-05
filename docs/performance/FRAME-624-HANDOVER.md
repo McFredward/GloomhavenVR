@@ -1,3 +1,25 @@
+# Steam Frame Build624 evidence and current isolated candidate
+
+The implementation status below supersedes the initial cache-only handover. The
+worker tree is now based on `dev` commit `01503d4c2e28ee50b0b3662debb48a9ad19f88f0`
+(Build625). The supplied hardware capture remains Build624; it is not a candidate
+measurement. The maintainer requested all other reversible measures, explicitly
+rejected a 2.5D board, and will run the resolution comparison personally. No eye
+resolution default changes. PC and Frame use one mod and asset set with different
+fresh defaults; each compromise remains independently adjustable.
+
+See [FRAME-625-IMPLEMENTATION.md](FRAME-625-IMPLEMENTATION.md) for the current
+source, configuration, validation, historical clone regression and hardware checks.
+The main `dev` checkout belongs to the external NPC integrator. This branch has
+not been merged, pushed or handed to that agent. The maintainer explicitly requires
+confirmation before handover. The integrator assigns the actual next common
+ModBuild before distributing any changed binary.
+
+The remainder is the retained first-stage analysis/checkpoint receipt, not current
+implementation status. Its proposed 2.5D fallback is rejected and will not be built.
+
+---
+
 # Steam Frame Build 624 review and isolated handover
 
 This round starts from `dev` commit `9cc7e589e847693facf77332e87e78e5509186b3`

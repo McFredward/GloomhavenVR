@@ -1,3 +1,9 @@
+> Current ruling (2026-10-05): implement individually adjustable 3D measures in
+> the common PC/Frame binary. The maintainer rejected 2.5D, retains the normal eye
+> scale and will compare resolution personally. This is the historical source
+> analysis; current implemented scope and evidence live in
+> [FRAME-625-IMPLEMENTATION.md](FRAME-625-IMPLEMENTATION.md).
+
 # Steam Frame Build 624: next render and presentation strategies
 
 This review starts from `dev` commit `9cc7e589` in an isolated worker checkout.

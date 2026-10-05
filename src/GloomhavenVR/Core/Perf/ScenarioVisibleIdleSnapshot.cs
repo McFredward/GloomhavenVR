@@ -50,21 +50,29 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
     private readonly List<SkinnedMeshRenderer> _sources = new(8);
     private readonly List<Surface> _surfaces = new(8);
     private readonly List<Material> _materialScratch = new(8);
-    private float _nextSample;
+    private float _nextSample, _interval;
     private int _sampleFrame = -1;
     private bool _active, _disposed;
     internal bool HasPose => _surfaces.Count != 0;
     internal int Samples { get; private set; }
     internal bool IsMasked { get; private set; }
+    internal int MaskedSurfaceCount => IsMasked ? _surfaces.Count : 0;
+    internal bool AwaitingNativePose => _sampleFrame >= 0;
 
     internal ScenarioVisibleIdleSnapshot(ActorBarPose pose, Transform host)
     { _pose = pose; _host = host; }
 
-    internal void Tick(bool eligible, float interval)
+    internal void Tick(bool eligible, float interval, bool requestSample = true)
     {
         _active = eligible && interval > 0f && !_disposed;
+        _interval = interval;
         if (!_active) { Release(); _sampleFrame = -1; return; }
-        if (_sampleFrame < 0 && Time.unscaledTime >= _nextSample)
+        if (requestSample) RequestSample(interval);
+    }
+
+    internal void RequestSample(float interval)
+    {
+        if (_active && _sampleFrame < 0 && Time.unscaledTime >= _nextSample)
         {
             // One native camera render first makes the skin visible. Its following native
             // Animator evaluation produces the next pose; sample only after that evaluation.
@@ -91,6 +99,7 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
                 surface.Baked.bounds = surface.Source.localBounds;
             }
             Samples++; _sampleFrame = -1;
+            _nextSample = Time.unscaledTime + _interval;
         }
         catch { Reset(); throw; }
     }

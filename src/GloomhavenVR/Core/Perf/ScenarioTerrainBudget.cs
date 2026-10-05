@@ -340,7 +340,7 @@ internal static partial class ScenarioTerrainBudget
                 // DrawRenderer retains its original identity, shader and geometry too.
                 RecoverLeases();
                 if (camera == null || camera != Rig.VRRigDriver.HeadCamera || !VRSession.IsRunning
-                    || !enabled || (_nativeCameraConsumers?.Invoke(camera) ?? camera.commandBufferCount > 0)) return;
+                    || !isActiveAndEnabled || (_nativeCameraConsumers?.Invoke(camera) ?? camera.commandBufferCount > 0)) return;
                 using (PerfMonitor.Scope("ScenarioTerrain.PreCull"))
                 {
                     _leaseCamera = camera;

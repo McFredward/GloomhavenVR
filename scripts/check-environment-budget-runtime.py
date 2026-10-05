@@ -152,7 +152,10 @@ def main():
             ('shared-original-verdict-recomputed','if (!share || !_preCullMaterialVerdicts.TryGetValue(original, out materialCompatible))','_preCullMaterialVerdicts.Clear();\n                    if (!share || !_preCullMaterialVerdicts.TryGetValue(original, out materialCompatible))','one camera validates each shared original material once',1),
             ('shared-original-cross-camera-cache','_preCullMaterialVerdicts.Clear();','/* injected: stale material verdict survives cameras */','native keyword edit between camera invocations restores every sharing surface before culling',3),
             ('shared-original-renderer-veto-missing','!surface.Renderer.HasPropertyBlock() && (surface.Floor || surface.Structural)','surface.Floor || surface.Structural','shared original verdict never bypasses an individual native property-block veto',1),
-            ('native-continuation-fault-guard-removed','try { _terrainReady?.Invoke(renderer); _driver?.MaterialReady(renderer); }\n        catch (Exception error) { StopAfterFailure(error); }','_driver?.MaterialReady(renderer);','generated shader resolver fault',1),
+            ('native-continuation-fault-guard-removed','try { _terrainReady?.Invoke(renderer); if (!_failed) _driver?.MaterialReady(renderer); }\n        catch (Exception error) { StopAfterFailure(error); }','_driver?.MaterialReady(renderer);','generated shader resolver fault',1),
+            ('failed-environment-stops-terrain', '_terrainBeforeWrite?.Invoke(renderer); if (!_failed) _driver?.BeforeNativeRendererWrite(renderer);',
+             'if (!_failed) { _terrainBeforeWrite?.Invoke(renderer); _driver?.BeforeNativeRendererWrite(renderer); }',
+             'terrain native write and placement bridges survive an independent environment failure', 1),
         ]
         for name, before, after, expected, occurrences in changes:
             assert source.count(before) == occurrences, 'negative control binding drift: '+name

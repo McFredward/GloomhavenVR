@@ -795,16 +795,16 @@ internal static partial class PerfMonitor
                 sb.Append((_gpuSum / _gpuSamples).ToString("F2")).Append(" max ")
                   .Append(_gpuMax.ToString("F2")).Append("ms over ").Append(_gpuSamples)
                   .Append(" frame(s)");
-                // The figure is only worth reading when it is BELOW the interval. At or above it,
-                // it is indistinguishable from the runtime reporting the interval or a wait, and
-                // treating it as GPU busy time is how a whole test round gets spent on the wrong
+                // This runtime figure is not independently calibrated GPU busy time, even below
+                // the interval. At or above it, an interval/wait reading is especially plausible;
+                // treating either case as proven headroom is how a round gets spent on the wrong
                 // hypothesis (2026-07: an 11x pixel-budget cut "moved GPU time 7%" — it did not
                 // move anything, the counter was pinned to a 45 Hz lock the entire time).
                 double gpuMean = _gpuSum / _gpuSamples;
                 sb.Append(gpuMean >= mean * 0.9f
                     ? " [AT the frame interval — NOT usable as GPU busy time; the runtime is "
                       + "reporting the interval or a wait]"
-                    : " [below the frame interval — the GPU has headroom, so the wall is elsewhere; "
+                    : " [below the frame interval — this runtime figure alone does not establish GPU headroom; "
                       + "see the SPLIT line]");
             }
             else

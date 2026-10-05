@@ -9,7 +9,7 @@ bank. Actual Unity meshes, transforms, renderers, materials, MPBs, cloning,
 command buffers and `Camera.Render` callbacks execute; there is no simulated
 renderer or pixel oracle substituted for the production fragment.
 
-The production case makes 100 assertions. Thirty independently compiled
+The production case makes 103 assertions. Thirty-one independently compiled
 negative variants each corrupt a production statement and must fail at a named
 assertion. Shader compilation failures and unrelated exceptions never count as
 passing negative controls. `--production-only` and repeatable `--case NAME` are
@@ -37,7 +37,11 @@ batch state; native colliders remain unchanged.
 
 Actual pre-cull observations distinguish a live source lease from post-render
 cleanup. A later native renderer write immediately disables an already-prepared
-proxy. Per-slot MPB precedence, live native keyword edits and resolution of an
+proxy. An actual `host.SetActive(false)` followed by `Camera.Render` retains every
+native pixel and acquires no source masks; reactivation resumes paired leases.
+The causal guard variant replaces `isActiveAndEnabled` with `enabled`, reproducing
+the missing wall pixels because static callbacks survive host deactivation while
+the host's private proxies cannot render. Per-slot MPB precedence, live native keyword edits and resolution of an
 existing environment material variant back to the genuine native original are
 checked. Live renderer-wide vertex and per-slot emissive MPB gates immediately
 retain the native shader and geometry. Native command-buffer consumers veto substitutions; an explicitly

@@ -23,17 +23,26 @@ internal static class ScenarioEnvironmentAssets
         try
         {
             foreach (AssetBundle loaded in AssetBundle.GetAllLoadedAssetBundles())
-                if (loaded.name == Filename) { _bank = loaded; return true; }
+                if (loaded.name == Filename) { _bank = loaded; break; }
             string folder = Path.GetDirectoryName(typeof(ScenarioEnvironmentAssets).Assembly.Location) ?? string.Empty;
             string path = Path.Combine(folder, Filename);
-            if (!File.Exists(path)) throw new FileNotFoundException("missing environment asset bank", Filename);
-            _bank = AssetBundle.LoadFromFile(path);
+            if (_bank == null)
+            {
+                if (!File.Exists(path)) throw new FileNotFoundException("missing environment asset bank", Filename);
+                _bank = AssetBundle.LoadFromFile(path);
+            }
             if (_bank == null) throw new IOException("incompatible environment asset bank");
+            // Synchronous preparation has no legitimate pending state after this return.
+            // An older/incomplete package is terminal, so no discovery queue waits forever.
+            if (!_bank.Contains("Assets/Bundle/EnvironmentMeshes/index.json")
+                || !_bank.Contains("Assets/Bundle/Environments/ScenarioCheapTerrain.shader"))
+                throw new InvalidDataException("incomplete environment asset bank");
             VRLog.Info("Perf", "Scenario environment assets loaded: " + Filename + "; shared PC/Frame presentation bank.");
             return true;
         }
         catch (Exception error)
         {
+            _bank = null;
             VRLog.Note("Perf", "Scenario environment assets unavailable (" + error.GetType().Name
                 + "); original terrain remains available. Check " + Filename + " beside the plugin.");
             return false;

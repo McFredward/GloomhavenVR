@@ -63,6 +63,11 @@ teardown, failure and immediately before a native renderer write. Native source
 pooling, room reveal, visibility, material edits and mesh replacement remain
 authoritative. Foreign masks are retained.
 
+The pre-cull guard requires the driver and its host to be active. Static camera
+callbacks continue after `host.SetActive(false)`; they must never mask originals
+while the host's private proxies are inactive. Actual camera pixels and live
+lease observations cover that disable/reactivate boundary.
+
 Unlike a queued `Graphics.DrawMesh`, a private renderer can be disabled
 synchronously when a later pre-cull writer changes native presentation. It has
 no controllers, colliders, callbacks, gameplay or native child content to run.

@@ -55,8 +55,8 @@ internal static class ScenarioEnvironmentBudget
     // synchronously, before native/wall effects can encounter an old chunk or mask.
     internal static void BeforeNativeRendererWrite(Renderer renderer)
     {
-        if (_failed || renderer == null) return;
-        try { _terrainBeforeWrite?.Invoke(renderer); _driver?.BeforeNativeRendererWrite(renderer); }
+        if (renderer == null) return;
+        try { _terrainBeforeWrite?.Invoke(renderer); if (!_failed) _driver?.BeforeNativeRendererWrite(renderer); }
         catch (Exception error) { StopAfterFailure(error); }
     }
     internal static void BeforeNativeContentChange()
@@ -96,11 +96,11 @@ internal static class ScenarioEnvironmentBudget
         _failed = false;
     }
 
-    internal static void Placed(GameObject root) { if (!_failed) { _terrainQueue?.Invoke(root); _driver?.QueueRoot(root); } }
+    internal static void Placed(GameObject root) { _terrainQueue?.Invoke(root); if (!_failed) _driver?.QueueRoot(root); }
     internal static void MaterialReady(Renderer renderer)
     {
-        if (_failed) return;
-        try { _terrainReady?.Invoke(renderer); _driver?.MaterialReady(renderer); }
+        if (renderer == null) return;
+        try { _terrainReady?.Invoke(renderer); if (!_failed) _driver?.MaterialReady(renderer); }
         catch (Exception error) { StopAfterFailure(error); }
     }
     internal static void BeforeLoadingComplete() { if (!_failed) _driver?.FinishLoading(); }
@@ -1094,7 +1094,7 @@ internal static class ScenarioEnvironmentBudget
         }
         private void HandlePreCull(Camera camera)
         {
-            if (!_active || (_surfaces.Count == 0 && _batches.Count == 0 && _ambient.Count == 0)) return;
+            if (!isActiveAndEnabled || !_active || (_surfaces.Count == 0 && _batches.Count == 0 && _ambient.Count == 0)) return;
             // A native visibility callback can run after LateUpdate. Validation is idempotent
             // and precedes each camera's culling, including both eyes in MultiPass.
             using var scope = PerfMonitor.Scope("EnvironmentBudget.PreCull");
