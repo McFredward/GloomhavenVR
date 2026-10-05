@@ -541,3 +541,45 @@ and shorter generated program/cache paths. Those captured central tools remain
 held until a safe Player boundary. Further isolated archive work targets exact
 unchanged-content reuse and avoids recompressing native Unity bundles; no timing
 improvement is claimed before its actual focused evidence.
+
+## Targeted stereo repair and restartable production build
+
+The isolated same-version witness now reproduces all26 added Foliage failures
+and passes all33 corrected native keyword banks, seven byte-identical mono
+controls, a strict Android/Vulkan asset bundle and33 actual host Vulkan pipelines.
+The correction moves only Unity's generated stereo declaration immediately before
+the original FrontFace declaration. It preserves original field order and math;
+the earlier first-field candidate remains a recorded rejected approach.
+
+The stopped retained full project has the exact90-header repair applied. All688
+Shader identities,9,187 Materials,51,564 original aliases,11,566 other headers,
+ShaderLab and metadata bytes remain unchanged. Its recognized receipt binds the
+current manifest, native input identities, compiler/driver witnesses and portable
+generator hashes against the honest frozen source baseline. It does not assert
+headset pictures or original Windows pixel parity. The prior exhaustive PASS is
+separate historical evidence and is not reused after these90 inputs change.
+
+The62b4 invocation completed a9,699,679,018-byte native bank with6,366 members.
+An actual read of every member verifies uncompressed size, SHA-256 and ZIP CRC.
+The exact owned Unity process was stopped at the Player boundary before accepting
+its known-invalid graphics output. The original source, native bundles, imported
+Library and complete archive are retained. Unity had automatically repeated the
+manual Addressables build; the documented DoNotBuildWithPlayer setting now gives
+our controlled complete-content build sole ownership. A separate scoped delivery
+fix must also hide the native Addressables directory during APK assembly because
+the package copies it into StreamingAssets independently of that setting.
+
+Integrated production defaults now retain/import-check all shader identities
+without the exhaustive51,564-alias compiler loop, even on a first build. Explicit
+--validate-campaign-shaders enables that development audit. Targeted native
+bundle/player compilation remains mandatory. Focused build-mode, shader order,
+path, provenance, import-workspace and restart tests pass on the integrated tree.
+
+Wizard interruption support now preserves verified downloads, original export
+batches, the imported Unity Library and mutable content transactions. Stable
+original-asset workspace ownership allows normal mod/profile changes to retain
+imports. Linear/Vulkan settings precede the first Android import; Windows shader
+filenames/cache directories now fit the ordinary path budget or report the exact
+required shorter location. Forty backend checks, seven UI checks and four guarded
+artwork checks pass. This is not a clean Windows provisioning or headset claim.
+A signed complete APK, delivered-bank audit and hardware package remain pending.
