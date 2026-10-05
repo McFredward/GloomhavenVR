@@ -83,6 +83,28 @@ internal static partial class TownServiceMirror
             foreach (TownRackMember member in rack.Members) if (member.Id == module.Id) return true;
         return false;
     }
+    // Content keys exclude hand/world pose, delivery sequence and rack clocks. The
+    // sampler retains immutable node values, so unchanged nodes need no serialization
+    // or SHA work when only that independent numeric motion changes.
+    private static bool SameCatalogContent(TownServiceFrame? before, TownServiceFrame after)
+    {
+        if (before == null || before.Template != after.Template || before.TemplateAddress != after.TemplateAddress
+            || before.Structure != after.Structure || before.ParentBinding != after.ParentBinding
+            || before.HasCanvasFrame != after.HasCanvasFrame || before.CanvasSortingLayer != after.CanvasSortingLayer
+            || before.CanvasSortingOrder != after.CanvasSortingOrder || before.Nodes.Length != after.Nodes.Length) return false;
+        for (int i = 0; i < before.CanvasRect.Length; i++) if (before.CanvasRect[i] != after.CanvasRect[i]) return false;
+        for (int i = 0; i < before.CanvasSettings.Length; i++) if (before.CanvasSettings[i] != after.CanvasSettings[i]) return false;
+        for (int i = 0; i < before.Nodes.Length; i++)
+        {
+            TownServiceNode a = before.Nodes[i], b = after.Nodes[i];
+            if (ReferenceEquals(a, b)) continue;
+            if (a.Binding != b.Binding || a.Values.Count != b.Values.Count) return false;
+            foreach (var pair in a.Values)
+                if (!b.Values.TryGetValue(pair.Key, out TownServiceValue? value) || !pair.Value.Same(value)) return false;
+        }
+        return true;
+    }
+
     private static bool SameBankMembers(TownCatalogBankMember[] a, TownCatalogBankMember[] b)
     {
         if (a.Length != b.Length) return false;

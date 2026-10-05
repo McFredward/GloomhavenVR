@@ -15,12 +15,22 @@ internal sealed partial class NetAvatarDriver
     private readonly Dictionary<int, List<TownPacket>> _pendingTownVoice = new();
     private readonly Dictionary<int, List<TownServiceMotionPacket>> _pendingTownMotion = new();
     private readonly byte[] _activityBuffer = new byte[TownActivityCodec.PacketBytes];
-    private float _nextFaceSend;
+    private float _nextFaceSend, _nextTownCapture;
     private void SendTownServices()
     {
         TownServiceGrantSync.Tick(_transport, UnityEngine.Time.unscaledTime);
-        try { TownServiceMirror.Capture((bytes, length, identity) => _transport.Send(bytes, length, identity)); }
-        catch (Exception error) { LogPhaseError("Sample native town services", error); }
+        // Original numeric motion and rig packets already run at15 Hz. Sampling and
+        // serializing every render frame only rebuilt discarded snapshots between those
+        // sends, especially for the complete public cabinet. Keep the final-writer seam
+        // and one current sample per transport interval; never run catch-up work.
+        float now = UnityEngine.Time.unscaledTime;
+        if (now >= _nextTownCapture)
+        {
+            _nextTownCapture = now + 1f / 15f;
+            using var capture = PerfMonitor.Scope("Net.Town.Capture");
+            try { TownServiceMirror.Capture((bytes, length, identity) => _transport.Send(bytes, length, identity)); }
+            catch (Exception error) { LogPhaseError("Sample native town services", error); }
+        }
         // Native widget capture is independent of resident facial motion.
 
         if (NetSession.FlatNetMode || !VRSession.IsRunning || !_transport.IsOnline || _transport.LocalPlayerId <= 0
@@ -101,5 +111,5 @@ internal sealed partial class NetAvatarDriver
         if (TownServiceMirror.SharedFrameForRemote != null) TownServiceMirror.TickRemote(TownServiceMirror.SharedFrameForRemote);
     }
     private void ForgetTownServices(int peer) { _pendingTown.Remove(peer); _pendingTownVoice.Remove(peer); _pendingTownMotion.Remove(peer); TownServiceGrantSync.ForgetPeer(peer); TownServiceMirror.RemovePeer(peer); RemoteTownResidents.Forget(peer); RemoteTownFaces.Forget(peer); RemoteTownActivities.Forget(peer); }
-    private void ResetTownServices() { _pendingTown.Clear(); _pendingTownVoice.Clear(); _pendingTownMotion.Clear(); TownServiceGrantSync.Reset(); TownServiceMirror.ResetNetwork(); RemoteTownResidents.Reset(); RemoteTownFaces.Reset(); RemoteTownActivities.Reset(); _nextFaceSend = 0f; }
+    private void ResetTownServices() { _pendingTown.Clear(); _pendingTownVoice.Clear(); _pendingTownMotion.Clear(); TownServiceGrantSync.Reset(); TownServiceMirror.ResetNetwork(); RemoteTownResidents.Reset(); RemoteTownFaces.Reset(); RemoteTownActivities.Reset(); _nextFaceSend = _nextTownCapture = 0f; }
 }

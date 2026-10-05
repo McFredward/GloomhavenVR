@@ -857,15 +857,16 @@ internal static partial class TownServiceMirror
                         if (!SamePresentation(module.Last, frame))
                         {
                             frame.Sequence = module.Last.Sequence;
+                            if (module.CatalogResident && (module.CatalogContentKey == 0 || !SameCatalogContent(module.Last, frame)))
+                                module.CatalogContentKey = TownCatalogBank.ContentKey(frame);
                             module.Last = TownServiceDelta.Retain(frame);
-                            if (module.CatalogResident) module.CatalogContentKey = TownCatalogBank.ContentKey(module.Last);
                         }
                         module.CatalogDirty = false;
                         continue;
                     }
                     frame.Sequence = module.Last?.Sequence ?? 1UL;
                     bool sameSurface = SamePresentation(module.Last, frame);
-                    if (module.CatalogResident && (!sameSurface || module.CatalogContentKey == 0))
+                    if (module.CatalogResident && (module.CatalogContentKey == 0 || !SameCatalogContent(module.Last, frame)))
                         module.CatalogContentKey = TownCatalogBank.ContentKey(frame);
                     module.CatalogDirty = false;
                     if (sameSurface && module.WasPriority == module.HighPriority

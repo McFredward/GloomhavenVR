@@ -49,6 +49,8 @@ internal sealed partial class TownCatalogBank
 
     /// <summary>Canonical immutable native content, including the original external canvas
     /// and parent binding. Absolute pose, visibility, clock and lane remain separate.</summary>
+    [ThreadStatic] private static MemoryStream? _contentScratch;
+
     internal static ulong ContentKey(TownServiceFrame complete)
     {
         if (complete == null || complete.BaseSequence != 0 || complete.CatalogBank != null
@@ -56,10 +58,13 @@ internal sealed partial class TownCatalogBank
             throw new InvalidDataException("A catalog key requires a complete original module.");
         TownServiceCodec.Validate(complete);
         using var sha = SHA256.Create();
-        byte[] digest;
-        using (var hash = new CryptoStream(Stream.Null, sha, CryptoStreamMode.Write))
+        // BinaryWriter emits thousands of tiny writes for a native card. Hashing each
+        // four-byte write through CryptoStream dominated the final NPC publisher. Stage
+        // the identical canonical bytes in a reusable thread-local buffer, then hash once.
+        MemoryStream bytes = _contentScratch ??= new MemoryStream(32768);
+        bytes.SetLength(0); bytes.Position = 0;
         {
-            using (var writer = new BinaryWriter(hash, Utf8, true))
+            using (var writer = new BinaryWriter(bytes, Utf8, true))
             {
                 writer.Write((byte)1); writer.Write(complete.Template); WriteText(writer, complete.TemplateAddress);
                 writer.Write(complete.Structure); writer.Write(complete.ParentBinding); writer.Write(complete.HasCanvasFrame);
@@ -82,9 +87,9 @@ internal sealed partial class TownCatalogBank
                     }
                 }
             }
-            hash.FlushFinalBlock();
-            digest = sha.Hash!;
         }
+        byte[] digest = sha.ComputeHash(bytes.GetBuffer(), 0, checked((int)bytes.Length));
+        if (bytes.Capacity > MaxRawUpdateBytes) { bytes.Dispose(); _contentScratch = null; }
         ulong result = 0;
         for (int i = 0; i < 8; i++) result |= (ulong)digest[i] << (8 * i);
         return result == 0 ? 1UL : result; // Zero is reserved for an unknown original.
