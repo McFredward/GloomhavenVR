@@ -1145,10 +1145,21 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
         evidence = [provenance_path]
         if args.target == "game":
             import campaign_compute
+            import campaign_native_shaders
+            content_files = [output / row["path"] for row in details["contentFiles"]]
+            if len(content_files) != 1:
+                raise BuildError("Full Campaign graphics require one exact delivered native content bank.")
+            shader_receipt = apk.parent / "shaders-delivered-validation.json"
+            print("graphics: validating original shader aliases in the actual signed player and native bank", flush=True)
+            graphics = campaign_native_shaders.validate_delivered(source, project, apk, content_files[0], shader_receipt)
+            details["nativeShaderValidation"] = {field: graphics[field] for field in (
+                "shaderCount", "originalNativeAliasCount", "allOriginalAliasesRetained",
+                "actualNativeAliasMetadataVerified", "materialSampleCount", "compilerQueries", "hardwarePictureVerified")}
+            evidence.append(shader_receipt)
             compute_receipt = apk.parent / "compute-delivered-validation.json"
             print("compute: validating the actual signed player and complete delivered banks", flush=True)
             checked = campaign_compute.validate_delivered(source, project, apk,
-                [output / row["path"] for row in details["contentFiles"]], compute_receipt)
+                content_files, compute_receipt)
             details["computeValidation"] = {field: checked[field] for field in (
                 "shaderCount", "kernelCount", "graphicsApi", "actualExecutableBytesVerified", "hardwareVerified")}
             for field in ("actualVulkanSpirvBytesVerified", "actualGles31BytesVerified"):
