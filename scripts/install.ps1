@@ -80,10 +80,12 @@ if ($FakeVersion) {
 $bundle = Join-Path $root "prebuilt\gloomhavenvr.bundle"
 $townBundle = Join-Path $root "prebuilt\ghvr-town.bundle"
 $townVoicesBundle = Join-Path $root "prebuilt\ghvr-town-voices.bundle"
+$environmentBundle = Join-Path $root "prebuilt\ghvr-environment.bundle"
 if ($UseLocalBundle) {
     $bundle = Join-Path $root "unity\GloomhavenVR.Assets\Build\Bundles\gloomhavenvr.bundle"
     $townBundle = Join-Path $root "unity\GloomhavenVR.Assets\Build\TownServices\ghvr-town.bundle"
     $townVoicesBundle = Join-Path $root "unity\GloomhavenVR.Assets\Build\TownServices\ghvr-town-voices.bundle"
+    $environmentBundle = Join-Path $root "unity\GloomhavenVR.Assets\Build\Environment\ghvr-environment.bundle"
     if (-not (Test-Path -LiteralPath $bundle -PathType Leaf)) {
         Write-Error "-UseLocalBundle requested a missing local bundle: $bundle"
     }
@@ -93,6 +95,9 @@ if (-not (Test-Path -LiteralPath $townBundle -PathType Leaf)) {
 }
 if (-not (Test-Path -LiteralPath $townVoicesBundle -PathType Leaf)) {
     Write-Error "Missing town-service voice bundle: $townVoicesBundle"
+}
+if (-not (Test-Path -LiteralPath $environmentBundle -PathType Leaf)) {
+    Write-Error "Missing environment asset bundle: $environmentBundle"
 }
 # Prepared native figure derivatives ship as independently indexed parts. Verify this
 # complete set before deployment, including without Python on a Windows developer PC.
@@ -419,6 +424,7 @@ if (-not $bundle) {
 }
 Copy-Item -LiteralPath $townBundle -Destination (Join-Path $pluginDir "ghvr-town.bundle") -Force
 Copy-Item -LiteralPath $townVoicesBundle -Destination (Join-Path $pluginDir "ghvr-town-voices.bundle") -Force
+Copy-Item -LiteralPath $environmentBundle -Destination (Join-Path $pluginDir "ghvr-environment.bundle") -Force
 Copy-Item -LiteralPath $figureIndex -Destination $pluginDir -Force
 foreach ($part in $figureBanks) { Copy-Item -LiteralPath $part.FullName -Destination $pluginDir -Force }
 if ($bundle) {
@@ -664,6 +670,7 @@ if (-not $NoPackage) {
         "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll",
         "BepInEx/plugins/GloomhavenVR/ghvr-town.bundle",
         "BepInEx/plugins/GloomhavenVR/ghvr-town-voices.bundle",
+        "BepInEx/plugins/GloomhavenVR/ghvr-environment.bundle",
         "BepInEx/plugins/GloomhavenVR/ghvr-figure-meshes-index.json",
         "BepInEx/plugins/GloomhavenVR/LICENSE.txt",
         "BepInEx/plugins/GloomhavenVR/Licenses/SOURCES.txt",

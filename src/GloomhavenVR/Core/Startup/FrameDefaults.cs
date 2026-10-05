@@ -72,7 +72,7 @@ internal static class FrameDefaults
     internal const float ScenarioTerrainDistanceMeters = .75f;
     internal const bool SharedEnvironmentMaterialReads = true;
     internal const bool SharedUiWindowReads = true;
-    internal const float VisibleIdleAnimationIntervalSeconds = .1f;
+    internal const float VisibleIdleAnimationIntervalSeconds = .2f;
 
     // A 4 s wall-rescan cadence was active in the tested Frame configuration. It reduces
     // rescan frequency, not the duration of an individual rescan.

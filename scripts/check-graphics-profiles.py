@@ -34,6 +34,8 @@ owners = {'RenderQuality': ('Rig/RenderQuality.cs', 'GloomhavenVR.Rig', 'rig'),
           'WallFadeTuning': ('Core/WallFade/WallSegmentFade.cs', 'GloomhavenVR.Core', 'wallfade')}
 for owner, (rel, namespace, module) in owners.items():
     original = (source / rel).read_text()
+    if owner == 'PerfConfig':
+        original += (source / 'Core/Perf/PerfConfig.FrameRendering.cs').read_text()
     names = sorted(set(re.findall(r'\b'+owner+r'\.([A-Za-z]+)', profile)) - {'Bind'})
     fields = []
     for name in names:

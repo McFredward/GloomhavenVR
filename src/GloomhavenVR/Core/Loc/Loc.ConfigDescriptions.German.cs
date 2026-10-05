@@ -324,6 +324,15 @@ internal static partial class Loc
                 + "Färbung und Geometrie bleiben; Normalen-, Metall-, feine Oberflächendetails und empfangene Echtzeitschatten entfallen. "
                 + "Wandauflösung, Wasser, Pflanzen, Figuren, Gegenstände und UI behalten ihre Shader. "
                 + "Wirkt sofort; neue Frame-Profile Ein, PC Aus; gespeicherte Werte bleiben erhalten.",
+            ["Optimize/ScenarioEnvironmentMeshBank"] = "Erlaubt das Zusammenfassen statischer Umgebung trotz nicht lesbarer Originalmeshes. Benötigt zusätzlichen Speicher und Vorbereitung; Aus erhält das Original.",
+            ["Optimize/ScenarioExplicitEnvironmentInstancing"] = "Zeichnet geeignete wiederholte statische Umgebung gemeinsam. Alle aufgedeckten Räume und ihre Interaktionen bleiben verfügbar; Aus stellt einzelne Zeichenvorgänge wieder her.",
+            ["Optimize/ScenarioCheapWallShading"] = "Nutzt sparsamere Wand- und Bodenschattierung. Feine Beleuchtung und Oberflächendetails nehmen ab; Originaltexturen und animierte Wandausblendung bleiben.",
+            ["Optimize/ScenarioTerrainDetailPercent"] = "100% erhält die ursprüngliche statische Umgebung; kleinere Werte wählen vorbereitete gröbere 3D-Meshes. Böden, Türen, Figuren und Spielkollisionen bleiben.",
+            ["Optimize/ScenarioDistantTerrainDetailPercent"] = "Zusätzliche Detailgrenze für die Umgebung ab dem gewählten Betrachtungsabstand. Alle aufgedeckten spielrelevanten Inhalte bleiben dargestellt.",
+            ["Optimize/ScenarioTerrainDistanceMeters"] = "Betrachtungsabstand in VR, ab dem die Detailgrenze für entfernte Umgebung gilt.",
+            ["Optimize/SharedEnvironmentMaterialReads"] = "Spart wiederholte identische Materialprüfungen innerhalb eines Kameraaufrufs. Aus ermöglicht den direkten Vergleich; die Darstellung bleibt gleich.",
+            ["Optimize/SharedUiWindowReads"] = "Spart wiederholte unveränderte Fensterabfragen. Inhalte, native Sichtbarkeit und Animation bleiben unmittelbar; Aus ermöglicht einen Vergleich.",
+            ["Optimize/VisibleIdleAnimationIntervalSeconds"] = "0 erhält jede ursprüngliche Ruhepose. Höhere Werte entlasten optionale Ruhebewegungen; Aktionen und gehaltene Figuren behalten ihre Originalanimation.",
             ["Optimize/ScenarioEnvironmentEffectsDensityPercent"] =
                 "Anteil dekorativer Szenario-Umgebungseffekte, etwa Motten, Kerzen- und Fackelpartikel. "
                 + "0% pausiert geeignete Dauereffekte, 100% stellt sie wieder her. Lichtquellen, Angriffe, "

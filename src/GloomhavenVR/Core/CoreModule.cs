@@ -69,7 +69,8 @@ internal sealed class CoreModule : IVRModule
         ScenarioSceneryBudget.Install(_hostGo);
         ScenarioGenerationDetail.Install();
         ScenarioFigureDetailBudget.Install(_hostGo);
-        ScenarioIdleAnimationBudget.Install(_hostGo, () => PerfConfig.OffscreenIdleAnimationOn);
+        ScenarioIdleAnimationBudget.Install(_hostGo, () => PerfConfig.OffscreenIdleAnimationOn,
+            () => PerfConfig.VisibleIdleAnimationInterval, () => VRCameraPolicy.AllowedHead);
         ScenarioEnvironmentBudget.ConfigureStructuralBatching(() => PerfConfig.StructuralBatchingOn);
         ScenarioEnvironmentBudget.Install(_hostGo);
         ScenarioStructuralInstancing.Install(_hostGo, () => PerfConfig.StructuralInstancingOn);

@@ -57,5 +57,6 @@ echo "bundle OK: UnityFS format $fmt, Unity $ver, $(stat -c%s "$BUNDLE") bytes"
 if [[ $# -eq 0 ]]; then
     bash "${BASH_SOURCE[0]}" "$ROOT/prebuilt/ghvr-town.bundle"
     bash "${BASH_SOURCE[0]}" "$ROOT/prebuilt/ghvr-town-voices.bundle"
+    bash "${BASH_SOURCE[0]}" "$ROOT/prebuilt/ghvr-environment.bundle"
     python3 "$ROOT/scripts/check-figure-mesh-bank.py" "$ROOT/prebuilt"
 fi

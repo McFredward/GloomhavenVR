@@ -2,11 +2,12 @@
 # GloomhavenVR — Unity batch-mode driver for the companion asset project.
 #
 # Usage:
-#   UNITY_PATH=/path/to/2021.3.5f1/Editor/Unity(.exe) ./scripts/build-bundles.sh [bundles|town|harvest]
+#   UNITY_PATH=/path/to/2021.3.5f1/Editor/Unity(.exe) ./scripts/build-bundles.sh [bundles|town|environment|harvest]
 #
 #   bundles  (default) build Assets/Bundle/** -> unity/GloomhavenVR.Assets/Build/Bundles/gloomhavenvr.bundle
 #   harvest  dummy Windows Mono player build + collect XR RuntimeDeps/natives -> libs/
 #   town     pack authored town art and voices -> Build/TownServices/ghvr-town*.bundle
+#   environment pack verified environment meshes/shader -> Build/Environment/ghvr-environment.bundle
 #
 # Typical UNITY_PATH values:
 #   Windows (Git Bash): "/c/Program Files/Unity/Hub/Editor/2021.3.5f1/Editor/Unity.exe"
@@ -37,7 +38,8 @@ case "$CMD" in
     bundles) METHOD="GloomhavenVR.AssetsBuilder.BuildAll"           LOG="$REPO_ROOT/build-bundles.log" ;;
     harvest) METHOD="GloomhavenVR.RuntimeDepsHarvester.BuildAndHarvest" LOG="$REPO_ROOT/harvest.log" ;;
     town) METHOD="GloomhavenVR.TownServicesBuilder.BuildBundle" LOG="$REPO_ROOT/build-town-bundle.log" ;;
-    *) echo "ERROR: unknown command '$CMD' (use: bundles | town | harvest)" >&2; exit 2 ;;
+    environment) METHOD="GloomhavenVR.EnvironmentBankBuilder.BuildAll" LOG="$REPO_ROOT/build-environment-bundle.log" ;;
+    *) echo "ERROR: unknown command '$CMD' (use: bundles | town | environment | harvest)" >&2; exit 2 ;;
 esac
 
 echo "[build-bundles] project: $PROJECT_PATH"
@@ -60,6 +62,8 @@ if [[ "$CMD" == "bundles" ]]; then
     echo "[build-bundles] output: $PROJECT_PATH/Build/Bundles/gloomhavenvr.bundle"
 elif [[ "$CMD" == "town" ]]; then
     echo "[build-bundles] output: $PROJECT_PATH/Build/TownServices/ghvr-town.bundle and ghvr-town-voices.bundle"
+elif [[ "$CMD" == "environment" ]]; then
+    echo "[build-bundles] output: $PROJECT_PATH/Build/Environment/ghvr-environment.bundle"
 else
     echo "[build-bundles] output: $REPO_ROOT/libs/RuntimeDeps + $REPO_ROOT/libs/Natives"
 fi

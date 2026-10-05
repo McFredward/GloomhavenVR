@@ -102,6 +102,19 @@ internal sealed class ActorBarPose
     internal Animator? NativeAnimator => _animator;
     internal GameObject NativeRoot => _root.gameObject;
 
+    internal bool CopyIdleSkinSources(List<SkinnedMeshRenderer> result)
+    {
+        result.Clear();
+        if (!IsEventFreeNativeIdle()) return false;
+        foreach (Skin skin in _skins)
+        {
+            if (!skin.SourceMatches()) { result.Clear(); return false; }
+            if (skin.Renderer != null && skin.Renderer.enabled && skin.Renderer.gameObject.activeInHierarchy)
+                result.Add(skin.Renderer);
+        }
+        return true;
+    }
+
     internal bool IsEventFreeNativeIdle()
     {
         if (!SparseEligible || _animator == null || !_animator.isActiveAndEnabled
