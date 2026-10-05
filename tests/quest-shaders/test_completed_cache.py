@@ -40,6 +40,15 @@ class CompletedCacheContracts(unittest.TestCase):
             self.assertIn(control, witness)
         self.assertIn("LastNativeCompileCount==0", witness)
         self.assertIn("RepairOwnedOutputs", witness)
+        self.assertIn("AddressablesAndXrClosure", witness)
+
+    def test_content_settings_exclusion_does_not_exclude_real_shader_dependencies(self):
+        helper=(EDITOR / "QuestCampaignShaderCache.cs").read_text()
+        self.assertIn('path == "Assets/Quest/Settings/Addressables.meta"',helper)
+        self.assertIn('path.StartsWith("Assets/Quest/Settings/Addressables/", StringComparison.Ordinal)',helper)
+        self.assertLess(helper.index("AssetDatabase.GetDependencies"),helper.index("if (GeneratedAddressableMetadata(label))"))
+        self.assertIn('path.EndsWith(".asset.meta", StringComparison.Ordinal)',helper)
+        self.assertIn('"Assets/XR/Settings"',helper)
 
 
 if __name__ == "__main__":

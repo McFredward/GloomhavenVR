@@ -112,7 +112,20 @@ namespace GloomhavenVR.Quest.Editor
                 }
                 else if (File.Exists(dependency)) throw new InvalidOperationException("Native graphics closure has an unrecognized engine dependency.");
             foreach (string folder in new[] {"Assets/Quest/Settings", "Assets/XR/Settings"})
-                if (Directory.Exists(folder)) foreach (string path in Directory.GetFiles(folder, "*", SearchOption.AllDirectories)) add(path, path.Replace('\\', '/'));
+                if (Directory.Exists(folder)) foreach (string path in Directory.GetFiles(folder, "*", SearchOption.AllDirectories))
+                {
+                    string label = path.Replace('\\', '/');
+                    // QuestStartupAddressablesBuild creates content groups
+                    // after the native shader gate. Group/catalog outputs do
+                    // not affect its explicit CompileVariant arguments. Any
+                    // real asset dependency was already bound above. Unity's
+                    // GetDependencies omits some textual shader includes, so
+                    // retain all source/include/unknown files in this subtree;
+                    // exclude only generated .asset settings/groups/schemas and
+                    // their metas, plus directory metas.
+                    if (GeneratedAddressableMetadata(label)) continue;
+                    add(path, label);
+                }
             foreach (string path in new[] {"ProjectSettings/GraphicsSettings.asset", "ProjectSettings/QualitySettings.asset", "ProjectSettings/EditorSettings.asset", "ProjectSettings/ProjectVersion.txt", "Packages/manifest.json", "Packages/packages-lock.json"}) add(path, path);
             foreach (string name in new[] {"QuestCampaignShaderValidation.cs", "QuestVulkanShaderValidation.cs", "QuestSmolvDecoder.cs", "QuestCampaignShaderCache.cs"}) add(EditorRoot + name, EditorRoot + name);
             string contents = EditorApplication.applicationContentsPath;
@@ -150,6 +163,14 @@ namespace GloomhavenVR.Quest.Editor
             }
             return new Closure { unityVersion = Application.unityVersion, graphicsApi = input.graphicsApi, manifestSha256 = FileHash(manifestPath),
                 settingsSha256 = Hash(Encoding.UTF8.GetBytes(settings + "\n" + effective)), files = records.OrderBy(row => row.path, StringComparer.Ordinal).ToArray() };
+        }
+
+        public static bool GeneratedAddressableMetadata(string path)
+        {
+            if (path == "Assets/Quest/Settings/Addressables.meta") return true;
+            if (!path.StartsWith("Assets/Quest/Settings/Addressables/", StringComparison.Ordinal)) return false;
+            return path.EndsWith(".asset", StringComparison.Ordinal) || path.EndsWith(".asset.meta", StringComparison.Ordinal) ||
+                path.EndsWith(".meta", StringComparison.Ordinal) && Directory.Exists(path.Substring(0, path.Length - 5));
         }
 
         static void SafeAsset(string path)

@@ -64,12 +64,12 @@ def main() -> None:
     args = parser.parse_args()
     project = args.project.resolve()
     prepare(project)
-    for method, log in (("Run", "cache-first.log"), ("RepairOwnedOutputs", "cache-repair.log")):
+    for method, log in (("Run", "cache-first.log"), ("RepairOwnedOutputs", "cache-repair.log"), ("AddressablesAndXrClosure", "cache-addressables-xr.log")):
         command = [str(args.unity.resolve()), "-batchmode", "-force-glcore", "-quit", "-projectPath", str(project), "-buildTarget", "Android", "-executeMethod", "QuestShaderCacheWitness." + method, "-logFile", str(project.parent / log)]
         if os.name != "nt":
             command[:0] = ["xvfb-run", "-a"]
         subprocess.run(command, check=True)
-    for filename in ("result.json", "repair.json"):
+    for filename in ("result.json", "repair.json", "addressables-xr.json"):
         result = json.loads((project / "CacheWitnessProof" / filename).read_text())
         if result.get("passed") is not True or result.get("headsetVerified") is not False:
             raise ValueError("Tiny authored fixture failed or falsely claims headset verification.")

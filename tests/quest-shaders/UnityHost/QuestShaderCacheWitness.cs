@@ -138,5 +138,54 @@ public static class QuestShaderCacheWitness
         File.WriteAllText("CacheWitnessProof/repair.json","{\"schema\":1,\"passed\":true,\"revalidationNativeQueries\":2,\"cacheHitNativeQueries\":0,\"threeCorruptOwnedOutputsRepaired\":true,\"unrelatedFileUntouched\":true,\"headsetVerified\":false}\n");
         Debug.Log("PASS real tiny Vulkan owned output repair: actual revalidation=2, subsequent hit=0; three owned hashed outputs repaired, unrelated file untouched.");
     }
+
+    public static void AddressablesAndXrClosure()
+    {
+        var input=JsonUtility.FromJson<QuestCampaignShaderValidation.Manifest>(File.ReadAllText(ManifestPath));
+        Directory.CreateDirectory("Assets/Quest/Settings"); Directory.CreateDirectory("Assets/XR/Settings");
+        string quest="Assets/Quest/Settings/private-xr-settings.json", xr="Assets/XR/Settings/private-openxr-settings.json";
+        File.WriteAllText(quest,"{\"authoredFixture\":1}\n"); File.WriteAllText(xr,"{\"authoredFixture\":1}\n");
+        WriteManifest(input);
+        QuestCampaignShaderValidation.Validate(ManifestPath,Output);
+        Assert(QuestCampaignShaderValidation.LastNativeCompileCount==2,"new helper/settings require actual baseline validation");
+        var before=QuestCampaignShaderCache.Capture(input,ManifestPath);
+        string group="Assets/Quest/Settings/Addressables/AssetGroups/private-group.asset";
+        Directory.CreateDirectory(Path.GetDirectoryName(group));
+        AssetDatabase.CreateAsset(new TextAsset("authoredGroup1"),group); AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+        var added=QuestCampaignShaderCache.Capture(input,ManifestPath);
+        Assert(QuestCampaignShaderCache.ClosureHash(before)==QuestCampaignShaderCache.ClosureHash(added),"new unrelated group or folder meta invalidated graphics");
+        File.WriteAllText(group,File.ReadAllText(group).Replace("authoredGroup1","authoredGroup2")); AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+        QuestCampaignShaderValidation.Validate(ManifestPath,Output);
+        Assert(QuestCampaignShaderValidation.LastValidationCacheReused && QuestCampaignShaderValidation.LastNativeCompileCount==0,"changed unrelated group was not an actual cache hit");
+        foreach (string settings in new[]{quest,xr}) {
+            byte[] bytes=File.ReadAllBytes(settings); File.AppendAllText(settings,"\n ");
+            Assert(!QuestCampaignShaderCache.TryReuse(input,QuestCampaignShaderCache.Capture(input,ManifestPath),Output),"Quest/XR settings drift was ignored");
+            File.WriteAllBytes(settings,bytes);
+        }
+        PlayerSettings.stereoRenderingPath=StereoRenderingPath.SinglePass; AssetDatabase.SaveAssets();
+        QuestCampaignShaderValidation.Validate(ManifestPath,Output);
+        Assert(QuestCampaignShaderValidation.LastNativeCompileCount==2 && !QuestCampaignShaderValidation.LastValidationCacheReused,"actual XR stereo API drift did not force native queries");
+        PlayerSettings.stereoRenderingPath=StereoRenderingPath.MultiPass; AssetDatabase.SaveAssets();
+        // A referenced include retains its exact hash even inside the excluded
+        // content subtree. This is an actual imported dependency, not a group.
+        string dependency="Assets/Quest/Settings/Addressables/AssetGroups/private-shader-dependency.hlsl";
+        File.WriteAllBytes(dependency,File.ReadAllBytes(IncludePath));
+        byte[] shaderBytes=File.ReadAllBytes(ShaderPath);
+        File.WriteAllText(ShaderPath,Encoding.UTF8.GetString(shaderBytes).Replace(IncludePath,dependency));
+        WriteManifest(input); QuestCampaignShaderValidation.Validate(ManifestPath,Output);
+        var dependent=QuestCampaignShaderCache.Capture(input,ManifestPath);
+        Assert(dependent.files.Any(row=>row.path==dependency),"recursive actual shader include was not bound");
+        File.AppendAllText(dependency,"\n// actual referenced dependency drift\n");
+        Assert(!QuestCampaignShaderCache.TryReuse(input,QuestCampaignShaderCache.Capture(input,ManifestPath),Output),"referenced include in Addressables was ignored");
+        QuestCampaignShaderValidation.Validate(ManifestPath,Output);
+        Assert(QuestCampaignShaderValidation.LastNativeCompileCount==2 && !QuestCampaignShaderValidation.LastValidationCacheReused,"referenced subtree dependency drift did not really revalidate");
+        File.WriteAllBytes(ShaderPath,shaderBytes); WriteManifest(input);
+        QuestCampaignShaderValidation.Validate(ManifestPath,Output);
+        QuestCampaignShaderValidation.Validate(ManifestPath,Output);
+        Assert(QuestCampaignShaderValidation.LastValidationCacheReused && QuestCampaignShaderValidation.LastNativeCompileCount==0,"final baseline cannot reuse");
+        File.WriteAllText("CacheWitnessProof/addressables-xr.json","{\"schema\":1,\"passed\":true,\"unrelatedAddressablesNewAndChangedPreserveKey\":true,\"questAndXrSettingsDriftRejected\":true,\"actualStereoApiDriftRevalidates\":true,\"actualReferencedSubtreeIncludeStillBound\":true,\"headsetVerified\":false}\n");
+        Debug.Log("PASS real tiny Vulkan content-group/XR cache closure: unrelated Addressables new/changed hit=0; Quest/XR/stereo/referenced include drift still rejected and revalidated.");
+    }
 }
 #endif

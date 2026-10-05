@@ -14,6 +14,15 @@ included. The explicit packaging/CIL/profile exclusions do not affect the
 queried native programs; unrelated mod C# and APK version changes preserve this
 graphics key. Changes to any known helper bytes also invalidate it.
 
+The production Player step creates Addressables groups after the graphics gate.
+Only generated `.asset` group/schema/settings files and their metas/directory
+metas under `Assets/Quest/Settings/Addressables` are excluded from the generic
+settings-directory scan. Manifest and actual asset dependencies are bound
+first. Shader/include/compute and unknown files in this subtree remain hashed:
+the actual same-version witness showed that `AssetDatabase.GetDependencies`
+alone omits a referenced HLSL include. Quest and XR graphics settings remain
+bound. This exception concerns content-container outputs, not shader sources.
+
 Reuse checks every original alias and material census and rehashes every unique
 actual `.vulkan`, `.vertex.spv`, and `.fragment.spv` output. The full game retains
 688 shaders, 51,564 native aliases, and 9,187 material identity checks. Source
@@ -52,6 +61,13 @@ method damaged three owned native output files, then verified two real native
 queries repaired them, unrelated output bytes remained intact, and subsequent
 reuse made zero queries.
 
+A follow-up real Unity method verifies that new/changed unrelated Addressables
+`.asset` groups and folder metas preserve the key; changed Quest/XR files and the
+actual stereo API invalidate it. A physically referenced HLSL include inside
+that subtree stays in the closure and performs real revalidation after drift.
+The failed broad-exclusion probe is retained as negative evidence; the final
+code excludes only generated content metadata and retains the include.
+
 Private results:
 
 ```
@@ -59,6 +75,8 @@ Private results:
 /home/claw/quest3-local/full-shader-validation/cache-witness-v1/unity/CacheWitnessProof/repair.json
 /home/claw/quest3-local/full-shader-validation/cache-witness-v1/unity-cache-witness.log
 /home/claw/quest3-local/full-shader-validation/cache-witness-v1/unity-cache-repair.log
+/home/claw/quest3-local/full-shader-validation/cache-witness-v1/unity/CacheWitnessProof/addressables-xr.json
+/home/claw/quest3-local/full-shader-validation/cache-witness-v1/unity-cache-addressables-xr-final.log
 ```
 
 The actual Unity module SDK compilation also passed. Focused Python controls
@@ -84,7 +102,7 @@ Exact retained source identities:
 | Previous consumer used by f905 | `d1e5de9d9c1743e25bbc891c91cefef53d527bd8a1b95918abb49e787bd9a3d3` |
 | Historical preparation consumer, before earlier authorized overrides | `4e005bc601180ca8d6d9a6c338587bc556d97548030ec7723c8bf78f5ed6fc17` |
 | New cache-enabled consumer | `c43e6ee16a80512f1411a8e91bd0a0e6d72fcb25205e65a8fda956bbf8ecfc95` |
-| New added cache helper, no historical preparation baseline | `4508d7746db484cc01b5a25eaf70e78698573968ae65fb9c7b2c1fa80af8afe7` |
+| New added cache helper, no historical preparation baseline | `a37041b427c9a301abbb05960988a97cad1d18a70a18961e4807e8868d8b8a0d` |
 | Unchanged Vulkan native verifier | `3e85b950523bd4a4ef9ef58140836bc047d9d27263f1fd0966347841dfbce7a7` |
 | Unchanged SMOL-V decoder | `bdfff94920bb7ffdfed224cad4126f9c987cbf8d68ef8b7ae904f5a38fdbe0fc` |
 
@@ -115,4 +133,12 @@ The private snapshot contains 24,781 stable file identities/1,123,767,230 bytes,
 captured twice while f905 ran. Its own SHA is
 `14edf214ffc1200d0a6822dd11d863f4768a344504017a7d7fa6e53bf53a18df`;
 `receiptCompletionObserved=false` records that the snapshot itself made no PASS
-claim. Actual migration remains pending until f905 reaches PASS.
+claim. The real f905 gate subsequently passed at 15:07:50 UTC. Its private
+completed evidence lives in the sibling `f905-completed` directory. The captured
+receipt SHA is `32a2fdcb487e20ee35ed87e63029a51e0e4c4c1ae4ab5fac3fa33062e7182922`:
+all 688 shaders/51,564 aliases/9,187 materials and all 20,930 unique native output
+hashes (693,121,845 bytes) were verified. All 24,781 previous graphics files
+remained identical after PASS, including raw PlayerSettings. The later generated
+Addressables content metadata is covered by the narrow exclusion above. Actual
+migration still waits for a safe Player process boundary; the completed native
+result does not claim that the full APK or headset tests have passed.
