@@ -428,3 +428,15 @@ development, release recipe validation and genuinely changed supported shader
 closures. Do not describe caching that still repeats the full matrix on every
 first player build as satisfying this ruling. This separation is required future
 Builder/Wizard work; it is not yet shipped or measured on Windows.
+
+The maintainer further requires expensive shader validation only when necessary
+in development as well. An unrelated Player/IL2CPP/package failure must reuse the
+completed native shader gate when its relevant graphics closure is unchanged.
+Implement a completed actual validation receipt and atomic reuse contract, bound
+to exact source/includes/importers/dependencies, graphics/compiler settings and
+Editor/compiler/verifier identities, retaining complete alias/material ledgers
+and output hashes. Changed relevant inputs or corrupt/partial results require
+validation; ordinary mod/profile/package changes do not. The first actual full
+imported Android Campaign gate remains in progress and necessary at this
+checkpoint. Cache integration must not modify the live build's captured sources
+or invent completion before that gate reports success.
