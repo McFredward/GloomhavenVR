@@ -22,12 +22,25 @@ namespace GloomhavenVR.Quest.Editor
         [Serializable] sealed class ModInput { public int modBuild; }
         [Serializable] sealed class InputManifest { public string inputKey; public ModInput mod; }
         [Serializable] sealed class BuildStamp { public int schema = 1; public int modBuild; public string inputKey; }
+        public const string CampaignShaderModeReceiptPath = "QuestCampaignShaderEvidence/build-mode.json";
+        [Serializable] public sealed class CampaignShaderModeReceipt
+        {
+            public int schema = 1, shaderCount, nativeAliasCount, materialCount, nativeCompilerQueriesThisInvocation;
+            public string mode, unityVersion, sourceManifestSha256, exhaustiveReceiptSha256;
+            public bool requiredRetentionVerified, importedIdentitiesVerified, exhaustiveValidationRequested;
+            public bool exhaustiveCompilerValidationCompleted, exhaustiveResultReused;
+            public bool originalPixelParityVerified, headsetPictureVerified;
+        }
+        static CampaignShaderModeReceipt campaignShaderMode;
         [Serializable] sealed class Receipt
         {
             public int schema = 1;
             public string target, inputKey, package, profileSha256, unityVersion, buildResult;
             public string il2CppCompilerConfiguration, additionalIl2CppArgs, stereoRenderingPath, openXrRenderMode, graphicsApi;
             public bool incrementalGc;
+            public string campaignShaderValidationMode;
+            public bool campaignShaderExhaustiveCompleted, campaignShaderExhaustiveReused;
+            public int campaignShaderNativeCompilerQueries;
             public string[] scenes;
         }
         static string Required(string key)
@@ -42,6 +55,7 @@ namespace GloomhavenVR.Quest.Editor
         }
         static void BuildPlayer()
         {
+            campaignShaderMode = null;
             string target = Required("GHVR_QUEST_TARGET");
             if (target != "probe" && target != "startup" && target != "game")
                 throw new InvalidOperationException("Unknown Quest build target.");
@@ -112,7 +126,11 @@ namespace GloomhavenVR.Quest.Editor
                 incrementalGc = PlayerSettings.gcIncremental,
                 stereoRenderingPath = PlayerSettings.stereoRenderingPath.ToString(),
                 openXrRenderMode = OpenXRSettings.GetSettingsForBuildTargetGroup(BuildTargetGroup.Android).renderMode.ToString(),
-                graphicsApi = string.Join(",", PlayerSettings.GetGraphicsAPIs(BuildTarget.Android).Select(api => api.ToString()))
+                graphicsApi = string.Join(",", PlayerSettings.GetGraphicsAPIs(BuildTarget.Android).Select(api => api.ToString())),
+                campaignShaderValidationMode = campaignShaderMode == null ? "not-applicable" : campaignShaderMode.mode,
+                campaignShaderExhaustiveCompleted = campaignShaderMode != null && campaignShaderMode.exhaustiveCompilerValidationCompleted,
+                campaignShaderExhaustiveReused = campaignShaderMode != null && campaignShaderMode.exhaustiveResultReused,
+                campaignShaderNativeCompilerQueries = campaignShaderMode == null ? 0 : campaignShaderMode.nativeCompilerQueriesThisInvocation
             }, true));
             if (report.summary.result != BuildResult.Succeeded)
                 throw new InvalidOperationException("Android build failed: " + report.summary.result + ", errors=" + report.summary.totalErrors);
@@ -281,8 +299,7 @@ namespace GloomhavenVR.Quest.Editor
                 QuestCampaignTextureValidation.Validate();
                 QuestCampaignSpriteValidation.Validate();
                 QuestCampaignComputeValidation.ValidateSources();
-                QuestCampaignShaderValidation.PrepareVariantCollection();
-                QuestCampaignShaderValidation.Validate();
+                campaignShaderMode = PrepareCampaignShaders();
             }
             QuestStartupAddressablesBuild.Build();
             if (campaign) QuestCampaignAssetValidation.ValidateAfterAndroidBuild();
@@ -302,6 +319,52 @@ namespace GloomhavenVR.Quest.Editor
             const string startupScene = "Assets/Quest/Scenes/QuestOriginalStartup.unity";
             EditorSceneManager.SaveScene(scene, startupScene);
             return new[] { startupScene }.Concat(evidence.selectedScenes).ToArray();
+        }
+
+        public static string CampaignShaderValidationMode(string value)
+        {
+            if (string.IsNullOrEmpty(value) || value == "0") return "minimum";
+            if (value == "1") return "exhaustive";
+            throw new InvalidOperationException("GHVR_QUEST_VALIDATE_CAMPAIGN_SHADERS accepts only 0 or 1.");
+        }
+
+        public static CampaignShaderModeReceipt PrepareCampaignShaders()
+        {
+            // The maintainer requires normal local builds to perform only the
+            // necessary work, including on a cold first build. Retain every
+            // original alias and verify physical source/imported/pass/material
+            // identities. Unity's native bundle/player builds remain mandatory.
+            // The all-alias compiler/decode/reflection gate is an explicit
+            // development opt-in and can reuse its completed graphics receipt.
+            string mode = CampaignShaderValidationMode(Environment.GetEnvironmentVariable("GHVR_QUEST_VALIDATE_CAMPAIGN_SHADERS"));
+            string manifestPath = Environment.GetEnvironmentVariable("GHVR_QUEST_SHADER_MANIFEST") ?? QuestCampaignShaderValidation.DefaultManifest;
+            string outputPath = Environment.GetEnvironmentVariable("GHVR_QUEST_SHADER_OUTPUT") ?? "QuestCampaignShaderEvidence";
+            string before = FileHash(manifestPath);
+            var input = JsonUtility.FromJson<QuestCampaignShaderValidation.Manifest>(File.ReadAllText(manifestPath));
+            if (input == null || input.schema != 1 || input.scope != "campaign-compiler" || input.graphicsApi != "Vulkan" || input.compilerPlatform != "Vulkan" ||
+                input.shaders == null || input.materials == null || input.requiredShaderCount != input.shaders.Length || input.requiredMaterialCount != input.materials.Length)
+                throw new InvalidDataException("Complete Campaign graphics provenance is missing before native retention.");
+            if (File.Exists(CampaignShaderModeReceiptPath)) File.Delete(CampaignShaderModeReceiptPath);
+            QuestCampaignShaderValidation.PrepareVariantCollection(manifestPath);
+            QuestCampaignShaderValidation.VerifyImportedIdentities(input);
+            bool exhaustive = mode == "exhaustive";
+            if (exhaustive) QuestCampaignShaderValidation.Validate(manifestPath, outputPath);
+            if (before != FileHash(manifestPath)) throw new InvalidOperationException("Campaign shader manifest changed during build-mode validation.");
+            var receipt = new CampaignShaderModeReceipt {
+                mode = mode, unityVersion = Application.unityVersion, sourceManifestSha256 = before,
+                shaderCount = input.shaders.Length, nativeAliasCount = input.shaders.Sum(row => row.variants.Length), materialCount = input.materials.Length,
+                requiredRetentionVerified = true, importedIdentitiesVerified = true, exhaustiveValidationRequested = exhaustive,
+                exhaustiveCompilerValidationCompleted = exhaustive,
+                exhaustiveResultReused = exhaustive && QuestCampaignShaderValidation.LastValidationCacheReused,
+                nativeCompilerQueriesThisInvocation = exhaustive ? QuestCampaignShaderValidation.LastNativeCompileCount : 0,
+                exhaustiveReceiptSha256 = exhaustive ? FileHash(Path.Combine(outputPath, "android-compiler.json")) : null
+            };
+            Directory.CreateDirectory(Path.GetDirectoryName(CampaignShaderModeReceiptPath));
+            File.WriteAllText(CampaignShaderModeReceiptPath, JsonUtility.ToJson(receipt, true) + "\n");
+            Debug.Log("Campaign shader build mode: " + mode + "; retained original aliases=" + receipt.nativeAliasCount + ", imported shaders=" + receipt.shaderCount +
+                ", material identities=" + receipt.materialCount + ", exhaustive compiler result=" + receipt.exhaustiveCompilerValidationCompleted +
+                ", reused=" + receipt.exhaustiveResultReused + ", native queries this invocation=" + receipt.nativeCompilerQueriesThisInvocation + ". Original pixels and headset remain separate gates.");
+            return receipt;
         }
 
         [Serializable] sealed class CampaignBuildContract
