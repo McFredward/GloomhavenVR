@@ -12,7 +12,7 @@ internal static partial class TownServiceMirror
     private static readonly Dictionary<int,Dictionary<ushort,RackPlayback>> RemoteRacks = new();
     private static readonly List<ushort> RetiredRacks = new();
     internal static void SetRack(ushort module,TownRackState state)
-    { state.Validate(module);if(Local.ContainsKey(module))LocalRacks[module]=state; }
+    { state.Validate(module);if(Local.ContainsKey(module)){if(!LocalRacks.ContainsKey(module))_local.ParentLinksDirty=true;LocalRacks[module]=state;} }
     internal static void SetRackMember(ushort module,TownRackStamp state,CanvasGroup? pageGate = null)
     { if(Local.ContainsKey(module)){LocalRackMembers[module]=state;if(pageGate!=null)LocalRackGates[module]=pageGate;} }
     internal static void SetRackMember(ushort module,ushort rack,ushort page,uint turn,bool detached,CanvasGroup? gate)
@@ -46,6 +46,7 @@ internal static partial class TownServiceMirror
         internal float LastTick, WaitingSince, Elapsed, ReceivedTime;
         internal ushort DisplayPage;
         internal bool Turning, Waiting;
+        internal readonly HashSet<ushort> GatedMembers = new();
         internal int IndicatorPage = -1, IndicatorCount;
         internal string IndicatorText = "";
         internal void Start(TownRackState state,float now,bool joining=false)
@@ -54,6 +55,9 @@ internal static partial class TownServiceMirror
             // are unavailable. Once ready, seek this owner's current epoch/age;
             // replaying missed revolutions invented a different public animation.
             Outgoing=State??state;
+            GatedMembers.Clear();
+            foreach(var member in Outgoing.Members) GatedMembers.Add(member.Id);
+            foreach(var member in state.Members) GatedMembers.Add(member.Id);
             FromPage=state.From;
             if(joining||State==null)DisplayPage=TownRackState.Progress(state.Elapsed)<.5f?state.From:state.To;
             State=state;Elapsed=state.Elapsed;
@@ -68,7 +72,7 @@ internal static partial class TownServiceMirror
             if(Latest!=null&&next.Turn<Latest.Turn)return;
             Latest=next;Sequence=frame.Sequence;ReceivedTime=now;
             if(State==null){Start(next,now,true);return;}
-            if(next.Turn==State.Turn){State=next;return;}
+            if(next.Turn==State.Turn){State=next;foreach(var member in next.Members)GatedMembers.Add(member.Id);return;}
             Start(next,now);
         }
     }
@@ -101,14 +105,15 @@ internal static partial class TownServiceMirror
             if(!Sessions.TryGetValue(peer,out var session)||Array.BinarySearch(session.Modules,id)<0)RetiredRacks.Add(id);
         foreach(ushort id in RetiredRacks)clocks.Remove(id);
     }
-    private static bool RackPageReady(ushort rackId,TownRackState state,ushort page,Dictionary<ushort,RemoteModule> modules)
+    private static bool RackPageReady(ushort rackId,TownRackState state,ushort page,Dictionary<ushort,RemoteModule> modules, int peer = 0)
     {
         foreach(TownRackMember member in state.Members)
         {
             if(member.Page!=page||member.Detached)continue;
             if(!modules.TryGetValue(member.Id,out var module)||!module.Alive||module.LastFrame==null
                 ||module.LastFrame.RackMember==null||module.LastFrame.RackMember.Rack!=rackId||module.LastFrame.RackMember.Page!=page
-                ||state.Layout!=null&&module.LastFrame.RackMember.Turn<state.Turn)return false;
+                ||state.Layout!=null&&module.LastFrame.RackMember.Turn<state.Turn
+                    && !MatchesPreparedCatalogBank(peer,rackId,state,member.Id,module))return false;
         }
         return true;
     }
@@ -130,7 +135,7 @@ internal static partial class TownServiceMirror
                 { handSupersedes=true;clock.DisplayPage=stamp.Page; }
             if(handSupersedes)
             { clock.State=state=clock.Latest;clock.Turning=false;clock.Waiting=false;clock.Elapsed=TownRackState.TurnDuration; }
-            bool fromReady=RackPageReady(pair.Key,state,state.From,modules),toReady=RackPageReady(pair.Key,state,state.To,modules);
+            bool fromReady=RackPageReady(pair.Key,state,state.From,modules,peer),toReady=RackPageReady(pair.Key,state,state.To,modules,peer);
             if(!handSupersedes)
             {
                 float ownerAge=Mathf.Clamp(state.Elapsed+Mathf.Max(0f,now-clock.ReceivedTime),0f,TownRackState.TurnDuration);
@@ -160,10 +165,11 @@ internal static partial class TownServiceMirror
             }
             bool replaying=clock.Turning;
             clock.LastTick=now;
-            bool complete=RackPageReady(pair.Key,clock.DisplayPage==clock.FromPage?clock.Outgoing??state:state,clock.DisplayPage,modules);
+            bool complete=RackPageReady(pair.Key,clock.DisplayPage==clock.FromPage?clock.Outgoing??state:state,clock.DisplayPage,modules,peer);
             // A cold page appears as one dependency group, never face/price/body fragments.
-            foreach(RemoteModule child in modules.Values)
+            foreach(ushort childId in clock.GatedMembers)
             {
+                if(!modules.TryGetValue(childId,out RemoteModule child))continue;
                 TownRackStamp? stamp=child.LastFrame?.RackMember;
                 if(stamp==null||stamp.Rack!=pair.Key)continue;
                 if(!child.Alive)continue;

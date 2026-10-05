@@ -34,10 +34,12 @@ internal sealed class TownServiceMerchantRows : IDisposable
     private object? _publicParty;
     private readonly GameObject _root;
     internal readonly List<Row> Rows = new();
-    // Cold rows keep their native item identity, but their invisible price strip need not
-    // run Initialize on every census. The catalog refreshes a row before it first joins
-    // the current or prewarmed page, so no stale native output reaches a visible frame.
+    // Public rows retain a complete original presentation bank. Initialize runs only
+    // when an actual native input changes; unchanged dormant pages do no widget work.
+    // Private transaction rows keep their existing current-page refresh policy.
     private readonly HashSet<UIShopItemSlot> _pendingPresentation = new();
+    private readonly Dictionary<UIShopItemSlot, (CItem Item, int Cost, int Amount, int Total, bool Affordable, int Discount, CMapCharacter? Character)> _publicInputs = new();
+    internal uint PresentationRevision { get; private set; }
     internal bool HasPendingPresentation => _pendingPresentation.Count != 0;
     internal bool NeedsPresentation(UIShopItemSlot source) => _pendingPresentation.Contains(source);
     internal TownServiceMerchantRows(UIShopItemInventory inventory, Transform? publicParent = null)
@@ -121,7 +123,7 @@ internal sealed class TownServiceMerchantRows : IDisposable
             next.Add(row);
         }
         foreach (Row row in Rows) if (!reused.Contains(row))
-        { row.Source.gameObject.SetActive(false); UnityEngine.Object.Destroy(row.Source.gameObject); }
+        { _publicInputs.Remove(row.Source); row.Source.gameObject.SetActive(false); UnityEngine.Object.Destroy(row.Source.gameObject); }
         Rows.Clear();Rows.AddRange(next);
         _pendingPresentation.Clear();
         var buyAmounts = new Dictionary<int, int>(buy.Count);
@@ -135,15 +137,20 @@ internal sealed class TownServiceMerchantRows : IDisposable
                 CItem item = group.First();
                 buyAmounts.TryGetValue(item.ID, out int amount);
                 UIShopItemSlot source = Rows[index++].Source;
+                int cost = service.DiscountedCost(item), discount = service.GetBuyDiscount();
+                bool affordable = service.IsAffordable(item, character);
+                var inputs = (item, cost, amount, group.Count(), affordable, discount, character);
+                bool originalChanged = _publicService != null
+                    && (!_publicInputs.TryGetValue(source, out var previous) || !previous.Equals(inputs));
+                if (originalChanged) { _publicInputs[source] = inputs; PresentationRevision++; }
                 // Always initialize a new or repurposed row: Entry.Current uses this
                 // exact item reference to retire old physical cards after stock changes.
                 // Warm rows keep the original half-second price, quantity and permission
                 // cadence. Hidden rows are brought current before page exposure.
-                if (!ReferenceEquals(source.Item, item) || warmSources.Contains(source))
-                    source.Initialize(item, service.DiscountedCost(item), IgnoreSelect, IgnoreHover, null,
-                        amount, group.Count(), service.IsAffordable(item, character), false, false,
-                        service.GetBuyDiscount(), character);
-                else _pendingPresentation.Add(source);
+                if (!ReferenceEquals(source.Item, item) || originalChanged || _publicService == null && warmSources.Contains(source))
+                    source.Initialize(item, cost, IgnoreSelect, IgnoreHover, null,
+                        amount, group.Count(), affordable, false, false, discount, character);
+                else if (_publicService == null) _pendingPresentation.Add(source);
             }
             foreach (CItem item in owned)
             {
@@ -172,7 +179,7 @@ internal sealed class TownServiceMerchantRows : IDisposable
     {
         foreach (Row row in Rows)
             if (row.Source != null) { row.Source.gameObject.SetActive(false); UnityEngine.Object.Destroy(row.Source.gameObject); }
-        Rows.Clear(); _pendingPresentation.Clear();
+        Rows.Clear(); _pendingPresentation.Clear(); _publicInputs.Clear();
     }
     public void Dispose() { Clear(); UnityEngine.Object.Destroy(_root); }
 }

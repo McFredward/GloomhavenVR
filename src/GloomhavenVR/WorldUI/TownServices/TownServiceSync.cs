@@ -33,7 +33,7 @@ internal sealed partial class TownServiceSync
         internal string Identity = string.Empty;
         internal Transform Source = null!;
         internal Func<Transform, bool> Exclude = null!;
-        internal bool Seen;
+        internal bool Seen, CatalogResident;
     }
     private sealed class SourceEntry
     {
@@ -365,7 +365,8 @@ internal sealed partial class TownServiceSync
                 foreach (TownServiceCatalog.Control control in catalog.Controls)
                 { PriorityRoots.Add(control.Surface.Panel.Target); Publish(control.Key, control.Surface.Panel.Target); }
 
-                foreach (TownServiceCatalog.Entry entry in catalog.Entries)
+                PublishOriginalCatalogBank(catalog);
+                foreach (TownServiceCatalog.Entry entry in catalog.PublicationEntries)
                 {
                     if (!entry.Current || !entry.Warm || entry.Sample.IsMoving) continue;
                     PriorityRoots.Add(entry.MountRoot); PriorityRoots.Add(entry.FaceRoot);
@@ -391,7 +392,11 @@ internal sealed partial class TownServiceSync
         if (!NativeTemplates.Ready) return;
         if (_session != session) { ResetCore(); _session = session; _service = 1; _nextId = 0; }
         TownServiceMirror.BeginSession(1, session, frame, station, age);
-        foreach (Published module in Modules.Values) module.Seen = false;
+        foreach (Published module in Modules.Values)
+        {
+            module.Seen = TownServiceMirror.IsPublicAuthor && module.CatalogResident;
+            if (module.CatalogResident) TownServiceMirror.SetCatalogDormant(module.Id, true);
+        }
         foreach (SourceEntry source in Sources.Values) source.Seen = false;
         Visited.Clear(); Dynamic.Clear(); PriorityRoots.Clear();
         if (TownServiceMirror.IsPublicAuthor) PublishCatalog(catalog, null);
@@ -460,6 +465,7 @@ internal sealed partial class TownServiceSync
                         throw new InvalidDataException("Town service exceeds the simultaneous module budget.");
                     Modules[existing.Identity] = existing;
                     TownServiceMirror.RegisterModule(existing.Id, 1, existing.Source, existing.Exclude, existing.Address);
+                    if (existing.CatalogResident) TownServiceMirror.SetCatalogDormant(existing.Id, false);
                     TownServiceMirror.SetPriority(existing.Id, IsPriority(source));
                 }
                 return;
@@ -505,7 +511,7 @@ internal sealed partial class TownServiceSync
         if (!Sources.TryGetValue(rack.HousingRoot, out SourceEntry? housing)
             || !Sources.TryGetValue(rack.Root, out SourceEntry? crank) || housing.Parts.Count != 1 || crank.Parts.Count != 1) return;
         RackMembers.Clear(); ushort rackId = housing.Parts[0].Id;
-        foreach (TownServiceCatalog.Entry entry in catalog.Entries)
+        foreach (TownServiceCatalog.Entry entry in catalog.PublicationEntries)
             if (entry.Warm && !entry.Sample.IsMoving)
             {
                 AddRackMembers(entry.MountRoot, entry, rack, rackId);
@@ -515,6 +521,7 @@ internal sealed partial class TownServiceSync
                 AddRackMembers(entry.RowContent, entry, rack, rackId);
             }
         RackMembers.Sort(CompareRackMembers);
+        TownServiceMirror.SetCatalogBankPrepared(rackId, catalog.OriginalBankPrepared);
         TownRackState? previous = housing.RackClock;
         TownCatalogSlot[] layout = catalog.StockLayout;
         bool sameMembers = previous != null && previous.Members.Length == RackMembers.Count;
@@ -624,7 +631,7 @@ internal sealed partial class TownServiceSync
     private void ResetCore()
     {
         if (_session != 0) TownServiceMirror.EndSession();
-        Modules.Clear(); Sources.Clear(); RemovedSources.Clear(); Visited.Clear(); Dynamic.Clear(); PriorityRoots.Clear(); Removed.Clear(); _session = 0; _service = 0;
+        ResetCatalogBank(); Modules.Clear(); Sources.Clear(); RemovedSources.Clear(); Visited.Clear(); Dynamic.Clear(); PriorityRoots.Clear(); Removed.Clear(); _session = 0; _service = 0;
     }
     internal static void ResetNetwork() { Private.ResetCore(); ResetPublic(); TownServiceMirror.ResetNetwork(); }
     internal static void Shutdown()

@@ -18,7 +18,7 @@ namespace GloomhavenVR.WorldUI;
 /// <summary>Original native merchant stock in one indexed cabinet cassette.
 /// Physical category buttons and a crank select bounded trays. Only an explicit eligible palm drop
 /// enters the original native transaction; picking up a card is always inspection.</summary>
-internal sealed class TownServiceCatalog : IDisposable
+internal sealed partial class TownServiceCatalog : IDisposable
 {
     private static readonly Dictionary<Transform, Entry> CardMounts = new();
     internal static bool IsCardMountChild(Transform source) => source.parent != null && CardMounts.ContainsKey(source.parent);
@@ -352,6 +352,7 @@ internal sealed class TownServiceCatalog : IDisposable
         foreach (Entry entry in WarmEntries())
             if (entry.Current) _warmSources.Add(entry.RowSource);
         bool changed=_backend.Refresh(_warmSources);
+        ObserveOriginalBankRevision();
         if(!ReferenceEquals(context,_context)){if(!_persistent)ClearEntries();_context=context;changed=true;}
         if(!changed)return;
         _observerDirty = true;
@@ -507,7 +508,7 @@ internal sealed class TownServiceCatalog : IDisposable
     // The old template address may exist in a previous snapshot. New publishers omit it.
     internal static GameObject CreateNavigationTemplate(TMP_Text? font)=>new GameObject("RetiredCatalogNavigation");
 
-    internal sealed class Entry : IDisposable
+    internal sealed partial class Entry : IDisposable
     {
         private readonly TownServiceCatalog _owner;
         private readonly GameObject _root;

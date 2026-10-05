@@ -79,7 +79,7 @@ internal static partial class TownServiceMirror
     private static bool PublicPageReady(ushort rack, TownRackState state, ushort page,
         TownServiceSessionInfo session, Dictionary<ushort, RemoteModule> modules)
     {
-        if (!RackPageReady(rack, state, page, modules)) return false;
+        if (!RackPageReady(rack, state, page, modules, session.Peer)) return false;
         foreach (TownRackMember member in state.Members)
         {
             if (member.Page != page || member.Detached) continue;
@@ -89,7 +89,8 @@ internal static partial class TownServiceMirror
             // Current publishers stamp each native mount, body, face and price
             // with the same page epoch. A preceding page's reusable module is
             // not evidence that this new original group has arrived.
-            if (state.Layout != null && module.LastFrame.RackMember!.Turn < state.Turn) return false;
+            if (state.Layout != null && module.LastFrame.RackMember!.Turn < state.Turn
+                && !MatchesPreparedCatalogBank(session.Peer, rack, state, member.Id, module)) return false;
         }
         if (state.Layout == null) return true; // Historical TLV85 has no stock census.
         foreach (TownCatalogSlot slot in state.Layout)
@@ -144,10 +145,14 @@ internal static partial class TownServiceMirror
     private static bool HoldReorderedPublicRackMember(int peer, TownServiceFrame frame)
     {
         TownRackStamp? stamp = frame.RackMember;
+        if (AtomicCatalogOriginal(peer, frame)) return false;
+        if (stamp != null && Pending.TryGetValue(peer, out var pending) && pending.TryGetValue(stamp.Rack, out var root)
+            && root.Rack != null && root.Rack.Turn >= stamp.Turn && root.Session == frame.Session && root.PublicClaim == frame.PublicClaim)
+            return !IncomingCatalogOriginalMatches(peer, frame);
         if (stamp == null || peer != _displayedPublicPeer || !RemoteRacks.TryGetValue(peer, out var clocks)
             || !clocks.TryGetValue(stamp.Rack, out var clock)) return false;
         return frame.Session == Sessions[peer].Session && frame.PublicClaim == Sessions[peer].PublicClaim
-            && stamp.Turn > clock.Latest.Turn;
+            && (stamp.Turn > clock.Latest.Turn || !IncomingCatalogOriginalMatches(peer, frame));
     }
 
     private static bool StagePublicPicture(int peer)

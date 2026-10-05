@@ -579,6 +579,8 @@ internal static partial class TownServiceMirror
         internal readonly Dictionary<ushort, CanvasGroup> Gates = new();
         internal Transform? SharedFrame, Station;
         internal byte Service; internal uint Session; internal ulong Sequence;
+        internal bool ParentLinksDirty = true;
+        internal readonly List<LocalModule> CaptureOrder = new();
         internal bool Active; internal float NextManifest, ClosedUntil, Started; internal ushort Heartbeat;
         internal bool TempleDonationKnown, TempleDonationAvailable;
         internal uint TempleDonationRevision;
@@ -606,6 +608,9 @@ internal static partial class TownServiceMirror
         internal float NextRefresh;
         internal float RetryAfter;
         internal bool HighPriority, WasPriority;
+        internal bool CatalogResident, CatalogDormant, CatalogDirty;
+        internal uint CatalogRevision;
+        internal ulong CatalogContentKey;
         internal ulong LastSent;
         internal readonly TownServiceFrame Probe = new();
         internal Func<Transform, bool>? Exclude;
@@ -618,7 +623,7 @@ internal static partial class TownServiceMirror
         internal uint Session;
         internal ushort Template;
         internal string Address = string.Empty;
-        internal ulong Sequence;
+        internal ulong Sequence, CatalogContentKey;
         internal TownServiceFrame? LastFrame;
         internal Renderer[]? RackBodyRenderers;
         internal bool StockMasked, PublicMasked;
@@ -727,6 +732,7 @@ internal static partial class TownServiceMirror
             if (current.Template == template && current.Address == address && ReferenceEquals(current.Binding.Root, liveRoot)) return;
             current.Binding.Dispose();
         }
+        _local.ParentLinksDirty = true;
         Local[module] = new LocalModule { Id = module, Template = template, Address = address, Binding = new TownServiceBinding(liveRoot, exclude), Exclude = exclude };
         _nextManifest = 0;
     }
@@ -734,7 +740,7 @@ internal static partial class TownServiceMirror
     internal static void UnregisterModule(ushort module)
     {
         if (!Local.TryGetValue(module, out LocalModule? current)) return;
-        current.Binding.Dispose(); Local.Remove(module); LocalRacks.Remove(module); LocalRackMembers.Remove(module); LocalRackGates.Remove(module); _nextManifest = 0;
+        _local.ParentLinksDirty = true; current.Binding.Dispose(); Local.Remove(module); LocalRacks.Remove(module); LocalRackMembers.Remove(module); LocalRackGates.Remove(module); _nextManifest = 0;
     }
 
     internal static void SetPriority(ushort module, bool highPriority)
@@ -794,13 +800,20 @@ internal static partial class TownServiceMirror
         {
             _heartbeatModule = ushort.MaxValue;
             foreach (ushort id in Local.Keys) if (id < _heartbeatModule) _heartbeatModule = id;
-            SourceParents.Clear();
-            foreach (LocalModule source in Local.Values)
-                for (int i = 0; i < source.Binding.Nodes.Length; i++)
-                    if (source.Binding.Nodes[i] != null) SourceParents[source.Binding.Nodes[i]] = new ParentLink(source.Id, source.Binding.Bindings[i]);
-            foreach (LocalModule module in Local.Values)
+            if (_local.ParentLinksDirty)
             {
-                if (now < module.RetryAfter) continue;
+                SourceParents.Clear();
+                foreach (LocalModule source in Local.Values)
+                    for (int i = 0; i < source.Binding.Nodes.Length; i++)
+                        if (source.Binding.Nodes[i] != null) SourceParents[source.Binding.Nodes[i]] = new ParentLink(source.Id, source.Binding.Bindings[i]);
+                _local.CaptureOrder.Clear();
+                foreach (LocalModule source in Local.Values) if (!LocalRacks.ContainsKey(source.Id)) _local.CaptureOrder.Add(source);
+                foreach (LocalModule source in Local.Values) if (LocalRacks.ContainsKey(source.Id)) _local.CaptureOrder.Add(source);
+                _local.ParentLinksDirty = false;
+            }
+            foreach (LocalModule module in _local.CaptureOrder)
+            {
+                if (now < module.RetryAfter || module.CatalogDormant && !module.CatalogDirty && module.Last != null) continue;
                 try
                 {
                     Transform source = module.Binding.Root;
@@ -810,6 +823,7 @@ internal static partial class TownServiceMirror
                     catch (InvalidDataException e) when (e.Message == "Native town-service topology changed.")
                     {
                         module.Binding.Dispose(); module.Binding = new TownServiceBinding(source, module.Exclude);
+                        _local.ParentLinksDirty = true;
                         nodes = module.Binding.Read(Assets);
                     }
                     // Reuse only the unpublished probe. Emitted headers/node arrays are
@@ -822,6 +836,7 @@ internal static partial class TownServiceMirror
                     frame.Pose = ReadPose(source, _sharedFrame, frame.Pose); frame.Nodes = nodes;
                     frame.RackMember = LocalRackMembers.TryGetValue(module.Id, out TownRackStamp? rackMember) ? rackMember : null;
                     frame.Rack = LocalRacks.TryGetValue(module.Id, out TownRackState? rackState) ? rackState : null;
+                    frame.CatalogBank = frame.Rack != null ? CaptureCatalogBank(module, frame.Rack) : null;
                     frame.WorkspaceCloth = null;
                     frame.SessionAge = Mathf.Max(0f, now - _sessionStarted);
                     frame.ParentModule = TownServiceFrame.ManifestModule; frame.ParentBinding = 0;
@@ -832,7 +847,7 @@ internal static partial class TownServiceMirror
                         float alpha = ReadRackAlpha(module);
                         if (frame.RackMember.Alpha != alpha) { frame.RackMember = frame.RackMember.Copy(); frame.RackMember.Alpha = alpha; }
                     }
-                    if (FastMotionCaptureEnabled && module.Last != null && module.Baseline != null
+                    if (frame.CatalogBank == null && FastMotionCaptureEnabled && module.Last != null && module.Baseline != null
                         && now < module.NextBaseline && module.WasPriority == module.HighPriority
                         && (!NeedsHeartbeat(module) || now < module.NextRefresh)
                         && TownServiceFastNumbers.SameArtwork(module.Last, frame))
@@ -841,10 +856,16 @@ internal static partial class TownServiceMirror
                         {
                             frame.Sequence = module.Last.Sequence;
                             module.Last = TownServiceDelta.Retain(frame);
+                            if (module.CatalogResident) module.CatalogContentKey = TownCatalogBank.ContentKey(module.Last);
                         }
+                        module.CatalogDirty = false;
                         continue;
                     }
+                    frame.Sequence = module.Last?.Sequence ?? 1UL;
                     bool sameSurface = SamePresentation(module.Last, frame);
+                    if (module.CatalogResident && (!sameSurface || module.CatalogContentKey == 0))
+                        module.CatalogContentKey = TownCatalogBank.ContentKey(frame);
+                    module.CatalogDirty = false;
                     if (sameSurface && module.WasPriority == module.HighPriority
                         && (now < module.NextRefresh || module.Last != null && module.LastSent < module.Last.Sequence)) continue;
                     frame.Sequence = NextSequence();
@@ -854,8 +875,11 @@ internal static partial class TownServiceMirror
                     else emitted = TownServiceDelta.Create(module.Baseline, frame);
                     emitted.HighPriority = module.HighPriority || module.WasPriority || NeedsHeartbeat(module);
                     module.WasPriority = module.HighPriority;
+                    if (module.CatalogResident && module.CatalogDormant)
+                    { module.Last = TownServiceDelta.Retain(frame); module.LastSent = frame.Sequence; continue; }
                     byte[] packet = TownServiceCodec.Write(emitted);
-                    send(packet, packet.Length, emitted); module.Last = TownServiceDelta.Retain(frame); module.NextRefresh = now + .75f + module.Id % 7 * .03f;
+                    send(packet, packet.Length, emitted); module.Last = TownServiceDelta.Retain(frame);
+                    module.NextRefresh = now + .75f + module.Id % 7 * .03f;
                 }
                 catch (Exception e) { module.RetryAfter = now + 1; Report("capture module " + module.Id, e); }
             }
@@ -864,7 +888,9 @@ internal static partial class TownServiceMirror
         {
             try
             {
-                var ids = new List<ushort>(Local.Keys); ids.Sort();
+                var ids = new List<ushort>();
+                foreach (LocalModule module in Local.Values) if (AdvertiseCatalogModule(module)) ids.Add(module.Id);
+                ids.Sort();
                 var manifest = new TownServiceFrame { VisitorStock = ReferenceEquals(_local, StockLane), PublicCatalog = ReferenceEquals(_local, PublicLane), PublicClaim = ReferenceEquals(_local, PublicLane) ? _publicClaim : 0, Service = _service, Session = _session,
                     Module = TownServiceFrame.ManifestModule, Sequence = NextSequence(), SampleTime = now,
                     SessionAge = now - _sessionStarted,
@@ -898,6 +924,7 @@ internal static partial class TownServiceMirror
         { if (IsStockPeerKey(-peer)) { Report("stock peer namespace", new InvalidDataException("Public peer collides with a reserved stock presentation key.")); return false; }
           peer = -peer; _observedPublicClaim = Math.Max(_observedPublicClaim, frame.PublicClaim); }
         if (!Sessions.ContainsKey(peer) && Sessions.Count >= 24) return true;
+        if (!AdmitCatalogBank(peer, frame)) return false;
         if (frame!.Module == TownServiceFrame.ManifestModule)
         {
             if (Sessions.TryGetValue(peer, out TownServiceSessionInfo? previous) && frame.Sequence <= previous.Sequence) return true;
@@ -1012,9 +1039,8 @@ internal static partial class TownServiceMirror
             RetireDestroyedRemoteModules(entry.Key, standing);
             foreach (RemoteModule visible in standing.Values)
             { visible.Motion.Tick(now); visible.Binding.TickAnimation(now); }
-            if (!secondaryVisitor && !stockVisitor) UpdateRackClocks(entry.Key, pending, now);
             bool reorder = false;
-            foreach (var packet in pending)
+            foreach (var packet in OrderCatalogPending(pending))
             {
                 TownServiceFrame received = packet.Value;
                 if (stockVisitor && !StockModule(received.TemplateAddress)) continue;
@@ -1105,10 +1131,13 @@ internal static partial class TownServiceMirror
                     if (module.LastFrame != null && module.Host.activeSelf && module.LastFrame.ParentModule == frame.ParentModule
                         && module.LastFrame.ParentBinding == frame.ParentBinding)
                         module.Motion.AfterApply(now, frame.SampleTime - module.LastFrame.SampleTime);
-                    RemoteRetry.Remove(retryKey); module.Sequence = frame.Sequence; module.LastFrame = frame; reorder = true;
+                    RemoteRetry.Remove(retryKey); module.Sequence = frame.Sequence; module.LastFrame = frame;
+                    if (frame.PublicCatalog && frame.RackMember != null) module.CatalogContentKey = IncomingCatalogContentKey(entry.Key, frame);
+                    reorder = true;
                     module.Host.SetActive(true); root.gameObject.SetActive(true);
                     FinishInertPresentation?.Invoke(frame.TemplateAddress, root, parent);
                     TownServiceDepthOrder.Refresh(module.Host.transform);
+                    HideDormantCatalogOriginal(entry.Key, frame, module);
                 }
                 catch (Exception e)
                 {
@@ -1141,7 +1170,8 @@ internal static partial class TownServiceMirror
                 }
             }
             if (reorder) OrderOriginalSiblings(standing);
-            if (!secondaryVisitor && !stockVisitor) TickRackClocks(entry.Key, standing, now);
+            if (!secondaryVisitor && !stockVisitor)
+            { UpdateRackClocks(entry.Key, pending, now); TickRackClocks(entry.Key, standing, now); }
         }
         ApplyRemoteMotion(now);
         // Public visibility follows the latest validated numeric picture, not
@@ -1398,7 +1428,7 @@ internal static partial class TownServiceMirror
         if (PrivateLane.TransactionActive)
             TownServiceGrantSync.SetOffer(PrivateLane.Service, PrivateLane.Session, false);
         foreach (int peer in new List<int>(Remote.Keys)) ClearRemoteModules(peer);
-        MerchantOfferings.Clear(); ClearVoiceNetwork(); Pending.Clear(); ReceivedBaselines.Clear(); Sessions.Clear(); VisitorSessions.Clear(); RemoteRetry.Clear(); foreach (LocalModule module in AllLocalModules())
+        MerchantOfferings.Clear(); ClearVoiceNetwork(); Pending.Clear(); ReceivedBaselines.Clear(); ReceivedCatalogBanks.Clear(); IncomingCatalogKeys.Clear(); Sessions.Clear(); VisitorSessions.Clear(); RemoteRetry.Clear(); foreach (LocalModule module in AllLocalModules())
         { module.Last = null; module.Baseline = null; module.NextRefresh = module.NextBaseline = 0; }
         PrivateLane.NextManifest = PublicLane.NextManifest = StockLane.NextManifest = 0;
         PrivateLane.TempleDonationKnown = PrivateLane.TempleDonationAvailable = false;
@@ -1411,6 +1441,8 @@ internal static partial class TownServiceMirror
         ResetNetwork(); using (new LaneScope(StockLane)) { ClearLocalModules(); _session = 0; _active = false; }
         using (new LaneScope(PublicLane)) { ClearLocalModules(); _session = 0; _active = false; }
         ClearLocalModules(); Templates.Clear();
+        foreach (var original in CatalogTemplateBindings.Values) original.Binding.Dispose();
+        CatalogTemplateBindings.Clear();
         if (_templateHost != null) Object.Destroy(_templateHost);
         _templateHost = null; _session = 0; _service = 0; _active = false; _station = _sharedFrame = null; ClearVoiceOutgoing();
         PrivateLane.TempleDonationKnown = PrivateLane.TempleDonationAvailable = false;
@@ -1421,7 +1453,7 @@ internal static partial class TownServiceMirror
         ReportReset();
     }
     private static void ClearLocalModules()
-    { SourceParents.Clear(); LocalRacks.Clear(); LocalRackMembers.Clear(); LocalRackGates.Clear(); foreach (LocalModule module in Local.Values) module.Binding.Dispose(); Local.Clear(); }
+    { _local.ParentLinksDirty = true; _local.CaptureOrder.Clear(); ClearLocalCatalogBanks(); SourceParents.Clear(); LocalRacks.Clear(); LocalRackMembers.Clear(); LocalRackGates.Clear(); foreach (LocalModule module in Local.Values) module.Binding.Dispose(); Local.Clear(); }
     private static void ResetInteractionLeases()
     {
         for (int i = 1; i < InteractionLeases.Length; i++)
@@ -1429,7 +1461,8 @@ internal static partial class TownServiceMirror
           TransactionLeases[i].Player = 0; TransactionLeases[i].Session = 0; TransactionLeases[i].PendingSince = float.NegativeInfinity; }
     }
     private static void ClearRemoteModules(int peer)
-    { RemoteRacks.Remove(peer); if (!Remote.TryGetValue(peer, out Dictionary<ushort, RemoteModule>? modules)) return;
+    {
+        ReceivedCatalogBanks.Remove(peer); RemoteRacks.Remove(peer); if (!Remote.TryGetValue(peer, out Dictionary<ushort, RemoteModule>? modules)) return;
         foreach (RemoteModule module in modules.Values) module.Dispose(); Remote.Remove(peer); }
     private static string TemplateKey(byte service, ushort template, string address = "")
     { if (service < 1 || service > 3 || template == 0) throw new ArgumentException("Invalid town-service template identity.");
@@ -1452,6 +1485,7 @@ internal static partial class TownServiceMirror
     {
         if ((a?.RackMember == null) != (b.RackMember == null) || a?.RackMember != null && !a.RackMember.Same(b.RackMember)) return false;
         if (a != null && (a.VisitorStock != b.VisitorStock || a.PublicCatalog != b.PublicCatalog || a.PublicClaim != b.PublicClaim)) return false;
+        if (!SameCatalogBank(a?.CatalogBank, b.CatalogBank)) return false;
         if ((a?.Rack == null) != (b.Rack == null) || a?.Rack != null && !a.Rack.Same(b.Rack)) return false;
         if (a == null || a.Visible != b.Visible || a.Structure != b.Structure || a.Nodes.Length != b.Nodes.Length
             || a.ParentModule != b.ParentModule || a.ParentBinding != b.ParentBinding || a.ParentAlpha != b.ParentAlpha

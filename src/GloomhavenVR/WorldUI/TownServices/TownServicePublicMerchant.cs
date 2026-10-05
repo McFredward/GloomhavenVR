@@ -26,6 +26,13 @@ internal static class TownServicePublicMerchant
     internal static Transform? StationRoot => _station?.Root;
     internal static uint Session => _session;
     internal static float SessionAge => Mathf.Max(0f, Time.unscaledTime - _opened);
+    // Loading is a display preparation owner. Browsing/input remains solely native-unlock
+    // controlled; never turn an art dependency or another visitor into a gameplay lease.
+    internal static bool PrepareCatalogForLoading()
+    {
+        if (_catalog == null || !_catalog.PrepareOriginalBankForLoading()) return false;
+        return TownServiceMirror.IsPublicAuthor ? TownServiceSync.HasPreparedPublicCatalog : TownServiceMirror.HasReadyPublicBank;
+    }
     internal static bool CanClaim
     {
         get
@@ -138,6 +145,7 @@ internal static class TownServicePublicMerchant
                     // the separate physical transaction lease on card placement.
                     allowInput: !StoryComposite.PointOfNoReturn);
                 _catalog.Tick(_station.Root.lossyScale.x);
+                _catalog.PrepareOriginalBankForLoading();
             }
             using (PerfMonitor.Scope("TownPublicStock.Observer"))
             {
