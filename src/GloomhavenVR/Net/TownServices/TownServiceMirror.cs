@@ -508,6 +508,15 @@ internal static partial class TownServiceMirror
     {
         get
         {
+            // Public control and native originals need the same author. Prefer the
+            // game's host only while it actually publishes this immersive cabinet;
+            // a flat/2D host must not prevent other visitors from browsing stock.
+            int host = FFSNet.PlayerRegistry.HostPlayerID;
+            if (FFSNetwork.IsOnline && !NetSession.FlatNetMode && host > 0
+                && (host == LocalPeer && PublicLane.Active
+                    || Sessions.TryGetValue(-host, out TownServiceSessionInfo? hostSession)
+                        && hostSession.Active && Time.unscaledTime - hostSession.LastSeenTime <= 10f))
+                return host;
             int author = PublicLane.Active ? LocalPeer : int.MaxValue;
             uint claim = PublicLane.Active ? _publicClaim : 0;
             foreach (var pair in Sessions)

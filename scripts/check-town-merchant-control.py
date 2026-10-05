@@ -55,7 +55,22 @@ def main():
         bridge.append(method(public, signature))
     bound['PublicControl.cs'] = ('using GloomhavenVR.Net.TownServices; using GloomhavenVR.WorldUI.MapRoom; '
                                 'namespace GloomhavenVR.WorldUI; internal static partial class TownServicePublicMerchant { '
-                                'internal static uint Session => 1;\n' + '\n'.join(bridge) + '\n}')
+                                'internal static uint Session => 1;\n'
+                                + next(line for line in public.splitlines() if 'internal static TownServiceCatalog? Catalog =>' in line)
+                                + '\n' + '\n'.join(bridge) + '\n}')
+    mirror = (root / 'src/GloomhavenVR/Net/TownServices/TownServiceMirror.cs').read_text()
+    stock = (root / 'src/GloomhavenVR/Net/TownServices/TownServiceMirror.Stock.cs').read_text()
+    authority = method(mirror, 'internal static int PublicAuthor')
+    stock_key = next(line for line in stock.splitlines() if 'private static bool IsStockPeerKey(int key)' in line)
+    bound['MirrorAuthority.cs'] = ('using System.Collections.Generic; using UnityEngine; using FFSNet; namespace GloomhavenVR.Net.TownServices; '
+        'internal sealed class TownServiceSessionInfo { internal bool Active=true; internal uint PublicClaim=0; internal float LastSeenTime=0; } '
+        'internal static partial class TownServiceMirror { '
+        '// Native lane/session arrival and stock key census are declared fixture ports.\n'
+        'internal sealed class LanePort { internal bool Active => ControlFixture.ActivePublic.Contains(ControlFixture.LocalPeer); } '
+        'private static readonly LanePort PublicLane = new(); private static int LocalPeer => ControlFixture.LocalPeer; '
+        'private static uint _publicClaim=0; private static readonly Dictionary<int,int> StockPeers = new(); '
+        'internal static readonly Dictionary<int,TownServiceSessionInfo> Sessions = new();\n' + stock_key + '\n' + authority + '\n}')
+    hashes['MirrorAuthority.cs'] = hashlib.sha256(bound['MirrorAuthority.cs'].encode()).hexdigest()
     for name in ('TownMerchantControlCodec.cs', 'TownMerchantControlSync.cs'):
         bound[name] = (root / 'src/GloomhavenVR/Net/Avatar' / name).read_text()
         hashes[name] = hashlib.sha256(bound[name].encode()).hexdigest()
@@ -74,9 +89,10 @@ def main():
                       'internal static bool RequestCrankRelease', 'internal static void RequestCrankCancel'):
         boundary = boundary.replace(method(boundary, signature), '')
     boundary = boundary.replace('public static NetworkPlayer? MyPlayer;', 'public static NetworkPlayer? MyPlayer; public static int HostPlayerID;')
+    boundary = boundary.replace('internal static class TownServiceMirror\n', 'internal static partial class TownServiceMirror\n')
     boundary = boundary.replace('internal static readonly HashSet<int> ForeignStock = new();',
         'internal static int AuthorityClaims; internal static void ClaimPublicCatalog(){AuthorityClaims++;} '
-        'internal static bool IsPublicAuthor => ControlFixture.LocalPeer == FFSNet.PlayerRegistry.HostPlayerID; '
+        'internal static bool IsPublicAuthor => ControlFixture.LocalPeer == PublicAuthor; '
         'internal static void ApplyPublicControlClock(int author,uint session,TownRackState clock){} '
         'internal static readonly HashSet<int> ForeignStock = new();')
     (fixture / 'Boundaries.cs').write_text(boundary)
@@ -113,6 +129,19 @@ def main():
              '_displayClock.Page = TownRackState.Progress(_displayClock.Elapsed) < .5f\n                        ? _displayClock.From : _displayClock.To;',
              '_displayClock.Page = latest.Clock!.Page;',
              'completed reliable drawer clock keeps the destination page before its next heartbeat'),
+            ('native-host-id-order', 'MirrorAuthority.cs', 'return host;', 'if (host == 1) return host;',
+             'active native host outranks a lower visitor ID for original public authority'),
+            ('wrong-native-control-coordinator', 'TownMerchantControlSync.cs',
+             'LocalPlayer == TownServiceMirror.PublicAuthor', 'LocalPlayer == FFSNet.PlayerRegistry.HostPlayerID',
+             'new public author seeks the accepted original clock before its first state publication'),
+            ('native-host-only-routing', 'TownMerchantControlSync.cs',
+             'if (!SendReliable(bytes, bytes.Length, false)) { ReportSendFailure(); return; }',
+             'if (!SendReliable(bytes, bytes.Length, true)) { ReportSendFailure(); return; }',
+             'public input broadcasts to the elected immersive author rather than only the native host'),
+            ('takeover-default-page', 'TownMerchantControlSync.cs',
+             'if (SharedClock is TownRackState clock) rack?.Follow(clock);',
+             'rack?.Follow(new TownRackState());',
+             'new public author seeks the accepted original clock before its first state publication'),
         ]
     if args.negative_control:
         selected = set(args.negative_control)

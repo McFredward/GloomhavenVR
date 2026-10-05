@@ -31,11 +31,16 @@ public static partial class InteractionProgram
         Transform original = Item(host, 5000).CardRoot;
         int originals = ObjectPool.Alive, nativeInitializations = UIShopItemSlot.Initializations;
         var transmitted = new List<byte[]>();
+        bool onlyNativeHost = false;
         TownMerchantControlSync.SendReliable = (bytes, count, hostOnly) =>
-        { Check(count == 62 && bytes.Length == count, "public control contains 62 metadata bytes and no native artwork"); transmitted.Add(bytes); return true; };
+        { onlyNativeHost=hostOnly; Check(count == 62 && bytes.Length == count, "public control contains 62 metadata bytes and no native artwork"); transmitted.Add(bytes); return true; };
         var hostTransport = new ControlTransport { LocalPlayerId = 1 };
         var peerTransport = new ControlTransport { LocalPlayerId = 2 };
         FFSNet.FFSNetwork.IsOnline = true; FFSNet.PlayerRegistry.HostPlayerID = 1;
+        ControlFixture.ActivePublic.Clear(); ControlFixture.ActivePublic.Add(1); ControlFixture.ActivePublic.Add(2);
+        TownServiceMirror.Sessions.Clear();
+        TownServiceMirror.Sessions[-1]=new TownServiceSessionInfo{LastSeenTime=Time.unscaledTime};
+        TownServiceMirror.Sessions[-2]=new TownServiceSessionInfo{LastSeenTime=Time.unscaledTime};
         TownMerchantControlSync.Reset();
         ControlFixture.LocalPeer = 2; TownServicePublicMerchant.RegisterProbe(peer);
         TownMerchantControlSync.Tick(peerTransport, Time.unscaledTime);
@@ -193,11 +198,47 @@ public static partial class InteractionProgram
         Check(TownMerchantControlCodec.TryRead(transmitted[0], transmitted[0].Length, out var afterReset)
             && TownMerchantControlCodec.Newer(afterReset.Sequence, beforeReset.Sequence),
             "presentation rebuild retains monotone requester nonces against the surviving host");
+        // Native host IDs need not be the minimum public visitor ID. Bind the
+        // production election property, not a fixture's intended coordinator.
+        TownMerchantControlSync.Reset(); transmitted.Clear();
+        FFSNet.PlayerRegistry.HostPlayerID=2; ControlFixture.LocalPeer=1;
+        TownServicePublicMerchant.RegisterProbe(host);
+        TownMerchantControlSync.Tick(hostTransport,Time.unscaledTime); transmitted.Clear();
+        Check(TownServiceMirror.PublicAuthor==2,
+            "active native host outranks a lower visitor ID for original public authority");
+        uint visitorEpoch=hostRack.TurnEpoch;
+        Check(TownServicePublicMerchant.TrySelectCategory(hostRack,4) && !onlyNativeHost,
+            "public input broadcasts to the elected immersive author rather than only the native host");
+        Check(hostRack.TurnEpoch==visitorEpoch && transmitted.Count==1,
+            "lower visitor ID cannot create its own different original public page");
+        byte[] reversedRequest=transmitted[0]; transmitted.Clear();
+        ControlFixture.LocalPeer=2; TownServicePublicMerchant.RegisterProbe(peer);
+        TownMerchantControlSync.Tick(peerTransport,Time.unscaledTime); transmitted.Clear();
+        Check(TownMerchantControlSync.Receive(1,reversedRequest,reversedRequest.Length) && peerRack.ToPage==4*256,
+            "same elected source authors original page and reliable control when the host ID is higher");
+        ControlFixture.LocalPeer=1; TownServicePublicMerchant.RegisterProbe(host);
+        TownMerchantControlSync.Tick(hostTransport,Time.unscaledTime);
+        Check(hostRack.ToPage==peerRack.ToPage,"all visitors follow the higher host's identical original page");
+        uint acceptedTurn=peerRack.TurnEpoch;
+        Check(hostRack.Select(0,false),"a newly recycled native source begins from its original default mechanism");
+        ControlFixture.ActivePublic.Remove(2); TownServiceMirror.Sessions[-2].Active=false;
+        TownMerchantControlSync.Tick(hostTransport,Time.unscaledTime);
+        Check(TownServiceMirror.PublicAuthor==1 && hostRack.ToPage==4*256 && hostRack.TurnEpoch==acceptedTurn,
+            "new public author seeks the accepted original clock before its first state publication");
+        var offHostRequest=new TownMerchantControlMessage(TownMerchantControlKind.Request,
+            TownMerchantControlOperation.Category,3,0,1,3,1,0);
+        byte[] offHostBytes=TownMerchantControlCodec.Write(in offHostRequest);
+        Check(TownMerchantControlSync.Receive(3,offHostBytes,offHostBytes.Length) && hostRack.ToPage==3*256,
+            "immersive public author executes controls when the native host uses flat or2D map");
+        TownServiceMirror.Sessions[-2].Active=true;
+        TownServiceMirror.Sessions[-2].LastSeenTime=Time.unscaledTime-11f;
+        Check(TownServiceMirror.PublicAuthor==1,"a stale host public lane cannot strand a live immersive cabinet");
         TownMerchantControlSync.Reset(); TownServicePublicMerchant.DetachProbe(); FFSNet.FFSNetwork.IsOnline = false;
+        TownServiceMirror.Sessions.Clear(); ControlFixture.ActivePublic.Clear();
     }
 }
 
-internal static class ControlFixture { internal static int LocalPeer = 1; }
+internal static class ControlFixture { internal static int LocalPeer = 1; internal static readonly HashSet<int> ActivePublic=new(); }
 namespace GloomhavenVR.Net
 {
     internal static class NetPlayerActors { internal static int LocalPlayerId() => ControlFixture.LocalPeer; }
