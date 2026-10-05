@@ -880,7 +880,7 @@ internal static partial class TownServiceMirror
                     module.WasPriority = module.HighPriority;
                     if (module.CatalogResident && module.CatalogDormant)
                     { module.Last = TownServiceDelta.Retain(frame); module.LastSent = frame.Sequence; continue; }
-                    byte[] packet = TownServiceCodec.Write(emitted);
+                    byte[] packet = WriteCatalogPacket(emitted, send);
                     send(packet, packet.Length, emitted); module.Last = TownServiceDelta.Retain(frame);
                     module.NextRefresh = now + .75f + module.Id % 7 * .03f;
                 }
@@ -920,7 +920,16 @@ internal static partial class TownServiceMirror
     internal static bool Receive(int peer, byte[] packet, int length)
     {
         if (peer <= 0 || !TownServiceCodec.TryRead(packet, length, out TownServiceFrame? frame)) return false;
-        if (frame!.Module == TownServiceFrame.VoiceModule)
+        return ReceiveParsed(peer, frame!);
+    }
+
+    // The transport queue has already bounded, decoded and validated this immutable
+    // frame. Reuse it on the presentation thread instead of inflating and hashing a
+    // complete native catalog twice between reception and its first rendered frame.
+    internal static bool ReceiveParsed(int peer, TownServiceFrame frame)
+    {
+        if (peer <= 0) return false;
+        if (frame.Module == TownServiceFrame.VoiceModule)
         { if (frame.VisitorStock) ReceiveStockVoice(peer, frame); else ReceiveVoice(peer, frame); return true; }
         if (frame!.VisitorStock)
         { if (!TryStockPeerKey(peer, out peer)) return false; }
@@ -1223,7 +1232,9 @@ internal static partial class TownServiceMirror
     {
         if (service == 2)
             return address.StartsWith("ritual.purse.held|", StringComparison.Ordinal)
-                || address.StartsWith("temple.row|", StringComparison.Ordinal);
+                || address.StartsWith("temple.row|", StringComparison.Ordinal)
+                || address.StartsWith("temple.tooltip.counters.", StringComparison.Ordinal)
+                || address.StartsWith("temple.tooltip|", StringComparison.Ordinal);
         if (service == 3)
         {
             // Only the explicitly approved shared guide has a separate visual

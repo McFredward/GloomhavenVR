@@ -29,7 +29,7 @@ def main():
     avatar = (root / 'src/GloomhavenVR/Net/Avatar/NetAvatarDriver.TownServices.cs').read_text()
     bound['WarmQueue.cs'] = '''using System; using System.Collections.Generic; using GloomhavenVR.Net.TownServices;
 namespace GloomhavenVR.Net; internal sealed partial class NetAvatarDriver {
-private sealed class TownPacket { internal ulong Sequence; internal uint Session; internal byte Service; internal bool VisitorStock; internal byte[] Bytes = null!; }
+private sealed class TownPacket { internal ulong Sequence; internal uint Session; internal byte Service; internal bool VisitorStock; internal TownServiceFrame Frame = null!; }
 private readonly Dictionary<int, Dictionary<uint, TownPacket>> _pendingTown = new();
 private readonly Dictionary<int, List<TownPacket>> _pendingTownVoice = new();
 internal bool QueueFixture(int peer, byte[] bytes) => QueueTownService(peer, bytes, bytes.Length);

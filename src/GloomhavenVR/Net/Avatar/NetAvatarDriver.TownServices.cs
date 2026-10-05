@@ -10,7 +10,7 @@ namespace GloomhavenVR.Net;
 internal sealed partial class NetAvatarDriver
 {
     private sealed class TownPacket
-    { internal ulong Sequence; internal uint Session; internal byte Service; internal bool VisitorStock; internal byte[] Bytes = null!; }
+    { internal ulong Sequence; internal uint Session; internal byte Service; internal bool VisitorStock; internal TownServiceFrame Frame = null!; }
     private readonly Dictionary<int, Dictionary<uint, TownPacket>> _pendingTown = new();
     private readonly Dictionary<int, List<TownPacket>> _pendingTownVoice = new();
     private readonly Dictionary<int, List<TownServiceMotionPacket>> _pendingTownMotion = new();
@@ -56,9 +56,8 @@ internal sealed partial class NetAvatarDriver
             if (voice.Exists(packet => packet.Sequence == frame.Sequence && packet.Session == frame.Session
                 && packet.Service == frame.Service && packet.VisitorStock == frame.VisitorStock)) return true;
             if (voice.Count >= 16) voice.RemoveAt(0);
-            byte[] eventCopy = new byte[length]; Buffer.BlockCopy(bytes, 0, eventCopy, 0, length);
             voice.Add(new TownPacket { Sequence = frame.Sequence, Session = frame.Session, Service = frame.Service,
-                VisitorStock = frame.VisitorStock, Bytes = eventCopy });
+                VisitorStock = frame.VisitorStock, Frame = frame });
             return true;
         }
         if (!_pendingTown.TryGetValue(sender, out Dictionary<uint, TownPacket>? pending))
@@ -74,7 +73,7 @@ internal sealed partial class NetAvatarDriver
             | (frame.CatalogBank?.Updates.Length == 0 ? 524288u : 0u);
         if (pending.TryGetValue(key, out TownPacket? previous) && frame.Sequence <= previous.Sequence) return true;
         if (pending.Count >= 6 * TownServiceFrame.MaxModules + 5 && !pending.ContainsKey(key)) return true;
-        byte[] copy = new byte[length]; Buffer.BlockCopy(bytes, 0, copy, 0, length); pending[key] = new TownPacket { Sequence = frame.Sequence, Bytes = copy };
+        pending[key] = new TownPacket { Sequence = frame.Sequence, Frame = frame };
         return true;
     }
     private bool QueueTownMotion(int sender, byte[] bytes, int length)
@@ -93,13 +92,13 @@ internal sealed partial class NetAvatarDriver
     {
         foreach (var peer in _pendingTown)
         {
-            foreach (TownPacket packet in peer.Value.Values) TownServiceMirror.Receive(peer.Key, packet.Bytes, packet.Bytes.Length);
+            foreach (TownPacket packet in peer.Value.Values) TownServiceMirror.ReceiveParsed(peer.Key, packet.Frame);
             peer.Value.Clear();
         }
         foreach (var peer in _pendingTownVoice)
         {
             peer.Value.Sort((a, b) => a.Sequence.CompareTo(b.Sequence));
-            foreach (TownPacket packet in peer.Value) TownServiceMirror.Receive(peer.Key, packet.Bytes, packet.Bytes.Length);
+            foreach (TownPacket packet in peer.Value) TownServiceMirror.ReceiveParsed(peer.Key, packet.Frame);
             peer.Value.Clear();
         }
         foreach (var peer in _pendingTownMotion)

@@ -9,7 +9,7 @@ internal static partial class TownServiceMirror
 {
     private sealed class LocalCatalogBank
     {
-        internal bool Prepared;
+        internal bool Prepared, SeparateRepair;
         internal uint Turn, Claim, Session;
         internal TownCatalogBank? Last;
     }
@@ -73,9 +73,35 @@ internal static partial class TownServiceMirror
         // Keep complete immutable original updates on every heartbeat for this bank. Local
         // transport completion is not a remote acknowledgement; loss cannot expose a clock
         // without its genuinely changed original properties.
-        cache.Turn = rack.Turn; cache.Claim = _publicClaim; cache.Session = _session;
+        cache.Turn = rack.Turn; cache.Claim = _publicClaim; cache.Session = _session; cache.SeparateRepair = false;
         return cache.Last = new TownCatalogBank { Prepared = cache.Prepared, Members = refs, Updates = updates };
     }
+    // A complete shelf with its price/body/holder originals can exceed the packed
+    //102 envelope. Keep the same atomic content references and repair exact original
+    // members through their existing bounded queues instead of dropping every clock.
+    private static byte[] WriteCatalogPacket(TownServiceFrame frame, Action<byte[], int, object?> send)
+    {
+        if (frame.CatalogBank == null || !LocalCatalogBanks.TryGetValue(frame.Module, out LocalCatalogBank? bank))
+            return TownServiceCodec.Write(frame);
+        if (!bank.SeparateRepair)
+        {
+            try { return TownServiceCodec.Write(frame); }
+            catch (InvalidDataException error) when (error.Message == "Original catalog updates exceed the packed bank bound."
+                || error.Message == "Original catalog updates exceed the raw bank bound.")
+            { bank.SeparateRepair = true; }
+        }
+        foreach (TownServiceFrame original in frame.CatalogBank.Updates)
+        {
+            TownServiceFrame repair = TownServiceDelta.Retain(original);
+            repair.HighPriority = true;
+            byte[] part = TownServiceCodec.Write(repair);
+            send(part, part.Length, repair);
+        }
+        TownServiceFrame reference = TownServiceDelta.Retain(frame);
+        reference.CatalogBank = new TownCatalogBank { Prepared = frame.CatalogBank.Prepared, Members = frame.CatalogBank.Members };
+        return TownServiceCodec.Write(reference);
+    }
+
     private static bool AdvertiseCatalogModule(LocalModule module)
     {
         if (!module.CatalogResident || !module.CatalogDormant) return true;

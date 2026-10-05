@@ -31,8 +31,15 @@ internal static partial class TownServiceMirror
     private static void CaptureDormantCatalogOriginals(Action<byte[], int, object?> send, float now)
     {
         if (!ReferenceEquals(_local, PublicLane) || !HasPreparedLocalCatalogBank || now < _nextCatalogPreparation) return;
+        // Dormant originals are loss repair, not current interaction content. An
+        // entire32-card serialization batch was a periodic CPU spike regardless of
+        // how little of it the bounded transport could send. Keep progress and loss
+        // repair, but bound each preparation slice independently of the wire bundle.
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
         int visited = 0, emitted = 0;
-        while (visited++ < _local.CaptureOrder.Count && emitted < TownServiceCodec.MaxBundleFrames)
+        while (visited++ < _local.CaptureOrder.Count && emitted < 4
+            && (emitted == 0 || (System.Diagnostics.Stopwatch.GetTimestamp() - started)
+                < System.Diagnostics.Stopwatch.Frequency / 1000))
         {
             if (_catalogPreparationCursor >= _local.CaptureOrder.Count)
             { _catalogPreparationCursor = 0; _nextCatalogPreparation = now + 5f; break; }
