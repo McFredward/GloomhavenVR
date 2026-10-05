@@ -204,3 +204,36 @@ ID, channels, frequency and sample counts against the original bank receipts.
 Private evidence is retained in `full-audio-smoke-v1` and
 `atlas-import-v1/portable-audio-import.json`. This establishes native source and
 Editor import fidelity; it does not establish headset playback.
+
+## Native Cubemap portability and mip fidelity
+
+The complete source contains 31 native Cubemaps: 16 ARGB32, 13 DXT1 and two BC6H
+HDR maps. There are no native Texture3D/Texture2DArray/CubemapArray objects. PNG
+exports preserve only the base 8-bit image, losing HDR and the original reflection
+roughness mip chain. `full_textures.stage(project, game_data, dotnet=...,
+tool_cache=..., cab_bundles=...)` reads each exact original native identity and
+retains all six faces and all original mip levels in a native Cubemap asset.
+
+ARGB32 data remains byte-identical. The pinned managed decoder expands DXT1 into
+RGBA32 and unsigned BC6H into RGBAHalf; it consumes the complete original image
+payload and neither regenerates mip levels nor clamps HDR to 8-bit. The original
+filter, wrap, color-space and readability settings remain intact. GUID/local ID
+stay unchanged; the returned `pathMap` and retained identity/catalog manifests
+map the former physical PNG path to its native `.asset` path. Source files remain
+read-only. `Assets/QuestOriginalCampaign/native-cubemaps.json` witnesses each
+face/mip's byte count and hash plus original container/image provenance.
+
+All 31 actual original maps have been recovered. Each HDR source includes values
+up to 36.6875, with 742,329 component values above 1; they are not clamped.
+Actual Unity 2021.3.5f1 imported every cube with its original mip count, native
+GUID/local ID and portable format. The production `QuestCampaignTextureValidation`
+gate verified 1,272 imported face/mip streams. For the two originally nonreadable
+HDR maps, 132 exact half-float face/mip streams were independently read back from
+the Editor's OpenGL GPU and matched the recovered source bytes. Readability was
+not enabled to obtain that proof. Retained receipts are in
+`full-textures-smoke-v1` and `atlas-import-v1/portable-texture-import.json`.
+
+The actual original BC6H GPU readback comparison and Quest-device format/picture
+validation remain distinct, unverified hardware evidence. The current import gate
+states both limitations explicitly rather than treating decoder or Editor success
+as original GPU parity.

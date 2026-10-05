@@ -30,7 +30,7 @@ if (args[0] == "fsb")
     File.WriteAllBytes(args[2], data);
     return;
 }
-if (args[0] == "bc6h")
+if (args[0] is "bc6h" or "bc1")
 {
     int width = int.Parse(args[3]), mips = int.Parse(args[4]);
     var original = File.ReadAllBytes(args[1]);
@@ -40,9 +40,13 @@ if (args[0] == "bc6h")
         for (int mip = 0; mip < mips; mip++)
         {
             int size = Math.Max(1, width >> mip);
-            int compressed = ((size + 3) / 4) * ((size + 3) / 4) * 16;
-            var pixels = new byte[size * size * 8];
-            Bc6h.Decompress<ColorRGBA<Half>, Half>(original.AsSpan(offset, compressed), size, size, false, pixels.AsSpan());
+            bool hdr = args[0] == "bc6h";
+            int compressed = ((size + 3) / 4) * ((size + 3) / 4) * (hdr ? 16 : 8);
+            var pixels = new byte[size * size * (hdr ? 8 : 4)];
+            if (hdr)
+                Bc6h.Decompress<ColorRGBA<Half>, Half>(original.AsSpan(offset, compressed), size, size, false, pixels.AsSpan());
+            else
+                Bc1.Decompress<ColorRGBA<byte>, byte>(original.AsSpan(offset, compressed), size, size, pixels.AsSpan());
             output.Write(pixels);
             offset += compressed;
         }
