@@ -335,7 +335,9 @@ public static class InteractionProgram
             TownServiceNativeEnhancementCardMask mask = printed.GetComponent<TownServiceNativeEnhancementCardMask>();
             foreach (float scale in new[] { .05f, .5f, 1f, 2f })
             foreach (float angle in new[] { 0f, 37f, 118f })
+            foreach (float printRotation in new[] { 0f, 29f })
             {
+                nativeRect.localRotation = Quaternion.Euler(0f, 0f, printRotation);
                 card.transform.SetPositionAndRotation(new Vector3(.17f, .8f, -.31f), Quaternion.Euler(14f, angle, -11f));
                 card.transform.localScale = Vector3.one * scale;
                 // Reproduce the real generic surface's nominal host placement,

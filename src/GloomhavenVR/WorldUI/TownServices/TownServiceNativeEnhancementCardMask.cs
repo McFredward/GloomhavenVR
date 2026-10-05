@@ -356,11 +356,39 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
         Quaternion correction = physical.rotation * Quaternion.Inverse(_nativePrint.rotation);
         if (Quaternion.Angle(correction, Quaternion.identity) > .001f)
             _highlighterRect.rotation = correction * _highlighterRect.rotation;
-        float fitX = physicalWidth / nativeWidth, fitY = physicalHeight / nativeHeight;
-        if (Mathf.Abs(fitX - 1f) > .000001f || Mathf.Abs(fitY - 1f) > .000001f)
+        Vector3 relativeRight = _highlighterRect.InverseTransformVector(_nativePrint.TransformVector(Vector3.right));
+        Vector3 relativeUp = _highlighterRect.InverseTransformVector(_nativePrint.TransformVector(Vector3.up));
+        float targetX = physicalWidth / Mathf.Max(.000001f, _nativePrint.rect.width);
+        float targetY = physicalHeight / Mathf.Max(.000001f, _nativePrint.rect.height);
+        if (Mathf.Abs(targetX - targetY) < Mathf.Max(targetX, targetY) * .00001f
+            && Mathf.Abs(relativeRight.magnitude - relativeUp.magnitude) < relativeUp.magnitude * .00001f
+            && Mathf.Abs(Vector3.Dot(relativeRight.normalized, relativeUp.normalized)) < .00001f)
         {
+            // Native pooled print geometry is a uniform basis (including a
+            // rotated print). Cancel any old holder stretch on the holder's
+            // own axes before its child rotation, rather than sizing a rotated
+            // child's edge length on two different parent axes.
+            Transform parent = _highlighterRect.parent;
+            float parentX = parent.TransformVector(_highlighterRect.localRotation * Vector3.right).magnitude;
+            float parentY = parent.TransformVector(_highlighterRect.localRotation * Vector3.up).magnitude;
+            float fit = targetY / Mathf.Max(.000001f, relativeUp.magnitude);
             Vector3 scale = _highlighterRect.localScale;
-            _highlighterRect.localScale = new Vector3(scale.x * fitX, scale.y * fitY, scale.z * fitY);
+            Vector3 fitted = new(fit / Mathf.Max(.000001f, parentX), fit / Mathf.Max(.000001f, parentY), scale.z);
+            if ((scale - fitted).sqrMagnitude > fitted.sqrMagnitude * .000000000001f)
+                _highlighterRect.localScale = fitted;
+        }
+        else
+        {
+            // World/inspect scale can independently stretch a still-planar
+            // print. Measure again after orienting it, then retain both axes.
+            _nativePrint.GetWorldCorners(_cardCorners);
+            float fitX = physicalWidth / Mathf.Max(.000001f, Vector3.Distance(_cardCorners[0], _cardCorners[3]));
+            float fitY = physicalHeight / Mathf.Max(.000001f, Vector3.Distance(_cardCorners[0], _cardCorners[1]));
+            if (Mathf.Abs(fitX - 1f) > .000001f || Mathf.Abs(fitY - 1f) > .000001f)
+            {
+                Vector3 scale = _highlighterRect.localScale;
+                _highlighterRect.localScale = new Vector3(scale.x * fitX, scale.y * fitY, scale.z * fitY);
+            }
         }
         _nativePrint.GetWorldCorners(_cardCorners);
         Vector3 nativeCenter = (_cardCorners[0] + _cardCorners[2]) * .5f;

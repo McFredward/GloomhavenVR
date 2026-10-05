@@ -26,6 +26,8 @@ public static partial class MirrorProgram
         observer.localScale = Vector3.one * 1.4f;
         GameObject holder = Go("CardHilight", owner);
         RectTransform root = holder.AddComponent<RectTransform>(); root.sizeDelta = new Vector2(325f, 450f);
+        Canvas canvas = holder.AddComponent<Canvas>(); canvas.renderMode = RenderMode.WorldSpace;
+        canvas.worldCamera = _camera;
         holder.AddComponent<CanvasGroup>();
         var highlighter = holder.AddComponent<GloomhavenVR.WorldUI.UIEnhancementCardHighlighter>();
         GameObject printed = Go("Native pooled card", root);
@@ -78,6 +80,24 @@ public static partial class MirrorProgram
                     "admitted original native area corners retain exact owner print fitting across pivots, rotations and asymmetric scales");
             Check(remoteArea.GetComponent<Image>().enabled && remoteArea.gameObject.activeInHierarchy,
                 "offered native area ink stays present through actual capture, admission and native playback");
+            if (scale == 1f && angle == 43f)
+            {
+                Color32[] ownerInk = Render(root, 8, "native-print-626-owner");
+                Color32[] observerInk = Render(admitted.Root, 9, "native-print-626-observer");
+                int visible = 0, worst = 0; long totalError = 0;
+                for (int pixel = 0; pixel < ownerInk.Length; pixel++)
+                {
+                    if (!ownerInk[pixel].Equals(ownerInk[0])) visible++;
+                    int error = Math.Abs(ownerInk[pixel].r - observerInk[pixel].r)
+                        + Math.Abs(ownerInk[pixel].g - observerInk[pixel].g)
+                        + Math.Abs(ownerInk[pixel].b - observerInk[pixel].b)
+                        + Math.Abs(ownerInk[pixel].a - observerInk[pixel].a);
+                    totalError += error; worst = Math.Max(worst, error);
+                }
+                Check(visible > 500, "corrected offered native area produces real rendered ink rather than an empty matching image");
+                Check(totalError <= ownerInk.Length / 50 && worst <= 20,
+                    "corrected owner and admitted observer render the same native area ink");
+            }
         }
         mask.Restore(); GloomhavenVR.WorldUI.TownServiceEnhancementHandoff.PhysicalCardFace = null;
         TownServiceMirror.Shutdown(); UnityEngine.Object.DestroyImmediate(owner.gameObject);
