@@ -19,6 +19,7 @@ namespace GloomhavenVR.Quest.Editor
         public const string InputPath = "Assets/QuestOriginalCampaign/campaign-addressables.json";
         public const string SceneInputPath = "Assets/QuestOriginalCampaign/campaign-scenes.json";
         public const string PackedSpriteInputPath = "Assets/QuestOriginalCampaign/packed-sprites.json";
+        public const string BundledAudioInputPath = "Assets/QuestOriginalCampaign/bundled-audio.json";
         public const string ReceiptPath = "QuestCampaignEvidence/asset-import.json";
 
         [Serializable] public sealed class Association
@@ -58,7 +59,7 @@ namespace GloomhavenVR.Quest.Editor
         }
         [Serializable] public sealed class Receipt
         {
-            public int schema = 1, importedObjectCount, serializedValueLocationCount, packedSpriteCount, packedAtlasCount;
+            public int schema = 1, importedObjectCount, serializedValueLocationCount, packedSpriteCount, packedAtlasCount, bundledAudioClipCount;
             public string unityVersion, catalogSha256, sourceManifestSha256, sceneManifestSha256;
             public bool androidAssetsBuilt, allNativeScenesImported, typedOriginalObjectsImported;
             public bool androidPlayerBuilt, playableCampaignVerified, faithfulGraphicsVerified, packedSpriteDrawingStateImported;
@@ -84,6 +85,18 @@ namespace GloomhavenVR.Quest.Editor
             public int schema, spriteCount;
             public PackedAtlas[] atlases;
             public PackedSprite[] sprites;
+        }
+        [Serializable] public sealed class BundledAudioClip
+        {
+            public string assetPath, guid, sha256;
+            public int channels, frequency, samples;
+            public long fileId;
+            public bool compressedAudioPacketsPreserved;
+        }
+        [Serializable] public sealed class BundledAudio
+        {
+            public int schema, bundledAudioClipCount;
+            public BundledAudioClip[] assets;
         }
 
         public static void Validate() { Validate(false); }
@@ -153,6 +166,7 @@ namespace GloomhavenVR.Quest.Editor
             if (imported.Count != input.associatedEntryCount)
                 throw new InvalidDataException("Campaign typed-object inventory count differs.");
             var packed = ValidatePackedSprites();
+            var audio = ValidateBundledAudio();
             var closures = new List<SceneClosure>();
             var previous = EditorSceneManager.GetSceneManagerSetup();
             try
@@ -202,10 +216,30 @@ namespace GloomhavenVR.Quest.Editor
                 sceneManifestSha256 = Hash(SceneInputPath), androidAssetsBuilt = androidAssetsBuilt,
                 importedObjectCount = imported.Count, serializedValueLocationCount = input.serializedValueLocationCount,
                 packedSpriteCount = packed.spriteCount, packedAtlasCount = packed.atlases.Length,
+                bundledAudioClipCount = audio.bundledAudioClipCount,
                 packedSpriteDrawingStateImported = true,
                 typedOriginalObjectsImported = true, allNativeScenesImported = true,
                 objects = imported.ToArray(), scenes = closures.ToArray() }, true), new UTF8Encoding(false));
             UnityEngine.Debug.Log("[Quest Campaign] Imported " + imported.Count + " exact original typed objects and all 13 native scene closures.");
+        }
+
+        public static BundledAudio ValidateBundledAudio()
+        {
+            var input = Read<BundledAudio>(BundledAudioInputPath);
+            if (input.schema != 1 || input.assets == null || input.bundledAudioClipCount != input.assets.Length)
+                throw new InvalidDataException("Original bundled-audio inventory is incomplete.");
+            foreach (var row in input.assets)
+            {
+                SafeAsset(row.assetPath);
+                var clip = AssetDatabase.LoadAssetAtPath<AudioClip>(row.assetPath);
+                string guid; long localId;
+                if (!row.compressedAudioPacketsPreserved || Hash(row.assetPath) != row.sha256 || clip == null ||
+                    !AssetDatabase.TryGetGUIDAndLocalFileIdentifier(clip, out guid, out localId) ||
+                    guid != row.guid || localId != row.fileId || clip.channels != row.channels ||
+                    clip.frequency != row.frequency || Math.Abs((long)clip.samples - row.samples) > 2)
+                    throw new InvalidDataException("Original bundled AudioClip channel/sample identity failed import: " + row.assetPath);
+            }
+            return input;
         }
 
         private static PackedSprites ValidatePackedSprites()

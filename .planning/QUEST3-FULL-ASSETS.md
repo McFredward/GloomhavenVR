@@ -178,3 +178,29 @@ retain original behavior rather than declare a translated fragment alone complet
 - `py_compile` on the new recovery/builder modules and `git diff --check`.
 
 These checks do not establish correct headset pictures or playable Campaign flow.
+
+## Bundled native audio recovery
+
+The six CAB-owned Cragheart AudioClips are Vorbis FSB5 banks, separate from the
+1,465 core-resource clips. Four native banks encode four channels in FSB extension
+kind 1, while the pinned export decoder previously read only the base one-channel
+flag. `full_audio.stage(project, game_data, dotnet=..., tool_cache=...,
+cab_bundles=...)` reads exact original CAB/pathID/resource offsets and reconstructs
+the Vorbis headers using the original extended channel count. All original
+compressed audio packets remain byte-identical; stereo and mono outputs also
+remain byte-identical. GUIDs, local object IDs and importer files are retained.
+
+The pure managed private decoder pins Fmod5Sharp 3.1.0 and
+AssetRipper.TextureDecoder 2.6.3, both MIT, with the complete NuGet content hashes in
+`packages.lock.json`. Builds use the player's selected .NET 8 SDK with
+RestoreLockedMode; they require neither a system codec nor a C++ toolchain. Its
+private cache receipt hashes the source, lock file and executable outputs.
+
+Actual source recovery on all six clips retained 4/2/4/1/4/4 channels and original
+sample rates/counts. `ffprobe` independently confirmed those output headers.
+Unity 2021.3.5f1 imported all six files successfully and the production
+`QuestCampaignAssetValidation.ValidateBundledAudio` gate checked exact GUID/local
+ID, channels, frequency and sample counts against the original bank receipts.
+Private evidence is retained in `full-audio-smoke-v1` and
+`atlas-import-v1/portable-audio-import.json`. This establishes native source and
+Editor import fidelity; it does not establish headset playback.
