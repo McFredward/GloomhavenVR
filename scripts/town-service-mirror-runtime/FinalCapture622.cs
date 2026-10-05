@@ -25,7 +25,7 @@ namespace GloomhavenVR.WorldUI
         internal static Transform NewRow = null!;
         internal static Vector3 FinalRod => new(.032f, -.06f, -.003f);
         internal static Color FinalInk => new(.17f, .74f, .39f, .91f);
-        internal static int Captures;
+        internal static int Captures, Samples;
         internal static bool ThrowUseBars;
         internal static void Handoff()
         {
@@ -98,17 +98,18 @@ namespace GloomhavenVR.Core
 {
     internal static class VRSession { internal static bool IsRunning = true; }
     internal static class PerfMonitor
-    { internal static IDisposable Scope(string name) => new Nothing(); private sealed class Nothing : IDisposable { public void Dispose() { } } }
+    { internal static IDisposable Scope(string name) { if (name == "Net.Town.Capture") FinalCaptureState.Samples++; return new Nothing(); } private sealed class Nothing : IDisposable { public void Dispose() { } } }
 }
 namespace GloomhavenVR.Net
 {
     internal static class NetSession { internal static bool FlatNetMode; }
-    internal sealed class FfsNetTransport
+    internal sealed class FfsNetTransport : INetTransport
     {
-        internal bool IsOnline = true; internal int LocalPlayerId = 1;
+        public bool IsOnline { get; set; } = true; public int LocalPlayerId { get; set; } = 1;
+        public event Action<int, byte[], int>? PacketReceived; public void Install() { } public void Uninstall() { }
         internal readonly List<byte[]> Packets = new();
         internal int Drains; internal bool SendTownControl(byte[] bytes, int length, bool hostOnly) => true;
-        internal void Send(byte[] bytes, int length, object? identity = null)
+        public void Send(byte[] bytes, int length, object? identity = null)
         {
             if (length <= 0) return;
             var packet = new byte[length]; Buffer.BlockCopy(bytes, 0, packet, 0, length); Packets.Add(packet);
@@ -164,8 +165,6 @@ namespace GloomhavenVR.Net
 }
 namespace GloomhavenVR.Net.TownServices
 {
-    internal static class TownMerchantControlSync
-    { internal static Func<byte[],int,bool,bool>? SendReliable; internal static void Tick(FfsNetTransport transport,float now) { } }
     internal static partial class TownServiceGrantSync
     { internal static void Tick(FfsNetTransport transport, float now) { FinalCaptureState.Captures++; FinalCaptureState.Trace.Add("Town.Capture"); } }
 }
@@ -228,10 +227,11 @@ public static partial class MirrorProgram
             Check(TownServiceMirror.InteractionOwner(3) == 1, "actual source endpoint acquires the enchantress lease before capture");
             var ui = new WorldUIModule(); ui.FixtureBuild();
             File.WriteAllText(Path.Combine(_output, "registered-stages.json"), JsonUtility.ToJson(new FinalStages { Update = ui.FixtureUpdate, Late = ui.FixtureLateNames }, true));
-            FinalCaptureState.Trace.Clear(); FinalCaptureState.Captures = 0; driver._transport.Packets.Clear();
+            FinalCaptureState.Trace.Clear(); FinalCaptureState.Captures = FinalCaptureState.Samples = 0; driver._transport.Packets.Clear();
             ui.FixtureLate();
             File.WriteAllLines(Path.Combine(_output, "scheduled-trace.txt"), FinalCaptureState.Trace);
             Check(FinalCaptureState.Captures == 1, "registered Late frame captures town exactly once");
+            Check(FinalCaptureState.Samples == 1, "final native publication samples at the first due transport interval");
             string[] native = FinalCaptureState.Trace.Where(x => x.StartsWith("Native.")).ToArray();
             Check(native.SequenceEqual(new[] { "Native.Bonus", "Native.Highlight", "Native.Prompt", "Native.Item", "Native.Tooltip", "Native.Card", "Native.Board", "Native.Plume" }),
                 "all existing native samplers retain their exact registered order");
@@ -270,6 +270,9 @@ public static partial class MirrorProgram
             Check(Vector3.Distance(copy.Root.Find("Original drawn grab rod").localPosition, FinalCaptureState.FinalRod) < .00003f,
                 "capture includes the final drawn grab-bar geometry");
             Check(sort != null && sort.Numbers[2] == 127, "capture includes the final canvas sorting state");
+            int beforeSamples = FinalCaptureState.Samples;
+            NetAvatarDriver.PublishTownServicesFinal();
+            Check(FinalCaptureState.Samples == beforeSamples, "repeat publication in one render frame does not resample native NPC originals");
             Check(copy.Root.GetComponent<Canvas>().sortingOrder == 127 && copy.Root.GetComponent<Image>().color == FinalCaptureState.FinalInk,
                 "observer receives the final native canvas sort and appearance");
             Check(Remote(1, rowId) != null, "new actual native pool member reaches the observer in this frame");

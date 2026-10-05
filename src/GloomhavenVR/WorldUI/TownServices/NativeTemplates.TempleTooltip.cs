@@ -71,9 +71,11 @@ internal static partial class NativeTemplates
         finally { Object.Destroy(construction); }
     }
 
-    private static FieldInfo TempleField(Type type, string name) => type.GetField(name,
-        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-        ?? throw new InvalidDataException("Original temple tooltip field is unavailable: " + name);
+    private static FieldInfo TempleField(Type type, string name)
+    {
+        return type.GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            ?? throw new InvalidDataException("Native temple tooltip field is unavailable: " + name);
+    }
 
     private static T TempleRead<T>(FieldInfo field, object source) where T : Object =>
         field.GetValue(source) is T value && value != null ? value
