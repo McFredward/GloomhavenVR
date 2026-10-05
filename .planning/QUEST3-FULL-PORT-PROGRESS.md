@@ -422,3 +422,28 @@ shader contents or private paths are exported. Runtime remains frozen at
 `fa6c1f9a` / B623 / input7ecd. The full Player resumes on the same imported
 project; Android banks, IL2CPP, signing and delivered-content gates still need
 to complete before a full hardware package can be claimed.
+
+## Actual full Campaign native shader gate passed
+
+On 2026-10-05, derivative `f9053689b680` passed the actual Android/Vulkan
+compiler gate with all51,564 original aliases and all9,187 material associations.
+The retained original collection contains688 shaders/16,201 unique entries.
+This is completed native compilation evidence; it does not establish original
+pixel parity or headset appearance. The same Player process continues into
+Android content packaging and IL2CPP. No complete signed hardware artifact has
+been published at this checkpoint.
+
+An independently tested completed-evidence cache is ready for integration at a
+safe Player boundary. It binds the exact graphics inputs, compiler and verifier
+sources and actual output hashes. Its bounded real Unity witness makes zero
+native queries on an unchanged hit and recompiles changed graphics inputs.
+Migration of this actual full PASS must verify the retained live input snapshot,
+launch provenance, receipt and output files; partial evidence is never accepted.
+Normal player builds must avoid the exhaustive developer validation sweep.
+
+The first bilingual Wizard UI is integrated separately from this frozen Player:
+owned GloomhavenVR logo, responsive four-step presentation, explicit unknown
+progress, cancellation/resume views and optional verified local game artwork.
+Seven focused UI tests and four artwork tests pass. Real HTTP integration,
+automatic prerequisite installation and transactional Unity resume remain in
+progress; this UI checkpoint is not a completed clean-PC builder claim.
