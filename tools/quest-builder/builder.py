@@ -63,6 +63,18 @@ def command(argv: list[str], log: Path, *, cwd: Path | None = None,
     return output
 
 
+def unity_launcher(editor, *, graphics=False):
+    """Expose native MRT/compute capability for complete Campaign compiler gates."""
+    arguments = [str(editor), "-batchmode"]
+    if not graphics: return arguments + ["-nographics"]
+    if sys.platform == "linux":
+        display = shutil.which("xvfb-run")
+        if not display:
+            raise BuildError("The Linux full Campaign build requires xvfb-run for its real OpenGLCore shader compiler host.")
+        return [display, "-a", *arguments, "-force-glcore"]
+    return arguments
+
+
 def git_output(repo: Path, *args: str) -> bytes:
     try:
         return subprocess.run(["git", "-C", str(repo), *args], check=True,
@@ -340,7 +352,9 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             shutil.copytree(recovered, project, ignore=shutil.ignore_patterns("Library", "Temp", "Logs", ".git", ".snapshot.json"))
             if inputs.get("campaignProject"):
                 campaign.verify_copy(project, inputs["campaignProject"])
-                campaign.ensure_packed_sprite_manifest(project)
+                import dependencies
+                dependencies.python_environment(output / "tool-cache", source)
+                full_assets.repair_reused_stage(project)
         else:
             project.mkdir(parents=True)
         # Retain original built-in modules (video, particles, cloth, etc.) while
@@ -391,6 +405,8 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             startup.stage_startup_movies(project, game)
             restore_loading_sprite_geometry(project, game)
             stage_startup_audio(project, game)
+            if args.target == "game":
+                ui_assets.stage_campaign_recipe_manifest(project)
             ui_assets.stage_startup_ui(project)
             ui_assets.stage_startup_blur(project)
             dlcs.stage(project, inputs["profile"]["dlcOwnership"])
@@ -598,7 +614,7 @@ def package_mod_content(project: Path, inputs: dict, output: Path, source: Path,
         env = dict(os.environ)
         env["GHVR_QUEST_MOD_BUNDLE_OUTPUT"] = str(bundles)
         env["GHVR_QUEST_MOD_FULL_GAME"] = "1" if full_game else "0"
-        command([str(editor), "-batchmode", "-nographics", "-projectPath", str(authored),
+        command(unity_launcher(editor, graphics=full_game) + ["-projectPath", str(authored),
                  "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.QuestModBundles.BuildAll",
                  "-logFile", str(output / "logs" / ("mod-bundle-" + key[:12] + ".log"))],
                 output / "logs" / ("mod-bundle-launch-" + key[:12] + ".log"), env=env)
@@ -1001,7 +1017,7 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
             # Unity 2021.3's Android toolchain otherwise selects old NDK r21 BFD.
             # Keep the supported linker selection local to this diagnostic process.
             env["UNITY_IL2CPP_ANDROID_USE_LLD_LINKER"] = "1"
-        command([tools["editor"], "-batchmode", "-nographics", "-quit", "-projectPath", str(project),
+        command(unity_launcher(tools["editor"], graphics=args.target == "game") + ["-quit", "-projectPath", str(project),
                  "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuild.Build",
                  "-logFile", str(output / "logs" / ("unity-build-" + key[:12] + ".log"))],
                 output / "logs" / ("unity-launch-" + key[:12] + ".log"), env=env)

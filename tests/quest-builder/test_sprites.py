@@ -1,5 +1,6 @@
 """Independent serialized Sprite fixtures and bounded loading-geometry recovery."""
 import hashlib
+import json
 from pathlib import Path
 import struct
 import sys
@@ -112,6 +113,27 @@ class SpriteGeometryTests(unittest.TestCase):
         before = path.read_bytes()
         sprites.restore_loading_sprite_geometry(self.project, self.game)
         self.assertEqual(path.read_bytes(), before)
+
+    def test_native_packed_drawing_geometry_is_preserved_with_exact_identity(self):
+        path = self.folder / "LoadingBase.asset"
+        # A native packed Sprite draws at its original zero-based rectangle,
+        # while its texture/UV data still points into a distant atlas region.
+        text = asset("LoadingBase", trimmed=False).replace("    x: 100\n    y: 200", "    x: 0\n    y: 0", 1)
+        path.write_text(text)
+        manifest = self.project / "Assets/QuestOriginalCampaign/packed-sprites.json"
+        manifest.parent.mkdir(parents=True)
+        row = {"assetPath": "Assets/Sprite/LoadingBase.asset", "collection": "resources.assets", "pathId": 1,
+               "guid": "1" * 32, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+        manifest.write_text(json.dumps({"sprites": [row]}))
+        receipt = sprites.restore_loading_sprite_geometry(self.project, self.game)
+        self.assertEqual(path.read_text(), text)
+        self.assertTrue(receipt["assets"][0]["preservedNativePackedGeometry"])
+        for field, value in (("pathId", 2), ("collection", "cab-other"), ("guid", "a" * 32), ("sha256", "0" * 64)):
+            with self.subTest(field=field):
+                manifest.write_text(json.dumps({"sprites": [{**row, field: value}]}))
+                with self.assertRaisesRegex(BuildError, "identity|geometry"):
+                    sprites.restore_loading_sprite_geometry(self.project, self.game)
+                self.assertEqual(path.read_text(), text)
 
     def test_bad_original_version_or_unity_fails_before_changes(self):
         for replacement in (bank(version=21), bank(unity="2021.3.6f1"), bank()[:-1]):

@@ -224,6 +224,38 @@ def _original_recipes(project):
         raise BuildError("Original UI shader recipe differs: " + str(error)) from error
 
 
+def stage_campaign_recipe_manifest(project):
+    """Derive the startup UI contract from the complete retained native recipes.
+
+    A full recovery includes multiple physical Shader objects with identical
+    names. Select the exact original object bytes audited for each UI program,
+    rather than importing a previous developer menu project or choosing by name.
+    """
+    from ui_blur import RECIPE_SHA256 as blur_hash
+    wanted = {spec["recipeSha256"] for spec in SHADERS.values()} | {blur_hash}
+    selected = {}
+    for path in sorted((project / "QuestRecovery/ShaderRecipes").glob("*.json")):
+        raw = _read(path, 32 * 1024 * 1024)
+        checksum = _hash(raw)
+        if checksum not in wanted:
+            continue
+        if checksum in selected:
+            raise BuildError("Complete recovery duplicates an audited native UI Shader object.")
+        recipe = json.loads(raw)
+        parsed = recipe["parsedForm"]
+        form = {"m_Name": parsed["m_Name"], "m_PropInfo": parsed["m_PropInfo"],
+                "m_SubShaders": [{"m_Passes": [{"m_State": item["m_State"]} for item in subshader["m_Passes"]]}
+                                 for subshader in parsed["m_SubShaders"]]}
+        selected[checksum] = {"recipePath": path.relative_to(project).as_posix(), "recipeSha256": checksum,
+                              "compiledPlatforms": recipe["compiledPlatforms"], "parsedForm": form}
+    if set(selected) != wanted:
+        raise BuildError("Complete recovery lacks the exact original UI Shader recipes required for Android.")
+    manifest = {"schema": 1, "recipes": [selected[key] for key in sorted(wanted)]}
+    write_json(project / RECIPES, manifest)
+    _original_recipes(project)
+    return manifest
+
+
 def _transcribe(dummy, spec):
     if _hash(dummy) != spec["dummySha256"]:
         raise BuildError("Original UI shader dummy differs from the audited input")

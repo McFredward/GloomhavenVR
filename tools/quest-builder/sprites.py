@@ -5,6 +5,7 @@ data, UVs, GUIDs and the player's original serialized bank remain untouched.
 The pinned Unity v22 Sprite prefix reader uses the Python standard library.
 """
 import math
+import json
 from pathlib import Path
 import re
 import struct
@@ -192,6 +193,14 @@ def restore_loading_sprite_geometry(project: Path, game: Path) -> dict:
     bank = game / "resources.assets"
     originals = read_sprite_headers(bank)
     bank_hash = digest(bank)
+    packed_manifest = project / "Assets/QuestOriginalCampaign/packed-sprites.json"
+    packed = {}
+    if packed_manifest.is_file():
+        manifest = json.loads(packed_manifest.read_text(encoding="utf-8"))
+        for row in manifest["sprites"]:
+            if row["assetPath"] in packed:
+                raise BuildError("Native packed-Sprite drawing identity is ambiguous.")
+            packed[row["assetPath"]] = row
     plans = []
     for path in sorted((project / "Assets/Sprite").glob("Loading*.asset")):
         if path.is_symlink() or any(parent.is_symlink() for parent in path.parents):
@@ -206,7 +215,27 @@ def restore_loading_sprite_geometry(project: Path, game: Path) -> dict:
         guids = re.findall(r"^guid:\s*([a-f0-9]{32})\s*$", meta.read_text(encoding="utf-8"), re.M)
         if len(guids) != 1:
             raise BuildError("Recovered loading sprite GUID is ambiguous.")
-        patched, record = _restore(text, originals)
+        native = packed.get(path.relative_to(project).as_posix())
+        if native is not None:
+            # Full recovery already restores the original Sprite object and its
+            # separately packed atlas geometry. Applying the historical export
+            # crop repair again would replace native drawing coordinates with
+            # atlas coordinates and recreate the doubled-spinner defect.
+            matches = [row for row in originals if row["sourcePathId"] == native["pathId"]]
+            if (native["collection"] != "resources.assets" or native["guid"] != guids[0]
+                    or native["sha256"] != digest(path) or len(matches) != 1):
+                raise BuildError("Native packed loading-Sprite proof does not match its original identity.")
+            original = matches[0]
+            if (original["name"] != name[0] or not _close(_rect(text, "m_Rect"), original["rect"])
+                    or not _close(_numbers(text, "m_Pivot", ("x", "y")), original["pivot"])
+                    or not _close(_numbers(text, "m_Offset", ("x", "y")), original["offset"])):
+                raise BuildError("Native packed loading-Sprite drawing geometry differs from the original.")
+            patched = text
+            record = {"name": original["name"], "sourcePathId": original["sourcePathId"],
+                      "originalRect": original["rect"], "pivot": original["pivot"], "offset": original["offset"],
+                      "preservedNativePackedGeometry": True, "packedSpriteManifestSha256": digest(packed_manifest)}
+        else:
+            patched, record = _restore(text, originals)
         plans.append((path, patched, {**record, "asset": path.relative_to(project).as_posix(),
                                      "guid": guids[0], "metaSha256": digest(meta)}))
     if {record["name"] for _, _, record in plans} != NAMES:
