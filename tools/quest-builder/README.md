@@ -1,7 +1,7 @@
 # Local Quest builder
 
 `scripts/build-quest.py` runs real recovery, static integration, native compilation,
-Unity Android builds, APK validation and optional ADB installation. Python 3.9+
+Unity Android builds, APK validation and optional ADB installation. Python 3.11+
 and the documented external tools are required. Original game files, frozen
 sources, private profiles, signing material and APKs remain local. This directory
 contains no original game payload.
@@ -37,6 +37,9 @@ An exporter exit code of zero is insufficient: its complete original scene/catal
 closure and script bindings must be proven, and static integration must be complete
 and free of issues. Complete asset, native ABI, Android shader/compute compilation
 and signed delivery checks remain mandatory; headset acceptance is separate.
+The full player and all authored Android mod banks use Vulkan. This keeps the
+original Windows shader conventions for reversed depth and texture orientation;
+the smaller startup/probe targets retain their independently tested GLES route.
 Rewritten original DLLs replace their recovered
 counterparts in place, retaining the exact `.meta` script mapping; the generated
 `link.xml` is deployed for AOT preservation.

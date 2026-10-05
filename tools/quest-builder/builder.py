@@ -1043,7 +1043,7 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                     "GHVR_QUEST_ANDROID_NDK": tools["androidNdk"], "GHVR_QUEST_JDK": tools["jdk"]})
         if args.target in ("startup", "game"):
             # Unity 2021.3's Android toolchain otherwise selects old NDK r21 BFD.
-            # Keep the supported linker selection local to this diagnostic process.
+            # Keep the supported linker selection local to this Android build process.
             env["UNITY_IL2CPP_ANDROID_USE_LLD_LINKER"] = "1"
         command(unity_launcher(tools["editor"], graphics=args.target == "game") + ["-quit", "-projectPath", str(project),
                  "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuild.Build",
@@ -1058,7 +1058,10 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
             checked = campaign_compute.validate_delivered(source, project, apk,
                 [output / row["path"] for row in details["contentFiles"]], compute_receipt)
             details["computeValidation"] = {field: checked[field] for field in (
-                "shaderCount", "kernelCount", "actualGles31BytesVerified", "hardwareVerified")}
+                "shaderCount", "kernelCount", "graphicsApi", "actualExecutableBytesVerified", "hardwareVerified")}
+            for field in ("actualVulkanSpirvBytesVerified", "actualGles31BytesVerified"):
+                if field in checked:
+                    details["computeValidation"][field] = checked[field]
             evidence.append(compute_receipt)
         return [apk, report, *evidence, *(output / row["path"] for row in details["contentFiles"])], details
 

@@ -179,8 +179,8 @@ Its existing per-eye camera callbacks and authored Shader banks therefore use
 their supported route, and the Quest flat-screen adapter selects the completed
 eye texture through that same route. Desktop mode selection is unchanged.
 
-Current focused Python builder gate passes193 tests in the provisioned private
-Python environment; compute fixtures pass14 and case-path fixtures pass12. Own
+Current focused Python builder gate passes196 tests in the provisioned private
+Python environment; compute fixtures pass26 and case-path fixtures pass12. Own
 superseded APKs are removed; B622 native symbols are retained with matching build
 ID9a2274f00b636520 before deleting its generated28-GB Library. Final full-player
 compilation, signed APK and Windows hardware package still remain required.
@@ -188,3 +188,27 @@ All14 source checks, strict Release with zero errors/warnings and286,760 direct
 unchanged wire/golden assertions pass after the stereo integration. Complete
 native Shader family compilation, live driver acceptance and ComputeShader edge
 semantics are still being checked before the final source freeze.
+
+## Full-player Vulkan boundary
+
+The original Windows programs retain D3D reversed-depth and top-origin texture
+conventions in their optimized DXBC. Unity2021's Vulkan backend shares these
+conventions; GLES does not. The complete player therefore selects Vulkan instead
+of introducing speculative rewrites of optimized shadow/depth instructions.
+Startup/probe targets keep their previously tested GLES contract. Vulkan support
+and shader compiler evidence are separate from headset picture acceptance.
+
+All three current-mod authored banks have actually built with Vulkan: 699 assets,
+1,602 compiler inputs and 132,862,237 bank bytes. Independent cooked-object
+inspection finds 29 native Shaders, all with Vulkan platform18; the voice bank
+contains no Shader objects. The actual build log contains no shader compilation
+errors. Evidence remains private under the immutable mod-bank cache and
+`build/evidence/vulkan-authored-art-preflight`.
+
+The complete original compute bank also builds on actual Unity Android Vulkan:
+13 objects and36 kernels. Cooked SPIR-V descriptor, uniform layout, storage image
+format and structured-buffer-stride audits pass. A separate lavapipe host creates
+all36 pipelines and executes the original Lerp, cleared Vectorscope, Gather and
+MSVO dispatch-edge fixtures with robustness disabled. This does not establish
+Quest driver performance, all post-effect pixel parity or a hardware playthrough.
+The signed-player delivery gate records backend-specific executable-byte proof.

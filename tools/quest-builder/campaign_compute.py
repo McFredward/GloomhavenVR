@@ -35,7 +35,8 @@ def stage(source, project, cache):
     if result.returncode:
         raise BuildError("Complete original compute recovery failed; see " + str(cache / "recovery.log"))
     manifest = json.loads((overlay / "QuestCampaignEvidence/compute-recovery.json").read_text())
-    if (manifest.get("schema") != 1 or manifest.get("shaderCount") != 13 or manifest.get("kernelCount") != 36
+    if (manifest.get("schema") != 1 or manifest.get("graphicsApi") != "Vulkan"
+            or manifest.get("shaderCount") != 13 or manifest.get("kernelCount") != 36
             or manifest.get("originalInputsUnchanged") is not True or len(manifest.get("files", {})) != 26
             or len(manifest.get("pathMap", {})) != 13 or len(manifest.get("shaders", [])) != 13
             or len(manifest.get("removePaths", [])) != 26
@@ -97,7 +98,7 @@ def collect_delivered(apk, banks, manifest, decode):
 
 
 def validate_delivered(source, project, apk, banks, receipt):
-    """Audit actual cooked GLES bytes after the signed full player is built."""
+    """Audit actual cooked Android programs after the signed full player is built."""
     import UnityPy
     def decode(data):
         env = UnityPy.load(data)
