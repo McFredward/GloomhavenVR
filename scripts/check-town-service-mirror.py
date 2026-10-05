@@ -253,7 +253,7 @@ def main():
                  "peer physical category button adopts the public page despite missing artwork and a separate merchant transaction"),
                 ("public-category-no-claim", "PublicMerchantClaim.cs", "TownServicePublicMerchant.TrySelectCategory(_rack, _category)",
                  "Time.unscaledTime < 0f",
-                 "peer physical category button adopts the public page despite missing artwork and a separate merchant transaction"),
+                 "visitor category press sends one reliable intent without replacing the prepared bank author"),
                 ("public-declined-claim", "PublicMerchantClaim.cs", "internal static void Claim() { }",
                  "internal static void Claim() { TownServiceMirror.ClaimPublicCatalog(); }",
                  "visitor inspection preserves the prepared bank author before any reliable cabinet input"),
