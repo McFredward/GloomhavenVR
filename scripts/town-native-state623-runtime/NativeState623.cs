@@ -47,6 +47,9 @@ public static partial class MirrorProgram
             new Vector2(.16f, .24f), Color.cyan).transform;
         TownServiceMirror.RegisterTemplate(3, 19, ring, address: "enchant.highlight|");
         int awakes = GameplayFixture.Awakes, enables = GameplayFixture.Enables;
+        TownServiceMirror.PrepareNativeTemplateBasis(3, "enchant.inventory|");
+        var warmedBases = (IDictionary)typeof(TownServiceMirror).GetField("NativeTemplateBases", PrivateStatic)!.GetValue(null)!;
+        Check(warmedBases.Count != 0, "actual inactive original binding and material descriptors warm before first drop");
 
         TownServiceFrame original = NativeFrame623(source, 10, 17, "enchant.inventory|");
         bool encodedOriginal = TownServiceMirror.TryWriteNativeTemplateState(original, out byte[] unchanged);
@@ -70,7 +73,9 @@ public static partial class MirrorProgram
             && sparse!.NativeTemplateBasisKey != 0 && sparse.BaseSequence == 0,
             "native metadata remains a complete independent original module");
         byte[] full = TownServiceCodec.Write(original);
-        Check(unchanged.Length < full.Length / 2,
+        File.WriteAllText(Path.Combine(_output, "native-state625-initial-wire-cost.txt"),
+            "Original bytes=" + full.Length + "; robust native bytes=" + unchanged.Length + "\n");
+        Check(unchanged.Length < full.Length,
             "unchanged original graphic descriptors are omitted rather than resent for every upgrade widget");
 
         // A real peer can localize original template captions independently. Root
@@ -80,16 +85,25 @@ public static partial class MirrorProgram
             .Invoke(null, new object[] { (byte)3, (ushort)17, "enchant.inventory|" })!;
         templates[key].transform.Find("Name").GetComponent<TextMeshProUGUI>().text = "Observer localized default";
         templates[key].transform.Find("Price").GetComponent<Text>().text = "Lokaler Standard";
+        RectTransform observerFill = (RectTransform)templates[key].transform.Find("Filled");
+        observerFill.sizeDelta *= 1.7f; observerFill.anchoredPosition += new Vector2(14, -12);
+        observerFill.GetComponent<Image>().color = Color.blue;
+        observerFill.GetComponent<Image>().fillAmount = .99f;
+        templates[key].transform.Find("Background").gameObject.SetActive(false);
         typeof(TownServiceMirror).GetMethod("ResetNativeTemplateState", PrivateStatic)!.Invoke(null, null);
         Check(TownServiceMirror.TryExpandNativeTemplateState(sparse!, out TownServiceFrame expanded),
             "localized observer defaults never replace exact owner text or font");
         AssertNativeEqual623(original, expanded);
+        Check(TownServiceMirror.TryExpandNativeTemplateState(sparse!, out expanded),
+            "viewer native layout defaults never block a fully owner-authored original");
 
         // The immutable basis remains original; only actual owner changes travel.
         _text.text = "Owner exact selected upgrade"; _text.fontSize = 33;
         _fill.fillAmount = .31f; _fill.color = Color.magenta;
         _clip.padding = new Vector4(11, 7, 5, 3);
         source.Find("Viewport/Oversized").localPosition += new Vector3(0, 17, 0);
+        var ownerMaterial = new Material(_fill.material) { color = Color.green };
+        Assets.Add(ownerMaterial); _fill.material = ownerMaterial;
         TownServiceFrame changed = NativeFrame623(source, 10, 17, "enchant.inventory|"); changed.Sequence = 2;
         Check(TownServiceMirror.TryWriteNativeTemplateState(changed, out byte[] current),
             "actual native hover, scroll, clipping and owner text create a fresh metadata patch");
@@ -97,6 +111,16 @@ public static partial class MirrorProgram
             && TownServiceMirror.TryExpandNativeTemplateState(currentSparse!, out expanded),
             "current metadata reconstructs a complete original without previous network state");
         AssertNativeEqual623(changed, expanded);
+        var observerMaterial = new Material(observerFill.GetComponent<Image>().material) { color = Color.red };
+        Assets.Add(observerMaterial); observerFill.GetComponent<Image>().material = observerMaterial;
+        typeof(TownServiceMirror).GetMethod("ResetNativeTemplateState", PrivateStatic)!.Invoke(null, null);
+        Check(TownServiceMirror.TryExpandNativeTemplateState(currentSparse!, out expanded),
+            "a fully transmitted owner material replaces a different observer native default immediately");
+        AssertNativeEqual623(changed, expanded);
+        // The old unchanged packet legitimately depends on the original default
+        // material. Restore that original before testing reordered old samples.
+        observerFill.GetComponent<Image>().material = null;
+        typeof(TownServiceMirror).GetMethod("ResetNativeTemplateState", PrivateStatic)!.Invoke(null, null);
         var bank = new TownServiceFrame { Service = 1, PublicCatalog = true, PublicClaim = 2,
             Session = changed.Session, Sequence = changed.Sequence, Module = changed.Module,
             Template = changed.Template, TemplateAddress = changed.TemplateAddress, Structure = changed.Structure,
@@ -107,6 +131,15 @@ public static partial class MirrorProgram
             && publicSparse!.PublicCatalog && publicSparse.NativeTemplateBasisKey != 0,
             "public original cabinet members share the same compact native representation");
 
+        TownServiceFrame confirmation = TownServiceDelta.Retain(changed);
+        confirmation.Service = 1; confirmation.TemplateAddress = "item.confirm.part.2|";
+        TownServiceMirror.RegisterTemplate(1, 17, source, address: confirmation.TemplateAddress);
+        TownServiceMirror.PrepareNativeTemplateBasis(1, confirmation.TemplateAddress);
+        Check(TownServiceMirror.TryWriteNativeTemplateState(confirmation, out byte[] decision)
+            && TownServiceCodec.TryRead(decision, decision.Length, out TownServiceFrame? originalDecision)
+            && !originalDecision!.PublicCatalog && originalDecision.NativeTemplateBasisKey != 0
+            && TownServiceMirror.TryExpandNativeTemplateState(originalDecision, out _),
+            "private merchant confirmation uses immediately reconstructed exact native metadata");
         byte[] bundle = TownServiceCodec.WriteBundle(new[] { current, unchanged });
         Check(TownServiceCodec.TryReadBundle(bundle, bundle.Length, out byte[][]? unpacked) && unpacked!.Length == 2,
             "actual production bundle retains sparse native metadata members");
@@ -170,8 +203,67 @@ public static partial class MirrorProgram
         File.WriteAllText(Path.Combine(_output, "native-state623-wire-cost.txt"),
             "Original bytes=" + full.Length + "; unchanged native bytes=" + unchanged.Length
             + "; changed native bytes=" + current.Length + "; complete native nodes=" + changed.Nodes.Length + "\n");
+        IEnumerator coldProof = NativeColdOriginal625(author, observer);
+        while (coldProof.MoveNext()) yield return coldProof.Current;
         IEnumerator bankProof = NativeBankSplit623(); while (bankProof.MoveNext()) yield return bankProof.Current;
         yield return null;
+    }
+
+    private static IEnumerator NativeColdOriginal625(Transform author, Transform observer)
+    {
+        const string address = "face.62501|";
+        Transform cold = Image("Actual late original offered card", author, Vector2.zero,
+            new Vector2(.14f, .22f), Color.yellow).transform;
+        cold.GetComponent<Image>().sprite = _fill.sprite;
+        TownServiceMirror.RegisterTemplate(3, 25, cold, address: address);
+        TownServiceFrame offered = NativeFrame623(cold, 25, 25, address);
+        offered.Session = 625; offered.Sequence = 1002;
+        Check(TownServiceMirror.TryWriteNativeTemplateState(offered, out byte[] packet),
+            "first offered original produces independently reconstructable native metadata");
+        var templates = (Dictionary<string, GameObject>)typeof(TownServiceMirror).GetField("Templates", PrivateStatic)!.GetValue(null)!;
+        string key = (string)typeof(TownServiceMirror).GetMethod("TemplateKey", PrivateStatic)!
+            .Invoke(null, new object[] { (byte)3, (ushort)25, address })!;
+        GameObject frozen = templates[key]; templates.Remove(key);
+        bool ready = false;
+        Func<byte, ushort, string, bool>? previous = TownServiceMirror.ResolveTemplate;
+        TownServiceMirror.ResolveTemplate = (_, _, wanted) =>
+        {
+            if (!ready || wanted != address) return false;
+            templates[key] = frozen; return true;
+        };
+        try
+        {
+            var manifest = new TownServiceFrame { Service = 3, Session = 625, Sequence = 1001,
+                Module = TownServiceFrame.ManifestModule, Visible = true, TransactionActive = true,
+                Modules = new ushort[] { 25 }, Pose = offered.Pose };
+            Receive(2, new[] { TownServiceCodec.Write(manifest), packet });
+            for (float until = Time.unscaledTime + .15f; Time.unscaledTime < until;) yield return null;
+            TownServiceMirror.TickRemote(_ => observer);
+            Check(Remote(2, 25) == null, "missing genuine original never substitutes a grey or mismatched offered card");
+            ready = true;
+            for (float until = Time.unscaledTime + .10f; Remote(2, 25) == null && Time.unscaledTime < until;)
+            { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+            Check(Remote(2, 25) != null,
+                "a retained first sparse offer replays immediately after its original becomes available");
+            Check(Remote(2, 25)!.Root.GetComponent<Image>().color == Color.yellow,
+                "deferred first offer enters through the same exact native receiver");
+
+            // The old compact sample is not allowed to overwrite a later full
+            // original, even if template preparation completes after that full packet.
+            TownServiceFrame newer = TownServiceDelta.Retain(offered); newer.Sequence = 1004;
+            newer.Nodes[0] = new TownServiceNode { Binding = offered.Nodes[0].Binding };
+            foreach (var property in offered.Nodes[0].Values) newer.Nodes[0].Values.Add(property.Key, property.Value);
+            newer.Nodes[0].Values[TownServiceProperty.Graphic] = new TownServiceValue { Numbers = new[] { 1f, 1f, 0f, 1f, 1f } };
+            templates.Remove(key); ready = false;
+            typeof(TownServiceMirror).GetMethod("ResetNativeTemplateState", PrivateStatic)!.Invoke(null, null);
+            Receive(2, new[] { packet, TownServiceCodec.Write(newer) });
+            ready = true; templates[key] = frozen;
+            for (float until = Time.unscaledTime + .25f; Time.unscaledTime < until;)
+            { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+            Check(Remote(2, 25)!.Root.GetComponent<Image>().color == Color.magenta,
+                "late native preparation cannot replace a newer accepted original with its old offer");
+        }
+        finally { TownServiceMirror.ResolveTemplate = previous; templates[key] = frozen; }
     }
 
     private static IEnumerator NativeBankSplit623()

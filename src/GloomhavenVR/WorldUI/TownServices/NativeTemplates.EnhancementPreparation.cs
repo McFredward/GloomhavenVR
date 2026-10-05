@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using GloomhavenVR.Cards;
+using GloomhavenVR.Net.TownServices;
 using ScenarioRuleLibrary;
 using UnityEngine;
 
@@ -12,6 +13,28 @@ internal static partial class NativeTemplates
     private static readonly HashSet<int> EnhancementPrepared = new();
     private static float _enhancementPartyCheckAt;
     private static float _enhancementRetryAt;
+    private static uint _enhancementBasisGeneration = uint.MaxValue;
+    private static readonly Queue<string> EnhancementBasisPreparation = new();
+    private static readonly string[] EnhancementWidgetKeys =
+    {
+        "enchant.inventory", "enchant.row", "enchant.tooltip", "enchant.holder",
+        "enchant.capacity", "enchant.information", "enchant.point", "enchant.highlight",
+        "enhance.confirm.part.0", "enhance.confirm.part.1", "enhance.confirm.part.2",
+        "enhance.confirm.part.3", "enhance.confirm.part.4", "enhance.confirm.part.5",
+        "item.confirm.part.0", "item.confirm.part.1", "item.confirm.part.2", "item.confirm.part.3"
+    };
+
+    private static void WarmEnhancementBasis(string key)
+    {
+        if (!Entries.TryGetValue(key, out Entry? entry)) return;
+        byte service = key.StartsWith("item.confirm.", StringComparison.Ordinal) ? (byte)1 : (byte)3;
+        foreach (Part part in entry.Parts)
+        {
+            string address = key + "|" + part.Path;
+            TownServiceMirror.RegisterTemplate(service, 1, part.Original, part.Excluded.Contains, address);
+            TownServiceMirror.PrepareNativeTemplateBasis(service, address);
+        }
+    }
 
     /// <summary>Prepare the same original public map faces for every selected party
     /// member before their first handoff. Unassigned observers have no personal fan,
@@ -20,6 +43,16 @@ internal static partial class NativeTemplates
     {
         if (!WorldUI.MapRoom.MapRoomDriver.Active || _bank == null || ObjectPool.instance == null) return;
         float now = Time.unscaledTime;
+        if (_enhancementBasisGeneration != TownServiceMirror.Assets.Generation)
+        {
+            _enhancementBasisGeneration = TownServiceMirror.Assets.Generation;
+            EnhancementBasisPreparation.Clear();
+            foreach (string key in EnhancementWidgetKeys) EnhancementBasisPreparation.Enqueue(key);
+            // Network teardown invalidates mirror bases without destroying this
+            // bank. Queue existing faces again so observers also warm after reconnect.
+            foreach (int id in EnhancementPrepared)
+            { EnhancementBasisPreparation.Enqueue("face." + id); EnhancementBasisPreparation.Enqueue("card." + id); }
+        }
         if (now >= _enhancementPartyCheckAt)
         {
             _enhancementPartyCheckAt = now + 1f;
@@ -35,6 +68,14 @@ internal static partial class NativeTemplates
         }
         if (now < _enhancementRetryAt) return;
         long started = System.Diagnostics.Stopwatch.GetTimestamp(); int count = 0;
+        while (EnhancementBasisPreparation.Count != 0 && count++ < 2)
+        {
+            string key = EnhancementBasisPreparation.Dequeue();
+            try { WarmEnhancementBasis(key); }
+            catch (Exception) { EnhancementBasisPreparation.Enqueue(key); _enhancementRetryAt = now + .5f; break; }
+            if ((System.Diagnostics.Stopwatch.GetTimestamp() - started)
+                / (double)System.Diagnostics.Stopwatch.Frequency >= .002) return;
+        }
         while (EnhancementPreparation.Count != 0 && count++ < 2)
         {
             int id = EnhancementPreparation.Dequeue();
@@ -45,6 +86,8 @@ internal static partial class NativeTemplates
                 CardArtPin.PinForCard(model); TownServiceNativeAssets.PrepareCard(model);
                 EnsureCard("face." + id.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 EnsureCard("card." + id.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                WarmEnhancementBasis("face." + id.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                WarmEnhancementBasis("card." + id.ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
             catch (Exception)
             {
@@ -58,5 +101,8 @@ internal static partial class NativeTemplates
     }
 
     private static void ResetEnhancementPreparation()
-    { EnhancementPreparation.Clear(); EnhancementPrepared.Clear(); _enhancementPartyCheckAt = _enhancementRetryAt = 0f; }
+    {
+        EnhancementPreparation.Clear(); EnhancementPrepared.Clear(); EnhancementBasisPreparation.Clear();
+        _enhancementPartyCheckAt = _enhancementRetryAt = 0f; _enhancementBasisGeneration = uint.MaxValue;
+    }
 }

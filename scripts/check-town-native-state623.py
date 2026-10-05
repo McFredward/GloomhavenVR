@@ -19,7 +19,7 @@ def main():
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/town-native-state623')
     parser.add_argument('--no-negative-controls', action='store_true')
     parser.add_argument('--bank-split-only', action='store_true')
-    parser.add_argument('--negative-control', action='append', choices=['inert-artwork', 'owner-text', 'complete-picture', 'split-headers'])
+    parser.add_argument('--negative-control', action='append', choices=['inert-artwork', 'owner-text', 'complete-picture', 'split-headers', 'owner-state', 'overridden-basis', 'cold-original', 'retained-canvas', 'eager-bank'])
     args = parser.parse_args()
     root = args.source_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -46,6 +46,12 @@ def main():
     variants = [('production', None, None, None, '')]
     if not args.no_negative_controls:
         variants += [
+            ('eager-bank', 'TownServiceMirror.CatalogBank.cs',
+             'if (frame.CatalogBank.Prepared)', 'if (false && frame.CatalogBank.Prepared)',
+             'prepared page clock excludes synchronous full-bank compression'),
+            ('retained-canvas', 'TownCatalogBank.cs',
+             'original.CanvasSortingLayer != current.CanvasSortingLayer || original.CanvasSortingOrder != current.CanvasSortingOrder',
+             'false', 'cached original key cannot authorize a changed canonical canvas header'),
             ('split-headers', 'TownServiceMirror.CatalogBank.cs',
              'TownServiceFrame reference = TownCatalogClock.Create(frame, NoCatalogPatchBases);',
              'TownServiceFrame reference = TownServiceDelta.Retain(frame); reference.CatalogBank = new TownCatalogBank { Prepared = frame.CatalogBank.Prepared, Members = frame.CatalogBank.Members };',
@@ -54,7 +60,10 @@ def main():
     if not args.no_negative_controls and not args.bank_split_only:
         variants += [
             ('inert-artwork', 'TownServiceMirror.NativeTemplateState.cs', 'binding.Read(Assets, includeInactiveGraphics: true)', 'binding.Read(Assets)', 'actual original prefab produces compact native metadata without a prior network baseline'),
-            ('owner-text', 'TownServiceMirror.NativeTemplateState.cs', 'index == 0 || NativeTextProperty(key)', 'index == 0', 'localized observer defaults never replace exact owner text or font'),
+            ('owner-text', 'TownServiceMirror.NativeTemplateState.cs', 'index == 0 || NativeTextProperty(key)\n        || !TownServiceFastNumbers.IsMaterial(key);', 'index == 0 || (!NativeTextProperty(key) && !TownServiceFastNumbers.IsMaterial(key));', 'localized observer defaults never replace exact owner text or font'),
+            ('owner-state', 'TownServiceMirror.NativeTemplateState.cs', '|| !TownServiceFastNumbers.IsMaterial(key);', '|| key == TownServiceProperty.Sibling;', 'localized observer defaults never replace exact owner text or font'),
+            ('overridden-basis', 'TownServiceMirror.NativeTemplateState.cs', 'if (OwnerProperty(index, key) || basis.Coverage.Length != 0\n                        && (basis.Coverage[index] & (1u << key)) != 0) continue;', 'if (OwnerProperty(index, key)) continue;', 'a fully transmitted owner material replaces a different observer native default immediately'),
+            ('cold-original', 'TownServiceMirror.NativeTemplateState.cs', 'bool ready = attempt && TryExpandNativeTemplateState(received, out _);', 'bool ready = false;', 'a retained first sparse offer replays immediately after its original becomes available'),
             ('complete-picture', 'TownServiceMirror.NativeTemplateState.cs', 'if (peer <= 0 || session.Service != 3 || session.Modules.Length == 0) return true;', 'return true;\n#pragma warning disable CS0162', 'a missing offered card prevents a partial ring or options picture'),
         ]
     if args.negative_control:
