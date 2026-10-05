@@ -293,3 +293,46 @@ format support and original BC6H GPU parity. The actual final fixture receipts
 are retained under `atlas-import-v1/portable-texture-import.json` (31 cubes,
 1,272 face/mips, 132 half GPU readbacks, seven other native images) and
 `atlas-import-v1/portable-sprite-import.json` (all 3,369 ordinary sprites).
+
+## Ordinary Texture2D metadata and floating image recovery
+
+`full_texture2d.stage(project, game_data, dotnet=..., tool_cache=...,
+cab_bundles=...)` audits every image-exported native Texture2D by original
+CAB/pathID, then replaces floating/HDR PNG exports in the generated copy.
+Run it after `full_textures.stage`. It writes
+`ordinary-texture2d-audit.json` and `native-texture2d.json` under
+`Assets/QuestOriginalCampaign`; the latter's `assets[*].assetPath` fields are
+physical paths which the later case-normalization stage must migrate.
+Captured native identity paths and catalog physical paths change through the
+field-specific remapper; original keys, aliases and source paths stay intact.
+
+The actual complete source audit found 14,862 image-exported native Texture2D
+objects, including 2,460 native normal maps. Dimensions, maximum import sizes,
+sRGB/linear flags, mip enablement, sampler states, readability and streaming
+metadata had zero mismatches. All native chains were either one mip or complete,
+with zero stripped mips. Sprite importer type 8 is a legitimate nonnormal
+classification. Seventeen embedded/native font textures are separate from the
+ordinary PNG scope. These results do not establish pixel parity for ordinary
+regenerated PNG mip chains or hardware pictures.
+
+Eight blood animation textures are native RGBAHalf, exported lossily as PNG.
+Their actual values encode normalized data in 0..1; their original 16-bit
+half precision must survive rather than becoming 8-bit normalized components.
+They retain their original non-power-of-two height, point sampling, one mip,
+linear color space and exact original half byte stream. Twenty-five HDR sky
+textures are native rectangular BC6H images: a pinned pure managed decoder
+retains every original mip as RGBAHalf, including HDR range. Native class28
+serialization retains the original GUID/local ID, dimensions, sampler, color,
+streaming and readability flags without a PNG import/rescale step. Core
+streamed texels are read from their exact owned .resS offset/size; CAB data
+resolves inside its original bundle.
+
+The production `QuestCampaignTextureValidation.ValidateTexture2D` gate actually
+imported all 33 replacements in Unity 2021.3.5f1/OpenGLCore and checked every
+GUID/local ID and original sampler/color contract. Exact half GPU readbacks
+matched all 294 original/decompressed mip witnesses, totaling 431,560,088 pixel
+bytes. Original RGBAHalf VAT bytes are unchanged. The source audit and receipt
+remain separate from original Windows BC6H GPU decoder parity and Quest GPU
+picture evidence, which are not yet verified. Private reproducible proof is
+`ordinary-texture2d-audit-v2.json`, `full-texture2d-smoke-v1` and
+`atlas-import-v1/portable-texture2d-import.json`.

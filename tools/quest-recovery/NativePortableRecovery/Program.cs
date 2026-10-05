@@ -30,27 +30,31 @@ if (args[0] == "fsb")
     File.WriteAllBytes(args[2], data);
     return;
 }
-if (args[0] is "bc6h" or "bc1")
+if (args[0] is "bc6h" or "bc1" or "bc6h-2d")
 {
-    int width = int.Parse(args[3]), mips = int.Parse(args[4]);
+    bool rectangle = args[0] == "bc6h-2d";
+    int width = int.Parse(args[3]), height = rectangle ? int.Parse(args[4]) : width;
+    int mips = int.Parse(args[rectangle ? 5 : 4]);
+    if (width <= 0 || height <= 0 || mips <= 0)
+        throw new InvalidDataException("Native image dimensions/mip count must be positive.");
     var original = File.ReadAllBytes(args[1]);
     using var output = File.Create(args[2]);
     int offset = 0;
-    for (int face = 0; face < 6; face++)
+    for (int face = 0; face < (rectangle ? 1 : 6); face++)
         for (int mip = 0; mip < mips; mip++)
         {
-            int size = Math.Max(1, width >> mip);
-            bool hdr = args[0] == "bc6h";
-            int compressed = ((size + 3) / 4) * ((size + 3) / 4) * (hdr ? 16 : 8);
-            var pixels = new byte[size * size * (hdr ? 8 : 4)];
+            int mipWidth = Math.Max(1, width >> mip), mipHeight = Math.Max(1, height >> mip);
+            bool hdr = args[0] != "bc1";
+            int compressed = ((mipWidth + 3) / 4) * ((mipHeight + 3) / 4) * (hdr ? 16 : 8);
+            var pixels = new byte[mipWidth * mipHeight * (hdr ? 8 : 4)];
             if (hdr)
-                Bc6h.Decompress<ColorRGBA<Half>, Half>(original.AsSpan(offset, compressed), size, size, false, pixels.AsSpan());
+                Bc6h.Decompress<ColorRGBA<Half>, Half>(original.AsSpan(offset, compressed), mipWidth, mipHeight, false, pixels.AsSpan());
             else
-                Bc1.Decompress<ColorRGBA<byte>, byte>(original.AsSpan(offset, compressed), size, size, pixels.AsSpan());
+                Bc1.Decompress<ColorRGBA<byte>, byte>(original.AsSpan(offset, compressed), mipWidth, mipHeight, pixels.AsSpan());
             output.Write(pixels);
             offset += compressed;
         }
-    if (offset != original.Length) throw new InvalidDataException("Original BC6H cubemap mip/face bytes were not fully consumed.");
+    if (offset != original.Length) throw new InvalidDataException("Original compressed image mip/face bytes were not fully consumed.");
     return;
 }
 throw new InvalidDataException("Unknown native recovery mode.");

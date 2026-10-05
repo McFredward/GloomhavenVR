@@ -14,6 +14,7 @@ namespace GloomhavenVR.Quest.Editor
     {
         public const string InputPath = "Assets/QuestOriginalCampaign/native-cubemaps.json";
         public const string PlatformInputPath = "Assets/QuestOriginalCampaign/native-platform-images.json";
+        public const string Texture2DInputPath = "Assets/QuestOriginalCampaign/native-texture2d.json";
         [Serializable] public sealed class Mip { public int face, mip, size; public string sha256; }
         [Serializable] public sealed class Cube
         {
@@ -30,7 +31,7 @@ namespace GloomhavenVR.Quest.Editor
         }
         [Serializable] public sealed class Receipt
         {
-            public int schema = 1, nativeCubemapCount, importedMipCount, gpuReadbackMipCount, nativePlatformImageCount;
+            public int schema = 1, nativeCubemapCount, importedMipCount, gpuReadbackMipCount, nativePlatformImageCount, nativeTexture2DCount;
             public string unityVersion, graphicsDeviceType, sourceManifestSha256;
             public bool originalBc6GpuParityVerified, headsetGpuVerified;
         }
@@ -45,6 +46,32 @@ namespace GloomhavenVR.Quest.Editor
         {
             public int schema,nativePlatformImageCount,unsupportedImageClassCount;
             public PlatformImage[] assets;
+        }
+        [Serializable] public sealed class NativeSampler
+        {
+            public int filterMode,aniso,wrapU,wrapV,wrapW,colorSpace,streamingMipmapsPriority;
+            public float mipBias;
+            public bool streamingMipmaps;
+        }
+        [Serializable] public sealed class FloatingTexture
+        {
+            public string assetPath,guid,sha256,pixelSha256;
+            public long fileId;
+            public int width,height,mipCount,textureFormat,sourceFormat;
+            public bool isReadable,sourceMipChainPreserved,originalHalfBytesPreserved;
+            public NativeSampler native;
+            public Mip[] mips;
+        }
+        [Serializable] public sealed class FloatingTextures
+        {
+            public int schema,nativeTexture2DCount,originalHalfTextureCount,originalBc6hTextureCount;
+            public FloatingTexture[] assets;
+        }
+        [Serializable] public sealed class Texture2DReceipt
+        {
+            public int schema=1,nativeTexture2DCount,originalHalfTextureCount,originalBc6hTextureCount,gpuReadbackMipCount;
+            public string unityVersion,graphicsDeviceType,sourceManifestSha256;
+            public bool originalHalfGpuBytesVerified,originalBc6GpuParityVerified,headsetGpuVerified;
         }
         public static Receipt Validate()
         {
@@ -97,8 +124,60 @@ namespace GloomhavenVR.Quest.Editor
                 receipt.nativeCubemapCount++;
             }
             receipt.nativePlatformImageCount=ValidatePlatformImages();
+            receipt.nativeTexture2DCount=ValidateTexture2D().nativeTexture2DCount;
             Directory.CreateDirectory("QuestCampaignEvidence");
             File.WriteAllText("QuestCampaignEvidence/native-cubemap-import.json", JsonUtility.ToJson(receipt,true));
+            return receipt;
+        }
+        public static Texture2DReceipt ValidateTexture2D()
+        {
+            var input=JsonUtility.FromJson<FloatingTextures>(File.ReadAllText(Texture2DInputPath));
+            if(input==null||input.schema!=1||input.assets==null||input.nativeTexture2DCount!=input.assets.Length||
+               input.originalHalfTextureCount+input.originalBc6hTextureCount!=input.nativeTexture2DCount)
+                throw new InvalidDataException("Native floating Texture2D inventory is incomplete.");
+            var receipt=new Texture2DReceipt {unityVersion=Application.unityVersion,
+                graphicsDeviceType=SystemInfo.graphicsDeviceType.ToString(),sourceManifestSha256=Hash(File.ReadAllBytes(Texture2DInputPath))};
+            foreach(var row in input.assets)
+            {
+                if(receipt.nativeTexture2DCount>0&&receipt.nativeTexture2DCount%4==0)EditorUtility.UnloadUnusedAssetsImmediate();
+                var texture=AssetDatabase.LoadAssetAtPath<Texture2D>(row.assetPath);string guid;long fileId;
+                if(texture==null||Hash(File.ReadAllBytes(row.assetPath))!=row.sha256||!row.sourceMipChainPreserved||
+                   !AssetDatabase.TryGetGUIDAndLocalFileIdentifier(texture,out guid,out fileId)||guid!=row.guid||fileId!=row.fileId||
+                   texture.width!=row.width||texture.height!=row.height||texture.mipmapCount!=row.mipCount||
+                   (int)texture.format!=row.textureFormat||row.textureFormat!=17||texture.isReadable!=row.isReadable||
+                   row.native==null||row.mips==null||row.mips.Length!=row.mipCount)
+                    throw new InvalidDataException("Native floating Texture2D failed import: "+row.assetPath);
+                var native=row.native;
+                if((int)texture.filterMode!=native.filterMode||texture.anisoLevel!=native.aniso||
+                   texture.mipMapBias!=native.mipBias||(int)texture.wrapModeU!=native.wrapU||
+                   (int)texture.wrapModeV!=native.wrapV||(int)texture.wrapModeW!=native.wrapW||
+                   texture.streamingMipmaps!=native.streamingMipmaps||texture.streamingMipmapsPriority!=native.streamingMipmapsPriority||
+                   UnityEngine.Experimental.Rendering.GraphicsFormatUtility.IsSRGBFormat(texture.graphicsFormat)!=(native.colorSpace==1))
+                    throw new InvalidDataException("Native floating Texture2D sampler/color contract changed: "+row.assetPath);
+                if(!SystemInfo.SupportsTextureFormat(texture.format)||!SystemInfo.supportsAsyncGPUReadback)
+                    throw new InvalidDataException("Native floating Texture2D requires exact supported half GPU readback.");
+                for(int mip=0;mip<row.mipCount;mip++)
+                {
+                    var witness=row.mips[mip];
+                    if(witness.mip!=mip)throw new InvalidDataException("Native Texture2D mip order changed.");
+                    var request=AsyncGPUReadback.Request(texture,mip,TextureFormat.RGBAHalf);request.WaitForCompletion();
+                    if(request.hasError||request.layerCount!=1)throw new InvalidDataException("Native floating Texture2D readback failed.");
+                    RequireMip(request.GetData<byte>(0).ToArray(),witness,row.assetPath);receipt.gpuReadbackMipCount++;
+                }
+                if(row.sourceFormat==17)
+                {
+                    if(!row.originalHalfBytesPreserved)throw new InvalidDataException("Native VAT half bytes were changed.");
+                    receipt.originalHalfTextureCount++;
+                }
+                else if(row.sourceFormat==24)receipt.originalBc6hTextureCount++;
+                else throw new InvalidDataException("Native floating Texture2D source format changed.");
+                receipt.nativeTexture2DCount++;
+            }
+            if(receipt.originalHalfTextureCount!=input.originalHalfTextureCount||receipt.originalBc6hTextureCount!=input.originalBc6hTextureCount)
+                throw new InvalidDataException("Native floating Texture2D source coverage changed.");
+            receipt.originalHalfGpuBytesVerified=true;
+            Directory.CreateDirectory("QuestCampaignEvidence");
+            File.WriteAllText("QuestCampaignEvidence/native-texture2d-import.json",JsonUtility.ToJson(receipt,true));
             return receipt;
         }
         public static int ValidatePlatformImages()
