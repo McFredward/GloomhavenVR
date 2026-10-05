@@ -344,3 +344,66 @@ outputs. Direct local ASTC/native texture conversion is a narrower first-build
 research candidate, not a proven replacement for Unity import; normal-map
 channels, mipmaps, sprites, fonts, and precision-sensitive textures require exact
 format and visual checks before using it.
+
+### Additional bounded Windows and shader-cache audit
+
+Read-only review of the complete retained Assets tree counts205,024 files, with
+maximum project-relative length183 and output-relative length257. Even an output
+root directly at `C:\` puts11,656 paths at260 characters or more; `C:\GHQ` gives264
+for the largest path, and the example user's Downloads build directory gives307.
+The generated shader include basename concatenates two64-character hashes
+(`produce.py`, generated DXBC/interface include path), followed by `.hlsl.meta`.
+Use one full SHA256 of that unambiguous fixed-width pair as its generated basename,
+retain both original identities in the program manifest, and regenerate the
+include/program references coherently. This saves65 characters without changing
+original shader GUID/meta/localID identities. Rehearse actual Unity/NDK temporary
+and generated paths too; this Assets census does not prove every child tool's
+long-path support. Merely changing the registry is insufficient for applications
+that have not opted in, per Microsoft's
+[long-path contract](https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation).
+
+The Windows producer currently serializes `str(Path(...))` for generated program
+paths; canonical `as_posix()` output and a Windows fixture are required. The C#
+consumer already normalizes program paths, so this review does not establish an
+end-to-end compiler failure from backslashes alone. The actual Linux Player is
+unaffected by these future recipe changes.
+
+`dependencies.python_environment` keys its owned venv only by requirements,
+without checking its interpreter/base executable or native-wheel ABI before
+adding site-packages to the running process. Persist the pinned interpreter/ABI
+identity and verify it before reuse. A mismatch may replace only the owned tool
+environment, preserving valid game/import/signing caches. Current full-game
+`builder.py` also requires Git and a real checkout; an ordinary source-release
+ZIP is not yet sufficient. Provision a pinned portable Git checkout or implement
+a separately verified release-source manifest mode rather than exposing Git
+configuration as a novice's prerequisite.
+
+For cancellation, supervise owned child processes as one Windows Job Object,
+request a graceful stop, then bound termination and wait for children before
+releasing the output lock. Recovery/export currently terminates only its direct
+child, while compiler/download launches can leave descendants running. Microsoft
+[Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
+provide process-group ownership; existing unrelated Unity/license processes must
+remain outside that ownership. This supplements the durable stage/file recovery
+requirements above and is not an implemented Wizard feature.
+
+The shader audit identifies repeated work, without performance measurements:
+PrepareVariantCollection and Validate each parse the72.6MB manifest and validate
+11,656 includes (approximately610.8MB). The native loop repeats query, SMOL-V
+decode, reflection/binding joins and payload hashes for all51,564 original aliases.
+Historical complete evidence contains11,212 bank/stage pairs,1,799 vertex payloads
+and7,904 fragments, with20,915 unique output files. Duplicate output checks cause
+133,777 extra file reads/hashes totaling about3.365GB. Those are counts and byte
+volumes, not elapsed-time claims.
+
+Prioritize one dependency-closure validation per immutable stage with a final
+before/after identity check; decode/reflection reuse keyed by the actual returned
+bank SHA plus exact texture-binding signature; output-file verification once per
+immutable output snapshot; and persisted complete local shader evidence keyed by
+actual shader/importer/dependencies/settings and exact Editor/compiler/helper
+bytes, independently of ordinary mod C# changes. Preserve all688 identities,
+material references, every51,564-alias ledger entry and every per-alias original
+interface check, with corrupt/stale-cache negatives. Output equivalence cannot
+justify omitting an uncompiled input. Root's six retained shader contracts differ
+from historical translated inputs; actual Root bytes govern reuse. These
+optimizations remain future work pending measured cold/warm Windows builds.
