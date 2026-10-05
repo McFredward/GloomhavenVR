@@ -35,9 +35,16 @@ def _private_output(output: Path, project: Path | None = None):
 
 
 def _unity(unity: Path, project: Path, output: Path, method: str, target: str, env=None):
-    command = [str(unity.resolve()), "-batchmode", "-nographics", "-quit", "-buildTarget", target,
+    command = [str(unity.resolve()), "-batchmode", "-quit", "-buildTarget", target,
                "-projectPath", str(project.resolve()), "-executeMethod", method, "-logFile", str(output / (target + ".log"))]
-    result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=1800)
+    if sys.platform.startswith("linux"):
+        command += ["-force-glcore"]
+        if not (env or os.environ).get("DISPLAY"):
+            launcher = shutil.which("xvfb-run")
+            if launcher is None:
+                raise ValidationError("Actual native shader coverage requires a graphics host; install Xvfb or provide DISPLAY.")
+            command = [launcher, "-a", *command]
+    result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=86400 if method.endswith("Validate") else 1800)
     (output / (target + "-console.log")).write_text(result.stdout + result.stderr)
     if result.returncode:
         raise ValidationError("Actual Unity shader validation failed: " + str(output / (target + ".log")))

@@ -327,6 +327,10 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
     manifest = {'schema': 1, 'scope': 'campaign-compiler', 'requiredShaderCount': len(shaders),
                 'requiredMaterialCount': len(inventory['materials']), 'shaders': shaders,
                 'materials': inventory['materials'], 'programs': list(programs.values()), 'originalPixelParityVerified': False}
+    manifest['requiredHostRenderTargetCount'] = max([1, *[signature['semanticIndex'] + 1
+        for shader in inventory['shaders'] for program in shader['variants']
+        if program['stage'] == 'fragment' for signature in program['originalOutputSignature']
+        if signature['semantic'].upper() == 'SV_TARGET']])
     receipt = output / 'QuestRecovery/campaign-shaders.json'
     receipt.parent.mkdir(parents=True, exist_ok=True)
     receipt.write_text(json.dumps(manifest, sort_keys=True, indent=2) + '\n')

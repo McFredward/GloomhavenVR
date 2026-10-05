@@ -47,7 +47,7 @@ namespace GloomhavenVR.Quest.Editor
         }
         [Serializable] public sealed class Manifest
         {
-            public int schema, requiredShaderCount, requiredMaterialCount;
+            public int schema, requiredShaderCount, requiredMaterialCount, requiredHostRenderTargetCount;
             public string scope;
             public OriginalShader[] shaders;
             public OriginalMaterial[] materials;
@@ -81,6 +81,7 @@ namespace GloomhavenVR.Quest.Editor
             if (Application.unityVersion != "2021.3.5f1")
                 throw new InvalidOperationException("Campaign shader evidence requires original Unity 2021.3.5f1.");
             var input = Read(manifestPath);
+            RequireGraphicsHost(input);
             VerifyProgramSources(input);
             Directory.CreateDirectory(outputPath);
             string receiptPath = Path.Combine(outputPath, "android-compiler.json");
@@ -171,6 +172,7 @@ namespace GloomhavenVR.Quest.Editor
         public static void PrepareVariantCollection(string manifestPath)
         {
             var input = Read(manifestPath);
+            RequireGraphicsHost(input);
             VerifyProgramSources(input);
             const string path = "Assets/Resources/QuestCampaignShaderVariants.shadervariants";
             Directory.CreateDirectory("Assets/Resources");
@@ -209,6 +211,16 @@ namespace GloomhavenVR.Quest.Editor
                     Hash(File.ReadAllBytes(path)) != program.sourceSha256)
                     throw new InvalidOperationException("Native shader instruction include changed: " + path);
             }
+        }
+
+        private static void RequireGraphicsHost(Manifest input)
+        {
+            // ShaderData exposes the host-supported imported pass list. Unity's
+            // Null device silently removes native MRT/Deferred passes and
+            // changes their ordinals before a compiler query can validate them.
+            if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null ||
+                SystemInfo.supportedRenderTargetCount < Math.Max(1, input.requiredHostRenderTargetCount))
+                throw new InvalidOperationException("Native Campaign shader coverage requires an actual graphics host with original MRT support; omit -nographics (Linux: Xvfb/OpenGLCore).");
         }
 
         public static void BuildReferenceCandidateBundle()
