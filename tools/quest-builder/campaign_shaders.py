@@ -76,6 +76,8 @@ def stage(source, project, game, cache, tool_archive=None):
     if overlay.exists(): shutil.rmtree(overlay)
     manifest = producer.restore_project(project, cache / "original-shader-inventory.json", cache,
         overlay, preserved_sources=preserve_sources(project))
+    if manifest.get("graphicsApi") != "Vulkan" or manifest.get("compilerPlatform") != "Vulkan":
+        raise BuildError("Complete Campaign shaders do not target the player's Vulkan backend.")
     shutil.copytree(overlay / "Assets", project / "Assets", dirs_exist_ok=True)
     write_json(project / "Assets/QuestOriginalCampaign/campaign-shaders.json", manifest)
     write_json(project / "QuestCampaignEvidence/shader-reconstruction.json", {
