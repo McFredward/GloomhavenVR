@@ -112,3 +112,35 @@ serialized PPtr references. All36,764 formerly unresolved native targets now map
 by exact owner/field and original CAB/pathID; missing/duplicate GUID counts are
 zero. Packed atlas geometry matches all895 original Windows-player sprites under
 actual Unity2021 import, including vertices, UVs, rectangle and pivot.
+
+## Complete-build pipeline corrections, 2026-10-05
+
+The first full-target attempt exposed assumptions that the small startup project
+had not exercised. Already restored native packed loading-Sprites must retain
+their original zero-based drawing geometry; a second atlas-coordinate rewrite
+would corrupt them. Exact packed receipt GUID/pathID/hash and source prefix fields
+now distinguish these from the older trimmed export. The full original UI recipe
+set also includes a second physical blur Shader of the same name. The UI seam
+selects the three exact audited native recipe hashes, retaining the existing
+EULA, promotion and framebuffer-blur programs.
+
+Original CAB ownership scans nested bundle paths as well as top-level banks;
+129 PCG-related banks are nested. Actual full native reconstruction completes
+688 Shaders and9,187 material associations. Complete Android compilation and
+live driver acceptance remain required; a success on a sample family does not
+certify all native keyword banks. Full production builds expose a real graphics
+host because Unity's Null renderer hides original MRT passes.
+
+The actual current-mod Android build produces all three authored banks:
+`gloomhavenvr.bundle`, `ghvr-town.bundle`, `ghvr-town-voices.bundle`. All1,465 core
+clips and the six original CAB Vorbis clips are staged. Four bundled clips carry
+native quad-channel extensions; their repaired Ogg streams preserve every
+original compressed Vorbis packet. Actual imported six-clip GUID/localID/channel/
+rate/frame evidence is distinct from headset listening.
+
+Save AOT closure additionally roots the exact original GlobalData metadata
+classes, SaveOwner/avatar byte arrays, ISerializable formatter families and
+original collection/equality-comparer branches. The real Unity Android SDK passes
+with17 assemblies and these exact roots. Independent original/native-save fixtures
+serialize identical bytes through the original/reflection paths; full headset
+Campaign save/load and cross-platform session admission remain hardware tests.

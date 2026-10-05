@@ -231,8 +231,13 @@ def restore_loading_sprite_geometry(project: Path, game: Path) -> dict:
                     or not _close(_numbers(text, "m_Offset", ("x", "y")), original["offset"])):
                 raise BuildError("Native packed loading-Sprite drawing geometry differs from the original.")
             patched = text
+            render_start = text.index("  m_RD:\n")
+            render_end = text.index("  m_AtlasRD:\n")
+            render = text[render_start:render_end]
             record = {"name": original["name"], "sourcePathId": original["sourcePathId"],
                       "originalRect": original["rect"], "pivot": original["pivot"], "offset": original["offset"],
+                      "restoredAtlasRect": original["rect"], "textureCrop": _rect(render, "textureRect", 4),
+                      "trimOffset": _numbers(render, "textureRectOffset", ("x", "y"), indentation=4),
                       "preservedNativePackedGeometry": True, "packedSpriteManifestSha256": digest(packed_manifest)}
         else:
             patched, record = _restore(text, originals)

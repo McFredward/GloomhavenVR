@@ -1,5 +1,18 @@
 # State — where the project stands
 
+**Quest full Campaign implementation in progress, 2026-10-05: isolated feature, ModBuild623.**
+
+The maintainer authorized implementation through a complete hardware APK, not
+another menu diagnostic. Work remains on `feature/quest3-standalone`, independent
+of concurrent `dev` changes. All13 original scenes and the entire original catalog
+are staged. Actual Android compilation builds all three current-mod asset banks;
+the original native engine/Opus payload and all1,465 core/six bundled audio clips
+are prepared. Full source recovery stages688 original Shaders/9,187 materials.
+The complete Android graphics/compute gates, HDR probe/source Sprite fidelity,
+final IL2CPP player and Windows hardware package are still in progress. B622 is
+retained as the previous artifact; no complete Campaign APK is claimed yet.
+See [full port evidence](QUEST3-FULL-PORT-PROGRESS.md).
+
 **Quest B622 hardware candidate ready, 2026-10-04: isolated feature.**
 
 The exact B621 capture confirms nonuniform Intro decoder/capture/consumer pixels
