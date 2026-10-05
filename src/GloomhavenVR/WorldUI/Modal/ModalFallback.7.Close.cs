@@ -155,6 +155,13 @@ internal static partial class ModalFallback
             return;
         }
 
+        // A purchase can leave the native HUD in its home mode while the converted
+        // shop is still open. Preserve explicit close intent through the fallback
+        // Escape/Hide as well as LeaveMode, including converted 2D map windows.
+        // Temporary native presentation hides must not finish the merchant lesson.
+        using var closeScope = MapRoom.TownWindowCloseScope.Enter(
+            MapRoom.GuildmasterDestinations.IsDestination(window));
+
         // Item 6: flag THIS floated window for release regardless of the game's own IsOpen. A sticky
         // reachable menu the game's single-window toggle already hid stays floated in VR until its
         // OWN X closes it, so here its game state may already be Hidden — the flag is what actually

@@ -9,9 +9,15 @@ internal static class TownWindowCloseScope
 {
     [ThreadStatic] private static int _depth;
     internal static bool Active => _depth > 0;
-    internal static Scope Enter() { _depth++; return default; }
+    internal static Scope Enter(bool enabled = true)
+    {
+        if (enabled) _depth++;
+        return new Scope(enabled);
+    }
     internal readonly struct Scope : IDisposable
     {
-        public void Dispose() { _depth--; }
+        private readonly bool _entered;
+        internal Scope(bool entered) { _entered = entered; }
+        public void Dispose() { if (_entered) _depth--; }
     }
 }
