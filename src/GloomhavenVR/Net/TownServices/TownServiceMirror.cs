@@ -730,6 +730,7 @@ internal static partial class TownServiceMirror
         if (Local.TryGetValue(module, out LocalModule? current))
         {
             if (current.Template == template && current.Address == address && ReferenceEquals(current.Binding.Root, liveRoot)) return;
+            TownServiceDelivery.Retire(ReferenceEquals(_local, PublicLane), ReferenceEquals(_local, StockLane), _service, _session, module);
             current.Binding.Dispose();
         }
         _local.ParentLinksDirty = true;
@@ -740,6 +741,7 @@ internal static partial class TownServiceMirror
     internal static void UnregisterModule(ushort module)
     {
         if (!Local.TryGetValue(module, out LocalModule? current)) return;
+        TownServiceDelivery.Retire(ReferenceEquals(_local, PublicLane), ReferenceEquals(_local, StockLane), _service, _session, module);
         _local.ParentLinksDirty = true; current.Binding.Dispose(); Local.Remove(module); LocalRacks.Remove(module); LocalRackMembers.Remove(module); LocalRackGates.Remove(module); _nextManifest = 0;
     }
 
@@ -1454,7 +1456,8 @@ internal static partial class TownServiceMirror
         ReportReset();
     }
     private static void ClearLocalModules()
-    { _local.ParentLinksDirty = true; _local.CaptureOrder.Clear(); ClearLocalCatalogBanks(); SourceParents.Clear(); LocalRacks.Clear(); LocalRackMembers.Clear(); LocalRackGates.Clear(); foreach (LocalModule module in Local.Values) module.Binding.Dispose(); Local.Clear(); }
+    { _local.ParentLinksDirty = true; _local.CaptureOrder.Clear(); ClearLocalCatalogBanks(); SourceParents.Clear(); LocalRacks.Clear(); LocalRackMembers.Clear(); LocalRackGates.Clear(); foreach (LocalModule module in Local.Values)
+        { TownServiceDelivery.Retire(ReferenceEquals(_local, PublicLane), ReferenceEquals(_local, StockLane), _service, _session, module.Id); module.Binding.Dispose(); } Local.Clear(); }
     private static void ResetInteractionLeases()
     {
         for (int i = 1; i < InteractionLeases.Length; i++)

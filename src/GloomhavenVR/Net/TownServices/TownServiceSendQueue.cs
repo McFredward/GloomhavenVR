@@ -278,6 +278,25 @@ internal sealed class TownServiceLaneSendQueue
         if (!queue.HasInFlight && queue.CompletedIdentity is TownServiceFrame frame)
         { if (frame.BaseSequence == 0) _coldPriority.Remove(frame.Module); TownServiceDelivery.Completed?.Invoke(frame); }
     }
+    internal void RetireSources(bool publicCatalog, bool visitorStock)
+    {
+        if (!TownServiceDelivery.HasRetired(publicCatalog, visitorStock, _service, _session)) return;
+        for (int i = _order.Count - 1; i >= 0; i--)
+        {
+            ushort id = _order[i];
+            if (!TownServiceDelivery.IsRetired(publicCatalog, visitorStock, id)) continue;
+            _sequences[id] = _queues[id].Sequence; _queues[id].Clear(); _queues.Remove(id); _order.RemoveAt(i);
+            if (_clocks.TryGetValue(id, out var clock))
+            { _sequences[id] = Math.Max(_sequences[id], clock.Sequence); clock.Clear(); _clocks.Remove(id); }
+            _catalogBases.Remove(id); _catalogOriginals.Remove(id); _priority.Remove(id); _coldPriority.Remove(id);
+            _bundleBytes.Remove(id); _promotedBundle.Remove(id);
+            if (_normalActive == id) _normalActive = null;
+            if (_priorityActive == id) _priorityActive = null;
+        }
+        // Immutable active bundles finish in their existing namespace. Their
+        // completion callback already refuses genuinely unregistered sources.
+        // Removing current visibility alone never reaches this lifecycle path.
+    }
     private static bool SameCensus(TownServiceFrame a, TownServiceFrame b)
     {
         if (a.VisitorStock != b.VisitorStock || a.PublicCatalog != b.PublicCatalog || a.PublicClaim != b.PublicClaim || a.Session != b.Session || a.Service != b.Service || a.Visible != b.Visible || a.Modules.Length != b.Modules.Length) return false;
@@ -321,6 +340,7 @@ internal sealed class TownServiceSendQueue
           counterMask: TownServiceFragments.StockLaneMarker - 1, fixedMarker: TownServiceFragments.StockLaneMarker); }
     internal void Enqueue(byte[] bytes, int length, TownServiceFrame frame)
     {
+        ApplyRetirements();
         if (!frame.PublicCatalog && !frame.VisitorStock && (_voiceSession != frame.Session || _voiceService != frame.Service))
         { _voice.Clear(); _voicePending.Clear(); _voiceSession = frame.Session; _voiceService = frame.Service; }
         if (frame.Module == TownServiceFrame.VoiceModule)
@@ -339,6 +359,7 @@ internal sealed class TownServiceSendQueue
     }
     internal byte[]? Next(double now)
     {
+        ApplyRetirements();
         if (!_voice.HasPending && !_voice.HasInFlight && _voicePending.Count > 0)
         {
             var eventPacket = _voicePending.Dequeue();
@@ -363,6 +384,7 @@ internal sealed class TownServiceSendQueue
     // this never bypasses their manifests or starts a separate send clock.
     internal byte[]? NextUrgent(double now)
     {
+        ApplyRetirements();
         _laneTurn = (_laneTurn + 1) % 3;
         return _laneTurn == 0 ? _private.NextUrgent(now) ?? _public.NextUrgent(now) ?? _stock.NextUrgent(now)
             : _laneTurn == 1 ? _public.NextUrgent(now) ?? _stock.NextUrgent(now) ?? _private.NextUrgent(now)
@@ -371,6 +393,11 @@ internal sealed class TownServiceSendQueue
     internal void Clear()
     { _private.Clear(); _public.Clear(); _stock.Clear(); _voice.Clear(); _stockVoice.Clear();
         _voicePending.Clear(); _stockVoicePending.Clear(); _voiceSession = _stockVoiceSession = 0;
-        _voiceService = 0; _stockVoiceTurn = false; }
+        _voiceService = 0; _stockVoiceTurn = false; TownServiceDelivery.ClearRetired(); }
+    private void ApplyRetirements()
+    {
+        _private.RetireSources(false, false); _public.RetireSources(true, false); _stock.RetireSources(false, true);
+        TownServiceDelivery.ClearRetired();
+    }
     internal static bool SameIdentity(TownServiceFrame a, TownServiceFrame b) => TownServiceLaneSendQueue.SameIdentity(a,b);
 }

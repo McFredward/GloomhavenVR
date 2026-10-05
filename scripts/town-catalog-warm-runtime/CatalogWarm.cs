@@ -144,6 +144,36 @@ public static partial class MirrorProgram
         foreach (var update in freshLifetime.CatalogBank!.Updates) update.Sequence += 100;
         Check(ReceiveWarm(1, freshLifetime), "complete genuine original repair prepares the replacement template lifetime");
         Check(ReceiveWarm(1, TownCatalogClock.Create(freshLifetime, originals)), "the freshly prepared native lifetime enables another warm clock");
+        var cacheOriginal = typeof(TownServiceMirror).GetMethod("CacheCatalogOriginal", PrivateStatic)!;
+        var exactBody = freshLifetime.CatalogBank!.Updates.Single(f => f.Module == 32);
+        // Exercise the actual immutable native admission boundary repeatedly;
+        // only source module IDs/sequences vary, never original captured values.
+        for (int id = 100; id < 100 + TownServiceFrame.MaxModules + 16; id++)
+        {
+            var frame = TownServiceDelta.Retain(exactBody); frame.Module = (ushort)id; frame.Sequence += (ulong)id;
+            cacheOriginal.Invoke(null, new object[] { -1, frame });
+        }
+        var banks = (IDictionary)typeof(TownServiceMirror).GetField("CatalogOriginalBanks", PrivateStatic)!.GetValue(null)!;
+        object bankObject = banks[-1]!;
+        var slots = (IDictionary)bankObject.GetType().GetField("Originals", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(bankObject)!;
+        Check(slots.Count == TownServiceFrame.MaxModules && slots.Contains((ushort)(100 + TownServiceFrame.MaxModules + 15)) && !slots.Contains((ushort)100),
+            "bounded native cache reclaims an unused oldest source ID and admits genuinely new original values after4096 pooled IDs");
+        Check(slots.Contains((ushort)31) && ReceiveWarm(1, TownCatalogClock.Create(freshLifetime, originals)),
+            "capacity reclaim retains the current prepared native bank including off-page original dependencies");
+        using (TownServiceMirror.UsePublicLane()) TownServiceMirror.UnregisterModule(31);
+        Check(TownServiceDelivery.HasRetired(true, false, 1, 622) && TownServiceDelivery.IsRetired(true, false, 31),
+            "actual production native Unregister records only its precise local lane/session/source module for sender eviction");
+        TownServiceDelivery.ClearRetired();
+        GameObject replacementBody = UnityEngine.Object.Instantiate(sources[32].gameObject); Objects.Add(replacementBody);
+        using (TownServiceMirror.UsePublicLane()) TownServiceMirror.RegisterModule(32, 1, replacementBody.transform, address: "merchant.cardbody|1");
+        Check(TownServiceDelivery.HasRetired(true, false, 1, 622) && TownServiceDelivery.IsRetired(true, false, 32),
+            "replacement of an actual native source root also retires its preceding sender basis");
+        TownServiceDelivery.ClearRetired();
+        using (TownServiceMirror.UsePublicLane()) TownServiceMirror.EndSession();
+        Check(TownServiceDelivery.HasRetired(true, false, 1, 622) && TownServiceDelivery.IsRetired(true, false, 10)
+            && TownServiceDelivery.IsRetired(true, false, 32) && !TownServiceDelivery.IsRetired(true, false, 31),
+            "source lane closure retires all remaining actual native modules without resurrecting the individually removed source");
+        TownServiceDelivery.ClearRetired();
         TownServiceMirror.RemovePeer(1);
         Check(!ReceiveWarm(1, reauthorized), "departed public sender clears all dormant native revisions");
         var coldQueue = new NetAvatarDriver(); coldQueue.QueueFixture(4, TownServiceCodec.Write(reauthorized)); coldQueue.QueueFixture(4, TownServiceCodec.Write(claim));

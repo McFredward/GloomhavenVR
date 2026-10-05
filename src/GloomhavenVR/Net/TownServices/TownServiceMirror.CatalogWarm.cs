@@ -13,11 +13,13 @@ internal static partial class TownServiceMirror
         internal GameObject Template = null!;
         internal ulong Key;
         internal ulong FirstSequence;
+        internal ulong LastUse;
     }
     private sealed class CatalogOriginalBank
     {
         internal byte Service;
         internal uint Session, Claim;
+        internal ulong Touch;
         internal readonly Dictionary<ushort, List<CatalogOriginal>> Originals = new();
     }
     // Canonical native snapshots are independent of the current page's clones,
@@ -77,16 +79,16 @@ internal static partial class TownServiceMirror
         {
             CatalogOriginalBinding(frame).Validate(frame, Assets);
             CatalogOriginalBank? bank = CatalogCache(peer, frame, true);
-            if (bank == null || bank.Originals.Count >= TownServiceFrame.MaxModules && !bank.Originals.ContainsKey(frame.Module)) return;
+            if (bank == null || !MakeCatalogCacheRoom(peer, bank, frame.Module)) return;
             bank.Claim = frame.PublicClaim;
             ulong key = TownCatalogBank.ContentKey(frame);
             if (!bank.Originals.TryGetValue(frame.Module, out var revisions)) bank.Originals.Add(frame.Module, revisions = new List<CatalogOriginal>(3));
             CatalogOriginal? previous = revisions.Find(original => original.Key == key);
             if (previous != null)
-            { previous.FirstSequence = Math.Min(previous.FirstSequence, frame.Sequence); if (previous.Frame.Sequence >= frame.Sequence) return; revisions.Remove(previous); }
+            { previous.LastUse = ++bank.Touch; previous.FirstSequence = Math.Min(previous.FirstSequence, frame.Sequence); if (previous.Frame.Sequence >= frame.Sequence) return; revisions.Remove(previous); }
             revisions.Add(new CatalogOriginal { Frame = frame, FirstSequence = previous?.FirstSequence ?? frame.Sequence,
                 Template = Templates[TemplateKey(frame.Service, frame.Template, frame.TemplateAddress)],
-                Key = key });
+                Key = key, LastUse = ++bank.Touch });
             if (revisions.Count > 3)
             {
                 int first = 0; for (int i = 1; i < revisions.Count; i++) if (revisions[i].FirstSequence < revisions[first].FirstSequence) first = i;
@@ -94,6 +96,40 @@ internal static partial class TownServiceMirror
             }
         }
         catch (Exception error) { Report("catalog preparation original", error); }
+    }
+
+    private static bool MakeCatalogCacheRoom(int peer, CatalogOriginalBank bank, ushort id)
+    {
+        if (bank.Originals.ContainsKey(id) || bank.Originals.Count < TownServiceFrame.MaxModules) return true;
+        ushort oldest = 0; ulong oldestUse = ulong.MaxValue; bool found = false;
+        foreach (var pair in bank.Originals)
+        {
+            if (CatalogOriginalRequired(peer, bank, pair.Key)) continue;
+            ulong used = 0; foreach (CatalogOriginal revision in pair.Value) used = Math.Max(used, revision.LastUse);
+            if (!found || used < oldestUse) { oldest = pair.Key; oldestUse = used; found = true; }
+        }
+        if (!found) return false;
+        bank.Originals.Remove(oldest); return true;
+    }
+
+    private static bool CatalogOriginalRequired(int peer, CatalogOriginalBank bank, ushort id)
+    {
+        if (Pending.TryGetValue(peer, out var pending) && pending.TryGetValue(id, out var frame)
+            && frame.Service == bank.Service && frame.Session == bank.Session) return true;
+        if (Remote.TryGetValue(peer, out var remote) && remote.TryGetValue(id, out var module) && module.Alive
+            && module.LastFrame?.Service == bank.Service && module.LastFrame.Session == bank.Session) return true;
+        if (ReceivedCatalogBanks.TryGetValue(peer, out var roots))
+            foreach (TownServiceFrame root in roots.Values)
+                if (root.Service == bank.Service && root.Session == bank.Session && root.CatalogBank != null
+                    && (pending != null && pending.ContainsKey(root.Module)
+                        || remote != null && remote.TryGetValue(root.Module, out var housing) && housing.Alive
+                        || Sessions.TryGetValue(peer, out var session) && session.Service == bank.Service && session.Session == bank.Session
+                            && Array.BinarySearch(session.Modules, root.Module) >= 0))
+                    foreach (TownCatalogBankMember member in root.CatalogBank.Members) if (member.Id == id) return true;
+        // Dormant cached frames survive ordinary visibility changes. Capacity
+        // reclaim only discards an unused oldest value; missed references still
+        // require exact originals and recover through the retained full bank.
+        return false;
     }
 
     private static bool CompleteCatalogBank(int peer, TownServiceFrame root, TownCatalogBank bank, out TownCatalogBank complete)

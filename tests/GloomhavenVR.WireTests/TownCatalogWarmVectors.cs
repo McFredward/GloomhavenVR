@@ -17,6 +17,7 @@ internal static class TownCatalogWarmVectors
         ExactPropertyPatch(t);
         HeaderBounds(t);
         QueueAssemblyAndFairness(t);
+        ActualSourceRetirement(t);
     }
 
     // Independently specified little-endian row: uint packet length225, original
@@ -220,6 +221,58 @@ internal static class TownCatalogWarmVectors
             t.True(worstClockGap <= 2 && bgPages > 0 && bgAt >= 0 && fullPages > 0, "every third background share survives while urgent clock assembly finishes");
             t.True(fullAt < 600 && bgAt < 600, "complete repair and background both assemble inside the unchanged120-second lifetime");
         }
+    }
+
+    private static void ActualSourceRetirement(Harness t)
+    {
+        t.Case("Only actual scoped source retirement reclaims catalog queue and basis capacity");
+        TownServiceDelivery.ClearRetired(); var queue = new TownServiceSendQueue(65536);
+        var source = Header(12); source.Nodes = new[] { new TownServiceNode { Binding = 7 } };
+        source.Nodes[0].Values.Add(TownServiceProperty.Active, new TownServiceValue { Numbers = new[] { 1f } });
+        for (int id = 20; id < 20 + TownServiceFrame.MaxModules; id++)
+        { var frame = TownServiceDelta.Retain(source); frame.Module = (ushort)id; byte[] bytes = TownServiceCodec.Write(frame); queue.Enqueue(bytes, bytes.Length, frame); }
+        object lane = typeof(TownServiceSendQueue).GetField("_public", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(queue)!;
+        System.Collections.IDictionary Dictionary(string field) => (System.Collections.IDictionary)lane.GetType().GetField(field, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(lane)!;
+        t.Equal(TownServiceFrame.MaxModules, Dictionary("_catalogBases").Count, "real sender fills the complete original basis bound");
+        var census = new TownServiceFrame { PublicCatalog = true, PublicClaim = 3, Service = 1, Session = 99, Sequence = 100,
+            Module = TownServiceFrame.ManifestModule, Visible = true, Pose = IdentityPose() };
+        byte[] manifest = TownServiceCodec.Write(census); queue.Enqueue(manifest, manifest.Length, census);
+        t.True(Dictionary("_catalogBases").Contains((ushort)20) && Dictionary("_queues").Contains((ushort)20),
+            "ordinary visibility census cannot evict a genuine dormant original");
+        TownServiceDelivery.Retire(false, false, 1, 99, 20);
+        TownServiceDelivery.Retire(true, false, 1, 100, 21);
+        queue.Next(0);
+        t.True(Dictionary("_catalogBases").Contains((ushort)20) && Dictionary("_catalogBases").Contains((ushort)21),
+            "another lane or session cannot retire the current source basis");
+        for (ushort id = 20; id < 4020; id++) TownServiceDelivery.Retire(true, false, 1, 99, id);
+        var replacement = TownServiceDelta.Retain(source); replacement.Module = 5000;
+        byte[] packet = TownServiceCodec.Write(replacement); queue.Enqueue(packet, packet.Length, replacement);
+        t.True(!Dictionary("_catalogBases").Contains((ushort)20) && Dictionary("_catalogBases").Contains((ushort)5000)
+            && Dictionary("_catalogBases").Count == 97 && Dictionary("_queues").Count == 98,
+            "real retired originals release all4000 queue/basis slots and admit the new original source");
+        var assembler = new TownServiceFragments(); bool delivered = false;
+        for (int tick = 1; tick < 600 && !delivered; tick++)
+        {
+            double now = tick / 20d + tick * 1e-9; byte[]? page = queue.Next(now); if (page == null) continue;
+            byte[]? done = assembler.Accept(2, page, page.Length, now); if (done == null) continue;
+            byte[][] frames = TownServiceCodec.TryReadBundle(done, done.Length, out var group) ? group! : new[] { done };
+            foreach (byte[] bytes in frames) if (TownServiceCodec.TryRead(bytes, bytes.Length, out var frame) && frame!.Module == 5000) delivered = true;
+        }
+        t.True(delivered, "replacement source actually traverses the bounded original sender and assembler after capacity reclaim");
+        TownServiceDelivery.Retire(true, false, 1, 99, 5000); queue.Clear();
+        t.True(!TownServiceDelivery.HasRetired(true, false, 1, 99), "network queue lifecycle clears pending local retirement without subscribers");
+
+        queue = new TownServiceSendQueue(65536); var inflight = TownServiceDelta.Copy(source); inflight.Module = 70;
+        inflight.Nodes[0].Values[TownServiceProperty.TmpText] = new TownServiceValue { Text = new[] { RandomText(16000, 777) } };
+        byte[] original = TownServiceCodec.Write(inflight); queue.Enqueue(original, original.Length, inflight);
+        assembler = new TownServiceFragments(); byte[] first = queue.Next(0)!;
+        t.True(assembler.Accept(2, first, first.Length, 0) == null, "retirement probe begins a genuinely fragmented immutable original bundle");
+        TownServiceDelivery.Retire(true, false, 1, 99, 70); byte[]? complete = null;
+        for (int tick = 1; tick < 600 && complete == null; tick++)
+        { double now = tick / 20d + tick * 1e-9; byte[]? page = queue.Next(now); if (page != null) complete = assembler.Accept(2, page, page.Length, now); }
+        t.True(complete != null && TownServiceCodec.TryReadBundle(complete, complete.Length, out var completed) && completed!.Length == 1
+            && original.SequenceEqual(completed[0]), "actual source retirement finishes an already-started original bundle without interleaving its namespace");
+        queue.Clear();
     }
 
     private static TownServiceFrame HeaderRoot()

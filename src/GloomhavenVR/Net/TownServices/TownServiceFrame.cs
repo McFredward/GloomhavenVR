@@ -73,6 +73,32 @@ internal sealed class TownServiceFrame
 internal static class TownServiceDelivery
 {
     internal static Action<TownServiceFrame>? Completed = null;
+    private sealed class RetiredLane
+    {
+        internal byte Service;
+        internal uint Session;
+        internal bool Pending;
+        // Module IDs are ushort and are never reused during a source session.
+        // A fixed bitmap also bounds retirement while transport is offline.
+        internal readonly byte[] Modules = new byte[8192];
+    }
+    private static readonly RetiredLane[] Retired = { new(), new(), new() };
+    private static int Lane(bool publicCatalog, bool visitorStock) => visitorStock ? 2 : publicCatalog ? 1 : 0;
+    internal static void Retire(bool publicCatalog, bool visitorStock, byte service, uint session, ushort module)
+    {
+        RetiredLane lane = Retired[Lane(publicCatalog, visitorStock)];
+        if (lane.Service != service || lane.Session != session)
+        { Array.Clear(lane.Modules, 0, lane.Modules.Length); lane.Service = service; lane.Session = session; }
+        lane.Modules[module >> 3] |= (byte)(1 << (module & 7)); lane.Pending = true;
+    }
+    internal static bool HasRetired(bool publicCatalog, bool visitorStock, byte service, uint session)
+    { RetiredLane lane = Retired[Lane(publicCatalog, visitorStock)]; return lane.Pending && lane.Service == service && lane.Session == session; }
+    internal static bool IsRetired(bool publicCatalog, bool visitorStock, ushort module)
+    { RetiredLane lane = Retired[Lane(publicCatalog, visitorStock)]; return (lane.Modules[module >> 3] & (1 << (module & 7))) != 0; }
+    // The single production FFS presentation scheduler consumes all three lanes
+    // together on the Unity thread. No subscriber or native object is retained.
+    internal static void ClearRetired()
+    { foreach (RetiredLane lane in Retired) if (lane.Pending) { Array.Clear(lane.Modules, 0, lane.Modules.Length); lane.Pending = false; } }
 }
 
 internal sealed class TownServiceNode

@@ -18,6 +18,7 @@ def main():
     parser.add_argument('--source-root', type=Path, default=ROOT)
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/town-catalog-warm')
     parser.add_argument('--no-negative-controls', action='store_true')
+    parser.add_argument('--negative-control', action='append', choices=['native-toggle-patch', 'queue-completeness', 'peer-cache-clear', 'native-cache-capacity', 'native-source-retirement'])
     args = parser.parse_args()
     root = args.source_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -52,8 +53,12 @@ internal int QueuedFixture(int peer) => _pendingTown.TryGetValue(peer, out var p
         variants += [
             ('native-toggle-patch', 'TownCatalogClock.cs', 'headers[i] = TownServiceDelta.Create(reauthorized, current);', 'headers[i] = TownServiceDelta.Retain(current); headers[i].Nodes = Array.Empty<TownServiceNode>(); headers[i].BaseSequence = previous.Sequence;', 'actual captured Canvas and mesh exposure changes produce genuine original property patches'),
             ('queue-completeness', 'WarmQueue.cs', '| (frame.CatalogBank?.Updates.Length == 0 ? 524288u : 0u)', '', 'main-thread coalescing retains rejected references and complete repair with the same source sequence'),
+            ('native-source-retirement', 'TownServiceMirror.cs', 'if (!Local.TryGetValue(module, out LocalModule? current)) return;\n        TownServiceDelivery.Retire(ReferenceEquals(_local, PublicLane), ReferenceEquals(_local, StockLane), _service, _session, module);', 'if (!Local.TryGetValue(module, out LocalModule? current)) return;', 'actual production native Unregister records only its precise local lane/session/source module for sender eviction'),
+            ('native-cache-capacity', 'TownServiceMirror.CatalogWarm.cs', 'if (bank == null || !MakeCatalogCacheRoom(peer, bank, frame.Module)) return;', 'if (bank == null || bank.Originals.Count >= TownServiceFrame.MaxModules && !bank.Originals.ContainsKey(frame.Module)) return;', 'bounded native cache reclaims an unused oldest source ID and admits genuinely new original values after4096 pooled IDs'),
             ('peer-cache-clear', 'TownServiceMirror.CatalogBank.cs', 'CatalogOriginalBanks.Remove(peer);', '// cache clear disabled', 'departed public sender clears all dormant native revisions'),
         ]
+    if args.negative_control:
+        variants = [case for case in variants if case[0] == 'production' or case[0] in args.negative_control]
     manifest = {'suite': 'catalog-warm', 'result': str(run / 'results.txt'), 'evidence': str(run), 'cases': []}
     unity = Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity'))
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
