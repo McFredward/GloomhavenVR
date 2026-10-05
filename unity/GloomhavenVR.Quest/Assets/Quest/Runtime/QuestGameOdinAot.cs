@@ -32,6 +32,15 @@ namespace GloomhavenVR.Quest
             PreserveComplex<PartyAdventureData>();
             PreserveComplex<GHRuleset>();
             PreserveComplex<StatsDataStorage>();
+            PreserveComplex<IEqualityComparer<string>>();
+            PreserveComplex<IEqualityComparer<int>>();
+            var keyBinding = new ReflectionFormatter<GlobalData.KeyBinding>();
+            keyBinding.Serialize(null, null);
+            keyBinding.Deserialize(null);
+            PreserveSerializable<GlobalData>();
+            PreserveSerializable<StatsDataStorage>();
+            PreserveSerializable<PartyAdventureData>();
+            PreserveSerializable<GHRuleset>();
         }
 
         [Preserve]
@@ -48,6 +57,14 @@ namespace GloomhavenVR.Quest
             var serializer = new ComplexTypeSerializer<T>();
             serializer.WriteValue(null, default(T), null);
             serializer.ReadValue(null);
+        }
+
+        [Preserve]
+        static void PreserveSerializable<T>()
+        {
+            var formatter = new SerializableFormatter<T>();
+            formatter.Serialize(default(T), null);
+            formatter.Deserialize(null);
         }
     }
 }

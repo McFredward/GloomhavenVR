@@ -123,8 +123,16 @@ namespace GloomhavenVR.Quest
                 QuestGameContent.Validate(modManifest, stamp.inputKey, "quest-mod-content.zip");
                 foreach (var file in modManifest.files) modContentWeight += file.size;
                 foreach (var file in manifest.files) gameContentWeight += file.size;
-                if (modManifest.files.Length != 1 || modManifest.files[0].path != "StreamingAssets/gloomhavenvr.bundle")
-                    throw new InvalidDataException("Real mod content must contain exactly the manifested Android gloomhavenvr.bundle.");
+#if GHVR_QUEST_GAME
+                string[] banks = { "StreamingAssets/gloomhavenvr.bundle", "StreamingAssets/ghvr-town.bundle", "StreamingAssets/ghvr-town-voices.bundle" };
+#else
+                string[] banks = { "StreamingAssets/gloomhavenvr.bundle" };
+#endif
+                if (modManifest.files.Length != banks.Length)
+                    throw new InvalidDataException("Real mod content must contain the complete manifested Android bank set.");
+                for (int i = 0; i < banks.Length; i++)
+                    if (modManifest.files[i].path != banks[i])
+                        throw new InvalidDataException("Real mod content contains an unexpected Android bank or loader order.");
                 // Configure and validate the optimized native hash ABI before
                 // workers start; a missing Android plugin must fail explicitly.
                 QuestGameContent.ConfigureNativeHash();

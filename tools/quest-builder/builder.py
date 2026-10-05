@@ -1,4 +1,4 @@
-"""Player-operated local Quest conversion, using only Python's standard library.
+"""Player-operated local Quest conversion with privately provisioned build tools.
 
 Every external step executes real tools and verifies outputs. A diagnostic target
 is explicitly distinct from a recovered, woven game. Proprietary inputs, identity,
@@ -29,6 +29,7 @@ from audio import stage_startup_audio, REPORT as AUDIO_REPORT, RESOURCE as AUDIO
 import ui_assets
 import full_assets
 import campaign
+import mod_assets
 
 from profile import discover_steam_root, dummy_identity, load_profile, read_logo, ProfileError
 from storage import (BuildError, Stages, canonical, digest, ensure_output, inventory,
@@ -395,10 +396,12 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             if args.target == "game":
                 import dependencies
                 import campaign_native
+                import campaign_shaders
                 campaign.stage_file_backed_extras(project, game)
                 dependencies.python_environment(output / "tool-cache", source)
                 selected_tools = toolchain(args, output)
                 campaign_native.stage(source, project, game, output / "tool-cache/campaign-native", Path(selected_tools["androidNdk"]))
+                campaign_shaders.stage(source, project, game, output / "tool-cache/campaign-shaders" / inputs["game"]["key"])
             package_startup_content(project, inputs["inputKey"])
             package_data = json.loads((project / "Packages/manifest.json").read_text(encoding="utf-8"))
             package_data.setdefault("dependencies", {})["com.unity.addressables"] = "1.19.19"
@@ -533,8 +536,10 @@ def package_startup_content(project: Path, input_key: str) -> dict:
     return manifest
 
 
-def validate_mod_bundle(folder: Path, authored: Path, source_files: list[dict]) -> dict:
+def validate_mod_bundle(folder: Path, authored: Path, source_files: list[dict], *, full_game=False) -> dict:
     """Verify native Android art and all declared compiler inputs on cache reuse."""
+    if full_game:
+        return mod_assets.validate_bundle_set(folder, authored, source_files, full_game=True)
     receipt = json.loads((folder / "quest-mod-bundles.json").read_text(encoding="utf-8"))
     contract = {"schema": 1, "target": "Android", "unityVersion": "2021.3.5f1",
                 "bundleName": "gloomhavenvr.bundle", "graphicsApi": "OpenGLES3",
@@ -578,7 +583,8 @@ def package_mod_content(project: Path, inputs: dict, output: Path, source: Path,
              in ("Assets", "Packages", "ProjectSettings")]
     if not any(row["path"] == "Assets/Editor/QuestModBundles.cs" for row in files):
         raise BuildError("The selected source is missing the authored Android mod bundle recipe.")
-    key = value_hash({"files": files, "editorSha256": digest(editor), "recipe": RECIPE})
+    full_game = inputs.get("target") == "game"
+    key = value_hash({"files": files, "editorSha256": digest(editor), "fullGame": full_game, "recipe": RECIPE})
     root = output / "cache/mod-bundle" / key
     authored, bundles = root / "project", root / "bundles"
 
@@ -590,26 +596,27 @@ def package_mod_content(project: Path, inputs: dict, output: Path, source: Path,
         snapshot(source / prefix, files, authored)
         env = dict(os.environ)
         env["GHVR_QUEST_MOD_BUNDLE_OUTPUT"] = str(bundles)
+        env["GHVR_QUEST_MOD_FULL_GAME"] = "1" if full_game else "0"
         command([str(editor), "-batchmode", "-nographics", "-projectPath", str(authored),
                  "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.QuestModBundles.BuildAll",
                  "-logFile", str(output / "logs" / ("mod-bundle-" + key[:12] + ".log"))],
                 output / "logs" / ("mod-bundle-launch-" + key[:12] + ".log"), env=env)
-        receipt = validate_mod_bundle(bundles, authored, files)
-        return [bundles / "gloomhavenvr.bundle", bundles / "quest-mod-bundles.json"], receipt
+        receipt = validate_mod_bundle(bundles, authored, files, full_game=full_game)
+        return [bundles / row["path"] for row in mod_assets.bundle_records(receipt)] + [bundles / "quest-mod-bundles.json"], receipt
 
     Stages(output).run("mod-bundle", key, compile_art)
-    receipt = validate_mod_bundle(bundles, authored, files)
+    receipt = validate_mod_bundle(bundles, authored, files, full_game=full_game)
     streaming = project / "Assets/StreamingAssets"
     streaming.mkdir(parents=True, exist_ok=True)
     archive_path = streaming / "quest-mod-content.zip"
-    name = "StreamingAssets/gloomhavenvr.bundle"
-    record = {**receipt["bundle"], "path": name}
+    records = [{**row, "path": "StreamingAssets/" + row["path"]} for row in mod_assets.bundle_records(receipt)]
     with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_STORED) as archive:
-        info = zipfile.ZipInfo(name, date_time=(2020, 1, 1, 0, 0, 0))
-        with (bundles / "gloomhavenvr.bundle").open("rb") as original, archive.open(info, "w") as destination:
-            shutil.copyfileobj(original, destination, 1024 * 1024)
+        for record in records:
+            info = zipfile.ZipInfo(record["path"], date_time=(2020, 1, 1, 0, 0, 0))
+            with (bundles / Path(record["path"]).name).open("rb") as original, archive.open(info, "w") as destination:
+                shutil.copyfileobj(original, destination, 1024 * 1024)
     manifest = {"schema": 1, "inputKey": inputs["inputKey"], "archive": archive_path.name,
-                "archiveSha256": digest(archive_path), "files": [record]}
+                "archiveSha256": digest(archive_path), "files": records}
     resources = project / "Assets/Quest/Resources"
     write_json(resources / "quest-mod-content.json", manifest)
     write_json(resources / "quest-mod-bundles.json", receipt)

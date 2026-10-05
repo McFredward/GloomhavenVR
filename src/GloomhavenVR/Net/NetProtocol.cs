@@ -553,7 +553,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 622;
+    public const ushort ModBuild = 623;
+
+    // ModBuild 623 — complete standalone Quest Campaign package.
+    // Recover every original scene, catalog object and native asset reference;
+    // rebuild full Android art, current VR town/voice banks and exact shader
+    // instruction streams. Bind original procedural ABI to the isolated ARM64
+    // worker, preserve original local save bytes and session-code transport.
+    // Install the complete content bank automatically beside the signed APK;
+    // unchanged banks and warm launches retain their verified local receipts.
+    // Guildmaster/Workshop and store/cloud services remain outside Quest scope.
+    // Source/host/compiler evidence does not establish headset acceptance.
 
     // ModBuild 622 — follow the exact B621 headset pixel and timing evidence.
     // Intro decoder/capture/consumer textures contain real pixels; the desktop

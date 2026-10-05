@@ -63,7 +63,7 @@ references the original game explicitly without exposing its global Debug wrappe
 to unrelated Unity packages. Compilation does not prove PC room admission, actual
 microphone operation or headset rendering.
 
-Current focused QuestWeaver proof: 752 assertions, including roundtripped native
+Current focused QuestWeaver proof: 754 assertions, including roundtripped native
 proxy bodies and a changed-ABI negative control. Original DLL adaptation verifies
 5,050 unrelated types unchanged. Full packaging remains gated by complete assets,
 faithful shaders, native runtime dependencies and current-mod AOT evidence; no
@@ -106,3 +106,9 @@ capability opcode in the staged assembly. Save serializers and formats remain
 original; Unity IL2CPP execution and full-game headset acceptance stay distinct.
 The collector now includes bounded raw private procedural worker/engine logs
 through run-as for the diagnostic player.
+
+The corrected native recovery stage contains128,629 hashed files and461,566 actual
+serialized PPtr references. All36,764 formerly unresolved native targets now map
+by exact owner/field and original CAB/pathID; missing/duplicate GUID counts are
+zero. Packed atlas geometry matches all895 original Windows-player sprites under
+actual Unity2021 import, including vertices, UVs, rectangle and pivot.

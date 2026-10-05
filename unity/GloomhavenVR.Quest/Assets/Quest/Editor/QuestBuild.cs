@@ -260,6 +260,7 @@ namespace GloomhavenVR.Quest.Editor
             if (campaign)
             {
                 QuestCampaignAssetValidation.Validate();
+                QuestCampaignShaderValidation.PrepareVariantCollection();
                 QuestCampaignShaderValidation.Validate();
             }
             QuestStartupAddressablesBuild.Build();

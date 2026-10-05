@@ -99,7 +99,45 @@ def load_manifests(project):
         relative_path(path)
         if not (project / path).is_file():
             raise CasePathError("Declared script binding asset is absent: " + path)
+    campaign_path = project / "Assets/QuestOriginalCampaign/campaign-addressables.json"
+    if campaign_path.is_file():
+        campaign = json.loads(campaign_path.read_text())
+        if campaign.get("schema") != 1 or not isinstance(campaign.get("entries"), list):
+            raise CasePathError("Unsupported Campaign Addressables manifest")
+        for row in campaign["entries"]:
+            path = row.get("assetPath")
+            if path is None: continue
+            relative_path(path)
+            if not (project / path).is_file() or asset_guid(project, path) != row.get("recoveredGuid"):
+                raise CasePathError("Campaign original asset identity mismatch: " + path)
+            if "BundledAssetProvider" in row.get("provider", ""):
+                bundled_path = row["assetPath"]
+                associated.add(bundled_path)
     return addressables, bindings, associated
+
+
+def campaign_manifest_updates(project, moves):
+    """Migrate generated paths while retaining all original keys and identities."""
+    updates = {}
+    root = "Assets/QuestOriginalCampaign/"
+    for name in ("campaign-addressables.json", "campaign-scenes.json", "script-bindings.json", "campaign-shaders.json"):
+        path = root + name
+        if not (project / path).is_file(): continue
+        document = json.loads((project / path).read_text())
+        if document.get("schema") != 1:
+            raise CasePathError("Unsupported Campaign path manifest: " + path)
+        if name == "campaign-addressables.json":
+            for row in document["entries"]:
+                if row.get("assetPath") is not None: row["assetPath"] = mapped(row["assetPath"], moves)
+        elif name == "campaign-scenes.json":
+            for row in document["scenes"]: row["path"] = mapped(row["path"], moves)
+        elif name == "script-bindings.json":
+            document["assetPaths"] = [mapped(path, moves) for path in document["assetPaths"]]
+        else:
+            for key in ("shaders", "materials", "programs"):
+                for row in document.get(key, []): row["assetPath"] = mapped(row["assetPath"], moves)
+        updates[path] = document
+    return updates
 
 
 def plan(nodes_by_path, bundled):
@@ -227,6 +265,7 @@ def migrate(project):
             row["assetPath"] = mapped(row["assetPath"], moves)
     new_bindings["assetPaths"] = [mapped(p, moves) for p in bindings["assetPaths"]]
     updates = {ADDRESSABLES: new_addressables, BINDINGS: new_bindings}
+    updates.update(campaign_manifest_updates(project, moves))
     previous = {path: (project / path).read_bytes() for path in updates}
     operations = sorted(moves.items(), key=lambda item: (item[0].count("/"), item[0]))
     completed = []
