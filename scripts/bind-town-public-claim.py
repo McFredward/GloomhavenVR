@@ -32,12 +32,24 @@ def sources(root):
         "internal static bool ApplyOriginalControl(TownMerchantControlOperation operation, int value)",
         "internal static TownRackState? ControlClock", "internal static void ApplySharedControlClock(TownRackState clock)",
         "private static void CommitPublicVisibility()"))
+    # The optional manual clutch extends the same metadata control coordinator.
+    # Bind its actual facade as well; do not shadow it with a test implementation.
+    for signature in ("internal static bool TryBeginCrank", "internal static bool CanGrabCrank",
+                      "internal static bool IsLocalCrankOwner", "internal static void RequestCrankDrag",
+                      "internal static bool RequestCrankRelease", "internal static void RequestCrankCancel",
+                      "internal static bool CanBeginOriginalCrank", "internal static bool ApplyOriginalCrankRelease",
+                      "internal static void ApplySharedCrank"):
+        if "    " + signature in merchant: claim += "\n" + block(merchant, signature)
     follower = "\n".join(block(drawer, signature) for signature in (
         "internal void Follow(TownRackState state)", "internal bool Select(int category, bool selling)",
         "private bool Begin(int page, int direction = 0)", "internal void Tick(float opacity)"))
     retain_start = drawer.index("    internal bool RetainsPage(int page)")
     follower += drawer[retain_start:drawer.index(";", retain_start)+1]
     follower += block(drawer, "internal bool RequestTurn(int direction)")
+    for signature in ("internal bool RequestTurn(int direction, float leadAngle)",
+                      "internal void FollowCrank(int owner, float leadAngle)",
+                      "public void OnGrabCancelled(VRHand hand)"):
+        if "    " + signature in drawer: follower += "\n" + block(drawer, signature)
     for signature in ("public bool CanGrab =>",):
         expression_start = drawer.index("    " + signature)
         follower += drawer[expression_start:drawer.index(";", expression_start)+1]

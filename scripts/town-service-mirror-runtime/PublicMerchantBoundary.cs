@@ -21,6 +21,11 @@ namespace GloomhavenVR.WorldUI
         internal static void FixtureFollowPublicRack() => FollowPublicRack();
         internal static void FixtureResetVisibility() => _observingPublic = false;
     }
+    // The held-object adapter is the native grabber boundary. This fixture does
+    // not run tracked grab input; production FollowCrank/OnGrabCancelled still
+    // own the drawer's pending/acquired clutch lifecycle.
+    internal static class PublicCrankGrabberPort
+    { internal static void CancelAll(this GloomhavenVR.Hands.Grabber grabber) => grabber.Held = null; }
     internal static class StoryComposite { internal static bool PointOfNoReturn; }
     internal static class TownServiceAvailability
     { internal static bool Unlocked = true; internal static bool NativeUnlocked(byte service) => Unlocked; }
@@ -47,7 +52,7 @@ namespace GloomhavenVR.WorldUI
         private TownServiceCabinetAudio _audio => _followAudio ??= new TownServiceCabinetAudio(HousingRoot);
         private float _clock, _leadAngle;
         private bool _turning, _swapped;
-        private bool _disposed, _laser;
+        private bool _disposed, _laser, _sharedCrankAcquired;
         private Vector3 _cursorStart;
         private float _pull, _lastVisibility = float.NaN;
         private int _availablePages = 2;
