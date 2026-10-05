@@ -673,3 +673,28 @@ check, reclaiming 11,518,809,720 bytes. Historical DLL/PDB evidence, prior B622
 symbols, current native source, imported Library and original inputs remain.
 An intervening filesystem restriction prevented starting a replacement Player;
 the restored full-access session continues from these retained inputs.
+
+## Retained full-player retry after access restoration
+
+Actual write probes confirm both the feature worktree and private build root are
+writable again. Invocation
+`096d48d6f0ef4850cc75ab8c1d3209edaee1ce396986912699fc0fe93728b0b9`
+uses the retained original import, frozen fa6c1f9a/ModBuild623 runtime and input
+7ecd1e97. Its launch capture binds 31 host modules, the three-header Layer repair
+and the owned ForwardAdd keyword callback. The Android package-API compilation
+completes before the controlled native content build. No exhaustive shader sweep
+is requested, and no full-game artifact is published at this checkpoint.
+
+The native dependency calculation again reports Unity keyword-space assertions.
+These remain a separate unresolved observation from compiler errors and require
+checking against actual cooked coverage; successful process exit alone does not
+resolve them. The complete Player log is now a mandatory native compiler-error
+gate, with the previous 47-error dc3 log serving as its rejection control.
+
+Cleanup checks actual host process references, immutable input/build records and
+clean integrated Git ancestry before removing owned obsolete outputs. Ten old
+worker/fixture candidates reclaim 5,231,525,888 bytes. Four obsolete staged
+B612–B615 startup APK copies reclaim another 5,033,417,543 bytes; their small
+diagnostic documents remain. Current Library, native linker/source, transaction
+rollback, B622 baseline, supplied captures, signing state and other dev work are
+preserved. Private completed-removal receipts record each scope and identity.
