@@ -219,10 +219,13 @@ def project_generation_paths(output: Path, project: Path, input_key: str):
         raise BuildError("Unexpected generated project identity.")
     marker = _ordinary_owned(output / "cache/project-lifecycle" / project.name / "owner.json")
     backup = marker.parent / "Library"
-    expected = {"schema": 1, "owner": "Quest generated project", "project": project.relative_to(output).as_posix(), "inputKey": input_key}
+    expected = {"schema": 2, "owner": "Quest generated project", "project": project.relative_to(output).as_posix(), "workspaceKey": project.name}
     if marker.exists():
         _ordinary_owned(marker)
-        if json.loads(marker.read_text()) != expected: raise BuildError("Generated project ownership changed.")
+        prior = json.loads(marker.read_text())
+        legacy = {"schema": 1, "owner": "Quest generated project", "project": project.relative_to(output).as_posix(), "inputKey": input_key}
+        if prior == legacy: write_json(marker, expected)
+        elif prior != expected: raise BuildError("Generated project ownership changed.")
     else:
         if project.exists():
             settings = project / "QuestBuilderSettings.json"
@@ -272,7 +275,8 @@ def recover_project_content(output: Path, project: Path, input_key: str):
     journal = _ordinary_owned(root / "pending.json")
     if not journal.exists(): return
     value = json.loads(journal.read_text())
-    if value.get("schema") != 1 or value.get("inputKey") != input_key or value.get("project") != project.relative_to(output).as_posix():
+    journal_key = value.get("inputKey")
+    if value.get("schema") != 1 or not isinstance(journal_key, str) or len(journal_key) != 64 or any(c not in "0123456789abcdef" for c in journal_key) or value.get("project") != project.relative_to(output).as_posix():
         raise BuildError("Content recovery journal differs from its generated project.")
     if not isinstance(value.get("files"), list) or len(value["files"]) != 2 or {row.get("path") for row in value["files"]} != set(CONTENT_PATHS):
         raise BuildError("Content journal must preserve the exact archive/manifest pair.")
@@ -281,6 +285,11 @@ def recover_project_content(output: Path, project: Path, input_key: str):
         saved = _ordinary_owned(root / row["backup"])
         if saved.parent != root or not saved.is_file() or saved.stat().st_size != row["size"] or digest(saved) != row["sha256"]:
             raise BuildError("Retained content recovery bytes changed; no archive was overwritten.")
+    manifest_row = next(row for row in value["files"] if row["path"] == CONTENT_PATHS[1])
+    manifest = json.loads((root / manifest_row["backup"]).read_text())
+    archive_row = next(row for row in value["files"] if row["path"] == CONTENT_PATHS[0])
+    if manifest.get("inputKey") != journal_key or manifest.get("archive") != "quest-startup-content.zip" or manifest.get("archiveSha256") != archive_row["sha256"]:
+        raise BuildError("Retained content backups do not prove their original transaction identity.")
     for row in value["files"]:
         target = _ordinary_owned(project / row["path"]); target.parent.mkdir(parents=True, exist_ok=True)
         # A copy fallback is used when the filesystem does not offer hardlinks.

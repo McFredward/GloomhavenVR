@@ -32,6 +32,7 @@ import full_assets
 import campaign
 import mod_assets
 import build_provenance
+import import_workspace
 
 from profile import discover_steam_root, dummy_identity, load_profile, read_logo, ProfileError
 from storage import (BuildError, Stages, canonical, digest, ensure_output, inventory,
@@ -358,7 +359,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
         if audit.get("managedScriptBindings", {}).get("unexpectedUnresolvedCount", 0) != 0:
             raise BuildError("Recovery has unresolved script bindings; inspect " + str(recovered / "quest-recovery-report.json"))
     key = value_hash({"input": inputs["inputKey"], "recipe": RECIPE})
-    project = output / "projects" / key
+    project = output / "projects" / (import_workspace.workspace_key(inputs, args.target) if args.target == "game" else key)
 
     restore_project_library(output, project, inputs["inputKey"])
     recover_project_content(output, project, inputs["inputKey"])
@@ -495,9 +496,11 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
         write_json(settings, {"schema": 1, "target": args.target, "inputKey": inputs["inputKey"],
                    "profileSha256": digest(resources / "quest-profile.json"),
                    "package": PACKAGE, "modBuild": inputs["mod"]["modBuild"]})
+        import_receipt = import_workspace.stage(project, args.target)
         # The generated project is mutable under Unity. Cache this content-independent
         # contract and Resources instead of receipts over import-generated .meta files.
         contracts = [settings, manifest, resources / "quest-profile.json", resources / "quest-steam-logo.png"]
+        if import_receipt: contracts.append(import_receipt)
         if args.target in ("startup", "game"):
             contracts.extend([resources / "quest-loading-logo.png", resources / startup.REPORT, resources / startup.MOVIES_REPORT, resources / "quest-startup-content.json",
                               resources / "quest-dlc-ownership.json", project / "QuestStartupEvidence/dlc-content-selection.json",
