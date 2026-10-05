@@ -6,6 +6,7 @@ and compares a second capture before accepting the player build.
 """
 
 from pathlib import Path
+import json
 import re
 
 from storage import BuildError, record_file
@@ -17,6 +18,8 @@ _UNITY = re.compile(r"20\d{2}\.\d+\.\d+[abfp]\d+")
 _EDITOR = Path("Assets/Quest/Editor")
 _TEMPLATE = Path("unity/GloomhavenVR.Quest")
 _DRIVER = Path("tools/quest-builder")
+_COMPUTE_RECEIPT = Path("QuestCampaignEvidence/compute-reference-types.json")
+_COMPUTE_SCOPE = "native-class72-ComputeShaderImporter-PPtr-types"
 _TOOL_FIELDS = (
     "unityVersion", "buildDriverSha256", "key", "editorSha256", "javaSha256",
     "apksignerSha256", "ndkPropertiesSha256", "buildToolsVersion",
@@ -100,6 +103,100 @@ def _records(files, root, prefix, snapshot, snapshot_prefix, witnessed):
     return result
 
 
+def _asset_record(project, name, witnessed):
+    if (not isinstance(name, str) or not name.startswith("Assets/") or "\\" in name
+            or any(part in ("", ".", "..") for part in name.split("/"))):
+        raise BuildError("Build provenance compute evidence has an unsafe asset path.")
+    path = _real_path(project / name, "compute evidence asset")
+    if not path.is_file():
+        raise BuildError("Build provenance compute evidence asset is missing.")
+    row = record_file(path, name)
+    witnessed.append((path, row))
+    return row
+
+
+def _compute_repair(project, drivers, witnessed):
+    """Recognize only the exact source-proven class72 PPtr repair receipt.
+
+    This is applied owner-byte evidence. Its false import/hardware flags remain
+    explicit; capturing these bytes does not claim that Unity or Quest ran them.
+    """
+    path = _real_path(project / _COMPUTE_RECEIPT, "compute repair receipt")
+    if not path.exists():
+        witnessed.append((path, None))
+        return None
+    if not path.is_file() or path.stat().st_size > 1024 * 1024:
+        raise BuildError("Build provenance compute repair receipt is invalid or too large.")
+    try:
+        evidence = record_file(path, _COMPUTE_RECEIPT.as_posix())
+        witnessed.append((path, evidence))
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+        if (not isinstance(receipt, dict) or receipt.get("schema") != 1 or receipt.get("scope") != _COMPUTE_SCOPE
+                or receipt.get("applied") is not True or receipt.get("targetCount") != 13
+                or receipt.get("unchangedComputeSourcesAndMetas") is not True
+                or receipt.get("unchangedOtherOwnerBytes") is not True
+                or receipt.get("unityImportVerified") is not False or receipt.get("hardwareVerified") is not False
+                or not isinstance(receipt.get("targets"), list) or len(receipt["targets"]) != 13
+                or not isinstance(receipt.get("owners"), list)
+                or type(receipt.get("ownerCount")) is not int or receipt["ownerCount"] != len(receipt["owners"])
+                or type(receipt.get("changedReferenceCount")) is not int or receipt["changedReferenceCount"] < 0
+                or any(not isinstance(receipt.get(key), str) or not _HASH.fullmatch(receipt[key])
+                       for key in ("generatorSha256", "originalIdentityManifestSha256"))):
+            raise BuildError("Build provenance has unrecognized compute repair evidence.")
+        generator_path = _real_path(drivers.parent / "quest-compute/references.py", "compute repair generator")
+        if not generator_path.is_file():
+            raise BuildError("Build provenance compute repair generator is missing.")
+        generator = record_file(generator_path, "tools/quest-compute/references.py")
+        witnessed.append((generator_path, generator))
+        if generator["sha256"] != receipt["generatorSha256"]:
+            raise BuildError("Build provenance compute repair generator differs from its receipt.")
+        targets, guids, paths = [], set(), set()
+        for target in receipt["targets"]:
+            if (not isinstance(target, dict) or target.get("classId") != 72 or target.get("fileId") != 7200000
+                    or target.get("type") != 3 or not isinstance(target.get("guid"), str)
+                    or not re.fullmatch(r"[0-9a-f]{32}", target["guid"]) or target["guid"] in guids
+                    or not isinstance(target.get("assetPath"), str) or not target["assetPath"].endswith(".compute")):
+                raise BuildError("Build provenance compute target identity is invalid.")
+            actual = _asset_record(project, target["assetPath"], witnessed)
+            meta = _asset_record(project, target["assetPath"] + ".meta", witnessed)
+            if (actual["path"] in paths or actual["sha256"] != target.get("sourceSha256")
+                    or meta["sha256"] != target.get("metaSha256")):
+                raise BuildError("Build provenance compute source/meta differs from its repair receipt.")
+            guids.add(target["guid"]); paths.add(actual["path"])
+            targets.append({**actual, "meta": meta, "guid": target["guid"], "fileId": 7200000, "classId": 72, "type": 3})
+        owners, owner_paths = [], set()
+        for owner in receipt["owners"]:
+            if (not isinstance(owner, dict) or owner.get("unchangedOtherOwnerBytes") is not True
+                    or not isinstance(owner.get("beforeSha256"), str) or not _HASH.fullmatch(owner["beforeSha256"])
+                    or type(owner.get("changedReferenceCount")) is not int or owner["changedReferenceCount"] < 0
+                    or not isinstance(owner.get("references"), list) or not owner["references"]):
+                raise BuildError("Build provenance compute owner evidence is invalid.")
+            for reference in owner["references"]:
+                if (not isinstance(reference, dict) or reference.get("guid") not in guids
+                        or reference.get("fileId") != 7200000 or reference.get("type") != 3
+                        or type(reference.get("beforeType")) is not int or reference["beforeType"] not in (2, 3)
+                        or type(reference.get("typeTokenOffset")) is not int or reference["typeTokenOffset"] < 0):
+                    raise BuildError("Build provenance compute owner reference is invalid.")
+            if owner["changedReferenceCount"] != sum(ref["beforeType"] == 2 for ref in owner["references"]):
+                raise BuildError("Build provenance compute owner change count differs from its references.")
+            actual = _asset_record(project, owner.get("assetPath"), witnessed)
+            if actual["path"] in owner_paths or actual["path"] in paths or actual["sha256"] != owner.get("sha256"):
+                raise BuildError("Build provenance compute owner differs from its applied repair receipt.")
+            owner_paths.add(actual["path"])
+            owners.append({**actual, "beforeSha256": owner["beforeSha256"],
+                           "changedReferenceCount": owner["changedReferenceCount"], "unchangedOtherOwnerBytes": True})
+        if receipt["changedReferenceCount"] != sum(owner["changedReferenceCount"] for owner in owners):
+            raise BuildError("Build provenance compute total change count differs from its owners.")
+        return {**evidence, "scope": _COMPUTE_SCOPE, "generator": generator,
+                "originalIdentityManifestSha256": receipt["originalIdentityManifestSha256"],
+                "targetCount": 13, "ownerCount": len(owners), "changedReferenceCount": receipt["changedReferenceCount"],
+                "targets": sorted(targets, key=lambda row: row["path"]), "owners": sorted(owners, key=lambda row: row["path"]),
+                "applied": True, "unchangedComputeSourcesAndMetas": True, "unchangedOtherOwnerBytes": True,
+                "unityImportVerified": False, "hardwareVerified": False}
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise BuildError("Build provenance could not capture recognized compute repair evidence.") from exc
+
+
 def capture(inputs, project, source, driver_dir, toolchain):
     """Capture sorted stable bytes without exposing paths, accounts or secrets.
 
@@ -123,6 +220,7 @@ def capture(inputs, project, source, driver_dir, toolchain):
     editor_records = _records(editor_files, editor, _EDITOR, frozen_editor, _TEMPLATE / _EDITOR, witnessed)
     if next(row for row in driver_records if row["path"] == "tools/quest-builder/builder.py")["sha256"] != tools["buildDriverSha256"]:
         raise BuildError("Build provenance driver differs from the recorded toolchain.")
+    compute_repair = _compute_repair(project, drivers, witnessed)
 
     # A module imported earlier or a source changed during capture is not a
     # trustworthy launch record. Recheck membership and both sets of bytes.
@@ -139,5 +237,8 @@ def capture(inputs, project, source, driver_dir, toolchain):
                 raise BuildError("Build provenance source bytes changed during capture.")
         except OSError as exc:
             raise BuildError("Build provenance source disappeared during capture.") from exc
-    return {"schema": 1, "runtime": runtime, "toolchain": tools,
-            "buildDriverModules": driver_records, "stagedEditorSources": editor_records}
+    result = {"schema": 1, "runtime": runtime, "toolchain": tools,
+              "buildDriverModules": driver_records, "stagedEditorSources": editor_records}
+    if compute_repair is not None:
+        result["campaignComputeReferenceRepair"] = compute_repair
+    return result

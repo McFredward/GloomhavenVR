@@ -55,6 +55,38 @@ class BuildProvenanceTests(unittest.TestCase):
         arguments.update(changes)
         return build_provenance.capture(**arguments)
 
+    def compute_receipt(self, *, changed=2):
+        generator = self.driver.parent / "quest-compute/references.py"
+        self.write(generator, b"# recognized exact class72 pointer generator\n")
+        targets = []
+        for i in range(13):
+            name = "Assets/QuestOriginalCampaign/Compute/Native" + str(i) + ".compute"
+            path = self.project / name
+            guid = format(i + 1, "032x")
+            self.write(path, b"// immutable native compute instructions\n")
+            self.write(Path(str(path) + ".meta"), ("guid: " + guid + "\nComputeShaderImporter:\n").encode())
+            targets.append({"assetPath": name, "guid": guid, "fileId": 7200000, "classId": 72, "type": 3,
+                            "originalCollection": "CAB-fixture", "originalPathId": i + 1,
+                            "sourceSha256": digest(path), "metaSha256": digest(Path(str(path) + ".meta"))})
+        owner = self.project / "Assets/Resources/PostProcessResources.asset"
+        self.write(owner, b"%YAML 1.1\n# controlled applied owner bytes\n")
+        references = [{"guid": targets[i]["guid"], "fileId": 7200000,
+                       "beforeType": 2 if i < changed else 3, "type": 3, "typeTokenOffset": 8 + i} for i in range(2)]
+        receipt = {"schema": 1, "scope": "native-class72-ComputeShaderImporter-PPtr-types",
+                   "targetCount": 13, "ownerCount": 1, "changedReferenceCount": changed,
+                   "originalIdentityManifestSha256": "4" * 64, "generatorSha256": digest(generator),
+                   "unchangedComputeSourcesAndMetas": True, "unchangedOtherOwnerBytes": True,
+                   "applied": True, "unityImportVerified": False, "hardwareVerified": False,
+                   "targets": targets, "owners": [{"assetPath": owner.relative_to(self.project).as_posix(),
+                       "beforeSha256": "5" * 64 if changed else digest(owner), "sha256": digest(owner),
+                       "changedReferenceCount": changed, "references": references, "unchangedOtherOwnerBytes": True}]}
+        self.store_compute_receipt(receipt)
+        return receipt
+
+    def store_compute_receipt(self, receipt):
+        path = self.project / "QuestCampaignEvidence/compute-reference-types.json"
+        self.write(path, (json.dumps(receipt, sort_keys=True) + "\n").encode())
+
     def test_unchanged_sources_are_exact_sorted_portable_records(self):
         result = self.capture()
         self.assertEqual(result["schema"], 1)
@@ -219,6 +251,116 @@ class BuildProvenanceTests(unittest.TestCase):
             return row
         with patch.object(build_provenance, "record_file", concurrent_add):
             with self.assertRaisesRegex(BuildError, "selection changed"): self.capture()
+
+    def test_applied_compute_receipt_binds_exact_actual_owner_target_and_generator_bytes(self):
+        before = self.capture()
+        receipt = self.compute_receipt()
+        after = self.capture()
+        self.assertEqual(after["runtime"], before["runtime"])
+        self.assertNotEqual(value_hash(before), value_hash(after))
+        compute = after["campaignComputeReferenceRepair"]
+        self.assertEqual(compute["path"], "QuestCampaignEvidence/compute-reference-types.json")
+        self.assertEqual(compute["sha256"], digest(self.project / compute["path"]))
+        self.assertEqual(compute["generator"]["sha256"], receipt["generatorSha256"])
+        self.assertEqual(len(compute["targets"]), 13)
+        self.assertEqual(compute["owners"][0]["sha256"], receipt["owners"][0]["sha256"])
+        self.assertEqual(compute["owners"][0]["beforeSha256"], receipt["owners"][0]["beforeSha256"])
+        self.assertEqual(compute["changedReferenceCount"], 2)
+        self.assertTrue(compute["applied"])
+        self.assertFalse(compute["unityImportVerified"])
+        self.assertFalse(compute["hardwareVerified"])
+        self.assertEqual(after, self.capture())
+
+    def test_idempotent_applied_compute_receipt_keeps_zero_changes_honest(self):
+        receipt = self.compute_receipt(changed=0)
+        result = self.capture()["campaignComputeReferenceRepair"]
+        self.assertEqual(result["changedReferenceCount"], 0)
+        self.assertEqual(result["owners"][0]["sha256"], receipt["owners"][0]["beforeSha256"])
+        self.assertTrue(result["applied"])
+
+    def test_compute_receipt_unknown_scope_dry_run_or_claimed_readiness_is_rejected(self):
+        receipt = self.compute_receipt()
+        for field, value in (("schema", 2), ("scope", "generic arbitrary evidence"), ("applied", False),
+                             ("targetCount", 12), ("ownerCount", 2), ("changedReferenceCount", 1),
+                             ("unchangedComputeSourcesAndMetas", False), ("unchangedOtherOwnerBytes", False),
+                             ("unityImportVerified", True), ("hardwareVerified", True),
+                             ("generatorSha256", "0" * 64), ("originalIdentityManifestSha256", "PRIVATE PATH")):
+            with self.subTest(field=field):
+                bad = copy.deepcopy(receipt); bad[field] = value; self.store_compute_receipt(bad)
+                with self.assertRaises(BuildError): self.capture()
+
+    def test_compute_target_and_owner_contract_defect_controls(self):
+        receipt = self.compute_receipt()
+        controls = (
+            lambda x: x["targets"].pop(),
+            lambda x: x["targets"][0].update(assetPath="../../PRIVATE FILE"),
+            lambda x: x["targets"][0].update(sourceSha256="0" * 64),
+            lambda x: x["targets"][0].update(metaSha256="0" * 64),
+            lambda x: x["targets"][0].update(classId=48),
+            lambda x: x["targets"][0].update(fileId=7200001),
+            lambda x: x["targets"][0].update(type=2),
+            lambda x: x["targets"][1].update(guid=x["targets"][0]["guid"]),
+            lambda x: x["targets"][1].update(assetPath=x["targets"][0]["assetPath"]),
+            lambda x: x["owners"][0].update(assetPath="Assets/../PRIVATE FILE"),
+            lambda x: x["owners"][0].update(sha256="0" * 64),
+            lambda x: x["owners"][0].update(beforeSha256="PRIVATE PATH"),
+            lambda x: x["owners"][0].update(changedReferenceCount=1),
+            lambda x: x["owners"][0].update(unchangedOtherOwnerBytes=False),
+            lambda x: x["owners"][0].update(references=[]),
+            lambda x: x["owners"][0]["references"][0].update(guid="0" * 32),
+            lambda x: x["owners"][0]["references"][0].update(fileId=7200001),
+            lambda x: x["owners"][0]["references"][0].update(type=2),
+            lambda x: x["owners"][0]["references"][0].update(beforeType=4),
+            lambda x: x["owners"][0]["references"][0].update(typeTokenOffset=-1),
+        )
+        for index, mutate in enumerate(controls):
+            with self.subTest(defect=index):
+                bad = copy.deepcopy(receipt); mutate(bad); self.store_compute_receipt(bad)
+                with self.assertRaises(BuildError): self.capture()
+
+    def test_compute_missing_changed_or_linked_actual_files_are_rejected(self):
+        receipt = self.compute_receipt()
+        paths = [self.project / receipt["owners"][0]["assetPath"],
+                 self.project / receipt["targets"][0]["assetPath"],
+                 self.project / (receipt["targets"][0]["assetPath"] + ".meta"),
+                 self.driver.parent / "quest-compute/references.py",
+                 self.project / "QuestCampaignEvidence/compute-reference-types.json"]
+        for path in paths:
+            with self.subTest(path=path.name):
+                moved = path.with_name(path.name + "-retained"); path.rename(moved)
+                if path.name != "compute-reference-types.json":
+                    with self.assertRaises(BuildError): self.capture()
+                    self.write(path, b"changed receipt input")
+                    with self.assertRaises(BuildError): self.capture()
+                    path.unlink()
+                path.symlink_to(moved)
+                try:
+                    with self.assertRaises(BuildError): self.capture()
+                finally: path.unlink(); moved.rename(path)
+
+    def test_compute_evidence_whitelist_cannot_export_extra_account_fields(self):
+        receipt = self.compute_receipt()
+        receipt["profile"] = "PRIVATE ACCOUNT"
+        receipt["targets"][0]["originalCollection"] = "PRIVATE PATH"
+        receipt["owners"][0]["secret"] = "PRIVATE SIGNING KEY"
+        self.store_compute_receipt(receipt)
+        output = json.dumps(self.capture())
+        self.assertNotIn("PRIVATE", output)
+        self.assertNotIn(str(self.root), output)
+
+    def test_compute_owner_race_is_rejected_before_result_publication(self):
+        receipt = self.compute_receipt()
+        owner = self.project / receipt["owners"][0]["assetPath"]
+        changed = False
+        def concurrent_change(path, relative):
+            nonlocal changed
+            row = record_file(path, relative)
+            if path == owner and not changed:
+                changed = True
+                self.write(owner, b"modified after owner receipt validation")
+            return row
+        with patch.object(build_provenance, "record_file", concurrent_change):
+            with self.assertRaisesRegex(BuildError, "bytes changed"): self.capture()
 
 
 if __name__ == "__main__":
