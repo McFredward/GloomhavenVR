@@ -1,5 +1,56 @@
 # State — where the project stands
 
+**Build623 integration complete, 2026-10-05: 1.1.0.**
+
+Both supplied multiplayer peers are Build622. The maintainer confirms that the
+canonical avatar item fan and held-item path now work; that path is preserved.
+The NPC pictures still belong to the previous October 4 test, not this paired run.
+Host logs measure final town publication at 17–37 ms average in online windows,
+with 169–443 ms outliers. Final original capture now follows the existing 15 Hz
+transport clock, at most once per rendered frame; received immutable frames are
+decoded once. Identical canonical content hashing uses a reusable buffer, and
+pose-only catalogue changes retain their content identity. Ordinary animation
+and input still run each frame. These are source/fixture fixes, not headset FPS
+measurements.
+
+Reliable public category/page/crank intents execute the common author's original
+drawer code. The active immersive native host is preferred, with a compatible
+author fallback for a 2D/flat host; control execution and visible authorship agree.
+Presses retain the prepared original bank, request nonces survive presentation
+resets, and author handover resumes the accepted mechanism clock. Oversized banks
+repair exact originals in bounded slices before admitting complete current
+headers; missing dependencies never produce a partial shelf.
+
+The physical purse retains one native identity through wrist, held, donation and
+return states, including the actual original tooltip counter topology. Native
+transactions cannot rebuild ability cards over an active merchant item fan.
+Enhancement metadata uses exact local original templates and owner state rather
+than repeating every native property table. Inactive frozen originals retain
+their graphics without running controllers; card, ring and option rows enter as
+one complete picture. Owner text, style, hover, clipping and animations remain
+original. Explicitly visitor-local pre-drop guides stay local; actual content,
+poses, effects and audio remain shared.
+
+The complete local gate recorded 134 scopes: 125 direct passes and nine retained
+failures resolved through focused continuations. No successful unrelated scopes
+were repeated. All 14 source gates, 308061 golden assertions, strict Release
+(zero warnings/errors), native bundles and 1594 figure derivatives in 66 parts
+pass. All 660 config keys, 211 registrations and 4790 log tokens remain. The
+actual Build622→623 compiled comparison explains all 24 changed and five added
+entries, with no removals. All 2988 runtime/asset inputs are unchanged between
+the complete attempt and final tree; later changes repair test boundaries only.
+Evidence and original failures are retained in
+`.planning/debug/npc623/validation-ledger.json`.
+
+The measured hash fixture is 7.59 times faster with an identical literal key;
+native metadata fixture packets are approximately 60–63% smaller. Neither result
+establishes internet latency or headset FPS. Both peers must test Build623 for
+public shelf input, wrist/held purse continuity, exclusive item fans and complete
+mage card/options/hover/return presentation. See
+[NPC-623-REVIEW.md](NPC-623-REVIEW.md) for causes, the 1:1 review and limits.
+
+---
+
 **Build622 integration complete, 2026-10-05: 1.1.0.**
 
 Both supplied NPC hardware peers were Build620 (host Debug, observer Info).

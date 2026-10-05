@@ -101,8 +101,19 @@ null references are distinct from the town capture failures; they are not claime
 fixed by this publication change. Retain their original logs for a separate,
 reproducible gameplay investigation rather than modifying native continuation.
 
-The complete integrated gate, focused causal controls, canonical golden vectors,
-strict build and compiled comparison are recorded in the final validation ledger.
+The complete integrated gate recorded all 134 local scopes: 125 direct passes and
+nine retained failures resolved by focused continuations. These include obsolete
+fixture boundaries and expected markers, a dependency-loss probe that needed to
+withhold both independently usable deliveries, and an isolated native-creation
+control previously obscured by unrelated time-bounded discovery. Already passing
+unrelated suites were not rerun. All 2,988 runtime/asset inputs are unchanged from
+the complete attempt; subsequent changes repair tests only. All 14 source gates,
+308,061 canonical golden assertions, strict Release with zero warnings/errors,
+native bundle checks and retained public surfaces pass. The actual Build622→623
+compiled comparison explains all 24 changed and five added entries, with no
+removals. Exact original reports, continuations, hashes and boundaries are retained
+in `.planning/debug/npc623/validation-ledger.json`.
+
 Hardware follow-up requires **both peers on Build623**: enable multiplayer while
 stationary; alternate category/page/crank input immediately after join; buy/sell/
 cancel while watching both fans; take/return/donate the purse; offer/cancel/swap
