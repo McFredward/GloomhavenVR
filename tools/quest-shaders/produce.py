@@ -12,7 +12,8 @@ import functools
 import hashlib
 import importlib.util
 import json
-from pathlib import Path
+import os
+from pathlib import Path, PureWindowsPath
 import re
 import shutil
 
@@ -20,6 +21,68 @@ from manifest import ValidationError, sha256
 import integer_bits
 import load_bounds
 import instance_nan
+
+
+PROGRAM_PATH_SCHEME = 'sha256-dxbc-interface-pair-v1'
+PROGRAM_DIRECTORY = 'Assets/QuestOriginalCampaign/ShaderPrograms'
+WINDOWS_RESERVED_COMPONENTS = {'CON', 'PRN', 'AUX', 'NUL',
+                               *('COM' + digit for digit in '123456789¹²³'),
+                               *('LPT' + digit for digit in '123456789¹²³')}
+
+
+def program_paths(identities):
+    """Name an exact native instruction/interface pair without two long hashes.
+
+    Neither hash is truncated. A domain-separated SHA256 of the two binary
+    identities makes the filename short, independent of traversal order, and
+    stable across unrelated shader additions. Reject any conflicting name
+    before writing an overlay rather than replacing another native program.
+    """
+    paths, owners = {}, {}
+    for key in identities:
+        if not isinstance(key, tuple) or len(key) != 2 or any(not isinstance(value, str) or not re.fullmatch(r'[0-9a-f]{64}', value) for value in key):
+            raise ValidationError('Native program filename requires exact lowercase DXBC/interface SHA256 identities.')
+        if key in paths:
+            continue
+        identity = b'quest-original-program-v1\0' + b''.join(bytes.fromhex(value) for value in key)
+        name = hashlib.sha256(identity).hexdigest() + '.hlsl'
+        if name in owners and owners[name] != key:
+            raise ValidationError('Native program filename collision; no original program may be overwritten.')
+        owners[name] = key
+        paths[key] = PROGRAM_DIRECTORY + '/' + name
+    return paths
+
+
+def windows_path_budget(root, asset_paths):
+    """Check real Win32 components and full UTF-16 lengths, including metas.
+
+    Python long-path support does not establish that the pinned Unity Editor,
+    compiler or archive tools accept the same paths. Keep their ordinary Win32
+    budget and ask for a shorter actual build/cache root if it cannot fit.
+    This pure check also permits Linux tests of exact Windows roots.
+    """
+    root = PureWindowsPath(root)
+    if not root.is_absolute() or '..' in root.parts or str(root).startswith(('\\\\?\\', '\\\\.\\')):
+        raise ValidationError('Shader Windows path budget requires an ordinary absolute build/cache root.')
+    longest = None
+    maximum = 0
+    for relative in asset_paths:
+        relative = PureWindowsPath(relative)
+        if not relative.parts or relative.root or relative.drive or '..' in relative.parts:
+            raise ValidationError('Native shader output path must remain relative to its private project.')
+        for suffix in ('', '.meta'):
+            full = root / (str(relative) + suffix)
+            for component in full.parts[1:]:
+                units = len(component.encode('utf-16-le')) // 2
+                stem = component.split('.')[0].upper()
+                if units > 255 or not component or component.endswith((' ', '.')) or re.search(r'[<>:"/\\|?*\x00-\x1f]', component) or stem in WINDOWS_RESERVED_COMPONENTS:
+                    raise ValidationError('Native shader output has an unsupported Win32 path component: ' + component)
+            units = len(str(full).encode('utf-16-le')) // 2
+            if units > maximum:
+                longest, maximum = str(full), units
+            if units >= 260:
+                raise ValidationError('Native shader output exceeds the ordinary Win32 path budget (' + str(units) + ' UTF-16 units; maximum 259): ' + str(full) + '. Select a shorter build/cache root such as C:\\q; the generated projects/<64-hex>/ and tool-cache directories also count.')
+    return {'maximumPathUtf16Units': maximum, 'longestPath': longest}
 
 
 @functools.lru_cache(maxsize=1)
@@ -326,6 +389,12 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
     if output == project or project in output.parents or output in project.parents:
         raise ValidationError('Shader reconstruction requires a disjoint private overlay.')
     preserved_sources = preserved_sources or {}
+    names = program_paths((row['originalDxbcSha256'], row['originalInterfaceSha256'])
+                          for shader in inventory['shaders'] for row in shader['variants'])
+    if os.name == 'nt':
+        assets = [*names.values(), *(shader['assetPath'] for shader in inventory['shaders'])]
+        windows_path_budget(project, assets)
+        windows_path_budget(output, assets)
     output.mkdir(parents=True, exist_ok=True)
     native = recovery_module()
     includes, programs = {}, {}
@@ -355,12 +424,12 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
             wrapped, load_proofs = load_bounds.restore(wrapped)
             wrapped, integer_proof = integer_bits.restore(wrapped)
             wrapped, instance_read_proofs = instance_nan.restore(wrapped, json.loads((cache / "interfaces" / (key[1] + ".json")).read_text()))
-            path = Path('Assets/QuestOriginalCampaign/ShaderPrograms') / (key[0] + '-' + key[1] + '.hlsl')
+            path = Path(names[key])
             target = output / path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(wrapped)
-            includes[key] = str(path)
-            programs[str(path)] = {'assetPath': str(path), 'originalDxbcSha256': key[0], 'originalInterfaceSha256': key[1],
+            includes[key] = path.as_posix()
+            programs[path.as_posix()] = {'assetPath': path.as_posix(), 'originalDxbcSha256': key[0], 'originalInterfaceSha256': key[1],
                                    'sourceSha256': sha256(target), 'boundHlslSha256': row['boundHlslSha256'],
                                    'outputInterfaceAdapters': row.get('outputInterfaceAdapters', []),
                                    'samplingInterfaceAdapters': sampling_adapters,
@@ -390,6 +459,7 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
                         'sourceRestoration': 'retained-source-contract' if retained else 'exact-original-dxbc',
                         'retainedSourceContract': retained})
     manifest = {'schema': 1, 'scope': 'campaign-compiler', 'graphicsApi': graphics_api,
+                'programPathScheme': PROGRAM_PATH_SCHEME,
                 'compilerPlatform': 'Vulkan' if graphics_api == 'Vulkan' else 'GLES3x',
                 'originalDepthConvention': 'D3D-reversed-Z' if graphics_api == 'Vulkan' else 'GLES-probe-only', 'requiredShaderCount': len(shaders),
                 'requiredMaterialCount': len(inventory['materials']), 'shaders': shaders,
