@@ -92,3 +92,14 @@ namespace GloomhavenVR.WorldUI
 }
 namespace GloomhavenVR.WorldUI.MapRoom
 { internal static class MapRoomDriver { internal static bool Active = true; } }
+
+// Native network identity/coordinator readiness are explicit ports. Public input,
+// serialization, host deduplication and original drawer execution are bound from
+// TownMerchantControlSync/Codec.cs, rather than a fixture model of shared control.
+namespace FFSNet
+{
+    internal static class FFSNetwork { internal static bool IsOnline; }
+    internal static class PlayerRegistry { internal static int HostPlayerID = 1; }
+}
+namespace GloomhavenVR.Net.TownServices
+{ internal static class TownServiceGrantSync { internal static bool CoordinatorReady = true; } }

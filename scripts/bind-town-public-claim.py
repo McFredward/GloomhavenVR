@@ -28,7 +28,9 @@ def sources(root):
     claim = "\n".join(block(merchant, signature) for signature in (
         "internal static bool CanClaim", "internal static void Claim()", "private static void FollowPublicRack()",
         "internal static bool TrySelectCategory(TownServiceMerchantDrawer rack, int category)",
-        "internal static bool TryTurnPage(TownServiceMerchantDrawer rack, int direction)", "private static void TakePublicCatalog()",
+        "internal static bool TryTurnPage(TownServiceMerchantDrawer rack, int direction)",
+        "internal static bool ApplyOriginalControl(TownMerchantControlOperation operation, int value)",
+        "internal static TownRackState? ControlClock", "internal static void ApplySharedControlClock(TownRackState clock)",
         "private static void CommitPublicVisibility()"))
     follower = "\n".join(block(drawer, signature) for signature in (
         "internal void Follow(TownRackState state)", "internal bool Select(int category, bool selling)",
@@ -46,7 +48,13 @@ def sources(root):
         + follower + "\n} internal sealed partial class TownServiceCatalogCategory {\n"
         + block(category, "public void OnPoke(VRHand hand)") + "\n"
         + block(category, "internal void Tick(float opacity)") + "\n} }\n")
-    return {"PublicMerchantClaim.cs": generated}, {
+    bound = {"PublicMerchantClaim.cs": generated}
+    for relative in ("Net/Avatar/TownMerchantControlCodec.cs", "Net/Avatar/TownMerchantControlSync.cs", "Net/INetTransport.cs"):
+        source = Path(root) / "src/GloomhavenVR" / relative
+        bound[source.name] = source.read_text()
+    hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
+    hashes.update({
         "TownServicePublicMerchant.cs": hashlib.sha256(merchant.encode()).hexdigest(),
         "TownServiceMerchantDrawer.cs": hashlib.sha256(drawer.encode()).hexdigest(),
-        "TownServiceCatalogCategory.cs": hashlib.sha256(category.encode()).hexdigest()}
+        "TownServiceCatalogCategory.cs": hashlib.sha256(category.encode()).hexdigest()})
+    return bound, hashes
