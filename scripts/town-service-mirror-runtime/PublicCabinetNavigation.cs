@@ -102,10 +102,10 @@ public static partial class MirrorProgram
         Check(TownServiceMirror.PublicAuthor == 1 && drawer.FixtureFollowingTurn && hand.Haptics == 1
             && drawer.FromPage == 256 && drawer.ToPage == 0,
             "peer physical category button adopts the public page despite missing artwork and a separate merchant transaction");
-        float start = Time.unscaledTime;
+        float completionDeadline = Time.unscaledTime + 5f;
         bool sampled = false;
         advancedFrame = -1;
-        while (Time.unscaledTime - start < TownRackState.TurnDuration + .05f)
+        while (Time.unscaledTime < completionDeadline)
         {
             // EditorApplication.update can resume this IEnumerator more than once in one
             // play-mode frame. Native Tick consumes Time.unscaledDeltaTime, while capture/
@@ -151,9 +151,16 @@ public static partial class MirrorProgram
                 drawer.Follow(TownServiceMirror.PublicRack!.Copy());
                 sampled = true;
             }
+            // Publishing and original playback run once per real frame. Editor
+            // contention can outlast a fixed turn-duration grace period; wait for
+            // the actual owner turn and populated observer page, with a hard bound.
+            if (sampled && !drawer.FixtureFollowingTurn
+                && TownServiceMirror.PublicRack?.Page == 0 && TownServiceMirror.HasReadyPublicPresentation) break;
             yield return null;
         }
-        Check(sampled && TownServiceMirror.PublicRack?.Page == 0 && TownServiceMirror.HasReadyPublicPresentation,
+        Check(sampled, "the actual original category animation supplies an intermediate parity sample");
+        Check(!drawer.FixtureFollowingTurn && TownServiceMirror.PublicRack?.Page == 0
+            && TownServiceMirror.HasReadyPublicPresentation,
             "real shared category publication completes on the same populated public page without ownership migration");
         channel.Install(1);
         catalog.Categories[1].OnPoke(hand);
