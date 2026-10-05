@@ -82,8 +82,9 @@ public static partial class MirrorProgram
                 "offered native area ink stays present through actual capture, admission and native playback");
             if (scale == 1f && angle == 43f)
             {
-                Color32[] ownerInk = Render(root, 8, "native-print-626-owner");
-                Color32[] observerInk = Render(admitted.Root, 9, "native-print-626-observer");
+                RectTransform remotePrint = (RectTransform)admitted.Root.Find("Native pooled card/FullAbilityCard");
+                Color32[] ownerInk = RenderPrintedAreas626(root, nativeFace, 8, "native-print-626-owner");
+                Color32[] observerInk = RenderPrintedAreas626(admitted.Root, remotePrint, 9, "native-print-626-observer");
                 int visible = 0, worst = 0; long totalError = 0;
                 for (int pixel = 0; pixel < ownerInk.Length; pixel++)
                 {
@@ -102,5 +103,42 @@ public static partial class MirrorProgram
         mask.Restore(); GloomhavenVR.WorldUI.TownServiceEnhancementHandoff.PhysicalCardFace = null;
         TownServiceMirror.Shutdown(); UnityEngine.Object.DestroyImmediate(owner.gameObject);
         UnityEngine.Object.DestroyImmediate(observer.gameObject);
+    }
+
+    private static Color32[] RenderPrintedAreas626(Transform root, RectTransform print, int layer, string name)
+    {
+        // The pivot-mismatch regression must remain in the fixture. Frame the
+        // complete actual print, rather than centering the mismatched holder
+        // pivot and accepting two identical images of a clipped area corner.
+        foreach (GameObject fixture in Objects) if (fixture != null) Layer(fixture.transform, 30);
+        Layer(root, layer);
+        foreach (Canvas canvas in root.GetComponentsInChildren<Canvas>(true)) canvas.worldCamera = _camera;
+        _camera.cullingMask = 1 << layer;
+        var corners = new Vector3[4]; print.GetWorldCorners(corners);
+        _camera.transform.SetPositionAndRotation((corners[0] + corners[2]) * .5f - print.forward * 10f, print.rotation);
+        _camera.orthographicSize = Vector3.Distance(corners[0], corners[1]) * .62f;
+        Canvas.ForceUpdateCanvases();
+        var target = new RenderTexture(512, 384, 24, RenderTextureFormat.ARGB32) { antiAliasing = 1 };
+        var image = new Texture2D(512, 384, TextureFormat.RGBA32, false);
+        try
+        {
+            _camera.targetTexture = target; _camera.Render(); RenderTexture.active = target;
+            image.ReadPixels(new Rect(0, 0, 512, 384), 0, 0); image.Apply();
+            System.IO.File.WriteAllBytes(System.IO.Path.Combine(_output, name + ".png"), image.EncodeToPNG());
+            Color32[] pixels = image.GetPixels32();
+            bool verticalClear = true, horizontalClear = true;
+            for (int x = 0; x < image.width; x++)
+                verticalClear &= pixels[x].Equals(pixels[0]) && pixels[(image.height - 1) * image.width + x].Equals(pixels[0]);
+            for (int y = 0; y < image.height; y++)
+                horizontalClear &= pixels[y * image.width].Equals(pixels[0]) && pixels[y * image.width + image.width - 1].Equals(pixels[0]);
+            Check(verticalClear, "native printed area is fully framed vertically in the render proof");
+            Check(horizontalClear, "native printed area is fully framed horizontally in the render proof");
+            return pixels;
+        }
+        finally
+        {
+            RenderTexture.active = null; _camera.targetTexture = null;
+            UnityEngine.Object.DestroyImmediate(target); UnityEngine.Object.DestroyImmediate(image);
+        }
     }
 }
