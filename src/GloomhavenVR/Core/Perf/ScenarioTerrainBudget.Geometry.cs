@@ -50,6 +50,9 @@ internal static partial class ScenarioTerrainBudget
             return count;
         }
         internal void EnsureSlots(int count) { if (Materials.Length != count) Materials = new Material[count]; }
+        private static bool LiveSpecialEffect(MaterialPropertyBlock block) =>
+            block.GetFloat("_AddVertexAnim") != 0f || block.GetFloat("_UseEmissiveMap") != 0f
+            || block.GetFloat("_Diffuse_Emissive_On") != 0f;
         internal bool PrepareProxy()
         {
             Transform source = Renderer.transform;
@@ -80,11 +83,13 @@ internal static partial class ScenarioTerrainBudget
             _proxyRenderer.realtimeLightmapScaleOffset = Renderer.realtimeLightmapScaleOffset;
             _proxyRenderer.motionVectorGenerationMode = Renderer.motionVectorGenerationMode;
             Renderer.GetPropertyBlock(Block);
+            if (LiveSpecialEffect(Block)) return false;
             Block.SetFloat("_GHVRTerrainNeverFade", Floor ? 1f : 0f);
             _proxyRenderer.SetPropertyBlock(Block);
             for (int slot = 0; slot < Materials.Length; slot++)
             {
                 Renderer.GetPropertyBlock(SlotBlock, slot);
+                if (LiveSpecialEffect(SlotBlock)) return false;
                 if (SlotBlock.isEmpty) _proxyRenderer.SetPropertyBlock(null, slot);
                 else
                 {

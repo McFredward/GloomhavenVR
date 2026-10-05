@@ -18,6 +18,8 @@ tint, UV/world-projection inputs, native dimming inputs and original native wall
 clip channels. Every renderer-wide and material-index MPB remains live. Unknown
 shader families, vertex animation, emissive effects, actors, doors, interactable
 obstacles, lights and held/grabbable props retain their native rendering.
+Live vertex/emissive MPB gates retain originals even if the underlying material's
+own gate is disabled.
 
 `ScenarioTerrainDetailPercent` selects a prepared three-dimensional original-mesh
 derivative. `100` means the native original; lower percentages choose the prepared
@@ -79,6 +81,16 @@ The visual step is bounded to 1/30 second per rendered update, so a long hitch
 cannot skip every intermediate shape. Native shaders remain in use when cheap
 wall shading is disabled; the geometry control is independent. Floors do not
 participate in this transition.
+
+The bank generator's `tools/environment-mesh/manifest.json` detail receipts
+contain twelve prepared asset definitions among the fifteen admitted identities.
+Their aggregate original/50/0 triangle counts are 9,116/3,486/1,186 (38.2% and
+13.0% of original). For example, `EN_CR_Pillar_Thin` is 2,040/362/108;
+`EN_CR_Wall_Basic_Tall` is 116/116/60, so its unchanged 50 tier retains the
+native renderer. The three absent thin-wall identities retain their originals.
+These are prepared asset-definition totals, not scenario instance counts,
+vertex-memory savings or measured frame-time gains. Original vertex indexing
+and channel counts remain intact to support the continuous morph.
 
 The cheap shader retains the original LOW object's 0.4 foundation band and the
 HIGH/N_MRAO map-depth, enable, cutoff, foundation, screen vignette and simplex
