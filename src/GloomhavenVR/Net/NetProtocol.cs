@@ -599,6 +599,11 @@ internal static class NetProtocol
     // The private environment bundle retains exact source provenance and on-demand
     // stream validation. Native geometry/material/collision remain original; masks
     // are camera leases revoked before native writes/cloning, disable and teardown.
+    // Material loading revokes idle/terrain/environment owners before the initial
+    // native hide as well as completion. Supplementary streams, internal batching
+    // and per-object probe owners retain original submission; terrain keeps native
+    // rendering layers. Visible idle keeps authored LOD and cloth-bearing rigs
+    // native, and late sorting/motion-vector/occlusion changes revoke old proxies.
     // Unsupported/changed sources keep native rendering. Doors/floors/tactical
     // contents retain originals, near interaction restores full wall geometry,
     // native wall dissolve remains continuous, and no 2.5D board is introduced.
