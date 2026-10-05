@@ -268,9 +268,100 @@ def regenerate_project(output: Path, project: Path, input_key: str):
 CONTENT_PATHS = ("Assets/StreamingAssets/quest-startup-content.zip", "Assets/Quest/Resources/quest-startup-content.json")
 
 
+def recover_player_exclusions(project: Path):
+    """Restore only the native Player's journaled ZIP/meta/Addressables moves."""
+    journal = _ordinary_owned(project / "QuestCampaignEvidence/excluded-payload/journal.json")
+    if not journal.exists(): return
+    if not journal.is_file() or journal.stat().st_size > 65536:
+        raise BuildError("Campaign exclusion journal is not an ordinary bounded file.")
+    value = json.loads(journal.read_text())
+    key = value.get("inputKey")
+    if value.get("schema") != 1 or value.get("scope") != "quest-campaign-player-content-exclusion" or value.get("state") not in ("planned", "excluded", "restored") or not isinstance(key, str) or len(key) != 64 or any(c not in "0123456789abcdef" for c in key):
+        raise BuildError("Campaign exclusion journal has an unknown scope/identity.")
+    if value["state"] != "restored":
+        manifest = json.loads(_ordinary_owned(project / CONTENT_PATHS[1]).read_text())
+        if manifest.get("inputKey") != key:
+            raise BuildError("Campaign exclusion journal differs from the current content input.")
+    native = "Library/com.unity.addressables/aa/Android"
+    allowed = {
+        CONTENT_PATHS[0]: ("file", "QuestCampaignEvidence/excluded-payload/quest-startup-content.zip"),
+        CONTENT_PATHS[0] + ".meta": ("file", "QuestCampaignEvidence/excluded-payload/quest-startup-content.zip.meta"),
+        native: ("directory", "QuestCampaignEvidence/excluded-payload/native-addressables-Android")}
+    link = value.get("nativeLink")
+    if not isinstance(link, dict) or link.get("source") != native + "/AddressablesLink/link.xml" or link.get("projectPath") != "Assets/Quest/CampaignLink/link.xml" or not isinstance(link.get("sha256"), str) or len(link["sha256"]) != 64 or any(c not in "0123456789abcdef" for c in link["sha256"]):
+        raise BuildError("Campaign exclusion journal lost the native linker identity.")
+    previous_hash = link.get("previousSha256")
+    if previous_hash not in (None, "") and (not isinstance(previous_hash, str) or len(previous_hash) != 64 or any(c not in "0123456789abcdef" for c in previous_hash)):
+        raise BuildError("Campaign exclusion journal has an invalid prior linker identity.")
+    moves = value.get("moves")
+    if not isinstance(moves, list) or not 2 <= len(moves) <= 3 or any(not isinstance(row, dict) for row in moves) or [row.get("source") for row in moves] not in ([CONTENT_PATHS[0], native], [CONTENT_PATHS[0], CONTENT_PATHS[0] + ".meta", native]):
+        raise BuildError("Campaign exclusion journal must contain the exact ordered native moves.")
+    stable_link = _ordinary_owned(project / link["projectPath"])
+    if stable_link.exists() and (not stable_link.is_file() or digest(stable_link) not in (link["sha256"], previous_hash)):
+        raise BuildError("Campaign stable native linker bytes changed; no payload moved.")
+    planned = []
+    for row in moves:
+        kind, temporary = allowed[row["source"]]
+        if row.get("kind") != kind or row.get("temporary") != temporary or type(row.get("size")) is not int or row["size"] < 0 or not isinstance(row.get("sha256"), str) or len(row["sha256"]) != 64 or any(c not in "0123456789abcdef" for c in row["sha256"]) or (kind == "directory" and row["sha256"] != link["sha256"]):
+            raise BuildError("Campaign exclusion journal names an unsupported move.")
+        source = _ordinary_owned(project / row["source"])
+        held = _ordinary_owned(project / temporary)
+        if value["state"] == "restored":
+            # This historical journal owns no pending payload. A later failed
+            # native build can remove its AA directory/meta; the outer content
+            # transaction also owns ZIP/manifest rollback. Never pin old hashes.
+            if held.exists():
+                raise BuildError("Restored Campaign journal still has an outstanding temporary.")
+            if source.exists():
+                if (kind == "file" and not source.is_file()) or (kind == "directory" and not source.is_dir()):
+                    raise BuildError("Restored Campaign source has an unsupported type.")
+                if kind == "directory":
+                    for member in source.rglob("*"):
+                        _ordinary_owned(member)
+                        if not member.is_dir() and not member.is_file():
+                            raise BuildError("Restored Campaign native directory contains a non-file member.")
+            continue
+        if source.exists() == held.exists():
+            raise BuildError("Campaign exclusion source/temporary conflict or missing pair; no payload moved.")
+        present = source if source.exists() else held
+        if kind == "file":
+            if not present.is_file() or present.stat().st_size != row["size"] or digest(present) != row["sha256"]:
+                raise BuildError("Campaign exclusion file bytes changed; no payload moved.")
+        else:
+            if not present.is_dir() or row.get("size") != 0 or row.get("sha256") != link["sha256"]:
+                raise BuildError("Campaign exclusion native directory ownership differs.")
+            for member in present.rglob("*"):
+                _ordinary_owned(member)
+                if not member.is_dir() and not member.is_file():
+                    raise BuildError("Campaign native directory contains a non-file member.")
+            original_link = _ordinary_owned(present / "AddressablesLink/link.xml")
+            if not original_link.is_file() or digest(original_link) != link["sha256"]:
+                raise BuildError("Campaign excluded native linker bytes changed; no payload moved.")
+        planned.append((source, held))
+    pending = []
+    for relative in ("QuestCampaignEvidence/excluded-payload/journal.json", CONTENT_PATHS[1], "Assets/StreamingAssets/Quest/content-delivery.json", link["projectPath"]):
+        path = _ordinary_owned(project / (relative + ".quest-content-pending"))
+        if path.exists() and not path.is_file():
+            raise BuildError("Campaign metadata pending path is not an ordinary file.")
+        pending.append(path)
+    # Every move/link is checked before the first change. A hard interruption
+    # midway remains recoverable: already restored source-only pairs are valid.
+    for source, held in reversed(planned):
+        if held.exists():
+            if source.exists():
+                raise BuildError("Campaign recovery source appeared after preflight; no destination overwritten.")
+            source.parent.mkdir(parents=True, exist_ok=True)
+            os.rename(held, source)
+    for path in pending: path.unlink(missing_ok=True)
+    if value["state"] != "restored":
+        value["state"] = "restored"
+        write_json(journal, value)
+
+
 def recover_project_content(output: Path, project: Path, input_key: str):
     """Rollback an interrupted native repack/exclusion to its verified entry pair."""
     project_generation_paths(output, project, input_key)
+    recover_player_exclusions(project)
     root = output / "cache/project-content-transactions" / project.name
     journal = _ordinary_owned(root / "pending.json")
     if not journal.exists(): return
