@@ -17,13 +17,13 @@ import zipfile
 from storage import BuildError, digest, write_json, value_hash, _ordinary_owned
 
 
-def download_sdk(spec, archive):
+def download_sdk(spec, archive, *, algorithm="sha512"):
     """Retain exact partial bytes; publish only the pinned complete archive."""
     if archive.exists(): return
     partial = _ordinary_owned(archive.with_suffix(archive.suffix + ".download"))
     if partial.exists():
         with partial.open("rb") as stream:
-            if hashlib.file_digest(stream, "sha512").hexdigest() == spec["hash"]:
+            if hashlib.file_digest(stream, algorithm).hexdigest() == spec["hash"]:
                 os.replace(partial, archive); return
     offset = partial.stat().st_size if partial.exists() else 0
     request = urllib.request.Request(spec["url"], headers={"Range": "bytes=" + str(offset) + "-"} if offset else {})
@@ -41,9 +41,9 @@ def download_sdk(spec, archive):
             shutil.copyfileobj(response, stream, 1048576); stream.flush(); os.fsync(stream.fileno())
     if expected is not None and partial.stat().st_size != expected:
         raise BuildError("Recovery SDK download ended early; its verified offset can resume.")
-    with partial.open("rb") as stream: actual = hashlib.file_digest(stream, "sha512").hexdigest()
+    with partial.open("rb") as stream: actual = hashlib.file_digest(stream, algorithm).hexdigest()
     if actual != spec["hash"]:
-        partial.unlink(); raise BuildError("Official recovery SDK archive fails its pinned SHA512.")
+        partial.unlink(); raise BuildError("Official tool archive fails its pinned " + algorithm.upper() + ".")
     os.replace(partial, archive)
 
 

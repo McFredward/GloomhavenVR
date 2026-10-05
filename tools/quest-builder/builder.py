@@ -37,7 +37,7 @@ from profile import discover_steam_root, dummy_identity, load_profile, read_logo
 from storage import (BuildError, Stages, canonical, digest, ensure_output, inventory,
                      output_lock, record_file, snapshot, value_hash, verify_files, write_json,
                      restore_project_library, regenerate_project, recover_project_content, project_content_transaction,
-                     project_content_valid, publish_project_content, CONTENT_PATHS)
+                     project_content_valid, publish_project_content, CONTENT_PATHS, _ordinary_owned)
 
 
 RECIPE = 1
@@ -329,6 +329,17 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             if raw.get("fullOriginalCatalogRecovered") is not True:
                 raise BuildError("Full recovery did not finish the original catalog; inspect its bounded checkpoint.")
             archive = owned_tmp_source_archive(output / "tool-cache/official-tmp")
+            stage_owner = recovered.parent / "stage-owner.json"
+            expected_owner = {"schema": 1, "owner": "Quest recovered Campaign stage", "key": key,
+                              "gameKey": inputs["game"]["key"]}
+            _ordinary_owned(stage_owner); _ordinary_owned(recovered)
+            if stage_owner.exists():
+                if json.loads(stage_owner.read_text()) != expected_owner: raise BuildError("Recovered stage ownership differs.")
+                if recovered.exists(): shutil.rmtree(recovered)
+            elif recovered.exists(): raise BuildError("Incomplete recovered stage has no matching owner; retained for inspection.")
+            else: write_json(stage_owner, expected_owner)
+            # All original exports/batch checkpoints above remain verified.
+            # Retry only the unfinished derived stage, never the original game.
             metadata = full_assets.stage(raw_project, game, recovered, archive, canonical_project=None,
                 canonical_startup=None, managed_types=raw["managedTypes"], cab_bundles=raw["cabBundles"])
             if not (recovered / "Assets").is_dir():
@@ -550,21 +561,14 @@ def startup_shader_contracts(project: Path) -> list[Path]:
 
 def owned_tmp_source_archive(cache: Path) -> Path:
     """Acquire only the pinned official shader source package, never game data."""
-    import urllib.request
+    import dependencies
     module_path = Path(__file__).resolve().parents[1] / "quest-recovery/tmp_shaders.py"
     spec = importlib.util.spec_from_file_location("quest_official_tmp_sources", module_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     cache.mkdir(parents=True, exist_ok=True)
     archive = cache / "com.unity.textmeshpro-3.0.6.tgz"
-    if not archive.is_file():
-        temporary = archive.with_suffix(".download")
-        with urllib.request.urlopen(module.TMP_URL, timeout=120) as response, temporary.open("wb") as target:
-            shutil.copyfileobj(response, target)
-        if digest(temporary) != module.TMP_SHA256:
-            temporary.unlink(missing_ok=True)
-            raise BuildError("Official TMP shader package failed its pinned SHA-256 proof.")
-        temporary.replace(archive)
+    dependencies.download_sdk({"url": module.TMP_URL, "hash": module.TMP_SHA256}, archive, algorithm="sha256")
     if digest(archive) != module.TMP_SHA256:
         raise BuildError("Cached official TMP shader source changed; the private archive needs replacement.")
     return archive

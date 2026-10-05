@@ -25,6 +25,7 @@ import time
 import urllib.parse
 import urllib.request
 import zipfile
+import uuid
 
 from md4 import script_file_id
 
@@ -51,7 +52,57 @@ def sha256(path):
 
 
 def write_json(path, value):
-    Path(path).write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + ".tmp-" + uuid.uuid4().hex)
+    try:
+        with temp.open("w", encoding="utf-8") as stream:
+            stream.write(json.dumps(value, indent=2, sort_keys=True) + "\n")
+            stream.flush(); os.fsync(stream.fileno())
+        os.replace(temp, path)
+    finally: temp.unlink(missing_ok=True)
+
+
+def ordinary_path(path):
+    path = Path(path).absolute()
+    if any(part.is_symlink() or (hasattr(part, "is_junction") and part.is_junction()) for part in (path, *path.parents)):
+        raise RecoveryError("Recovery staging cannot follow filesystem links: " + str(path))
+    return path
+
+
+def own_attempt(marker, expected, target):
+    """Record ownership durably before creating an interrupted exporter tree."""
+    marker, target = ordinary_path(marker), ordinary_path(target)
+    if marker.exists():
+        if json.loads(marker.read_text()) != expected: raise RecoveryError("Recovery attempt belongs to different inputs.")
+    elif target.exists(): raise RecoveryError("Incomplete recovery output has no matching ownership receipt.")
+    else: write_json(marker, expected)
+
+
+def download_pinned(url, archive, expected_sha256):
+    archive = ordinary_path(archive)
+    if archive.is_file():
+        if sha256(archive) != expected_sha256: raise RecoveryError("Pinned source archive hash differs.")
+        return
+    partial = ordinary_path(archive.with_suffix(archive.suffix + ".download"))
+    if partial.is_file() and sha256(partial) == expected_sha256:
+        os.replace(partial, archive); return
+    offset = partial.stat().st_size if partial.is_file() else 0
+    request = urllib.request.Request(url, headers={"Range": "bytes=" + str(offset) + "-"} if offset else {})
+    with urllib.request.urlopen(request, timeout=60) as response:
+        if response.status == 206:
+            match = re.fullmatch(r"bytes ([0-9]+)-([0-9]+)/([0-9]+)", response.headers.get("Content-Range", ""))
+            if not match or int(match[1]) != offset or int(match[2]) < offset or int(match[2]) >= int(match[3]):
+                raise RecoveryError("Pinned source server returned an inconsistent resume range.")
+            expected_size = int(match[2]) + 1
+        elif response.status == 200:
+            offset = 0; expected_size = int(response.headers.get("Content-Length", "0")) or None
+        else: raise RecoveryError("Pinned source server returned no usable archive.")
+        with partial.open("ab" if offset else "wb") as stream:
+            shutil.copyfileobj(response, stream, 1048576); stream.flush(); os.fsync(stream.fileno())
+    if expected_size is not None and partial.stat().st_size != expected_size: raise RecoveryError("Pinned source download ended early; partial bytes retained.")
+    if sha256(partial) != expected_sha256:
+        partial.unlink(); raise RecoveryError("Pinned source archive hash differs.")
+    os.replace(partial, archive)
 
 
 def resolve_game_data(root):
@@ -183,19 +234,16 @@ def ensure_tool(tool_root, lock):
 
 
 def stage_input(game_data, stage, selected_bundles):
-    stage.mkdir(parents=True)
+    game_data, stage = Path(game_data).resolve(), ordinary_path(stage)
     selected = []
+    files = []
     # A directory load scans bundled StreamingAssets even when their copy/export
     # setting says Ignore. Stage core inputs explicitly to bound resident memory.
     for path in sorted(game_data.iterdir()):
         if path.name in ("StreamingAssets", "Plugins"):
             continue
-        target = stage / path.name
-        if path.is_dir():
-            shutil.copytree(path, target)
-        else:
-            shutil.copy2(path, target)
         selected.append(path.name)
+        files.extend(item for item in sorted(path.rglob("*")) if item.is_file()) if path.is_dir() else files.append(path)
     for relative in selected_bundles:
         path = (game_data / relative).resolve()
         if game_data not in path.parents or not path.is_file():
@@ -203,9 +251,18 @@ def stage_input(game_data, stage, selected_bundles):
         with path.open("rb") as stream:
             if not stream.read(8).startswith((b"UnityFS\0", b"UnityWeb", b"UnityRaw")):
                 raise RecoveryError(f"Selected bundle has no Unity bundle header: {relative}")
-        target = stage / "SelectedBundles" / Path(relative)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, target)
+        files.append(path)
+    records = [{"path": path.relative_to(game_data).as_posix(), "bytes": path.stat().st_size, "sha256": sha256(path),
+                "stagedPath": ("SelectedBundles/" if path.relative_to(game_data).as_posix() in selected_bundles else "") + path.relative_to(game_data).as_posix()}
+               for path in files]
+    marker = stage.with_name(stage.name + ".quest-input-stage.json")
+    own_attempt(marker, {"schema": 1, "owner": "Quest recovery input stage", "source": str(game_data), "files": records}, stage)
+    stage.mkdir(parents=True, exist_ok=True)
+    for row in records:
+        original, target = game_data / row["path"], ordinary_path(stage / row["stagedPath"])
+        if target.is_file() and target.stat().st_size == row["bytes"] and sha256(target) == row["sha256"]: continue
+        target.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(original, target)
+        if target.stat().st_size != row["bytes"] or sha256(target) != row["sha256"]: raise RecoveryError("Original input changed while staging: " + row["path"])
     return selected
 
 

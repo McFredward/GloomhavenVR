@@ -12,7 +12,7 @@ from bundle_recovery import catalog_bundle_plan, run_recovery
 from export_identity import build_tool, read_identities
 import native_evidence
 from recover import (RecoveryError, managed_inventory, repair_managed_plugins, resolve_game_data,
-                     run_export, sha256, source_inventory, stage_input, write_json)
+                     run_export, sha256, source_inventory, stage_input, write_json, own_attempt, ordinary_path)
 
 
 def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
@@ -65,10 +65,20 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
             if not path.is_file() or sha256(path) != row["sha256"]:
                 raise RecoveryError("Core recovery output changed: " + row["path"])
     else:
-        if core.exists() or core_identities.exists():
-            raise RecoveryError("Interrupted core export evidence exists; retain it and use a new workspace.")
+        owner = workspace / "core-attempt.json"
+        expected = {"schema": 1, "owner": "Quest original core export", "sourceFingerprint": fingerprint,
+                    "exporterSource": tool_proof["source"]}
+        if not owner.exists() and (core_identities.exists() or (workspace / "CoreEvidence").exists()):
+            raise RecoveryError("Unfinished core evidence has no matching ownership receipt.")
+        own_attempt(owner, expected, workspace / "CoreExport")
+        # Completed core-recovery.json is handled above. Only this marker-owned
+        # unfinished export is retried, preserving all later completed batches.
+        for unfinished in (workspace / "CoreExport", workspace / "CoreEvidence"):
+            ordinary_path(unfinished)
+            if unfinished.exists(): shutil.rmtree(unfinished)
+        ordinary_path(core_identities).unlink(missing_ok=True)
         staged = workspace / "CoreInput/GH_Data"
-        staged.parent.mkdir(parents=True)
+        staged.parent.mkdir(parents=True, exist_ok=True)
         stage_input(source, staged, [])
         capture = native_evidence.environment(workspace / "CoreEvidence")
         previous_env = {name: os.environ.get(name) for name in ("QUEST_EXPORT_IDENTITIES", "QUEST_EXPORT_BUNDLE_ONLY", *capture)}

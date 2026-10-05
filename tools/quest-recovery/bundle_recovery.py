@@ -16,7 +16,80 @@ from export_identity import (build_tool, identity_remaps, object_index, read_ide
 import native_evidence
 from recover import (RecoveryError, YAML_EXTENSIONS, audit_asset_references,
                      audit_export_log, repair_managed_plugins, run_export,
-                     sha256, stage_input, write_json, is_unity_yaml)
+                     sha256, stage_input, write_json, is_unity_yaml, ordinary_path, own_attempt)
+
+
+MUTABLE_NATIVE_INDICES = ("QuestRecovery/native-redirect-identities.jsonl", "QuestRecovery/NativeRecipes/index.jsonl")
+
+
+def verified_records(root, records, *, excluded=()):
+    for row in records:
+        relative = Path(row["path"])
+        if relative.is_absolute() or ".." in relative.parts or "\\" in row["path"]:
+            raise RecoveryError("Recovery checkpoint has an unsafe relative path.")
+        path = ordinary_path(root / relative)
+        if row["path"] in excluded: continue
+        if not path.is_file() or path.stat().st_size != row["bytes"] or sha256(path) != row["sha256"]:
+            raise RecoveryError("Full recovered checkpoint file changed: " + row["path"])
+
+
+def recover_merge(output, workspace):
+    """A write-ahead journal restores only the exact unfinished batch changes."""
+    journal = ordinary_path(workspace / "merge-pending.json")
+    if not journal.exists(): return
+    value = json.loads(journal.read_text()); checkpoint = output / "quest-full-recovery-progress.json"
+    if value.get("schema") != 1 or value.get("output") != str(output): raise RecoveryError("Merge journal belongs to another output.")
+    progress = json.loads(checkpoint.read_text())
+    if sha256(checkpoint) != value["checkpointSha256"]:
+        if value["group"] not in progress["completedGroups"]: raise RecoveryError("Pending merge checkpoint changed unexpectedly.")
+        verified_records(output, progress["files"])
+    else:
+        prior = {row["path"] for row in progress["files"]}
+        verified_records(output, progress["files"], excluded=MUTABLE_NATIVE_INDICES)
+        for row in value["backups"]:
+            if row["path"] not in MUTABLE_NATIVE_INDICES: raise RecoveryError("Merge backup is not a known mutable index.")
+            saved = ordinary_path(workspace / row["backup"])
+            if saved.parent != workspace or not saved.is_file() or sha256(saved) != row["sha256"]:
+                raise RecoveryError("Retained merge index backup changed.")
+        for relative in value["addedPaths"]:
+            path = Path(relative)
+            if path.is_absolute() or ".." in path.parts or "\\" in relative or not relative.startswith(("Assets/QuestRecoveredBundles/", "QuestRecovery/")):
+                raise RecoveryError("Merge journal names an unsupported output.")
+        for relative in value["addedPaths"]:
+            if relative not in prior: ordinary_path(output / relative).unlink(missing_ok=True)
+        for row in value["backups"]:
+            target = ordinary_path(output / row["path"])
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(workspace / row["backup"], target)
+        verified_records(output, progress["files"])
+    journal.unlink()
+    for row in value["backups"]: ordinary_path(workspace / row["backup"]).unlink(missing_ok=True)
+
+
+def begin_merge(output, workspace, index, incoming, evidence, canonical):
+    _, duplicates, _ = identity_remaps(incoming, canonical)
+    paths = []
+    for row in incoming:
+        if row.get("skippedCore") or row["path"] in duplicates: continue
+        relative = "Assets/QuestRecoveredBundles/" + row["guid"] + "/" + Path(row["path"]).name
+        paths += [relative, relative + ".meta"]
+    for filename in MUTABLE_NATIVE_INDICES:
+        source = evidence / filename
+        if not source.is_file(): continue
+        paths.append(filename)
+        if filename.endswith("NativeRecipes/index.jsonl"):
+            for line in source.read_text().splitlines():
+                yaml = json.loads(line)["yamlPath"]
+                if Path(yaml).name != yaml or Path(yaml).suffix != ".yaml": raise RecoveryError("Pending native recipe has an unsafe filename.")
+                paths.append("QuestRecovery/NativeRecipes/" + yaml)
+    backups = []
+    for slot, relative in enumerate(MUTABLE_NATIVE_INDICES):
+        path = ordinary_path(output / relative)
+        if path.is_file():
+            saved = ordinary_path(workspace / ("merge-index-" + str(slot) + ".backup")); shutil.copyfile(path, saved)
+            backups.append({"path": relative, "backup": saved.name, "sha256": sha256(saved)})
+    write_json(workspace / "merge-pending.json", {"schema": 1, "output": str(output), "group": index,
+               "checkpointSha256": sha256(output / "quest-full-recovery-progress.json"), "addedPaths": sorted(set(paths)), "backups": backups})
 
 
 def catalog_bundle_plan(game_data, byte_limit=768 * 1024 * 1024):
@@ -104,25 +177,34 @@ def merge_export(project, incoming_project, incoming_rows, canonical_objects):
 
 
 def run_recovery(game_data, core_project, core_identities, output, workspace, tool_command, selected_groups=None):
+    for path in (output, workspace): ordinary_path(path)
     source, core, output, workspace = map(lambda value: Path(value).resolve(), (game_data, core_project, output, workspace))
-    if output == source or source in output.parents or output in source.parents:
+    if output == source or source in output.parents or output in source.parents or output == core or core in output.parents or output in core.parents:
         raise RecoveryError("Full recovery output must stay outside original game data.")
     plan = catalog_bundle_plan(source)
     workspace.mkdir(parents=True, exist_ok=True)
     write_json(workspace / "bundle-plan.json", plan)
     checkpoint = output / "quest-full-recovery-progress.json"
+    owner = workspace / "recovery-owner.json"
+    expected = {"schema": 1, "owner": "Quest bounded original recovery", "output": str(output),
+                "catalogSha256": plan["catalogSha256"], "coreIdentitySha256": sha256(core_identities)}
+    if not owner.exists() and checkpoint.is_file():
+        previous = json.loads(checkpoint.read_text())
+        if previous["catalogSha256"] != expected["catalogSha256"] or previous["coreIdentitySha256"] != expected["coreIdentitySha256"]:
+            raise RecoveryError("Full recovery resume inputs changed.")
+        verified_records(output, previous["files"])
+        write_json(owner, expected)  # adopt only a complete verified legacy checkpoint
+    own_attempt(owner, expected, output)
+    recover_merge(output, workspace)
     if checkpoint.exists():
         progress = json.loads(checkpoint.read_text())
         if progress["catalogSha256"] != plan["catalogSha256"] or progress["coreIdentitySha256"] != sha256(core_identities):
             raise RecoveryError("Full recovery resume inputs changed.")
-        for row in progress["files"]:
-            path = output / row["path"]
-            if not path.is_file() or sha256(path) != row["sha256"]:
-                raise RecoveryError("Full recovered checkpoint file changed: " + row["path"])
+        verified_records(output, progress["files"])
         identities = progress["identities"]
     else:
-        if output.exists():
-            raise RecoveryError("Full recovery requires a fresh output or a verified checkpoint.")
+        # An interrupted initial core copy has the durable matching owner above.
+        if output.exists(): shutil.rmtree(output)
         shutil.copytree(core, output)
         repair_managed_plugins(output, source)
         identities = read_identities(core_identities, core)
@@ -133,9 +215,8 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
         write_json(checkpoint, progress)
     canonical = object_index(identities)
     stage = workspace / "Input/GH_Data"
-    if not stage.exists():
-        stage.parent.mkdir(parents=True, exist_ok=True)
-        stage_input(source, stage, [])
+    stage.parent.mkdir(parents=True, exist_ok=True)
+    stage_input(source, stage, [])
     settings = json.loads((Path(__file__).parent / "tool-lock.json").read_text())["settings"]
     groups = range(len(plan["groups"])) if selected_groups is None else selected_groups
     for index in groups:
@@ -143,9 +224,23 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
             continue
         group = plan["groups"][index]
         directory = workspace / ("batch-" + str(index).zfill(3))
-        if directory.exists():
-            raise RecoveryError("Interrupted batch evidence exists; retain it and choose a new workspace: " + str(directory))
-        directory.mkdir()
+        batch_owner = workspace / (directory.name + ".owner.json")
+        tool_files = [{"name": Path(argument).name, "sha256": sha256(argument)} for argument in tool_command if Path(argument).is_file()]
+        own_attempt(batch_owner, {"schema": 1, "owner": "Quest original bundle batch", "group": group,
+                    "coreIdentitySha256": expected["coreIdentitySha256"], "toolFiles": tool_files}, directory)
+        export_receipt = directory / "export-complete.json"
+        completed_export = json.loads(export_receipt.read_text()) if export_receipt.is_file() else None
+        if completed_export:
+            if completed_export.get("schema") != 1: raise RecoveryError("Batch export receipt is invalid.")
+            verified_records(directory, completed_export["files"])
+            project = ordinary_path(directory / completed_export["project"])
+            if directory not in project.parents: raise RecoveryError("Batch export project escaped its owner.")
+            shaders = completed_export["shaderRecipes"]
+        else:
+            # Only the currently unfinished bounded export is restarted. Earlier
+            # groups and an already verified export waiting to merge are reused.
+            if directory.exists(): shutil.rmtree(directory)
+            directory.mkdir()
         selected = stage / "SelectedBundles"
         if selected.exists():
             shutil.rmtree(selected)
@@ -165,8 +260,12 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
         os.environ["QUEST_EXPORT_BUNDLE_ONLY"] = "1"
         os.environ.update(capture)
         try:
-            project, shaders, scripts = run_export(tool_command, stage, directory / "Export", directory / "export.log",
-                                                   directory / "Evidence", settings, require_scene_settings=False)
+            if not completed_export:
+                project, shaders, scripts = run_export(tool_command, stage, directory / "Export", directory / "export.log",
+                                                       directory / "Evidence", settings, require_scene_settings=False)
+                write_json(export_receipt, {"schema": 1, "project": project.relative_to(directory).as_posix(), "shaderRecipes": shaders,
+                           "files": [{"path": path.relative_to(directory).as_posix(), "bytes": path.stat().st_size, "sha256": sha256(path)}
+                                     for path in sorted(directory.rglob("*")) if path.is_file()]})
         finally:
             for key, value in previous.items():
                 if value is None:
@@ -174,6 +273,8 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
                 else:
                     os.environ[key] = value
         incoming = read_identities(identity_path, project)
+        verified_records(output, progress["files"])
+        begin_merge(output, workspace, index, incoming, directory / "Evidence", canonical)
         merged = merge_export(output, project, incoming, canonical)
         progress["files"].extend(merged["files"])
         # Native field recipes and engine redirects are stable original object
@@ -192,6 +293,7 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
                                    "remappedOriginalPointerCount": merged["remappedOriginalPointerCount"]})
         progress["assetsRecovered"] = len(progress["completedGroups"]) == len(plan["groups"])
         write_json(checkpoint, progress)
+        recover_merge(output, workspace)  # committed checkpoint cleans journal/backups
         print("[Quest full recovery] Batch", index + 1, "of", len(plan["groups"]), "merged:",
               merged["exportedCollectionCount"], "collections; total original objects", len(canonical), flush=True)
     progress["assetReferences"] = audit_asset_references(output)

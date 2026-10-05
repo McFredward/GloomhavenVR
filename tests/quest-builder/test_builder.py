@@ -598,6 +598,36 @@ class DevelopmentAndDeploymentTests(Temporary):
         with self.assertRaises(storage.BuildError):
             builder.deploy_woven_assemblies(staged, self.data, project)
 
+    def test_interrupted_derived_campaign_stage_retries_only_owned_output(self):
+        launcher = self.repo / "tools/quest-recovery/full_recovery.py"
+        launcher.parent.mkdir(parents=True)
+        launcher.write_text(
+            'import argparse,json\nfrom pathlib import Path\np=argparse.ArgumentParser()\n'
+            'p.add_argument("--game-data");p.add_argument("--output-project");p.add_argument("--workspace");'
+            'p.add_argument("--tool-cache");p.add_argument("--dotnet");p.add_argument("--managed-dotnet")\n'
+            'a=p.parse_args();root=Path(a.output_project);(root/"Assets").mkdir(parents=True,exist_ok=True)\n'
+            '(root/"completed-native-export").write_bytes(b"retained original recovery")\n'
+            '(Path(a.workspace)/"full-recovery.json").write_text(json.dumps({"schema":1,'
+            '"fullOriginalCatalogRecovered":True,"managedTypes":str(root/"types.json"),"cabBundles":str(root/"owners.json")}))\n')
+        calls=[]
+        def partial(raw,game,recovered,*_,**__):
+            calls.append(recovered)
+            self.assertFalse(recovered.exists())
+            self.assertEqual((raw/"completed-native-export").read_bytes(),b"retained original recovery")
+            recovered.mkdir(parents=True);(recovered/"unfinished-derived-output").write_bytes(b"interrupted")
+            raise storage.BuildError("deliberately interrupted derived stage")
+        with patch("dependencies.python_environment", return_value=Path(sys.executable)), \
+                patch("dependencies.dotnet10", return_value=Path(sys.executable)), \
+                patch.object(builder,"owned_tmp_source_archive",return_value=self.root/"official-source.tgz"), \
+                patch.object(builder.full_assets,"stage",side_effect=partial):
+            arguments=["prepare","--repo-root",str(self.repo),"--game-root",str(self.data),"--output-root",str(self.output),"--target","game","--dummy-profile","--steam-logo",str(self.logo),"--dotnet",sys.executable]
+            self.assertEqual(builder.main(arguments),1)
+            self.assertTrue((calls[0]/"unfinished-derived-output").exists())
+            self.assertEqual(builder.main(arguments),1)
+        self.assertEqual(len(calls),2);self.assertEqual(calls[0],calls[1])
+        self.assertTrue((calls[0].parent/"stage-owner.json").is_file())
+        self.assertEqual(list((self.output/"receipts").glob("recovery/*.json")),[])
+
     def test_real_recovery_process_zero_is_not_full_game_readiness(self):
         launcher = self.repo / "tools/quest-recovery/full_recovery.py"
         launcher.parent.mkdir(parents=True)

@@ -16,7 +16,7 @@ import subprocess
 import tarfile
 import urllib.request
 
-from recover import RecoveryError, safe_extract, sha256, write_json
+from recover import RecoveryError, safe_extract, sha256, write_json, ordinary_path, download_pinned
 
 HERE = Path(__file__).resolve().parent
 REVISION = "1ac666f47d8e9dedf96afb0b914c70d7656151ea"
@@ -65,21 +65,41 @@ def patch_source(source):
 
 
 def acquire_source(cache):
-    cache = Path(cache).resolve()
+    cache = ordinary_path(cache)
     cache.mkdir(parents=True, exist_ok=True)
     archive = cache / "assetripper-source-1ac666f.tar.gz"
-    if not archive.exists():
-        partial = archive.with_suffix(".download")
-        urllib.request.urlretrieve(SOURCE_URL, partial)
-        if sha256(partial) != SOURCE_SHA256:
-            partial.unlink()
-            raise RecoveryError("Pinned open-source AssetRipper archive hash differs.")
-        partial.replace(archive)
-    if sha256(archive) != SOURCE_SHA256:
-        raise RecoveryError("Cached AssetRipper source archive changed.")
+    download_pinned(SOURCE_URL, archive, SOURCE_SHA256)
     source = cache / ("AssetRipper-" + REVISION)
-    if not source.exists():
-        safe_extract(archive, cache)
+    stage = ordinary_path(cache / "source-extracting")
+    marker = ordinary_path(cache / "quest-source-acquisition.json")
+    identity = {"schema": 1, "owner": "Quest pinned AssetRipper source", "revision": REVISION, "archiveSha256": SOURCE_SHA256}
+    if marker.is_file():
+        state = json.loads(marker.read_text())
+        if {key: state.get(key) for key in identity} != identity: raise RecoveryError("Pinned source extraction ownership differs.")
+        if state.get("complete") is True and source.is_dir():
+            if stage.exists(): shutil.rmtree(stage)
+            return source
+    else:
+        if source.exists():
+            # Older completed instrumented caches carry a real build receipt.
+            # An incomplete or unrelated directory is never inferred complete.
+            legacy = cache / "quest-identity-tool.json"
+            proof = json.loads(legacy.read_text()).get("source", {}) if legacy.is_file() else {}
+            if proof.get("sourceRevision") != REVISION or proof.get("sourceArchiveSha256") != SOURCE_SHA256:
+                raise RecoveryError("Existing source directory has no completed pinned acquisition evidence.")
+            write_json(marker, {**identity, "complete": True}); return source
+        if stage.exists(): raise RecoveryError("Pinned source extraction has no matching owner.")
+    write_json(marker, {**identity, "complete": False})
+    for unfinished in (stage, source):
+        ordinary_path(unfinished)
+        if unfinished.exists(): shutil.rmtree(unfinished)
+    stage.mkdir()
+    safe_extract(archive, stage)
+    extracted = ordinary_path(stage / source.name)
+    if not extracted.is_dir(): raise RecoveryError("Pinned archive has no declared source revision.")
+    os.replace(extracted, source)
+    write_json(marker, {**identity, "complete": True})
+    shutil.rmtree(stage)
     return source
 
 
