@@ -177,12 +177,14 @@ class ProvenanceEyeTests(unittest.TestCase):
         for name in ('full_shaders.py', 'stereo_eye_repair.py'):
             shutil.copyfile(Path(repair.__file__).with_name(name), self.fixture.driver / name)
     def tearDown(self): self.fixture.tearDown()
-    def apply(self, with_prior=False):
+    def apply(self, with_prior=False, with_legacy=False):
         if with_prior:
             old, manifest, ledger = self.fixture.shader_order_receipt()
             old_bytes = (self.project / 'QuestCampaignEvidence/fragment-stereo-input-order.json').read_bytes()
         else: manifest = None
         manifest, _, _ = populate(self.project, self.proof, manifest)
+        if with_legacy:
+            self.add_legacy_fixture(manifest)
         if with_prior:
             old_paths = {row['assetPath'] for row in old['programs']}
             ledger = {'schema': 1, 'scope': 'native-fragment-stereo-input-order-identities',
@@ -199,6 +201,41 @@ class ProvenanceEyeTests(unittest.TestCase):
         if with_prior:
             self.assertEqual((self.project / 'QuestCampaignEvidence/fragment-stereo-input-order.json').read_bytes(), old_bytes)
         return receipt
+    def add_legacy_fixture(self, manifest):
+        """Synthetic physical bytes; production's three literal hashes stay pinned."""
+        rows = []
+        self.legacy_manifest_rows = []
+        # Patchable fixture map deliberately contains only the actual known paths/GUIDs.
+        production_pins = {
+            'Assets/Shader/Hidden_BrightPassFilter2.shader': '93f40d5ea0c0a7945a5782e2dcd23833',
+            'Assets/Shader/Hidden_BlendForBloom.shader': '30881e480b10c1b46a3d99ec13496f5e',
+            'Assets/Shader/Hidden_BlurAndFlares.shader': '29d4384c2ae952c4597a9d894d381163'}
+        for name, guid in production_pins.items():
+            before = ('// synthetic official source ' + name).encode()
+            after = before + b'\nUnityObjectToClipPos(originalVertex);\n'
+            write(self.project / name, after)
+            write(self.project / (name + '.meta'), ('guid: ' + guid + '\n').encode())
+            actual = identity(self.project, {'assetPath': name, 'guid': guid}, True)
+            repair.LEGACY_IDENTITIES[name] = (guid, actual['sha256'])
+            native = {'assetPath': name, 'guid': guid, 'sourceSha256': repair.hash_bytes(before),
+                'metaSha256': actual['metaSha256'], 'importUpgrade': {'kind': 'UnityObjectToClipPos',
+                'sha256': actual['sha256'], 'replacements': 1}}
+            rows.append(native)
+        legacy = {'schema': 1, 'target': 'startup', 'unityVersion': '5.3.5f1', 'shaders': rows}
+        write(self.project / repair.LEGACY_RECEIPT, repair.encoded(legacy))
+        for native in rows:
+            row = {'assetPath': native['assetPath'], 'guid': native['guid'], 'originalName': 'Hidden/LegacyFixture',
+                'sourceSha256': native['sourceSha256'], 'variants': [{'subshader': 0, 'pass': 0, 'hardwareTier': 0, 'passType': 'Normal', 'keywords': ['LEGACY_FIXTURE']}], 'sourceRestoration': 'retained-source-contract',
+                'retainedSourceContract': {'sourceSha256': native['sourceSha256'], 'originalProvenance': {
+                    'receipt': repair.LEGACY_RECEIPT, 'receiptSha256': digest(self.project / repair.LEGACY_RECEIPT), 'shader': native}}}
+            manifest['shaders'].append(row); manifest['requiredShaderCount'] += 1; manifest['requiredOriginalNativeAliasCount'] += 1
+            self.legacy_manifest_rows.append(row)
+        write(self.project / repair.MANIFEST, repair.encoded(manifest))
+        inputs = json.loads((self.proof / 'WitnessInput.json').read_bytes())
+        inputs['sourceManifestSha256'] = digest(self.project / repair.MANIFEST)
+        write(self.proof / 'WitnessInput.json', repair.encoded(inputs))
+        witness_path = self.proof / 'FinalPassWitness/results.json'; witness = json.loads(witness_path.read_bytes())
+        witness['inputSha256'] = digest(self.proof / 'WitnessInput.json'); write(witness_path, repair.encoded(witness))
     def test_portable_three_program_provenance_and_frozen_identity(self):
         receipt = self.apply(); result = self.fixture.capture()
         proof = result['campaignVertexLayerEyeMacroRepair']
@@ -238,6 +275,70 @@ class ProvenanceEyeTests(unittest.TestCase):
             return result
         with patch.object(build_provenance, '_shader_eye_repair', side_effect=race):
             with self.assertRaises(BuildError): self.fixture.capture()
+
+
+class LegacyImportAuthorityTests(unittest.TestCase):
+    setUp = ProvenanceEyeTests.setUp
+    tearDown = ProvenanceEyeTests.tearDown
+    apply = ProvenanceEyeTests.apply
+    add_legacy_fixture = ProvenanceEyeTests.add_legacy_fixture
+    # Inherit filesystem ownership helpers; no real Unity/compiler claim in this fixture.
+    def test_three_import_upgrades_survive_repair_and_completed_provenance(self):
+        with patch.object(repair, 'LEGACY_IDENTITIES', {}):
+            receipt = self.apply(True, with_legacy=True)
+            result = self.fixture.capture()
+            self.assertEqual(result['campaignVertexLayerEyeMacroRepair']['programCount'], 3)
+            self.assertEqual(result['campaignFragmentStereoInputOrderRepair']['programCount'], 90)
+            for row in self.legacy_manifest_rows:
+                actual = identity(self.project, row, True)
+                self.assertTrue(repair.source_identity_matches(self.project, row, actual, 'shaders', json.loads((self.project / repair.MANIFEST).read_bytes())))
+                self.assertNotEqual(actual['sha256'], row['sourceSha256'])
+            self.assertEqual(repair.verify_completed(self.project)[0], receipt)
+    def test_legacy_shader_drift_and_missing_history_are_never_adopted(self):
+        with patch.object(repair, 'LEGACY_IDENTITIES', {}):
+            self.apply(True, with_legacy=True)
+            row = self.legacy_manifest_rows[0]
+            manifest = json.loads((self.project / repair.MANIFEST).read_bytes())
+            actual = identity(self.project, row, True)
+            for kind in ('programs', 'materials'):
+                self.assertFalse(repair.source_identity_matches(self.project, row, actual, kind, manifest))
+            for field, value in (('guid', '0' * 32), ('sourceRestoration', 'exact-original-dxbc'), ('sourceSha256', '0' * 64)):
+                bad = copy.deepcopy(row); bad[field] = value
+                self.assertFalse(repair.source_identity_matches(self.project, bad, actual, 'shaders', manifest))
+            bad = copy.deepcopy(actual); bad['sha256'] = '1' * 64
+            self.assertFalse(repair.source_identity_matches(self.project, row, bad, 'shaders', manifest))
+            bad = copy.deepcopy(manifest); bad.pop('fragmentStereoInputOrderRepair')
+            self.assertFalse(repair.source_identity_matches(self.project, row, actual, 'shaders', bad))
+    def test_retained_receipt_and_prior_ledger_hashes_scope_and_phase_are_required(self):
+        with patch.object(repair, 'LEGACY_IDENTITIES', {}):
+            self.apply(True, with_legacy=True)
+            row = self.legacy_manifest_rows[0]; actual = identity(self.project, row, True)
+            manifest = json.loads((self.project / repair.MANIFEST).read_bytes())
+            for name in (repair.LEGACY_RECEIPT, 'QuestCampaignEvidence/fragment-stereo-input-order-identities.json'):
+                path = self.project / name; before = path.read_bytes(); write(path, before + b' ')
+                self.assertFalse(repair.source_identity_matches(self.project, row, actual, 'shaders', manifest))
+                write(path, before)
+            path = self.project / 'QuestCampaignEvidence/fragment-stereo-input-order.json'; before = path.read_bytes()
+            for field, value in (('scope', 'unknown'), ('applied', False), ('schema', True), ('programCount', 89)):
+                bad = json.loads(before); bad[field] = value; write(path, repair.encoded(bad))
+                self.assertFalse(repair.source_identity_matches(self.project, row, actual, 'shaders', manifest))
+            bad = json.loads(before); bad['manifest']['afterSha256'] = '0' * 64; write(path, repair.encoded(bad))
+            self.assertFalse(repair.source_identity_matches(self.project, row, actual, 'shaders', manifest))
+            write(path, before)
+    def test_refreshing_ledger_hash_cannot_adopt_changed_meta_guid_or_source(self):
+        with patch.object(repair, 'LEGACY_IDENTITIES', {}):
+            self.apply(True, with_legacy=True)
+            row = self.legacy_manifest_rows[0]; actual = identity(self.project, row, True)
+            manifest = json.loads((self.project / repair.MANIFEST).read_bytes())
+            for field in ('sha256', 'metaSha256', 'guid'):
+                ledger_path = self.project / 'QuestCampaignEvidence/fragment-stereo-input-order-identities.json'
+                ledger_before = ledger_path.read_bytes(); ledger = json.loads(ledger_before)
+                target = next(v for v in ledger['shaders'] if v['assetPath'] == row['assetPath'])
+                target[field] = '0' * (32 if field == 'guid' else 64); write(ledger_path, repair.encoded(ledger))
+                receipt_path = self.project / 'QuestCampaignEvidence/fragment-stereo-input-order.json'; receipt_before = receipt_path.read_bytes()
+                receipt = json.loads(receipt_before); receipt['identities']['sha256'] = digest(ledger_path); write(receipt_path, repair.encoded(receipt))
+                self.assertFalse(repair.source_identity_matches(self.project, row, actual, 'shaders', manifest))
+                write(ledger_path, ledger_before); write(receipt_path, receipt_before)
 
 
 if __name__ == '__main__': unittest.main()

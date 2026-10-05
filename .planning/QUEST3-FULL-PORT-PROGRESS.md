@@ -638,3 +638,38 @@ compiles against Unity2021.3.5 metadata; ten pinned-Mono release/dispatch contro
 and two source-bound stage controls pass. The native Editor unload and full
 Player peak are distinct runtime observations, not established by those controls.
 Frozen ModBuild623 runtime, input identity and imported Library remain retained.
+
+## Completed native Player and targeted delivery corrections
+
+The dc3 invocation completes the full Android Player, IL2CPP compilation and
+signing. Its APK is 2,352,116,065 bytes. Its controlled content build produces
+3,255 native bundles and a 10,703,844,562-byte ZIP64 bank with all 6,366 members
+verified. This candidate is not delivered: the actual Player log contains 47
+shader errors, and the delivered-compute postflight does not complete.
+
+Forty-four errors are ForwardAdd light/shadow products absent from the original
+native keyword graph. The new owned-shader Editor callback removes only those
+unsupported products, preserving all 51,564 original aliases. A same-version
+native bundle witness forces 80 products, rejects 67 unsupported combinations
+and retains three valid executable pairs byte for byte. Three further errors
+come from FinalPass/Uber Layer output wrappers in multiview. Their narrowly
+guarded stereo repair passes 27 native compiler banks; all 18 mono/instancing
+stage pairs remain unchanged. These are compiler results, not headset pictures.
+
+EyeHistogram is present in the signed APK under its serialized GUID, rather than
+a .assets filename. The bounded metadata classifier identifies it by reading
+5,711 native metadata tables and decoding one compute payload in 0.886 seconds.
+Its actual Vulkan executable passes the original kernel/interface/thread-group
+audit. The same Resources object additionally retains a desktop OpenGL 17/11
+bank. Its exact original owner and serialized bytes are recorded separately;
+only the Vulkan bank is selected for the Android executable audit. The raw
+delivered object and frozen validator remain unchanged. Full 13-shader/36-kernel
+postflight and an error-free replacement Player remain mandatory.
+
+The memory handoff releases approximately 105 MB of managed allocations; actual
+process RSS does not decrease. No broader peak-memory improvement is claimed.
+Owned obsolete generated C/C++ backups are removed after a fresh live-reference
+check, reclaiming 11,518,809,720 bytes. Historical DLL/PDB evidence, prior B622
+symbols, current native source, imported Library and original inputs remain.
+An intervening filesystem restriction prevented starting a replacement Player;
+the restored full-access session continues from these retained inputs.

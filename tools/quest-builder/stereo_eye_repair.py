@@ -23,6 +23,12 @@ INPUT = "QuestCampaignEvidence/vertex-layer-eye-macros-input.json"
 WITNESS = "QuestCampaignEvidence/vertex-layer-eye-macros-witness.json"
 TRANSACTION = "QuestCampaignEvidence/vertex-layer-eye-macros.transaction"
 MARKER = "vertexLayerEyeMacroRepair"
+LEGACY_RECEIPT = "QuestStartupEvidence/legacy-post-effects.json"
+LEGACY_IDENTITIES = {
+    "Assets/Shader/Hidden_BrightPassFilter2.shader": ("93f40d5ea0c0a7945a5782e2dcd23833", "8a19269566f8fd692a44eb607c44f114abbc0a555d11c06995de22e2112e8dc1"),
+    "Assets/Shader/Hidden_BlendForBloom.shader": ("30881e480b10c1b46a3d99ec13496f5e", "d22461e93e8d3bd6801fe12a8ea8a12632d870fd54afc4d34dca839337838abf"),
+    "Assets/Shader/Hidden_BlurAndFlares.shader": ("29d4384c2ae952c4597a9d894d381163", "343d875aed4f5f221ce7d5e33df24ffc90459d9533448d7ba9edca80fa40d390"),
+}
 FINALPASS_GUID = "55cd61a63af3b914593da54c0365e166"
 UBER_GUID = "b831b000b957e1b4d98692257f510eea"
 PINS = frozenset((
@@ -111,6 +117,60 @@ def verify_ledger(root, ledger):
                 raise BuildError("Unchanged original shader/material/program bytes drifted during postprocessing repair.")
 
 
+def source_identity_matches(root, row, actual, kind, manifest):
+    """Recognize only the three previously audited Unity import upgrades.
+
+    Their original manifest describes the pre-import source. The retained legacy
+    receipt and previous fragment ledger separately bind the physical imported
+    bytes. Neither historical document is rewritten by this later repair.
+    """
+    if actual["sha256"] == row["sourceSha256"]:
+        return True
+    pin = LEGACY_IDENTITIES.get(row["assetPath"])
+    if (kind != "shaders" or pin != (row.get("guid"), actual["sha256"])
+            or row.get("sourceRestoration") != "retained-source-contract"
+            or manifest.get("fragmentStereoInputOrderRepair") != {
+                "path": "QuestCampaignEvidence/fragment-stereo-input-order.json",
+                "scope": "native-fragment-stereo-input-order", "programCount": 90}):
+        return False
+    contract = row.get("retainedSourceContract", {})
+    origin = contract.get("originalProvenance", {})
+    if (contract.get("sourceSha256") != row["sourceSha256"]
+            or origin.get("receipt") != LEGACY_RECEIPT
+            or origin.get("receiptSha256") != digest(asset(root, LEGACY_RECEIPT))):
+        return False
+    native = origin.get("shader", {})
+    upgrade = native.get("importUpgrade", {})
+    legacy = read(root, LEGACY_RECEIPT)
+    if (type(legacy.get("schema")) is not int or legacy["schema"] != 1
+            or legacy.get("target") != "startup" or legacy.get("unityVersion") != "5.3.5f1"):
+        return False
+    matches = [value for value in legacy.get("shaders", []) if value.get("assetPath") == row["assetPath"]]
+    if (matches != [native] or native.get("guid") != pin[0]
+            or native.get("sourceSha256") != row["sourceSha256"]
+            or native.get("metaSha256") != actual["metaSha256"]
+            or upgrade.get("kind") != "UnityObjectToClipPos" or upgrade.get("sha256") != pin[1]):
+        return False
+    prior = read(root, "QuestCampaignEvidence/fragment-stereo-input-order.json")
+    expected_phase = (read(root, RECEIPT)["manifest"]["beforeSha256"] if manifest.get(MARKER)
+                      else digest(asset(root, MANIFEST)))
+    if (type(prior.get("schema")) is not int or prior["schema"] != 1
+            or prior.get("scope") != "native-fragment-stereo-input-order" or prior.get("graphicsApi") != "Vulkan"
+            or prior.get("applied") is not True or type(prior.get("programCount")) is not int or prior["programCount"] != 90
+            or prior.get("manifest", {}).get("path") != MANIFEST
+            or prior["manifest"].get("afterSha256") != expected_phase):
+        return False
+    ledger_record = prior.get("identities", {})
+    name = "QuestCampaignEvidence/fragment-stereo-input-order-identities.json"
+    if ledger_record.get("path") != name or ledger_record.get("sha256") != digest(asset(root, name)):
+        return False
+    ledger = read(root, name)
+    if (type(ledger.get("schema")) is not int or ledger["schema"] != 1
+            or ledger.get("scope") != "native-fragment-stereo-input-order-identities"):
+        return False
+    return [value for value in ledger.get("shaders", []) if value.get("assetPath") == row["assetPath"]] == [actual]
+
+
 def prior_manifest(manifest, receipt):
     prior = copy.deepcopy(manifest)
     if prior.pop(MARKER, None) != {"path": RECEIPT, "scope": SCOPE, "programCount": 3}:
@@ -165,7 +225,7 @@ def verify_completed(root, manifest=None, driver_dir=None):
         if len(ledger[kind]) != len(expected) or {row["assetPath"] for row in ledger[kind]} != expected.keys():
             raise BuildError("Postprocessing repair unchanged identity ledger is incomplete.")
         for row in ledger[kind]:
-            if kind != "materials" and row["sha256"] != expected[row["assetPath"]]["sourceSha256"]:
+            if kind != "materials" and not source_identity_matches(root, expected[row["assetPath"]], row, kind, manifest):
                 raise BuildError("Postprocessing unchanged ledger differs from its native manifest source identity.")
     verify_ledger(root, ledger)
     input_data, witness = read(root, INPUT), read(root, WITNESS)
@@ -314,7 +374,7 @@ def repair(project, compiler_witness):
         for row in manifest[kind]:
             if row["assetPath"] in paths: continue
             actual = identity(root, row, kind != "programs")
-            if kind != "materials" and actual["sha256"] != row["sourceSha256"]:
+            if kind != "materials" and not source_identity_matches(root, row, actual, kind, manifest):
                 raise BuildError("Postprocessing repair cannot adopt drifted original source bytes.")
     ledger = {"schema": 1, "scope": SCOPE + "-identities", **{kind: [identity(root, row, kind != "programs") for row in manifest[kind]
               if kind != "programs" or row["assetPath"] not in paths] for kind in ("shaders", "materials", "programs")}}

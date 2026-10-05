@@ -1057,6 +1057,30 @@ def campaign_shader_environment(args, env):
     if getattr(args, "validate_campaign_shaders", False): env["GHVR_QUEST_VALIDATE_CAMPAIGN_SHADERS"] = "1"
 
 
+def validate_player_shader_log(path):
+    """Reject broken native shader banks even when Unity reports Player success.
+
+    The complete dc3 Player succeeded with 47 Vulkan compiler errors. The native
+    log gate complements BuildReport and imported shader checks without repeating
+    the original-program matrix. Compiler success does not certify headset pixels.
+    """
+    path = _ordinary_owned(path)
+    if not path.is_file():
+        raise BuildError("Completed full Player shader compiler log is missing.")
+    errors, samples = 0, []
+    pattern = re.compile(r"^\s*(?:Shader error in|Compute shader error in)\b", re.IGNORECASE)
+    with path.open("r", encoding="utf-8", errors="replace") as stream:
+        for line in stream:
+            if pattern.match(line):
+                errors += 1
+                if len(samples) < 5:
+                    samples.append(line.strip()[:512])
+    if errors:
+        raise BuildError("Full Player contains " + str(errors) + " native shader compiler errors: " + " | ".join(samples))
+    return {"schema": 1, "scope": "actual-completed-player-shader-compiler-log", "nativeCompilerErrorCount": 0,
+            "originalShaderMatrixRerun": False, "hardwareVerified": False}
+
+
 def build(args, inputs: dict, output: Path, source: Path, game: Path, project: Path) -> Path:
     tools = toolchain(args, output)
     weave(args, inputs, output, source, game, project)
@@ -1111,6 +1135,9 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
         if build_provenance.capture(inputs, project, source, Path(__file__).resolve().parent, tools) != provenance:
             raise BuildError("Staged build tools changed during the Player build; retry after editing stops.")
         metadata = json.loads(report.read_text(encoding="utf-8"))
+        if args.target == "game":
+            metadata["nativePlayerShaderValidation"] = validate_player_shader_log(
+                output / "logs" / ("unity-build-" + key[:12] + ".log"))
         metadata["buildProvenance"] = provenance
         write_json(report, metadata)
         details = validate_apk(apk, report, inputs, tools, output, provenance)
