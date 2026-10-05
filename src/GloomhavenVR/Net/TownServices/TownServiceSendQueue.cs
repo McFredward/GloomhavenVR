@@ -10,6 +10,11 @@ internal sealed class TownServiceLaneSendQueue
     private readonly List<ushort> _order = new();
     private readonly ulong _seed;
     private readonly Dictionary<ushort, ulong> _sequences = new();
+    private readonly Dictionary<ushort, ExtrasSendQueue> _clocks = new();
+    private readonly HashSet<ushort> _catalogOriginals = new();
+    private readonly Dictionary<ushort, TownServiceFrame> _catalogBases = new();
+    private int _clockCursor;
+    private bool _clockRepairDue;
     private int _cursor;
     private int _priorityCursor, _priorityTurns;
     private ushort? _normalActive, _priorityActive;
@@ -62,12 +67,39 @@ internal sealed class TownServiceLaneSendQueue
             for (int i = _order.Count - 1; i >= 0; i--)
             {
                 ushort id = _order[i];
-                if (id == TownServiceFrame.ManifestModule || Array.BinarySearch(frame.Modules, id) >= 0) continue;
+                if (id == TownServiceFrame.ManifestModule || Array.BinarySearch(frame.Modules, id) >= 0 || _catalogOriginals.Contains(id)) continue;
                 _sequences[id] = _queues[id].Sequence; _queues[id].Clear(); _queues.Remove(id); _order.RemoveAt(i); _priority.Remove(id); _coldPriority.Remove(id);
+                if (_clocks.TryGetValue(id, out var clock)) { _sequences[id] = Math.Max(_sequences[id], clock.Sequence); clock.Clear(); _clocks.Remove(id); }
             }
         }
         else
         {
+            if (frame.PublicCatalog && !frame.VisitorStock && frame.RackMember != null && !frame.RackMember.Detached)
+            {
+                _catalogOriginals.Add(frame.Module);
+                if (frame.BaseSequence == 0 && !_catalogBases.ContainsKey(frame.Module))
+                    _catalogBases[frame.Module] = frame;
+            }
+            if (frame.PublicCatalog && frame.BaseSequence == 0 && frame.CatalogBank?.Prepared == true)
+            {
+                if (!_clocks.TryGetValue(frame.Module, out var clock) && _clocks.Count < 2)
+                {
+                    clock = new ExtrasSendQueue(queue.Sequence, TownServiceCodec.MessageType, TownServiceCodec.FragmentType,
+                        snapshotLimit: TownServiceFrame.MaxBytes, sequenceStride: 131072,
+                        counterMask: TownServiceFragments.StockLaneMarker - 1, fixedMarker: _seed & TownServiceFragments.StockLaneMarker);
+                    _clocks.Add(frame.Module, clock);
+                }
+                if (clock != null)
+                {
+                    TownServiceFrame reference = TownCatalogClock.Create(frame, _catalogBases);
+                    foreach (TownServiceFrame current in frame.CatalogBank.Updates)
+                        if (!_catalogBases.ContainsKey(current.Module)) _catalogBases[current.Module] = current;
+                    // Latest waiting clock, never four obsolete full keyframes. This
+                    // queue does not invoke local original-delivery completion.
+                    try { byte[] referenceBytes = TownServiceCodec.Write(reference); clock.Enqueue(referenceBytes, referenceBytes.Length); }
+                    catch (System.IO.InvalidDataException) { /* A large changed original uses the unchanged full repair. */ }
+                }
+            }
             if (frame.HighPriority)
             {
                 _priority.Add(frame.Module);
@@ -120,11 +152,46 @@ internal sealed class TownServiceLaneSendQueue
         // Two urgent turns, then one background turn. A held face cannot wait behind
         // thousands of catalog rows; the full catalog cannot starve behind a held card.
         bool normalFirst = _priorityTurns >= 2;
+        // A reference clock consumes an ordinary urgent town turn. The next
+        // urgent turn belongs to full repair, and every third still to background.
+        if (!normalFirst && !_clockRepairDue)
+        {
+            byte[]? clock = TakeClock(now);
+            if (clock != null) { _clockRepairDue = true; _priorityTurns++; return clock; }
+        }
         byte[]? selected = normalFirst ? Take(now, false) : Take(now, true);
-        if (selected != null) { _priorityTurns = normalFirst ? 0 : _priorityTurns + 1; return selected; }
+        if (selected != null) { _priorityTurns = normalFirst ? 0 : _priorityTurns + 1; if (!normalFirst) _clockRepairDue = false; return selected; }
+        // An oversize full root uses this same module namespace directly. Finish
+        // its interrupted clock before trying background; otherwise a nonempty
+        // dormant bank could keep that assembly blocked indefinitely.
+        if (!normalFirst)
+        {
+            selected = TakeClock(now, unfinishedOnly: true);
+            if (selected != null) { _priorityTurns++; return selected; }
+        }
         selected = Take(now, normalFirst);
         if (selected != null) _priorityTurns = normalFirst ? _priorityTurns + 1 : 0;
+        if (selected != null && normalFirst) _clockRepairDue = false;
+        if (selected == null)
+        {
+            selected = TakeClock(now);
+            if (selected != null) { _clockRepairDue = true; _priorityTurns = normalFirst ? 0 : _priorityTurns + 1; }
+        }
         return selected;
+    }
+    private byte[]? TakeClock(double now, bool unfinishedOnly = false)
+    {
+        for (int i = 0; i < _order.Count; i++)
+        {
+            if (_clockCursor >= _order.Count) _clockCursor = 0;
+            ushort id = _order[_clockCursor++];
+            if (!_clocks.TryGetValue(id, out var clock) || !_queues.TryGetValue(id, out var complete) || complete.HasInFlight) continue;
+            if (unfinishedOnly && !clock.HasInFlight) continue;
+            if (!clock.HasInFlight) clock.AdvanceSequence(complete.Sequence);
+            byte[]? page = clock.Next(now);
+            if (page != null) return page;
+        }
+        return null;
     }
     private byte[]? Take(double now, bool urgent)
     {
@@ -148,6 +215,11 @@ internal sealed class TownServiceLaneSendQueue
             if (id == TownServiceFrame.ManifestModule || _priority.Contains(id) != urgent) continue;
             if (id == (urgent ? _normalActive : _priorityActive)) continue;
             ExtrasSendQueue queue = _queues[id];
+            if (_clocks.TryGetValue(id, out var clock))
+            {
+                if (clock.HasInFlight) continue;
+                if (!queue.HasInFlight) queue.AdvanceSequence(clock.Sequence);
+            }
             byte[]? page = queue.Next(now);
             if (page == null) continue;
             Completed(queue);
@@ -205,6 +277,8 @@ internal sealed class TownServiceLaneSendQueue
     }
     internal void Clear()
     { foreach (var pair in _queues) { _sequences[pair.Key] = pair.Value.Sequence; pair.Value.Clear(); }
+        foreach (var pair in _clocks) { _sequences[pair.Key] = Math.Max(_sequences.TryGetValue(pair.Key, out var sequence) ? sequence : 0, pair.Value.Sequence); pair.Value.Clear(); }
+        _clocks.Clear(); _catalogOriginals.Clear(); _catalogBases.Clear(); _clockCursor = 0; _clockRepairDue = false;
         _bundle.Clear(); _urgentBundle.Clear(); _bundleFrames.Clear(); _urgentBundleFrames.Clear(); _bundleBytes.Clear(); _promotedBundle.Clear(); _queues.Clear(); _order.Clear(); _priority.Clear(); _coldPriority.Clear(); _cursor = _priorityCursor = _priorityTurns = 0;
         _normalActive = _priorityActive = null; _manifestBytes = null; _manifestFrame = _sentManifest = null; _nextManifest = 0; }
     internal static bool SameIdentity(TownServiceFrame a, TownServiceFrame b) => a.VisitorStock == b.VisitorStock && a.PublicCatalog == b.PublicCatalog && a.PublicClaim == b.PublicClaim && a.Session == b.Session

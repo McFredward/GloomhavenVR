@@ -9,7 +9,7 @@ namespace GloomhavenVR.Net.TownServices;
 
 /// <summary>Atomic original-content dependencies of one public cabinet clock. References
 /// reuse complete original snapshots; changed snapshots travel inside the same packet.</summary>
-internal sealed class TownCatalogBank
+internal sealed partial class TownCatalogBank
 {
     // Actual native ItemCard captures exceed512KiB before price/body modules. Keep
     // inflation bounded without excluding the measured48-card original aggregate.
@@ -22,12 +22,17 @@ internal sealed class TownCatalogBank
     internal bool Prepared;
     internal TownCatalogBankMember[] Members = Array.Empty<TownCatalogBankMember>();
     internal TownServiceFrame[] Updates = Array.Empty<TownServiceFrame>();
+    // Additive TLV103 reference clocks retain the current owner's original headers,
+    // while every native node/property still comes from an exact content key.
+    internal TownServiceFrame[] Headers = Array.Empty<TownServiceFrame>();
+    internal ulong[] HeaderBaseKeys = Array.Empty<ulong>();
 
     internal TownCatalogBank Copy()
     {
         var result = new TownCatalogBank { Prepared = Prepared, Members = (TownCatalogBankMember[])Members.Clone(),
-            Updates = new TownServiceFrame[Updates.Length], _encoding = _encoding };
+            Updates = new TownServiceFrame[Updates.Length], Headers = new TownServiceFrame[Headers.Length], HeaderBaseKeys = (ulong[])HeaderBaseKeys.Clone(), _encoding = _encoding };
         for (int i = 0; i < Updates.Length; i++) result.Updates[i] = TownServiceDelta.Copy(Updates[i]);
+        for (int i = 0; i < Headers.Length; i++) result.Headers[i] = TownServiceDelta.Copy(Headers[i]);
         return result;
     }
 
@@ -36,8 +41,9 @@ internal sealed class TownCatalogBank
     internal TownCatalogBank Retain()
     {
         var result = new TownCatalogBank { Prepared = Prepared, Members = (TownCatalogBankMember[])Members.Clone(),
-            Updates = new TownServiceFrame[Updates.Length], _encoding = _encoding };
+            Updates = new TownServiceFrame[Updates.Length], Headers = new TownServiceFrame[Headers.Length], HeaderBaseKeys = (ulong[])HeaderBaseKeys.Clone(), _encoding = _encoding };
         for (int i = 0; i < Updates.Length; i++) result.Updates[i] = TownServiceDelta.Retain(Updates[i]);
+        for (int i = 0; i < Headers.Length; i++) result.Headers[i] = TownServiceDelta.Retain(Headers[i]);
         return result;
     }
 
@@ -89,7 +95,7 @@ internal sealed class TownCatalogBank
         if (root == null || !root.PublicCatalog || root.VisitorStock || root.Service != 1
             || root.Module >= TownServiceFrame.VoiceModule || root.Rack == null || root.RackMember != null
             || root.TemplateAddress == null || !root.TemplateAddress.StartsWith("merchant.rack|", StringComparison.Ordinal)
-            || Members == null || Updates == null || Members.Length > TownRackState.MaxMembers
+            || Members == null || Updates == null || Headers == null || HeaderBaseKeys == null || Members.Length > TownRackState.MaxMembers
             || Updates.Length > Members.Length)
             throw new InvalidDataException("Catalog content belongs to a public merchant rack.");
         root.Rack.Validate(root.Module);
@@ -105,16 +111,21 @@ internal sealed class TownCatalogBank
             refs.Add(member.Id, member.ContentKey);
         }
         var updates = new Dictionary<ushort, TownServiceFrame>();
-        for (int i = 0; i < Updates.Length; i++)
+        bool headers = Headers.Length != 0;
+        if (headers && (!Prepared || Updates.Length != 0 || Headers.Length != Members.Length || HeaderBaseKeys.Length != Headers.Length)
+            || !headers && HeaderBaseKeys.Length != 0)
+            throw new InvalidDataException("Reference clocks need every current original header.");
+        TownServiceFrame[] records = headers ? Headers : Updates;
+        for (int i = 0; i < records.Length; i++)
         {
-            TownServiceFrame update = Updates[i];
-            if (update == null || update.CatalogBank != null || update.BaseSequence != 0
+            TownServiceFrame update = records[i];
+            if (update == null || update.CatalogBank != null || (!headers && update.BaseSequence != 0)
                 || !update.PublicCatalog || update.VisitorStock || update.Service != root.Service
                 || update.Session != root.Session || update.PublicClaim != root.PublicClaim
                 || update.Module >= TownServiceFrame.VoiceModule || update.Rack != null
                 || update.RackMember == null || update.RackMember.Rack != root.Module
                 || update.RackMember.Turn != root.Rack.Turn || update.RackMember.Detached
-                || i > 0 && update.Module <= Updates[i - 1].Module
+                || i > 0 && update.Module <= records[i - 1].Module
                 || !refs.TryGetValue(update.Module, out ulong expected))
                 throw new InvalidDataException("Invalid complete original catalog update.");
             int slot = Array.FindIndex(root.Rack.Members, member => member.Id == update.Module);
@@ -122,13 +133,20 @@ internal sealed class TownCatalogBank
                 || update.ParentModule != TownServiceFrame.ManifestModule && update.ParentModule != root.Module
                     && !refs.ContainsKey(update.ParentModule))
                 throw new InvalidDataException("Catalog update is outside its original rack hierarchy.");
-            if (ContentKey(update) != expected)
+            if (headers)
+            {
+                if (HeaderBaseKeys[i] == 0 ? update.Nodes.Length != 0 || update.BaseSequence != 0 : update.BaseSequence == 0)
+                    throw new InvalidDataException("Reference headers require an explicit original patch base.");
+                var probe = TownServiceDelta.Retain(update); probe.Visible = false;
+                TownServiceCodec.Validate(probe);
+            }
+            else if (ContentKey(update) != expected)
                 throw new InvalidDataException("Original catalog content key mismatch.");
             updates.Add(update.Module, update);
         }
         // Cached parents are resolved by the receiver. A cycle already present entirely
         // in this packet is never a valid original transform hierarchy.
-        foreach (TownServiceFrame update in Updates)
+        foreach (TownServiceFrame update in records)
         {
             var path = new HashSet<ushort>();
             TownServiceFrame current = update;

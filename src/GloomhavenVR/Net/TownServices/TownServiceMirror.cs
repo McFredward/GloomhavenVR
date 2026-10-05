@@ -883,6 +883,7 @@ internal static partial class TownServiceMirror
                 }
                 catch (Exception e) { module.RetryAfter = now + 1; Report("capture module " + module.Id, e); }
             }
+            CaptureDormantCatalogOriginals(send, now);
         }
         if (now >= _nextManifest)
         {
@@ -1428,7 +1429,7 @@ internal static partial class TownServiceMirror
         if (PrivateLane.TransactionActive)
             TownServiceGrantSync.SetOffer(PrivateLane.Service, PrivateLane.Session, false);
         foreach (int peer in new List<int>(Remote.Keys)) ClearRemoteModules(peer);
-        MerchantOfferings.Clear(); ClearVoiceNetwork(); Pending.Clear(); ReceivedBaselines.Clear(); ReceivedCatalogBanks.Clear(); IncomingCatalogKeys.Clear(); Sessions.Clear(); VisitorSessions.Clear(); RemoteRetry.Clear(); foreach (LocalModule module in AllLocalModules())
+        MerchantOfferings.Clear(); ClearVoiceNetwork(); Pending.Clear(); ReceivedBaselines.Clear(); ReceivedCatalogBanks.Clear(); IncomingCatalogKeys.Clear(); CatalogOriginalBanks.Clear(); Sessions.Clear(); VisitorSessions.Clear(); RemoteRetry.Clear(); foreach (LocalModule module in AllLocalModules())
         { module.Last = null; module.Baseline = null; module.NextRefresh = module.NextBaseline = 0; }
         PrivateLane.NextManifest = PublicLane.NextManifest = StockLane.NextManifest = 0;
         PrivateLane.TempleDonationKnown = PrivateLane.TempleDonationAvailable = false;

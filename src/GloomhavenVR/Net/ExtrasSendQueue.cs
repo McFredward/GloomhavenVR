@@ -51,6 +51,17 @@ internal sealed class ExtrasSendQueue
     internal object? CompletedIdentity { get; private set; }
     private object? _activeIdentity;
 
+    // Two bounded queues may share a module fragment namespace, but never an
+    // unfinished assembly. Its next counter must exceed both previous writers.
+    internal void AdvanceSequence(ulong previous)
+    {
+        if (_pages != null) throw new InvalidOperationException("Cannot advance an unfinished presentation.");
+        if ((previous & ~_counterMask) != _fixedMarker
+            || previous % _sequenceStride != _sequence % _sequenceStride)
+            throw new ArgumentException("Different presentation fragment namespace.", nameof(previous));
+        if (previous > _sequence) _sequence = previous;
+    }
+
     internal ExtrasSendQueue(ulong sequence, byte payloadType = NetProtocol.MsgExtras,
         byte envelopeType = NetProtocol.MsgExtrasFragments, bool preserveFirst = false,
         int snapshotLimit = ExtrasFragments.MaxSnapshotBytes, ulong sequenceStride = 1,

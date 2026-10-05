@@ -16,6 +16,7 @@ internal static class TownServiceCodec
     internal const byte CatalogLayoutRecordId = NetProtocol.ExtIdTownCatalogLayout;
     internal const byte VisitorStockRecordId = NetProtocol.ExtIdTownVisitorStock;
     internal const byte CatalogBankRecordId = NetProtocol.ExtIdTownCatalogBank;
+    internal const byte CatalogHeadersRecordId = NetProtocol.ExtIdTownCatalogHeaders;
     private static readonly UTF8Encoding Utf8 = new(false, true);
 
     internal static byte[] Write(TownServiceFrame frame)
@@ -73,10 +74,12 @@ internal static class TownServiceCodec
             + (frame.HasTempleDonationCommitAge ? 7 : 0);
         byte[] layout = frame.Rack?.Layout != null ? TownCatalogLayout.Write(frame.Rack.Layout) : Array.Empty<byte>();
         byte[] bank = frame.CatalogBank?.Write(frame) ?? Array.Empty<byte>();
+        byte[] headers = frame.CatalogBank?.WriteHeaders(frame) ?? Array.Empty<byte>();
         int size = rollerBytes + mechanismBytes + clothBytes + interactionBytes + 6 + raw.Length + 2 * ((raw.Length + 254) / 255) + rack.Length + 2 * ((rack.Length + 254) / 255);
         int legacySize = size;
         size += layout.Length + 2 * ((layout.Length + 254) / 255) + (frame.VisitorStock ? 3 : 0);
         size += bank.Length + 2 * ((bank.Length + 254) / 255);
+        size += headers.Length + 2 * ((headers.Length + 254) / 255);
         if (size > TownServiceFrame.MaxBytes) throw new InvalidDataException("Town-service module exceeds the bounded snapshot size.");
         var packet = new byte[size];
         // NetProtocol.Magic (0x47565231) is written little endian by every existing lane.
@@ -154,6 +157,12 @@ internal static class TownServiceCodec
             packet[tail++] = CatalogBankRecordId; packet[tail++] = (byte)count;
             Buffer.BlockCopy(bank, offset, packet, tail, count); tail += count; offset += count;
         }
+        for (int offset = 0; offset < headers.Length;)
+        {
+            int count = Math.Min(255, headers.Length - offset);
+            packet[tail++] = CatalogHeadersRecordId; packet[tail++] = (byte)count;
+            Buffer.BlockCopy(headers, offset, packet, tail, count); tail += count; offset += count;
+        }
         return packet;
     }
 
@@ -173,6 +182,7 @@ internal static class TownServiceCodec
             using var rack = new MemoryStream();
             using var layout = new MemoryStream();
             using var bank = new MemoryStream();
+            using var headers = new MemoryStream();
             bool visitorStock = false;
             byte[]? workspaceCloth = null;
             bool templeDonationKnown = false, templeDonationAvailable = false; uint templeDonationRevision = 0;
@@ -197,6 +207,11 @@ internal static class TownServiceCodec
                 {
                     if (!allowBank || count == 0 || bank.Length + count > TownCatalogBank.MaxPayloadBytes) return false;
                     bank.Write(packet, at, count);
+                }
+                if (record == CatalogHeadersRecordId)
+                {
+                    if (!allowBank || count == 0 || headers.Length + count > TownCatalogBank.MaxHeaderPayloadBytes) return false;
+                    headers.Write(packet, at, count);
                 }
                 if (record == VisitorStockRecordId)
                 {
@@ -331,6 +346,11 @@ internal static class TownServiceCodec
             result.VisitorStock = visitorStock;
             result.PublicCatalog = publicCatalog; result.PublicClaim = publicClaim;
             if (bank.Length != 0) result.CatalogBank = TownCatalogBank.Read(bank.ToArray(), result);
+            if (headers.Length != 0)
+            {
+                if (result.CatalogBank == null) return false;
+                result.CatalogBank.ReadHeaders(headers.ToArray(), result);
+            }
             Validate(result); frame = result; return true;
         }
         catch (InvalidDataException) { return false; }

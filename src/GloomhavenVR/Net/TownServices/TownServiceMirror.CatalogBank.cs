@@ -41,7 +41,7 @@ internal static partial class TownServiceMirror
         }
     }
     private static void ClearLocalCatalogBanks()
-    { if (ReferenceEquals(_local, PublicLane)) LocalCatalogBanks.Clear(); }
+    { if (ReferenceEquals(_local, PublicLane)) { LocalCatalogBanks.Clear(); _catalogPreparationCursor = 0; _nextCatalogPreparation = 0; } }
 
     private static TownCatalogBank? CaptureCatalogBank(LocalModule root, TownRackState rack)
     {
@@ -140,22 +140,28 @@ internal static partial class TownServiceMirror
     private static bool AdmitCatalogBank(int peer, TownServiceFrame root)
     {
         TownCatalogBank? bank = root.CatalogBank;
-        if (bank == null) return true;
+        if (bank == null) { CacheCatalogOriginal(peer, root); return true; }
         if (!root.PublicCatalog || root.VisitorStock || root.Rack == null || peer >= 0) return false;
+        if (CatalogOriginalBanks.TryGetValue(peer, out var known) && !CatalogScopeMatches(known, root) && root.PublicClaim <= known.Claim) return false;
         try { bank.Validate(root); } catch (InvalidDataException) { return false; }
-        if (!ValidateCatalogBankOriginals(peer, root, bank)) return false;
+        if (!CompleteCatalogBank(peer, root, bank, out TownCatalogBank complete)) return false;
+        CatalogOriginalBank? originalBank = CatalogCache(peer, root, true);
+        if (originalBank != null) originalBank.Claim = root.PublicClaim;
+        // A complete fallback can arrive after its reference clock or a later
+        // clock. It still repairs immutable cache content without rolling back UI.
+        foreach (TownServiceFrame update in complete.Updates) CacheCatalogOriginal(peer, update);
         if (Pending.TryGetValue(peer, out var existing) && existing.TryGetValue(root.Module, out var previous)
             && previous.Sequence >= root.Sequence) return true;
         if (!Pending.TryGetValue(peer, out var pending))
         { if (Pending.Count >= 24) return false; Pending.Add(peer, pending = new Dictionary<ushort, TownServiceFrame>()); }
         int additional = 0;
-        foreach (TownServiceFrame update in bank.Updates) if (!pending.ContainsKey(update.Module)) additional++;
+        foreach (TownServiceFrame update in complete.Updates) if (!pending.ContainsKey(update.Module)) additional++;
         if (pending.Count + additional + (pending.ContainsKey(root.Module) ? 0 : 1) > TownServiceFrame.MaxModules) return false;
         if (!ReceivedBaselines.TryGetValue(peer, out var baselines))
             ReceivedBaselines.Add(peer, baselines = new Dictionary<ushort, TownServiceFrame>());
         // Parsing and full membership/content validation completed before the first write.
         // Root and required canonical snapshots enter the same pending picture atomically.
-        foreach (TownServiceFrame update in bank.Updates)
+        foreach (TownServiceFrame update in complete.Updates)
         {
             if (!baselines.TryGetValue(update.Module, out var before) || update.Sequence > before.Sequence) baselines[update.Module] = update;
             if (!pending.TryGetValue(update.Module, out var beforePending) || update.Sequence > beforePending.Sequence) pending[update.Module] = update;
@@ -193,6 +199,7 @@ internal static partial class TownServiceMirror
     }
     private static void ClearCatalogPeer(int peer)
     {
+        CatalogOriginalBanks.Remove(peer);
         var removed = new List<long>();
         foreach (long key in IncomingCatalogKeys.Keys) if ((key >> 16) == peer) removed.Add(key);
         foreach (long key in removed) IncomingCatalogKeys.Remove(key);
