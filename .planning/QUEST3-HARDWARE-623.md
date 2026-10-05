@@ -19,12 +19,12 @@ private build is explicitly a dummy. No provider cloud/profile/friends services
 are enabled. This scope describes implementation, not verified headset behavior.
 
 The Windows archive contains an APK and its adjacent complete content ZIP. Extract
-the whole archive and run `Install-Quest.cmd`; retain both files together. The
+the whole archive and run `scripts/install-quest-wireless.cmd`; retain both files together. The
 installer provisions local Python and Android platform-tools, uses the existing
 wireless ADB settings, transfers the declared content bank and installs the
 matched APK without clearing app data. A complete-content first installation
 transfers substantially more data than the previous menu-only test. Preserve
-existing save backups. `Collect-Quest-Logs.cmd` records the actual installed
+existing save backups. `scripts/collect-quest-logs.cmd` records the actual installed
 identity, logs and runtime diagnostics; use it after each hardware run.
 
 ## First Campaign hardware run
