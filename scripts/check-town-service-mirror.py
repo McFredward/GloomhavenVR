@@ -266,7 +266,7 @@ def main():
                 # real production callback on incomplete public artwork to reproduce the defect.
                 ("pending-rack-input-lock", "PublicMerchantClaim.cs", "if (!_available() || Time.unscaledTime - _lastPressed < .3f) return;",
                  "if (!_available() || !TownServiceMirror.HasReadyPublicPresentation || Time.unscaledTime - _lastPressed < .3f) return;",
-                 "peer physical category button adopts the public page despite missing artwork and a separate merchant transaction"),
+                 "visitor category press sends one reliable intent without replacing the prepared bank author"),
                 ("donation-received-clock", "TownServiceMirror.cs", "? Time.unscaledTime - frame.TempleDonationCommitAge", "? Time.unscaledTime", "remote donation keeps its owner's commit age instead of starting a new blessing on receipt"),
                 ("async-cabinet-epoch-spent", "TownServiceCabinetAudio.cs", "else StartPending();", "else _pending = false;", "late-loaded cabinet clip joins its pending owner epoch at the current sound phase"),
                 ("decision-step", "TownServiceMotion.cs", "? Mathf.Clamp(sampleInterval * 1.1f, 1f / 90f, .25f)",
