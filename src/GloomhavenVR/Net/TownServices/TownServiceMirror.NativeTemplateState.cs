@@ -41,6 +41,12 @@ internal static partial class TownServiceMirror
     }
     private static readonly Dictionary<int, MageAdmissionTrace> MageAdmissionTraces = new();
 
+    private static void TraceMageAdmissionReset(int peer = -1)
+    {
+        if (peer < 0) MageAdmissionTraces.Clear();
+        else MageAdmissionTraces.Remove(peer);
+    }
+
     private static void TraceMageAdmission(int peer, TownServiceSessionInfo session,
         Dictionary<ushort, TownServiceFrame> pending, string? blocker, ushort module = 0,
         string address = "")
@@ -48,14 +54,14 @@ internal static partial class TownServiceMirror
         // Debug-only first-picture evidence separates transport census waits from
         // exact native asset validation. No hierarchy scan/formatting runs for users.
         if (!VRLog.WantsDebug) return;
-        if (!session.TransactionActive) { MageAdmissionTraces.Remove(peer); return; }
+        if (!session.TransactionActive) { TraceMageAdmissionReset(peer); return; }
         bool same = MageAdmissionTraces.TryGetValue(peer, out MageAdmissionTrace? trace)
             && trace.Session == session.Session && trace.Modules.Length == session.Modules.Length;
         for (int i = 0; same && i < session.Modules.Length; i++)
             same = trace!.Modules[i] == session.Modules[i];
         if (!same)
         {
-            if (MageAdmissionTraces.Count >= 24) MageAdmissionTraces.Clear();
+            if (MageAdmissionTraces.Count >= 24) TraceMageAdmissionReset();
             trace = new MageAdmissionTrace { Session = session.Session,
                 Modules = (ushort[])session.Modules.Clone(), Started = Time.unscaledTime };
             MageAdmissionTraces[peer] = trace;
@@ -106,7 +112,7 @@ internal static partial class TownServiceMirror
     {
         // Disconnect ends this peer's immutable admission lifetime. A still-cold
         // original must never recreate pending state after RemovePeer returns.
-        MageAdmissionTraces.Remove(peer);
+        TraceMageAdmissionReset(peer);
         int remaining = UnpreparedNativeOrder.Count;
         while (remaining-- > 0)
         {
@@ -424,7 +430,7 @@ internal static partial class TownServiceMirror
     {
         unchecked { NativeTemplatePreparationRevision++; }
         foreach (NativeTemplateBasis basis in NativeTemplateBases.Values) basis.Binding.Dispose();
-        NativeTemplateBases.Clear(); MageValidatedOriginals.Clear(); MageAdmissionTraces.Clear();
+        NativeTemplateBases.Clear(); MageValidatedOriginals.Clear(); TraceMageAdmissionReset();
         UnpreparedNativeTemplates.Clear(); UnpreparedNativeOrder.Clear();
     }
 }
