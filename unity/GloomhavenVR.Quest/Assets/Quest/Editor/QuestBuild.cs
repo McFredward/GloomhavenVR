@@ -94,6 +94,10 @@ namespace GloomhavenVR.Quest.Editor
                 scenes = scenes, locationPathName = apk,
                 target = BuildTarget.Android, options = BuildOptions.Development
             });
+#if GHVR_QUEST_GAME
+            if (target == "game" && report.summary.result == BuildResult.Succeeded)
+                QuestCampaignComputeValidation.Validate();
+#endif
             byte[] profile = File.ReadAllBytes(Required("GHVR_QUEST_PROFILE_PATH"));
             string hash;
             using (var sha = System.Security.Cryptography.SHA256.Create())
@@ -260,6 +264,9 @@ namespace GloomhavenVR.Quest.Editor
             if (campaign)
             {
                 QuestCampaignAssetValidation.Validate();
+                QuestCampaignTextureValidation.Validate();
+                QuestCampaignSpriteValidation.Validate();
+                QuestCampaignComputeValidation.ValidateSources();
                 QuestCampaignShaderValidation.PrepareVariantCollection();
                 QuestCampaignShaderValidation.Validate();
             }

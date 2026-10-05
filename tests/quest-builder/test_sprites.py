@@ -143,6 +143,28 @@ class SpriteGeometryTests(unittest.TestCase):
                 sprites.restore_loading_sprite_geometry(self.project, self.game)
             self.assertEqual(before, {p: p.read_bytes() for p in self.folder.iterdir()})
 
+    def test_nonpacked_native_manifest_keeps_separate_packed_layer(self):
+        folder = self.project / "Assets/QuestOriginalCampaign"
+        folder.mkdir(parents=True)
+        rows = []
+        for index, name in enumerate(("LoadingBase", "LoadingOverlay"), 1):
+            path = self.folder / (name + ".asset")
+            text = asset(name, trimmed=False).replace("    x: 100\n    y: 200", "    x: 0\n    y: 0", 1)
+            path.write_text(text)
+            rows.append({"assetPath": path.relative_to(self.project).as_posix(), "guid": str(index) * 32,
+                         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "originalCollection": "resources.assets",
+                         "originalPathId": index})
+        (folder / "native-sprites.json").write_text(json.dumps({"assets": [rows[0]]}))
+        packed = {**rows[1], "collection": "resources.assets", "pathId": 2}
+        (folder / "packed-sprites.json").write_text(json.dumps({"sprites": [packed]}))
+        before = [path.read_bytes() for path in sorted(self.folder.glob("*.asset"))]
+        receipt = sprites.restore_loading_sprite_geometry(self.project, self.game)
+        self.assertEqual([path.read_bytes() for path in sorted(self.folder.glob("*.asset"))], before)
+        self.assertEqual([row["preservedNativePackedGeometry"] for row in receipt["assets"]], [False, True])
+        (folder / "native-sprites.json").write_text(json.dumps({"assets": rows}))
+        with self.assertRaisesRegex(BuildError, "both packed and nonpacked"):
+            sprites.restore_loading_sprite_geometry(self.project, self.game)
+
     def test_ambiguous_owned_identity_is_rejected(self):
         self.bank.write_bytes(bank(duplicate=True))
         with self.assertRaisesRegex(BuildError, "uniquely"):

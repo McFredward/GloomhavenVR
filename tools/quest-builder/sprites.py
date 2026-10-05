@@ -200,7 +200,21 @@ def restore_loading_sprite_geometry(project: Path, game: Path) -> dict:
         for row in manifest["sprites"]:
             if row["assetPath"] in packed:
                 raise BuildError("Native packed-Sprite drawing identity is ambiguous.")
-            packed[row["assetPath"]] = row
+            packed[row["assetPath"]] = {**row, "geometryManifest": packed_manifest.relative_to(project).as_posix(),
+                                        "nativePacked": True}
+    sprite_manifest = project / "Assets/QuestOriginalCampaign/native-sprites.json"
+    if sprite_manifest.is_file():
+        manifest = json.loads(sprite_manifest.read_text(encoding="utf-8"))
+        native_drawings = {}
+        for row in manifest["assets"]:
+            if row["assetPath"] in native_drawings:
+                raise BuildError("Native Sprite drawing identity is ambiguous.")
+            native_drawings[row["assetPath"]] = {**row, "collection": row["originalCollection"],
+                                                "pathId": row["originalPathId"], "nativePacked": False,
+                                                "geometryManifest": sprite_manifest.relative_to(project).as_posix()}
+        if packed.keys() & native_drawings.keys():
+            raise BuildError("A native loading-Sprite is claimed as both packed and nonpacked.")
+        packed.update(native_drawings)
     plans = []
     for path in sorted((project / "Assets/Sprite").glob("Loading*.asset")):
         if path.is_symlink() or any(parent.is_symlink() for parent in path.parents):
@@ -238,7 +252,9 @@ def restore_loading_sprite_geometry(project: Path, game: Path) -> dict:
                       "originalRect": original["rect"], "pivot": original["pivot"], "offset": original["offset"],
                       "restoredAtlasRect": original["rect"], "textureCrop": _rect(render, "textureRect", 4),
                       "trimOffset": _numbers(render, "textureRectOffset", ("x", "y"), indentation=4),
-                      "preservedNativePackedGeometry": True, "packedSpriteManifestSha256": digest(packed_manifest)}
+                      "preservedNativePackedGeometry": native["nativePacked"], "preservedNativeDrawingGeometry": True,
+                      "geometryManifest": native["geometryManifest"],
+                      "geometryManifestSha256": digest(project / native["geometryManifest"])}
         else:
             patched, record = _restore(text, originals)
         plans.append((path, patched, {**record, "asset": path.relative_to(project).as_posix(),

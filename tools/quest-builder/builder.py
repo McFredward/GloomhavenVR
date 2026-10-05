@@ -403,6 +403,10 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
                     "schema", "target", "selectedScenes", "readiness", "unresolvedAddressables", "missingReferences")
                     if key in recovery_report})
             startup.stage_startup_movies(project, game)
+            if args.target == "game":
+                import full_sprites
+                import campaign_shaders
+                full_sprites.stage(project, game, cab_bundles=campaign_shaders.original_cab_bundles(source, game))
             restore_loading_sprite_geometry(project, game)
             stage_startup_audio(project, game)
             if args.target == "game":
@@ -415,13 +419,19 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
                 import campaign_native
                 import campaign_shaders
                 import full_audio
+                import full_textures
                 campaign.stage_file_backed_extras(project, game)
                 dependencies.python_environment(output / "tool-cache", source)
                 selected_tools = toolchain(args, output)
                 campaign_native.stage(source, project, game, output / "tool-cache/campaign-native", Path(selected_tools["androidNdk"]))
+                original_owners = campaign_shaders.original_cab_bundles(source, game)
                 full_audio.stage(project, game, dotnet=tool_path(args.dotnet, "dotnet"),
                     tool_cache=output / "tool-cache/campaign-native-codecs",
-                    cab_bundles=campaign_shaders.original_cab_bundles(source, game))
+                    cab_bundles=original_owners)
+                full_textures.stage(project, game, dotnet=tool_path(args.dotnet, "dotnet"),
+                    tool_cache=output / "tool-cache/campaign-native-codecs", cab_bundles=original_owners)
+                import campaign_compute
+                campaign_compute.stage(source, project, output / "tool-cache/campaign-compute" / inputs["inputKey"])
                 campaign_shaders.stage(source, project, game, output / "tool-cache/campaign-shaders" / inputs["game"]["key"])
             package_startup_content(project, inputs["inputKey"])
             package_data = json.loads((project / "Packages/manifest.json").read_text(encoding="utf-8"))
@@ -446,9 +456,10 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             # Dumped Windows compute variants contain neither portable source nor
             # a valid Android compilation context. Restore only audited original
             # kernels from pinned official sources before any Unity import.
-            command([sys.executable, str(source / "tools/quest-recovery/compute_sources.py"),
-                     "--project", str(project), "--cache", str(output / "tool-cache/legacy-compute")],
-                    output / "logs" / ("startup-compute-source-" + key[:12] + ".log"))
+            if args.target == "startup":
+                command([sys.executable, str(source / "tools/quest-recovery/compute_sources.py"),
+                         "--project", str(project), "--cache", str(output / "tool-cache/legacy-compute")],
+                        output / "logs" / ("startup-compute-source-" + key[:12] + ".log"))
             startup.stage_startup_script_orders(project, game, source, output / "tool-cache",
                                                tool_path(args.dotnet, "dotnet"))
         manifest = project / "Assets/StreamingAssets/Quest/input-manifest.json"
@@ -482,6 +493,10 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             if args.target == "game":
                 contracts.extend([project / "QuestCampaignEvidence/native-runtime.json", resources / "quest-procedural-runtime.json",
                                   project / "Assets/QuestOriginalCampaign/bundled-audio.json"])
+                contracts.append(project / "Assets/QuestOriginalCampaign/native-cubemaps.json")
+                contracts.extend([project / "Assets/QuestOriginalCampaign/native-sprites.json",
+                                  project / "Assets/QuestOriginalCampaign/campaign-computes.json",
+                                  project / "Assets/QuestOriginalCampaign/native-platform-images.json"])
                 native = json.loads((project / "QuestCampaignEvidence/native-runtime.json").read_text())
                 contracts.extend(project / row["path"] for row in native["nativeFiles"])
         contracts.extend(p for p in (project / "Assets/Quest").rglob("*")
@@ -1027,7 +1042,17 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                  "-logFile", str(output / "logs" / ("unity-build-" + key[:12] + ".log"))],
                 output / "logs" / ("unity-launch-" + key[:12] + ".log"), env=env)
         details = validate_apk(apk, report, inputs, tools, output)
-        return [apk, report, *(output / row["path"] for row in details["contentFiles"])], details
+        evidence = []
+        if args.target == "game":
+            import campaign_compute
+            compute_receipt = apk.parent / "compute-delivered-validation.json"
+            print("compute: validating the actual signed player and complete delivered banks", flush=True)
+            checked = campaign_compute.validate_delivered(source, project, apk,
+                [output / row["path"] for row in details["contentFiles"]], compute_receipt)
+            details["computeValidation"] = {field: checked[field] for field in (
+                "shaderCount", "kernelCount", "actualGles31BytesVerified", "hardwareVerified")}
+            evidence.append(compute_receipt)
+        return [apk, report, *evidence, *(output / row["path"] for row in details["contentFiles"])], details
 
     receipt = Stages(output).run("build", key, compile_player)
     write_json(output / "latest-build.json", {"schema": 1, "receipt": Stages(output).path("build", key).relative_to(output).as_posix(),

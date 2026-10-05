@@ -121,7 +121,7 @@ def campaign_manifest_updates(project, moves):
     updates = {}
     root = "Assets/QuestOriginalCampaign/"
     for name in ("campaign-addressables.json", "campaign-scenes.json", "script-bindings.json", "campaign-shaders.json",
-                 "campaign-computes.json", "packed-sprites.json", "bundled-audio.json"):
+                 "campaign-computes.json", "packed-sprites.json", "bundled-audio.json", "native-cubemaps.json", "native-sprites.json", "native-platform-images.json"):
         path = root + name
         if not (project / path).is_file(): continue
         document = json.loads((project / path).read_text())
@@ -137,7 +137,7 @@ def campaign_manifest_updates(project, moves):
         elif name == "campaign-shaders.json":
             for key in ("shaders", "materials", "programs"):
                 for row in document.get(key, []): row["assetPath"] = mapped(row["assetPath"], moves)
-        elif name in ("campaign-computes.json", "bundled-audio.json"):
+        elif name in ("campaign-computes.json", "bundled-audio.json", "native-cubemaps.json", "native-sprites.json", "native-platform-images.json"):
             for row in document.get("shaders" if name == "campaign-computes.json" else "assets", []):
                 row["assetPath"] = mapped(row["assetPath"], moves)
         else:
