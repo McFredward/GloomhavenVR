@@ -26,6 +26,21 @@
 > rejected alternatives. `docs/PATCH-INVENTORY.md` lists all of them; `.planning/STATE.md` says
 > where the project stands.
 
+## Build625: native blessing audio at the shared donation clock
+
+The existing `TownServiceNativeAudioSilence` installer scopes
+`UITempleWindow.OnConfirmedBuy` and `ProxyBuyBlessing` through prefix/finalizer
+pairs. While that exact immersive temple callback runs, only its serialized
+`audioItemBless` playback is redirected to the shared presentation clock. The
+native transaction, promise completion and exception are unchanged. Nested
+scopes restore their previous item, including exceptional exits. Flat windows,
+unrelated reward sounds and other purchase feedback run normally.
+
+The shared resident uses the first declared original clip/alias from that native
+item, preloads it, and seeks the common donation age. Peers never independently
+randomize this cue. This is a presentation observer, not a game-state writer;
+native clip audibility and spatial balance still require headset verification.
+
 ## Build618: adopted-card geometry and bounded native attribution
 
 Cards registers `FullAbilityCard.UpdateScale` and `UpdatePosition` prefixes.

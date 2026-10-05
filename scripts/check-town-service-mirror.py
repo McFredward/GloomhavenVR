@@ -358,8 +358,9 @@ def main():
     if args.bank_controls:
         if args.suite != "public-catalog": parser.error("--bank-controls requires --suite public-catalog")
         variants = [("production", None, None, None, ""),
-            ("catalog-bank-no-updates", "TownServiceMirror.CatalogBank.cs", "Members = refs, Updates = updates", "Members = refs, Updates = Array.Empty<TownServiceFrame>()", "prepared cold far category stays fully populated at owner boundary"),
-            ("catalog-bank-retire-dormant", "PublisherTick.cs", "module.Seen = TownServiceMirror.IsPublicAuthor && module.CatalogResident;", "module.Seen = false;", "prepared cold far category stays fully populated at owner boundary"),
+            ("catalog-bank-no-updates", "TownServiceMirror.CatalogBank.cs", "Members = refs, Updates = updates", "Members = refs, Updates = Array.Empty<TownServiceFrame>()", "queued canonical clock completion releases the actual publisher heartbeat suppression"),
+            ("catalog-bank-retire-dormant", "PublisherTick.cs", "module.Seen = TownServiceMirror.IsPublicAuthor && module.CatalogResident;", "module.Seen = false;", "prepared dormant original sends a genuine complete loading prewarm snapshot"),
+            ("catalog-bank-queue-completion", "TownServiceSendQueue.cs", "Completed(clock);", "/* completion intentionally omitted by causal control */", "queued canonical clock completion releases the actual publisher heartbeat suppression"),
             ("catalog-bank-cache-wrong-content", "TownServiceMirror.CatalogBank.cs", "SameBankMembers(cache.Last.Members, refs)", "cache.Last.Members.Length == refs.Length", "genuinely changed original price is installed atomically"),
             ("catalog-bank-ignore-preparation", "TownServiceMirror.CatalogBank.cs", "Prepared = cache.Prepared, Members = refs", "Prepared = true, Members = refs", "partial dormant preparation never claims a complete original bank"),
             ("catalog-bank-parent-binding", "TownServiceMirror.CatalogBank.cs", "Array.IndexOf(CatalogOriginalBinding(parent).Bindings, update.ParentBinding) < 0", "false", "missing original cabinet parent binding is rejected before any atomic pending or baseline mutation"),

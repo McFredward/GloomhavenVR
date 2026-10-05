@@ -145,6 +145,9 @@ internal static class NetProtocol
     public const byte ExtIdTownMerchantControl = 104;
     /// <summary>Owner properties against an exact locally available native prefab basis.</summary>
     public const byte ExtIdTownNativeTemplateState = 105;
+    /// <summary>Exact owner-authored purse return endpoints, duration and shared age.
+    /// Additive to numeric town motion; the existing record97 grammar is unchanged.</summary>
+    public const byte ExtIdTownPurseReturn = 106;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -581,7 +584,25 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 624;
+    public const ushort ModBuild = 625;
+
+    // ModBuild 625 — Build624 paired NPC publication and local map loading review.
+    // Prepared cabinet turns retain exact immutable originals and send current
+    // TLV103 headers without rebuilding/compressing the full bank on input. Cold
+    // or changed dependencies are encoded one per send turn; completed clocks
+    // acknowledge their actual source so heartbeat/loss repair remains live.
+    // Native offer metadata carries every owner layout/active/text property and
+    // compares only genuinely omitted defaults. Cold receptions are retained and
+    // retried after real original preparation, never discarded until a later repair.
+    // Standard TMP fallback renderers are valid pooled item output (Boots of
+    // Striding); custom gameplay graphics remain rejected and mirrors inert.
+    // TLV106 adds the original .35s purse return against the rendered rig holder,
+    // including visibility lifetime. Blessing uses the exact native temple sound
+    // at the shared commit age, with only its duplicate immersive callback silenced.
+    // Resident gaze follows the visible interpolated remote head. Map loading waits
+    // for local resident/card preparation, never election or remote bank delivery;
+    // a fixed minimum spinner hold is removed. Source/runtime evidence is distinct
+    // from still-unverified headset appearance, network latency and native audio.
 
     // ModBuild 624 — first-save merchant onboarding closes through the native flow.
     // A real destination close and a surface-only map switch share the same native
