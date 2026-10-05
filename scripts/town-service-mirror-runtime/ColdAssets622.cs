@@ -69,7 +69,9 @@ public static partial class MirrorProgram
             File.WriteAllLines(Path.Combine(_output, "cold-bank-assets.txt"), bank.GetAllAssetNames());
         }
         finally { bank.Unload(true); }
-        yield return Resources.UnloadUnusedAssets();
+        AsyncOperation unloaded = Resources.UnloadUnusedAssets();
+        yield return unloaded;
+        Check(unloaded.isDone, "native unused-asset operation completes before the next proof");
     }
 
     private static void ColdPhysicalPurse622()
