@@ -115,7 +115,8 @@ namespace GloomhavenVR.Quest.Editor
             }, true));
             if (report.summary.result != BuildResult.Succeeded)
                 throw new InvalidOperationException("Android build failed: " + report.summary.result + ", errors=" + report.summary.totalErrors);
-            Debug.Log("[GloomhavenVR Quest] signed ARM64 IL2CPP " + target + " diagnostic built: " + apk);
+            Debug.Log("[GloomhavenVR Quest] signed ARM64 IL2CPP " + target
+                + (target == "game" ? " player built: " : " diagnostic built: ") + apk);
         }
         static void ConfigureAndroid(string package, bool originalStartup, bool configureSigning = true)
         {
@@ -137,7 +138,8 @@ namespace GloomhavenVR.Quest.Editor
             {
                 PlayerSettings.SetApiCompatibilityLevel(BuildTargetGroup.Android, ApiCompatibilityLevel.NET_4_6);
                 // Large recovered assemblies exhaust the native optimizer's memory.
-                // This menu diagnostic establishes execution, not release performance.
+                // Development players establish execution; native release performance
+                // is evaluated separately from the complete Campaign content scope.
                 PlayerSettings.SetIl2CppCompilerConfiguration(BuildTargetGroup.Android, Il2CppCompilerConfiguration.Debug);
                 // IL2CPP preserves a long left-associated tuning sum as nested calls.
                 // Increase the parser limit without changing the managed expression.
