@@ -84,7 +84,7 @@ namespace GloomhavenVR.WorldUI
         internal List<TownServiceMerchantZone> Zones = new();
     }
     internal sealed partial class TownServiceMerchantDrawer {
-        internal sbyte ScrollDirection; internal int PageCount = 1; internal Transform Root = null!, HousingRoot = null!; internal bool Moving,Selling; internal uint TurnEpoch; internal float TurnElapsed,LeadAngle; internal int Page,FromPage,ToPage; }
+        internal sbyte ScrollDirection; internal int PageCount = 1; internal Transform Root = null!, HousingRoot = null!; internal bool Moving,Selling; internal uint TurnEpoch; internal float TurnElapsed { get => Mathf.Clamp(_clock, 0f, TownRackState.TurnDuration); set => _clock = value; } internal float LeadAngle { get => _leadAngle; set => _leadAngle = value; } internal int Page,FromPage,ToPage; }
     internal sealed partial class TownServiceCatalogCategory { internal string Key = ""; internal Transform Root = null!; }
     internal sealed class TownServiceMerchantCounter { internal Transform Root = null!; }
     internal sealed class TownServiceEnhancementHandoff {

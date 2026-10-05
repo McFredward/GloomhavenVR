@@ -103,3 +103,8 @@ namespace FFSNet
 }
 namespace GloomhavenVR.Net.TownServices
 { internal static partial class TownServiceGrantSync { internal static bool CoordinatorReady = true; } }
+
+#if !TOWN_FINAL_CAPTURE
+namespace GloomhavenVR.Net
+{ internal static class NetSession { internal static bool FlatNetMode; } }
+#endif
