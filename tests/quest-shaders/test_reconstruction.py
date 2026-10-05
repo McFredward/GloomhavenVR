@@ -98,6 +98,19 @@ class NativeBindings(unittest.TestCase):
 
 
 class ReconstructionGraph(unittest.TestCase):
+    def test_native_exclusive_keyword_choices_have_no_invented_empty_bank(self):
+        banks = {('POINT',): {}, ('SPOT',): {}, ('DIRECTIONAL',): {},
+                 ('POINT', 'SHADOWS_CUBE'): {}, ('SPOT', 'SHADOWS_DEPTH'): {}}
+        keys = {'POINT', 'SPOT', 'DIRECTIONAL', 'SHADOWS_CUBE', 'SHADOWS_DEPTH'}
+        rows = produce._keyword_pragmas(banks, banks, keys, set())
+        self.assertIn('#pragma multi_compile DIRECTIONAL POINT SPOT', rows)
+        self.assertNotIn('#pragma shader_feature POINT', rows)
+        # Optional native shadows still retain their genuinely unshadowed bank.
+        self.assertIn('#pragma shader_feature SHADOWS_CUBE', rows)
+        shadows = {('SHADOWS_CUBE',): {}, ('SHADOWS_DEPTH',): {}}
+        self.assertEqual(produce._keyword_pragmas(shadows, shadows, set().union(*shadows), set()),
+                         ['#pragma multi_compile SHADOWS_CUBE SHADOWS_DEPTH'])
+
     def test_native_hardware_tier_differences_are_retained(self):
         rows = [{'stage': 'vertex', 'keywords': ['DIRECTIONAL'], 'hardwareTier': tier,
                  'originalDxbcSha256': ('a' if tier < 2 else 'b') * 64, 'originalInterfaceSha256': 'c' * 64}

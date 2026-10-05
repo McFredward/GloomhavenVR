@@ -79,8 +79,12 @@ first trial correctly rejected a malformed candidate bundle: the tiny trial
 project omitted Unity's AssetBundle builtin module. `BuildAssetBundles` returned
 a nonnull manifest despite logging that missing module; a built file alone is
 therefore insufficient evidence. The trial setup now explicitly enables the
-module. Original/candidate D3D pixel comparison remains pending at this
-checkpoint; no full Campaign readiness is asserted.
+module. The controlled DIRECTIONAL forward-bank comparison subsequently passed:
+eight original/candidate D3D11 pictures are byte-identical (geometry, lighting,
+diffuse texture, UVs, opacity, vertex-noise animation and camera eye offset,
+including baseline), with error-shader and one-sided texture negative controls.
+That evidence is private `amp-d3d-v5/windows-pixels.json`; it does not establish
+bone-animation, other native keyword banks or headset picture parity.
 
 ## Root integration API
 
@@ -116,7 +120,7 @@ Focused tests:
 python3 -m unittest discover -s tests/quest-shaders -v
 ```
 
-Eight tests pass, including planted identity/coverage/receipt defects and a real
+Nineteen tests pass, including planted identity/coverage/receipt defects and a real
 positive/negative GLES driver compilation. Full recovered Campaign shader,
 material, pass, variant and native-reference coverage is still required before
 the root treats this lane as completed port evidence.
@@ -165,3 +169,33 @@ route, follows its native atlas binding with `CanBindTo`, and exports all packed
 rectangles, geometry, UVs and GPU texture readback. The BattleOverlayCanvas proof
 contains 895 source sprites, a 4096x4096 original packed texture, and nonzero
 22-vertex AA_Immune UV data. It does not invoke native game Mono callbacks.
+
+The complete source overlay now emits all 688 original shader identities without
+an instruction/interface recovery failure. Its private manifest retains original
+per-stage keyword/hardware-tier banks independently from rendering fixtures.
+Original exact-one light and shadow keyword choices are reconstructed from their
+actual native occurrence graph; the builder does not invent an all-disabled
+ForwardAdd or ShadowCaster bank. Four serialized fallback pass shells in
+PostProcessing Uber/FinalPass contain zero original programs. Their original
+state and pass ordinal are preserved, and no source math is attributed to them.
+
+Native instancing buffers are flexible GPU arrays despite Unity's two-element
+compiler minimum. Recovered reads address the original runtime array element
+directly; they never copy only elements zero and one. Native structured-resource
+strides come from original DXBC declarations, including 4-byte histogram and
+16-byte waveform words. Missing stride/register identity, unexplained padding,
+ambiguous sampler ownership and unsupported resource reads fail conversion.
+
+An actual Android instanced Amp bank exposed Unity HLSLcc's restricted reflection
+pattern for arrays of structures. Its front-end requires the native index
+definition to remain IMUL/ISHL. The emitter disables only that GLES front-end
+reoptimization for passes with observed original instance structures; native
+GLES driver optimization remains enabled. The exact original array data and math
+are retained, and the previously failing actual bank now compiles. Complete
+Campaign bank compilation and hardware performance remain outstanding gates.
+
+Both Windows converter executables have actually executed under Wine against
+26 original DXBC samples, including native graphics and structured-buffer cases.
+All SPIR-V bytes and normalized HLSL text match the pinned Linux converter
+output. `converter-tools/win-parity-v1/converter-byte-parity.json` records that
+bounded parity check; it is not an all-program or headset parity claim.

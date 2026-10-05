@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import functools
 import hashlib
 import importlib.util
 import json
@@ -18,6 +19,7 @@ import shutil
 from manifest import ValidationError, sha256
 
 
+@functools.lru_cache(maxsize=1)
 def recovery_module():
     path = Path(__file__).resolve().parents[1] / 'quest-builder/full_shaders.py'
     spec = importlib.util.spec_from_file_location('quest_native_shader_recovery', path)
@@ -41,7 +43,7 @@ def properties(form):
             value = values[0]
         elif kind == 4:
             try:
-                shape = {2: '2D', 3: '3D', 4: 'Cube', 5: '2DArray', 6: 'CubeArray'}[row['m_DefTexture']['m_TexDim']]
+                shape = {1: 'any', 2: '2D', 3: '3D', 4: 'Cube', 5: '2DArray', 6: 'CubeArray'}[row['m_DefTexture']['m_TexDim']]
             except KeyError as error:
                 raise ValidationError('Unsupported original ShaderLab texture dimension.') from error
             value = json.dumps(row['m_DefTexture']['m_DefaultName']) + ' {}'
@@ -84,18 +86,31 @@ def _selected(banks, keys):
     return best[0][2]['row']
 
 
-def _fragment_eye(row, cache):
-    interface = json.loads((cache / 'interfaces' / (row['originalInterfaceSha256'] + '.json')).read_text())
-    proof = json.loads(Path(row['boundHlslPath']).with_suffix('.json').read_text())
+@functools.lru_cache(maxsize=None)
+def _program_features(interface_path, proof_path):
+    interface = json.loads(Path(interface_path).read_text())
+    proof = json.loads(Path(proof_path).read_text())
     observed = {value['originalBuffer']: set(value['usedScalarIndices']) for value in proof['usedOriginalBuffers']}
     native = recovery_module()
     names = {field['name'] for buffer in interface['buffers'] for field in buffer['fields']
              if set(native.field_components(field)) & observed.get(buffer['name'], set())}
     # These are Unity's explicit stereo array aliases. Their original native
     # field identities, rather than shader/pass display names, require an eye.
-    return any(name.startswith('unity_Stereo') and name != 'unity_StereoEyeIndex' for name in names) or bool(names & {'_WorldSpaceCameraPos', 'unity_MatrixV', 'unity_MatrixInvV', 'unity_MatrixP',
+    eye = any(name.startswith('unity_Stereo') and name != 'unity_StereoEyeIndex' for name in names) or bool(names & {'_WorldSpaceCameraPos', 'unity_MatrixV', 'unity_MatrixInvV', 'unity_MatrixP',
                          'unity_MatrixInvP', 'unity_MatrixVP', 'unity_CameraProjection', 'unity_CameraInvProjection',
                          'unity_WorldToCamera', 'unity_CameraToWorld'})
+    structures = any(buffer.get('structures') and observed.get(buffer['name']) for buffer in interface['buffers'])
+    return eye, structures
+
+
+def _fragment_eye(row, cache):
+    return _program_features(str(cache / 'interfaces' / (row['originalInterfaceSha256'] + '.json')),
+                             str(Path(row['boundHlslPath']).with_suffix('.json')))[0]
+
+
+def _instance_layout(row, cache):
+    return _program_features(str(cache / 'interfaces' / (row['originalInterfaceSha256'] + '.json')),
+                             str(Path(row['boundHlslPath']).with_suffix('.json')))[1]
 
 
 def _stage_block(banks, stage, include_paths):
@@ -112,6 +127,54 @@ def _stage_block(banks, stage, include_paths):
         rows.append('#include ' + json.dumps(include_paths[bank['identity']]))
     rows += ['#else', '#error No exact original native keyword bank is available', '#endif', '#endif']
     return '\n'.join(rows)
+
+
+def _exclusive_groups(banks, candidates):
+    """Find source-witnessed exact-one keyword choices, never name heuristics."""
+    states = sorted(set(frozenset(key) & candidates for key in banks), key=lambda row: (len(row), sorted(row)))
+    if not states or any(not state for state in states):
+        return []
+    masks = {key: sum(1 << index for index, state in enumerate(states) if key in state) for key in sorted(candidates)}
+    all_states = (1 << len(states)) - 1
+    groups = set()
+    def cover(selected, covered):
+        if covered == all_states:
+            if len(selected) > 1:
+                groups.add(tuple(sorted(selected)))
+            return
+        uncovered = (all_states ^ covered) & -(all_states ^ covered)
+        for key, mask in masks.items():
+            if mask & uncovered and not mask & covered:
+                cover((*selected, key), covered | mask)
+    for key, mask in masks.items():
+        if mask:
+            cover((key,), mask)
+    return sorted(groups, key=lambda group: (-len(group), group))
+
+
+def _keyword_pragmas(vertex, fragment, keys, mandatory):
+    engine = {'INSTANCING_ON', 'STEREO_INSTANCING_ON', 'STEREO_MULTIVIEW_ON'}
+    remaining = set(keys) - mandatory - engine
+    groups = _exclusive_groups(vertex, remaining) + _exclusive_groups(fragment, remaining)
+    selected, claimed = [], set()
+    for group in sorted(set(groups), key=lambda value: (-len(value), value)):
+        if not claimed & set(group):
+            selected.append(group)
+            claimed.update(group)
+    # The editor imports a default variant before explicit native-bank probes.
+    # Each exact-one choice starts with an actual least-keyword native bank;
+    # generating an all-disabled light/shadow bank would invent a program that
+    # did not exist in the original player's serialized shader.
+    defaults = sorted(set(vertex) | set(fragment), key=lambda state: (len(state), state))
+    default = next((state for state in defaults if all(len(set(group) & set(state)) == 1 for group in selected)), None)
+    if selected and default is None:
+        raise ValidationError('Original exclusive keyword graph lacks a witnessed default bank.')
+    rows = ['#pragma multi_compile ' + key for key in sorted(mandatory - engine)]
+    for group in selected:
+        first = next(key for key in group if key in default)
+        rows.append('#pragma multi_compile ' + ' '.join([first, *(key for key in group if key != first)]))
+    rows += ['#pragma shader_feature ' + key for key in sorted(remaining - claimed)]
+    return rows
 
 
 def shader_source(form, record, cache, includes):
@@ -140,7 +203,13 @@ def shader_source(form, record, cache, includes):
                 raise ValidationError('Original geometry/tessellation stage requires a proven Quest translation.')
             vertex, fragment = _banks(variants, 'vertex'), _banks(variants, 'fragment')
             if not vertex or not fragment:
-                raise ValidationError('Original programmed pass has no complete native stage bank.')
+                if not variants and not any(original_pass[stage]['m_SubPrograms'] for stage in ('progVertex', 'progFragment', 'progGeometry', 'progHull', 'progDomain')):
+                    # Native Windows retains serialized fallback pass shells
+                    # whose programs were stripped. Preserve the original
+                    # state/pass ordinal; there is no original math to replace.
+                    lines += ['Pass {', native.render_state(original_pass['m_State']), '}']
+                    continue
+                raise ValidationError('Original programmed pass has no complete native stage bank: ' + record['guid'] + ' / ' + str(si) + '/' + str(pi))
             keys = sorted(set().union(*(set(row['keywords']) for row in variants)))
             light_modes = {str(value).upper() for key, value in original_pass['m_State']['m_Tags']['tags'] if key.upper() == 'LIGHTMODE'}
             if len(light_modes) > 1:
@@ -156,9 +225,15 @@ def shader_source(form, record, cache, includes):
             mandatory = (set.intersection(*(set(k) for k in vertex)) | set.intersection(*(set(k) for k in fragment))) - {'UNITY_HARDWARE_TIER1', 'UNITY_HARDWARE_TIER2', 'UNITY_HARDWARE_TIER3'}
             lines += ['Pass {', native.render_state(original_pass['m_State']), 'HLSLPROGRAM',
                       '#pragma target 4.5', '#pragma vertex QuestOriginalVertex', '#pragma fragment QuestOriginalFragment']
-            for key in keys:
-                if key not in {'INSTANCING_ON', 'STEREO_INSTANCING_ON', 'STEREO_MULTIVIEW_ON'}:
-                    lines.append(('#pragma multi_compile ' if key in mandatory else '#pragma shader_feature ') + key)
+            if any(_instance_layout(row, cache) for row in variants):
+                # Unity's HLSLcc accepts native struct-array addressing only
+                # when its immediate index definition remains IMUL/ISHL.
+                # Reoptimizing the recovered original instruction math folds
+                # that into a quotient and destroys its reflection pattern.
+                # Keep the front-end addressing; the GLES driver still owns
+                # normal native optimization. No original instance is capped.
+                lines.append('#pragma skip_optimizations gles3')
+            lines += _keyword_pragmas(vertex, fragment, keys, mandatory)
             lines += ['#pragma hardware_tier_variants gles3', '#pragma multi_compile_instancing', '#pragma multi_compile __ STEREO_INSTANCING_ON STEREO_MULTIVIEW_ON',
                       '#define UNITY_LIGHT_PROBE_PROXY_VOLUME 1', '#include "UnityCG.cginc"', '#include "UnityLightingCommon.cginc"',
                       _stage_block(vertex, 'vertex', includes), _stage_block(fragment, 'fragment', includes), 'ENDHLSL', '}']
@@ -195,6 +270,9 @@ def shader_source(form, record, cache, includes):
 
 
 def restore_project(project, inventory_path, cache, output, preserved_sources=None):
+    # Bound inputs can be regenerated between invocations in one builder
+    # process; cache within one immutable reconstruction operation only.
+    _program_features.cache_clear()
     project, cache, output = Path(project).resolve(), Path(cache).resolve(), Path(output).resolve()
     inventory = json.loads(Path(inventory_path).read_text())
     if inventory.get('blockedShaderCount') or inventory.get('errors'):
