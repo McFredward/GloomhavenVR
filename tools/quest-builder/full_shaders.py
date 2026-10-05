@@ -345,6 +345,7 @@ MATRIX_ALIASES = {"unity_MatrixVP": "UNITY_MATRIX_VP", "unity_MatrixV": "UNITY_M
 BUILTIN_TEXTURES = {"unity_SpecCube0", "unity_SpecCube1", "unity_ProbeVolumeSH", "unity_Lightmap",
                     "unity_LightmapInd", "unity_DynamicLightmap", "unity_DynamicDirectionality",
                     "unity_DynamicNormal", "unity_ShadowMask"}
+ENGINE_SHADER_GUIDS = {"0" * 16 + marker + "0" * 15 for marker in "ef"}
 
 
 def field_components(field):
@@ -962,7 +963,7 @@ def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=Non
                 binary_materials.append(obj)
                 continue
             raise ShaderRecoveryError("Original material has no actual shader PPtr: " + obj["path"])
-        builtin = shader[2] in {"0000000000000000e0000000000000000", "0000000000000000f0000000000000000"}
+        builtin = shader[2] in ENGINE_SHADER_GUIDS
         materials.append({"guid": obj["guid"], "assetPath": obj["path"], "shaderGuid": shader[2],
                           **({"originalEngineBuiltinShader": True, "shaderFileId": int(shader[1])} if builtin else {}),
                           "originalSerializedFile": obj["collection"], "originalPathId": obj["pathId"]})
@@ -984,7 +985,7 @@ def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=Non
                 # Native Font importers use Unity's fixed engine text shader;
                 # its actual original external pointer is not a game asset.
                 materials.append({"guid": obj["guid"], "assetPath": obj["path"],
-                                  "shaderGuid": "0000000000000000e0000000000000000", "shaderFileId": 10101,
+                                  "shaderGuid": "0" * 16 + "e" + "0" * 15, "shaderFileId": 10101,
                                   "originalEngineBuiltinShader": True, "nativeFontImporterSubObject": True,
                                   "originalSerializedFile": obj["collection"], "originalPathId": obj["pathId"]})
                 continue
@@ -1001,7 +1002,87 @@ def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=Non
     return report
 
 
-def stereo_wrapper(hlsl, stage, output_adapters=()):
+def native_stage_interface(hlsl, signatures, direction):
+    """Restore exact native stage semantics, including packed register fields.
+
+    DXBC interpolators link by semantic rather than register number. One native
+    register may pack several semantics. SPIRV-Cross exposes that whole register
+    as one field; split/reassemble only its actual translated components.
+    """
+    structure_name = "SPIRV_Cross_" + ("Input" if direction == "input" else "Output")
+    structure = re.search(r"struct " + structure_name + r"\s*\{(?P<body>.*?)\};", hlsl, re.S)
+    if structure is None:
+        return hlsl
+    symbol = "v" if direction == "input" else "o"
+    by_register = collections.defaultdict(list)
+    for row in signatures:
+        if not row["systemValue"] and row["semantic"].upper() not in {"SV_TARGET", "SV_DEPTH", "SV_DEPTHGREATEREQUAL", "SV_DEPTHLESSEQUAL"}:
+            by_register[row["register"]].append(row)
+    transfers = {}
+    def declaration(match):
+        qualifier, source_kind, width_text, variable, slot, emitted_semantic = match.groups()
+        if emitted_semantic.upper().startswith("SV_"):
+            return match[0]
+        width = int(width_text or 1)
+        rows = by_register.get(int(slot), [])
+        if not rows:
+            if any(row["register"] == int(slot) and row["semantic"].upper() == "SV_RENDERTARGETARRAYINDEX" for row in signatures):
+                return match[0]  # Explicit portable native-layer adapter.
+            raise ShaderRecoveryError("Translated stage field lacks original semantic identity: " + variable)
+        occupied, declarations, values = set(), [], {}
+        for row in rows:
+            components = [index for index in range(width) if row["mask"] & (1 << index)]
+            if not components:
+                # Native signatures can declare unwritten/unread packed fields;
+                # the actual instruction bank has already omitted those lanes.
+                continue
+            if occupied & set(components):
+                raise ShaderRecoveryError("Original packed stage semantics overlap.")
+            occupied.update(components)
+            kind = {1: "uint", 2: "int", 3: "float"}.get(row["componentType"])
+            if kind is None:
+                raise ShaderRecoveryError("Original stage semantic has an unknown component type.")
+            semantic = row["semantic"] + str(row["semanticIndex"])
+            name = "questNative_" + semantic
+            shape = kind + (str(len(components)) if len(components) > 1 else "")
+            declarations.append(qualifier + shape + " " + name + " : " + semantic + ";")
+            for index, component in enumerate(components):
+                value = "stage_input." + name + ("." + "xyzw"[index] if len(components) > 1 else "")
+                if kind != source_kind:
+                    value = {"float": "asfloat", "int": "asint", "uint": "asuint"}[source_kind] + "(" + value + ")"
+                values[component] = value
+            source = variable + ("." + "".join("xyzw"[component] for component in components) if width > 1 else "")
+            if kind != source_kind:
+                source = {"float": "asfloat", "int": "asint", "uint": "asuint"}[kind] + "(" + source + ")"
+            transfers.setdefault(variable, []).append("stage_output." + name + " = " + source + ";")
+        if not occupied:
+            raise ShaderRecoveryError("Native instruction field has no witnessed semantic components.")
+        if direction == "input":
+            components = [values.get(index, "0") for index in range(width)]
+            value = components[0] if width == 1 else source_kind + str(width) + "(" + ", ".join(components) + ")"
+            transfers[variable] = variable + " = " + value + ";"
+        return "\n    ".join(declarations)
+    pattern = re.compile(r"((?:(?:nointerpolation|noperspective|centroid|sample|linear)\s+)*)(float|int|uint)([1-4]?)\s+(" + symbol + r"(\d+))\s*:\s*(\w+)\s*;")
+    body = pattern.sub(declaration, structure["body"])
+    hlsl = hlsl[:structure.start("body")] + body + hlsl[structure.end("body"):]
+    for variable, statements in transfers.items():
+        if direction == "input":
+            pattern = r"\b" + re.escape(variable) + r"\s*=\s*stage_input\." + re.escape(variable) + r"\s*;"
+            replacement = statements
+        else:
+            pattern = r"\bstage_output\." + re.escape(variable) + r"\s*=\s*" + re.escape(variable) + r"\s*;"
+            replacement = "\n    ".join(statements)
+        hlsl, count = re.subn(pattern, lambda match: replacement, hlsl)
+        if count != 1:
+            raise ShaderRecoveryError("Native packed interface transfer is missing or ambiguous: " + variable)
+    return hlsl
+
+
+def stereo_wrapper(hlsl, stage, output_adapters=(), input_signature=(), output_signature=()):
+    if input_signature:
+        hlsl = native_stage_interface(hlsl, input_signature, "input")
+    if output_signature:
+        hlsl = native_stage_interface(hlsl, output_signature, "output")
     """Route both native stereo eyes before original uniform reconstruction."""
     if stage not in ("vertex", "fragment"):
         raise ShaderRecoveryError("Quest stereo wrapper only accepts native vertex/fragment programs.")

@@ -22,6 +22,28 @@ def field(name, offset, columns=1):
 
 
 class NativeBindings(unittest.TestCase):
+    def test_engine_guids_have_exact_native_extent(self):
+        self.assertEqual(native.ENGINE_SHADER_GUIDS, {'0' * 16 + marker + '0' * 15 for marker in 'ef'})
+        self.assertTrue(all(len(value) == 32 for value in native.ENGINE_SHADER_GUIDS))
+
+    def test_packed_stage_semantics_link_independently_of_register_numbers(self):
+        rows = [{'register': 1, 'semantic': 'TEXCOORD', 'semanticIndex': 0, 'systemValue': 0, 'mask': 3, 'componentType': 3},
+                {'register': 1, 'semantic': 'COLOR', 'semanticIndex': 0, 'systemValue': 0, 'mask': 12, 'componentType': 3}]
+        vertex = 'struct SPIRV_Cross_Output { float4 o1 : TEXCOORD1; };\nvoid main(){ stage_output.o1 = o1; }'
+        output = native.native_stage_interface(vertex, rows, 'output')
+        self.assertIn('float2 questNative_TEXCOORD0 : TEXCOORD0;', output)
+        self.assertIn('float2 questNative_COLOR0 : COLOR0;', output)
+        self.assertIn('stage_output.questNative_COLOR0 = o1.zw;', output)
+        fragment = 'struct SPIRV_Cross_Input { float4 v5 : TEXCOORD5; };\nvoid main(){ v5 = stage_input.v5; }'
+        input_source = native.native_stage_interface(fragment, [{**row, 'register': 5} for row in rows], 'input')
+        self.assertIn('v5 = float4(stage_input.questNative_TEXCOORD0.x, stage_input.questNative_TEXCOORD0.y, stage_input.questNative_COLOR0.x, stage_input.questNative_COLOR0.y);', input_source)
+        # An original declared but unwritten packed lane is absent from the
+        # real translated instruction interface, not supplied imaginary data.
+        unused = native.native_stage_interface(vertex.replace('float4 o1', 'float2 o1'), rows, 'output')
+        self.assertNotIn('questNative_COLOR0', unused)
+        with self.assertRaisesRegex(native.ShaderRecoveryError, 'overlap'):
+            native.native_stage_interface(vertex, [rows[0], {**rows[1], 'mask': 3}], 'output')
+
     def instance_interface(self):
         return {'buffers': [{'name': 'UnityInstancing_Fixture', 'bytes': 64, 'fields': [],
             'structures': [{'name': 'FixtureArray', 'stride': 32, 'byteOffset': 0, 'arraySize': 2,

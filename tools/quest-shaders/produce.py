@@ -293,7 +293,8 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
             bound = Path(row['boundHlslPath'])
             if sha256(bound) != row['boundHlslSha256']:
                 raise ValidationError('Bound original shader bytes changed before reconstruction.')
-            wrapped = native.stereo_wrapper(bound.read_text(), row['stage'], row.get('outputInterfaceAdapters', []))
+            wrapped = native.stereo_wrapper(bound.read_text(), row['stage'], row.get('outputInterfaceAdapters', []),
+                                            row['originalInputSignature'], row['originalOutputSignature'])
             path = Path('Assets/QuestOriginalCampaign/ShaderPrograms') / (key[0] + '-' + key[1] + '.hlsl')
             target = output / path
             target.parent.mkdir(parents=True, exist_ok=True)
