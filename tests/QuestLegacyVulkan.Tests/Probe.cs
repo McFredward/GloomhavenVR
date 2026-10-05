@@ -14,7 +14,7 @@ public static class QuestLegacyVulkanProbe
     {
         public int schema = 1, actualBanks, actualStages, defectControls;
         public string unityVersion, compilerPlatform = "Vulkan";
-        public bool hardwareVerified;
+        public bool hardwareVerified, androidAssetsBuilt;
         public string[] cases;
     }
     static readonly List<string> Cases = new List<string>();
@@ -24,6 +24,17 @@ public static class QuestLegacyVulkanProbe
         PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] { GraphicsDeviceType.Vulkan });
         PlayerSettings.stereoRenderingPath = StereoRenderingPath.MultiPass;
         Directory.CreateDirectory("ProbeOutput");
+        Directory.CreateDirectory("ProbeBundles");
+        var bundle = BuildPipeline.BuildAssetBundles("ProbeBundles", new[] {
+            new AssetBundleBuild { assetBundleName = "audited-legacy-shaders", assetNames = new[] {
+                "Assets/Shader/Hidden_BlendForBloom.shader", "Assets/Shader/Hidden_BrightPassFilter2.shader",
+                "Assets/Shader/Hidden_BlurAndFlares.shader", "Assets/Shader/Splash Screen Shader.shader",
+                "Assets/Shader/UI_Dissolve mask.shader", "Assets/Shader/Custom_SimpleGrabPassBlur.shader",
+                QuestVideoValidation.SourcePath, QuestWorldScreenValidation.SourcePath
+            } }
+        }, BuildAssetBundleOptions.ForceRebuildAssetBundle, BuildTarget.Android);
+        Require(bundle != null && File.Exists("ProbeBundles/audited-legacy-shaders") &&
+            new FileInfo("ProbeBundles/audited-legacy-shaders").Length > 0, "actual-android-assetbundle-built");
         QuestPostEffectValidation.Validate(true);
         QuestUiAssetValidation.Validate(true);
         QuestVideoValidation.Validate(true);
@@ -68,7 +79,7 @@ public static class QuestLegacyVulkanProbe
         QuestWorldScreenValidation.Validate(true);
         File.WriteAllText("ProbeOutput/results.json", JsonUtility.ToJson(new Result {
             actualBanks = 27, actualStages = 54, defectControls = 7,
-            unityVersion = Application.unityVersion, hardwareVerified = false, cases = Cases.ToArray()
+            unityVersion = Application.unityVersion, hardwareVerified = false, androidAssetsBuilt = true, cases = Cases.ToArray()
         }, true) + "\n");
     }
     static void Require(bool condition, string name)

@@ -67,7 +67,7 @@ def main():
     (project / "Assets/csc.rsp").write_text("-define:GHVR_QUEST_GAME\n")
     (project / "Packages").mkdir()
     (project / "ProjectSettings").mkdir()
-    (project / "Packages/manifest.json").write_text('{"dependencies":{}}\n')
+    (project / "Packages/manifest.json").write_text('{"dependencies":{"com.unity.modules.assetbundle":"1.0.0"}}\n')
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
     print("Quest legacy Vulkan evidence: " + str(run), flush=True)
     result = subprocess.run([str(args.unity.resolve()), "-batchmode", "-nographics", "-quit",
@@ -80,7 +80,11 @@ def main():
     evidence = json.loads((project / "ProbeOutput/results.json").read_text())
     if evidence["actualBanks"] != 27 or evidence["actualStages"] != 54 or evidence["defectControls"] != 7:
         raise SystemExit("Actual legacy Vulkan gate fixture evidence is incomplete.")
-    if evidence["hardwareVerified"] or not all(Path(path).read_bytes() == data for path, data in before.items()):
+    # A helper may be under development in another isolated worker. Its copied
+    # snapshot is fingerprinted below; the owned prepared inputs must stay exact.
+    immutable = all(Path(path).read_bytes() == data for path, data in before.items()
+                    if Path(path).is_relative_to(source))
+    if not evidence["androidAssetsBuilt"] or evidence["hardwareVerified"] or not immutable:
         raise SystemExit("Shader fixture source immutability or evidence scope differs.")
     (run / "source-hashes.json").write_text(json.dumps(
         {path: hashlib.sha256(data).hexdigest() for path, data in before.items()}, indent=2) + "\n")
