@@ -40,6 +40,8 @@ internal sealed partial class TownServiceSync
             _bankRoots.Add(entry.CardRoot); _bankRoots.Add(entry.BodyRoot); _bankRoots.Add(entry.RowContent);
             foreach (Transform? root in _bankRoots)
                 if (root != null && Sources.TryGetValue(root, out SourceEntry? source))
+                {
+                    source.CatalogResident = true;
                     foreach (Published part in source.Parts)
                     {
                         part.CatalogResident = true;
@@ -49,6 +51,7 @@ internal sealed partial class TownServiceSync
                                 TownServiceMirror.SetRackMember(part.Id, housing.Parts[0].Id, (ushort)entry.Page,
                                     rack.TurnEpoch, false, entry.PageGate);
                     }
+                }
         }
     }
 }

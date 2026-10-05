@@ -188,7 +188,7 @@ namespace GloomhavenVR.WorldUI
         private sealed class Published
         { internal ushort Id; internal bool Seen, CatalogResident; internal string Address = "", Identity = ""; internal Transform Source = null!; internal Func<Transform,bool> Exclude = null!; }
         private sealed class SourceEntry
-        { internal TownRackState? RackClock; internal Transform? Parent; internal readonly List<CanvasGroup> Groups = new(); internal readonly List<UnityEngine.UI.RectMask2D> Masks = new(); internal bool Seen,Complete; internal string Key=""; internal Transform Root=null!; internal Transform? CatalogOwner; internal List<Published> Parts = new(); }
+        { internal TownRackState? RackClock; internal Transform? Parent; internal readonly List<CanvasGroup> Groups = new(); internal readonly List<UnityEngine.UI.RectMask2D> Masks = new(); internal bool Seen,Complete,CatalogResident; internal float OwnershipCheckAfter; internal string Key=""; internal Transform Root=null!; internal Transform? CatalogOwner; internal List<Published> Parts = new(); }
         private readonly Vector3[] Corners = new Vector3[4];
         private readonly Dictionary<string, Published> Modules = new();
         private readonly List<TownRackMember> RackMembers = new();

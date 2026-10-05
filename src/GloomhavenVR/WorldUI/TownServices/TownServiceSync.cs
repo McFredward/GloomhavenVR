@@ -44,7 +44,8 @@ internal sealed partial class TownServiceSync
         internal readonly List<Published> Parts = new();
         internal readonly List<RectMask2D> Masks = new();
         internal readonly List<CanvasGroup> Groups = new();
-        internal bool Seen;
+        internal bool Seen, CatalogResident;
+        internal float OwnershipCheckAfter;
         internal bool Complete;
         internal TownRackState? RackClock;
     }
@@ -335,11 +336,32 @@ internal sealed partial class TownServiceSync
     private void PruneSources()
     {
         RemovedSources.Clear();
+        float now = Time.unscaledTime;
         foreach (var pair in Sources)
-            if (pair.Key == null || !pair.Value.Seen && (pair.Value.CatalogOwner == null
-                || !ReferenceEquals(TownServiceCatalog.PresentationOwner(pair.Key), pair.Value.CatalogOwner)))
+        {
+            if (pair.Key == null)
                 RemovedSources.Add(pair.Key!);
-        foreach (Transform source in RemovedSources) Sources.Remove(source);
+            else if (!pair.Value.Seen)
+            {
+                // A complete dormant bank keeps its original owner across page epochs.
+                // Recheck native parentage at a bounded census, not for every hidden
+                // item each frame. Seen sources and destroyed objects never wait here.
+                if (pair.Value.CatalogResident && now < pair.Value.OwnershipCheckAfter) continue;
+                pair.Value.OwnershipCheckAfter = now + .5f;
+                if (pair.Value.CatalogOwner == null
+                    || !ReferenceEquals(TownServiceCatalog.PresentationOwner(pair.Key), pair.Value.CatalogOwner))
+                    RemovedSources.Add(pair.Key);
+            }
+        }
+        foreach (Transform source in RemovedSources)
+        {
+            // Retained dormant parts are still registered while hidden. End that
+            // lifetime as soon as their real original owner is lost or destroyed.
+            foreach (Published part in Sources[source].Parts)
+                if (part.CatalogResident)
+                { part.CatalogResident = false; TownServiceMirror.UnregisterModule(part.Id); Modules.Remove(part.Identity); }
+            Sources.Remove(source);
+        }
     }
     private void PublishCatalog(TownServiceCatalog catalog, Transform? furniture)
     {

@@ -73,7 +73,11 @@ def sources(root):
     bound["TownServiceSync.CatalogBank.cs"] = (base / "WorldUI/TownServices/TownServiceSync.CatalogBank.cs").read_text()
     bound["PublisherNative.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing UnityEngine;\nusing GloomhavenVR.Net.TownServices;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceSync {\n" + publish + "\n}\n"
     catalog = (base / "WorldUI/TownServices/TownServiceCatalog.cs").read_text()
-    bound["CatalogOwnership.cs"] = "using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceCatalog {\n" + method(catalog, "internal static Transform? PresentationOwner(Transform source)") + "\n}\n"
+    # Count entry into the exact native ownership walk without replacing its lookup
+    # or lifetime rules; the dormant-census probe isolates real PruneSources calls.
+    ownership = method(catalog, "internal static Transform? PresentationOwner(Transform source)").replace(
+        "\n    {\n", "\n    {\n        FixtureOwnershipChecks++;\n", 1)
+    bound["CatalogOwnership.cs"] = "using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceCatalog {\ninternal static int FixtureOwnershipChecks;\n" + ownership + "\n}\n"
     drawer = (base / "WorldUI/TownServices/TownServiceMerchantDrawer.cs").read_text()
     bound["DrawerTemplates.cs"] = "using System;\nusing UnityEngine;\nusing TMPro;\nusing GloomhavenVR.Net.TownServices;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceMerchantDrawer {\n" + "\n".join(method(drawer, signature) for signature in ("internal static GameObject Authored(string name)", "internal static GameObject CreateHousingTemplate()")) + "\n" + expression(drawer, "internal static GameObject CreateTemplate(TMP_Text? font)") + "\n}\n"
     transfer = (base / "Cards/Driver/CardsDriver.5.Interactions.cs").read_text()
@@ -216,7 +220,10 @@ def main():
             variants += [
                 ("retire-hidden-source", "PublisherTick.cs", "pair.Value.CatalogOwner == null", "true", "valid page cycling preserves the original module namespace"),
                 ("reuse-pooled-owner", "PublisherNative.cs", 'if (catalogOwner != null) identity += "/catalog/" + catalogOwner.GetInstanceID();', '// omit physical ownership identity', "pooled native replacement never inherits the previous borrower module ID"),
-                ("retain-popup-source", "PublisherTick.cs", "pair.Value.CatalogOwner == null", "false", "ordinary unrelated popup sources retire when unseen"),
+                ("retain-popup-source", "PublisherTick.cs", "pair.Value.CatalogOwner == null", "false", "retired private popup leaves public catalog identities unchanged"),
+                ("dormant-parent-every-frame", "PublisherTick.cs", "if (pair.Value.CatalogResident && now < pair.Value.OwnershipCheckAfter) continue;", "// omit dormant ownership census cache", "prepared dormant originals perform zero repeated native ownership walks between censuses"),
+                ("dormant-parent-never-expires", "PublisherTick.cs", "if (pair.Value.CatalogResident && now < pair.Value.OwnershipCheckAfter) continue;", "if (pair.Value.CatalogResident) continue;", "expired dormant ownership census retires a live original whose real catalog owner was removed"),
+                ("dormant-destroyed-retained", "PublisherTick.cs", "if (pair.Key == null)", "if (pair.Key == null && !pair.Value.CatalogResident)", "destroyed prepared original sources and registered bank modules retire immediately before census expiry"),
             ]
     if args.suite == "rack-clock":
         variants = [("production", None, None, None, "")]

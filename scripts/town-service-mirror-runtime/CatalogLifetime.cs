@@ -91,5 +91,6 @@ public static partial class MirrorProgram
             TownServiceSync.UseProductionPublish=false;TownServiceSync.ResetNetwork();TownServiceCatalog.CardMounts.Clear();
             TownServicePresentation.Catalog=null;TownServicePresentation.Window=null;TownServicePresentation.LocalSurfaces.Clear();NativeTemplates.Originals.Clear();
         }
+        DormantCatalogCensus();
     }
 }
