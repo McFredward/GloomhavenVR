@@ -20,6 +20,7 @@ internal static partial class TownServiceMirror
         internal TownServiceBinding Binding = null!;
     }
     private static readonly Dictionary<string, NativeTemplateBasis> NativeTemplateBases = new(StringComparer.Ordinal);
+    internal static uint NativeTemplatePreparationRevision { get; private set; }
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LocalModule, NativeTemplateRepair> NativeTemplateRepairs = new();
     private sealed class NativeTemplateRepair { internal float After; }
     private sealed class MageValidatedOriginal
@@ -48,6 +49,19 @@ internal static partial class TownServiceMirror
     }
     private static readonly Dictionary<UnpreparedKey, UnpreparedNativeTemplate> UnpreparedNativeTemplates = new();
     private static readonly Queue<UnpreparedKey> UnpreparedNativeOrder = new();
+
+    private static void ForgetUnpreparedNativePeer(int peer)
+    {
+        // Disconnect ends this peer's immutable admission lifetime. A still-cold
+        // original must never recreate pending state after RemovePeer returns.
+        int remaining = UnpreparedNativeOrder.Count;
+        while (remaining-- > 0)
+        {
+            UnpreparedKey key = UnpreparedNativeOrder.Dequeue();
+            if (key.Peer == peer) UnpreparedNativeTemplates.Remove(key);
+            else UnpreparedNativeOrder.Enqueue(key);
+        }
+    }
 
     /// <summary>Retain the newest immutable metadata while the real original bank
     /// or an Addressables dependency warms. A transient first reception must not
@@ -341,6 +355,7 @@ internal static partial class TownServiceMirror
 
     private static void ResetNativeTemplateState()
     {
+        unchecked { NativeTemplatePreparationRevision++; }
         foreach (NativeTemplateBasis basis in NativeTemplateBases.Values) basis.Binding.Dispose();
         NativeTemplateBases.Clear(); MageValidatedOriginals.Clear();
         UnpreparedNativeTemplates.Clear(); UnpreparedNativeOrder.Clear();

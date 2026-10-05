@@ -19,7 +19,8 @@ def main():
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/town-native-state623')
     parser.add_argument('--no-negative-controls', action='store_true')
     parser.add_argument('--bank-split-only', action='store_true')
-    parser.add_argument('--negative-control', action='append', choices=['inert-artwork', 'owner-text', 'complete-picture', 'split-headers', 'owner-state', 'overridden-basis', 'cold-original', 'retained-canvas', 'eager-bank'])
+    parser.add_argument('--lifecycle-only', action='store_true', help='Run only cold-template disconnect and existing-bank reset preparation proofs')
+    parser.add_argument('--negative-control', action='append', choices=['inert-artwork', 'owner-text', 'complete-picture', 'split-headers', 'owner-state', 'overridden-basis', 'cold-original', 'retained-canvas', 'eager-bank', 'departed-cold-peer', 'reset-preparation'])
     args = parser.parse_args()
     root = args.source_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -29,6 +30,18 @@ def main():
     bound, hashes = loader.sources(root)
     fixture = run / 'fixture'; shutil.copytree(root / 'scripts/town-service-mirror-runtime', fixture)
     shutil.copyfile(Path(__file__).resolve().parent / 'town-native-state623-runtime/NativeState623.cs', fixture / 'NativeState623.cs')
+    if args.lifecycle_only:
+        if args.bank_split_only: parser.error('--lifecycle-only and --bank-split-only are mutually exclusive')
+        preparation = root / 'src/GloomhavenVR/WorldUI/TownServices/NativeTemplates.EnhancementPreparation.cs'
+        bound[preparation.name] = preparation.read_text()
+        shutil.copyfile(Path(__file__).resolve().parent / 'town-native-state623-runtime/NativeTemplateDelivery625.cs', fixture / 'NativeTemplateDelivery625.cs')
+        publisher = fixture / 'Publisher.cs'
+        text = publisher.read_text()
+        for before, after in [('internal sealed class Part {', 'internal sealed partial class Part {'),
+                              ('internal static class TownServiceNativeAssets {', 'internal static partial class TownServiceNativeAssets {')]:
+            if text.count(before) != 1: raise RuntimeError('Lifecycle adapter binding drift: ' + before)
+            text = text.replace(before, after, 1)
+        publisher.write_text(text)
     program = fixture / 'Program.cs'
     anchor = '            if (variant == "production") PublisherNoCloth();'
     branch = '''            if (suite == "native-state623") {
@@ -43,8 +56,23 @@ def main():
     text = program.read_text()
     if text.count(anchor) != 1: raise RuntimeError('Fixture entry binding drift')
     program.write_text(text.replace(anchor, anchor + '\n' + branch, 1))
+    if args.lifecycle_only:
+        anchor = '            DelayedCensusRace();'
+        text = program.read_text()
+        if text.count(anchor) != 1: raise RuntimeError('Lifecycle-only entry binding drift')
+        branch = '''            if (suite == "native-template-lifecycle625") {
+                var state = NativeTemplateLifecycle625(); while (state.MoveNext()) yield return state.Current;
+                File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\\n"); yield break;
+            }
+'''
+        program.write_text(text.replace(anchor, branch + anchor, 1))
     variants = [('production', None, None, None, '')]
-    if not args.no_negative_controls:
+    if args.lifecycle_only and not args.no_negative_controls:
+        variants += [
+            ('departed-cold-peer', 'TownServiceMirror.cs', 'ForgetUnpreparedNativePeer(peer);', '// omit departed deferred admission lifetime', 'departed cold metadata cannot recreate pending or baseline state'),
+            ('reset-preparation', 'NativeTemplates.EnhancementPreparation.cs', '|| _enhancementBasisRevision != TownServiceMirror.NativeTemplatePreparationRevision)', '|| false)', 'network reset rewarms existing frozen originals without changing asset identities'),
+        ]
+    if not args.no_negative_controls and not args.lifecycle_only:
         variants += [
             ('eager-bank', 'TownServiceMirror.CatalogBank.cs',
              'if (frame.CatalogBank.Prepared)', 'if (false && frame.CatalogBank.Prepared)',
@@ -57,7 +85,7 @@ def main():
              'TownServiceFrame reference = TownServiceDelta.Retain(frame); reference.CatalogBank = new TownCatalogBank { Prepared = frame.CatalogBank.Prepared, Members = frame.CatalogBank.Members };',
              'split reference retains every current original header for atomic dependency admission'),
         ]
-    if not args.no_negative_controls and not args.bank_split_only:
+    if not args.no_negative_controls and not args.bank_split_only and not args.lifecycle_only:
         variants += [
             ('inert-artwork', 'TownServiceMirror.NativeTemplateState.cs', 'binding.Read(Assets, includeInactiveGraphics: true)', 'binding.Read(Assets)', 'actual original prefab produces compact native metadata without a prior network baseline'),
             ('owner-text', 'TownServiceMirror.NativeTemplateState.cs', 'index == 0 || NativeTextProperty(key)\n        || !TownServiceFastNumbers.IsMaterial(key);', 'index == 0 || (!NativeTextProperty(key) && !TownServiceFastNumbers.IsMaterial(key));', 'localized observer defaults never replace exact owner text or font'),
@@ -68,7 +96,8 @@ def main():
         ]
     if args.negative_control:
         variants = [case for case in variants if case[0] == 'production' or case[0] in args.negative_control]
-    manifest = {'suite': 'native-bank-split623' if args.bank_split_only else 'native-state623', 'result': str(run / 'results.txt'), 'evidence': str(run), 'cases': []}
+    suite = 'native-template-lifecycle625' if args.lifecycle_only else 'native-bank-split623' if args.bank_split_only else 'native-state623'
+    manifest = {'suite': suite, 'result': str(run / 'results.txt'), 'evidence': str(run), 'cases': []}
     unity = Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity'))
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
     for name, filename, before, after, expected in variants:
@@ -91,7 +120,8 @@ def main():
         print('Compiled ' + name, flush=True)
     (run / 'source-hashes.json').write_text(json.dumps({name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}, indent=2) + '\n')
     project = run / 'unity'; (project / 'Assets/Editor').mkdir(parents=True)
-    shutil.copytree(root / 'unity/GloomhavenVR.Assets/Assets/Bundle/TownServices', project / 'Assets/Resources/TownServices')
+    if not args.lifecycle_only:
+        shutil.copytree(root / 'unity/GloomhavenVR.Assets/Assets/Bundle/TownServices', project / 'Assets/Resources/TownServices')
     shutil.copyfile(fixture / 'Editor/MirrorRunner.cs', project / 'Assets/Editor/MirrorRunner.cs')
     (project / 'Packages').mkdir(); (project / 'ProjectSettings').mkdir()
     (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.ugui":"1.0.0","com.unity.textmeshpro":"3.0.6","com.unity.modules.physics":"1.0.0"}}\n')

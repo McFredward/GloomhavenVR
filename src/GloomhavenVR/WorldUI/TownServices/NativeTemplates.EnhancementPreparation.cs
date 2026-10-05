@@ -14,6 +14,7 @@ internal static partial class NativeTemplates
     private static float _enhancementPartyCheckAt;
     private static float _enhancementRetryAt;
     private static uint _enhancementBasisGeneration = uint.MaxValue;
+    private static uint _enhancementBasisRevision = uint.MaxValue;
     private static readonly Queue<string> EnhancementBasisPreparation = new();
     private static readonly string[] EnhancementWidgetKeys =
     {
@@ -43,9 +44,11 @@ internal static partial class NativeTemplates
     {
         if (!WorldUI.MapRoom.MapRoomDriver.Active || _bank == null || ObjectPool.instance == null) return;
         float now = Time.unscaledTime;
-        if (_enhancementBasisGeneration != TownServiceMirror.Assets.Generation)
+        if (_enhancementBasisGeneration != TownServiceMirror.Assets.Generation
+            || _enhancementBasisRevision != TownServiceMirror.NativeTemplatePreparationRevision)
         {
             _enhancementBasisGeneration = TownServiceMirror.Assets.Generation;
+            _enhancementBasisRevision = TownServiceMirror.NativeTemplatePreparationRevision;
             EnhancementBasisPreparation.Clear();
             foreach (string key in EnhancementWidgetKeys) EnhancementBasisPreparation.Enqueue(key);
             // Network teardown invalidates mirror bases without destroying this
@@ -104,5 +107,6 @@ internal static partial class NativeTemplates
     {
         EnhancementPreparation.Clear(); EnhancementPrepared.Clear(); EnhancementBasisPreparation.Clear();
         _enhancementPartyCheckAt = _enhancementRetryAt = 0f; _enhancementBasisGeneration = uint.MaxValue;
+        _enhancementBasisRevision = uint.MaxValue;
     }
 }

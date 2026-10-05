@@ -1427,7 +1427,7 @@ internal static partial class TownServiceMirror
         canvas.sortingOrder = frame.CanvasSortingOrder; canvas.sortingLayerID = frame.CanvasSortingLayer;
     }
     internal static void RemovePeer(int peer)
-    { ForgetPublicPicture(-peer); MerchantOfferings.Remove(peer); ClearVoicePeer(peer); ClearRemoteModules(peer); Pending.Remove(peer); ReceivedBaselines.Remove(peer); Sessions.Remove(peer); VisitorSessions.Remove(peer);
+    { ForgetUnpreparedNativePeer(peer); ForgetPublicPicture(-peer); MerchantOfferings.Remove(peer); ClearVoicePeer(peer); ClearRemoteModules(peer); Pending.Remove(peer); ReceivedBaselines.Remove(peer); Sessions.Remove(peer); VisitorSessions.Remove(peer);
       ClearRemoteModules(-peer); Pending.Remove(-peer); ReceivedBaselines.Remove(-peer); Sessions.Remove(-peer);
       RemoveStockPeer(peer); ForgetDonationCommits(peer); ForgetRemoteMotion(peer); }
     private static void ForgetDonationCommits(int peer)
