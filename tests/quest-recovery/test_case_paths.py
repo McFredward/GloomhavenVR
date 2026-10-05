@@ -100,6 +100,8 @@ class CasePathContracts(unittest.TestCase):
             "script-bindings.json": {"schema": 1, "assetPaths": [variant], "bindings": [{"oldGuid": "2" * 32}]},
             "campaign-shaders.json": {"schema": 1, "shaders": [{"assetPath": variant, "sourceSha256": "3" * 64}],
                                        "materials": [{"assetPath": variant}], "programs": []},
+            "campaign-computes.json": {"schema": 1, "shaders": [{"assetPath": variant, "guid": "2" * 32, "kernelCount": 3}]},
+            "bundled-audio.json": {"schema": 1, "assets": [{"assetPath": variant, "guid": "2" * 32, "channels": 4}]},
             "packed-sprites.json": {"schema": 1, "atlases": [{"assetPath": variant}], "sprites": [{"assetPath": variant}]}}
         for name, document in docs.items(): (root / name).write_text(json.dumps(document))
         report = case_paths.migrate(self.project)
@@ -114,7 +116,11 @@ class CasePathContracts(unittest.TestCase):
         self.assertEqual(json.loads((root / "campaign-shaders.json").read_text())["shaders"][0],
                          {"assetPath": destination, "sourceSha256": "3" * 64})
         self.assertEqual(json.loads((root / "packed-sprites.json").read_text())["sprites"][0]["assetPath"], destination)
-        self.assertEqual(len([name for name in report["manifestSha256"] if name.startswith("Assets/QuestOriginalCampaign/")]), 5)
+        self.assertEqual(json.loads((root / "campaign-computes.json").read_text())["shaders"][0],
+                         {"assetPath": destination, "guid": "2" * 32, "kernelCount": 3})
+        self.assertEqual(json.loads((root / "bundled-audio.json").read_text())["assets"][0],
+                         {"assetPath": destination, "guid": "2" * 32, "channels": 4})
+        self.assertEqual(len([name for name in report["manifestSha256"] if name.startswith("Assets/QuestOriginalCampaign/")]), 7)
         self.assertEqual(case_paths.migrate(self.project), report)
 
     def test_folder_metadata_and_nested_references_move_with_owner(self):

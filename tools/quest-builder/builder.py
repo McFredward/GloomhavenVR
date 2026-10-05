@@ -414,10 +414,14 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
                 import dependencies
                 import campaign_native
                 import campaign_shaders
+                import full_audio
                 campaign.stage_file_backed_extras(project, game)
                 dependencies.python_environment(output / "tool-cache", source)
                 selected_tools = toolchain(args, output)
                 campaign_native.stage(source, project, game, output / "tool-cache/campaign-native", Path(selected_tools["androidNdk"]))
+                full_audio.stage(project, game, dotnet=tool_path(args.dotnet, "dotnet"),
+                    tool_cache=output / "tool-cache/campaign-native-codecs",
+                    cab_bundles=campaign_shaders.original_cab_bundles(source, game))
                 campaign_shaders.stage(source, project, game, output / "tool-cache/campaign-shaders" / inputs["game"]["key"])
             package_startup_content(project, inputs["inputKey"])
             package_data = json.loads((project / "Packages/manifest.json").read_text(encoding="utf-8"))
@@ -476,7 +480,8 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             contracts.extend([resources / "quest-mod-content.json", resources / "quest-mod-bundles.json",
                               project / "Assets/StreamingAssets/quest-mod-content.zip"])
             if args.target == "game":
-                contracts.extend([project / "QuestCampaignEvidence/native-runtime.json", resources / "quest-procedural-runtime.json"])
+                contracts.extend([project / "QuestCampaignEvidence/native-runtime.json", resources / "quest-procedural-runtime.json",
+                                  project / "Assets/QuestOriginalCampaign/bundled-audio.json"])
                 native = json.loads((project / "QuestCampaignEvidence/native-runtime.json").read_text())
                 contracts.extend(project / row["path"] for row in native["nativeFiles"])
         contracts.extend(p for p in (project / "Assets/Quest").rglob("*")

@@ -43,14 +43,11 @@ def preserve_sources(project):
     return result
 
 
-def stage(source, project, game, cache, tool_archive=None):
-    source, project, game, cache = map(Path, (source, project, game, cache))
-    cache.mkdir(parents=True, exist_ok=True)
-    converter = load(source, "tools/quest-shaders/converters.py")
-    tools = converter.ensure(cache / "tools", tool_archive or source / "prebuilt/quest-converters-win64-v1.zip")
+def original_cab_bundles(source, game):
+    """Read every owned UnityFS container, including nested PCG asset banks."""
     members = load(source, "tools/quest-recovery/bundle_members.py", "tools/quest-recovery")
     owners = {}
-    for bundle in sorted((game / "StreamingAssets/aa/StandaloneWindows64").glob("*.bundle")):
+    for bundle in sorted((game / "StreamingAssets/aa/StandaloneWindows64").rglob("*.bundle")):
         relative = bundle.relative_to(game).as_posix()
         for member in members.serialized_members(bundle):
             name = member["name"].casefold()
@@ -59,6 +56,15 @@ def stage(source, project, game, cache, tool_archive=None):
             owners[name] = relative
     if not owners:
         raise BuildError("Full Shader recovery has no original owned bundle identities.")
+    return owners
+
+
+def stage(source, project, game, cache, tool_archive=None):
+    source, project, game, cache = map(Path, (source, project, game, cache))
+    cache.mkdir(parents=True, exist_ok=True)
+    converter = load(source, "tools/quest-shaders/converters.py")
+    tools = converter.ensure(cache / "tools", tool_archive or source / "prebuilt/quest-converters-win64-v1.zip")
+    owners = original_cab_bundles(source, game)
     write_json(cache / "original-cab-bundles.json", owners)
     print("shaders: recovering every original instruction bank and binding", flush=True)
     inventory = full_shaders.inventory(project, game, project / "QuestRecovery/original-asset-identities.json",
