@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import sys
 
@@ -172,15 +172,35 @@ class Engine:
     def stage_inspect(self, state, supervisor):
         supervisor.run(self.arguments(state, "inspect"), self.log(state, "inspect"), env=provision.environment(self.details(state, "tools")))
         path = self.store.root / "build/latest-input.json"
-        value = read_json(path)
-        manifest = ordinary(self.store.root / "build" / value["manifest"])
-        if self.store.root / "build" not in manifest.parents: raise WizardError("manifest_path", "Builder manifest escaped its workspace.")
-        actual = read_json(manifest)
+        # The existing inspect pointer deliberately predates schema-versioned
+        # stage receipts. Accept only its exact shape, not arbitrary schema-less
+        # JSON; the actual selected manifest is independently schema/hash checked.
+        if ordinary(path).stat().st_size > 65536: raise WizardError("manifest_path", "Builder input pointer exceeds supported bounds.")
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if (not isinstance(value, dict) or set(value) != {"manifest", "sourceGameRoot", "sourceRepo"}
+                or any(not isinstance(item, str) for item in value.values())):
+            raise WizardError("manifest_path", "Builder input pointer has unsupported fields.")
+        raw = value["manifest"]; relative = PurePosixPath(raw)
+        if (relative.is_absolute() or PureWindowsPath(raw).drive or "\\" in raw or ":" in raw
+                or ".." in relative.parts or not re.fullmatch(r"manifests/[0-9a-f]{64}\.json", raw)):
+            raise WizardError("manifest_path", "Builder input pointer escaped its manifest directory.")
+        manifest = ordinary(self.store.root / "build" / raw)
+        module = discovery.builder(self.details(state, "source")["sourceRoot"])
+        if (Path(value["sourceRepo"]).resolve() != Path(self.details(state, "source")["sourceRoot"]).resolve()
+                or Path(value["sourceGameRoot"]).resolve() != module.game_data(Path(state["choices"]["gameRoot"])).resolve()):
+            raise WizardError("manifest_input", "Builder input pointer belongs to another source or game.")
+        actual = read_json(manifest, limit=64 * 1048576)
+        if (actual.get("target") != "game" or actual.get("inputKey") != manifest.stem
+                or value_hash({key: item for key, item in actual.items() if key != "inputKey"}) != manifest.stem
+                or actual["game"]["key"] != value_hash({"files": actual["game"]["files"]})
+                or actual["mod"]["key"] != value_hash({"files": actual["mod"]["files"]})):
+            raise WizardError("manifest_input", "Builder input manifest identity is inconsistent.")
         return [path, manifest], {"inputKey": actual["inputKey"], "gameKey": actual["game"]["key"], "modBuild": actual["mod"]["modBuild"]}
 
     def stage_build(self, state, supervisor):
         root = self.store.root / "build"
-        if state["stages"][STAGES.index("build")]["attempts"] > 1 and any(root.glob("projects/*/Library")):
+        if (state["stages"][STAGES.index("build")]["attempts"] > 1 and any(root.glob("projects/*/Library"))
+                and getattr(discovery.builder(self.details(state, "source")["sourceRoot"]), "BUILDER_RESUME_CONTRACT", 0) != 1):
             raise WizardError("build_resume_requires_workspace_guard", "The interrupted imported workspace is retained. Its transactional builder-resume integration is required before continuing.",
                               "Der importierte Arbeitsstand bleibt erhalten. Zum Fortsetzen ist die transaktionale Builder-Integration erforderlich.")
         supervisor.run(self.arguments(state, "build"), self.log(state, "build"), env=provision.environment(self.details(state, "tools")))

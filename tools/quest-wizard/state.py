@@ -186,13 +186,14 @@ class Store:
             if value.get("stage") != stage or value.get("key") != key or not value.get("outputs"): return None
             for row in value["outputs"]:
                 raw = row["path"]
+                if not isinstance(raw, str): return None
                 relative = PurePosixPath(raw)
-                if (not isinstance(raw, str) or relative.is_absolute() or PureWindowsPath(raw).drive
+                if (relative.is_absolute() or PureWindowsPath(raw).drive
                         or "\\" in raw or ":" in raw or ".." in relative.parts): return None
                 target = ordinary(self.root / relative)
                 if not target.is_file() or target.stat().st_size != row["size"] or digest(target) != row["sha256"]: return None
             return value
-        except (OSError, ValueError, KeyError, WizardError): return None
+        except (OSError, ValueError, TypeError, KeyError, WizardError): return None
 
     def publish(self, session, stage, key, paths, details):
         value = {"schema": 1, "stage": stage, "key": key, "outputs": self.records(paths), "details": details}

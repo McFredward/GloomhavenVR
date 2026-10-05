@@ -103,7 +103,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'")
 
     def authorize(self):
         if self.headers.get("Host") != urlsplit(self.server.origin).netloc: raise WizardError("request_origin", "Untrusted local request host.")
@@ -192,11 +192,11 @@ class Handler(BaseHTTPRequestHandler):
         if relative.is_absolute() or ".." in relative.parts or "\\" in name or ":" in name:
             raise WizardError("static_path", "Invalid UI asset path.")
         path = ordinary(self.server.ui_root.joinpath(*relative.parts))
-        if self.server.ui_root not in path.parents or not path.is_file() or path.suffix not in (".html", ".css", ".js", ".png", ".jpg", ".svg", ".woff2", ".ico"):
+        if self.server.ui_root not in path.parents or not path.is_file() or path.suffix not in (".html", ".css", ".js", ".mjs", ".png", ".jpg", ".svg", ".woff2", ".ico"):
             raise WizardError("static_path", "Unknown UI asset.")
         if path.stat().st_size > 16 * 1048576: raise WizardError("static_size", "UI asset exceeds supported bounds.")
         raw = path.read_bytes()
-        self.send_response(200); self.common_headers(); self.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+        self.send_response(200); self.common_headers(); self.send_header("Content-Type", "text/javascript; charset=utf-8" if path.suffix in (".js", ".mjs") else mimetypes.guess_type(path.name)[0] or "application/octet-stream")
         self.send_header("Content-Length", str(len(raw))); self.end_headers(); self.wfile.write(raw)
 
 

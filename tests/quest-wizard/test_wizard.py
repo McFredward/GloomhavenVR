@@ -281,3 +281,52 @@ class SourceDependencyTests(Fixture):
         with mock.patch.object(discovery,'builder',return_value=types.SimpleNamespace(game_data=lambda _:self.root/'Game_Data')):
             result=provision.derive_runtime_dependencies(checkout,self.root/'Game',{},mock.Mock(),self.root/'logs',lambda:None)
         self.assertEqual({r['source'] for r in state.read_json(result)['assemblies'].values()},{'supplied-local-assembly'})
+
+class InspectIntegrationTests(Fixture):
+    def fixture(self):
+        saved=self.plan();source=self.store.root/'source';source.mkdir();game=self.root/'Game_Data';game.mkdir()
+        saved['completed']={'source':{'details':{'sourceRoot':str(source)}},'tools':{'details':{'git':'git','dotnet8':'dotnet','dotnet10':'dotnet'}},'unity':{'details':{'unityEditor':'Unity'}},'profile':{'details':{'profilePath':'profile.json','steamLogo':'logo.png'}}}
+        files=[{'path':'resources.assets','size':3,'sha256':'a'*64}]
+        original={'schema':1,'target':'game','game':{'files':files,'key':state.value_hash({'files':files})},'mod':{'files':[],'key':state.value_hash({'files':[]}),'modBuild':623},'padding':'x'*(2*1048576)}
+        original['inputKey']=state.value_hash(original)
+        manifest=self.store.root/'build/manifests'/(original['inputKey']+'.json');manifest.parent.mkdir(parents=True);state.atomic_json(manifest,original)
+        pointer=self.store.root/'build/latest-input.json'
+        pointer.write_text(json.dumps({'manifest':manifest.relative_to(self.store.root/'build').as_posix(),'sourceGameRoot':str(game),'sourceRepo':str(source)}))
+        import types
+        return saved,source,game,manifest,pointer,types.SimpleNamespace(game_data=lambda _:game)
+    def test_real_schema_less_pointer_and_large_manifest_are_accepted(self):
+        saved,_,_,manifest,pointer,module=self.fixture()
+        with mock.patch.object(wizard.discovery,'builder',return_value=module):
+            outputs,details=wizard.Engine(self.store).stage_inspect(saved,mock.Mock())
+        self.assertEqual(outputs,[pointer,manifest]);self.assertEqual(details['inputKey'],manifest.stem)
+    def test_pointer_escape_wrong_source_or_manifest_identity_rejected(self):
+        saved,source,game,manifest,pointer,module=self.fixture()
+        valid=json.loads(pointer.read_text())
+        for changes in ({'manifest':'../outside.json'},{'sourceRepo':str(source/'other')},{'manifest':str(manifest)}):
+            pointer.write_text(json.dumps({**valid,**changes}))
+            with mock.patch.object(wizard.discovery,'builder',return_value=module):
+                with self.assertRaises(state.WizardError):wizard.Engine(self.store).stage_inspect(saved,mock.Mock())
+        pointer.write_text(json.dumps(valid));value=state.read_json(manifest,limit=64*1048576);value['mod']['modBuild']+=1;state.atomic_json(manifest,value)
+        with mock.patch.object(wizard.discovery,'builder',return_value=module):
+            with self.assertRaises(state.WizardError):wizard.Engine(self.store).stage_inspect(saved,mock.Mock())
+    def test_malformed_receipt_paths_are_cache_misses(self):
+        saved=self.plan();output=self.store.session_dir(saved['session'])/'out';output.write_text('valid')
+        proof=self.store.publish(saved['session'],'tools','key',[output],{})
+        for value in (None,False,{},[],27):
+            proof['outputs'][0]['path']=value;state.atomic_json(self.store.receipt(saved['session'],'tools'),proof)
+            self.assertIsNone(self.store.valid(saved['session'],'tools','key'))
+
+class UiModuleIntegrationTests(Fixture):
+    def setUp(self):
+        super().setUp();ui=self.root/'ui';ui.mkdir();(ui/'index.html').write_text('<html>owned UI</html>')
+        self.http=server.LocalServer(self.store,ui)
+        self.thread=threading.Thread(target=self.http.serve_forever,daemon=True);self.thread.start()
+    def tearDown(self):self.http.shutdown();self.http.close_owned();self.thread.join();super().tearDown()
+    def test_native_module_route_mime_and_owned_blob_csp(self):
+        (self.http.ui_root/'app.mjs').write_text('export const value = 1;')
+        connection=http.client.HTTPConnection(*self.http.server_address,timeout=3)
+        connection.request('GET','/app.mjs')
+        response=connection.getresponse();self.assertEqual(response.status,200)
+        self.assertEqual(response.getheader('Content-Type'),'text/javascript; charset=utf-8')
+        self.assertIn('img-src \'self\' data: blob:',response.getheader('Content-Security-Policy'))
+        self.assertIn(b'export const value',response.read());connection.close()
