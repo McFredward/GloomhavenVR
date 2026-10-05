@@ -63,6 +63,17 @@ internal static class FrameDefaults
     internal const bool ScenarioSimpleEnvironmentShading = true;
     internal const int ScenarioEnvironmentEffectsDensityPercent = 0;
 
+    // 2026-10-05: one shared binary; new reversible controls seed only fresh entries.
+    internal const bool ScenarioEnvironmentMeshBank = true;
+    internal const bool ScenarioExplicitEnvironmentInstancing = true;
+    internal const bool ScenarioCheapWallShading = true;
+    internal const int ScenarioTerrainDetailPercent = 0;
+    internal const int ScenarioDistantTerrainDetailPercent = 0;
+    internal const float ScenarioTerrainDistanceMeters = .75f;
+    internal const bool SharedEnvironmentMaterialReads = true;
+    internal const bool SharedUiWindowReads = true;
+    internal const float VisibleIdleAnimationIntervalSeconds = .1f;
+
     // A 4 s wall-rescan cadence was active in the tested Frame configuration. It reduces
     // rescan frequency, not the duration of an individual rescan.
     internal const float WallRescanIntervalSeconds = 4f;
