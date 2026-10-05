@@ -82,6 +82,7 @@ internal static partial class ScenarioTerrainBudget
             _proxyRenderer.realtimeLightmapIndex = Renderer.realtimeLightmapIndex;
             _proxyRenderer.realtimeLightmapScaleOffset = Renderer.realtimeLightmapScaleOffset;
             _proxyRenderer.motionVectorGenerationMode = Renderer.motionVectorGenerationMode;
+            _proxyRenderer.renderingLayerMask = Renderer.renderingLayerMask;
             Renderer.GetPropertyBlock(Block);
             if (LiveSpecialEffect(Block)) return false;
             Block.SetFloat("_GHVRTerrainNeverFade", Floor ? 1f : 0f);

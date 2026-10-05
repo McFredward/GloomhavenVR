@@ -9,6 +9,113 @@ using UnityEngine.Rendering;
 
 public static partial class EnvironmentProgram
 {
+    private static void SupplementaryNativeGeometry()
+    {
+        foreach (bool instanced in new[] { false, true })
+        {
+            using var room = new Room();
+            var first = room.Floor(.5f); var second = room.Floor(2.5f);
+            second.GetComponent<MeshFilter>().sharedMesh = first.GetComponent<MeshFilter>().sharedMesh;
+            room.Original.enableInstancing = instanced;
+            Color32[] plain = room.Render();
+            var stream = UnityEngine.Object.Instantiate(first.GetComponent<MeshFilter>().sharedMesh);
+            Vector3[] vertices = stream.vertices;
+            for (int i = 0; i < vertices.Length; i++) vertices[i] += Vector3.right * .6f;
+            stream.vertices = vertices;
+            first.additionalVertexStreams = stream;
+            Color32[] native = room.Render(); bool nativeChanged = false;
+            for (int i = 0; i < native.Length; i++) nativeChanged |= !native[i].Equals(plain[i]);
+            // Unity's native automatic instancing path can ignore supplementary positions
+            // on this GL backend. The non-instanced native renderer proves the pixel
+            // change; both submission paths must retain the native stream reference.
+            if (!instanced) Check(nativeChanged, "actual native supplementary vertex stream changes camera pixels");
+            Configure(!instanced, false, 100); PerfConfig.EnvironmentDrawInstancingOn = instanced;
+            ScenarioEnvironmentBudget.BeforeLoadingComplete();
+            Color32[] retained = room.Render(); bool same = true;
+            for (int i = 0; i < native.Length; i++) same &= retained[i].Equals(native[i]);
+            Check((instanced || same) && first.additionalVertexStreams == stream
+                && !first.forceRenderingOff && !second.forceRenderingOff
+                && room.Chunks().Length == 0 && Members("_instances") == 0,
+                "initial native supplementary geometry keeps exact original camera draws (instanced=" + instanced + ", pixels=" + same + ", chunks=" + room.Chunks().Length + ", instances=" + Members("_instances") + ")");
+            first.additionalVertexStreams = null;
+            ScenarioEnvironmentBudget.MaterialReady(first); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+            Check(instanced ? Members("_instances") == 1 : room.Chunks().Length == 1,
+                "removing a native supplementary stream restores eligible private submission");
+            first.additionalVertexStreams = stream;
+            bool sourceRetained = false;
+            room.ObserveRender = () => sourceRetained = !first.forceRenderingOff && !second.forceRenderingOff
+                && room.Camera.commandBufferCount == 0 && Array.TrueForAll(room.Chunks(), r => !r.enabled);
+            retained = room.Render(); room.ObserveRender = null; same = true;
+            for (int i = 0; i < native.Length; i++) same &= retained[i].Equals(native[i]);
+            Check(sourceRetained && (instanced || same) && first.additionalVertexStreams == stream,
+                "late native supplementary geometry revokes private submission before actual culling");
+            first.additionalVertexStreams = null; UnityEngine.Object.DestroyImmediate(stream);
+        }
+    }
+
+    private static void NativeObjectLighting()
+    {
+        using var room = new Room();
+        var first = room.Floor(.5f); var second = room.Floor(2.5f);
+        first.lightProbeUsage = second.lightProbeUsage = LightProbeUsage.BlendProbes;
+        Configure(true, false, 100); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(room.Chunks().Length == 0, "original per-object probe lighting never enters a combined chunk");
+        first.lightProbeUsage = second.lightProbeUsage = LightProbeUsage.Off;
+        first.reflectionProbeUsage = second.reflectionProbeUsage = ReflectionProbeUsage.BlendProbes;
+        ScenarioEnvironmentBudget.Placed(room.Generated); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(room.Chunks().Length == 0, "original per-object reflection probes never enter a combined chunk");
+        first.reflectionProbeUsage = second.reflectionProbeUsage = ReflectionProbeUsage.Off;
+        ScenarioEnvironmentBudget.Placed(room.Generated); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(room.Chunks().Length == 1, "probe-free original floors retain exact combined submission");
+        first.lightProbeUsage = second.lightProbeUsage = LightProbeUsage.BlendProbes;
+        bool native = false;
+        room.ObserveRender = () => native = !first.forceRenderingOff && !second.forceRenderingOff
+            && Array.TrueForAll(room.Chunks(), r => !r.enabled);
+        room.Render(); room.ObserveRender = null;
+        Check(native, "late native per-object lighting restores original draws before camera culling");
+        Configure(true, true, 100); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(room.Chunks().Length == 0 && first.sharedMaterial != room.Original,
+            "simplified shader keeps its material compromise without combining per-object probe draws");
+    }
+
+    private static void NativeMaterialLoadStart()
+    {
+        foreach (bool instanced in new[] { false, true })
+        {
+            using var room = new Room();
+            var first = room.Floor(.5f); var second = room.Floor(2.5f);
+            second.GetComponent<MeshFilter>().sharedMesh = first.GetComponent<MeshFilter>().sharedMesh;
+            room.Original.enableInstancing = instanced;
+            Configure(!instanced, true, 100); PerfConfig.EnvironmentDrawInstancingOn = instanced;
+            ScenarioEnvironmentBudget.BeforeLoadingComplete();
+            Check(VRSession.Harmony.Patched.Contains(typeof(MaterialLoaderData_Load_EnvironmentBudgetPatch)),
+                "production install registers native material-load start interruption");
+            bool began = false, restored = false; int otherLeaseReleases = 0;
+            ScenarioEnvironmentBudget.ConfigureBeforeNativeContentChange(() => otherLeaseReleases++);
+            room.ObserveRender = () =>
+            {
+                began = first.forceRenderingOff && second.forceRenderingOff;
+                var loader = new MaterialLoaderData { Renderer = first };
+                typeof(MaterialLoaderData_Load_EnvironmentBudgetPatch).GetMethod("Prefix", BindingFlags.NonPublic | BindingFlags.Static)!
+                    .Invoke(null, new object[] { loader });
+                loader.LoadMaterials();
+                restored = !first.enabled && first.sharedMaterial == room.Original
+                    && !first.forceRenderingOff && !second.forceRenderingOff
+                    && room.Camera.commandBufferCount == 0 && Array.TrueForAll(room.Chunks(), r => !r.enabled);
+            };
+            room.Render(); room.ObserveRender = null;
+            Check(began && restored, "native material-load start revokes queued geometry before its original hide");
+            Check(otherLeaseReleases == 1, "native material-load start dispatches the shared idle lease recovery before hiding");
+            typeof(MaterialLoaderData_Ready_EnvironmentBudgetPatch).GetMethod("Prefix", BindingFlags.NonPublic | BindingFlags.Static)!
+                .Invoke(null, new object[] { new MaterialLoaderData { Renderer = first } });
+            Check(otherLeaseReleases == 2, "native material completion dispatches shared idle lease recovery before writing");
+            ScenarioEnvironmentBudget.ConfigureBeforeNativeContentChange(() => { });
+            first.enabled = true; ScenarioEnvironmentBudget.MaterialReady(first); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+            Check(instanced ? Members("_instances") == 1 : room.Chunks().Length == 1,
+                "native material completion readmits exact sources after interrupted loading");
+        }
+    }
+
     private static void SharedReadOptionToggle()
     {
         using var room=new Room();var second=room.Material();

@@ -53,6 +53,7 @@ def main():
         ('hand-proximity-bypass','NearHand(VRHands.Left, bounds)','false','tracked hand proximity restores',source,1),
         ('distant-detail-ignored','Mathf.Min(near, PerfConfig.DistantTerrainDetailPercent)','near','independent distant terrain detail cap',source,1),
         ('foreign-mesh-bypass','&& Filter.sharedMesh == Original','/* injected foreign mesh ownership */','foreign native mesh replacement',geometry,1),
+        ('native-rendering-layer-not-copied','_proxyRenderer.renderingLayerMask = Renderer.renderingLayerMask;','/* injected native layer loss */','actual terrain camera proxy preserves current native rendering layers',geometry,1),
         ('material-slot-block-dropped','Renderer.GetPropertyBlock(SlotBlock, slot);','SlotBlock.Clear();','native material-slot MPB precedence',geometry,1),
         ('live-renderer-effect-ignored','if (LiveSpecialEffect(Block)) return false;','/* injected live renderer effect bypass */','live renderer-wide vertex effect retains',geometry,1),
         ('live-slot-effect-ignored','if (LiveSpecialEffect(SlotBlock)) return false;','/* injected live slot effect bypass */','live material-slot emissive effect retains',geometry,1),

@@ -1059,7 +1059,7 @@ public static partial class EnvironmentProgram
         {
             PresentationPreparationVisibility(); ScopeAndMaterials(); AmbientScopes(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault(); StructuralChunks(); NativeWallChannelsAndRenderedClock();
             int sharedStart = count;
-            SharedOriginalMaterialValidation(); SharedReadOptionToggle(); VerifiedEnvironmentBank(); UnreadableExactChunks(); ExplicitCameraInstances(); MultipleSubmeshInstances(); RevealedClonePixels();
+            SharedOriginalMaterialValidation(); SharedReadOptionToggle(); VerifiedEnvironmentBank(); UnreadableExactChunks(); ExplicitCameraInstances(); MultipleSubmeshInstances(); RevealedClonePixels(); SupplementaryNativeGeometry(); NativeObjectLighting(); NativeMaterialLoadStart();
             Debug.Log("Shared-material validation assertions=" + (count - sharedStart));
             NativeHighHistoricalDelivery();
             NativeHighHistoricalDelivery(toggleNative:true);

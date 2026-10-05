@@ -78,6 +78,7 @@ internal static class ScenarioEnvironmentBudget
         {
             VRSession.Harmony?.PatchAll(typeof(ProceduralBase_Placed_EnvironmentBudgetPatch));
             VRSession.Harmony?.PatchAll(typeof(ProceduralMapTile_Show_EnvironmentBudgetPatch));
+            VRSession.Harmony?.PatchAll(typeof(MaterialLoaderData_Load_EnvironmentBudgetPatch));
             VRSession.Harmony?.PatchAll(typeof(MaterialLoaderData_Ready_EnvironmentBudgetPatch));
             VRSession.Harmony?.PatchAll(typeof(SceneController_Loaded_EnvironmentBudgetPatch));
             VRSession.Harmony?.PatchAll(typeof(ApparanceEntity_EnvironmentBudgetPatch));
@@ -334,9 +335,10 @@ internal static class ScenarioEnvironmentBudget
                 _materialScratch.Clear();
                 if (r != null) r.GetSharedMaterials(_materialScratch);
                 valid = r != null && !TerrainOwns(r) && r.enabled && r.gameObject.activeInHierarchy && !r.HasPropertyBlock()
-                    && r.forceRenderingOff == _owned && source.Filter != null
+                    && NativeGeometryCompatible(r) && r.forceRenderingOff == _owned && source.Filter != null
                     && source.Filter.sharedMesh == source.Mesh && _materialScratch.Count == 1
-                    && _materialScratch[0] == Material && Renderer != null && SameRenderFlags(r, Renderer)
+                    && _materialScratch[0] == Material && ChunkLightingCompatible(r)
+                    && Renderer != null && SameRenderFlags(r, Renderer)
                     && Object != null && r.gameObject.layer == Object.layer
                     && inverse * r.transform.localToWorldMatrix == Matrices[i];
             }
@@ -508,7 +510,20 @@ internal static class ScenarioEnvironmentBudget
         && material.shader.isSupported && material.shader.keywordSpace.FindKeyword("INSTANCING_ON").isValid
         && (material.enableInstancing || material.shader.name == SimpleShader);
 
+    // Explicit mesh submissions cannot reproduce renderer-owned supplementary vertex
+    // streams or Unity's internal batch geometry. Keep those exact native draws, and
+    // recheck each camera so a late native stream write cannot lose its channels.
+    private static bool NativeGeometryCompatible(MeshRenderer r) =>
+        !r.isPartOfStaticBatch && r.additionalVertexStreams == null;
+
+    // A combined renderer samples native object probes at its aggregate bounds.
+    // That is not the originals' lighting. The simplified shader also reads ShadeSH9;
+    // shader selection alone cannot prove that those per-object samples are unused.
+    private static bool ChunkLightingCompatible(MeshRenderer r) =>
+        r.lightProbeUsage == LightProbeUsage.Off && r.reflectionProbeUsage == ReflectionProbeUsage.Off;
+
     private static bool SupportedInstanceFlags(MeshRenderer r) =>
+        NativeGeometryCompatible(r) &&
         !(r.lightmapIndex >= 0 && r.lightmapIndex < 65534) && r.probeAnchor == null
         && r.shadowCastingMode == ShadowCastingMode.Off && !r.receiveShadows
         && r.lightProbeUsage == LightProbeUsage.Off
@@ -856,7 +871,7 @@ internal static class ScenarioEnvironmentBudget
                     || !(surface.Floor ? _batchOn : surface.Structural && _structuralOn && surface.IsApplied()) || surface.Tile == null || surface.Mesh == null
                     || renderer.transform.localToWorldMatrix.determinant <= 0f
                     || !renderer.enabled || !renderer.gameObject.activeInHierarchy || renderer.forceRenderingOff
-                    || renderer.HasPropertyBlock() || surface.Filter.sharedMesh != surface.Mesh
+                    || renderer.HasPropertyBlock() || !NativeGeometryCompatible(renderer) || surface.Filter.sharedMesh != surface.Mesh
                     || surface.Mesh.subMeshCount != 1 || renderer.sharedMaterials.Length != 1
                     || renderer.GetComponentInParent<LODGroup>(true) != null
                     || (renderer.lightmapIndex >= 0 && renderer.lightmapIndex < 65534)) continue;
@@ -864,7 +879,7 @@ internal static class ScenarioEnvironmentBudget
                 if (surface.ReadableMesh == null && _meshBankOn && ScenarioEnvironmentMeshBank.TryGetExact(surface.Mesh, out Mesh exact)) surface.ReadableMesh = exact;
                 if (surface.ReadableMesh == null) { _unreadable++; continue; }
                 Material material = renderer.sharedMaterial;
-                if (material == null) continue;
+                if (material == null || !ChunkLightingCompatible(renderer)) continue;
                 var key = new BatchKey(surface, material);
                 if (!groups.TryGetValue(key, out List<Surface> members)) groups.Add(key, members = new List<Surface>());
                 members.Add(surface);
@@ -943,10 +958,11 @@ internal static class ScenarioEnvironmentBudget
                 members.RemoveAll(s => s.Renderer == null || s.Filter == null || s.Tile == null
                     || s.Mesh == null || s.ReadableMesh == null || !s.ReadableMesh.isReadable || TerrainOwns(s.Renderer) || s.Filter.sharedMesh != s.Mesh
                     || s.Renderer.forceRenderingOff || !s.Renderer.enabled
-                    || !s.Renderer.gameObject.activeInHierarchy || s.Renderer.HasPropertyBlock()
+                    || !s.Renderer.gameObject.activeInHierarchy || s.Renderer.HasPropertyBlock() || !NativeGeometryCompatible(s.Renderer)
                     || s.Renderer.sharedMaterials.Length != 1
                     || !(s.Floor ? _batchOn : s.Structural && _structuralOn && s.IsApplied())
                     || !CompatibleMaterial(s.Renderer.sharedMaterial, s.Floor || s.Structural)
+                    || !ChunkLightingCompatible(s.Renderer)
                     || s.Renderer.transform.localToWorldMatrix.determinant <= 0f
                     || _batchBySource.ContainsKey(s.Renderer.GetInstanceID()));
                 if (members.Count < 2) continue;
@@ -1223,11 +1239,24 @@ internal static class ProceduralMapTile_Show_EnvironmentBudgetPatch
     private static void Postfix(GameObject o)
     { try { ScenarioEnvironmentBudget.Placed(o); } catch (Exception e) { ScenarioEnvironmentBudget.StopAfterFailure(e); } }
 }
+// Loading first hides the original renderer, before the asynchronous completion
+// callback. A load begun during pre-cull must revoke queued substitutes immediately.
+[HarmonyPatch(typeof(MaterialLoaderData), nameof(MaterialLoaderData.LoadMaterials))]
+internal static class MaterialLoaderData_Load_EnvironmentBudgetPatch
+{
+    private static void Prefix(MaterialLoaderData __instance)
+    {
+        Renderer? renderer = __instance.Renderer;
+        if (renderer == null) return;
+        ScenarioEnvironmentBudget.BeforeNativeContentChange();
+        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(renderer);
+    }
+}
 [HarmonyPatch(typeof(MaterialLoaderData), "CheckAllMaterialLoaded")]
 internal static class MaterialLoaderData_Ready_EnvironmentBudgetPatch
 {
     private static void Prefix(MaterialLoaderData __instance)
-    { try { if (__instance.Renderer != null) ScenarioEnvironmentBudget.BeforeNativeRendererWrite(__instance.Renderer); } catch (Exception e) { ScenarioEnvironmentBudget.StopAfterFailure(e); } }
+    { try { if (__instance.Renderer != null) { ScenarioEnvironmentBudget.BeforeNativeContentChange(); ScenarioEnvironmentBudget.BeforeNativeRendererWrite(__instance.Renderer); } } catch (Exception e) { ScenarioEnvironmentBudget.StopAfterFailure(e); } }
     private static void Postfix(MaterialLoaderData __instance)
     { try { if (__instance.Renderer != null) ScenarioEnvironmentBudget.MaterialReady(__instance.Renderer); } catch (Exception e) { ScenarioEnvironmentBudget.StopAfterFailure(e); } }
 }

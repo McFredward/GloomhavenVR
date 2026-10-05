@@ -19,6 +19,11 @@ The generated scene covers:
   pillar feet cannot qualify. Ordinary opaque trim retains its native shader.
 - Native ambient families, combat/condition and one-shot exclusions, zero density,
   paused solvers and preservation of preexisting foreign masks or pauses.
+- Both the start and completion of native material loading restore source draw
+  leases before native visibility/material writes. Real pre-cull chunk/instance
+  submissions are revoked, original material references restored, and the shared
+  idle lease-recovery delegate runs before the loader hides its source. Native
+  addressable requests are an explicit boundary; renderer writes are actual Unity.
 - Exact original texture/tint/UV properties and material references; native in-place
   material completion; foreign replacements; unknown native clones restored before
   disposing an owned material variant.
@@ -35,6 +40,15 @@ The generated scene covers:
 - Actual unreadable original floor meshes create exact private chunks. The bank option
   Off restores original rendering; the new path never changes native shared meshes,
   native material slots or static-batch metadata.
+- Native supplementary vertex streams and existing Unity internal batch geometry
+  retain original submissions. Shifted supplementary positions alter real native
+  non-instanced camera pixels; admission and a late stream edit both keep them.
+  The GL backend's automatic-instancing stream behavior is not a pixel oracle;
+  that path proves intact native references/masks and absence of private commands.
+- Original lit per-object light/reflection probes retain individual draws. Only
+  probe-free renderers may use a combined chunk. The simplified shader still reads
+  spherical-harmonic ambient lighting, so it does not bypass this native safeguard;
+  its material compromise remains available without combining those draws.
 - Real bounded explicit instance commands preserve pixels and multiple material
   submeshes. Independent option Off, lightmaps, motion flags and newly active wall
   channels restore originals. A native renderer write after actual pre-cull submission
@@ -65,7 +79,9 @@ The generated scene covers:
 
 Fifty-two negative controls mutate actual production source and must compile successfully
 before failing the intended runtime assertion. The source SHA-256, generated source,
-case assemblies, manifest and logs remain in the selected output directory. Unity
+case assemblies, manifest and logs remain in the selected output directory. The
+fixture is snapshotted and hashed before compiling any variant, so concurrent
+fixture edits cannot change later cases within the same run. Unity
 import caches and duplicate API references are not retained.
 
 `--production-only` and repeatable `--case NAME` select focused development runs;

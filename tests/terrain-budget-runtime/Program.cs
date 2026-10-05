@@ -164,6 +164,14 @@ public static class TerrainProgram
         GloomhavenVR.Hands.VRHands.Left=null; Object.DestroyImmediate(hand.gameObject);
 
         PerfConfig.CheapWallShadingOn=true; PerfConfig.TerrainDetailPercent=100; PerfConfig.DistantTerrainDetailPercent=100; Morph(host);
+        wall.renderingLayerMask=8u;
+        Check(DuringRender(camera,()=>wall.forceRenderingOff
+            &&Proxies(host).Find(r=>r.transform.position==wall.transform.position)!.renderingLayerMask==8u),
+            "actual terrain camera proxy preserves current native rendering layers");
+        wall.renderingLayerMask=2u;
+        Check(DuringRender(camera,()=>Proxies(host).Find(r=>r.transform.position==wall.transform.position)!.renderingLayerMask==2u),
+            "native rendering layer edit remains live between terrain camera invocations");
+        wall.renderingLayerMask=1u;
         bool leased=false,restored=false;
         Camera.CameraCallback inspect=cam=>
         {

@@ -6,7 +6,7 @@ namespace HarmonyLib
 {
     [AttributeUsage(AttributeTargets.Class)]
     internal sealed class HarmonyPatch : Attribute { internal HarmonyPatch(Type type, string name) { } }
-    internal sealed class Harmony { internal void PatchAll(Type type) { } }
+    internal sealed class Harmony { internal readonly HashSet<Type> Patched = new(); internal void PatchAll(Type type) { Patched.Add(type); } }
 }
 
 public class ProceduralBase : MonoBehaviour { public void NotifyContentPlacementComplete() { } }
@@ -18,7 +18,13 @@ public sealed class ProceduralDoorway : MonoBehaviour { }
 public sealed class UnityGameEditorDoorProp : MonoBehaviour { }
 public sealed class CInteractable : MonoBehaviour { }
 public sealed class ActorBehaviour : MonoBehaviour { }
-public sealed class MaterialLoaderData { public Renderer? Renderer; }
+public sealed class MaterialLoaderData
+{
+    public Renderer? Renderer;
+    // The actual native loader writes this before addressable completion. Asset
+    // requests themselves are the explicit boundary; renderer visibility is real.
+    public void LoadMaterials() { if (Renderer != null) Renderer.enabled = false; }
+}
 public sealed class SceneController
 {
     public static SceneController Instance = new SceneController();

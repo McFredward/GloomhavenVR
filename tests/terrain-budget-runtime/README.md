@@ -9,7 +9,7 @@ bank. Actual Unity meshes, transforms, renderers, materials, MPBs, cloning,
 command buffers and `Camera.Render` callbacks execute; there is no simulated
 renderer or pixel oracle substituted for the production fragment.
 
-The production case makes 103 assertions. Thirty-one independently compiled
+The production case makes 105 assertions. Thirty-two independently compiled
 negative variants each corrupt a production statement and must fail at a named
 assertion. Shader compilation failures and unrelated exceptions never count as
 passing negative controls. `--production-only` and repeatable `--case NAME` are
@@ -43,7 +43,9 @@ The causal guard variant replaces `isActiveAndEnabled` with `enabled`, reproduci
 the missing wall pixels because static callbacks survive host deactivation while
 the host's private proxies cannot render. Per-slot MPB precedence, live native keyword edits and resolution of an
 existing environment material variant back to the genuine native original are
-checked. Live renderer-wide vertex and per-slot emissive MPB gates immediately
+checked. The private proxy also copies the native rendering-layer mask anew
+for each actual camera invocation, including live edits between cameras.
+Live renderer-wide vertex and per-slot emissive MPB gates immediately
 retain the native shader and geometry. Native command-buffer consumers veto substitutions; an explicitly
 known mod buffer is recognized by its nonzero native handle plus camera/event,
 while an additional foreign buffer retains the native renderer identity.
