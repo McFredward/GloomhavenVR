@@ -33,5 +33,18 @@ class NativeNaNLoads(unittest.TestCase):
         with self.assertRaises(instance_nan.InstanceReadError):
             instance_nan.restore('while(isnan(OriginalArray[i]._Value)) {\n', self.interface())
 
+    def test_conditional_control_and_mutating_index_fail_closed(self):
+        for source in (
+            'if (enabled && isnan(OriginalArray[i]._Value)) action();\n',
+            'float x = enabled && isnan(OriginalArray[i]._Value);\n',
+            'float x = enabled || isnan(OriginalArray[i]._Value);\n',
+            'float x = isnan(OriginalArray[i++]._Value);\n',
+            'float x = isnan(OriginalArray[(i=2)]._Value);\n',
+            'float x = isnan(OriginalArray[next_index()]._Value);\n',
+            'float x = (y = isnan(OriginalArray[i]._Value));\n',
+        ):
+            with self.subTest(source=source), self.assertRaises(instance_nan.InstanceReadError):
+                instance_nan.restore(source, self.interface())
+
 
 if __name__ == '__main__': unittest.main()

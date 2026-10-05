@@ -12,6 +12,15 @@ import re
 class InstanceReadError(RuntimeError): pass
 
 
+def _pure_index(index):
+    # Native SPIRV-Cross address arithmetic uses scalar identifiers/operators
+    # and these side-effect-free bit reinterpretations or integer casts.
+    if re.search(r'\+\+|--|=|[;{}?:,]', index): return False
+    if re.search(r'[^\w\s().+*/%&|^~<>-]', index): return False
+    return all(call in ('uint', 'int', 'asuint', 'asint')
+               for call in re.findall(r'\b(\w+)\s*\(', index))
+
+
 def restore(source, interface):
     fields = {}
     for buffer in interface['buffers']:
@@ -41,8 +50,12 @@ def restore(source, interface):
                 raise InstanceReadError('Original NaN instance operand lacks an audited floating scalar/vector layout.')
             width = len(match['swizzle']) - 1 if match['swizzle'] else field['columns']
             if width not in (1, 2, 3, 4): raise InstanceReadError('Original NaN instance operand width is unsupported.')
+            if not _pure_index(match['index']):
+                raise InstanceReadError('Original NaN instance address contains unaudited evaluation or mutation.')
             reads[match[0]] = (buffer_name, width, field, match['structure'], match['index'])
-        if reads and (not line.rstrip().endswith(';') or re.match(r'\s*(?:for|while)\b', line)):
+        statement = re.match(r'^\s*(?:(?:float|uint|int|bool)[1-4]?\s+)?\w+(?:\.[xyzwrgba]{1,4})?\s*=\s*(.*);\s*$', line)
+        if reads and (not statement or '&&' in line or '||' in line or
+                      re.search(r'(?<![!=<>])=(?!=)', statement[1])):
             raise InstanceReadError('Original NaN instance read requires a proven ordinary native statement.')
         for expression, (buffer_name, width, field, structure, index) in reads.items():
             variable = 'QuestNativeNaNInstanceRead_' + str(len(proofs))
