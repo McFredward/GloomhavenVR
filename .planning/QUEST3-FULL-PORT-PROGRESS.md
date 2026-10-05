@@ -164,8 +164,24 @@ fixtures do not certify every original dispatch edge or Quest rendering. The
 production builder additionally decodes the actual signed APK and adjacent
 complete bank, rejecting missing objects or conflicting compiled duplicates.
 
-Current focused Python builder gate passes189 tests in the provisioned private
+The complete ordinary Texture2D audit covers14,862 PNG exports. Thirty-three
+float/HDR originals require native reconstruction instead of an8-bit PNG: eight
+RGBAHalf animation textures and25 BC6H skies retain their original half-float
+sampling and complete mip chains. All294 actual GPU mip readbacks match restored
+pixel bytes. The consuming material PPtr type remains a separate integration
+gate; successful standalone import alone does not certify those references.
+
+The full Quest player follows the current mod's public MultiPass stereo contract.
+Its existing per-eye camera callbacks and authored Shader banks therefore use
+their supported route, and the Quest flat-screen adapter selects the completed
+eye texture through that same route. Desktop mode selection is unchanged.
+
+Current focused Python builder gate passes193 tests in the provisioned private
 Python environment; compute fixtures pass14 and case-path fixtures pass12. Own
 superseded APKs are removed; B622 native symbols are retained with matching build
 ID9a2274f00b636520 before deleting its generated28-GB Library. Final full-player
 compilation, signed APK and Windows hardware package still remain required.
+All14 source checks, strict Release with zero errors/warnings and286,760 direct
+unchanged wire/golden assertions pass after the stereo integration. Complete
+native Shader family compilation, live driver acceptance and ComputeShader edge
+semantics are still being checked before the final source freeze.

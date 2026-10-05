@@ -420,6 +420,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
                 import campaign_shaders
                 import full_audio
                 import full_textures
+                import full_texture2d
                 campaign.stage_file_backed_extras(project, game)
                 dependencies.python_environment(output / "tool-cache", source)
                 selected_tools = toolchain(args, output)
@@ -429,6 +430,8 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
                     tool_cache=output / "tool-cache/campaign-native-codecs",
                     cab_bundles=original_owners)
                 full_textures.stage(project, game, dotnet=tool_path(args.dotnet, "dotnet"),
+                    tool_cache=output / "tool-cache/campaign-native-codecs", cab_bundles=original_owners)
+                full_texture2d.stage(project, game, dotnet=tool_path(args.dotnet, "dotnet"),
                     tool_cache=output / "tool-cache/campaign-native-codecs", cab_bundles=original_owners)
                 import campaign_compute
                 campaign_compute.stage(source, project, output / "tool-cache/campaign-compute" / inputs["inputKey"])
@@ -496,7 +499,9 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
                 contracts.append(project / "Assets/QuestOriginalCampaign/native-cubemaps.json")
                 contracts.extend([project / "Assets/QuestOriginalCampaign/native-sprites.json",
                                   project / "Assets/QuestOriginalCampaign/campaign-computes.json",
-                                  project / "Assets/QuestOriginalCampaign/native-platform-images.json"])
+                                  project / "Assets/QuestOriginalCampaign/native-platform-images.json",
+                                  project / "Assets/QuestOriginalCampaign/native-texture2d.json",
+                                  project / "Assets/QuestOriginalCampaign/ordinary-texture2d-audit.json"])
                 native = json.loads((project / "QuestCampaignEvidence/native-runtime.json").read_text())
                 contracts.extend(project / row["path"] for row in native["nativeFiles"])
         contracts.extend(p for p in (project / "Assets/Quest").rglob("*")

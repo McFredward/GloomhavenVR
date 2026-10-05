@@ -102,6 +102,10 @@ class CasePathContracts(unittest.TestCase):
                                        "materials": [{"assetPath": variant}], "programs": []},
             "campaign-computes.json": {"schema": 1, "shaders": [{"assetPath": variant, "guid": "2" * 32, "kernelCount": 3}]},
             "bundled-audio.json": {"schema": 1, "assets": [{"assetPath": variant, "guid": "2" * 32, "channels": 4}]},
+            "native-texture2d.json": {"schema": 1, "assets": [{"assetPath": variant, "guid": "2" * 32,
+                                                               "nativePixelSha256": "4" * 64}]},
+            "ordinary-texture2d-audit.json": {"schema": 1, "assets": [{"assetPath": variant,
+                                                                       "originalTextureFormat": "RGBAHalf"}]},
             "packed-sprites.json": {"schema": 1, "atlases": [{"assetPath": variant}], "sprites": [{"assetPath": variant}]}}
         for name, document in docs.items(): (root / name).write_text(json.dumps(document))
         report = case_paths.migrate(self.project)
@@ -120,7 +124,12 @@ class CasePathContracts(unittest.TestCase):
                          {"assetPath": destination, "guid": "2" * 32, "kernelCount": 3})
         self.assertEqual(json.loads((root / "bundled-audio.json").read_text())["assets"][0],
                          {"assetPath": destination, "guid": "2" * 32, "channels": 4})
-        self.assertEqual(len([name for name in report["manifestSha256"] if name.startswith("Assets/QuestOriginalCampaign/")]), 7)
+        self.assertEqual(json.loads((root / "native-texture2d.json").read_text())["assets"][0],
+                         {"assetPath": destination, "guid": "2" * 32, "nativePixelSha256": "4" * 64})
+        # The ordinary audit describes the pre-replacement PNG export, not a final physical asset.
+        self.assertEqual(json.loads((root / "ordinary-texture2d-audit.json").read_text()),
+                         docs["ordinary-texture2d-audit.json"])
+        self.assertEqual(len([name for name in report["manifestSha256"] if name.startswith("Assets/QuestOriginalCampaign/")]), 8)
         self.assertEqual(case_paths.migrate(self.project), report)
 
     def test_folder_metadata_and_nested_references_move_with_owner(self):
