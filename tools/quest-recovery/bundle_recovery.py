@@ -13,6 +13,7 @@ import sys
 from catalog import bundle_closure, decode_catalog
 from export_identity import (build_tool, identity_remaps, object_index, read_identities,
                              remap_yaml, POINTER)
+import native_evidence
 from recover import (RecoveryError, YAML_EXTENSIONS, audit_asset_references,
                      audit_export_log, repair_managed_plugins, run_export,
                      sha256, stage_input, write_json)
@@ -157,10 +158,12 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
             if destination.exists():
                 raise RecoveryError("Distinct original bundles have the same staged filename.")
             shutil.copy2(path, destination)
-        previous = {key: os.environ.get(key) for key in ("QUEST_EXPORT_IDENTITIES", "QUEST_EXPORT_BUNDLE_ONLY")}
+        capture = native_evidence.environment(directory / "Evidence")
+        previous = {key: os.environ.get(key) for key in ("QUEST_EXPORT_IDENTITIES", "QUEST_EXPORT_BUNDLE_ONLY", *capture)}
         identity_path = directory / "identities.jsonl"
         os.environ["QUEST_EXPORT_IDENTITIES"] = str(identity_path)
         os.environ["QUEST_EXPORT_BUNDLE_ONLY"] = "1"
+        os.environ.update(capture)
         try:
             project, shaders, scripts = run_export(tool_command, stage, directory / "Export", directory / "export.log",
                                                    directory / "Evidence", settings, require_scene_settings=False)
@@ -173,6 +176,13 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
         incoming = read_identities(identity_path, project)
         merged = merge_export(output, project, incoming, canonical)
         progress["files"].extend(merged["files"])
+        # Native field recipes and engine redirects are stable original object
+        # evidence, even when a batch drops the corresponding export asset.
+        additions = native_evidence.merge(output, directory / "Evidence")
+        existing_files = {row["path"]: row for row in progress["files"]}
+        for row in additions:
+            existing_files[row["path"]] = row
+        progress["files"] = list(existing_files.values())
         progress["identities"].extend(merged["identities"])
         progress["completedGroups"].append(index)
         progress["groups"].append({"index": index, "input": group, "exportLog": audit_export_log(directory / "export.log"),

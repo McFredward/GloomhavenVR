@@ -45,14 +45,23 @@ def patch_source(source):
     exporter = path.parent / "ProjectExporter.cs"
     exporter_text = exporter.read_text(encoding="utf-8-sig")
     original = "\t\t\tif (collection.Exportable)"
-    replacement = "\t\t\tif (collection.Exportable && QuestExportIdentity.ShouldExport(container))"
+    replacement = "\t\t\tif (QuestExportIdentity.ShouldExport(container) && collection.Exportable)"
     if replacement not in exporter_text:
         if exporter_text.count(original) != 1:
             raise RecoveryError("Pinned AssetRipper collection export seam changed.")
         exporter.write_text(exporter_text.replace(original, replacement), encoding="utf-8")
+    sprite = path.parent / "Textures/YamlSpriteExporter.cs"
+    sprite_text = sprite.read_text(encoding="utf-8-sig")
+    sprite_seam = "\t\tQuestExportIdentity.CaptureNativeRecipe(asset);\n"
+    sprite_original = "\t\texportCollection = asset switch"
+    if sprite_seam not in sprite_text:
+        if sprite_text.count(sprite_original) != 1:
+            raise RecoveryError("Pinned AssetRipper native atlas seam changed.")
+        sprite.write_text(sprite_text.replace(sprite_original, sprite_seam + sprite_original), encoding="utf-8")
     return {"sourceRevision": REVISION, "sourceArchiveSha256": SOURCE_SHA256,
             "instrumentationSha256": hashlib.sha256(content).hexdigest(),
-            "patchedExportCollectionSha256": sha256(path), "patchedProjectExporterSha256": sha256(exporter)}
+            "patchedExportCollectionSha256": sha256(path), "patchedProjectExporterSha256": sha256(exporter),
+            "patchedNativeAtlasExporterSha256": sha256(sprite)}
 
 
 def acquire_source(cache):
@@ -81,12 +90,23 @@ def build_tool(cache, dotnet):
     executable, the local host includes the above source instrumentation. Tool
     warnings are retained in the receipt; they are not mod build warnings.
     """
-    source = acquire_source(cache)
+    # Instrumentation evolves independently of the mod and upstream archive.
+    # Preserve older witnessed tool builds; never patch them in place.
+    cache = Path(cache).resolve()
+    generation = hashlib.sha256((HERE / "QuestExportIdentity.cs").read_bytes()).hexdigest()[:16]
+    current = cache / ("identity-" + generation)
+    current.mkdir(parents=True, exist_ok=True)
+    pinned_archive = cache / "assetripper-source-1ac666f.tar.gz"
+    if pinned_archive.is_file() and not (current / pinned_archive.name).exists():
+        if sha256(pinned_archive) != SOURCE_SHA256:
+            raise RecoveryError("Cached AssetRipper source archive changed.")
+        shutil.copyfile(pinned_archive, current / pinned_archive.name)
+    source = acquire_source(current)
     proof = patch_source(source)
     project = source / "Source/AssetRipper.GUI.Free/AssetRipper.GUI.Free.csproj"
     output = source / "Source/0Bins/AssetRipper.GUI.Free/Release"
     dll = output / "AssetRipper.GUI.Free.dll"
-    receipt = Path(cache) / "quest-identity-tool.json"
+    receipt = current / "quest-identity-tool.json"
     previous = json.loads(receipt.read_text()) if receipt.exists() else None
     if previous and previous.get("source") == proof and previous.get("files"):
         for row in previous["files"]:
@@ -97,7 +117,7 @@ def build_tool(cache, dotnet):
         version = subprocess.run([str(dotnet), "--version"], capture_output=True, text=True, check=True).stdout.strip()
         if not version.startswith("10."):
             raise RecoveryError("Pinned AssetRipper source requires a .NET 10 SDK; no runtime substitution is made.")
-        log = Path(cache) / "quest-identity-tool-build.log"
+        log = current / "quest-identity-tool-build.log"
         with log.open("w", encoding="utf-8") as stream:
             result = subprocess.run([str(dotnet), "build", str(project), "-c", "Release",
                                      "-p:PublishAot=false", "-p:IsAotCompatible=false", "--nologo", "-v", "quiet"],

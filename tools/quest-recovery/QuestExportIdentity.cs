@@ -3,6 +3,10 @@
 using AssetRipper.Assets;
 using AssetRipper.Assets.Collections;
 using System.Text.Json;
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using AssetRipper.Yaml;
 
 namespace AssetRipper.Export.UnityProjects;
 
@@ -10,6 +14,7 @@ internal static class QuestExportIdentity
 {
     public static bool ShouldExport(IExportContainer container)
     {
+        CaptureRedirects(container);
         if (Environment.GetEnvironmentVariable("QUEST_EXPORT_BUNDLE_ONLY") != "1") return true;
         IExportCollection collection = ((ProjectAssetContainer)container).CurrentCollection;
         // Global engine managers are written into ProjectSettings and cannot
@@ -23,6 +28,67 @@ internal static class QuestExportIdentity
         foreach (string guid in original.Select(asset => collection.CreateExportPointer(container, asset, false).GUID.ToString()).Distinct())
             Record(container, guid, "");
         return false;
+    }
+
+    private static void CaptureRedirects(IExportContainer container)
+    {
+        string? destination = Environment.GetEnvironmentVariable("QUEST_EXPORT_REDIRECT_IDENTITIES");
+        if (string.IsNullOrEmpty(destination)) return;
+        IExportCollection collection = ((ProjectAssetContainer)container).CurrentCollection;
+        if (collection is not RedirectExportCollection && collection is not SingleRedirectExportCollection) return;
+        foreach (IUnityObjectBase asset in collection.Assets)
+        {
+            if (asset.Collection is not SerializedAssetCollection) continue;
+            MetaPtr pointer = collection.CreateExportPointer(container, asset, false);
+            // A missing redirect is not evidence of a usable target.
+            if (pointer.GUID.ToString() == "0000000deadbeef15deadf00d0000000") continue;
+            File.AppendAllText(destination, JsonSerializer.Serialize(new
+            {
+                collection = asset.Collection.Name,
+                pathId = asset.PathID,
+                classId = asset.ClassID,
+                className = asset.ClassName,
+                guid = pointer.GUID.ToString(),
+                fileId = pointer.FileID,
+                type = (int)pointer.AssetType,
+                exportCollection = collection.GetType().FullName,
+            }) + "\n");
+        }
+    }
+
+    public static void CaptureNativeRecipe(IUnityObjectBase asset)
+    {
+        string? destination = Environment.GetEnvironmentVariable("QUEST_EXPORT_NATIVE_RECIPES");
+        if (string.IsNullOrEmpty(destination) || asset.Collection is not SerializedAssetCollection) return;
+        // Packed atlases are deliberately omitted by the normal exporter.
+        // Core managed components can have only the base native type tree;
+        // retain the exact original assembly-parsed field graph as evidence.
+        if (asset.ClassID != 687078895 && (asset.ClassID != 114 ||
+            asset.Collection.Name.StartsWith("CAB-", StringComparison.OrdinalIgnoreCase))) return;
+        string key = asset.Collection.Name.ToLowerInvariant() + ":" + asset.PathID.ToString(CultureInfo.InvariantCulture);
+        string filename = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key))).ToLowerInvariant() + ".yaml";
+        Directory.CreateDirectory(destination);
+        using StringWriter stream = new(CultureInfo.InvariantCulture) { NewLine = "\n" };
+        YamlWriter writer = new();
+        writer.WriteHead(stream);
+        writer.WriteDocument(new YamlWalker().ExportYamlDocument(asset, ExportIdHandler.GetMainExportID(asset)));
+        writer.WriteTail(stream);
+        string yaml = stream.ToString();
+        string path = Path.Combine(destination, filename);
+        if (File.Exists(path))
+        {
+            if (File.ReadAllText(path) != yaml) throw new InvalidDataException("Original native recipe changed within one export.");
+            return;
+        }
+        File.WriteAllText(path, yaml);
+        File.AppendAllText(Path.Combine(destination, "index.jsonl"), JsonSerializer.Serialize(new
+        {
+            collection = asset.Collection.Name,
+            pathId = asset.PathID,
+            classId = asset.ClassID,
+            yamlPath = filename,
+            yamlSha256 = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(yaml))).ToLowerInvariant(),
+        }) + "\n");
     }
 
     public static void Record(IExportContainer container, string guid, string path)
@@ -41,6 +107,7 @@ internal static class QuestExportIdentity
             writer.WriteStartArray("objects");
             foreach (IUnityObjectBase asset in collection.Assets)
             {
+                CaptureNativeRecipe(asset);
                 // Generated prefab/scene/sprite bookkeeping is not an original
                 // CAB/pathID identity and its export ID may not exist. Script
                 // DLL GUIDs already derive from the original assembly name.

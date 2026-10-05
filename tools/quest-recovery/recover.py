@@ -319,8 +319,8 @@ def repair_managed_plugins(project, game_data):
             "duplicateGameSourceFiles": duplicates}
 
 
-def managed_inventory(game_data, destination, tool_root):
-    dotnet = shutil.which("dotnet")
+def managed_inventory(game_data, destination, tool_root, dotnet=None):
+    dotnet = str(dotnet) if dotnet is not None else shutil.which("dotnet")
     if not dotnet:
         candidates = [Path(os.environ.get("DOTNET_ROOT", "/nonexistent")) / "dotnet",
                       Path.home() / ".dotnet/dotnet"]
@@ -391,7 +391,12 @@ def audit_script_bindings(project, types, original_identities=()):
 
 
 def audit_asset_references(project):
-    """Check GUID closure without pretending to replace Unity's importer."""
+    """Check serialized PPtr GUID closure, excluding GUID text in native names.
+
+    Unity's exported external object references are flow mappings with fileID,
+    guid and type. Names, render-data keys and other scalar strings can contain
+    the word guid without representing an external object reference.
+    """
     guids = {}
     for metadata in (project / "Assets").rglob("*.meta"):
         match = GUID_PATTERN.search(metadata.read_text(encoding="utf-8", errors="replace"))
@@ -402,7 +407,8 @@ def audit_asset_references(project):
     for asset in (project / "Assets").rglob("*"):
         if asset.suffix not in YAML_EXTENSIONS:
             continue
-        for guid in re.findall(r"guid:\s*([0-9a-f]{32})", asset.read_text(encoding="utf-8", errors="replace")):
+        for guid in re.findall(r"\{fileID:\s*-?\d+,\s*guid:\s*([0-9a-f]{32}),\s*type:\s*\d+\s*\}",
+                               asset.read_text(encoding="utf-8", errors="replace")):
             references += 1
             if not guid.startswith("0000000000000000") and guid not in guids:
                 missing[guid].add(asset.relative_to(project).as_posix())

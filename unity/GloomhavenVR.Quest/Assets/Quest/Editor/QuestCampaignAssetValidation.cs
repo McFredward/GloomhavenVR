@@ -9,6 +9,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.U2D;
 
 namespace GloomhavenVR.Quest.Editor
 {
@@ -17,6 +18,7 @@ namespace GloomhavenVR.Quest.Editor
     {
         public const string InputPath = "Assets/QuestOriginalCampaign/campaign-addressables.json";
         public const string SceneInputPath = "Assets/QuestOriginalCampaign/campaign-scenes.json";
+        public const string PackedSpriteInputPath = "Assets/QuestOriginalCampaign/packed-sprites.json";
         public const string ReceiptPath = "QuestCampaignEvidence/asset-import.json";
 
         [Serializable] public sealed class Association
@@ -56,12 +58,32 @@ namespace GloomhavenVR.Quest.Editor
         }
         [Serializable] public sealed class Receipt
         {
-            public int schema = 1, importedObjectCount, serializedValueLocationCount;
+            public int schema = 1, importedObjectCount, serializedValueLocationCount, packedSpriteCount, packedAtlasCount;
             public string unityVersion, catalogSha256, sourceManifestSha256, sceneManifestSha256;
             public bool androidAssetsBuilt, allNativeScenesImported, typedOriginalObjectsImported;
-            public bool androidPlayerBuilt, playableCampaignVerified, faithfulGraphicsVerified;
+            public bool androidPlayerBuilt, playableCampaignVerified, faithfulGraphicsVerified, packedSpriteDrawingStateImported;
             public ImportedObject[] objects;
             public SceneClosure[] scenes;
+        }
+        [Serializable] public sealed class NativeRectangle { public float x, y, width, height; }
+        [Serializable] public sealed class PackedSprite
+        {
+            public string assetPath, guid, textureGuid;
+            public int textureWidth, textureHeight;
+            public NativeRectangle rect;
+            public Vector2 pivot;
+            public Vector2[] vertices, uv;
+        }
+        [Serializable] public sealed class PackedAtlas
+        {
+            public string assetPath, guid;
+            public int spriteCount;
+        }
+        [Serializable] public sealed class PackedSprites
+        {
+            public int schema, spriteCount;
+            public PackedAtlas[] atlases;
+            public PackedSprite[] sprites;
         }
 
         public static void Validate() { Validate(false); }
@@ -130,6 +152,7 @@ namespace GloomhavenVR.Quest.Editor
             }
             if (imported.Count != input.associatedEntryCount)
                 throw new InvalidDataException("Campaign typed-object inventory count differs.");
+            var packed = ValidatePackedSprites();
             var closures = new List<SceneClosure>();
             var previous = EditorSceneManager.GetSceneManagerSetup();
             try
@@ -178,9 +201,55 @@ namespace GloomhavenVR.Quest.Editor
                 catalogSha256 = input.catalogSha256, sourceManifestSha256 = Hash(InputPath),
                 sceneManifestSha256 = Hash(SceneInputPath), androidAssetsBuilt = androidAssetsBuilt,
                 importedObjectCount = imported.Count, serializedValueLocationCount = input.serializedValueLocationCount,
+                packedSpriteCount = packed.spriteCount, packedAtlasCount = packed.atlases.Length,
+                packedSpriteDrawingStateImported = true,
                 typedOriginalObjectsImported = true, allNativeScenesImported = true,
                 objects = imported.ToArray(), scenes = closures.ToArray() }, true), new UTF8Encoding(false));
             UnityEngine.Debug.Log("[Quest Campaign] Imported " + imported.Count + " exact original typed objects and all 13 native scene closures.");
+        }
+
+        private static PackedSprites ValidatePackedSprites()
+        {
+            var input = Read<PackedSprites>(PackedSpriteInputPath);
+            if (input.schema != 1 || input.atlases == null || input.sprites == null ||
+                input.spriteCount != input.sprites.Length)
+                throw new InvalidDataException("Original packed-Sprite source inventory is incomplete.");
+            foreach (var row in input.atlases)
+            {
+                SafeAsset(row.assetPath);
+                var atlas = AssetDatabase.LoadAssetAtPath<SpriteAtlas>(row.assetPath);
+                if (AssetDatabase.AssetPathToGUID(row.assetPath) != row.guid || atlas == null || atlas.spriteCount != row.spriteCount)
+                    throw new InvalidDataException("Original native packed atlas failed import: " + row.assetPath);
+                var values = new Sprite[row.spriteCount];
+                if (atlas.GetSprites(values) != row.spriteCount || values.Any(value => value == null || value.texture == null))
+                    throw new InvalidDataException("Original native packed atlas lost a drawable member: " + row.assetPath);
+            }
+            foreach (var row in input.sprites)
+            {
+                SafeAsset(row.assetPath);
+                var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(row.assetPath);
+                if (sprite == null || AssetDatabase.AssetPathToGUID(row.assetPath) != row.guid || sprite.texture == null ||
+                    sprite.texture.width != row.textureWidth || sprite.texture.height != row.textureHeight ||
+                    AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(sprite.texture)) != row.textureGuid || row.rect == null)
+                    throw new InvalidDataException("Original packed-Sprite texture binding failed import: " + row.assetPath);
+                var rect = sprite.rect;
+                if (rect.x != row.rect.x || rect.y != row.rect.y || rect.width != row.rect.width || rect.height != row.rect.height ||
+                    sprite.pivot.x != row.pivot.x * rect.width || sprite.pivot.y != row.pivot.y * rect.height)
+                    throw new InvalidDataException("Original packed-Sprite rectangle/pivot differs: " + row.assetPath);
+                RequireVectors(sprite.vertices, row.vertices, row.assetPath + " vertices");
+                RequireVectors(sprite.uv, row.uv, row.assetPath + " UV");
+            }
+            return input;
+        }
+
+        private static void RequireVectors(Vector2[] imported, Vector2[] original, string source)
+        {
+            if (imported == null || original == null || imported.Length != original.Length)
+                throw new InvalidDataException("Original packed-Sprite stream length differs: " + source);
+            for (int index = 0; index < imported.Length; index++)
+                if (Math.Abs(imported[index].x - original[index].x) > 0.0000001f ||
+                    Math.Abs(imported[index].y - original[index].y) > 0.0000001f)
+                    throw new InvalidDataException("Original packed-Sprite drawing stream differs: " + source + " " + index);
         }
 
         private static bool NativeType(UnityEngine.Object value, string requested)

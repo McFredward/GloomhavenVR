@@ -84,6 +84,41 @@ and emits `Assets/QuestOriginalCampaign/campaign-addressables.json` and
 `script-bindings.json`. The Campaign report deliberately does not assert Android
 build, faithful graphics or playable hardware before those checks actually run.
 
+## Native pointer and packed-atlas closure
+
+The complete export initially left 36,764 pointers at AssetRipper's missing-GUID
+sentinel. `pointer_recovery.py` now joins every owning YAML local ID to the actual
+original collection/pathID, follows the exact original field/array path and uses
+the target's actual dependency CAB/pathID. It restores 36,764/36,764 references:
+missing GUID count zero, duplicate GUID count zero and unresolved script count
+zero. Source names containing literal "Missing Prefab with guid" are retained;
+the closure audit counts actual serialized PPtr mappings instead of such names.
+
+The pinned exporter also records genuine builtin redirects and captures native
+packed-atlas/core-managed field YAML. No native MonoScript is selected by its
+display name: its serialized assembly, namespace and class must match the same
+original DLL bytes and unique metadata type. The two otherwise omitted native
+packed atlases retain their original packed members, texture bindings and drawing
+maps in NativeFormatImporter assets, avoiding an unsupported atlas repack.
+
+`packed_sprites.py` restores all 895 packed members of each atlas. It retains
+original positions and indices and reconstructs the UV stream from the original
+float32 position, atlas uvTransform and packed texture dimensions. The bundled
+895-sprite set was compared with the actual original Unity 2021.3.5 Windows/D3D11
+player and then imported by the same-version Unity Editor: all 895 vertices, UVs,
+rectangles and pivots agree exactly, with valid 4096x4096 texture bindings. This
+establishes native geometry/import parity; Android and headset pictures remain
+separate checks.
+
+`native_evidence.py` captures and merges these recipes during normal local core
+and bounded-bundle recovery. `native_stage.py` applies the same exact repairs in
+the public staging path, emits exhaustive proofs and a typed packed-sprite
+manifest, then removes obsolete duplicate overlay caches. Private B614 exports
+and precomputed developer pointer overlays are not public builder dependencies.
+Instrumented tools use content-addressed generations so future builder changes
+do not mutate older witnessed tools. Metadata inspection accepts a separate
+`managed_dotnet`/.NET 8 command while the pinned exporter uses .NET 10.
+
 ## Exact compiled shader recovery
 
 Original custom shaders are predominantly stripped D3D11 programs. A generic

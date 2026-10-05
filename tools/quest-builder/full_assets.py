@@ -135,6 +135,8 @@ def stage(source, game_data, output, tmp_archive, *, canonical_project=None,
     write_json(output / "QuestRecovery/original-asset-identities.json", {"schema": 1, "identities": rows})
     original_objects = identities_module.object_index(rows)
     layout_report = layouts.restore(game_data, output, original_objects, unitypy)
+    import native_stage
+    rows, native_report = native_stage.restore(output, game_data, rows, owners, unitypy=unitypy)
     manifest = catalogs.associate(catalog_path, output, rows, owners, types)
     folder = output / "Assets/QuestOriginalCampaign"
     folder.mkdir(parents=True)
@@ -191,6 +193,7 @@ def stage(source, game_data, output, tmp_archive, *, canonical_project=None,
                             "playableCampaignVerified": False},
               "limits": ["Asset recovery is not a hardware or rendering validation.",
                          "Original custom shader instruction streams require complete portable shader reconstruction."]}
+    report.update(native_report)
     report["files"] = [{"path": path.relative_to(output).as_posix(), "sha256": recover.sha256(path), "size": path.stat().st_size}
                        for path in sorted(output.rglob("*")) if path.is_file()]
     write_json(output / "quest-startup-report.json", report)

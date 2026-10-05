@@ -10,12 +10,14 @@ import sys
 from bundle_members import serialized_members
 from bundle_recovery import catalog_bundle_plan, run_recovery
 from export_identity import build_tool, read_identities
+import native_evidence
 from recover import (RecoveryError, managed_inventory, repair_managed_plugins, resolve_game_data,
                      run_export, sha256, source_inventory, stage_input, write_json)
 
 
 def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
-            core_project=None, core_identities=None, bundle_workspace=None, metadata_project=None):
+            core_project=None, core_identities=None, bundle_workspace=None, metadata_project=None,
+            managed_dotnet=None):
     """Return reproducible full recovery inputs for full_assets.stage().
 
     Only original game files and the pinned open-source tool source are inputs.
@@ -68,9 +70,11 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
         staged = workspace / "CoreInput/GH_Data"
         staged.parent.mkdir(parents=True)
         stage_input(source, staged, [])
-        previous_env = {name: os.environ.get(name) for name in ("QUEST_EXPORT_IDENTITIES", "QUEST_EXPORT_BUNDLE_ONLY")}
+        capture = native_evidence.environment(workspace / "CoreEvidence")
+        previous_env = {name: os.environ.get(name) for name in ("QUEST_EXPORT_IDENTITIES", "QUEST_EXPORT_BUNDLE_ONLY", *capture)}
         os.environ["QUEST_EXPORT_IDENTITIES"] = str(core_identities)
         os.environ.pop("QUEST_EXPORT_BUNDLE_ONLY", None)
+        os.environ.update(capture)
         try:
             settings = json.loads(Path(__file__).with_name("tool-lock.json").read_text())["settings"]
             core, _, _ = run_export(tool, staged, workspace / "CoreExport", workspace / "core-export.log",
@@ -84,7 +88,7 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
         repair_managed_plugins(core, source)
         read_identities(core_identities, core)
         shutil.copytree(workspace / "CoreEvidence/QuestRecovery", core / "QuestRecovery")
-        managed_inventory(source, core / "QuestRecovery/managed-types.json", tool_cache)
+        managed_inventory(source, core / "QuestRecovery/managed-types.json", tool_cache, dotnet=managed_dotnet)
         receipt = {"schema": 1, "sourceFingerprint": fingerprint, "exporterSource": tool_proof["source"],
                    "identitiesSha256": sha256(core_identities),
                    "files": [{"path": path.relative_to(core).as_posix(), "bytes": path.stat().st_size, "sha256": sha256(path)}
@@ -162,6 +166,7 @@ def main(argv=None):
     parser.add_argument("--workspace", required=True)
     parser.add_argument("--tool-cache", required=True)
     parser.add_argument("--dotnet", required=True)
+    parser.add_argument("--managed-dotnet", help="Separate .NET SDK/runtime for the managed metadata reader.")
     parser.add_argument("--output-project")
     parser.add_argument("--core-project", help="Optional existing instrumented core paired with the bounded checkpoint.")
     parser.add_argument("--core-identities")
@@ -171,7 +176,8 @@ def main(argv=None):
     try:
         result = prepare(args.game_data, args.workspace, args.tool_cache, args.dotnet, args.output_project,
                          core_project=args.core_project, core_identities=args.core_identities,
-                         bundle_workspace=args.bundle_workspace, metadata_project=args.metadata_project)
+                         bundle_workspace=args.bundle_workspace, metadata_project=args.metadata_project,
+                         managed_dotnet=args.managed_dotnet)
         print(json.dumps(result, sort_keys=True))
         return 0
     except (RecoveryError, OSError, ValueError) as error:
