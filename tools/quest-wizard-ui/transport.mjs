@@ -1,7 +1,7 @@
 import {sessionId,stageIds} from './model.mjs';
 
 export class LocalApi {
-  constructor(origin, token, fetcher = fetch) { this.origin = origin; this.token = token; this.fetcher = fetcher; }
+  constructor(origin, token, fetcher = globalThis.fetch.bind(globalThis)) { this.origin = origin; this.token = token; this.fetcher = fetcher; }
   async request(path, body) {
     if (!this.token) throw {code:'noToken'};
     let response;

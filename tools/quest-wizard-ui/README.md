@@ -61,6 +61,8 @@ the adapter does not imply that a backend with `artwork:false` serves an image.
 node --test tools/quest-wizard-ui/tests/ui.test.mjs
 python3 -B -m unittest discover -s tools/quest-wizard-ui/tests -p 'test_*.py'
 node --test tools/quest-wizard-ui/tests/browser.test.mjs
+# Optional real HTTP witness; the selected backend must be the matching checkout.
+QUEST_WIZARD_BACKEND=/path/to/tools/quest-wizard/wizard.py node --test tools/quest-wizard-ui/tests/real-api.test.mjs
 ```
 
 The browser check uses installed Chrome and Node's built-in CDP/WebSocket support;
@@ -74,3 +76,11 @@ For manual preview, serve this directory on loopback and open
 blocks its mock build before any completed APK/install claim. Screenshots are
 design/interaction evidence, not proof of Windows provisioning, a native Unity
 build or Quest hardware behavior.
+
+The separate real-API browser witness starts the actual loopback backend with an
+isolated temporary state directory. It proves JavaScript MIME/CSP and native fetch
+binding, token-authorized discovery/POST planning/status/log rendering, reopening
+a durable session and wrong-token rejection. CDP intercepts any accidental `/run`
+attempt before it reaches the server; the test requires that no such attempt occurs.
+It executes no provisioning, child tools, game conversion or Unity. Missing backend
+configuration is reported as a skipped test rather than successful native evidence.

@@ -82,8 +82,8 @@ function updateView() {
 function renderProgress() {
   if(!state)return;
   const active=isActive(state),stopped=['failed','cancelled'].includes(state.status),blocked=state.status==='blocked',done=state.status==='complete';
-  $('progress-title').textContent=t(done?'completeTitle':blocked?'blockedTitle':stopped?'stoppedTitle':'progressTitle');
-  $('progress-copy').textContent=t(done?'completeCopy':blocked?'blockedCopy':stopped?'stoppedCopy':'progressCopy');
+  $('progress-title').textContent=t(done?'completeTitle':blocked?'blockedTitle':stopped?'stoppedTitle':state.status==='ready'?'readyTitle':'progressTitle');
+  $('progress-copy').textContent=t(done?'completeCopy':blocked?'blockedCopy':stopped?'stoppedCopy':state.status==='ready'?'readyCopy':'progressCopy');
   const progress=progressView(state);
   $('phase-label').textContent=t('stage_'+progress.phase);
   $('progress-count').textContent=t(progress.percent===null?'phaseSteps':'phasePercent',progress);
