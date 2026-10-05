@@ -17,6 +17,7 @@ internal static class TownServiceCodec
     internal const byte VisitorStockRecordId = NetProtocol.ExtIdTownVisitorStock;
     internal const byte CatalogBankRecordId = NetProtocol.ExtIdTownCatalogBank;
     internal const byte CatalogHeadersRecordId = NetProtocol.ExtIdTownCatalogHeaders;
+    internal const byte NativeTemplateStateRecordId = 105;
     private static readonly UTF8Encoding Utf8 = new(false, true);
 
     internal static byte[] Write(TownServiceFrame frame)
@@ -80,6 +81,7 @@ internal static class TownServiceCodec
         size += layout.Length + 2 * ((layout.Length + 254) / 255) + (frame.VisitorStock ? 3 : 0);
         size += bank.Length + 2 * ((bank.Length + 254) / 255);
         size += headers.Length + 2 * ((headers.Length + 254) / 255);
+        size += frame.NativeTemplateBasisKey == 0 ? 0 : 11;
         if (size > TownServiceFrame.MaxBytes) throw new InvalidDataException("Town-service module exceeds the bounded snapshot size.");
         var packet = new byte[size];
         // NetProtocol.Magic (0x47565231) is written little endian by every existing lane.
@@ -163,6 +165,11 @@ internal static class TownServiceCodec
             packet[tail++] = CatalogHeadersRecordId; packet[tail++] = (byte)count;
             Buffer.BlockCopy(headers, offset, packet, tail, count); tail += count; offset += count;
         }
+        if (frame.NativeTemplateBasisKey != 0)
+        {
+            packet[tail++] = NativeTemplateStateRecordId; packet[tail++] = 9; packet[tail++] = 1;
+            for (int i = 0; i < 8; i++) packet[tail + i] = (byte)(frame.NativeTemplateBasisKey >> (i * 8));
+        }
         return packet;
     }
 
@@ -183,7 +190,7 @@ internal static class TownServiceCodec
             using var layout = new MemoryStream();
             using var bank = new MemoryStream();
             using var headers = new MemoryStream();
-            bool visitorStock = false;
+            bool visitorStock = false; ulong nativeTemplateBasisKey = 0;
             byte[]? workspaceCloth = null;
             bool templeDonationKnown = false, templeDonationAvailable = false; uint templeDonationRevision = 0;
             bool transactionActive = false;
@@ -212,6 +219,12 @@ internal static class TownServiceCodec
                 {
                     if (!allowBank || count == 0 || headers.Length + count > TownCatalogBank.MaxHeaderPayloadBytes) return false;
                     headers.Write(packet, at, count);
+                }
+                if (record == NativeTemplateStateRecordId)
+                {
+                    if (nativeTemplateBasisKey != 0 || count != 9 || packet[at] != 1) return false;
+                    for (int i = 0; i < 8; i++) nativeTemplateBasisKey |= (ulong)packet[at + 1 + i] << (8 * i);
+                    if (nativeTemplateBasisKey == 0) return false;
                 }
                 if (record == VisitorStockRecordId)
                 {
@@ -269,6 +282,7 @@ internal static class TownServiceCodec
             var result = new TownServiceFrame { Service = r.ReadByte(), Session = r.ReadUInt32(),
                 Sequence = r.ReadUInt64(), BaseSequence = r.ReadUInt64(), Module = r.ReadUInt16(), Template = r.ReadUInt16(), TemplateAddress = ReadText(r),
                 Structure = r.ReadUInt32() };
+            result.NativeTemplateBasisKey = nativeTemplateBasisKey;
             result.WorkspaceCloth = workspaceCloth;
             result.TempleDonationKnown = templeDonationKnown;
             result.TempleDonationAvailable = templeDonationAvailable;
@@ -501,6 +515,10 @@ internal static class TownServiceCodec
             || frame.Modules == null || frame.Modules.Length > TownServiceFrame.MaxModules
             || (frame.Module != TownServiceFrame.ManifestModule && frame.Modules.Length != 0))
             throw new InvalidDataException("Invalid town-service module identity.");
+        if (frame.NativeTemplateBasisKey != 0 && ((frame.Service != 3 && !(frame.Service == 1 && frame.PublicCatalog))
+            || frame.VisitorStock || frame.Module >= TownServiceFrame.VoiceModule
+            || frame.BaseSequence != 0 || frame.CatalogBank != null || frame.Rack != null))
+            throw new InvalidDataException("Original template state belongs to a complete private enchantment module.");
         if (frame.CanvasPose == null || frame.CanvasPose.Length != 10 || frame.CanvasRect == null || frame.CanvasRect.Length != 4
             || frame.CanvasSettings == null || frame.CanvasSettings.Length != 5) throw new InvalidDataException("Invalid town canvas frame.");
         foreach (float value in frame.CanvasPose) Finite(value);

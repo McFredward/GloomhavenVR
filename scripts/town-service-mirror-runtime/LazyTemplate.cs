@@ -13,15 +13,20 @@ namespace GloomhavenVR.WorldUI
         private static readonly Dictionary<string,Entry> Entries=new(StringComparer.Ordinal);
         private static readonly Dictionary<Transform,string> Roots=new();
         private static readonly List<GameObject> PhysicalTemplates=new();
-        private static GameObject? _bank;
+        private static GameObject? _bank, _mapBacking;
         private static bool IsBoundary(Transform node)=>Roots.ContainsKey(node);
         private static void EnsureCard(string key) { }
         private static void EnsureTooltip(string key) { }
+#if !TEMPLE_TOOLTIP623
+        private static void EnsureTempleTooltip(string key) { }
+#endif
         internal static void Open(GameObject bank)=>_bank=bank;
         internal static int Originals=>PhysicalTemplates.Count;
         internal static void Close()
         { Entries.Clear();Roots.Clear();PhysicalTemplates.Clear();_bank=null; }
     }
+    internal static class WorldUIAssets
+    { internal static GameObject? TryLoadPrefab(string path) => GloomhavenVR.Cards.CardsDriver.CardBackingPrefab; }
     internal static class TownServiceCardBody
     { internal static void RebindClone(string key,GameObject clone) { } }
     internal static class TownServiceDecor

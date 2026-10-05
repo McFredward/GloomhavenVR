@@ -35,6 +35,9 @@ internal sealed class TownServiceFrame
     internal TownRackStamp? RackMember;
     // Additive TLV102: exact original content required by this public rack clock.
     internal TownCatalogBank? CatalogBank;
+    // Additive TLV105: sparse original properties against this client's immutable
+    // native prefab. Never a prior network sample or a gameplay model mutation.
+    internal ulong NativeTemplateBasisKey;
     // Reserved TLV90 legacy grammar. Build 582 authors null, so ordinary furniture
     // snapshots contain no simulated fabric controls; old vectors remain parseable.
     internal byte[]? WorkspaceCloth;

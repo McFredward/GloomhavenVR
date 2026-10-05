@@ -25,7 +25,7 @@ def expression(text, signature):
 def sources(root):
     base = root / "src/GloomhavenVR"
     names = ["TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta",
-             "TownServiceFrame", "TownCatalogBank", "TownCatalogBank.Headers", "TownCatalogClock", "TownServiceMirror.CatalogBank", "TownServiceMirror.CatalogWarm", "TownRackState", "TownCatalogLayout", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMirror.PublicVisibility", "TownServiceMirror.Offerings", "TownServiceMirror.Voice", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
+             "TownServiceFrame", "TownCatalogBank", "TownCatalogBank.Headers", "TownCatalogClock", "TownServiceMirror.CatalogBank", "TownServiceMirror.CatalogWarm", "TownServiceMirror.NativeTemplateState", "TownRackState", "TownCatalogLayout", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMirror.PublicVisibility", "TownServiceMirror.Offerings", "TownServiceMirror.Voice", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
     bound['NativePurse.cs'] = (root / 'scripts/town-purse-runtime/NativePurse.cs').read_text()
     bound['TownServicePursePresentation.cs'] = (base / 'WorldUI/TownServices/TownServicePursePresentation.cs').read_text()
@@ -34,6 +34,8 @@ def sources(root):
     bound["NetPacket.cs"] = (base / "Net/NetPacket.cs").read_text()
     stock = base / "Net/TownServices/TownServiceMirror.Stock.cs"
     if stock.exists(): bound[stock.name] = stock.read_text()
+    merchant_control = base / "Net/TownServices/TownServiceMirror.MerchantControl.cs"
+    if merchant_control.exists(): bound[merchant_control.name] = merchant_control.read_text()
     for fast in ("TownServiceFastNumbers", "TownServiceMotionCodec", "TownServiceMotionBudget", "TownServiceMirror.Motion"):
         path = base / "Net/TownServices" / (fast + ".cs")
         if path.exists(): bound[path.name] = path.read_text()
@@ -91,7 +93,7 @@ def sources(root):
     bound["NativeTemplatePaths.cs"] = "using System;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class NativeTemplates {\n" + method(templates, "internal static string Append(string path, Transform child)") + "\n}\n"
     bound["NativeDynamicBoundary.cs"] = "using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class NativeTemplates {\n" + expression(templates, "internal static bool IsDynamic(Transform node)") + "\n}\n"
     definitions = templates[templates.index("    internal sealed class Part"):templates.index("    private static readonly Dictionary<string, Entry>")]
-    template_methods = ("private static void EnsureNativeProp(string key)", "private static void Freeze(string key, Entry entry)",
+    template_methods = ("private static Transform? OriginalMapBacking()", "private static void EnsureNativeProp(string key)", "private static void Freeze(string key, Entry entry)",
         "private static void Prune(Transform source, Transform copy)", "private static void Partition(Transform root, string path, List<Part> parts)",
         "internal static string Append(string path, Transform child)", "internal static IReadOnlyList<Part> Parts(string key)",
         "internal static bool Resolve(byte service, ushort template, string address)")

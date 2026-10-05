@@ -82,7 +82,7 @@ internal static class TownServiceDelta
     private static TownServiceFrame Header(TownServiceFrame f) => new()
     {
         VisitorStock = f.VisitorStock, PublicCatalog = f.PublicCatalog, PublicClaim = f.PublicClaim, Rack = f.Rack?.Copy(), RackMember = f.RackMember?.Copy(), Service = f.Service, Session = f.Session, Sequence = f.Sequence, BaseSequence = f.BaseSequence,
-        CatalogBank = f.CatalogBank?.Retain(),
+        CatalogBank = f.CatalogBank?.Retain(), NativeTemplateBasisKey = f.NativeTemplateBasisKey,
         WorkspaceCloth = f.WorkspaceCloth == null ? null : (byte[])f.WorkspaceCloth.Clone(),
         TempleDonationKnown = f.TempleDonationKnown, TempleDonationAvailable = f.TempleDonationAvailable,
         TempleDonationRevision = f.TempleDonationRevision, TransactionActive = f.TransactionActive,
