@@ -300,12 +300,92 @@ internal static class Program
         }
         GloomhavenVR.Core.QuestStandalonePlatform.DebugLogging = true;
     }
+    static QuestGameMovieBinding DynamicBinding(string scene = "CampaignMap", string name = "Video Camera") => new() {
+        scene = scene, playerName = name, playerPath = name, playerFileId = "12272", sourceScene = "Assets/Scenes/Release/" + scene + ".unity" };
+
+    static void CampaignDynamicPlayers()
+    {
+        Fixture.Logs.Clear();
+        using (var c = new Case())
+        {
+            c.Movies.scope = "original-campaign-movies";
+            string[] scenes = { "CampaignMap", "CampaignMap_gamepad", "NewAdventureMap", "NewAdventureMap_gamepad" };
+            c.Movies.dynamicPlayers = scenes.Select(scene => DynamicBinding(scene, scene.StartsWith("NewAdventure") ? "VideoCamera" : "Video Camera")).ToArray();
+            var extraStatic = new[] { "Gloomhaven_unified", "MainMenu", "MainMenu_gamepad" }
+                .Select(scene => new QuestGameMovieBinding { scene = scene, playerName = "Movie", playerPath = "Movie", playerFileId = "10593",
+                    sourceScene = "Assets/Scenes/Release/" + scene + ".unity" }).ToArray();
+            c.Movies.clips[0].bindings = c.Movies.clips[0].bindings.Concat(extraStatic).ToArray();
+            c.Movies.nativePlayerCount = 8;
+            c.Install(); c.Router.BindScene(c.Scene);
+            foreach (var binding in extraStatic)
+                c.Router.BindScene(new Scene(binding.scene, new GameObject(binding.playerName).AddPlayer().gameObject));
+            int beforeDynamic = QuestCameraVideoOutput.Created.Count;
+            foreach (var binding in c.Movies.dynamicPlayers)
+            {
+                var root = new GameObject(binding.playerName) { activeSelf = false };
+                var player = root.AddPlayer(); player.clip = null; player.Writes.Clear();
+                int originalCompleted = 0; player.loopPointReached += _ => originalCompleted++;
+                string url = player.url; var source = player.source; var camera = player.targetCamera; var texture = player.targetTexture;
+                c.Router.BindScene(new Scene(binding.scene, root));
+                Check(player.Writes.Count == 0 && player.url == url && player.source == source && player.clip == null, "dynamic-native-source-untouched");
+                Check(player.renderMode == "CameraNearPlane" && player.targetCamera == camera && player.targetTexture == texture
+                    && player.time == 12.75 && player.playbackSpeed == .75f && player.controlledAudioTrackCount == 2, "dynamic-native-render-clock-audio-untouched");
+                Check(player.PlayCalls == 0 && player.PrepareCalls == 0 && player.StopCalls == 0, "dynamic-native-lifecycle-untouched");
+                Check(QuestCameraVideoOutput.Created.Any(output => output.Player == player && !output.Disposed), "dynamic-output-adapter-attached");
+                c.Router.BindScene(new Scene(binding.scene, root));
+                Check(player.PreparedSubscribers == 1 && player.StartedSubscribers == 1 && player.ErrorSubscribers == 1, "dynamic-bind-idempotent");
+                string movie = Path.Combine(c.Root, "StreamingAssets/Movies/CP_Intro/GH_CP_Intro.mov");
+                Directory.CreateDirectory(Path.GetDirectoryName(movie)!); File.WriteAllBytes(movie, new byte[137]);
+                player.url = movie; player.frame = 5; player.texture = new Texture();
+                for (int i = 0; i < 25; i++) { player.EmitPrepared(); player.EmitStarted(); player.EmitError("dynamic-native-codec-error"); c.Router.Observe(); }
+                player.EmitCompleted();
+                Check(originalCompleted == 1 && player.CompletedSubscribers == 1, "dynamic-original-completion-preserved");
+                Check(Fixture.Logs.Count(log => log.Contains(binding.scene + "/" + binding.playerName) && log.Contains("original movie failed")) == 2, "dynamic-errors-bounded");
+                Check(Fixture.Logs.Any(log => log.Contains(binding.scene + "/" + binding.playerName) && log.Contains("original movie failed")
+                    && log.Contains("actualUrl=" + movie) && log.Contains("actualBytes=137") && !log.Contains("expectedBytes=0")), "dynamic-error-actual-source-facts");
+                Check(player.Writes.SequenceEqual(new[] { "url" }), "dynamic-native-owner-only-url-write");
+                player.NativeDestroyed = true; c.Router.Observe();
+                Check(QuestCameraVideoOutput.Created.Where(output => ReferenceEquals(output.Player, player)).All(output => output.Disposed), "destroyed-dynamic-output-hooks-released");
+            }
+            Check(QuestCameraVideoOutput.Created.Count == beforeDynamic + 4, "all-eight-native-players-covered");
+        }
+        foreach (var mutation in new Action<Case>[] {
+            c => c.Movies.dynamicPlayers = null!,
+            c => c.Movies.dynamicPlayers = Array.Empty<QuestGameMovieBinding>(),
+            c => c.Movies.dynamicPlayers = new[] { DynamicBinding(), DynamicBinding() },
+            c => c.Movies.dynamicPlayers = c.Movies.clips[0].bindings,
+            c => c.Movies.dynamicPlayers[0].sourceScene = "Assets/Scenes/Wrong.unity",
+            c => c.Movies.dynamicPlayers[0].playerFileId = "0",
+            c => c.Movies.dynamicPlayers[0].sourceScene = "Assets/../CampaignMap.unity",
+            c => c.Movies.nativePlayerCount = 1 })
+        {
+            using var c = new Case(); c.Movies.scope = "original-campaign-movies";
+            c.Movies.dynamicPlayers = new[] { DynamicBinding() }; c.Movies.nativePlayerCount = 2;
+            mutation(c); Reject(c.Install, "invalid-campaign-player-census");
+            Check(c.Player.Writes.Count == 0, "invalid-campaign-census-does-not-touch-player");
+        }
+        foreach (string defect in new[] { "missing", "ambiguous", "wrong-name", "wrong-path", "embedded" })
+        {
+            using var c = new Case(); c.Movies.scope = "original-campaign-movies";
+            c.Movies.dynamicPlayers = new[] { DynamicBinding() }; c.Movies.nativePlayerCount = 2; c.Install();
+            var root = new GameObject(defect == "wrong-name" ? "Wrong Camera" : "Video Camera");
+            var player = root.AddPlayer(); if (defect != "embedded") { player.clip = null; player.Writes.Clear(); }
+            Scene scene = defect switch {
+                "missing" => new Scene("CampaignMap", new GameObject("Unrelated")),
+                "ambiguous" => new Scene("CampaignMap", root, new GameObject("Video Camera").AddPlayer().gameObject),
+                "wrong-path" => new Scene("CampaignMap", new GameObject("Parent")),
+                _ => new Scene("CampaignMap", root) };
+            if (defect == "wrong-path") scene.GetRootGameObjects()[0].Add("Video Camera").AddPlayer().clip = null;
+            Reject(() => c.Router.BindScene(scene), "invalid-dynamic-player-" + defect);
+            Check(player.Writes.Count == 0, "invalid-dynamic-player-untouched");
+        }
+    }
     static int Main(string[] args)
     {
         try
         {
             files = Path.GetFullPath(args[0]); Directory.CreateDirectory(files);
-            InvalidManifests(); Fixture.Logs.Clear(); BindingAndNativeLifecycle(); MissingAndAmbiguousPlayers(); DeliveryProvenance(); ActualSourcesAndBoundedDiagnostics();
+            InvalidManifests(); Fixture.Logs.Clear(); BindingAndNativeLifecycle(); MissingAndAmbiguousPlayers(); DeliveryProvenance(); ActualSourcesAndBoundedDiagnostics(); CampaignDynamicPlayers();
             Check(Fixture.WorkerApiCalls == 0, "worker-api");
             Console.WriteLine($"PASS Quest startup videos: {assertions} assertions; actual movie/content source, Unity video/scene seams; no codec/stereo proof");
             return 0;

@@ -39,6 +39,9 @@ def main():
         ("unbounded-timed-state", "QuestGameVideos.cs", "bound.StateSamples < 3", "bound.StateSamples < 300", "bounded-timed-state"),
         ("unbounded-native-source-changes", "QuestGameVideos.cs", "bound.SourceChanges < 4", "bound.SourceChanges < 400", "bounded-native-source-changes"),
         ("normal-level-native-state-stream", "QuestGameVideos.cs", "if (GloomhavenVR.Core.QuestStandalonePlatform.DebugLogging)\n                {", "if (true)\n                {", "normal-level-no-native-state-stream"),
+        ("dynamic-native-url-overwritten", "QuestGameVideos.cs", "Context = scene.name + \"/\" + binding.playerPath + \" source=authored-dynamic\" };", "Context = scene.name + \"/\" + binding.playerPath + \" source=authored-dynamic\" };\n                selected.url = \"/wrong/narrative.mov\";", "dynamic-native-source-untouched"),
+        ("dynamic-player-coverage-omitted", "QuestGameVideos.cs", "foreach (var binding in manifest.dynamicPlayers ?? new QuestGameMovieBinding[0])", "foreach (var binding in new QuestGameMovieBinding[0])", "dynamic-output-adapter-attached"),
+        ("destroyed-player-output-leaked", "QuestGameVideos.cs", "if (players[index].Output != null) players[index].Output.Dispose();", "/* missing global output-hook cleanup */", "destroyed-dynamic-output-hooks-released"),
     )
     cases = [("production", sources, ""), ("commented-defects-are-inert", dict(sources, **{
         "QuestGameVideos.cs": "/* selected.Play(); selected.playOnAwake = true; */\n" + sources["QuestGameVideos.cs"]}), "")]

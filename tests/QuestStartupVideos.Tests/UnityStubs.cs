@@ -16,7 +16,17 @@ internal static class Fixture
 }
 namespace UnityEngine
 {
-    public class Object { public string name = "Fixture"; }
+    public class Object
+    {
+        public string name = "Fixture";
+        public bool NativeDestroyed;
+        public static bool operator ==(Object left, Object right) =>
+            (ReferenceEquals(left, null) || left.NativeDestroyed) && (ReferenceEquals(right, null) || right.NativeDestroyed)
+            || ReferenceEquals(left, right);
+        public static bool operator !=(Object left, Object right) => !(left == right);
+        public override bool Equals(object other) => ReferenceEquals(this, other);
+        public override int GetHashCode() => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);
+    }
     public class Texture : Object { public int width = 1920, height = 1080; }
     public class RenderTexture : Texture { public bool IsCreated() { Fixture.RequireMain("RenderTexture.IsCreated"); return true; } }
     public class Camera : Object
@@ -141,7 +151,10 @@ namespace GloomhavenVR.Quest
     // The owned output adapter has a separate real Unity camera/texture fixture.
     internal sealed class QuestCameraVideoOutput : IDisposable
     {
-        internal QuestCameraVideoOutput(UnityEngine.Video.VideoPlayer player, string context) { }
-        public void Dispose() { }
+        internal static readonly List<QuestCameraVideoOutput> Created = new();
+        internal readonly UnityEngine.Video.VideoPlayer Player;
+        internal bool Disposed;
+        internal QuestCameraVideoOutput(UnityEngine.Video.VideoPlayer player, string context) { Player = player; Created.Add(this); }
+        public void Dispose() { Disposed = true; }
     }
 }

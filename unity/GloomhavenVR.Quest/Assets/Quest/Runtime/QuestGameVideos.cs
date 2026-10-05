@@ -2,6 +2,7 @@
 #if GHVR_QUEST_STARTUP
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -14,6 +15,8 @@ namespace GloomhavenVR.Quest
         public int schema = 0;
         public string scope = null;
         public QuestGameMovie[] clips = null;
+        public QuestGameMovieBinding[] dynamicPlayers = null;
+        public int nativePlayerCount = 0;
     }
     [Serializable] public sealed class QuestGameMovie
     {
@@ -87,8 +90,32 @@ namespace GloomhavenVR.Quest
                         throw new InvalidDataException("Duplicate or conflicting original movie player binding.");
                 }
             }
+            bool campaign = movies.scope == "original-campaign-movies";
+            if (!campaign && movies.dynamicPlayers != null && movies.dynamicPlayers.Length != 0
+                || campaign && (movies.dynamicPlayers == null || movies.dynamicPlayers.Length > 64))
+                throw new InvalidDataException("Dynamic original movie players require a complete campaign census.");
+            foreach (var binding in movies.dynamicPlayers ?? new QuestGameMovieBinding[0])
+            {
+                long identity;
+                if (binding == null || string.IsNullOrEmpty(binding.scene) || string.IsNullOrEmpty(binding.playerName)
+                    || string.IsNullOrEmpty(binding.playerPath) || string.IsNullOrEmpty(binding.sourceScene)
+                    || !binding.sourceScene.StartsWith("Assets/", StringComparison.Ordinal)
+                    || !binding.sourceScene.EndsWith(".unity", StringComparison.Ordinal)
+                    || binding.sourceScene.Contains("\\") || Array.Exists(binding.sourceScene.Split('/'), part => part == "..")
+                    || System.IO.Path.GetFileNameWithoutExtension(binding.sourceScene) != binding.scene
+                    || !long.TryParse(binding.playerFileId, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out identity) || identity == 0
+                    || (binding.playerPath != binding.playerName && !binding.playerPath.EndsWith("/" + binding.playerName, StringComparison.Ordinal)))
+                    throw new InvalidDataException("Dynamic original movie player identity is invalid.");
+                string key = binding.scene + "/" + binding.playerPath;
+                if (bindings.Contains(key))
+                    throw new InvalidDataException("Duplicate or conflicting original movie player binding.");
+                bindings.Add(key);
+            }
+            if ((campaign || movies.nativePlayerCount != 0) && movies.nativePlayerCount != bindings.Count)
+                throw new InvalidDataException("Original movie player census differs from its declared bindings.");
             manifest = movies;
-            Debug.Log("[Quest startup] verified original movie sources installed clips=" + movies.clips.Length);
+            Debug.Log("[Quest startup] verified original movie sources installed clips=" + movies.clips.Length
+                + " cameraPlayers=" + bindings.Count + " dynamicPlayers=" + (movies.dynamicPlayers == null ? 0 : movies.dynamicPlayers.Length));
         }
 
         static bool Sha256(string value)
@@ -112,19 +139,12 @@ namespace GloomhavenVR.Quest
         public void BindScene(Scene scene)
         {
             if (manifest == null || disposed) throw new InvalidOperationException("Original movie delivery is unavailable.");
+            PruneDestroyedPlayers();
             foreach (var clip in manifest.clips)
             foreach (var binding in clip.bindings)
             {
                 if (binding.scene != scene.name) continue;
-                VideoPlayer selected = null;
-                foreach (var root in scene.GetRootGameObjects())
-                foreach (var player in root.GetComponentsInChildren<VideoPlayer>(true))
-                {
-                    if (player.gameObject.name != binding.playerName || HierarchyPath(player.transform) != binding.playerPath) continue;
-                    if (selected != null) throw new InvalidDataException("Ambiguous original movie player: " + binding.playerPath);
-                    selected = player;
-                }
-                if (selected == null) throw new InvalidDataException("Required original movie player is missing: " + scene.name + "/" + binding.playerPath);
+                VideoPlayer selected = SelectPlayer(scene, binding);
                 bool known = false;
                 foreach (var bound in players) if (bound.Player == selected) { known = true; break; }
                 if (known) continue;
@@ -150,6 +170,52 @@ namespace GloomhavenVR.Quest
                 selected.errorReceived += Error;
                 Debug.Log("[Quest startup] original movie URL bound " + record.Context);
                 if (GloomhavenVR.Core.QuestStandalonePlatform.DebugLogging) SampleState(record, "bound-before-native-start");
+            }
+            foreach (var binding in manifest.dynamicPlayers ?? new QuestGameMovieBinding[0])
+            {
+                if (binding.scene != scene.name) continue;
+                VideoPlayer selected = SelectPlayer(scene, binding);
+                bool known = false;
+                foreach (var bound in players) if (bound.Player == selected) { known = true; break; }
+                if (known) continue;
+                if (selected.clip != null)
+                    throw new InvalidDataException("Dynamic original movie player has an unexpected embedded clip: " + binding.playerPath);
+                var record = new BoundPlayer { Player = selected, BoundAt = Time.realtimeSinceStartup,
+                    LastObservedUrl = selected.url, Context = scene.name + "/" + binding.playerPath + " source=authored-dynamic" };
+                players.Add(record);
+                record.Output = new QuestCameraVideoOutput(selected, record.Context);
+                selected.prepareCompleted += Prepared;
+                selected.started += Started;
+                selected.errorReceived += Error;
+                Debug.Log("[Quest startup] original dynamic movie output bound " + record.Context);
+                if (GloomhavenVR.Core.QuestStandalonePlatform.DebugLogging) SampleState(record, "bound-before-native-start");
+            }
+        }
+
+        static VideoPlayer SelectPlayer(Scene scene, QuestGameMovieBinding binding)
+        {
+            VideoPlayer selected = null;
+            foreach (var root in scene.GetRootGameObjects())
+            foreach (var player in root.GetComponentsInChildren<VideoPlayer>(true))
+            {
+                if (player.gameObject.name != binding.playerName || HierarchyPath(player.transform) != binding.playerPath) continue;
+                if (selected != null) throw new InvalidDataException("Ambiguous original movie player: " + binding.playerPath);
+                selected = player;
+            }
+            if (selected == null) throw new InvalidDataException("Required original movie player is missing: " + scene.name + "/" + binding.playerPath);
+            return selected;
+        }
+
+        void PruneDestroyedPlayers()
+        {
+            for (int index = players.Count - 1; index >= 0; index--)
+            {
+                if (players[index].Player != null) continue;
+                // Unity fake-null means native scene destruction has already
+                // removed the player. Release its global camera/output hooks
+                // without accessing destroyed native playback properties.
+                if (players[index].Output != null) players[index].Output.Dispose();
+                players.RemoveAt(index);
             }
         }
 
@@ -178,11 +244,12 @@ namespace GloomhavenVR.Quest
         {
             var bound = Find(player); if (bound == null || bound.Errors++ >= 2) return;
             string fileState;
-            try { fileState = File.Exists(bound.Path) ? "exists=true bytes=" + new FileInfo(bound.Path).Length : "exists=false"; }
+            try { fileState = bound.Path == null ? "source=authored-dynamic"
+                : File.Exists(bound.Path) ? "exists=true bytes=" + new FileInfo(bound.Path).Length : "exists=false"; }
             catch (IOException) { fileState = "stat=io-failed"; }
             catch (UnauthorizedAccessException) { fileState = "stat=access-denied"; }
             Debug.LogError("[Quest startup] original movie failed " + bound.Context + " " + fileState
-                + " expectedBytes=" + bound.ExpectedSize + " " + SourceFacts(bound) + " detail=" + error);
+                + (bound.Path == null ? "" : " expectedBytes=" + bound.ExpectedSize) + " " + SourceFacts(bound) + " detail=" + error);
             if (GloomhavenVR.Core.QuestStandalonePlatform.DebugLogging) SampleState(bound, "native-open-failed");
         }
 
@@ -233,6 +300,7 @@ namespace GloomhavenVR.Quest
         public void Observe()
         {
             if (disposed) return;
+            PruneDestroyedPlayers();
             foreach (var bound in players)
             {
                 var player = bound.Player;

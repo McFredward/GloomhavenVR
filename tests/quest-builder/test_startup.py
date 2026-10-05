@@ -272,5 +272,90 @@ class RestoredShaderCacheTests(unittest.TestCase):
                 self.assertIsNotNone(stages.valid("prepare", key))
 
 
+class CampaignMovieCensusTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.project = Path(self.temp.name) / "project"
+        self.game = Path(self.temp.name) / "game"
+        self.guid = "a" * 32
+        self.scenes = ["Assets/Scenes/" + name + ".unity" for name in (
+            "Bootstrap", "Gloomhaven_unified", "MainMenu", "MainMenu_gamepad", "NewAdventureMap",
+            "NewAdventureMap_gamepad", "CampaignMap", "CampaignMap_gamepad", "Game", "Game_gamepad",
+            "Town", "Town_gamepad", "Intro")]
+        self.dynamic = {"CampaignMap", "CampaignMap_gamepad", "NewAdventureMap", "NewAdventureMap_gamepad"}
+        self.originals = {}
+        for relative in self.scenes:
+            path = self.project / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            name = path.stem
+            text = "%YAML 1.1\n"
+            if name in self.dynamic or name in startup.SCENE_NAMES[1:]:
+                text += self.player(name, dynamic=name in self.dynamic)
+            elif name == "MainMenu_gamepad":
+                text += self.player(name)
+            path.write_text(text)
+            self.originals[relative] = text
+        clip = self.project / "Assets/VideoClip/Owned.mp4"
+        clip.parent.mkdir(parents=True)
+        clip.write_bytes(b"original movie packet fixture")
+        Path(str(clip) + ".meta").write_text("guid: " + self.guid + "\n")
+        for relative in ("Ambient/NativeScene.mov", "CP_Intro/GH_CP_Intro.mov", "Heroes/NativeHero.mov"):
+            movie = self.game / "StreamingAssets/Movies" / relative
+            movie.parent.mkdir(parents=True, exist_ok=True)
+            movie.write_bytes(b"original external movie " + relative.encode())
+        storage.write_json(self.project / startup.REPORT, {"schema": 1, "target": "campaign", "selectedScenes": self.scenes})
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def player(self, name, *, dynamic=False, identity=3):
+        clip = "{fileID: 0}" if dynamic else "{fileID: 32900000, guid: " + self.guid + ", type: 3}"
+        return ("--- !u!1 &1\nGameObject:\n  m_Name: " + name + "\n"
+                "--- !u!4 &2\nTransform:\n  m_GameObject: {fileID: 1}\n  m_Father: {fileID: 0}\n"
+                "--- !u!328 &" + str(identity) + "\nVideoPlayer:\n  m_GameObject: {fileID: 1}\n"
+                "  m_VideoClip: " + clip + "\n  m_DataSource: 0\n  m_Url:\n"
+                "  m_RenderMode: 0\n  m_PlayOnAwake: 0\n  m_TargetCamera: {fileID: 17}\n")
+
+    def test_all_eight_players_and_all_narrative_files_are_declared(self):
+        report = startup.stage_startup_movies(self.project, self.game)
+        self.assertEqual(report["scope"], "original-campaign-movies")
+        self.assertEqual(report["nativePlayerCount"], 8)
+        self.assertEqual({row["scene"] for row in report["dynamicPlayers"]}, self.dynamic)
+        self.assertEqual(sum(len(row["bindings"]) for row in report["clips"]), 4)
+        for row in report["dynamicPlayers"]:
+            self.assertEqual(row["playerFileId"], "3")
+            self.assertEqual(row["playerPath"], row["playerName"])
+            self.assertEqual((self.project / row["sourceScene"]).read_text(), self.originals[row["sourceScene"]])
+        self.assertEqual(len(report["externalMovies"]), 3)
+        for row in report["externalMovies"]:
+            self.assertEqual((self.project / "Assets" / row["path"]).read_bytes(), (self.game / row["source"]).read_bytes())
+        self.assertFalse((self.project / "Assets/VideoClip/Owned.mp4").exists())
+
+    def test_two_dynamic_components_with_same_native_path_are_rejected_before_mutation(self):
+        relative = "Assets/Scenes/CampaignMap.unity"
+        original = self.originals[relative]
+        duplicate = self.player("CampaignMap", dynamic=True, identity=4).split("--- !u!328", 1)[1]
+        (self.project / relative).write_text(original + "--- !u!328" + duplicate)
+        with self.assertRaisesRegex(storage.BuildError, "same scene hierarchy"):
+            startup.stage_startup_movies(self.project, self.game)
+        self.assertEqual((self.project / "Assets/Scenes/Intro.unity").read_text(), self.originals["Assets/Scenes/Intro.unity"])
+        self.assertTrue((self.project / "Assets/VideoClip/Owned.mp4").exists())
+
+    def test_startup_scope_keeps_legacy_static_bindings(self):
+        scenes = ["Assets/Scenes/" + name + ".unity" for name in startup.SCENE_NAMES]
+        # A clip-null future startup object must retain the established startup scope.
+        path = self.project / "Assets/Scenes/Bootstrap.unity"
+        path.write_text(self.player("NativeDynamic", dynamic=True))
+        storage.write_json(self.project / startup.REPORT, {"schema": 1, "target": "startup", "selectedScenes": scenes})
+        # The real startup closure has no other selected clip references.
+        for relative in set(self.scenes) - set(scenes):
+            (self.project / relative).write_text("%YAML 1.1\n")
+        report = startup.stage_startup_movies(self.project, self.game)
+        self.assertEqual(report["nativePlayerCount"], 3)
+        self.assertEqual(report["dynamicPlayers"], [])
+        self.assertEqual(len(report["externalMovies"]), 1)
+        self.assertEqual(path.read_text(), self.player("NativeDynamic", dynamic=True))
+
+
 if __name__ == "__main__":
     unittest.main()

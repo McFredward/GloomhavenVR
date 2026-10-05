@@ -146,8 +146,9 @@ def stage_startup_movies(project: Path, game: Path) -> dict:
     Original and delivered SHA256 values identify any derived container explicitly;
     runtime scene binding supplies the verified extracted URL before native Start.
     Only generated VideoPlayer data-source fields change. Native timing, rendering,
-    audio and callbacks remain authored. Narrative movies are outside this menu
-    closure; a later campaign export must declare them independently.
+    audio and callbacks remain authored. A complete campaign closure also retains
+    all original narrative files and declares clip-null camera players separately;
+    their original controllers remain responsible for selecting URLs and playback.
     """
     project, game = project.resolve(), game.resolve()
     if project == game or game in project.parents or project in game.parents:
@@ -189,7 +190,7 @@ def stage_startup_movies(project: Path, game: Path) -> dict:
             raise BuildError("Recovered VideoClips have a missing or duplicate GUID: " + path.name)
         clips_by_guid[guids[0]] = path
 
-    selected, rewrites = {}, []
+    selected, rewrites, dynamic_players = {}, [], []
     for relative in scenes:
         scene = project / relative
         if scene.is_symlink() or not scene.is_file():
@@ -222,12 +223,8 @@ def stage_startup_movies(project: Path, game: Path) -> dict:
             if kind != "328":
                 continue
             clip = _yaml_field(block, "m_VideoClip")
-            if clip == "{fileID: 0}":
-                continue  # Authored URL/menu background players retain their native path.
-            match = re.fullmatch(r"\{fileID: 32900000, guid: ([0-9a-f]{32}), type: 3\}", clip)
-            if not match or match.group(1) not in clips_by_guid:
-                raise BuildError("A native menu VideoPlayer references an unrecovered clip: " + relative)
-            guid = match.group(1)
+            if clip == "{fileID: 0}" and not campaign:
+                continue  # Legacy menu staging retains its original binding scope.
             owner = _file_id(_yaml_field(block, "m_GameObject"))
             player_path = hierarchy(owner)
             if player_path in bound_paths:
@@ -235,6 +232,16 @@ def stage_startup_movies(project: Path, game: Path) -> dict:
             bound_paths.add(player_path)
             binding = {"scene": PurePosixPath(relative).stem, "playerName": objects[owner], "playerPath": player_path,
                        "playerFileId": identity, "sourceScene": relative}
+            if clip == "{fileID: 0}":
+                # Original VideoCamera selects campaign/hero movies at runtime.
+                # Declare its exact identity for output adaptation, without
+                # changing the authored source, URL, camera or playback fields.
+                dynamic_players.append(binding)
+                continue
+            match = re.fullmatch(r"\{fileID: 32900000, guid: ([0-9a-f]{32}), type: 3\}", clip)
+            if not match or match.group(1) not in clips_by_guid:
+                raise BuildError("A native menu VideoPlayer references an unrecovered clip: " + relative)
+            guid = match.group(1)
             selected.setdefault(guid, []).append(binding)
             if _yaml_field(block, "m_DataSource") != "0" or _yaml_field(block, "m_Url"):
                 raise BuildError("An embedded native movie has an unexpected data-source shape: " + player_path)
@@ -286,6 +293,8 @@ def stage_startup_movies(project: Path, game: Path) -> dict:
         Path(str(source) + ".meta").unlink()
     result = {"schema": 1, "scope": "original-campaign-movies" if campaign else "original-startup-menu-movies", "fullGameReady": False,
               "clips": clip_records, "externalMovies": movie_records,
+              "dynamicPlayers": dynamic_players,
+              "nativePlayerCount": len(dynamic_players) + sum(len(row["bindings"]) for row in clip_records),
               "totalBytes": sum(row["size"] for row in clip_records + movie_records)}
     write_json(project / "Assets/Quest/Resources" / MOVIES_REPORT, result)
     return result
