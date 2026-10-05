@@ -1215,7 +1215,18 @@ def stereo_wrapper(hlsl, stage, output_adapters=(), input_signature=(), output_s
         hlsl = hlsl[:actual.start()] + actual[1] + fields + "\n    " + addition + actual[3] + hlsl[actual.end():]
     if stage == "vertex":
         add_fields("SPIRV_Cross_Input", "UNITY_VERTEX_INPUT_INSTANCE_ID")
-        add_fields("SPIRV_Cross_Output", "UNITY_VERTEX_OUTPUT_STEREO_EYE_INDEX" if graphics_api == "Vulkan" and output_adapters else "UNITY_VERTEX_OUTPUT_STEREO")
+        # Unity 2021.3.5 omits the eye-only default macros in its multiview
+        # branch. Its ordinary multiview macro emits only BLENDINDICES0, so it
+        # cannot duplicate the native Layer output retained above. Instancing
+        # still requires the eye-only form because its ordinary macro emits
+        # another SV_RenderTargetArrayIndex and would replace native layer math.
+        native_layer = graphics_api == "Vulkan" and bool(output_adapters)
+        fields = ("#if defined(UNITY_STEREO_MULTIVIEW_ENABLED)\n"
+                  "    UNITY_VERTEX_OUTPUT_STEREO\n"
+                  "#else\n"
+                  "    UNITY_VERTEX_OUTPUT_STEREO_EYE_INDEX\n"
+                  "#endif") if native_layer else "UNITY_VERTEX_OUTPUT_STEREO"
+        add_fields("SPIRV_Cross_Output", fields)
         # Unity derives the eye and the true object instance from the native
         # SV_InstanceID; the original desktop instruction stream expects only
         # the object instance, including the native base-instance offset.
@@ -1229,7 +1240,12 @@ def stereo_wrapper(hlsl, stage, output_adapters=(), input_signature=(), output_s
                 raise ShaderRecoveryError("Unproven original output-interface adapter.")
             layer += ["#if defined(UNITY_STEREO_INSTANCING_ENABLED)",
                       "    stage_output.stereoTargetEyeIndexAsRTArrayIdx = stage_output." + adapter["nativeOutput"] + ";", "#endif"]
-        hlsl = hlsl.replace("return stage_output;", ("UNITY_INITIALIZE_OUTPUT_STEREO_EYE_INDEX(stage_output);" if graphics_api == "Vulkan" and output_adapters else "UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(stage_output);") + "\n" + "\n".join(layer) + "\n    return stage_output;")
+        initialize = ("#if defined(UNITY_STEREO_MULTIVIEW_ENABLED)\n"
+                      "    UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(stage_output);\n"
+                      "#else\n"
+                      "    UNITY_INITIALIZE_OUTPUT_STEREO_EYE_INDEX(stage_output);\n"
+                      "#endif") if native_layer else "UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(stage_output);"
+        hlsl = hlsl.replace("return stage_output;", initialize + "\n" + "\n".join(layer) + "\n    return stage_output;")
     else:
         add_fields("SPIRV_Cross_Input", "UNITY_VERTEX_OUTPUT_STEREO")
         hlsl = re.sub(r"(" + entry + r"\(SPIRV_Cross_Input stage_input\)\s*\{)",

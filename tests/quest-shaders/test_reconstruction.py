@@ -288,6 +288,8 @@ class VulkanNativeInterface(unittest.TestCase):
         self.assertIn('o1 : SV_RenderTargetArrayIndex;', actual)
         self.assertIn('stage_output.o1=uint(_DepthSlice);', actual)
         self.assertIn('UNITY_VERTEX_OUTPUT_STEREO_EYE_INDEX', actual)
+        self.assertIn('#if defined(UNITY_STEREO_MULTIVIEW_ENABLED)\n    UNITY_VERTEX_OUTPUT_STEREO\n#else\n    UNITY_VERTEX_OUTPUT_STEREO_EYE_INDEX\n#endif', actual)
+        self.assertIn('#if defined(UNITY_STEREO_MULTIVIEW_ENABLED)\n    UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(stage_output);\n#else\n    UNITY_INITIALIZE_OUTPUT_STEREO_EYE_INDEX(stage_output);\n#endif', actual)
         self.assertNotIn('stereoTargetEyeIndexAsRTArrayIdx', actual)
         signed_source = 'static int o1;\n' + source.replace('uint o1', 'int o1').replace('stage_output.o1=uint(_DepthSlice);', 'o1=int(uint(_DepthSlice)); stage_output.o1=o1;')
         signed = native.stereo_wrapper(signed_source, 'vertex', [adapter], output_signature=signature, graphics_api='Vulkan')
@@ -299,6 +301,28 @@ class VulkanNativeInterface(unittest.TestCase):
             native.stereo_wrapper(source, 'vertex', [adapter], output_signature=[{**signature[0], 'componentType': 2}], graphics_api='Vulkan')
         with self.assertRaisesRegex(native.ShaderRecoveryError, 'witnessed native output'):
             native.stereo_wrapper(source.replace('TEXCOORD3', 'TEXCOORD4'), 'vertex', [adapter], output_signature=signature, graphics_api='Vulkan')
+
+    def test_native_vulkan_layer_eye_guard_changes_only_multiview_wrapper(self):
+        source = ('struct SPIRV_Cross_Input { float4 position : POSITION0; };\n'
+                  'struct SPIRV_Cross_Output { float4 gl_Position : SV_Position; uint o1 : TEXCOORD3;\n};\n'
+                  'SPIRV_Cross_Output main(SPIRV_Cross_Input stage_input) { '
+                  'SPIRV_Cross_Output stage_output; stage_output.o1=uint(_DepthSlice); return stage_output; }')
+        adapter = {'kind': 'native-vertex-layer-to-unity-framebuffer', 'nativeOutput': 'o1', 'portableLocation': 3}
+        signature = [{'semantic': 'SV_RenderTargetArrayIndex', 'register': 1, 'componentType': 1, 'mask': 1, 'systemValue': 4}]
+        actual = native.stereo_wrapper(source, 'vertex', [adapter], output_signature=signature, graphics_api='Vulkan')
+        # Strip only the new multiview branches to reconstruct the old exact
+        # mono/instancing source; all native instructions and Layer stay intact.
+        declaration = '#if defined(UNITY_STEREO_MULTIVIEW_ENABLED)\n    UNITY_VERTEX_OUTPUT_STEREO\n#else\n    UNITY_VERTEX_OUTPUT_STEREO_EYE_INDEX\n#endif'
+        initialization = '#if defined(UNITY_STEREO_MULTIVIEW_ENABLED)\n    UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(stage_output);\n#else\n    UNITY_INITIALIZE_OUTPUT_STEREO_EYE_INDEX(stage_output);\n#endif'
+        legacy = actual.replace(declaration, 'UNITY_VERTEX_OUTPUT_STEREO_EYE_INDEX').replace(initialization, 'UNITY_INITIALIZE_OUTPUT_STEREO_EYE_INDEX(stage_output);')
+        self.assertEqual(actual.count('SV_RenderTargetArrayIndex;'), 1)
+        self.assertEqual(legacy.count('SV_RenderTargetArrayIndex;'), 1)
+        self.assertIn('stage_output.o1=uint(_DepthSlice);', legacy)
+        for api, adapters in (('GLES3', [adapter]), ('Vulkan', [])):
+            control = native.stereo_wrapper(source, 'vertex', adapters, graphics_api=api)
+            self.assertNotIn('UNITY_STEREO_MULTIVIEW_ENABLED', control)
+            self.assertIn('UNITY_VERTEX_OUTPUT_STEREO\n', control)
+            self.assertNotIn('UNITY_VERTEX_OUTPUT_STEREO_EYE_INDEX', control)
 
 class RetainedImportContract(unittest.TestCase):
     def test_only_exact_original_retained_role_and_receipt_accept_import_upgrade(self):
