@@ -260,3 +260,87 @@ actual installed versions at implementation time.
 [unity-aot]: https://docs.unity3d.com/2021.3/Documentation/Manual/ScriptingRestrictions.html
 [unity-bundles]: https://docs.unity3d.com/2021.3/Documentation/ScriptReference/AssetBundle.html
 [unity-streaming]: https://docs.unity3d.com/2021.3/Documentation/Manual/StreamingAssets.html
+
+## 2026-10-05: novice Windows Wizard and interruption recovery
+
+The maintainer requested a Wizard that provisions its own tools, uses the
+player's locally owned Steam/Epic/GOG installation, and resumes after cancellation
+or a subsequent restart. This is a required future delivery workflow. The
+complete Campaign APK remains the current implementation objective; the Wizard
+and the optimizations below are not implemented or validated by this audit.
+
+The intended flow is game discovery/selection, local profile and purchased-DLC
+confirmation where evidence is ambiguous, tool provisioning, conversion/build,
+then headset installation. Persist these choices and their immutable input
+identities before starting expensive work. Show one overall progress view with
+the current phase, completed work, and an explicit resumable cancellation action.
+Python, Android platform-tools, converters, and the pinned Unity Editor/modules
+should be provisioned automatically. Unity Personal activation requires the
+user's account/sign-in and license acceptance; the Wizard must explain that step
+and detect completion rather than promise unattended activation. The first ADB
+authorization on the headset also remains a visible user action. Official
+[Unity installation](https://docs.unity.com/en-us/unity-cli/use-unity-cli) and
+[license management](https://docs.unity.com/en-us/hub/manage-license) documentation
+was checked on 2026-10-05; the actual pinned 2021.3.5f1 installation path must be
+rehearsed on clean Windows before claiming that this flow works.
+
+### Measured first-build costs and cache ownership
+
+The actual complete-content cold import took 5,754.362 seconds (95.9 minutes),
+with 131,902 imports and no cache hits. Changing Android settings afterward
+caused another 2,965.486-second refresh (49.4 minutes), importing 14,986 assets
+without source file changes. These are host build times, not headset startup
+times. Moving final settings before the initial import is a concrete optimization
+candidate; a shortened total duration has not been measured.
+
+The present project directory includes the complete input key, including mod
+revision/profile changes. Preparation excludes Library when copying and removes
+an invalid prepared project. Consequently ordinary mod updates can discard
+expensive imported game artifacts. Use a stable, exclusively locked local asset
+workspace with separate keys for original game recovery, target/import settings,
+native tools, mod artwork banks, mod code, profile/entitlement, and packaging.
+Apply only owned changed overlays atomically and preserve valid Library/SBP/native
+compiler caches. Actual dependency identities and original GUID/localID contracts
+remain mandatory. SDK compilation can be isolated into a small pinned-package
+project while the complete original-content import and final Player gates remain
+required. Repeated full-game hashing and unnecessarily broad cache keys also need
+measured review. Do not claim a five-minute first build without cold/warm, mod
+update, and DLC-change measurements on Windows.
+
+The Wizard must distinguish caches useful for the next update from superseded
+APKs and temporary outputs. Offer retaining the reusable conversion cache or
+freeing its disk space after success. Automatic cleanup may remove only owned,
+superseded artifacts; original installations, saves, signing identity, active
+build workspaces, and other agents' worktrees are never cleanup targets.
+
+### Required resume semantics and present gaps
+
+Verified completed stage receipts and immutable snapshots already provide useful
+reuse. They do not yet establish arbitrary interruption recovery. The source
+audit found interrupted bundle/core directories that reject on restart, locks
+left by hard process death, no complete owned-child shutdown policy, repeated SDK
+compilation, extraction/download staging left incomplete, and no persisted Wizard
+choices. Addressables repacking also rewrites preparation-hashed content
+manifests; a late cancellation can then invalidate preparation and cause the
+imported project to be deleted. Original content moved temporarily for a build
+needs transactional recovery as well.
+
+Implement durable per-stage states and atomic output publication. On resume,
+verify committed outputs, repair only the interrupted stage's owned temporary
+outputs, and preserve every still-valid dependency cache. Final repack outputs
+must have a separate stage contract rather than invalidate preparation. Validate
+a stale lock against its recorded process ownership before recovery; shut down
+the owned process tree gracefully on ordinary cancellation. Handle an incomplete
+first signing-key/metadata pair explicitly without silently changing the signing
+identity. Record content-transfer/APK-install handoff independently so a failed
+installation retries without conversion or deleting app data. Test cancellation
+and forced death during download, recovery, import, repack, compilation, signing,
+and installation. A valid unchanged import must survive each restart.
+
+A universally distributable APK is not established by removing textures: the
+current IL2CPP Player contains original game code. Distributable generic tools
+and recipes therefore remain separate from locally generated game-derived
+outputs. Direct local ASTC/native texture conversion is a narrower first-build
+research candidate, not a proven replacement for Unity import; normal-map
+channels, mipmaps, sprites, fonts, and precision-sensitive textures require exact
+format and visual checks before using it.
