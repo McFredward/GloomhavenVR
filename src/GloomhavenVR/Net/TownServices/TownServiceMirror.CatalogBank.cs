@@ -15,6 +15,7 @@ internal static partial class TownServiceMirror
     }
     private static readonly Dictionary<ushort, LocalCatalogBank> LocalCatalogBanks = new();
     private static readonly Dictionary<int, Dictionary<ushort, TownServiceFrame>> ReceivedCatalogBanks = new();
+    private static readonly Dictionary<ushort, TownServiceFrame> NoCatalogPatchBases = new();
 
     internal static void SetCatalogSource(ushort module, uint revision, bool dormant)
     {
@@ -90,6 +91,10 @@ internal static partial class TownServiceMirror
                 || error.Message == "Original catalog updates exceed the raw bank bound.")
             { bank.SeparateRepair = true; }
         }
+        // TLV103 headers describe a prepared original bank. Do not turn a still-
+        // loading catalogue into a prepared clock merely to fit its repair packet.
+        if (!frame.CatalogBank.Prepared)
+            throw new InvalidDataException("Original catalog repair awaits completed preparation.");
         foreach (TownServiceFrame original in frame.CatalogBank.Updates)
         {
             TownServiceFrame repair = TownServiceDelta.Retain(original);
@@ -97,8 +102,10 @@ internal static partial class TownServiceMirror
             byte[] part = WriteNativeTownFrame(repair);
             send(part, part.Length, repair);
         }
-        TownServiceFrame reference = TownServiceDelta.Retain(frame);
-        reference.CatalogBank = new TownCatalogBank { Prepared = frame.CatalogBank.Prepared, Members = frame.CatalogBank.Members };
+        // Individual repairs supply immutable properties, but the clock must also
+        // carry every current owner header. Bare content references cannot restore
+        // pose, parenting and rack epoch after a late join or a lost heartbeat.
+        TownServiceFrame reference = TownCatalogClock.Create(frame, NoCatalogPatchBases);
         return TownServiceCodec.Write(reference);
     }
 
