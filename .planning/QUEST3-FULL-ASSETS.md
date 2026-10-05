@@ -336,3 +336,30 @@ remain separate from original Windows BC6H GPU decoder parity and Quest GPU
 picture evidence, which are not yet verified. Private reproducible proof is
 `ordinary-texture2d-audit-v2.json`, `full-texture2d-smoke-v1` and
 `atlas-import-v1/portable-texture2d-import.json`.
+
+## Consuming material references after native texture conversion
+
+An actual Unity seam probe established that retaining a PNG PPtr's type 3 when
+its target becomes a native `.texture2D`/Cubemap asset leaves the material's
+texture unresolved, despite the same GUID/local ID importing successfully on its
+own. `full_textures.restore_native_texture_pointer_types(project)` therefore runs
+automatically after each native texture conversion stage. It recognizes real
+YAML mapping nodes using the native pointer tokenizer, then changes only type 3
+to type 2 for the exact converted texture GUID/local ID. Names and scalar strings
+that look like references are untouched. Original native-object/source-container
+hashes remain immutable; changed generated owner hashes and any affected current
+native asset receipt hashes are refreshed explicitly.
+
+`native-texture-references.json` records `targets[*].assetPath`,
+`owners[*].assetPath`, current/before SHA hashes, reference counts and exact
+GUID/local ID/type tuples. Both assetPath lists are physical paths and must pass
+through later case normalization. The production
+`QuestCampaignTextureValidation.ValidateTextureReferences` gate examines actual
+imported material object references, independently of shader property visibility.
+The full original scope has 64 converted texture targets and 69 consuming PPtrs
+in 65 original material assets; all 69 required the importer-type correction.
+Actual Unity 2021.3.5f1 import verified every corrected consuming reference and
+its exact target GUID/local ID/path. That evidence is retained as
+`atlas-import-v1/native-texture-reference-import.json` and
+`full-texture-ref-smoke-v1/Assets/QuestOriginalCampaign/native-texture-references.json`.
+It verifies consuming links, not their eventual headset rendering.

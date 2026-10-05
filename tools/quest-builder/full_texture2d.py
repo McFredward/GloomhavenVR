@@ -170,7 +170,7 @@ def restore_float_textures(project,game_data,source_audit,*,dotnet,tool_cache,ca
     if str(recovery) not in sys.path:sys.path.append(str(recovery))
     from pointer_recovery import load_native
     from recover import sha256
-    from full_textures import remap_manifests
+    from full_textures import remap_manifests,restore_native_texture_pointer_types
     import portable_decoder,UnityPy
     project,game_data=Path(project),Path(game_data)
     if source_audit['schema']!=1 or source_audit['mismatchedTextureCount'] or source_audit['incompleteMipChainCount']:
@@ -230,6 +230,7 @@ def restore_float_textures(project,game_data,source_audit,*,dotnet,tool_cache,ca
              'updatedManifests':remap_manifests(project,path_map),'unityImportVerified':False,
              'originalBc6GpuParityVerified':False,'headsetGpuVerified':False}
     write_json(project/'Assets/QuestOriginalCampaign/native-texture2d.json',receipt)
+    receipt['nativeTextureReferences']=restore_native_texture_pointer_types(project)
     return receipt
 
 

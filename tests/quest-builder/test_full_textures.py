@@ -19,6 +19,31 @@ def cube():
 
 
 class NativeCubeTests(unittest.TestCase):
+    def test_native_texture_reference_types_change_real_nodes_and_refresh_current_hashes(self):
+        import hashlib,json
+        with tempfile.TemporaryDirectory() as root:
+            p=Path(root);folder=p/'Assets/QuestOriginalCampaign';folder.mkdir(parents=True)
+            target=p/'Assets/T.texture2D';target.write_text('%YAML 1.1\n--- !u!28 &2800000\nTexture2D:\n  m_Name: Probe\n')
+            guid='a'*32
+            Path(str(target)+'.meta').write_text('fileFormatVersion: 2\nguid: '+guid+'\nNativeFormatImporter:\n  mainObjectFileID: 2800000\n')
+            (folder/'native-texture2d.json').write_text(json.dumps({'assets':[{'assetPath':'Assets/T.texture2D','guid':guid,'fileId':2800000}]}))
+            pointer='{fileID: 2800000, guid: '+guid+', type: 3}'
+            material=p/'Assets/M.mat'
+            material.write_text('%YAML 1.1\n--- !u!21 &2100000\nMaterial:\n  m_Name: "'+pointer+'"\n  first: '+pointer+'\n  second: '+pointer+'\n')
+            before=hashlib.sha256(material.read_bytes()).hexdigest()
+            native=folder/'native-sprites.json';native.write_text(json.dumps({'assets':[{'assetPath':'Assets/M.mat','sha256':before,'originalObjectSha256':'original-native-source'}]}))
+            report=full_textures.restore_native_texture_pointer_types(p)
+            self.assertEqual(report['referenceCount'],2)
+            self.assertEqual(report['changedReferenceCount'],2)
+            self.assertIn('m_Name: "'+pointer+'"',material.read_text())
+            self.assertEqual(material.read_text().count('type: 2'),2)
+            row=json.loads(native.read_text())['assets'][0]
+            self.assertEqual(row['sha256'],hashlib.sha256(material.read_bytes()).hexdigest())
+            self.assertEqual(row['originalObjectSha256'],'original-native-source')
+            again=full_textures.restore_native_texture_pointer_types(p)
+            self.assertEqual(again['referenceCount'],2)
+            self.assertEqual(again['changedReferenceCount'],0)
+
     def test_full_half_mips_faces_and_nonreadability_are_retained(self):
         pixels=bytes(range(168))*6
         text=full_textures.native_yaml(cube(),pixels,17,8900000)

@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -15,6 +16,7 @@ namespace GloomhavenVR.Quest.Editor
         public const string InputPath = "Assets/QuestOriginalCampaign/native-cubemaps.json";
         public const string PlatformInputPath = "Assets/QuestOriginalCampaign/native-platform-images.json";
         public const string Texture2DInputPath = "Assets/QuestOriginalCampaign/native-texture2d.json";
+        public const string TextureReferenceInputPath = "Assets/QuestOriginalCampaign/native-texture-references.json";
         [Serializable] public sealed class Mip { public int face, mip, size; public string sha256; }
         [Serializable] public sealed class Cube
         {
@@ -31,7 +33,7 @@ namespace GloomhavenVR.Quest.Editor
         }
         [Serializable] public sealed class Receipt
         {
-            public int schema = 1, nativeCubemapCount, importedMipCount, gpuReadbackMipCount, nativePlatformImageCount, nativeTexture2DCount;
+            public int schema = 1, nativeCubemapCount, importedMipCount, gpuReadbackMipCount, nativePlatformImageCount, nativeTexture2DCount, nativeTextureReferenceCount;
             public string unityVersion, graphicsDeviceType, sourceManifestSha256;
             public bool originalBc6GpuParityVerified, headsetGpuVerified;
         }
@@ -72,6 +74,29 @@ namespace GloomhavenVR.Quest.Editor
             public int schema=1,nativeTexture2DCount,originalHalfTextureCount,originalBc6hTextureCount,gpuReadbackMipCount;
             public string unityVersion,graphicsDeviceType,sourceManifestSha256;
             public bool originalHalfGpuBytesVerified,originalBc6GpuParityVerified,headsetGpuVerified;
+        }
+        [Serializable] public sealed class TextureReference
+        {
+            public string guid,assetPath;
+            public long fileId;
+            public int type;
+        }
+        [Serializable] public sealed class TextureReferenceOwner
+        {
+            public string assetPath,sha256;
+            public TextureReference[] references;
+        }
+        [Serializable] public sealed class TextureReferences
+        {
+            public int schema,nativeTextureTargetCount,ownerCount,referenceCount;
+            public TextureReference[] targets;
+            public TextureReferenceOwner[] owners;
+        }
+        [Serializable] public sealed class TextureReferenceReceipt
+        {
+            public int schema=1,nativeTextureTargetCount,ownerCount,referenceCount;
+            public string unityVersion,sourceManifestSha256;
+            public bool importedConsumingMaterialReferencesVerified;
         }
         public static Receipt Validate()
         {
@@ -125,8 +150,62 @@ namespace GloomhavenVR.Quest.Editor
             }
             receipt.nativePlatformImageCount=ValidatePlatformImages();
             receipt.nativeTexture2DCount=ValidateTexture2D().nativeTexture2DCount;
+            receipt.nativeTextureReferenceCount=ValidateTextureReferences().referenceCount;
             Directory.CreateDirectory("QuestCampaignEvidence");
             File.WriteAllText("QuestCampaignEvidence/native-cubemap-import.json", JsonUtility.ToJson(receipt,true));
+            return receipt;
+        }
+        public static TextureReferenceReceipt ValidateTextureReferences()
+        {
+            var input=JsonUtility.FromJson<TextureReferences>(File.ReadAllText(TextureReferenceInputPath));
+            if(input==null||input.schema!=1||input.targets==null||input.owners==null||
+               input.nativeTextureTargetCount!=input.targets.Length||input.ownerCount!=input.owners.Length)
+                throw new InvalidDataException("Native texture consuming-reference inventory is incomplete.");
+            var targets=new Dictionary<string,string>();
+            foreach(var target in input.targets)
+            {
+                var key=target.guid+":"+target.fileId;
+                if(target.type!=2||targets.ContainsKey(key))throw new InvalidDataException("Native texture target type is ambiguous.");
+                targets.Add(key,target.assetPath);
+            }
+            var receipt=new TextureReferenceReceipt {nativeTextureTargetCount=input.targets.Length,
+                unityVersion=Application.unityVersion,sourceManifestSha256=Hash(File.ReadAllBytes(TextureReferenceInputPath))};
+            foreach(var row in input.owners)
+            {
+                if(receipt.ownerCount>0&&receipt.ownerCount%16==0)EditorUtility.UnloadUnusedAssetsImmediate();
+                if(Path.GetExtension(row.assetPath)!=".mat"||Hash(File.ReadAllBytes(row.assetPath))!=row.sha256||row.references==null)
+                    throw new InvalidDataException("Native texture consuming owner changed: "+row.assetPath);
+                var material=AssetDatabase.LoadAssetAtPath<Material>(row.assetPath);
+                if(material==null)throw new InvalidDataException("Native texture consuming material failed import: "+row.assetPath);
+                var expected=new Dictionary<string,int>();
+                foreach(var reference in row.references)
+                {
+                    var key=reference.guid+":"+reference.fileId;
+                    if(reference.type!=2||!targets.ContainsKey(key))throw new InvalidDataException("Native texture owner references an unwitnessed target.");
+                    expected[key]=expected.ContainsKey(key)?expected[key]+1:1;
+                }
+                // Saved texture properties survive independently of shader import.
+                // Read their actual imported object references, rather than merely
+                // proving the target texture can be loaded on its own.
+                var serialized=new SerializedObject(material);var iterator=serialized.GetIterator();
+                while(iterator.Next(true))
+                {
+                    if(iterator.propertyType!=SerializedPropertyType.ObjectReference||!(iterator.objectReferenceValue is Texture))continue;
+                    string guid;long fileId;
+                    if(!AssetDatabase.TryGetGUIDAndLocalFileIdentifier(iterator.objectReferenceValue,out guid,out fileId))continue;
+                    var key=guid+":"+fileId;
+                    if(!targets.ContainsKey(key))continue;
+                    if(!expected.ContainsKey(key)||expected[key]==0||AssetDatabase.GetAssetPath(iterator.objectReferenceValue)!=targets[key])
+                        throw new InvalidDataException("Native texture consuming material resolved an unexpected target: "+row.assetPath);
+                    expected[key]--;receipt.referenceCount++;
+                }
+                if(expected.Values.Any(count=>count!=0))throw new InvalidDataException("Native texture consuming material has unresolved references: "+row.assetPath);
+                receipt.ownerCount++;
+            }
+            if(receipt.referenceCount!=input.referenceCount)throw new InvalidDataException("Native texture consuming-reference count changed.");
+            receipt.importedConsumingMaterialReferencesVerified=true;
+            Directory.CreateDirectory("QuestCampaignEvidence");
+            File.WriteAllText("QuestCampaignEvidence/native-texture-reference-import.json",JsonUtility.ToJson(receipt,true));
             return receipt;
         }
         public static Texture2DReceipt ValidateTexture2D()

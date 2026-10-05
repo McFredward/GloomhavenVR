@@ -2,6 +2,7 @@
 import hashlib
 import json
 from pathlib import Path
+import re
 import sys
 
 from storage import BuildError, write_json
@@ -73,6 +74,73 @@ def remap_manifests(project, path_map):
     return changed
 
 
+def restore_native_texture_pointer_types(project):
+    """Retarget genuine PPtr nodes after an imported PNG becomes a native asset.
+
+    Unity resolves type3 imported-image references differently from type2 native
+    serialized assets even when their GUID/local ID agrees. Only the witnessed
+    native texture target identities change; scalar names and source hashes do not.
+    """
+    recovery=Path(__file__).resolve().parents[1]/'quest-recovery'
+    if str(recovery) not in sys.path:sys.path.append(str(recovery))
+    from export_identity import POINTER
+    from recover import is_unity_yaml,serialized_pointer_tokens,sha256
+    project=Path(project);targets={};owners=[];changes={}
+    for filename in ('native-cubemaps.json','native-texture2d.json'):
+        path=project/'Assets/QuestOriginalCampaign'/filename
+        if not path.is_file():continue
+        for row in json.loads(path.read_text())['assets']:
+            key=(row['guid'],int(row['fileId']))
+            if key in targets:raise BuildError('Native texture reference target is not unique.')
+            meta=Path(str(project/row['assetPath'])+'.meta').read_text()
+            if not re.search(r'^guid: '+re.escape(row['guid'])+r'\s*$',meta,re.M) or 'NativeFormatImporter:' not in meta or not re.search(r'^\s+mainObjectFileID: '+str(row['fileId'])+r'\s*$',meta,re.M):
+                raise BuildError('Native texture reference target is not a witnessed native importer.')
+            targets[key]={'assetPath':row['assetPath'],'guid':row['guid'],'fileId':int(row['fileId']),'type':2}
+    for path in (project/'Assets').rglob('*'):
+        if not path.is_file() or not is_unity_yaml(path):continue
+        with path.open('rb') as source:prefix=source.read(128)
+        if re.search(rb'--- !u!(?:28|89) &',prefix):continue # Source-proven texture payloads have no external texture PPtrs.
+        text=path.read_text(encoding='utf-8');matches=[m for m in POINTER.finditer(text) if (m[2],int(m[1])) in targets]
+        if not matches:continue
+        spans={(left,right) for guid,left,right in serialized_pointer_tokens(text) if any(key[0]==guid for key in targets)}
+        actual=[m for m in matches if (m.start(2),m.end(2)) in spans]
+        if {(m.start(2),m.end(2)) for m in actual}!=spans:
+            raise BuildError('Native texture reference has an unwitnessed PPtr representation.')
+        if not actual:continue
+        replacements=[];references=[]
+        for match in actual:
+            if int(match[3]) not in (2,3):raise BuildError('Native texture PPtr has an unwitnessed source reference type.')
+            if int(match[3])==3:replacements.append((match.start(3),match.end(3),'2'))
+            references.append({'guid':match[2],'fileId':int(match[1]),'type':2})
+        before=hashlib.sha256(text.encode()).hexdigest()
+        for left,right,value in reversed(replacements):text=text[:left]+value+text[right:]
+        if replacements:path.write_text(text)
+        relative=path.relative_to(project).as_posix();after=sha256(path)
+        if replacements:changes[relative]=(before,after)
+        owners.append({'assetPath':relative,'beforeSha256':before,'sha256':after,
+                       'changedReferenceCount':len(replacements),'references':references})
+    refreshed=[]
+    manifests=list((project/'QuestRecovery').glob('packed-*.json'))
+    for filename in ('native-sprites.json','native-cubemaps.json','native-texture2d.json','native-platform-images.json','bundled-audio.json'):
+        manifests.append(project/'Assets/QuestOriginalCampaign'/filename)
+    for path in manifests:
+        if not path.is_file():continue
+        document=json.loads(path.read_text());modified=False
+        for row in document.get('assets',[])+document.get('restoredMembers',[]):
+            if row.get('assetPath') in changes:
+                before,after=changes[row['assetPath']]
+                if row['sha256']!=before:raise BuildError('Native texture owner receipt hash changed before reference repair.')
+                row['sha256']=after;row['nativeTextureReferenceTypesRestored']=True;modified=True
+        if modified:write_json(path,document);refreshed.append(path.relative_to(project).as_posix())
+    receipt={'schema':1,'nativeTextureTargetCount':len(targets),'ownerCount':len(owners),
+             'referenceCount':sum(len(row['references']) for row in owners),
+             'changedReferenceCount':sum(row['changedReferenceCount'] for row in owners),
+             'targets':list(targets.values()),'owners':owners,'refreshedManifests':refreshed,
+             'unityConsumingReferencesVerified':False}
+    write_json(project/'Assets/QuestOriginalCampaign/native-texture-references.json',receipt)
+    return receipt
+
+
 def stage(project, game_data, *, dotnet, tool_cache, cab_bundles):
     """Recover every original cube using exact CAB/pathID; change a generated copy."""
     recovery = Path(__file__).resolve().parents[1] / 'quest-recovery'
@@ -133,6 +201,7 @@ def stage(project, game_data, *, dotnet, tool_cache, cab_bundles):
              'unityImportVerified':False,'originalGpuParityVerified':False,'headsetGpuVerified':False}
     write_json(project/'Assets/QuestOriginalCampaign/native-cubemaps.json',receipt)
     receipt['platformImageAudit'] = audit_platform_images(project,game_data,objects,owners)
+    receipt['nativeTextureReferences']=restore_native_texture_pointer_types(project)
     return receipt
 
 
