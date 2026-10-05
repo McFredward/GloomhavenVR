@@ -163,7 +163,7 @@ class SnapshotTests(Temporary):
         with self.assertRaises(storage.BuildError):
             storage.snapshot(source, records, target)
         self.assertFalse(target.exists())
-        self.assertEqual(list(target.parent.iterdir()), [])
+        self.assertFalse((target.with_name(target.name + ".staging") / ".snapshot.json").exists())
 
     def test_stage_reuse_invalidates_changed_outputs(self):
         output = self.root / "output"
@@ -548,9 +548,12 @@ class DevelopmentAndDeploymentTests(Temporary):
         self.assertFalse((new_source / "src/GloomhavenVR/private.env").exists())
         new_project = builder.prepare(self.args, second, self.output, new_source, new_game)
         self.assertNotEqual(project, new_project)
+        (new_project / "Library").mkdir()
+        (new_project / "Library/imported-artifact").write_bytes(b"retain expensive import")
         (new_project / "Assets/Quest/Runtime/Probe.cs").write_text("changed after selection")
         builder.prepare(self.args, second, self.output, new_source, new_game)
         self.assertEqual((new_project / "Assets/Quest/Runtime/Probe.cs").read_text(), "public class Probe {}\n")
+        self.assertEqual((new_project / "Library/imported-artifact").read_bytes(), b"retain expensive import")
 
     def test_probe_slice_hash_invalidation_and_no_managed_executable_ingress(self):
         assets = self.root / "probe-assets"
