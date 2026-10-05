@@ -64,6 +64,7 @@ namespace GloomhavenVR.Quest.Editor
             AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
             var settings = AssetDatabase.LoadAssetAtPath<AddressableAssetSettings>(folder + "/QuestStartup.asset")
                 ?? AddressableAssetSettings.Create(folder, "QuestStartup", true, true);
+            settings.BuildAddressablesWithPlayerBuild = AddressableAssetSettings.PlayerBuildOption.DoNotBuildWithPlayer;
             AddressableAssetSettingsDefaultObject.Settings = settings;
             settings.BuildRemoteCatalog = false;
             settings.DisableCatalogUpdateOnStartup = true;
