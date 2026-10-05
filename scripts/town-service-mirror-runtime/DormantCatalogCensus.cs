@@ -37,6 +37,22 @@ public static partial class MirrorProgram
             for (int tick = 0; tick < 200; tick++) prune.Invoke(publisher, null);
             Check(TownServiceCatalog.FixtureOwnershipChecks == reads,
                 "prepared dormant originals perform zero repeated native ownership walks between censuses");
+            var borrowed = catalog.Entries[0]; Transform priorMount = borrowed.MountRoot;
+            ushort priorCardId = TownServiceSync.PublicModuleId(borrowed.CardRoot);
+            int beforeBorrow = TownServiceSync.PublicModuleCount;
+            Transform nextMount = Go("next actual prepared card borrower", shared).transform;
+            TownServiceCatalog.CardMounts.Remove(priorMount); TownServiceCatalog.CardMounts.Add(nextMount, borrowed);
+            borrowed.PhysicalMount = nextMount;
+            foreach (Transform part in new[] { borrowed.CardRoot, borrowed.FaceRoot!, borrowed.BodyRoot!, borrowed.RowContent! })
+                part.SetParent(nextMount, false);
+            catalog.OriginalBankRevision++;
+            TownServiceSync.TickPublic(shared, shared, catalog, 998, 0f);
+            TownServiceSync.TickPublic(shared, shared, catalog, 998, 0f); // Finish the one-time bank census before testing dormant expiry.
+            object lane = typeof(TownServiceMirror).GetField("PublicLane", PrivateStatic)!.GetValue(null)!;
+            var registered = (IDictionary)lane.GetType().GetField("Modules", flags)!.GetValue(lane)!;
+            Check(TownServiceSync.PublicModuleId(borrowed.CardRoot) > priorCardId && !registered.Contains(priorCardId)
+                && TownServiceSync.PublicModuleCount == beforeBorrow,
+                "pooled prepared native card retires its former resident module before a new borrower publishes");
             var dormant = catalog.Entries[1]; int sourceCount = TownServiceSync.PublicSourceCount, moduleCount = TownServiceSync.PublicModuleCount;
             // This source is still alive. Expire the real cache deadline, then remove the
             // actual native ownership map; no fake ownership/resolution callback is used.

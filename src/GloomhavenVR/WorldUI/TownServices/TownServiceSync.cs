@@ -472,6 +472,13 @@ internal sealed partial class TownServiceSync
             if (!Sources.TryGetValue(source, out SourceEntry? sourceEntry) || sourceEntry.Key != key
                 || !ReferenceEquals(sourceEntry.CatalogOwner, catalogOwner))
             {
+                if (sourceEntry != null)
+                    foreach (Published previous in sourceEntry.Parts)
+                        if (previous.CatalogResident)
+                        {
+                            previous.CatalogResident = false;
+                            TownServiceMirror.UnregisterModule(previous.Id); Modules.Remove(previous.Identity);
+                        }
                 sourceEntry = new SourceEntry { Key = key, Root = source, CatalogOwner = catalogOwner }; Sources[source] = sourceEntry;
                 TownServiceNativeAssets.PrepareRoot(provenance != null ? provenance : source);
             }

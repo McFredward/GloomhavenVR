@@ -224,6 +224,7 @@ def main():
                 ("dormant-parent-every-frame", "PublisherTick.cs", "if (pair.Value.CatalogResident && now < pair.Value.OwnershipCheckAfter) continue;", "// omit dormant ownership census cache", "prepared dormant originals perform zero repeated native ownership walks between censuses"),
                 ("dormant-parent-never-expires", "PublisherTick.cs", "if (pair.Value.CatalogResident && now < pair.Value.OwnershipCheckAfter) continue;", "if (pair.Value.CatalogResident) continue;", "expired dormant ownership census retires a live original whose real catalog owner was removed"),
                 ("dormant-destroyed-retained", "PublisherTick.cs", "if (pair.Key == null)", "if (pair.Key == null && !pair.Value.CatalogResident)", "destroyed prepared original sources and registered bank modules retire immediately before census expiry"),
+                ("pooled-bank-borrower-retained", "PublisherNative.cs", "if (previous.CatalogResident)", "if (false && previous.CatalogResident)", "pooled prepared native card retires its former resident module before a new borrower publishes"),
             ]
     if args.suite == "rack-clock":
         variants = [("production", None, None, None, "")]
