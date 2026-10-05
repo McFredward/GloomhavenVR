@@ -113,6 +113,11 @@ namespace GloomhavenVR
                 // file limit, and regenerating town art cannot replace the established main bank.
                 if (path.StartsWith(ContentRoot + "/TownServices/", StringComparison.Ordinal))
                     continue;
+                // Offline environment derivatives and their optional shader have a separate
+                // bank; adding them must not inflate or regenerate the established main bank.
+                if (path.StartsWith(ContentRoot + "/EnvironmentMeshes/", StringComparison.Ordinal)
+                    || path == ContentRoot + "/Environments/ScenarioCheapTerrain.shader")
+                    continue;
                 var ext = Path.GetExtension(path).ToLowerInvariant();
                 var name = Path.GetFileName(path);
                 if (ExcludedExtensions.Contains(ext) || name.StartsWith("."))

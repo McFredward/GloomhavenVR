@@ -25,6 +25,17 @@ public static class InteractionProgram
     private static void Check(bool condition, string label)
     { Checks++; if (!condition) throw new Exception(label); }
     private static void InjectOptionalFault() => throw new InvalidOperationException("Injected optional-owner lifetime fault");
+    private static Color32[] ReadPixels(Camera eye)
+    {
+        eye.Render();
+        RenderTexture previous = RenderTexture.active;
+        RenderTexture.active = eye.targetTexture;
+        var image = new Texture2D(128,128,TextureFormat.RGBA32,false);
+        image.ReadPixels(new Rect(0,0,128,128),0,0); image.Apply();
+        Color32[] pixels = image.GetPixels32();
+        RenderTexture.active = previous; Object.DestroyImmediate(image);
+        return pixels;
+    }
     public static IEnumerator Run()
     {
         string evidence = Arg("-evidenceRoot"), name = typeof(InteractionProgram).Assembly.GetName().Name!;
@@ -201,6 +212,156 @@ public static class InteractionProgram
         bool moved = false;
         for (int i = 0; i < 12; i++) { yield return null; moved |= Quaternion.Angle(wing.localRotation, startWing) > 0.1f; }
         Check(moved, "original AlwaysAnimate control still writes invisible native wing poses");
+
+        // Run the real optional visible-idle owner against native publisher geometry,
+        // clips and camera callbacks. No Animator timing or renderer visibility stub.
+        var eyeObject = new GameObject("VisibleIdleEye");
+        var eye = eyeObject.AddComponent<Camera>(); eye.enabled = false;
+        eye.transform.position = new Vector3(0f, 2f, -8f);
+        eye.transform.LookAt(root.transform.position + Vector3.up);
+        eye.orthographic = true; eye.orthographicSize = 5f;
+        eye.clearFlags = CameraClearFlags.SolidColor; eye.backgroundColor = Color.black;
+        eye.targetTexture = new RenderTexture(128, 128, 24); eye.targetTexture.Create();
+        SkinnedMeshRenderer[] visibleSkins = root.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+        foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true)) renderer.enabled = true;
+        foreach (SkinnedMeshRenderer skin in visibleSkins)
+        {
+            Material[] materials = skin.sharedMaterials;
+            for (int index = 0; index < materials.Length; index++)
+                materials[index] = new Material(Shader.Find("Unlit/Color")) { color = Color.green };
+            skin.sharedMaterials = materials;
+        }
+        animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+        animator.Play("Idle-Run", 0, 0f); animator.Update(.001f);
+        ActorBarPose visiblePose = ActorBarPose.Capture(root, head)!;
+        Check(visiblePose.IsEventFreeNativeIdle(), "native flying idle admits visible pose reduction");
+        var ownedIdleSkins = new List<SkinnedMeshRenderer>();
+        Check(visiblePose.CopyIdleSkinSources(ownedIdleSkins) && ownedIdleSkins.Count > 0,
+            "visible idle pixel fixture uses positively owned native body surfaces");
+        foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+            if (renderer is not SkinnedMeshRenderer skin || !ownedIdleSkins.Contains(skin)) renderer.enabled = false;
+        visibleSkins = ownedIdleSkins.ToArray();
+        Mesh[] originalMeshes = visibleSkins.Select(skin => skin.sharedMesh).ToArray();
+        Material[][] originalSlots = visibleSkins.Select(skin => skin.sharedMaterials).ToArray();
+        float visibleInterval = .5f;
+        Camera? admittedEye = eye;
+        ScenarioIdleAnimationBudget.Install(host, () => false, () => visibleInterval, () => admittedEye);
+        ScenarioIdleAnimationBudget.Register(actor, visiblePose);
+        var recordsField = typeof(ScenarioIdleAnimationBudget.Driver).GetField("_records", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var records = (Dictionary<ActorBehaviour, ScenarioIdleAnimationBudget.Record>)recordsField.GetValue(host.GetComponent<ScenarioIdleAnimationBudget.Driver>())!;
+        var visibleRecord = records[actor];
+        bool sawLease = false, invokeActionInsideLease = false;
+        Camera.CameraCallback inspectLease = camera =>
+        {
+            if (camera != eye || !visibleSkins.Any(skin => skin.forceRenderingOff)) return;
+            sawLease = true;
+            for (int index = 0; index < visibleSkins.Length; index++)
+            {
+                Check(visibleSkins[index].enabled && visibleSkins[index].sharedMesh == originalMeshes[index],
+                    "visible idle retains native enabled state and mesh identity during culling");
+                Check(visibleSkins[index].sharedMaterials.SequenceEqual(originalSlots[index]),
+                    "visible idle retains every original material slot during culling");
+            }
+            if (invokeActionInsideLease)
+            {
+                Check(MF.AnimatorPlay(animator, "WakeUp"), "visible-idle native action dispatch remains available");
+                Check(visibleSkins.All(skin => !skin.forceRenderingOff),
+                    "native action immediately releases visible idle masks before continuation");
+                invokeActionInsideLease = false;
+            }
+        };
+        Camera.onPreCull += inspectLease;
+        for (int frame = 0; frame < 12; frame++)
+        {
+            yield return null; eye.Render();
+            Check(visibleSkins.All(skin => !skin.forceRenderingOff),
+                "visible idle masks restore after each real camera");
+            Check(visibleSkins.Select((skin,index) => skin.enabled && skin.sharedMesh==originalMeshes[index]).All(value => value),
+                "visible idle retains native enabled state and mesh identity during culling");
+        }
+        Check(visibleRecord.Visible!.HasPose && sawLease, "real native camera admits an actual private visible idle pose");
+        Check(visibleRecord.Applied && animator.cullingMode == AnimatorCullingMode.CullUpdateTransforms,
+            "visible pose option is independent of offscreen option");
+        Color32[] proxyPixels = ReadPixels(eye);
+        Check(proxyPixels.Count(pixel => pixel.g > 128 && pixel.r < 64) > 10,
+            "visible idle proxy retains visible original skin pixels");
+        // Render the original immediately without advancing Animator: same bone pose,
+        // same native material references, separate GPU-skinned versus baked routes.
+        admittedEye = null;
+        Color32[] originalPixels = ReadPixels(eye);
+        int differentPixels = proxyPixels.Zip(originalPixels, (a,b) => Math.Abs(a.g-b.g)>16).Count(value => value);
+        Check(differentPixels < 128*128/50, "private visible idle silhouette matches native same-pose drawing");
+        admittedEye = eye;
+        // Warm visibility after the original control; then demonstrate that transforms
+        // stop between samples while the real native state clock continues.
+        for (int frame=0; frame<4; frame++) { yield return null; eye.Render(); }
+        Quaternion frozenWing = wing.localRotation;
+        float frozenClock = animator.GetCurrentAnimatorStateInfo(0).normalizedTime;
+        for (int frame=0; frame<8; frame++) { yield return null; eye.Render(); }
+        Check(animator.GetCurrentAnimatorStateInfo(0).normalizedTime > frozenClock,
+            "visible idle keeps the real native state clock advancing");
+        Check(Quaternion.Angle(wing.localRotation, frozenWing) < .01f,
+            "visible idle camera lease suppresses actual native bone writes between samples");
+        // A native consumer of exact Renderer identities must get originals.
+        var nativeBuffer = new UnityEngine.Rendering.CommandBuffer { name = "native-renderer-consumer" };
+        nativeBuffer.DrawRenderer(visibleSkins[0], visibleSkins[0].sharedMaterial);
+        eye.AddCommandBuffer(UnityEngine.Rendering.CameraEvent.BeforeForwardOpaque, nativeBuffer);
+        eye.Render();
+        Check(!visibleRecord.Visible.IsMasked && visibleSkins.All(skin => !skin.forceRenderingOff),
+            "native command-buffer consumers retain original figure renderers");
+        eye.RemoveCommandBuffer(UnityEngine.Rendering.CameraEvent.BeforeForwardOpaque, nativeBuffer); nativeBuffer.Dispose();
+        // An action begins inside an already acquired camera lease: restoration must
+        // be synchronous, not postponed until the next Update or PostRender.
+        invokeActionInsideLease = true; eye.Render();
+        Check(!invokeActionInsideLease,
+            "native action immediately releases visible idle masks before continuation");
+        Check(animator.cullingMode == AnimatorCullingMode.AlwaysAnimate,
+            "visible idle native action restores before the actual camera finishes");
+        visibleInterval = 0f;
+        yield return null;
+        Check(animator.cullingMode == AnimatorCullingMode.AlwaysAnimate
+            && visibleSkins.All(skin => !skin.forceRenderingOff), "zero visible interval restores original pose evaluation");
+        Camera.onPreCull -= inspectLease;
+        // A crowd must retain its existing pictures while only bounded native sample
+        // slots warm. These are actual cloned publisher rigs, clips and native skins.
+        visibleInterval = .5f;
+        animator.Play("Idle-Run", 0, 0f); animator.Update(.001f);
+        var crowd = new List<GameObject>();
+        for (int index = 0; index < 4; index++)
+        {
+            GameObject clone = Object.Instantiate(root);
+            clone.transform.position = new Vector3(index - 2f, 0f, 0f);
+            Animator cloneAnimator = clone.GetComponentInChildren<Animator>();
+            cloneAnimator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            cloneAnimator.Rebind(); cloneAnimator.Play("Idle-Run", 0, 0f); cloneAnimator.Update(.001f);
+            Transform cloneHead = clone.GetComponentsInChildren<Transform>(true).First(t => t.name == "C_headSkel01_JNT");
+            ActorBarPose clonePose = ActorBarPose.Capture(clone, cloneHead)!;
+            Check(clonePose.IsEventFreeNativeIdle(), "crowd uses audited actual publisher idle rigs");
+            ScenarioIdleAnimationBudget.Register(clone.GetComponent<ActorBehaviour>(), clonePose);
+            crowd.Add(clone);
+        }
+        int priorSamples = records.Values.Sum(item => item.Visible?.Samples ?? 0);
+        for (int frame = 0; frame < 30; frame++)
+        {
+            yield return null; eye.Render();
+            Check(records.Values.Count(item => item.Visible?.AwaitingNativePose == true) <= 2,
+                "visible idle crowd warms at most two actual native poses concurrently");
+            int samples = records.Values.Sum(item => item.Visible?.Samples ?? 0);
+            Check(samples - priorSamples <= 2, "visible idle crowd bakes at most two actors per frame");
+            priorSamples = samples;
+            Check(crowd.SelectMany(item => item.GetComponentsInChildren<SkinnedMeshRenderer>(true)).All(skin => !skin.forceRenderingOff),
+                "all original crowd skins restore after each actual camera");
+        }
+        Check(records.Values.All(item => item.Visible?.HasPose == true),
+            "rotating visible idle sample lane eventually admits every actual crowd rig");
+        host.SetActive(false); eye.Render();
+        Check(records.Values.All(item => !item.Applied && item.Visible?.IsMasked == false)
+            && crowd.SelectMany(item => item.GetComponentsInChildren<SkinnedMeshRenderer>(true)).All(skin => !skin.forceRenderingOff),
+            "inactive idle host retains original native modes and visible skins across actual camera callbacks");
+        host.SetActive(true);
+        ScenarioIdleAnimationBudget.Shutdown();
+        foreach (GameObject clone in crowd) Object.DestroyImmediate(clone);
+        Object.DestroyImmediate(eye.targetTexture); Object.DestroyImmediate(eyeObject);
 
         // An eventful idle is deliberately NOT admitted, even though Unity continues
         // the state machine. Its callback may depend on the precise live bone position.

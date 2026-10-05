@@ -69,7 +69,23 @@ internal sealed class CoreModule : IVRModule
         ScenarioSceneryBudget.Install(_hostGo);
         ScenarioGenerationDetail.Install();
         ScenarioFigureDetailBudget.Install(_hostGo);
-        ScenarioIdleAnimationBudget.Install(_hostGo, () => PerfConfig.OffscreenIdleAnimationOn);
+        ScenarioIdleAnimationBudget.Install(_hostGo, () => PerfConfig.OffscreenIdleAnimationOn,
+            () => PerfConfig.VisibleIdleAnimationInterval, () => VRCameraPolicy.AllowedHead,
+            ScenarioEnvironmentBudget.HasNativeCommandBufferConsumers);
+        ScenarioEnvironmentMeshBank.ConfigureAssetPreparation(ScenarioEnvironmentAssets.EnsureLoaded);
+        ScenarioTerrainBudget.ConfigureMeshBank(ScenarioEnvironmentMeshBank.IsTerrainEligible,
+            ScenarioEnvironmentMeshBank.TryGetDetail);
+        ScenarioTerrainBudget.ConfigureAssetPreparation(() => ScenarioEnvironmentMeshBank.IsReady,
+            () => ScenarioEnvironmentMeshBank.IsUnavailable || ScenarioEnvironmentAssets.IsUnavailable);
+        ScenarioTerrainBudget.ConfigureNativeCameraConsumers(ScenarioEnvironmentBudget.HasNativeCommandBufferConsumers);
+        ScenarioTerrainBudget.ConfigureCanonicalMaterial(ScenarioEnvironmentBudget.CanonicalMaterial);
+        // Terrain owns only its private wall/detail proxies. Floors remain available to the
+        // exact environment submission lane; neither owner may mask the other's replacement.
+        ScenarioTerrainBudget.Install(_hostGo);
+        ScenarioEnvironmentBudget.ConfigureTerrainIntegration(ScenarioTerrainBudget.QueueRoot,
+            ScenarioTerrainBudget.MaterialReady, ScenarioTerrainBudget.BeforeNativeRendererWrite,
+            ScenarioTerrainBudget.BeforeNativeContentChange, ScenarioTerrainBudget.OwnsRenderSubstitute);
+        ScenarioEnvironmentBudget.ConfigureBeforeNativeContentChange(ScenarioIdleAnimationBudget.BeforeNativeContentChange);
         ScenarioEnvironmentBudget.ConfigureStructuralBatching(() => PerfConfig.StructuralBatchingOn);
         ScenarioEnvironmentBudget.Install(_hostGo);
         ScenarioStructuralInstancing.Install(_hostGo, () => PerfConfig.StructuralInstancingOn);
@@ -132,6 +148,7 @@ internal sealed class CoreModule : IVRModule
         AutoLod.Shutdown();     // re-enable every AutomaticLOD it disabled, restore lodBias
         ScenarioSceneryBudget.Shutdown(); // restore only decorative submissions this budget owns
         ScenarioIdleAnimationBudget.Shutdown();
+        ScenarioTerrainBudget.Shutdown();
         ScenarioStructuralInstancing.Shutdown();
         ScenarioEnvironmentBudget.Shutdown(); // restore only optional static render substitutions
         ScenarioGenerationDetail.Shutdown(); // release transient generation profiles, never game assets

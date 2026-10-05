@@ -28,7 +28,8 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
     files = ['WorldUI/ActorBarPose.cs', 'Core/Perf/NativeActorPoseAudit.cs',
-             'Core/Perf/ScenarioIdleAnimationBudget.cs', 'Board/FigureGrab/FigureVisualMirror.cs']
+             'Core/Perf/ScenarioIdleAnimationBudget.cs', 'Core/Perf/ScenarioVisibleIdleSnapshot.cs',
+             'Board/FigureGrab/FigureVisualMirror.cs']
     source = {Path(name).name: (root / 'src/GloomhavenVR' / name).read_text() for name in files}
     variants = [
         ('production', '', '', '', ''),
@@ -63,6 +64,26 @@ def main():
          'if (Applied && Animator != null && Animator.cullingMode == AnimatorCullingMode.CullUpdateTransforms)',
          'if (Applied && Animator != null)',
          'foreign animator culling edit survives owner restoration'),
+        ('visible-idle-mask-not-restored', 'ScenarioVisibleIdleSnapshot.cs',
+         'if (Masked && Source != null && Source.forceRenderingOff) Source.forceRenderingOff = false;',
+         '/* injected: camera mask survives */', 'visible idle masks restore after each real camera'),
+        ('visible-idle-proxy-not-drawn', 'ScenarioVisibleIdleSnapshot.cs',
+         'surface.Proxy.enabled = true;', 'surface.Proxy.enabled = false;',
+         'visible idle proxy retains visible original skin pixels'),
+        ('visible-idle-native-mesh-written', 'ScenarioVisibleIdleSnapshot.cs',
+         'surface.Source.BakeMesh(surface.Baked, false);',
+         'surface.Source.BakeMesh(surface.Baked, false); surface.Source.sharedMesh = surface.Baked;',
+         'visible idle retains native enabled state and mesh identity during culling'),
+        ('visible-idle-action-mask-deferred', 'ScenarioIdleAnimationBudget.cs',
+         'Visible?.Tick(false, 0f);', '/* injected: visible mask release deferred */',
+         'native action immediately releases visible idle masks before continuation'),
+        ('visible-idle-crowd-unbounded', 'ScenarioIdleAnimationBudget.cs',
+         'item.Value.Tick(enabled, visibleInterval, false)', 'item.Value.Tick(enabled, visibleInterval, true)',
+         'visible idle crowd warms at most two actual native poses concurrently'),
+        ('inactive-idle-mode-not-restored', 'ScenarioIdleAnimationBudget.cs',
+         'ReleaseCameraMasks(); foreach (Record record in _records.Values) record.Restore();',
+         'ReleaseCameraMasks(); /* injected: inactive host keeps transform culling */',
+         'inactive idle host retains original native modes and visible skins across actual camera callbacks'),
         ('eventful-idle-admitted', 'ActorBarPose.cs', 'if (clip.events.Length == 0) _eventFreeIdleLoops.Add(clip);',
          'if (true) _eventFreeIdleLoops.Add(clip);', 'native eventful idle remains fully evaluated'),
     ]

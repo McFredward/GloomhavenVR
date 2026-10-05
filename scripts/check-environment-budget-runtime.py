@@ -122,6 +122,13 @@ def main():
     variants = [('production',source,'')]
     if not args.production_only:
         changes = [
+            ('inactive-host-acquires-render-lease', '!isActiveAndEnabled || !_active', '!_active', 'inactive environment host uses original camera pixels without private chunk leases', 1),
+            ('material-read-toggle-stuck', 'bool share = PerfConfig.SharedEnvironmentMaterialReadsOn;', 'bool share = true;', 'shared material read option Off repeats every original per-surface validation', 1),
+            ('private-bank-toggle-ignored', 'surface.ReadableMesh == null && _meshBankOn && ScenarioEnvironmentMeshBank.TryGetExact', 'surface.ReadableMesh == null && ScenarioEnvironmentMeshBank.TryGetExact', 'private mesh bank option Off restores unreadable original rendering immediately', 1),
+            ('private-bank-never-used', 'surface.ReadableMesh == null && _meshBankOn && ScenarioEnvironmentMeshBank.TryGetExact', 'surface.ReadableMesh == null && bool.Parse("false") && ScenarioEnvironmentMeshBank.TryGetExact', 'verified unreadable native floor originals create a bounded private exact chunk', 1),
+            ('instance-native-write-survives', 'instances.Dispose(); _instances.Remove(instances); _buildPending = true;', '/* injected: queued draw survives native write */ _buildPending = true;', 'late native pre-cull write revokes queued instance geometry before restoring originals', 1),
+            ('instance-post-command-not-detached', 'submission.Camera.RemoveCommandBuffer(CameraEvent.BeforeForwardOpaque, submission.Buffer);', '/* injected: queued instance commands remain attached */', 'instance camera completion restores source masks and removes private commands', 2),
+            ('instance-native-clone-prefix-missing', 'private static void Prefix() => ScenarioEnvironmentBudget.BeforeNativeContentChange();', 'private static void Prefix() { }', 'room content changes revoke interrupted queued commands before cloning', 2),
             ('foreign-ui-admitted','node.GetComponent<Canvas>() != null','false','foreign UI material stays untouched',2),
             ('foreign-actor-admitted','node.GetComponent<ActorBehaviour>() != null','false','foreign actor/UI/held/water/foliage/dissolve/native scope exclusions retain original rendering: CV_Floor_Base_Actor',2),
             ('ambient-loop-is-enough','AmbientIdentity(node, tile.transform)','true','combat effects never become ambience merely because they loop',1),
@@ -139,17 +146,30 @@ def main():
             ('ancestor-floor-union','bool identity = FloorIdentity(mesh.name) || FloorIdentity(renderer.name);','bool identity = FloorIdentity(mesh.name) || FloorIdentity(renderer.name) || (renderer.transform.parent != null && FloorIdentity(renderer.transform.parent.name));','native scope exclusions retain original rendering: MountedDecoration',1),
             ('elevated-pillar-name-bypass','return WallFloorTile.Judge(new WallFloorTile.Plate(min.y, max.y, max.x - min.x, max.z - min.z), 0f)\n            == WallFloorTile.Verdict.FloorTile;','return true;','native scope exclusions retain original rendering: CV_Floor_Base_Raised',1),
             ('structural-never-admitted','bool structural = !floor && StructuralIdentity(filter.sharedMesh) && !renderer.HasPropertyBlock();','bool structural = false;','audited native masonry creates a bounded structural render substitute',1),
-            ('structural-command-renderer-masked','if (camera != null && camera.commandBufferCount > 0)','if (bool.Parse("false"))','native command-buffer DrawRenderer keeps the original structural renderer identity and geometry',1),
+            ('structural-command-renderer-masked','if (camera != null && camera.commandBufferCount > 0 && foreignCommands)','if (bool.Parse("false"))','native command-buffer DrawRenderer keeps the original structural renderer identity and geometry',1),
             ('structural-effect-release-missing','InvalidateBatch(id);\n            if (_surfaces.TryGetValue(id, out Surface surface))','/* injected: substitute survives write */\n            if (_surfaces.TryGetValue(id, out Surface surface))','wall effect write restores structural sources and material synchronously',1),
             ('live-floor-dissolve-not-preserved','if (NativeWallFadeEnabled(material)) return false;','/* injected: native floor shader channel lost */','live native floor wall channels retain original shaders',1),
             ('late-native-channel-not-retired','RetireChangedNativeMaterials();','/* injected: late original wall channel ignored */','late native material gate retires the simpler variant before actual camera culling',1),
-            ('native-continuation-fault-guard-removed','try { _driver?.MaterialReady(renderer); }\n        catch (Exception error) { StopAfterFailure(error); }','_driver?.MaterialReady(renderer);','generated shader resolver fault',1),
+            ('shared-original-verdict-recomputed','if (!share || !_preCullMaterialVerdicts.TryGetValue(original, out materialCompatible))','_preCullMaterialVerdicts.Clear();\n                    if (!share || !_preCullMaterialVerdicts.TryGetValue(original, out materialCompatible))','one camera validates each shared original material once',1),
+            ('shared-original-cross-camera-cache','_preCullMaterialVerdicts.Clear();','/* injected: stale material verdict survives cameras */','native keyword edit between camera invocations restores every sharing surface before culling',3),
+            ('shared-original-renderer-veto-missing','!surface.Renderer.HasPropertyBlock() && (surface.Floor || surface.Structural)','surface.Floor || surface.Structural','shared original verdict never bypasses an individual native property-block veto',1),
+            ('native-continuation-fault-guard-removed','try { _terrainReady?.Invoke(renderer); if (!_failed) _driver?.MaterialReady(renderer); }\n        catch (Exception error) { StopAfterFailure(error); }','_driver?.MaterialReady(renderer);','generated shader resolver fault',1),
+            ('failed-environment-stops-terrain', '_terrainBeforeWrite?.Invoke(renderer); if (!_failed) _driver?.BeforeNativeRendererWrite(renderer);',
+             'if (!_failed) { _terrainBeforeWrite?.Invoke(renderer); _driver?.BeforeNativeRendererWrite(renderer); }',
+             'terrain native write and placement bridges survive an independent environment failure', 1),
         ]
         for name, before, after, expected, occurrences in changes:
             assert source.count(before) == occurrences, 'negative control binding drift: '+name
             variants.append((name,source.replace(before,after),expected))
-        before = 'if (!surface.Mesh.isReadable) { _unreadable++; continue; }'
-        guard = '!s.Mesh.isReadable || '
+        storage = 'private readonly Dictionary<Material, bool> _preCullMaterialVerdicts = new();'
+        entry_clear = '_preCullMaterialVerdicts.Clear();\n            _dead.Clear();'
+        assert source.count(storage) == 1 and source.count(entry_clear) == 1, 'material storage control binding drift'
+        variants.append(('shared-original-storage-reallocated',
+            source.replace(storage, storage.replace('readonly ', ''))
+                .replace(entry_clear, '_preCullMaterialVerdicts = new Dictionary<Material, bool>();\n            _dead.Clear();'),
+            'warmed material validation reuses its bounded dictionary storage'))
+        before = 'if (surface.ReadableMesh == null) { _unreadable++; continue; }'
+        guard = 's.ReadableMesh == null || !s.ReadableMesh.isReadable || '
         assert source.count(before) == 1 and source.count(guard) == 1, 'negative control binding drift: unreadable geometry'
         variants.append(('unreadable-mesh-not-excluded',source.replace(before,'/* injected: unreadable source admitted */').replace(guard,''),'unreadable'))
         before = 'if (!identity) return false;'
@@ -189,6 +209,18 @@ def main():
             assert delivery.count(before) == occurrences, 'Native historical delivery mutation binding drift: '+name
             variants.append((name,source,expected))
             delivery_variants[name] = delivery.replace(before,after)
+    bank_variants = {}
+    if not args.production_only:
+        bank_path = args.source_root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentMeshBank.cs'
+        bank_source = bank_path.read_text()
+        bank_changes = [
+            ('bank-source-hash-not-checked', 'Hex(sha.ComputeHash(input)) == source.sha256', 'true', 'wrong actual source bundle hash keeps native rendering'),
+            ('bank-asset-hash-not-checked', ' || Digest(bytes) != variant.sha256', '', 'corrupt prepared geometry hash keeps native rendering'),
+            ('bank-native-bounds-not-checked', 'if (bounds.center[i] != sig.bounds[i] || bounds.extents[i] != sig.bounds[i + 3]) return false;', 'if (bool.Parse("false")) return false;', 'stale original geometry bounds reject a substitute immediately'),
+        ]
+        for name,before,after,expected in bank_changes:
+            assert bank_source.count(before) == 1, 'Bank causal binding drift: '+name
+            variants.append((name,source,expected)); bank_variants[name] = bank_source.replace(before,after)
     if args.case:
         unknown = set(args.case)-{name for name,_,_ in variants}
         if unknown: raise SystemExit('Unknown selected case: '+', '.join(sorted(unknown)))
@@ -201,12 +233,27 @@ def main():
     fixture = ROOT/'tests/environment-budget-runtime'
     manifest = {'result':str(run/'results.txt'),'cases':[]}
     bound_sources = {source_path:source,shader_path:shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,trace_path:trace,occlusion_path:occlusion,dissolve_path:dissolve}
+    for bank_file in ('ScenarioEnvironmentMeshBank.cs','ScenarioEnvironmentMeshStream.cs'):
+        bank_path = args.source_root/'src/GloomhavenVR/Core/Perf'/bank_file
+        bound_sources[bank_path] = bank_path.read_text()
     (run/'source-hashes.json').write_text(json.dumps({'root':str(args.source_root.resolve()),'sha256':{str(path):hashlib.sha256(value.encode()).hexdigest() for path,value in bound_sources.items()},'coverage':'partial' if partial else 'production-and-negative-controls','cases':[name for name,_,_ in variants],'limits':['Native scene classes/config and empty wall attachment lists are explicit boundary surrogates.','Complete original wall Apply/EnsureTextures, shared ramp and wall-specific visual clock execute.', 'Original enable/disable subscription bodies and complete draw sampler execute against actual Camera.Render events; Time.frameCount alone is aliased to a deterministic fixture clock. Native scene-loaded bookkeeping is an explicit boundary.','Actual Unity meshes, renderer masks, pixels, cloning and camera callbacks are executed.','Native wall pixels execute GL surrogates of the LOW branch and exact HIGH/toggle-native clip equation derived from original DXBC; HIGH noise is a valid parameterized sample. Windows bytecode, artwork and lighting are not executed.','Native material healer integration is source-bound; its native callbacks are not executed.','Native game scenes, OpenXR HMD images and FPS remain hardware-open.']},indent=2)+'\n')
     (run/'repair-binding.json').write_text(json.dumps({'native-success-order':'sharedMaterials / enabled / MaterialReady / return true','removed-edge-negative-control':'rejected'},indent=2)+'\n')
     dotnet = shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
     for name, value, expected in variants:
         build = run/name; production = build/'production'; production.mkdir(parents=True)
-        (production/'Environment.cs').write_text(value)
+        read_entry = 'private static bool CompatibleMaterial(Material material, bool floor)\n    {'
+        assert value.count(read_entry) == 1, 'complete original material-read counter binding drift'
+        for bank_file in ('ScenarioEnvironmentMeshBank.cs','ScenarioEnvironmentMeshStream.cs'):
+            bank_text = bank_variants.get(name, bound_sources[args.source_root/'src/GloomhavenVR/Core/Perf'/bank_file]) if bank_file == 'ScenarioEnvironmentMeshBank.cs' else bound_sources[args.source_root/'src/GloomhavenVR/Core/Perf'/bank_file]
+            if bank_file == 'ScenarioEnvironmentMeshBank.cs':
+                lookup = '''        foreach (AssetBundle bundle in AssetBundle.GetAllLoadedAssetBundles())
+            if (bundle != null && bundle.Contains(path)) return bundle.LoadAsset<TextAsset>(path);
+        return null;'''
+                assert bank_text.count(lookup) == 1, 'Only actual platform asset lookup is the explicit editor fixture boundary'
+                bank_text = 'using Application = GloomhavenVR.Core.BankFixturePaths;\n'+bank_text.replace(lookup, '        return BankFixtureAssets.Resolve(path);')
+            (production/bank_file).write_text(bank_text)
+        (production/'Environment.cs').write_text(value.replace(read_entry,
+            read_entry + '\n        global::EnvironmentProgram.RecordMaterialRead();'))
         (production/'WallFloorTile.cs').write_text(floor)
         (production/'WallDelivery.cs').write_text(delivery_variants.get(name,delivery))
         (production/'WallClock.cs').write_text(clock_variants.get(name,clock))
@@ -231,12 +278,22 @@ def main():
         (unity_project/'Assets'/('NativeTrace'+route+'.shader')).write_text(
             native_shader.replace('Shader "Amp_Basic_N_MRAO"', 'Shader "WallTrace.WallFade.'+route+'"'))
     (unity_project/'Assets/ScenarioSimpleEnvironment.shader').write_text(shader)
+    bank_root = args.source_root/'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes'
+    if not (bank_root/'index.json').is_file(): raise SystemExit('Prepared environment bank assets missing')
+    bank_index = json.loads((bank_root/'index.json').read_text())
+    chosen = [entry for entry in bank_index['entries'] if entry['signature']['name'] in ('EN_CR_Pillar_Thin','CV_Floor_Basic_01','CV_Wall_Generic_01')]
+    assert any(entry['signature']['name'] == 'EN_CR_Pillar_Thin' for entry in chosen), 'Actual native masonry fixture bank absent'
+    bank_fixture = unity_project/'Assets/Bundle/EnvironmentMeshes'; bank_fixture.mkdir(parents=True)
+    (bank_fixture/'index.json').write_text(json.dumps({'format':1,'entries':chosen})+'\n')
+    for entry in chosen:
+        for variant in entry['variants']: shutil.copyfile(bank_root/variant['file'],bank_fixture/variant['file'])
+    (run/'bank-fixture-provenance.json').write_text(json.dumps({'entries':chosen,'application_path_boundary':'original read-only game StreamingAssets; actual SHA256 source file proof runs','geometry_asset_lookup':'real imported Unity TextAssets; standalone loader is an explicit boundary. Fresh compressed fixture-bank workflow failed; the integrator independently proved the actual production Windows bank loads in the exact Linux editor.'},indent=2)+'\n')
     (unity_project/'Packages/manifest.json').write_text('{"dependencies":{}}\n')
     (unity_project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
     command = [str(args.unity),'-batchmode','-force-glcore','-projectPath',str(unity_project),'-executeMethod','EnvironmentRunner.Start','-environmentManifest',str(manifest_path),'-logFile',str(run/'unity.log')]
     if not os.environ.get('DISPLAY'): command = ['xvfb-run','-a']+command
     try:
-        environment = os.environ.copy(); environment["GHVR_ENVIRONMENT_NATIVE_MESH"] = str(native_mesh); environment["GHVR_ENVIRONMENT_EVIDENCE"] = str(run)
+        environment = os.environ.copy(); environment["GHVR_ENVIRONMENT_NATIVE_MESH"] = str(native_mesh); environment["GHVR_ENVIRONMENT_EVIDENCE"] = str(run); environment["GHVR_ENVIRONMENT_STREAMING_ASSETS"] = str(args.source_root/"ressources/GH_Data/StreamingAssets"); environment["GHVR_ENVIRONMENT_BANK_FIXTURE"] = str(bank_fixture)
         result = subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.STDOUT,timeout=240,env=environment)
     finally:
         # Keep complete source, compiled test assemblies and logs; native API copies

@@ -1780,6 +1780,50 @@
         "ci"
       ],
       "weight": 7
+    },
+    {
+      "id": "shared-ui-window-runtime",
+      "command": [
+        "python3",
+        "scripts/check-shared-ui-window-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "environment-bank-assets",
+      "command": [
+        "python3",
+        "scripts/check-environment-bank.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 25
+    },
+    {
+      "id": "terrain-budget-runtime",
+      "command": [
+        "python3",
+        "scripts/check-terrain-budget-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 100
+    },
+    {
+      "id": "remote-mirror-read-runtime",
+      "command": [
+        "python3",
+        "scripts/check-remote-mirror-read-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
     }
   ]
 }

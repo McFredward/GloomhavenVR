@@ -32,6 +32,14 @@ internal static class Program
             Check(WorldUIConfig.ImmersiveTownServices.Value==(i!=0) && WindowMaterialise.Entry.Value==(i!=0), "standalone disables costly NPC/dust; PC restores original features");
             Check(PerfConfig.ScenarioFigureClothSimulation.Value==(i>=2), "cloth simulation trade is explicit");
             Check(PerfConfig.ReduceScenarioGenerationDetail.Value==(i<=1), "next-load generation trade is explicit");
+            Check(PerfConfig.ScenarioEnvironmentMeshBank.Value==(i<3), "mesh-copy option is a shared standalone/performance control");
+            Check(PerfConfig.ScenarioExplicitEnvironmentInstancing.Value==(i<3), "explicit draw option is independent and disabled in original quality");
+            Check(PerfConfig.ScenarioCheapWallShading.Value==(i<2), "wall shading compromise is explicit for low profiles");
+            Check(PerfConfig.ScenarioTerrainDetailPercent.Value==(i==0?0:i==1?50:100), "3D terrain detail restores original at balanced/high quality");
+            Check(PerfConfig.ScenarioDistantTerrainDetailPercent.Value==(i<2?0:i==2?50:100), "distant 3D geometry has an independent cap");
+            Check(PerfConfig.ScenarioTerrainDistanceMeters.Value==GloomhavenVR.FrameDefaults.ScenarioTerrainDistanceMeters, "VR distance threshold is platform-independent");
+            Check(PerfConfig.VisibleIdleAnimationIntervalSeconds.Value==(i==0?GloomhavenVR.FrameDefaults.VisibleIdleAnimationIntervalSeconds:0f), "visible idle motion compromise is opt-in on PC profiles");
+            Check(PerfConfig.SharedEnvironmentMaterialReads.Value && PerfConfig.SharedUiWindowReads.Value, "exact work removal is selectable on every platform");
             foreach(var file in ModuleConfig.Snapshot()) Check(file.Value.SaveOnConfigSet, "autosave flags restored for every file");
         }
         Check(GraphicsProfiles.Apply(0), "can return to standalone after high-end");
@@ -41,6 +49,19 @@ internal static class Program
         Check(PerfConfig.ScenarioPlayerFigureDetailPercent.Value==0 && PerfConfig.ScenarioEnemyFigureDetailPercent.Value==0 && !WorldUIConfig.DesktopMirrorLeftEye.Value, "standalone figure and desktop defaults apply on PC too");
         RenderQuality.MsaaLevel!.Value=4;
         Check(RenderQuality.MsaaLevel.Value==4, "later individual edit is not overwritten by stored profile");
+        PerfConfig.ScenarioCheapWallShading.Value=false;
+        PerfConfig.ScenarioExplicitEnvironmentInstancing.Value=false;
+        PerfConfig.ScenarioTerrainDetailPercent.Value=75;
+        PerfConfig.ScenarioDistantTerrainDetailPercent.Value=25;
+        PerfConfig.VisibleIdleAnimationIntervalSeconds.Value=0f;
+        PerfConfig.SharedEnvironmentMaterialReads.Value=false;
+        PerfConfig.SharedUiWindowReads.Value=false;
+        Check(!PerfConfig.ScenarioCheapWallShading.Value && !PerfConfig.ScenarioExplicitEnvironmentInstancing.Value,
+            "individual rendering toggles remain independently editable after preset");
+        Check(PerfConfig.ScenarioTerrainDetailPercent.Value==75 && PerfConfig.ScenarioDistantTerrainDetailPercent.Value==25,
+            "near and distant detail choices remain independent after preset");
+        Check(PerfConfig.VisibleIdleAnimationIntervalSeconds.Value==0f && !PerfConfig.SharedEnvironmentMaterialReads.Value && !PerfConfig.SharedUiWindowReads.Value,
+            "every added animation/cache choice retains an explicit original path");
         int calls=native.Calls; var names=QualitySettings.names; QualitySettings.names=new[]{"Good"};
         Check(!GraphicsProfiles.Apply(0) && native.Calls==calls && RenderQuality.MsaaLevel.Value==4, "missing native level leaves tuned VR controls untouched");
         QualitySettings.names=names; native.ThrowOnCallback=true;

@@ -44,7 +44,7 @@ namespace GloomhavenVR.Core;
 /// RemoteContentInterval is retained as an INERT compatibility key: observer-side delay is not
 /// an approved exception to the owner's board presentation.</para>
 /// </summary>
-internal static class PerfConfig
+internal static partial class PerfConfig
 {
     private static ConfigFile? _file;
 
@@ -409,6 +409,7 @@ internal static class PerfConfig
         if (_file != null)
             return;
         _file = ModuleConfig.Create("perf");
+        BindFrameRendering(_file);
 
         // Maintainer ruling 2026-10-01: explicit reversible scenery compromises are needed
         // for Frame standalone large scenarios. BepInEx retains existing saved values;

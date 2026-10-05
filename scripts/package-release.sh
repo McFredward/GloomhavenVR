@@ -43,10 +43,12 @@ CONFIG=Release
 BUNDLE="$ROOT/prebuilt/gloomhavenvr.bundle"
 TOWN_BUNDLE="$ROOT/prebuilt/ghvr-town.bundle"
 TOWN_VOICES_BUNDLE="$ROOT/prebuilt/ghvr-town-voices.bundle"
+ENVIRONMENT_BUNDLE="$ROOT/prebuilt/ghvr-environment.bundle"
 if [[ "${GHVR_USE_LOCAL_BUNDLE:-0}" == "1" ]]; then
     BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/Bundles/gloomhavenvr.bundle"
     TOWN_BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/TownServices/ghvr-town.bundle"
     TOWN_VOICES_BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/TownServices/ghvr-town-voices.bundle"
+    ENVIRONMENT_BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/Environment/ghvr-environment.bundle"
     if [[ ! -f "$BUNDLE" ]]; then
         echo "error: GHVR_USE_LOCAL_BUNDLE=1 requested a missing local bundle: $BUNDLE" >&2
         exit 1
@@ -58,6 +60,10 @@ if [[ ! -f "$TOWN_BUNDLE" ]]; then
 fi
 if [[ ! -f "$TOWN_VOICES_BUNDLE" ]]; then
     echo "error: missing town-service voice bundle: $TOWN_VOICES_BUNDLE" >&2
+    exit 1
+fi
+if [[ ! -f "$ENVIRONMENT_BUNDLE" ]]; then
+    echo "error: missing environment asset bundle: $ENVIRONMENT_BUNDLE" >&2
     exit 1
 fi
 echo "Asset bundle source: $BUNDLE"
@@ -167,6 +173,7 @@ fi
 
 cp "$TOWN_BUNDLE" "$PLUGDIR/ghvr-town.bundle"
 cp "$TOWN_VOICES_BUNDLE" "$PLUGDIR/ghvr-town-voices.bundle"
+cp "$ENVIRONMENT_BUNDLE" "$PLUGDIR/ghvr-environment.bundle"
 cp "$FIGURE_INDEX" "$PLUGDIR/"
 cp "${FIGURE_BANKS[@]}" "$PLUGDIR/"
 
@@ -242,6 +249,7 @@ for path in \
     "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll" \
     "BepInEx/plugins/GloomhavenVR/ghvr-town.bundle" \
     "BepInEx/plugins/GloomhavenVR/ghvr-town-voices.bundle" \
+    "BepInEx/plugins/GloomhavenVR/ghvr-environment.bundle" \
     "BepInEx/plugins/GloomhavenVR/ghvr-figure-meshes-index.json" \
     "BepInEx/plugins/GloomhavenVR/LICENSE.txt" \
     "BepInEx/plugins/GloomhavenVR/Licenses/SOURCES.txt" \

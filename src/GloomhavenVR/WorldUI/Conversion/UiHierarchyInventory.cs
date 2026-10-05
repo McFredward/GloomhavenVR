@@ -19,6 +19,9 @@ internal sealed class UiHierarchyInventory : IDisposable
     private bool _dirty = true;
     private bool _disposed;
     internal int Revision { get; private set; }
+    // Read only by the synchronous converted-panel pass. Native reparenting and activation
+    // can occur between panel callbacks without changing UIWindow's registry membership.
+    internal static int HierarchyRevision { get; private set; }
     internal int Rebuilds { get; private set; }
     internal bool IsDirty => _dirty;
     internal Transform Root => _root;
@@ -50,7 +53,7 @@ internal sealed class UiHierarchyInventory : IDisposable
     {
         if (_disposed) return;
         if (hierarchy) _dirty = true;
-        unchecked { Revision++; }
+        unchecked { Revision++; HierarchyRevision++; }
     }
 
     private void Detach()

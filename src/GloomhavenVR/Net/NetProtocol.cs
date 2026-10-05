@@ -586,7 +586,27 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 626;
+    public const ushort ModBuild = 627;
+
+    // ModBuild 627 — common PC/Frame reversible rendering handover after NPC626.
+    // Merge the reviewed isolated Build625-based Frame candidate only after the
+    // multiplayer delivery/print/return corrections reached dev. Nine independent
+    // live controls cover verified private environment mesh copies, bounded camera
+    // instancing, cheap continuous wall shading, near/distant 3D wall/pillar detail,
+    // visible event-free idle pose sampling and exact scoped material/UI reads.
+    // Frame detection seeds only fresh entries; existing profiles survive, eye
+    // resolution is unchanged, and PC/Frame ship the same runtime/asset archive.
+    // The private environment bundle retains exact source provenance and on-demand
+    // stream validation. Native geometry/material/collision remain original; masks
+    // are camera leases revoked before native writes/cloning, disable and teardown.
+    // Unsupported/changed sources keep native rendering. Doors/floors/tactical
+    // contents retain originals, near interaction restores full wall geometry,
+    // native wall dissolve remains continuous, and no 2.5D board is introduced.
+    // Idle sampling excludes transitions/actions/held/eventful rigs and all town
+    // residents. Immediate nonvirtual mirror getter reuse preserves callback/write
+    // order and original virtual reads; it changes no shared content or wire cadence.
+    // Preserve all NPC626 clocks, native originals, print geometry and guide rules.
+    // Source/native fixtures and coverage counters are not new headset FPS evidence.
 
     // ModBuild 626 — paired Build625 enhancement admission and continuous town returns.
     // The observer repeatedly rejected the game's exact HeroHighlight_Brute wrapper.

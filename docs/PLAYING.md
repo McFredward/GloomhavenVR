@@ -82,6 +82,12 @@ button rotates 60°. Confirm on the control board. Both sticks stay available fo
 holding **B + Y** still recenters you. Change the binding under **Comfort ▸ Hands & aiming ▸
 Area-effect rotation**. Melee area effects face the hex you point at.
 
+**Scenario graphics:** **VR Options ▸ Graphics** provides separate controls for wall
+shading, 3D wall detail, distant detail and idle pose intervals. Lower detail retains
+the 3D board; longer idle intervals make idle body motion less smooth. Set detail to
+100% and the idle interval to 0 to restore normal presentation. PC and Steam Frame
+offer the same controls; fresh Frame settings favour lower detail.
+
 ## Windows
 
 Move a window by grabbing its top bar directly or with the laser. While holding it with the laser,

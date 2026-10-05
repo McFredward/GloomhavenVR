@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -31,6 +32,19 @@ internal static class ScenarioEnvironmentBudget
 
     internal static void ConfigureStructuralBatching(Func<bool> enabled) => _structuralEnabled = enabled;
     private static bool StructuralEnabled => _structuralEnabled?.Invoke() == true;
+    private static Action<GameObject>? _terrainQueue;
+    private static Action<Renderer>? _terrainReady, _terrainBeforeWrite;
+    private static Action? _terrainBeforeContent, _otherBeforeContent;
+    internal static void ConfigureBeforeNativeContentChange(Action beforeContent) => _otherBeforeContent = beforeContent;
+    private static Func<Renderer, bool>? _terrainOwns;
+    internal static void ConfigureTerrainIntegration(Action<GameObject> queue, Action<Renderer> ready,
+        Action<Renderer> beforeWrite, Action beforeContent, Func<Renderer, bool> owns)
+    { _terrainQueue = queue; _terrainReady = ready; _terrainBeforeWrite = beforeWrite; _terrainBeforeContent = beforeContent; _terrainOwns = owns; }
+    internal static bool OwnsRenderSubstitute(Renderer renderer) => _driver != null && _driver.OwnsSubstitute(renderer);
+    internal static Material CanonicalMaterial(Material material) => _driver?.CanonicalMaterial(material) ?? material;
+    private static bool TerrainOwns(Renderer renderer) => _terrainOwns?.Invoke(renderer) == true;
+    internal static bool HasNativeCommandBufferConsumers(Camera camera) => camera != null
+        && camera.commandBufferCount > 0 && (_driver == null || _driver.HasForeignCommands(camera));
 
     // Actual queued discovery/substitute construction only. Ongoing cull leases and
     // material revalidation are steady presentation, not a reason to keep a spinner up.
@@ -41,13 +55,17 @@ internal static class ScenarioEnvironmentBudget
     // synchronously, before native/wall effects can encounter an old chunk or mask.
     internal static void BeforeNativeRendererWrite(Renderer renderer)
     {
-        if (_failed || renderer == null) return;
-        try { _driver?.BeforeNativeRendererWrite(renderer); }
+        if (renderer == null) return;
+        try { _terrainBeforeWrite?.Invoke(renderer); if (!_failed) _driver?.BeforeNativeRendererWrite(renderer); }
         catch (Exception error) { StopAfterFailure(error); }
     }
     internal static void BeforeNativeContentChange()
     {
-        try { _driver?.RecoverRenderLeases(); }
+        try
+        {
+            try { _otherBeforeContent?.Invoke(); }
+            finally { try { _terrainBeforeContent?.Invoke(); } finally { _driver?.RecoverRenderLeases(); } }
+        }
         catch (Exception error) { StopAfterFailure(error); }
     }
 
@@ -62,6 +80,7 @@ internal static class ScenarioEnvironmentBudget
             VRSession.Harmony?.PatchAll(typeof(ProceduralMapTile_Show_EnvironmentBudgetPatch));
             VRSession.Harmony?.PatchAll(typeof(MaterialLoaderData_Ready_EnvironmentBudgetPatch));
             VRSession.Harmony?.PatchAll(typeof(SceneController_Loaded_EnvironmentBudgetPatch));
+            VRSession.Harmony?.PatchAll(typeof(ApparanceEntity_EnvironmentBudgetPatch));
         }
         catch (Exception error) { StopAfterFailure(error); }
     }
@@ -77,11 +96,11 @@ internal static class ScenarioEnvironmentBudget
         _failed = false;
     }
 
-    internal static void Placed(GameObject root) { if (!_failed) _driver?.QueueRoot(root); }
+    internal static void Placed(GameObject root) { _terrainQueue?.Invoke(root); if (!_failed) _driver?.QueueRoot(root); }
     internal static void MaterialReady(Renderer renderer)
     {
-        if (_failed) return;
-        try { _driver?.MaterialReady(renderer); }
+        if (renderer == null) return;
+        try { _terrainReady?.Invoke(renderer); if (!_failed) _driver?.MaterialReady(renderer); }
         catch (Exception error) { StopAfterFailure(error); }
     }
     internal static void BeforeLoadingComplete() { if (!_failed) _driver?.FinishLoading(); }
@@ -240,7 +259,9 @@ internal static class ScenarioEnvironmentBudget
         internal ProceduralMapTile Tile = null!;
         internal bool Floor;
         internal bool Structural;
+        internal bool TerrainOwned;
         internal Mesh Mesh = null!;
+        internal Mesh? ReadableMesh;
         internal Material[] Original = Array.Empty<Material>();
         internal Material[]? Applied;
         internal bool IsApplied()
@@ -299,6 +320,7 @@ internal static class ScenarioEnvironmentBudget
         internal readonly List<Surface> Sources = new();
         internal readonly List<Matrix4x4> Matrices = new();
         private bool _owned;
+        internal int MaskedSourceCount => _owned ? Sources.Count : 0;
         private readonly List<Material> _materialScratch = new(1);
 
         internal void Validate()
@@ -311,7 +333,7 @@ internal static class ScenarioEnvironmentBudget
                 MeshRenderer r = source.Renderer;
                 _materialScratch.Clear();
                 if (r != null) r.GetSharedMaterials(_materialScratch);
-                valid = r != null && r.enabled && r.gameObject.activeInHierarchy && !r.HasPropertyBlock()
+                valid = r != null && !TerrainOwns(r) && r.enabled && r.gameObject.activeInHierarchy && !r.HasPropertyBlock()
                     && r.forceRenderingOff == _owned && source.Filter != null
                     && source.Filter.sharedMesh == source.Mesh && _materialScratch.Count == 1
                     && _materialScratch[0] == Material && Renderer != null && SameRenderFlags(r, Renderer)
@@ -345,6 +367,155 @@ internal static class ScenarioEnvironmentBudget
             if (Mesh != null) UnityEngine.Object.Destroy(Mesh);
         }
     }
+
+    private sealed class InstanceBatch
+    {
+        private static readonly FieldInfo? BufferPointer = typeof(CommandBuffer).GetField("m_Ptr", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static bool SameBuffer(CommandBuffer a, CommandBuffer b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            // Camera.GetCommandBuffers creates new managed wrappers on Unity2021.3.5.
+            // Names/counts cannot establish ownership: compare the actual nonzero native
+            // command-buffer identity, and fail open if this runtime hides that field.
+            if (BufferPointer == null) return false;
+            object? first = BufferPointer.GetValue(a), second = BufferPointer.GetValue(b);
+            return first is IntPtr pointer && pointer != IntPtr.Zero && second is IntPtr other && pointer == other;
+        }
+        internal Mesh Mesh = null!;
+        internal readonly List<Surface> Sources = new();
+        internal Material[] Materials = Array.Empty<Material>();
+        internal Material[] DrawMaterials = Array.Empty<Material>();
+        private readonly Matrix4x4[] _matrices = new Matrix4x4[MaxBatchMembers];
+        private readonly Bounds[] _bounds = new Bounds[MaxBatchMembers];
+        private readonly List<Material> _scratch = new();
+        private bool _owned;
+        internal int MaskedSourceCount => _owned ? Sources.Count : 0;
+        private sealed class Submission { internal Camera Camera = null!; internal CommandBuffer Buffer = null!; internal bool Active; }
+        private readonly List<Submission> _submitted = new();
+
+        private bool Valid(Camera camera)
+        {
+            if (camera == null || camera.actualRenderingPath != RenderingPath.Forward || camera.depthTextureMode != DepthTextureMode.None || !SystemInfo.supportsInstancing
+                || Mesh == null || Sources.Count < 2 || Materials.Length != Mesh.subMeshCount) return false;
+            Surface first = Sources[0];
+            MeshRenderer prototype = first.Renderer;
+            if (prototype == null || (camera.cullingMask & (1 << prototype.gameObject.layer)) == 0) return false;
+            for (int index = 0; index < Sources.Count; index++)
+            {
+                Surface source = Sources[index]; MeshRenderer r = source.Renderer;
+                _scratch.Clear(); if (r != null) r.GetSharedMaterials(_scratch);
+                if (r == null || TerrainOwns(r) || !r.enabled || !r.gameObject.activeInHierarchy || r.HasPropertyBlock()
+                    || r.forceRenderingOff != _owned || source.Filter == null || source.Filter.sharedMesh != Mesh
+                    || _scratch.Count != Materials.Length || !SameRenderFlags(r, prototype)
+                    || r.gameObject.layer != prototype.gameObject.layer || !SupportedInstanceFlags(r)) return false;
+                for (int sub = 0; sub < Materials.Length; sub++)
+                    if (_scratch[sub] != Materials[sub] || !CompatibleMaterial(source.Original[sub], source.Floor || source.Structural)
+                        || !SupportsInstanceMaterial(Materials[sub])) return false;
+                _matrices[index] = r.transform.localToWorldMatrix;
+                if (_matrices[index].determinant <= 0f) return false;
+                _bounds[index] = r.bounds;
+                // Instancing changes opaque submission order. Overlapping native surfaces,
+                // particularly multiple material slots on coplanar floors, retain originals.
+                for (int previous = 0; previous < index; previous++)
+                    if (_bounds[previous].Intersects(_bounds[index])) return false;
+            }
+            return true;
+        }
+        internal void Submit(Camera camera, bool foreignCommands)
+        {
+            Unmask();
+            if (foreignCommands || !Valid(camera)) return;
+            // A queued Graphics.DrawMeshInstanced cannot be revoked when a later native
+            // pre-cull callback changes a wall or creates a room. Keep a private command
+            // buffer attached to this exact camera instead; a native write clears/removes
+            // it synchronously before originals are restored, so neither old nor double
+            // geometry survives. Unsupported shadows/probes/render paths stay original.
+            Submission? submission = null;
+            foreach (Submission known in _submitted) if (known.Camera == camera) { submission = known; break; }
+            if (submission == null)
+            {
+                if (_submitted.Count >= 8) return;
+                submission = new Submission { Camera = camera, Buffer = new CommandBuffer { name = "GloomhavenVR.EnvironmentInstances" } };
+                _submitted.Add(submission);
+            }
+            CommandBuffer buffer = submission.Buffer; buffer.Clear();
+            try
+            {
+                for (int sub = 0; sub < Materials.Length; sub++)
+                {
+                    Material draw = DrawMaterials[sub];
+                    if (draw != Materials[sub]) { draw.CopyPropertiesFromMaterial(Materials[sub]); draw.enableInstancing = true; }
+                    buffer.DrawMeshInstanced(Mesh, sub, draw, 0, _matrices, Sources.Count);
+                }
+                camera.AddCommandBuffer(CameraEvent.BeforeForwardOpaque, buffer);
+                submission.Active = true;
+                Mask();
+            }
+            catch { camera.RemoveCommandBuffer(CameraEvent.BeforeForwardOpaque, buffer); buffer.Clear(); submission.Active = false; Unmask(); throw; }
+        }
+        private void Mask()
+        {
+            foreach (Surface source in Sources) source.Renderer.forceRenderingOff = true;
+            _owned = true;
+        }
+        internal void RestoreOuterMask(Camera camera)
+        {
+            bool submitted = false;
+            foreach (Submission submission in _submitted) submitted |= submission.Active && submission.Camera == camera;
+            if (submitted && Valid(camera)) Mask();
+            else if (submitted) EndCamera(camera);
+        }
+        internal void Unmask()
+        {
+            if (_owned) foreach (Surface source in Sources)
+                if (source.Renderer != null && source.Renderer.forceRenderingOff) source.Renderer.forceRenderingOff = false;
+            _owned = false;
+        }
+        internal int ActiveBuffers(Camera camera)
+        { int count = 0; foreach (Submission submission in _submitted) if (submission.Active && submission.Camera == camera) count++; return count; }
+        internal bool OwnsBuffer(Camera camera, CommandBuffer buffer)
+        { foreach (Submission submission in _submitted) if (submission.Active && submission.Camera == camera && SameBuffer(submission.Buffer, buffer)) return true; return false; }
+        internal void EndCamera(Camera camera)
+        {
+            Unmask();
+            for (int i = _submitted.Count - 1; i >= 0; i--)
+            {
+                Submission submission = _submitted[i];
+                if (submission.Camera != camera) continue;
+                if (submission.Camera != null) submission.Camera.RemoveCommandBuffer(CameraEvent.BeforeForwardOpaque, submission.Buffer);
+                submission.Buffer.Clear(); submission.Active = false;
+            }
+        }
+        internal void ClearCameras()
+        {
+            Unmask();
+            foreach (Submission submission in _submitted)
+            {
+                if (submission.Camera != null) submission.Camera.RemoveCommandBuffer(CameraEvent.BeforeForwardOpaque, submission.Buffer);
+                submission.Buffer.Clear(); submission.Active = false;
+            }
+        }
+        internal void Dispose()
+        {
+            ClearCameras();
+            foreach (Submission submission in _submitted) submission.Buffer.Release();
+            _submitted.Clear();
+            for (int i = 0; i < DrawMaterials.Length; i++)
+                if (DrawMaterials[i] != null && DrawMaterials[i] != Materials[i]) UnityEngine.Object.Destroy(DrawMaterials[i]);
+        }
+    }
+    private static bool SupportsInstanceMaterial(Material material) => material != null && material.shader != null
+        && material.shader.isSupported && material.shader.keywordSpace.FindKeyword("INSTANCING_ON").isValid
+        && (material.enableInstancing || material.shader.name == SimpleShader);
+
+    private static bool SupportedInstanceFlags(MeshRenderer r) =>
+        !(r.lightmapIndex >= 0 && r.lightmapIndex < 65534) && r.probeAnchor == null
+        && r.shadowCastingMode == ShadowCastingMode.Off && !r.receiveShadows
+        && r.lightProbeUsage == LightProbeUsage.Off
+        && r.reflectionProbeUsage == ReflectionProbeUsage.Off
+        && r.motionVectorGenerationMode != MotionVectorGenerationMode.ForceNoMotion
+        && r.renderingLayerMask == 1u && r.allowOcclusionWhenDynamic
+        && r.GetComponentInParent<LODGroup>(true) == null;
 
     private static bool SameRenderFlags(MeshRenderer a, MeshRenderer b) =>
         a.shadowCastingMode == b.shadowCastingMode && a.receiveShadows == b.receiveShadows
@@ -394,12 +565,33 @@ internal static class ScenarioEnvironmentBudget
         private readonly Dictionary<int, Ambient> _ambient = new();
         private readonly Dictionary<Material, Material> _materials = new();
         private readonly Dictionary<Material, Material> _originalByVariant = new();
+        private readonly Dictionary<Material, bool> _preCullMaterialVerdicts = new();
         private readonly List<ProceduralMapTile> _tiles = new();
         private readonly List<Batch> _batches = new();
         private readonly Dictionary<int, Batch> _batchBySource = new();
         private readonly Queue<List<Surface>> _parts = new();
+        private readonly List<InstanceBatch> _instances = new();
+        private readonly Dictionary<int, InstanceBatch> _instanceBySource = new();
+        private readonly List<Camera> _renderCameras = new();
+        private bool _instancesOn, _meshBankOn;
         private readonly List<int> _dead = new();
         private bool _batchOn, _structuralOn, _simpleOn, _active, _buildPending;
+        internal Material CanonicalMaterial(Material material) => material != null && _originalByVariant.TryGetValue(material, out Material original) ? original : material!;
+        internal bool OwnsSubstitute(Renderer r) => r != null && (_batchBySource.ContainsKey(r.GetInstanceID()) || _instanceBySource.ContainsKey(r.GetInstanceID()));
+        internal bool HasForeignCommands(Camera camera)
+        {
+            int owned = 0; foreach (InstanceBatch batch in _instances) owned += batch.ActiveBuffers(camera);
+            if (owned != camera.commandBufferCount) return true;
+            CommandBuffer[] actual = camera.GetCommandBuffers(CameraEvent.BeforeForwardOpaque);
+            if (actual.Length != owned) return true;
+            foreach (CommandBuffer buffer in actual)
+            {
+                bool known = false;
+                foreach (InstanceBatch batch in _instances) known |= batch.OwnsBuffer(camera, buffer);
+                if (!known) return true;
+            }
+            return false;
+        }
         private int _effects = 100, _unreadable, _renderDepth;
         private Shader? _shader;
 
@@ -416,7 +608,8 @@ internal static class ScenarioEnvironmentBudget
         internal void RecoverRenderLeases()
         {
             if (_renderDepth == 0) return;
-            _renderDepth = 0;
+            _renderDepth = 0; _renderCameras.Clear();
+            foreach (InstanceBatch batch in _instances) batch.ClearCameras();
             foreach (Batch batch in _batches) batch.Unmask();
             foreach (Ambient ambient in _ambient.Values) ambient.Unmask();
         }
@@ -440,13 +633,13 @@ internal static class ScenarioEnvironmentBudget
         internal void QueueRoot(GameObject root)
         {
             if (!VRSession.IsRunning || root == null || !(PerfConfig.StaticScenarioBatchesOn
-                || StructuralEnabled || PerfConfig.SimpleEnvironmentShadingOn || PerfConfig.EnvironmentEffectsDensityPercent < 100)) return;
+                || StructuralEnabled || PerfConfig.EnvironmentDrawInstancingOn || PerfConfig.SimpleEnvironmentShadingOn || PerfConfig.EnvironmentEffectsDensityPercent < 100)) return;
             if (_queued.Add(root.GetInstanceID())) _pending.Enqueue(root.transform);
         }
         internal void MaterialReady(Renderer renderer)
         {
             if (renderer == null || !VRSession.IsRunning || !(PerfConfig.StaticScenarioBatchesOn
-                || StructuralEnabled || PerfConfig.SimpleEnvironmentShadingOn || PerfConfig.EnvironmentEffectsDensityPercent < 100)
+                || StructuralEnabled || PerfConfig.EnvironmentDrawInstancingOn || PerfConfig.SimpleEnvironmentShadingOn || PerfConfig.EnvironmentEffectsDensityPercent < 100)
                 || TileScope(renderer.transform, out _) == null) return;
             Settings();
             int id = renderer.GetInstanceID();
@@ -486,13 +679,16 @@ internal static class ScenarioEnvironmentBudget
             bool simple = VRSession.IsRunning && PerfConfig.SimpleEnvironmentShadingOn;
             bool structural = VRSession.IsRunning && StructuralEnabled && simple;
             int effects = VRSession.IsRunning ? PerfConfig.EnvironmentEffectsDensityPercent : 100;
-            bool active = batch || structural || simple || effects < 100;
-            if (batch == _batchOn && structural == _structuralOn && simple == _simpleOn && effects == _effects && active == _active) return;
+            bool instances = VRSession.IsRunning && PerfConfig.EnvironmentDrawInstancingOn;
+            bool bank = VRSession.IsRunning && PerfConfig.EnvironmentMeshBankOn;
+            bool active = batch || structural || instances || simple || effects < 100;
+            if (batch == _batchOn && structural == _structuralOn && simple == _simpleOn && effects == _effects && active == _active && instances == _instancesOn && bank == _meshBankOn) return;
             ReleaseBatches();
             foreach (Surface surface in _surfaces.Values) surface.RestoreMaterial();
             RestoreClonedMaterials();
             foreach (Material material in _materials.Values) if (material != null) UnityEngine.Object.Destroy(material);
             _materials.Clear(); _originalByVariant.Clear();
+            _instancesOn = instances; _meshBankOn = bank;
             _batchOn = batch; _structuralOn = structural; _simpleOn = simple; _effects = effects; _active = active;
             foreach (Surface surface in _surfaces.Values) ApplyMaterial(surface);
             foreach (Ambient ambient in _ambient.Values) ambient.Apply(Hide(ambient.Hash));
@@ -613,7 +809,7 @@ internal static class ScenarioEnvironmentBudget
 
         private void ApplyMaterial(Surface surface)
         {
-            if (!_simpleOn || (surface.Structural && !_structuralOn) || surface.Renderer == null) return;
+            if (!_simpleOn || (surface.Structural && !_structuralOn) || surface.Renderer == null || TerrainOwns(surface.Renderer)) return;
             if (surface.Renderer.HasPropertyBlock()) return;
             foreach (Material original in surface.Original)
                 if (!CompatibleMaterial(original, surface.Floor || surface.Structural)) return;
@@ -650,12 +846,13 @@ internal static class ScenarioEnvironmentBudget
             foreach (var pair in _ambient) if (pair.Value.System == null) _dead.Add(pair.Key);
             foreach (int id in _dead) _ambient.Remove(id);
             _dead.Clear();
+            if (_instancesOn) PrepareInstances();
             if (!_batchOn && !_structuralOn) return;
             var groups = new Dictionary<BatchKey, List<Surface>>();
             foreach (Surface surface in _surfaces.Values)
             {
                 MeshRenderer renderer = surface.Renderer;
-                if (renderer == null || _batchBySource.ContainsKey(renderer.GetInstanceID())
+                if (renderer == null || TerrainOwns(renderer) || _instanceBySource.ContainsKey(renderer.GetInstanceID()) || _batchBySource.ContainsKey(renderer.GetInstanceID())
                     || !(surface.Floor ? _batchOn : surface.Structural && _structuralOn && surface.IsApplied()) || surface.Tile == null || surface.Mesh == null
                     || renderer.transform.localToWorldMatrix.determinant <= 0f
                     || !renderer.enabled || !renderer.gameObject.activeInHierarchy || renderer.forceRenderingOff
@@ -663,7 +860,9 @@ internal static class ScenarioEnvironmentBudget
                     || surface.Mesh.subMeshCount != 1 || renderer.sharedMaterials.Length != 1
                     || renderer.GetComponentInParent<LODGroup>(true) != null
                     || (renderer.lightmapIndex >= 0 && renderer.lightmapIndex < 65534)) continue;
-                if (!surface.Mesh.isReadable) { _unreadable++; continue; }
+                surface.ReadableMesh = surface.Mesh.isReadable ? surface.Mesh : null;
+                if (surface.ReadableMesh == null && _meshBankOn && ScenarioEnvironmentMeshBank.TryGetExact(surface.Mesh, out Mesh exact)) surface.ReadableMesh = exact;
+                if (surface.ReadableMesh == null) { _unreadable++; continue; }
                 Material material = renderer.sharedMaterial;
                 if (material == null) continue;
                 var key = new BatchKey(surface, material);
@@ -686,6 +885,51 @@ internal static class ScenarioEnvironmentBudget
             }
         }
 
+        private void PrepareInstances()
+        {
+            if (!SystemInfo.supportsInstancing) return;
+            var groups = new Dictionary<(BatchKey, int), List<Surface>>();
+            foreach (Surface surface in _surfaces.Values)
+            {
+                MeshRenderer r = surface.Renderer;
+                if (r == null || TerrainOwns(r) || _batchBySource.ContainsKey(surface.Id) || _instanceBySource.ContainsKey(surface.Id)
+                    || surface.Mesh == null || surface.Filter == null || surface.Filter.sharedMesh != surface.Mesh
+                    || !r.enabled || !r.gameObject.activeInHierarchy || r.forceRenderingOff || r.HasPropertyBlock()
+                    || surface.Tile == null || !SupportedInstanceFlags(r)) continue;
+                Material[] materials = r.sharedMaterials;
+                if (materials.Length != surface.Mesh.subMeshCount || materials.Length == 0) continue;
+                bool supported = true;
+                foreach (Material material in materials)
+                    supported &= material != null && CompatibleMaterial(material, surface.Floor || surface.Structural)
+                        && SupportsInstanceMaterial(material);
+                if (!supported) continue;
+                var key = (new BatchKey(surface, materials[0]), surface.Mesh.GetInstanceID());
+                if (!groups.TryGetValue(key, out List<Surface> group)) groups.Add(key, group = new List<Surface>());
+                group.Add(surface);
+            }
+            foreach (List<Surface> group in groups.Values)
+                for (int start = 0; start < group.Count; start += MaxBatchMembers)
+                {
+                    int count = Math.Min(MaxBatchMembers, group.Count - start);
+                    if (count < 2) continue;
+                    var batch = new InstanceBatch { Mesh = group[start].Mesh, Materials = group[start].Renderer.sharedMaterials };
+                    for (int i = start; i < start + count; i++)
+                    {
+                        Surface candidate = group[i];
+                        bool overlaps = false;
+                        foreach (Surface admitted in batch.Sources) overlaps |= admitted.Renderer.bounds.Intersects(candidate.Renderer.bounds);
+                        if (!overlaps && SameMaterials(candidate.Renderer.sharedMaterials, batch.Materials)) batch.Sources.Add(candidate);
+                    }
+                    if (batch.Sources.Count < 2) continue;
+                    batch.DrawMaterials = new Material[batch.Materials.Length];
+                    for (int sub = 0; sub < batch.Materials.Length; sub++)
+                        batch.DrawMaterials[sub] = batch.Materials[sub].enableInstancing ? batch.Materials[sub]
+                            : new Material(batch.Materials[sub]) { name = "GloomhavenVR.EnvironmentInstanceMaterial", enableInstancing = true };
+                    _instances.Add(batch);
+                    foreach (Surface source in batch.Sources) _instanceBySource.Add(source.Id, batch);
+                }
+        }
+
         private void QueuePortion(List<Surface> members)
         { if (members.Count > 1) _parts.Enqueue(new List<Surface>(members)); }
 
@@ -697,7 +941,7 @@ internal static class ScenarioEnvironmentBudget
                 // A native hide, material load or room change may occur after preparation.
                 // Revalidate admission rather than publishing a stale substitute.
                 members.RemoveAll(s => s.Renderer == null || s.Filter == null || s.Tile == null
-                    || s.Mesh == null || !s.Mesh.isReadable || s.Filter.sharedMesh != s.Mesh
+                    || s.Mesh == null || s.ReadableMesh == null || !s.ReadableMesh.isReadable || TerrainOwns(s.Renderer) || s.Filter.sharedMesh != s.Mesh
                     || s.Renderer.forceRenderingOff || !s.Renderer.enabled
                     || !s.Renderer.gameObject.activeInHierarchy || s.Renderer.HasPropertyBlock()
                     || s.Renderer.sharedMaterials.Length != 1
@@ -730,16 +974,47 @@ internal static class ScenarioEnvironmentBudget
             // MaterialLoader completion. Revalidate the original, not saved properties
             // copied into our variant. No hierarchy query or material-array allocation
             // is needed on the unchanged path. Restore before either eye is culled.
+            // Build624's three-room Frame capture measures 3.653ms/frame in PreCull.
+            // Many admitted surfaces share one original; repeating that material's
+            // native shader/property/keyword reads per renderer adds no new evidence
+            // within this synchronous callback. Reuse only this invocation's verdict:
+            // the next camera/eye must see in-place native edits immediately. The
+            // renderer-specific property-block veto remains live for every surface.
+            _preCullMaterialVerdicts.Clear();
             _dead.Clear();
             foreach (var pair in _surfaces)
             {
                 Surface surface = pair.Value;
-                if (surface.Applied == null || surface.Renderer == null) continue;
-                bool compatible = !surface.Renderer.HasPropertyBlock();
+                if (surface.Renderer == null) continue;
+                if (TerrainOwns(surface.Renderer))
+                {
+                    if (!surface.TerrainOwned) { InvalidateBatch(surface.Id); surface.RestoreMaterial(); surface.TerrainOwned = true; }
+                    continue;
+                }
+                if (surface.TerrainOwned)
+                {
+                    surface.TerrainOwned = false;
+                    if (surface.Filter != null && surface.Filter.sharedMesh == surface.Mesh
+                        && SameMaterials(surface.Renderer.sharedMaterials, surface.Original)) ApplyMaterial(surface);
+                    _buildPending = true;
+                }
+                if (surface.Applied == null) continue;
+                bool compatible = !surface.Renderer.HasPropertyBlock() && (surface.Floor || surface.Structural);
                 foreach (Material original in surface.Original)
-                    compatible &= CompatibleMaterial(original, surface.Floor || surface.Structural);
+                {
+                    if (original == null) { compatible = false; continue; }
+                    bool share = PerfConfig.SharedEnvironmentMaterialReadsOn;
+                    bool materialCompatible;
+                    if (!share || !_preCullMaterialVerdicts.TryGetValue(original, out materialCompatible))
+                    {
+                        materialCompatible = CompatibleMaterial(original, true);
+                        if (share) _preCullMaterialVerdicts.Add(original, materialCompatible);
+                    }
+                    compatible &= materialCompatible;
+                }
                 if (!compatible) _dead.Add(pair.Key);
             }
+            _preCullMaterialVerdicts.Clear();
             foreach (int id in _dead)
             {
                 Surface surface = _surfaces[id];
@@ -752,6 +1027,11 @@ internal static class ScenarioEnvironmentBudget
 
         private void InvalidateBatch(int sourceId)
         {
+            if (_instanceBySource.TryGetValue(sourceId, out InstanceBatch instances))
+            {
+                foreach (Surface source in instances.Sources) _instanceBySource.Remove(source.Id);
+                instances.Dispose(); _instances.Remove(instances); _buildPending = true;
+            }
             if (!_batchBySource.TryGetValue(sourceId, out Batch batch)) return;
             foreach (Surface source in batch.Sources) _batchBySource.Remove(source.Id);
             batch.Dispose(); _batches.Remove(batch); _buildPending = true;
@@ -773,7 +1053,7 @@ internal static class ScenarioEnvironmentBudget
                 {
                     Surface surface = members[i];
                     Matrix4x4 matrix = child.transform.worldToLocalMatrix * surface.Renderer.transform.localToWorldMatrix;
-                    combines[i] = new CombineInstance { mesh = surface.Mesh, subMeshIndex = 0, transform = matrix };
+                    combines[i] = new CombineInstance { mesh = surface.ReadableMesh, subMeshIndex = 0, transform = matrix };
                     batch.Sources.Add(surface); batch.Matrices.Add(matrix);
                 }
                 batch.Mesh = new Mesh { name = "GloomhavenVR.StaticScenarioChunkMesh" };
@@ -814,33 +1094,72 @@ internal static class ScenarioEnvironmentBudget
         }
         private void HandlePreCull(Camera camera)
         {
-            if (!_active || (_surfaces.Count == 0 && _batches.Count == 0 && _ambient.Count == 0)) return;
+            if (!isActiveAndEnabled || !_active || (_surfaces.Count == 0 && _batches.Count == 0 && _ambient.Count == 0)) return;
             // A native visibility callback can run after LateUpdate. Validation is idempotent
             // and precedes each camera's culling, including both eyes in MultiPass.
             using var scope = PerfMonitor.Scope("EnvironmentBudget.PreCull");
             try
             {
                 RetireChangedNativeMaterials();
-                _renderDepth++;
+                _renderDepth++; _renderCameras.Add(camera);
                 // DrawRenderer command buffers target exact native Renderer identities.
                 // Keep these sources available with native flags for command-buffer
                 // consumers; such cameras use originals, never a substitute mask.
-                if (camera != null && camera.commandBufferCount > 0)
+                bool foreignCommands = camera != null && HasNativeCommandBufferConsumers(camera);
+                PerfMonitor.Count("Environment.NativeBufferFallback", foreignCommands && (_batches.Count > 0 || _instances.Count > 0) ? 1 : 0);
+                if (camera != null && camera.commandBufferCount > 0 && foreignCommands)
                     foreach (Batch batch in _batches) { batch.Unmask(); }
                 else ValidateBatches();
+                foreach (InstanceBatch batch in _instances) if (camera != null) batch.Submit(camera, foreignCommands);
                 foreach (Ambient ambient in _ambient.Values) ambient.Mask(Hide(ambient.Hash));
             }
             catch (Exception error) { StopAfterFailure(error); }
         }
         private void HandlePostRender(Camera camera)
         {
-            if (_renderDepth <= 0 || --_renderDepth > 0) return;
+            if (_renderDepth <= 0) return;
+            if (_renderCameras.Count == 0 || _renderCameras[_renderCameras.Count - 1] != camera) { RecoverRenderLeases(); return; }
+            ReportCameraDrawCounts();
+            _renderCameras.RemoveAt(_renderCameras.Count - 1);
+            --_renderDepth;
+            foreach (InstanceBatch batch in _instances) batch.EndCamera(camera);
+            if (_renderDepth > 0)
+            {
+                Camera outer = _renderCameras[_renderCameras.Count - 1];
+                foreach (InstanceBatch batch in _instances) batch.RestoreOuterMask(outer);
+                return;
+            }
             foreach (Batch batch in _batches) batch.Unmask();
             foreach (Ambient ambient in _ambient.Values) ambient.Unmask();
+        }
+        private void ReportCameraDrawCounts()
+        {
+            if (!PerfMonitor.StepsActive) return;
+            int chunkSources = 0, chunkGroups = 0, instanceSources = 0, instanceGroups = 0;
+            foreach (Batch batch in _batches)
+            {
+                int count = batch.MaskedSourceCount;
+                chunkSources += count; if (count > 0) ++chunkGroups;
+            }
+            foreach (InstanceBatch batch in _instances)
+            {
+                int count = batch.MaskedSourceCount;
+                instanceSources += count; if (count > 0) ++instanceGroups;
+            }
+            // Count completed camera leases before restitution, after any late native
+            // writes have revoked obsolete geometry. These are per-camera sums, not
+            // prepared membership, scene renderer totals, draw-call counts or FPS.
+            PerfMonitor.Count("Environment.RenderCameras");
+            PerfMonitor.Count("Environment.ChunkSources", chunkSources);
+            PerfMonitor.Count("Environment.ChunkGroups", chunkGroups);
+            PerfMonitor.Count("Environment.InstanceSources", instanceSources);
+            PerfMonitor.Count("Environment.InstanceGroups", instanceGroups);
         }
         private void ValidateBatches() { foreach (Batch batch in _batches) batch.Validate(); }
         private void ReleaseBatches()
         {
+            foreach (InstanceBatch batch in _instances) batch.Dispose();
+            _instances.Clear(); _instanceBySource.Clear(); _renderCameras.Clear();
             foreach (Batch batch in _batches) batch.Dispose();
             _batches.Clear(); _batchBySource.Clear(); _parts.Clear(); _renderDepth = 0;
         }
@@ -853,6 +1172,7 @@ internal static class ScenarioEnvironmentBudget
                 + batched + " source renderers / " + _batches.Count + " chunks; " + _unreadable
                 + " unreadable originals retained; " + _materials.Count + " simpler materials; "
                 + (_structuralOn ? "audited structural chunks on; " : "structural chunks off; ")
+                + _instances.Count + " explicit instance groups; " + (_meshBankOn ? "verified private mesh bank on; " : "private mesh bank off; ")
                 + _ambient.Count + " identified ambient solvers; effects " + _effects + "%. Actual FPS remains a hardware measurement.");
         }
         private void RestoreClonedMaterials()
@@ -878,6 +1198,7 @@ internal static class ScenarioEnvironmentBudget
 
         internal void RestoreAll()
         {
+            _preCullMaterialVerdicts.Clear();
             ReleaseBatches();
             foreach (Surface surface in _surfaces.Values) surface.RestoreMaterial();
             foreach (Ambient ambient in _ambient.Values) ambient.Apply(false);
@@ -915,4 +1236,14 @@ internal static class SceneController_Loaded_EnvironmentBudgetPatch
 {
     private static void Prefix()
     { try { ScenarioEnvironmentBudget.BeforeLoadingComplete(); } catch (Exception e) { ScenarioEnvironmentBudget.StopAfterFailure(e); } }
+}
+
+// Apparance may clone in-scene sources while a camera lease is active. Restore all
+// original draw flags before Instantiate, rather than trying to heal an already masked clone.
+[HarmonyPatch(typeof(ApparanceEntity), nameof(ApparanceEntity.CreateInstance))]
+internal static class ApparanceEntity_EnvironmentBudgetPatch
+{
+    private static void Prefix() => ScenarioEnvironmentBudget.BeforeNativeContentChange();
+    private static void Postfix(GameObject __result)
+    { try { if (__result != null) ScenarioEnvironmentBudget.Placed(__result); } catch (Exception error) { ScenarioEnvironmentBudget.StopAfterFailure(error); } }
 }

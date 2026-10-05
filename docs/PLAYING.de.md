@@ -85,6 +85,13 @@ wird um 60° gedreht. Bestätige am Kontrollboard. Beide Sticks bleiben zur Bewe
 **B + Y** halten zentriert dich weiterhin neu. Die Belegung findest du unter **Komfort ▸ Hände &
 Zielen ▸ Flächeneffekt drehen**. Nahkampf-Flächeneffekte richten sich nach dem Feld, auf das du zeigst.
 
+**Szenario-Grafik:** **VR Optionen ▸ Grafik** bietet getrennte Regler für
+Wandschattierung, 3D-Wanddetails, entfernte Details und Idle-Pose-Intervalle.
+Weniger Details erhalten das 3D-Brett; längere Idle-Intervalle machen die Bewegung
+ruhender Figuren weniger flüssig. Mit 100% Details und Idle-Intervall 0 stellst du
+die normale Darstellung wieder her. PC und Steam Frame bieten dieselben Regler;
+neue Frame-Einstellungen bevorzugen weniger Details.
+
 ## Fenster
 
 Ein Fenster direkt oder mit dem Laser an der oberen Stange greifen und verschieben. Beim Halten

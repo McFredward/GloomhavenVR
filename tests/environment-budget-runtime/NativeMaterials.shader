@@ -36,6 +36,7 @@ Shader "Amp_Basic_N_MRAO"
             #pragma vertex vert
             #pragma fragment frag
             #pragma multi_compile __ _WALLFADE_ON_ON
+            #pragma multi_compile_instancing
             #include "UnityCG.cginc"
             sampler2D _MainTex;
             sampler2D _TilesOcclusionMap;
@@ -43,9 +44,10 @@ Shader "Amp_Basic_N_MRAO"
             float _UVTiling, _UV_Offset;
             float _WallFade_On, _Cutoff;
             int ToggleWallFade;
+            struct appdata { float4 vertex:POSITION; float2 texcoord:TEXCOORD0; UNITY_VERTEX_INPUT_INSTANCE_ID };
             struct v2f { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; float4 screen:TEXCOORD1; float objY:TEXCOORD2; };
-            v2f vert(appdata_base v)
-            { v2f o; o.pos=UnityObjectToClipPos(v.vertex); float2 uv=v.texcoord.xy*_UVTiling+_UV_Offset; o.uv=TRANSFORM_TEX(uv,_MainTex); o.screen=ComputeScreenPos(o.pos); o.objY=v.vertex.y; return o; }
+            v2f vert(appdata v)
+            { UNITY_SETUP_INSTANCE_ID(v); v2f o; o.pos=UnityObjectToClipPos(v.vertex); float2 uv=v.texcoord.xy*_UVTiling+_UV_Offset; o.uv=TRANSFORM_TEX(uv,_MainTex); o.screen=ComputeScreenPos(o.pos); o.objY=v.vertex.y; return o; }
             fixed4 frag(v2f i):SV_Target
             {
                 // Explicit GL surrogate for the documented native LOW fragment branch.

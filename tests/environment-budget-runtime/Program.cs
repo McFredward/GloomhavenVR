@@ -1,14 +1,19 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using GloomhavenVR.Core;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 
-public static class EnvironmentProgram
+public static partial class EnvironmentProgram
 {
     private static int count;
+    private static int materialReads;
+    // The source binder adds only this counter at the complete production
+    // CompatibleMaterial entry; all actual Unity shader/property reads still execute.
+    public static void RecordMaterialRead() => materialReads++;
     private static readonly List<string> InvalidCallbackMessages = new();
     private static void EngineMessage(string text, string stack, LogType type)
     {
@@ -66,8 +71,10 @@ public static class EnvironmentProgram
         {
             VRSession.IsRunning = true;
             VRLog.Faults.Clear();
+            PerfMonitor.Counts.Clear();
             VRLog.DebugLines.Clear(); VRLog.DebugEnabled = true; PerfMonitor.ThrowDrawTrace = false;
             Configure(false, false, 100);
+            PerfConfig.SharedEnvironmentMaterialReadsOn = true; PerfConfig.EnvironmentMeshBankOn = false; PerfConfig.EnvironmentDrawInstancingOn = false;
             ScenarioEnvironmentBudget.ConfigureStructuralBatching(() => false);
             Root = new GameObject("RuntimeFixture.Scenario"); Root.AddComponent<ProceduralScenario>();
             var tile = Child("RuntimeFixture.Tile", Root.transform); Tile = tile.AddComponent<ProceduralMapTile>();
@@ -343,6 +350,8 @@ public static class EnvironmentProgram
         Check(drawn > 20 && same, "actual graphics rendering preserves the native opaque floor pixels after combining");
         Check(drawLease && !first.forceRenderingOff && !second.forceRenderingOff && !chunk.enabled,
             "real camera callback pair owns masks only during rendering");
+        Check(PerfMonitor.Counts["Environment.ChunkSources"]==2&&PerfMonitor.Counts["Environment.ChunkGroups"]==1,
+            "completed exact chunk camera reports actually leased sources and groups");
         Check(collider.enabled && first.gameObject.activeInHierarchy, "native collider and hierarchy survive render substitution");
 
         var clone = UnityEngine.Object.Instantiate(first.gameObject,room.Generated.transform,false);
@@ -378,6 +387,21 @@ public static class EnvironmentProgram
         Tick("HandlePreCull",room.Camera); ((Behaviour)Driver).enabled = false;
         Check(!first.forceRenderingOff && !chunk.enabled, "actual MonoBehaviour disable releases an interrupted camera mask");
         ((Behaviour)Driver).enabled = true;
+
+        // Static Camera callbacks remain subscribed when the mod host is inactive.
+        // Proxy chunks live outside that host, so a missing admission guard would
+        // still submit their geometry. Observe the real render and original pixels.
+        room.Host.SetActive(false);
+        bool inactiveOriginals = false;
+        room.ObserveRender = () => inactiveOriginals = !first.forceRenderingOff
+            && !second.forceRenderingOff && !chunk.enabled;
+        Color32[] inactivePixels = room.Render(); room.ObserveRender = null;
+        Check(inactiveOriginals && room.LastRenderedChunks == 0
+            && originalPixels.SequenceEqual(inactivePixels),
+            "inactive environment host uses original camera pixels without private chunk leases");
+        room.Host.SetActive(true); room.Render();
+        Check(room.LastRenderedChunks == 1 && !first.forceRenderingOff && !chunk.enabled,
+            "reactivated environment host resumes its completed private draw lease");
 
         first.enabled = false; room.Render();
         Check(room.LastRenderedChunks == 0 && !second.forceRenderingOff, "real camera pre-cull rejects changed native visibility in the same render");
@@ -599,6 +623,21 @@ public static class EnvironmentProgram
         ScenarioEnvironmentBudget.MaterialReady(floor); ScenarioEnvironmentBudget.BeforeLoadingComplete();
         Check(VRLog.Faults.Count == 1 && floor.sharedMaterial == room.Original,
             "failed optional preparation remains disabled and reports its failure once");
+        int placed = 0, ready = 0, writes = 0;
+        ScenarioEnvironmentBudget.ConfigureTerrainIntegration(_ => placed++, _ => ready++,
+            renderer => { writes++; renderer.forceRenderingOff = false; }, () => { }, _ => false);
+        try
+        {
+            // The independent terrain owner may still have an active camera lease when
+            // only environment preparation fails. Its synchronous native seams stay live.
+            floor.forceRenderingOff = true;
+            ScenarioEnvironmentBudget.BeforeNativeRendererWrite(floor);
+            ScenarioEnvironmentBudget.MaterialReady(floor);
+            ScenarioEnvironmentBudget.Placed(room.Generated);
+            Check(placed == 1 && ready == 1 && writes == 1 && !floor.forceRenderingOff,
+                "terrain native write and placement bridges survive an independent environment failure");
+        }
+        finally { ScenarioEnvironmentBudget.ConfigureTerrainIntegration(_ => { }, _ => { }, _ => { }, () => { }, _ => false); }
     }
 
     private static void NativeWallChannelsAndRenderedClock()
@@ -693,6 +732,76 @@ public static class EnvironmentProgram
         Configure(false,false,100); Tick();
         Check(wall.sharedMaterial==live && !wall.forceRenderingOff,
             "all environment optimizations off preserve native wall rendering and its authored live material");
+    }
+
+    private static void SharedOriginalMaterialValidation()
+    {
+        using var room = new Room();
+        var secondMaterial = room.Material();
+        var first = new List<MeshRenderer>();
+        var second = new List<MeshRenderer>();
+        for (int i = 0; i < 24; i++)
+        {
+            first.Add(room.Floor());
+            second.Add(room.Surface("CV_Floor_Base_SharedSecond", material: secondMaterial));
+        }
+        Configure(false, true, 100);
+        ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(Members("_surfaces") == 48, "shared original fixture adopts every eligible surface");
+        materialReads = 0;
+        room.Render();
+        Check(materialReads == 2,
+            "one camera validates each shared original material once while retaining every surface: reads=" + materialReads);
+        foreach (var renderer in first)
+            Check(renderer.sharedMaterial != room.Original, "unchanged shared original keeps its simpler presentation");
+
+        var field = Driver.GetType().GetField("_preCullMaterialVerdicts", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        object storage = field.GetValue(Driver)!;
+        var retire = (Action)Delegate.CreateDelegate(typeof(Action), Driver,
+            Driver.GetType().GetMethod("RetireChangedNativeMaterials", BindingFlags.Instance | BindingFlags.NonPublic)!);
+        for (int i = 0; i < 16; i++) retire();
+        long calibration = GC.GetAllocatedBytesForCurrentThread();
+        var allocationProbe = new byte[8192]; GC.KeepAlive(allocationProbe);
+        bool counterSupported = GC.GetAllocatedBytesForCurrentThread() > calibration;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 64; i++) retire();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Check(ReferenceEquals(storage, field.GetValue(Driver)),
+            "warmed material validation reuses its bounded dictionary storage");
+        Check(!counterSupported || allocated == 0,
+            "supported allocation counter proves warmed material validation allocates nothing: bytes=" + allocated);
+        Debug.Log("Shared-material allocation receipt: calibrated counter=" + counterSupported
+            + "; bytes=" + allocated + "; same dictionary=True; live originals=2, sources=48");
+
+        // These are two successive actual Camera.Render invocations, modelling the
+        // native edit seam between MultiPass eyes without claiming an XR pixel test.
+        room.Original.EnableKeyword("_WALLFADE_ON_ON");
+        room.Render();
+        foreach (var renderer in first)
+            Check(renderer.sharedMaterial == room.Original && !renderer.forceRenderingOff,
+                "native keyword edit between camera invocations restores every sharing surface before culling");
+        foreach (var renderer in second)
+            Check(renderer.sharedMaterial != secondMaterial,
+                "other shared original remains admitted after one material changes");
+        Check(Members("_preCullMaterialVerdicts") == 0,
+            "material verdicts retain no original references between camera invocations");
+
+        var block = new MaterialPropertyBlock(); block.SetFloat("_WallFade_On", 1f);
+        second[0].SetPropertyBlock(block);
+        room.Render();
+        Check(second[0].sharedMaterial == secondMaterial && !second[0].forceRenderingOff,
+            "shared original verdict never bypasses an individual native property-block veto");
+        Check(second[1].sharedMaterial != secondMaterial,
+            "individual property-block retirement leaves its unchanged shared-material sibling admitted");
+        var foreign = room.Material(); second[1].sharedMaterial = foreign;
+        secondMaterial.SetFloat("_ToggleWallFadeLocal", -1f);
+        room.Render();
+        Check(second[1].sharedMaterial == foreign,
+            "shared-material retirement preserves a later foreign material replacement");
+        for (int i = 2; i < second.Count; i++)
+            Check(second[i].sharedMaterial == secondMaterial && !second[i].forceRenderingOff,
+                "native property edit restores remaining shared originals without a stale cross-camera verdict");
+        Check(Members("_surfaces") == 0, "retired shared originals release the complete surface ledger");
     }
 
     // Actual original Apply/DriveNativeProp bodies and historical two textures execute.
@@ -949,6 +1058,9 @@ public static class EnvironmentProgram
         try
         {
             PresentationPreparationVisibility(); ScopeAndMaterials(); AmbientScopes(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault(); StructuralChunks(); NativeWallChannelsAndRenderedClock();
+            int sharedStart = count;
+            SharedOriginalMaterialValidation(); SharedReadOptionToggle(); VerifiedEnvironmentBank(); UnreadableExactChunks(); ExplicitCameraInstances(); MultipleSubmeshInstances(); RevealedClonePixels();
+            Debug.Log("Shared-material validation assertions=" + (count - sharedStart));
             NativeHighHistoricalDelivery();
             NativeHighHistoricalDelivery(toggleNative:true);
             NativeHighHistoricalDelivery(mounted:true);
