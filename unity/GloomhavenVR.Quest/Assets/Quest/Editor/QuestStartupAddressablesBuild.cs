@@ -391,7 +391,7 @@ namespace GloomhavenVR.Quest.Editor
             // Read the actual small typed Shader dependency closure before the
             // large content archive and Player are produced. This catches native
             // stripping defects without repeating the opt-in compiler matrix.
-            string python = Environment.GetEnvironmentVariable("GHVR_QUEST_CONTENT_PACK_PYTHON");
+            string python = Environment.GetEnvironmentVariable("GHVR_QUEST_NATIVE_SHADER_PYTHON");
             string helper = Environment.GetEnvironmentVariable("GHVR_QUEST_NATIVE_SHADER_HELPER");
             string source = Environment.GetEnvironmentVariable("GHVR_QUEST_NATIVE_SHADER_SOURCE");
             if (string.IsNullOrEmpty(python) || string.IsNullOrEmpty(helper) || string.IsNullOrEmpty(source) ||

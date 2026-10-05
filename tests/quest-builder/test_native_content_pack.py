@@ -110,12 +110,28 @@ class NativeContentPack(unittest.TestCase):
         self.assertEqual(inherited["GHVR_QUEST_CONTENT_PACK_HELPER"], "untrusted helper"); self.assertEqual(actual["OTHER"], "kept")
 
     def test_campaign_gate_uses_host_helper_and_exact_frozen_source(self):
-        inherited = {"GHVR_QUEST_NATIVE_SHADER_HELPER": "untrusted helper", "GHVR_QUEST_NATIVE_SHADER_SOURCE": "untrusted source", "OTHER": "kept"}
+        inherited = {"GHVR_QUEST_NATIVE_SHADER_PYTHON": "untrusted interpreter", "GHVR_QUEST_NATIVE_SHADER_HELPER": "untrusted helper", "GHVR_QUEST_NATIVE_SHADER_SOURCE": "untrusted source", "OTHER": "kept"}
         actual = builder.campaign_native_shader_environment(inherited, self.root)
+        self.assertEqual(actual["GHVR_QUEST_NATIVE_SHADER_PYTHON"], str(Path(sys.executable).absolute()))
         self.assertEqual(actual["GHVR_QUEST_NATIVE_SHADER_HELPER"], str(Path(builder.__file__).resolve().with_name("campaign_native_shaders.py")))
         self.assertEqual(actual["GHVR_QUEST_NATIVE_SHADER_SOURCE"], str(self.root.resolve()))
         self.assertEqual(actual["OTHER"], "kept")
         self.assertEqual(inherited["GHVR_QUEST_NATIVE_SHADER_HELPER"], "untrusted helper")
+
+    def test_shader_python_keeps_real_venv_modules_through_executable_symlink(self):
+        import subprocess
+        import venv
+        runtime = self.root / "runner"
+        venv.EnvBuilder(with_pip=False, symlinks=os.name != "nt").create(runtime)
+        executable = runtime / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        probe = subprocess.run([str(executable), "-I", "-c", "import json,sys,sysconfig;print(json.dumps([sys.prefix,sysconfig.get_path('purelib')]))"], capture_output=True, text=True, check=True)
+        prefix, packages = json.loads(probe.stdout)
+        marker = Path(packages) / "quest_owned_probe.py"
+        marker.write_text("value = 'isolated build dependency'\n")
+        with patch.object(sys, "executable", str(executable)):
+            env = builder.campaign_native_shader_environment({}, self.root)
+        child = subprocess.run([env["GHVR_QUEST_NATIVE_SHADER_PYTHON"], "-I", "-c", "import json,sys,quest_owned_probe;print(json.dumps([sys.prefix,quest_owned_probe.value]))"], capture_output=True, text=True, check=True)
+        self.assertEqual(json.loads(child.stdout), [prefix, "isolated build dependency"])
 
 
 if __name__ == "__main__": unittest.main()

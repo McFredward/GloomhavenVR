@@ -1239,7 +1239,10 @@ def campaign_native_shader_environment(base, source):
     if not helper.is_file() or helper.is_symlink():
         raise BuildError("Verified native Shader gate is missing from the selected builder.")
     result = dict(base)
-    result.update(GHVR_QUEST_NATIVE_SHADER_HELPER=str(helper),
+    # Resolving a venv's Unix executable symlink starts the base interpreter
+    # without its installed UnityPy/PyYAML. Keep the actual venv command path.
+    result.update(GHVR_QUEST_NATIVE_SHADER_PYTHON=str(Path(sys.executable).absolute()),
+                  GHVR_QUEST_NATIVE_SHADER_HELPER=str(helper),
                   GHVR_QUEST_NATIVE_SHADER_SOURCE=str(Path(source).resolve()))
     return result
 

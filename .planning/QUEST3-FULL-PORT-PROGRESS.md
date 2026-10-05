@@ -815,3 +815,17 @@ controls; unsafe, missing or concurrently changed native inputs are rejected.
 The Windows CLI retains isolated Python execution and junction rejection.
 Unity's [Graphics settings reference](https://docs.unity3d.com/2021.3/Documentation/Manual/class-GraphicsSettings.html)
 documents automatic scene-based stripping and explicit Custom fog retention.
+
+The retained 88ecc build completes the actual native Addressables generation.
+Its first gate invocation exposes an interpreter-path defect: resolving the
+venv executable symlink starts base Python without UnityPy. The gate now uses
+the lexical venv executable through a separate pinned environment argument;
+the standard-library content packer retains its existing selection. A real
+isolated child-venv/module control covers this distinction.
+
+Running the production gate on those already completed native files with the
+correct interpreter passes all 688 original Shader roots, 51,564 aliases, native
+SVC/PPtrs and 16 original material samples across 20 dependency bundles. No
+compiler is invoked. This is complete native-AA evidence, not a signed Player
+or hardware success; the imported project and completed native cache are retained
+for the Player retry.
