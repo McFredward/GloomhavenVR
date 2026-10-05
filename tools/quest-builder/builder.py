@@ -1070,6 +1070,7 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
     provenance_path = apk.parent / "build-provenance.json"
 
     def compile_player_files():
+        recover_delivery_pending(output, key, provenance)
         apk.parent.mkdir(parents=True, exist_ok=True)
         apk.unlink(missing_ok=True)
         report.unlink(missing_ok=True)
@@ -1140,6 +1141,48 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
     print("build: verified " + str(apk) + (" (DIAGNOSTIC: " + args.target + ")" if args.target != "game" else "") +
           (" (DUMMY IDENTITY)" if inputs["profile"].get("isDummy") else ""), flush=True)
     return apk
+
+
+def recover_delivery_pending(output: Path, key: str, provenance: dict) -> bool:
+    """Recover only this build's interrupted atomic delivery, before child launch.
+
+    The caller owns output_lock and has no running child. The Wizard stops its
+    supervised process tree before allowing a retry; a provenance file alone
+    never authorizes killing or adopting a process from a previous invocation.
+    """
+    if not isinstance(key, str) or not re.fullmatch(r"[0-9a-f]{64}", key):
+        raise BuildError("Interrupted delivery has an invalid build identity.")
+    output = _ordinary_owned(output)
+    folder = _ordinary_owned(output / "builds" / key)
+    pending = _ordinary_owned(folder / "GloomhavenVR-Quest-content.zip.quest-content-pending")
+    if not pending.exists():
+        return False
+    message = "Interrupted Campaign delivery could not be verified; retain the pending file and inspect this build's provenance before retrying."
+    try:
+        prior = _ordinary_owned(folder / "build-provenance.json")
+        lock = _ordinary_owned(output / ".builder.lock")
+        delivered = _ordinary_owned(folder / "GloomhavenVR-Quest-content.zip")
+        if (not pending.is_file() or pending.stat().st_nlink != 1 or not prior.is_file()
+                or prior.stat().st_size > 4 * 1024 * 1024 or not lock.is_file() or lock.stat().st_size > 4096
+                or (delivered.exists() and not delivered.is_file())):
+            raise BuildError(message)
+        before = pending.stat(), prior.stat(), lock.stat()
+        owner = json.loads(lock.read_text(encoding="utf-8"))
+        if (not isinstance(owner, dict) or owner.get("schema") != 1 or owner.get("lock") != "kernel-guard"
+                or type(owner.get("pid")) is not int or owner["pid"] != os.getpid()
+                or not isinstance(owner.get("nonce"), str) or not re.fullmatch(r"[0-9a-f]{32}", owner["nonce"])
+                or not isinstance(provenance, dict) or type(provenance.get("schema")) is not int or provenance["schema"] != 1
+                or canonical(json.loads(prior.read_text(encoding="utf-8"))) != canonical(provenance)):
+            raise BuildError(message)
+        for path, original in zip((pending, prior, lock), before):
+            current = _ordinary_owned(path).stat()
+            identity = lambda row: (row.st_dev, row.st_ino, row.st_size, row.st_mtime_ns, row.st_ctime_ns)
+            if not path.is_file() or identity(current) != identity(original):
+                raise BuildError(message)
+        pending.unlink()
+    except (OSError, ValueError, TypeError) as exc:
+        raise BuildError(message) from exc
+    return True
 
 
 def content_pack_environment(base):
