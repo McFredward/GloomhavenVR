@@ -47,6 +47,10 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
     private readonly List<Graphic> _auraGraphics = new();
     private readonly Dictionary<RectTransform, Vector3> _inkOriginalScales = new();
     private RectTransform? _highlighterRect;
+    private RectTransform? _nativePrint;
+    private Vector3 _printRootPosition, _printRootScale;
+    private Quaternion _printRootRotation;
+    private readonly Vector3[] _physicalCorners = new Vector3[4];
     private Vector3 _frameScale;
     private Quaternion _frameRotation;
     private Vector2 _frameSize;
@@ -112,6 +116,15 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
         // highlights below retain their own sizes and animation.
         UIEnhancementCardHighlighter highlighter = GetComponentInParent<UIEnhancementCardHighlighter>();
         _highlighterRect = highlighter != null ? highlighter.transform as RectTransform : null;
+        AbilityCardUI? nativeCard = GetComponent<AbilityCardUI>();
+        _nativePrint = nativeCard != null && nativeCard.fullAbilityCard != null
+            ? nativeCard.fullAbilityCard.transform as RectTransform : null;
+        if (_highlighterRect != null)
+        {
+            _printRootPosition = _highlighterRect.localPosition;
+            _printRootRotation = _highlighterRect.localRotation;
+            _printRootScale = _highlighterRect.localScale;
+        }
         _aura = highlighter != null ? highlighter.transform.Find("Aura") as RectTransform : null;
         _auraBuy = _aura?.Find("Types/Buy") as RectTransform;
         _auraSell = _aura?.Find("Types/Sell") as RectTransform;
@@ -170,6 +183,12 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
     internal void Restore()
     {
         if (!_masked) return;
+        if (_highlighterRect != null && _nativePrint != null)
+        {
+            _highlighterRect.localPosition = _printRootPosition;
+            _highlighterRect.localRotation = _printRootRotation;
+            _highlighterRect.localScale = _printRootScale;
+        }
         if (_nativeFrame != null)
         {
             _nativeFrame.localScale = _frameScale;
@@ -190,7 +209,7 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
             if (_effectGraphics[i] != null) _effectGraphics[i].raycastTarget = _effectRaycast[i];
         _effectGraphics.Clear(); _effectRaycast.Clear();
         _nativeFrame = null;
-        _aura = _auraBuy = _auraSell = _highlighterRect = null;
+        _aura = _auraBuy = _auraSell = _highlighterRect = _nativePrint = null;
         _hasCorrectedAura = false;
         _phaseCaptured = false;
         _mappedPhysicalCard = false;
@@ -205,6 +224,7 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
 
     private void AlignNativeEffects()
     {
+        AlignNativePrint();
         if (_nativeFrame != null)
         {
             _nativeFrame.localScale = Vector3.one;
@@ -309,6 +329,49 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
         inkScale.x *= Mathf.Clamp(diameter / width, .025f, 40f);
         inkScale.y *= Mathf.Clamp(diameter / height, .025f, 40f);
         ink.localScale = inkScale;
+    }
+
+    private void AlignNativePrint()
+    {
+        RectTransform? physical = TownServiceEnhancementHandoff.PhysicalCardFace;
+        if (_highlighterRect == null || _nativePrint == null || physical == null
+            || physical == _nativePrint) return;
+        // Build625 mapped the 325x450 CardHilight host to a nominal 63.5:88
+        // slab. Its printed FullAbilityCard is instead 294x450, and CardFace
+        // fits and insets the adopted original by 6%. A matched card ROOT is
+        // therefore not a matched print: native selectable areas drift by
+        // millimetres. Map the actual hidden original print to the actual
+        // adopted print, including each native pivot/offset and the card's
+        // intermediate settling pose. The original area children retain their
+        // native local geometry, state and animation; remote capture includes
+        // this same corrected ancestor rather than fitting the observer's card.
+        _nativePrint.GetWorldCorners(_cardCorners);
+        physical.GetWorldCorners(_physicalCorners);
+        float nativeHeight = Vector3.Distance(_cardCorners[0], _cardCorners[1]);
+        float physicalHeight = Vector3.Distance(_physicalCorners[0], _physicalCorners[1]);
+        float nativeWidth = Vector3.Distance(_cardCorners[0], _cardCorners[3]);
+        float physicalWidth = Vector3.Distance(_physicalCorners[0], _physicalCorners[3]);
+        if (nativeHeight < .000001f || physicalHeight < .000001f
+            || nativeWidth < .000001f || physicalWidth < .000001f) return;
+        Quaternion correction = physical.rotation * Quaternion.Inverse(_nativePrint.rotation);
+        if (Quaternion.Angle(correction, Quaternion.identity) > .001f)
+            _highlighterRect.rotation = correction * _highlighterRect.rotation;
+        float fitX = physicalWidth / nativeWidth, fitY = physicalHeight / nativeHeight;
+        if (Mathf.Abs(fitX - 1f) > .000001f || Mathf.Abs(fitY - 1f) > .000001f)
+        {
+            Vector3 scale = _highlighterRect.localScale;
+            _highlighterRect.localScale = new Vector3(scale.x * fitX, scale.y * fitY, scale.z * fitY);
+        }
+        _nativePrint.GetWorldCorners(_cardCorners);
+        Vector3 nativeCenter = (_cardCorners[0] + _cardCorners[2]) * .5f;
+        Vector3 physicalCenter = (_physicalCorners[0] + _physicalCorners[2]) * .5f;
+        // One tiny depth bias prevents coplanar flicker; it does not change any
+        // printed area's X/Y alignment. Scale with the actual print height so
+        // world/inspect scaling retains the same relative separation.
+        Vector3 translation = physicalCenter - nativeCenter
+            - physical.forward * (physicalHeight * .0003f);
+        if (translation.sqrMagnitude > physicalHeight * physicalHeight * .000000000001f)
+            _highlighterRect.position += translation;
     }
 
     private void CaptureNativeAuraRotation()

@@ -80,6 +80,8 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         height = card != null ? CardsConfig.CardHeight * Mathf.Abs(card.transform.lossyScale.x) : 0f;
         return height > .0001f;
     }
+    internal static RectTransform? PhysicalCardFace => _current != null && !_current._disposed
+        && _current.Card != null ? _current.Face as RectTransform : null;
     private static float _approachSearchAt;
     private static float _approachRetryAt;
     private static float _approachBlockReportAt;

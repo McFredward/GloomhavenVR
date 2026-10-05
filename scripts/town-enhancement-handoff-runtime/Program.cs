@@ -20,6 +20,7 @@ public static class InteractionProgram
         SharedOfferGuide();
         NativeFrame();
         PhysicalCardAura();
+        NativePrintedAreaAlignment();
         NativePhysicalPoke();
         NativeLaserOcclusion();
         FirstVisitCue();
@@ -267,6 +268,101 @@ public static class InteractionProgram
             Check(surface.Placements == 4,
                 "original ability hotspots are placed after the final offered-card sample");
             TownServicePresentation.Ritual = null;
+        }
+        UnityEngine.Object.DestroyImmediate(fixture);
+    }
+
+    private static void NativePrintedAreaAlignment()
+    {
+        var fixture = new GameObject("Original print alignment fixture");
+        var station = new GameObject("Station").transform;
+        station.SetParent(fixture.transform, false);
+        var palm = new GameObject("ActivityOfferingPalm").transform;
+        palm.SetParent(station, false);
+        var native = new GameObject("Native shop", typeof(RectTransform), typeof(UIWindow), typeof(UINewEnhancementWindow));
+        native.transform.SetParent(fixture.transform, false);
+        UINewEnhancementWindow shop = native.GetComponent<UINewEnhancementWindow>();
+        var holder = new GameObject("CardHilight", typeof(RectTransform), typeof(UIEnhancementCardHighlighter));
+        holder.transform.SetParent(native.transform, false);
+        ((RectTransform)holder.transform).sizeDelta = new Vector2(325f, 450f);
+        holder.transform.localScale = Vector3.one * .00052f;
+        var printed = new GameObject("Native pooled card", typeof(RectTransform), typeof(AbilityCardUI));
+        printed.transform.SetParent(holder.transform, false);
+        var nativeFace = new GameObject("FullAbilityCard", typeof(RectTransform), typeof(FullAbilityCard));
+        nativeFace.transform.SetParent(printed.transform, false);
+        RectTransform nativeRect = (RectTransform)nativeFace.transform;
+        nativeRect.sizeDelta = new Vector2(294f, 450f);
+        nativeRect.pivot = new Vector2(.37f, .62f);
+        nativeRect.anchoredPosition = new Vector2(13f, -7f);
+        nativeRect.localScale = Vector3.one * .81f;
+        printed.GetComponent<AbilityCardUI>().fullAbilityCard = nativeFace.GetComponent<FullAbilityCard>();
+        shop.cardHolder = holder.GetComponent<UIEnhancementCardHighlighter>();
+        var card = new GameObject("Actual offered VR card", typeof(VRCard)).GetComponent<VRCard>();
+        card.transform.SetParent(fixture.transform, false);
+        var physicalFace = new GameObject("Adopted full face", typeof(RectTransform), typeof(FullAbilityCard));
+        physicalFace.transform.SetParent(card.transform, false);
+        RectTransform physicalRect = (RectTransform)physicalFace.transform;
+        physicalRect.sizeDelta = new Vector2(294f, 450f);
+        physicalRect.pivot = new Vector2(.5f, .5f);
+        physicalRect.localScale = Vector3.one * (CardsConfig.CardHeight / 450f * .94f);
+        physicalRect.localPosition = new Vector3(0f, 0f, -.0012f);
+        var slot = new GameObject("Native owned slot", typeof(UIEnhanceCardSlot), typeof(Button)).GetComponent<UIEnhanceCardSlot>();
+        slot.transform.SetParent(native.transform, false);
+        slot.Selectable = slot.GetComponent<Button>();
+        slot.AbilityCard = printed.GetComponent<AbilityCardUI>();
+        slot.AbilityCard.AbilityCard = card.Model;
+        slot.Selected = () => { shop.selectedCard = slot.AbilityCard; shop.cardHolder.Card = slot.AbilityCard; };
+        shop.CardsDisplay.slotsPool.Add(slot);
+        var area = new GameObject("Native selectable printed row", typeof(RectTransform), typeof(Image), typeof(UIEnhancementButtonHighlight));
+        area.transform.SetParent(nativeFace.transform, false);
+        RectTransform nativeArea = (RectTransform)area.transform;
+        nativeArea.anchorMin = nativeArea.anchorMax = new Vector2(.2f, .7f);
+        nativeArea.pivot = new Vector2(.15f, .8f);
+        nativeArea.anchoredPosition = new Vector2(21f, -39f);
+        nativeArea.sizeDelta = new Vector2(178f, 76f);
+        var targetArea = new GameObject("Corresponding printed row", typeof(RectTransform));
+        targetArea.transform.SetParent(physicalFace.transform, false);
+        RectTransform targetRect = (RectTransform)targetArea.transform;
+        targetRect.anchorMin = nativeArea.anchorMin; targetRect.anchorMax = nativeArea.anchorMax;
+        targetRect.pivot = nativeArea.pivot;
+        targetRect.anchoredPosition = nativeArea.anchoredPosition;
+        targetRect.sizeDelta = nativeArea.sizeDelta;
+        var sourceCorners = new Vector3[4]; var targetCorners = new Vector3[4];
+        using (var handoff = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
+        {
+            handoff.Tick(); card.transform.position = handoff.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(card), "original native print alignment accepts the actual owned card");
+            TownServiceNativeEnhancementCardMask mask = printed.GetComponent<TownServiceNativeEnhancementCardMask>();
+            foreach (float scale in new[] { .05f, .5f, 1f, 2f })
+            foreach (float angle in new[] { 0f, 37f, 118f })
+            {
+                card.transform.SetPositionAndRotation(new Vector3(.17f, .8f, -.31f), Quaternion.Euler(14f, angle, -11f));
+                card.transform.localScale = Vector3.one * scale;
+                // Reproduce the real generic surface's nominal host placement,
+                // including a different pivot and the old 0.8mm depth separation.
+                holder.transform.SetPositionAndRotation(card.transform.position - card.transform.forward * .002f, card.transform.rotation);
+                holder.transform.localScale = new Vector3(.00052f * .73f, .00052f * 1.16f, .00052f);
+                mask.SendMessage("LateUpdate");
+                nativeArea.GetWorldCorners(sourceCorners); targetRect.GetWorldCorners(targetCorners);
+                for (int corner = 0; corner < 4; corner++)
+                {
+                    Vector3 delta = sourceCorners[corner] - targetCorners[corner];
+                    Check(Mathf.Abs(Vector3.Dot(delta, physicalRect.right)) < .000002f * Mathf.Max(1f, scale)
+                        && Mathf.Abs(Vector3.Dot(delta, physicalRect.up)) < .000002f * Mathf.Max(1f, scale),
+                        "native selectable print corners match the adopted face at every card rotation, pivot and inspect scale");
+                }
+                Vector3 submitted = nativeArea.position;
+                mask.SendMessage("OnBeforeCanvasRender");
+                Check(Vector3.Distance(submitted, nativeArea.position) < .000001f * Mathf.Max(1f, scale),
+                    "repeated native print submissions retain exact alignment without cumulative movement");
+                Check(area.GetComponent<Image>().enabled,
+                    "native offered area graphics remain enabled across alignment and render callbacks");
+            }
+            mask.Restore();
+            Check((holder.transform.localScale - Vector3.one * .00052f).sqrMagnitude < .000000000001f
+                && holder.transform.localPosition == Vector3.zero
+                && Quaternion.Angle(holder.transform.localRotation, Quaternion.identity) < .001f,
+                "native print ancestor geometry returns to its captured owner when the offer ends");
         }
         UnityEngine.Object.DestroyImmediate(fixture);
     }

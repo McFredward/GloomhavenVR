@@ -159,6 +159,15 @@ def check_laser_bridge(root):
 def mutations():
     name = "TownServiceEnhancementHandoff.cs"
     return [
+        ("native-print-real-geometry", "TownServiceNativeEnhancementCardMask.cs",
+         "        AlignNativePrint();", "        /* retain nominal slab mapping */",
+         "native selectable print corners match the adopted face at every card rotation, pivot and inspect scale"),
+        ("native-print-pivot-alignment", "TownServiceNativeEnhancementCardMask.cs",
+         "physicalCenter - nativeCenter", "Vector3.zero",
+         "native selectable print corners match the adopted face at every card rotation, pivot and inspect scale"),
+        ("native-print-restore", "TownServiceNativeEnhancementCardMask.cs",
+         "_highlighterRect.localScale = _printRootScale;", "/* omit original print geometry restore */",
+         "native print ancestor geometry returns to its captured owner when the offer ends"),
         ("native-world-z-phase", "TownServiceNativeEnhancementCardMask.cs",
          "_aura.rotation.eulerAngles.z", "_aura.localRotation.eulerAngles.z",
          "native world-Z animation keeps its original phase in the moving card plane"),
