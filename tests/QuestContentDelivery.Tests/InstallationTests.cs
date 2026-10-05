@@ -10,6 +10,23 @@ static partial class Program
 
     static void InstallationCache()
     {
+        var external = new Fixture(apk: false);
+        external.Manifest.externalDelivery = true;
+        var externalProgress = new List<QuestGameContentProgress>();
+        var externalResult = QuestGameContent.Install(external.Manifest, external.Output, external.Source, false, external.Staged, Archive, externalProgress.Add);
+        external.Match();
+        Check(externalResult.ReusedArchive && !externalResult.CopiedArchive && externalResult.CopiedBytes == 0
+            && !File.Exists(external.Staged) && externalResult.InstallationReceiptPublished, "external-cold-no-second-bank-copy");
+        Progress(externalProgress, new FileInfo(external.Source).Length + external.Payloads.Sum(p => (long)p.Length));
+        Check(externalProgress.All(p => p.Phase is "verifying-archive" or "extracting-file" or "content-ready"), "external-single-measured-workload");
+        File.Delete(external.Source); externalProgress.Clear();
+        externalResult = QuestGameContent.Install(external.Manifest, external.Output, external.Source, false, external.Staged, Archive, externalProgress.Add);
+        Check(externalResult.InstallationReceiptReused && externalResult.VerifiedBytes == 0 && externalProgress.Count == 0,
+            "external-warm-needs-no-bank-or-content-reads");
+        var corruptExternal = new Fixture(apk: false); corruptExternal.Manifest.externalDelivery = true;
+        byte[] wrongBank = File.ReadAllBytes(corruptExternal.Source); wrongBank[40] ^= 1; File.WriteAllBytes(corruptExternal.Source, wrongBank);
+        Reject(() => QuestGameContent.Install(corruptExternal.Manifest, corruptExternal.Output, corruptExternal.Source, false, corruptExternal.Staged), "external-wrong-apk-bank");
+        Check(!File.Exists(QuestGameContent.InstallationReceiptPath(corruptExternal.Output)), "external-corrupt-not-ready");
         var cold = new Fixture();
         Check(QuestGameContent.GetExisting(cold.Manifest, cold.Output) == null, "installation-absent");
         var progress = new List<QuestGameContentProgress>();

@@ -36,6 +36,8 @@ class FakeAdb:
         self.timeout_command = None
         self.package_output = None
         self.package_returncode = 0
+        self.pushed = {}
+        self.upload_hash_override = None
 
     def wireless(self, address="192.168.1.42:5555", hardware="HARDWARE-1", model="Quest 3"):
         self.connections[address] = True
@@ -79,6 +81,23 @@ class FakeAdb:
             elif action[:2] == ["install", "-r"]:
                 self.installed = Path(action[2]).read_bytes()
                 raw = self.install_output
+            elif action[:3] == ["shell", "am", "force-stop"]:
+                assert action[3:] == [installer.PACKAGE]
+            elif action[:3] == ["shell", "mkdir", "-p"]:
+                assert action[3].startswith("/sdcard/Android/data/" + installer.PACKAGE + "/files/quest-install-input/")
+            elif action[0] == "push":
+                self.pushed[action[2]] = Path(action[1]).read_bytes()
+                raw = "1 file pushed"
+            elif action[:2] == ["shell", "sha256sum"]:
+                import hashlib
+                if action[2] not in self.pushed:
+                    return subprocess.CompletedProcess(command, 1, "", "No such file or directory")
+                raw = (self.upload_hash_override or hashlib.sha256(self.pushed[action[2]]).hexdigest()) + "  " + action[2]
+            elif action[:3] == ["shell", "mv", "-f"]:
+                self.pushed[action[4]] = self.pushed.pop(action[3])
+            elif action[:3] == ["shell", "rm", "-f"]:
+                assert action[3].startswith("/sdcard/Android/data/" + installer.PACKAGE + "/files/quest-install-input/")
+                self.pushed.pop(action[3], None)
             elif action == ["shell", "dumpsys", "package", installer.PACKAGE]:
                 code = self.package_returncode
                 identity = installer.apk_identity(Path(next(call[4] for call in reversed(self.calls) if call[2:4] == ["install", "-r"])))
@@ -97,6 +116,8 @@ class FakeAdb:
     def assertions(command, kwargs):
         assert isinstance(command, list) and kwargs["shell"] is False
         maximum = 1800 if len(command) > 3 and command[3] == "install" else 180
+        if len(command) > 3 and command[3] == "push": maximum = 21600
+        if len(command) > 4 and command[4] == "sha256sum": maximum = 600
         assert 0 < kwargs["timeout"] <= maximum
         assert not any(word in command for word in ("uninstall", "kill-server", "disconnect", "-d"))
 
@@ -143,6 +164,75 @@ class InstallerTests(unittest.TestCase):
 
     def mutations(self):
         return [call for call in self.fake.calls if "install" in call or "tcpip" in call or "start" in call]
+
+    def campaign_bank(self, file="GloomhavenVR-Quest-content.zip", key=None):
+        bank = self.root / "GloomhavenVR-Quest-content.zip"
+        with zipfile.ZipFile(bank, "w") as archive:
+            archive.writestr("StreamingAssets/Rulebase/Campaign.ruleset", b"original rules fixture")
+        key = key or "c" * 64
+        with zipfile.ZipFile(self.apk, "w") as archive:
+            archive.writestr("AndroidManifest.xml", b"fixture")
+            archive.writestr("assets/Quest/input-manifest.json", json.dumps({"schema": 1,
+                "inputKey": key, "target": "game", "mod": {"modBuild": 623}, "profile": {"isDummy": True}}))
+            archive.writestr("assets/Quest/content-delivery.json", json.dumps({"schema": 1,
+                "inputKey": key, "package": installer.PACKAGE, "files": [{"file": file,
+                "archive": "quest-startup-content.zip", "sha256": installer.digest(bank), "size": bank.stat().st_size}]}))
+        self.metadata.update(apkSha256=installer.digest(self.apk), isDiagnostic=False)
+        self.write(self.handoff, self.metadata)
+        return bank
+
+    def test_complete_campaign_bank_is_installed_verified_then_launched(self):
+        bank = self.campaign_bank()
+        self.assertEqual(self.run_cli(), 0, self.error)
+        final = "/sdcard/Android/data/" + installer.PACKAGE + "/files/quest-install-input/" + "c" * 64 + "/quest-startup-content.zip"
+        self.assertEqual(self.fake.pushed, {final: bank.read_bytes()})
+        receipt = json.loads((self.config.parent / "wireless-last-install.json").read_text())
+        self.assertEqual(receipt["content"][0]["sha256"], installer.digest(bank))
+        self.assertFalse(receipt["isDiagnostic"])
+        actions = [call[2:] for call in self.fake.calls if call[0] == "-s"]
+        self.assertLess(next(i for i,c in enumerate(actions) if c[:3] == ["shell", "mv", "-f"]),
+                        next(i for i,c in enumerate(actions) if c[:3] == ["shell", "am", "start"]))
+
+    def test_missing_or_changed_campaign_bank_stops_before_adb(self):
+        bank = self.campaign_bank(); bank.write_bytes(b"wrong bank")
+        self.assertEqual(self.run_cli(), 1)
+        self.assertEqual(self.fake.calls, [])
+        self.assertIn("differs from this APK", self.error)
+
+    def test_campaign_update_reuses_only_verified_bank_on_same_headset(self):
+        bank = self.campaign_bank()
+        self.assertEqual(self.run_cli(), 0, self.error)
+        pushes = sum("push" in call for call in self.fake.calls)
+        self.campaign_bank(key="d" * 64)
+        self.assertEqual(self.run_cli(), 0, self.error)
+        self.assertEqual(sum("push" in call for call in self.fake.calls), pushes)
+        self.assertIn("Reusing the verified Campaign", self.output)
+        self.assertEqual(list(self.fake.pushed.values()), [bank.read_bytes()])
+        self.assertTrue(all("/" + "d" * 64 + "/" in path for path in self.fake.pushed))
+
+    def test_corrupt_old_device_bank_is_reuploaded_before_old_bank_cleanup(self):
+        self.campaign_bank()
+        self.assertEqual(self.run_cli(), 0, self.error)
+        old = next(iter(self.fake.pushed)); self.fake.pushed[old] = b"changed on device"
+        self.campaign_bank(key="e" * 64)
+        start = len(self.fake.calls)
+        self.assertEqual(self.run_cli(), 0, self.error)
+        actions = [call[2:] for call in self.fake.calls[start:] if call[0] == "-s"]
+        self.assertLess(next(i for i,c in enumerate(actions) if c[:3] == ["shell", "mv", "-f"]),
+                        next(i for i,c in enumerate(actions) if c[:3] == ["shell", "rm", "-f"]))
+        self.assertNotIn(old, self.fake.pushed)
+
+    def test_uploaded_campaign_hash_failure_never_launches_or_publishes_success(self):
+        self.campaign_bank(); self.fake.upload_hash_override = "0" * 64
+        self.assertEqual(self.run_cli(), 1)
+        self.assertFalse(any("start" in call for call in self.fake.calls))
+        self.assertFalse(self.config.exists())
+        self.assertFalse((self.config.parent / "wireless-last-install.json").exists())
+
+    def test_campaign_payload_cannot_escape_the_selected_apk_folder(self):
+        self.campaign_bank(file="../another-bank.zip")
+        self.assertEqual(self.run_cli(), 1)
+        self.assertEqual(self.fake.calls, [])
 
     def test_usb_bootstrap_installs_scoped_retaining_update_and_launches(self):
         self.assertEqual(self.run_cli(), 0, self.error)

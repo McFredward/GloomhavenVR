@@ -54,7 +54,7 @@ namespace GloomhavenVR.Quest
         {
             if (manifest != null || disposed) throw new InvalidOperationException("Movie delivery was already initialized or disposed.");
             QuestGameContent.Validate(content, inputKey);
-            if (movies == null || movies.schema != 1 || movies.scope != "original-startup-menu-movies"
+            if (movies == null || movies.schema != 1 || (movies.scope != "original-startup-menu-movies" && movies.scope != "original-campaign-movies")
                 || movies.clips == null || movies.clips.Length == 0 || movies.clips.Length > 32)
                 throw new InvalidDataException("Original startup movie manifest is missing or invalid.");
             var bindings = new HashSet<string>(StringComparer.Ordinal);

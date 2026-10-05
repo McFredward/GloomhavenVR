@@ -15,24 +15,30 @@ using UnityEngine.AddressableAssets;
 
 namespace GloomhavenVR.Quest.Editor
 {
-    /// <summary>Builds real Android Addressables for the bounded original-startup closure.</summary>
+    /// <summary>Builds native catalogs while retaining original keys and asset ownership.</summary>
     public static class QuestStartupAddressablesBuild
     {
         [Serializable] sealed class Association
         {
-            public string assetPath, recoveredGuid, resourceTypeName;
+            public string assetPath, recoveredGuid, resourceTypeName, sourceBundle, subObjectName, status;
             public bool initialObjectLoadEligible;
             public string[] keys, labels;
         }
-        [Serializable] sealed class Associations { public int schema; public Association[] entries; }
+        [Serializable] sealed class Associations
+        {
+            public int schema, associatedEntryCount, unresolvedEntryCount;
+            public string scope;
+            public Association[] entries;
+        }
         [Serializable] sealed class ContentFile { public string path, sha256; public long size; }
         [Serializable] sealed class ContentManifest
         {
             public int schema;
             public string inputKey, archive, archiveSha256;
+            public bool externalDelivery;
             public ContentFile[] files;
         }
-        [Serializable] sealed class Alias { public string key, assetGuid; }
+        [Serializable] sealed class Alias { public string key, assetGuid; public string[] assetKeys; }
         [Serializable] sealed class RuntimeManifest
         {
             public int schema = 1;
@@ -43,10 +49,15 @@ namespace GloomhavenVR.Quest.Editor
 
         public static void Build()
         {
-            const string mappingPath = "Assets/QuestOriginalStartup/startup-addressables.json";
+            bool campaign = Environment.GetEnvironmentVariable("GHVR_QUEST_TARGET") == "game";
+            string mappingPath = campaign ? "Assets/QuestOriginalCampaign/campaign-addressables.json"
+                : "Assets/QuestOriginalStartup/startup-addressables.json";
             var mapping = JsonUtility.FromJson<Associations>(File.ReadAllText(mappingPath));
             if (mapping == null || mapping.schema != 1 || mapping.entries == null || mapping.entries.Length == 0)
                 throw new InvalidDataException("Original startup has no exact Addressables association inventory.");
+            if (campaign && (mapping.associatedEntryCount <= 0 || mapping.unresolvedEntryCount != 0
+                || mapping.entries.Count(row => row.status == "associated") != mapping.associatedEntryCount))
+                throw new InvalidDataException("The Campaign catalog lacks complete original object-location coverage.");
             const string folder = "Assets/Quest/Settings/Addressables";
             Directory.CreateDirectory(folder);
             Directory.CreateDirectory(AddressableAssetSettingsDefaultObject.kDefaultConfigFolder);
@@ -65,13 +76,15 @@ namespace GloomhavenVR.Quest.Editor
             bundled.IncludeAddressInCatalog = true;
             bundled.IncludeGUIDInCatalog = true;
             bundled.IncludeLabelsInCatalog = true;
-            var aliases = new Dictionary<string, string>(StringComparer.Ordinal);
+            var aliases = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            var ownedGroups = new Dictionary<string, AddressableAssetGroup>(StringComparer.Ordinal);
+            var nativeOwners = new Dictionary<string, AddressableAssetGroup>(StringComparer.Ordinal);
             var labels = new HashSet<string>(StringComparer.Ordinal);
             var entries = new HashSet<string>(StringComparer.Ordinal);
             // The original AssetBundleManager preloads UnityEngine.Object only.
             // Catalog locations for serialized enum/value types are not objects
             // and must not become fabricated native assets during this startup check.
-            Association[] objects = mapping.entries.Where(row => row.initialObjectLoadEligible).ToArray();
+            Association[] objects = mapping.entries.Where(row => campaign ? row.status == "associated" : row.initialObjectLoadEligible).ToArray();
             if (objects.Length == 0) throw new InvalidDataException("Original startup contains no proven Unity object locations.");
             var keyTargets = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
             foreach (Association association in objects)
@@ -79,7 +92,7 @@ namespace GloomhavenVR.Quest.Editor
                 {
                     if (!keyTargets.TryGetValue(key, out HashSet<string> targets))
                         keyTargets.Add(key, targets = new HashSet<string>(StringComparer.Ordinal));
-                    targets.Add(association.recoveredGuid);
+                    targets.Add(NativeKey(association));
                 }
             foreach (Association association in objects)
             {
@@ -88,7 +101,29 @@ namespace GloomhavenVR.Quest.Editor
                 string guid = AssetDatabase.AssetPathToGUID(association.assetPath);
                 if (guid != association.recoveredGuid || AssetDatabase.LoadMainAssetAtPath(association.assetPath) == null)
                     throw new InvalidDataException("Original startup asset identity failed import: " + association.assetPath);
-                var entry = settings.CreateOrMoveEntry(guid, group, false, false);
+                AddressableAssetGroup owner = group;
+                if (campaign)
+                {
+                    // Retain independent content lifetimes. A single all-game
+                    // bundle would make loading one actor pin every scenario.
+                    string bundle = string.IsNullOrEmpty(association.sourceBundle) ? "original-core" : association.sourceBundle;
+                    if (!ownedGroups.TryGetValue(bundle, out owner))
+                    {
+                        string name = "Owned Campaign " + StableName(bundle);
+                        owner = settings.FindGroup(name) ?? settings.CreateGroup(name, false, false, false, null,
+                            typeof(BundledAssetGroupSchema), typeof(ContentUpdateGroupSchema));
+                        var schema = owner.GetSchema<BundledAssetGroupSchema>();
+                        schema.BundleMode = BundledAssetGroupSchema.BundlePackingMode.PackTogether;
+                        schema.IncludeAddressInCatalog = schema.IncludeGUIDInCatalog = schema.IncludeLabelsInCatalog = true;
+                        ownedGroups.Add(bundle, owner);
+                    }
+                    if (nativeOwners.TryGetValue(guid, out AddressableAssetGroup previousOwner)) owner = previousOwner;
+                    else nativeOwners.Add(guid, owner);
+                    if (!string.IsNullOrEmpty(association.subObjectName)
+                        && !AssetDatabase.LoadAllAssetsAtPath(association.assetPath).Any(asset => asset != null && asset.name == association.subObjectName))
+                        throw new InvalidDataException("Original catalog subobject was lost: " + association.assetPath + "[" + association.subObjectName + "]");
+                }
+                var entry = settings.CreateOrMoveEntry(guid, owner, false, false);
                 entry.address = guid;
                 entries.Add(guid);
                 foreach (string label in association.labels ?? Array.Empty<string>())
@@ -102,7 +137,7 @@ namespace GloomhavenVR.Quest.Editor
                     // Labels resolve their whole group through the native catalog;
                     // aliases route only exact original object keys to exact targets.
                     if ((association.labels ?? Array.Empty<string>()).Contains(key)) continue;
-                    if (keyTargets[key].Count > 1)
+                    if (!campaign && keyTargets[key].Count > 1)
                     {
                         // Original bucket keys may address several typed objects.
                         // Native labels preserve that whole set and its type filtering.
@@ -110,9 +145,9 @@ namespace GloomhavenVR.Quest.Editor
                         entry.SetLabel(key, true, false, false);
                         continue;
                     }
-                    if (aliases.TryGetValue(key, out string previous) && previous != guid)
-                        throw new InvalidDataException("Original key maps to multiple startup objects: " + key);
-                    aliases[key] = guid;
+                    if (!aliases.TryGetValue(key, out HashSet<string> nativeKeys))
+                        aliases.Add(key, nativeKeys = new HashSet<string>(StringComparer.Ordinal));
+                    nativeKeys.Add(NativeKey(association));
                 }
             }
             string[] required = { "always_loaded_base", "always_loaded_standalone", "always_loaded_base_high" };
@@ -130,10 +165,30 @@ namespace GloomhavenVR.Quest.Editor
             File.WriteAllText("Assets/Quest/Resources/quest-startup-addressables.json", JsonUtility.ToJson(new RuntimeManifest
             {
                 inputKey = content.inputKey, runtimeSettingsPath = "StreamingAssets/aa/settings.json", requiredLabels = required,
-                aliases = aliases.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => new Alias { key = pair.Key, assetGuid = pair.Value }).ToArray()
+                aliases = aliases.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => new Alias
+                {
+                    key = pair.Key,
+                    assetGuid = pair.Value.Count == 1 ? pair.Value.Single() : null,
+                    assetKeys = campaign ? pair.Value.OrderBy(value => value, StringComparer.Ordinal).ToArray() : null
+                }).ToArray()
             }, true));
             AssetDatabase.Refresh();
             Debug.Log("[Quest startup build] native Android catalog assets=" + entries.Count + " original-key aliases=" + aliases.Count + " labels=" + labels.Count);
+        }
+
+        static string NativeKey(Association association)
+        {
+            if (string.IsNullOrEmpty(association.subObjectName)) return association.recoveredGuid;
+            if (association.subObjectName.IndexOfAny(new[] { '[', ']' }) >= 0)
+                throw new InvalidDataException("Original subobject name cannot be represented by native Addressables: " + association.subObjectName);
+            return association.recoveredGuid + "[" + association.subObjectName + "]";
+        }
+
+        static string StableName(string source)
+        {
+            using (var sha = SHA256.Create())
+                return BitConverter.ToString(sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(source)))
+                    .Replace("-", "").ToLowerInvariant().Substring(0, 24);
         }
 
         static string Hash(string path)

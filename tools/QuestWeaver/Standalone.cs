@@ -105,12 +105,15 @@ internal static class Standalone
             new ReaderParameters { AssemblyResolver = resolver, InMemory = true }) : null;
         using AssemblyDefinition? voiceApi = target == "game" ? AssemblyDefinition.ReadAssembly(Input("PhotonVoice.API.dll"),
             new ReaderParameters { AssemblyResolver = resolver, InMemory = true }) : null;
-        using AssemblyDefinition? nativeApi = target == "export" ? AssemblyDefinition.ReadAssembly(Input("Apparance.Net.dll"),
+        using AssemblyDefinition? nativeApi = target != "startup" ? AssemblyDefinition.ReadAssembly(Input("Apparance.Net.dll"),
+            new ReaderParameters { AssemblyResolver = resolver, InMemory = true }) : null;
+        using AssemblyDefinition? odin = target == "game" ? AssemblyDefinition.ReadAssembly(Input("OdinSerializer.dll"),
             new ReaderParameters { AssemblyResolver = resolver, InMemory = true }) : null;
         if (game.MainModule.Resources.Any(r => r.Name == "QuestGame.Standalone.v1")) throw new InvalidDataException("Standalone input was already adapted.");
         var assemblies = new[] { game, platforms, apparance }.Concat(utilities == null ? Array.Empty<AssemblyDefinition>() : new[] { utilities })
             .Concat(voiceApi == null ? Array.Empty<AssemblyDefinition>() : new[] { voiceApi })
-            .Concat(nativeApi == null ? Array.Empty<AssemblyDefinition>() : new[] { nativeApi }).ToArray();
+            .Concat(nativeApi == null ? Array.Empty<AssemblyDefinition>() : new[] { nativeApi })
+            .Concat(odin == null ? Array.Empty<AssemblyDefinition>() : new[] { odin }).ToArray();
         var snapshots = assemblies.ToDictionary(a => a, a => Discovery.AllTypes(a.MainModule).ToDictionary(t => t.FullName, ProtectedTypes.Fingerprint));
         var protectedSnapshots = assemblies.ToDictionary(a => a, ProtectedTypes.Snapshot);
         var changedTypes = new HashSet<string>(StringComparer.Ordinal);
@@ -337,7 +340,17 @@ internal static class Standalone
         PathsCompatibility.BindErrorScreenshot(game.MainModule, paths, changedTypes, report.Modifications);
         if (target == "game")
         {
+            PathsCompatibility.RebindCalls(apparance.MainModule, paths, changedTypes, report.Modifications);
+            ModuleReference[] imports = nativeApi!.MainModule.ModuleReferences.Where(module => module.Name == "ApparanceEngine").ToArray();
+            MethodDefinition[] functions = Discovery.AllTypes(nativeApi.MainModule).SelectMany(type => type.Methods)
+                .Where(method => method.IsPInvokeImpl && method.PInvokeInfo.Module.Name == "ApparanceEngine").ToArray();
+            if (imports.Length != 1 || functions.Length != 12 || functions.Any(method => method.DeclaringType.FullName != "Apparance.Net.Interop"))
+                throw new InvalidDataException("Original procedural native ABI module/export inventory changed.");
+            imports[0].Name = "QuestApparance";
+            changedTypes.Add("Apparance.Net.Interop");
+            report.Modifications.Add("bind exactly12 original native exports to byte-preserving QuestApparance bridge; original managed engine/task decoding retained");
             StandaloneStorage.Bind(game, compatibility.MainModule, changedTypes, report.Modifications);
+            foreach (string type in StandaloneOdin.Apply(odin!, report)) changedTypes.Add(type);
             foreach (string type in StandaloneNetwork.Apply(game, voiceApi!, report, "QuestGame.Campaign")) changedTypes.Add(type);
             changedTypes.Add("POpusCodec.Wrapper");
         }
@@ -393,7 +406,7 @@ internal static class Standalone
                 report.OutputAssemblies["QuestProceduralExport.dll"] = Hash(helper);
             }
             IEnumerable<string> preserved = target == "game" ? StandaloneNetwork.PreservedAssemblies : new[] { "GH.Runtime", "SM.Consoles" };
-            string linked = string.Concat(preserved.Concat(new[] { "Apparance.Unity", "Apparance.Net", "QuestGame.Compatibility" }).Distinct(StringComparer.Ordinal)
+            string linked = string.Concat(preserved.Concat(new[] { "Apparance.Unity", "Apparance.Net", "QuestGame.Compatibility", "OdinSerializer" }).Distinct(StringComparer.Ordinal)
                 .Select(name => "<assembly fullname=\"" + name + "\" preserve=\"all\"/>"));
             File.WriteAllText(Path.Combine(scratch, "link.xml"), "<linker>" + linked + (report.BepInExAdapterGenerated ? "<assembly fullname=\"BepInEx\" preserve=\"all\"/>" : "") + "</linker>\n");
             if (Directory.Exists(output)) Directory.Delete(output);

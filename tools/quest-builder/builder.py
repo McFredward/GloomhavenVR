@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -26,6 +27,8 @@ import dlcs
 from sprites import restore_loading_sprite_geometry
 from audio import stage_startup_audio, REPORT as AUDIO_REPORT, RESOURCE as AUDIO_RESOURCE
 import ui_assets
+import full_assets
+import campaign
 
 from profile import discover_steam_root, dummy_identity, load_profile, read_logo, ProfileError
 from storage import (BuildError, Stages, canonical, digest, ensure_output, inventory,
@@ -140,7 +143,7 @@ def selected_profile(args) -> tuple[dict | None, bytes | None]:
                             Path(args.steam_root) if args.steam_root else None,
                             args.steam_id, Path(args.steam_logo))
     if args.command != "inspect":
-        raise BuildError("A local Steam profile is required; use --steam-root or --profile-json. "
+        raise BuildError("A local provider profile is required; use --steam-root for Steam or --profile-json for Steam/Epic/GOG. "
                          "Maintainer-only hardware tests may explicitly select --dummy-profile.")
     return None, None
 
@@ -167,6 +170,10 @@ def inspect_inputs(args, repo: Path, output: Path, data: Path) -> dict:
         probe = {"key": value_hash({"files": probe_files}), "files": probe_files}
     startup_project = getattr(args, "startup_project", None)
     original_startup = startup.inspect_project(startup_project, game_key, game_files) if startup_project else None
+    campaign_project = getattr(args, "campaign_project", None)
+    original_campaign = campaign.inspect_project(campaign_project, game_key, game_files) if campaign_project else None
+    if campaign_project and args.target != "game":
+        raise BuildError("--campaign-project is only valid for the complete game target.")
     if args.target == "startup" and original_startup is None:
         raise BuildError("--target startup requires --startup-project from the original startup recovery tool.")
     inputs = {"schema": 1, "recipe": RECIPE, "target": args.target,
@@ -174,7 +181,7 @@ def inspect_inputs(args, repo: Path, output: Path, data: Path) -> dict:
               "mod": {"key": source_key, "commit": commit, "dirty": dirty,
                       "modBuild": mod_build(repo), "files": source_files},
               "profile": profile, "profileKey": profile_key, "probeAssets": probe,
-              "startupProject": original_startup}
+              "startupProject": original_startup, "campaignProject": original_campaign}
     inputs["inputKey"] = value_hash(inputs)
     manifest = output / "manifests" / (inputs["inputKey"] + ".json")
     write_json(manifest, inputs)
@@ -274,38 +281,48 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             raise BuildError("No validated original startup closure was selected.")
         recovered = output / "inputs/startup" / inputs["startupProject"]["key"]
         startup.inspect_project(recovered, inputs["game"]["key"], inputs["game"]["files"], snapshot_receipt=True)
-    if args.target == "game":
+    if args.target == "game" and inputs.get("campaignProject"):
+        recovered = Path(args.campaign_project).resolve()
+        campaign.inspect_project(recovered, inputs["game"]["key"], inputs["game"]["files"])
+    elif args.target == "game":
         recipe_files = [item for item in inputs["mod"]["files"]
-                        if item["path"].startswith("tools/quest-recovery/") or item["path"] == "scripts/recover-quest.py"]
+                        if item["path"].startswith("tools/quest-recovery/") or item["path"] in (
+                            "tools/quest-builder/full_assets.py", "tools/quest-builder/full_shaders.py")]
         key = value_hash({"game": inputs["game"]["key"], "recoveryRecipe": recipe_files, "recipe": RECIPE})
         recovered = output / "cache/recovery" / key / "project"
 
         def recover():
-            launcher = source / "scripts/recover-quest.py"
+            import dependencies
+            launcher = source / "tools/quest-recovery/full_recovery.py"
             if not launcher.is_file():
                 raise BuildError("The selected source does not contain the Quest recovery tool.")
-            command([sys.executable, str(launcher), "--game-data", str(game),
-                     "--output-project", str(recovered), "--tool-root", str(output / "tool-cache")],
+            workspace = output / "cache/full-original-recovery" / key
+            raw_project = workspace / "RecoveredProject"
+            python = dependencies.python_environment(output / "tool-cache", source)
+            recovery_dotnet = dependencies.dotnet10(output / "tool-cache", source, getattr(args, "recovery_dotnet", None))
+            command([str(python), str(launcher), "--game-data", str(game), "--workspace", str(workspace),
+                     "--output-project", str(raw_project), "--tool-cache", str(output / "tool-cache/full-recovery"),
+                     "--dotnet", str(recovery_dotnet), "--managed-dotnet", str(tool_path(args.dotnet, "dotnet"))],
                     output / "logs" / ("recovery-" + key[:12] + ".log"))
-            report = recovered / "quest-recovery-report.json"
-            if not report.is_file():
-                raise BuildError("Recovery did not produce quest-recovery-report.json; no readiness can be assumed.")
-            metadata = json.loads(report.read_text(encoding="utf-8"))
+            raw = json.loads((workspace / "full-recovery.json").read_text(encoding="utf-8"))
+            if raw.get("fullOriginalCatalogRecovered") is not True:
+                raise BuildError("Full recovery did not finish the original catalog; inspect its bounded checkpoint.")
+            archive = owned_tmp_source_archive(output / "tool-cache/official-tmp")
+            metadata = full_assets.stage(raw_project, game, recovered, archive, canonical_project=None,
+                canonical_startup=None, managed_types=raw["managedTypes"], cab_bundles=raw["cabBundles"])
             if not (recovered / "Assets").is_dir():
                 raise BuildError("Recovery did not produce an actual Unity Assets directory.")
             paths = [p for p in recovered.rglob("*") if p.is_file() and "Library" not in p.parts]
             return paths, {"report": metadata, "project": recovered.relative_to(output).as_posix()}
 
         recovered_receipt = stages.run("recovery", key, recover)
-        audit = recovered_receipt["details"]["report"].get("audit", {})
+        audit = recovered_receipt["details"]["report"]
         readiness = audit.get("readiness", {})
-        if readiness.get("fullGameReady") is not True:
-            shaders = audit.get("shaders", {}).get("placeholderCount", "unknown")
-            bundles = audit.get("addressables", {}).get("deferredBundleCount", "unknown")
-            raise BuildError("Full game recovery is not ready: placeholder shaders=" + str(shaders) +
-                             ", deferred bundles=" + str(bundles) +
-                             "; inspect " + str(recovered / "quest-recovery-report.json") +
-                             ". The explicitly diagnostic probe target is separate.")
+        if readiness.get("originalSceneClosureStaged") is not True or readiness.get("fullOriginalCatalogRecovered") is not True:
+            raise BuildError("Campaign source recovery is incomplete; no menu-only output can substitute for the full game.")
+        refs = audit.get("missingReferences", {})
+        if audit.get("unresolvedAddressables") or refs.get("missingGuidCount", 0) or refs.get("duplicateGuidCount", 0):
+            raise BuildError("Campaign source recovery contains unresolved native assets; inspect quest-campaign-report.json.")
         if audit.get("managedScriptBindings", {}).get("unexpectedUnresolvedCount", 0) != 0:
             raise BuildError("Recovery has unresolved script bindings; inspect " + str(recovered / "quest-recovery-report.json"))
     key = value_hash({"input": inputs["inputKey"], "recipe": RECIPE})
@@ -320,6 +337,8 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             shutil.rmtree(project)
         if recovered:
             shutil.copytree(recovered, project, ignore=shutil.ignore_patterns("Library", "Temp", "Logs", ".git", ".snapshot.json"))
+            if inputs.get("campaignProject"):
+                campaign.verify_copy(project, inputs["campaignProject"])
         else:
             project.mkdir(parents=True)
         # Retain original built-in modules (video, particles, cloth, etc.) while
@@ -349,7 +368,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
         identity = output / "identities" / inputs["profileKey"]
         for name in ("quest-profile.json", "quest-steam-logo.png"):
             shutil.copyfile(identity / name, resources / name)
-        if args.target == "startup":
+        if args.target in ("startup", "game"):
             # AssetRipper's Windows Bloom exports are one-pass placeholders.
             # Restore their original interfaces from pinned official portable
             # sources in the private build cache before Unity imports any asset.
@@ -359,12 +378,27 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
                 raise BuildError("The selected mod is missing its original GloomhavenVR loading logo.")
             shutil.copyfile(loading_logo, resources / "quest-loading-logo.png")
             shutil.copyfile(recovered / startup.REPORT, resources / startup.REPORT)
+            if args.target == "game":
+                recovery_report = json.loads((recovered / startup.REPORT).read_text())
+                # The complete hashed inventory stays in local recovery evidence.
+                # Runtime/Editor bootstrap consumes only this small capability
+                # contract; it must not deserialize a47 MB file list on headset.
+                write_json(resources / startup.REPORT, {key: recovery_report[key] for key in (
+                    "schema", "target", "selectedScenes", "readiness", "unresolvedAddressables", "missingReferences")
+                    if key in recovery_report})
             startup.stage_startup_movies(project, game)
             restore_loading_sprite_geometry(project, game)
             stage_startup_audio(project, game)
             ui_assets.stage_startup_ui(project)
             ui_assets.stage_startup_blur(project)
             dlcs.stage(project, inputs["profile"]["dlcOwnership"])
+            if args.target == "game":
+                import dependencies
+                import campaign_native
+                campaign.stage_file_backed_extras(project, game)
+                dependencies.python_environment(output / "tool-cache", source)
+                selected_tools = toolchain(args, output)
+                campaign_native.stage(source, project, game, output / "tool-cache/campaign-native", Path(selected_tools["androidNdk"]))
             package_startup_content(project, inputs["inputKey"])
             package_data = json.loads((project / "Packages/manifest.json").read_text(encoding="utf-8"))
             package_data.setdefault("dependencies", {})["com.unity.addressables"] = "1.19.19"
@@ -373,7 +407,8 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             write_json(project / "Packages/manifest.json", package_data)
             restore_ugui_layout_gate(project, game, editor)
             package_mod_content(project, inputs, output, source, editor)
-            (project / "Assets/csc.rsp").write_text("-define:GHVR_QUEST_STARTUP\n", encoding="utf-8")
+            defines = "GHVR_QUEST_STARTUP;GHVR_QUEST_GAME" if args.target == "game" else "GHVR_QUEST_STARTUP"
+            (project / "Assets/csc.rsp").write_text("-define:" + defines + "\n", encoding="utf-8")
             # Before the first Unity domain load, exclude duplicate package DLLs.
             # Raw recovery and immutable original inputs retain their GUIDs/bytes.
             exclude_recovered_package_plugins(project)
@@ -401,7 +436,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
         # The generated project is mutable under Unity. Cache this content-independent
         # contract and Resources instead of receipts over import-generated .meta files.
         contracts = [settings, manifest, resources / "quest-profile.json", resources / "quest-steam-logo.png"]
-        if args.target == "startup":
+        if args.target in ("startup", "game"):
             contracts.extend([resources / "quest-loading-logo.png", resources / startup.REPORT, resources / startup.MOVIES_REPORT, resources / "quest-startup-content.json",
                               resources / "quest-dlc-ownership.json", project / "QuestStartupEvidence/dlc-content-selection.json",
                               project / "QuestStartupEvidence/loading-sprite-geometry.json",
@@ -420,6 +455,10 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
                               project / "Packages/com.unity.ugui/Runtime/UI/Core/Layout/LayoutRebuilder.cs"])
             contracts.extend([resources / "quest-mod-content.json", resources / "quest-mod-bundles.json",
                               project / "Assets/StreamingAssets/quest-mod-content.zip"])
+            if args.target == "game":
+                contracts.extend([project / "QuestCampaignEvidence/native-runtime.json", resources / "quest-procedural-runtime.json"])
+                native = json.loads((project / "QuestCampaignEvidence/native-runtime.json").read_text())
+                contracts.extend(project / row["path"] for row in native["nativeFiles"])
         contracts.extend(p for p in (project / "Assets/Quest").rglob("*")
                          if p.is_file() and p.suffix in (".cs", ".shader", ".asmdef", ".cginc"))
         if inputs.get("probeAssets"):
@@ -438,6 +477,28 @@ def startup_shader_contracts(project: Path) -> list[Path]:
     assets = project / "Assets"
     return sorted(path for path in assets.rglob("*") if path.is_file() and
                   (path.suffix in (".compute", ".cginc") or path.name.endswith(".compute.meta")))
+
+
+def owned_tmp_source_archive(cache: Path) -> Path:
+    """Acquire only the pinned official shader source package, never game data."""
+    import urllib.request
+    module_path = Path(__file__).resolve().parents[1] / "quest-recovery/tmp_shaders.py"
+    spec = importlib.util.spec_from_file_location("quest_official_tmp_sources", module_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    cache.mkdir(parents=True, exist_ok=True)
+    archive = cache / "com.unity.textmeshpro-3.0.6.tgz"
+    if not archive.is_file():
+        temporary = archive.with_suffix(".download")
+        with urllib.request.urlopen(module.TMP_URL, timeout=120) as response, temporary.open("wb") as target:
+            shutil.copyfileobj(response, target)
+        if digest(temporary) != module.TMP_SHA256:
+            temporary.unlink(missing_ok=True)
+            raise BuildError("Official TMP shader package failed its pinned SHA-256 proof.")
+        temporary.replace(archive)
+    if digest(archive) != module.TMP_SHA256:
+        raise BuildError("Cached official TMP shader source changed; the private archive needs replacement.")
+    return archive
 
 
 def package_startup_content(project: Path, input_key: str) -> dict:
@@ -648,7 +709,7 @@ def weave(args, inputs: dict, output: Path, source: Path, game: Path, project: P
 
     Stages(output).run("weave", key, run_weaver)
     deploy_woven_assemblies(staged, game, project)
-    if args.target == "startup":
+    if args.target in ("startup", "game"):
         compatibility = root / "Standalone"
         compatibility_report = root / "standalone-report.json"
 
@@ -656,7 +717,7 @@ def weave(args, inputs: dict, output: Path, source: Path, game: Path, project: P
             assets = source / "src/GloomhavenVR/obj/project.assets.json"
             bepinex = resolved_bepinex_runtime(assets)
             command([str(dotnet), "run", "--project", str(source / "tools/QuestWeaver/QuestWeaver.csproj"),
-                     "--configuration", "Release", "--", "standalone", "--standalone-target", "startup",
+                     "--configuration", "Release", "--", "standalone", "--standalone-target", args.target,
                      "--managed", str(game / "Managed"), "--overrides", str(staged),
                      "--profile", str(project / "Assets/Quest/Resources/quest-profile.json"),
                      "--bepinex", str(bepinex), "--mod", str(root / "mod/GloomhavenVR.dll"),
@@ -672,6 +733,8 @@ def weave(args, inputs: dict, output: Path, source: Path, game: Path, project: P
         Stages(output).run("standalone", key, adapt_startup)
         deploy_woven_assemblies(compatibility, game, project, link_name="Standalone/link.xml")
         shutil.copyfile(compatibility_report, project / "Assets/Quest/Resources/quest-standalone-report.json")
+        if args.target == "game":
+            stage_campaign_runtime_assembly(project)
 
 
 def original_builtin_modules(game: Path, editor: Path) -> dict:
@@ -711,6 +774,32 @@ def isolate_original_compiler_namespace(project: Path) -> None:
     if count != 1:
         raise BuildError("The recovered GH.Runtime plugin has no unique compiler-reference setting.")
     matches[0].write_text(metadata, encoding="utf-8")
+
+
+def stage_campaign_runtime_assembly(project: Path) -> Path:
+    """Give only the Quest runtime explicit access to the original game API.
+
+    The original global Debug wrapper must remain hidden from Unity package
+    compilation. A generated assembly definition references its plugin locally,
+    while package and desktop source/importer settings remain unchanged.
+    """
+    runtime = project / "Assets/Quest/Runtime"
+    if not runtime.is_dir():
+        raise BuildError("The Quest runtime source folder is missing.")
+    plugins = []
+    for path in (project / "Assets").rglob("*.dll"):
+        if path.stem not in REPLACED_PACKAGES:
+            plugins.append(path.name)
+    if len(set(plugins)) != len(plugins) or not {"GH.Runtime.dll", "GloomhavenVR.dll", "QuestGame.Compatibility.dll"}.issubset(plugins):
+        raise BuildError("Campaign runtime needs unique original game, current mod and compatibility plugin references.")
+    target = runtime / "QuestGame.Campaign.asmdef"
+    write_json(target, {"name": "QuestGame.Campaign", "rootNamespace": "GloomhavenVR.Quest",
+        "references": ["Unity.InputSystem", "Unity.Addressables", "Unity.ResourceManager", "UnityEngine.UI",
+                       "Unity.TextMeshPro", "Unity.XR.Management", "Unity.XR.OpenXR", "Unity.XR.CoreUtils"],
+        "includePlatforms": [], "excludePlatforms": [], "allowUnsafeCode": False,
+        "overrideReferences": True, "precompiledReferences": sorted(plugins), "autoReferenced": True,
+        "defineConstraints": ["GHVR_QUEST_GAME"], "versionDefines": [], "noEngineReferences": False})
+    return target
 
 
 def resolved_bepinex_runtime(assets: Path) -> Path:
@@ -820,6 +909,26 @@ def validate_apk(apk: Path, report: Path, inputs: dict, tools: dict, output: Pat
                 raise BuildError("APK native library is not an ELF64 little-endian AArch64 shared object: " + name)
         if not any(name.endswith("/global-metadata.dat") for name in names):
             raise BuildError("The APK lacks IL2CPP metadata.")
+        content_files = []
+        if inputs["target"] == "game":
+            for required in ("libQuestApparance.so", "libquest_box64.so", "libquest_wineserver.so", "libopus_egpv.so"):
+                if "lib/arm64-v8a/" + required not in names:
+                    raise BuildError("Complete Campaign APK lacks its native game ABI: " + required)
+            path = "assets/Quest/content-delivery.json"
+            if path not in names or archive.getinfo(path).file_size > 65536:
+                raise BuildError("Complete Campaign APK lacks its signed content delivery contract.")
+            delivery = json.loads(archive.read(path))
+            rows = delivery.get("files")
+            if delivery.get("schema") != 1 or delivery.get("inputKey") != inputs["inputKey"] or delivery.get("package") != PACKAGE or not isinstance(rows, list) or len(rows) != 1:
+                raise BuildError("Campaign content delivery differs from this APK.")
+            for row in rows:
+                if (row.get("file") != "GloomhavenVR-Quest-content.zip" or row.get("archive") != "quest-startup-content.zip"
+                        or not re.fullmatch(r"[0-9a-f]{64}", str(row.get("sha256", ""))) or type(row.get("size")) is not int):
+                    raise BuildError("Campaign content bank identity is invalid.")
+                bank = apk.parent / row["file"]
+                if bank.is_symlink() or not bank.is_file() or bank.stat().st_size != row["size"] or digest(bank) != row["sha256"]:
+                    raise BuildError("Complete Campaign content bank changed or is missing.")
+                content_files.append(record_file(bank, bank.relative_to(output).as_posix()))
     verify_env = dict(os.environ)
     if tools.get("jdk"):
         verify_env["JAVA_HOME"] = tools["jdk"]
@@ -842,7 +951,7 @@ def validate_apk(apk: Path, report: Path, inputs: dict, tools: dict, output: Pat
         raise BuildError("Quest 3 APK requests an unused eye-tracking permission.")
     return {"apkSha256": digest(apk), "certificateSha256": cert_hash,
             "package": PACKAGE, "isDiagnostic": inputs["target"] != "game",
-            "isDummy": bool(inputs["profile"].get("isDummy")), "buildReport": metadata}
+            "isDummy": bool(inputs["profile"].get("isDummy")), "buildReport": metadata, "contentFiles": content_files}
 
 
 def build(args, inputs: dict, output: Path, source: Path, game: Path, project: Path) -> Path:
@@ -864,8 +973,11 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                  str(project / "Assets/Quest/Plugins/Android/arm64/libghvr_quest_passthrough.so"),
                  "--cache", str(output / "tool-cache/openxr-headers")],
                 output / "logs" / ("native-" + key[:12] + ".log"), cwd=source)
-        if args.target == "startup":
+        if args.target in ("startup", "game"):
             bind_startup_package_apis(args, output, source, project, tools, key)
+        if args.target == "game":
+            import campaign_native
+            campaign_native.build_contract(project, inputs)
         env = dict(os.environ)
         env.update({"GHVR_QUEST_OUTPUT_APK": str(apk), "GHVR_QUEST_TARGET": args.target,
                     "GHVR_QUEST_PACKAGE": PACKAGE,
@@ -877,7 +989,7 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                     "GHVR_QUEST_KEYALIAS_PASSWORD": private["password"],
                     "GHVR_QUEST_ANDROID_SDK": tools["androidSdk"],
                     "GHVR_QUEST_ANDROID_NDK": tools["androidNdk"], "GHVR_QUEST_JDK": tools["jdk"]})
-        if args.target == "startup":
+        if args.target in ("startup", "game"):
             # Unity 2021.3's Android toolchain otherwise selects old NDK r21 BFD.
             # Keep the supported linker selection local to this diagnostic process.
             env["UNITY_IL2CPP_ANDROID_USE_LLD_LINKER"] = "1"
@@ -886,7 +998,7 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                  "-logFile", str(output / "logs" / ("unity-build-" + key[:12] + ".log"))],
                 output / "logs" / ("unity-launch-" + key[:12] + ".log"), env=env)
         details = validate_apk(apk, report, inputs, tools, output)
-        return [apk, report], details
+        return [apk, report, *(output / row["path"] for row in details["contentFiles"])], details
 
     receipt = Stages(output).run("build", key, compile_player)
     write_json(output / "latest-build.json", {"schema": 1, "receipt": Stages(output).path("build", key).relative_to(output).as_posix(),
@@ -1001,6 +1113,14 @@ def verified_latest_build(output: Path) -> tuple[Path, dict]:
 
 def install(args, output: Path) -> None:
     apk, details = verified_latest_build(output)
+    if details.get("isDiagnostic") is False:
+        installer = Path(__file__).resolve().parents[2] / "scripts/install-quest-wireless.py"
+        arguments = [sys.executable, str(installer), "--output-root", str(output)]
+        if args.adb: arguments += ["--adb", str(args.adb)]
+        if args.serial: arguments += ["--serial", args.serial]
+        command(arguments, output / "logs/adb-campaign-install.log")
+        print("install: complete Campaign APK and content installed; existing native saves retained", flush=True)
+        return
     adb = tool_path(args.adb, "adb")
     raw = command([str(adb), "devices"], output / "logs/adb-devices.log")
     ready = [line.split()[0] for line in raw.splitlines() if len(line.split()) == 2 and line.split()[1] == "device"]
@@ -1041,7 +1161,7 @@ def report(output: Path) -> None:
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description="Build a locally owned Gloomhaven copy for Quest; no store/cloud services.")
-    result.add_argument("command", choices=("inspect", "prepare", "build", "install", "report"))
+    result.add_argument("command", choices=("inspect", "prepare", "build", "install", "report", "package"))
     result.add_argument("--repo-root", type=Path, default=REPO)
     result.add_argument("--game-root", type=Path)
     result.add_argument("--output-root", type=Path)
@@ -1052,17 +1172,21 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--steam-logo", type=Path)
     result.add_argument("--dummy-profile", action="store_true", help="Explicit maintainer-authorized development identity (ID 0, DUMMY).")
     result.add_argument("--dlc-ownership-json", type=Path, help="Small explicit local DLC declaration for portable build hosts; matches the selected account.")
+    result.add_argument("--provider-metadata-dir", type=Path, help="Local GOG/Epic installation metadata directory; bundled DLC bytes alone do not establish ownership.")
     result.add_argument("--owned-dlc", action="append", choices=[row[0] for row in dlcs.CATALOG],
-                        help="Maintainer diagnostic ownership declaration, only with the labelled DUMMY profile; repeat per DLC.")
+                        help="Explicit local purchased-DLC selection when complete provider metadata is unavailable; repeat per DLC.")
     result.add_argument("--probe-assets", type=Path, help="Pure native recovered asset slice, only for the diagnostic probe.")
     result.add_argument("--startup-project", type=Path, help="Validated original-scene closure, only for the startup diagnostic.")
+    result.add_argument("--campaign-project", type=Path, help="Optional completed local Campaign recovery; its original input and every file are verified before reuse.")
     result.add_argument("--unity-editor")
     result.add_argument("--android-sdk")
     result.add_argument("--android-ndk")
     result.add_argument("--jdk")
     result.add_argument("--dotnet")
+    result.add_argument("--recovery-dotnet", help="Optional pinned .NET 10.0.401 recovery SDK; otherwise provisioned in the private build cache.")
     result.add_argument("--adb")
     result.add_argument("--serial")
+    result.add_argument("--hardware-dir", type=Path, help="Destination for the verified Windows hardware-test archive.")
     return result
 
 
@@ -1087,6 +1211,11 @@ def main(argv: list[str] | None = None) -> int:
                     report(output)
                 elif args.command == "install":
                     install(args, output)
+                elif args.command == "package":
+                    import handoff
+                    apk, details = verified_latest_build(output)
+                    archive = handoff.package(repo, output, apk, details, args.hardware_dir or repo / ".planning/debug/quest3")
+                    print("package: " + str(archive), flush=True)
                 else:
                     inputs = inspect_inputs(args, repo, output, data)
                     if args.command != "inspect":

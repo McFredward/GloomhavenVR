@@ -174,6 +174,8 @@ try
     StartupTests.Run(projectRoot, Check);
     DlcTests.Run(projectRoot, Check);
     StandaloneProfileTests.Run(projectRoot, Check);
+    StandaloneCampaignTests.Run(projectRoot, Path.Combine(temp, "native-campaign"), Check);
+    StandaloneOdinTests.Run(projectRoot, Check);
     StandaloneExportTests.Run(projectRoot, Path.Combine(temp, "native-export"), Check);
     PackageApiTests.Run(temp + "-package-api", Check);
     Console.WriteLine($"QuestWeaver executable fixture: {assertions} assertions passed.");

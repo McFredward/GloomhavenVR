@@ -12,7 +12,7 @@ using UnityEngine.ResourceManagement.ResourceLocations;
 
 namespace GloomhavenVR.Quest
 {
-    [Serializable] public sealed class QuestGameAddressableAlias { public string key, assetGuid; }
+    [Serializable] public sealed class QuestGameAddressableAlias { public string key, assetGuid; public string[] assetKeys; }
     [Serializable] public sealed class QuestGameAddressablesManifest
     {
         public int schema;
@@ -70,12 +70,25 @@ namespace GloomhavenVR.Quest
                     var aliases = new AliasLocator();
                     foreach (QuestGameAddressableAlias alias in manifest.aliases)
                     {
-                        if (alias == null || string.IsNullOrEmpty(alias.key) || string.IsNullOrEmpty(alias.assetGuid)) throw new InvalidDataException("Invalid original Addressables alias.");
-                        IList<IResourceLocation> native = null;
-                        bool resolved = false;
-                        foreach (IResourceLocator locator in Addressables.ResourceLocators)
-                            if (locator.Locate(alias.assetGuid, typeof(UnityEngine.Object), out native) && native != null && native.Count != 0) { resolved = true; break; }
-                        if (!resolved) throw new InvalidDataException("Original key alias has no real native catalog asset: " + alias.key + " -> " + alias.assetGuid);
+                        if (alias == null || string.IsNullOrEmpty(alias.key)) throw new InvalidDataException("Invalid original Addressables alias.");
+                        string[] keys = alias.assetKeys != null && alias.assetKeys.Length != 0 ? alias.assetKeys : new[] { alias.assetGuid };
+                        var native = new List<IResourceLocation>();
+                        var selected = new HashSet<string>(StringComparer.Ordinal);
+                        foreach (string key in keys)
+                        {
+                            if (string.IsNullOrEmpty(key) || !selected.Add(key)) throw new InvalidDataException("Original alias has an empty or repeated native asset key.");
+                            bool resolved = false;
+                            foreach (IResourceLocator locator in Addressables.ResourceLocators)
+                            {
+                                if (!locator.Locate(key, typeof(UnityEngine.Object), out IList<IResourceLocation> locations)
+                                    || locations == null || locations.Count == 0) continue;
+                                foreach (IResourceLocation location in locations)
+                                    if (!native.Contains(location)) native.Add(location);
+                                resolved = true;
+                                break;
+                            }
+                            if (!resolved) throw new InvalidDataException("Original key alias has no real native catalog asset: " + alias.key + " -> " + key);
+                        }
                         aliases.Add(alias.key, native);
                     }
                     aliasLocator = aliases; Addressables.AddResourceLocator(aliases);
@@ -115,7 +128,7 @@ namespace GloomhavenVR.Quest
         sealed class AliasLocator : IResourceLocator
         {
             readonly Dictionary<object, IList<IResourceLocation>> aliases = new Dictionary<object, IList<IResourceLocation>>();
-            public string LocatorId { get { return "QuestOriginalStartupKeys-v1"; } }
+            public string LocatorId { get { return "QuestOriginalKeys-v2"; } }
             public IEnumerable<object> Keys { get { return aliases.Keys; } }
             public void Add(string key, IList<IResourceLocation> native)
             {

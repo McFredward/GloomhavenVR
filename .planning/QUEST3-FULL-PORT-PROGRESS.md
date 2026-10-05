@@ -63,8 +63,46 @@ references the original game explicitly without exposing its global Debug wrappe
 to unrelated Unity packages. Compilation does not prove PC room admission, actual
 microphone operation or headset rendering.
 
-Current focused QuestWeaver proof: 358 assertions, including roundtripped native
+Current focused QuestWeaver proof: 752 assertions, including roundtripped native
 proxy bodies and a changed-ABI negative control. Original DLL adaptation verifies
 5,050 unrelated types unchanged. Full packaging remains gated by complete assets,
 faithful shaders, native runtime dependencies and current-mod AOT evidence; no
 menu-only APK has been relabelled as the requested complete game.
+
+## Integrated full-game installation and native stage
+
+The ARM64 bridge now stages the original engine DLL and a verified 1,398-file
+portable dependency payload. Actual Android/Bionic Box64 and server PIE files
+are installed under nativeLibraryDir with preload disabled. Private Wine state
+uses Context.filesDir; emulated external storage cannot provide its symlinks.
+The exact worker replay matches18 original entities,87 resource requests and
+56,133 canonical task bytes, including192 callback reentries and original Save/
+restart. This is independent source/host execution evidence, not Quest execution.
+
+Full-target preparation preserves all13 original scenes and every associated
+catalog object, including6,102 objects outside the initial preload. The original
+AssetBundleManager remains the sole owner of native asset preloading. The added
+locator retains original keys and typed subobjects. The corrected native pointer
+closure and complete shader banks remain mandatory source/import gates.
+
+The signed APK declares one adjacent complete owned-content ZIP. The Windows
+installer transfers and hashes this bank automatically, retains app data, and
+reuses verified identical banks on the same headset. Superseded banks from its
+own earlier successful installation are removed only after replacement succeeds.
+The content worker verifies/extracts the external bank directly, avoiding a
+second multi-gigabyte archive copy. Existing installed content remains reusable
+across mod changes through the independent content key; warm starts do not repeat
+byte hashes. APK ZIP32 limits do not justify dropping game assets.
+
+The builder provisions pinned conversion packages in its own Python environment
+and a separate pinned.NET10 recovery SDK. Managed inspection/weaving continues
+with the selected.NET8 toolchain. No system environment or desktop mod is changed.
+The actual full-target Unity2021 Android player script compilation passes with
+17 assemblies. Focused Python builder/installer controls pass164/62 tests.
+
+The original Odin serializer's desktop CanEmit getter is a constant true. The
+game target selects its existing reflection/AOT fallback by changing that one
+capability opcode in the staged assembly. Save serializers and formats remain
+original; Unity IL2CPP execution and full-game headset acceptance stay distinct.
+The collector now includes bounded raw private procedural worker/engine logs
+through run-as for the diagnostic player.

@@ -309,6 +309,40 @@ class ApkTests(Temporary):
             return "Signer #1 certificate SHA-256 digest: " + "a" * 64
         return "package: name='" + builder.PACKAGE + "' versionCode='1'"
 
+    def campaign_fixture(self, omit=None, input_key=None):
+        self.inputs["target"] = "game"
+        self.metadata["target"] = "game"
+        storage.write_json(self.evidence, self.metadata)
+        self.fixture_apk()
+        bank = self.apk.parent / "GloomhavenVR-Quest-content.zip"
+        with zipfile.ZipFile(bank, "w") as archive:
+            archive.writestr("StreamingAssets/Rulebase/fixture", b"owned fixture")
+        with zipfile.ZipFile(self.apk, "a") as archive:
+            for name in ("libQuestApparance.so", "libquest_box64.so", "libquest_wineserver.so", "libopus_egpv.so"):
+                if name != omit: archive.writestr("lib/arm64-v8a/" + name, arm64_elf_header())
+            archive.writestr("assets/Quest/content-delivery.json", json.dumps({"schema": 1, "package": builder.PACKAGE,
+                "inputKey": input_key or self.inputs["inputKey"], "files": [{"file": bank.name, "archive": "quest-startup-content.zip",
+                "sha256": storage.digest(bank), "size": bank.stat().st_size}]}))
+        return bank
+
+    def test_campaign_native_abis_and_adjacent_bank_are_required(self):
+        bank = self.campaign_fixture()
+        with patch.object(builder, "command", self.tool_output):
+            evidence = builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+        self.assertFalse(evidence["isDiagnostic"])
+        self.assertEqual(evidence["contentFiles"], [storage.record_file(bank, bank.name)])
+        bank.write_bytes(b"changed")
+        with self.assertRaisesRegex(storage.BuildError, "content bank changed"):
+            builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+
+    def test_campaign_rejects_missing_executable_or_wrong_bank_owner(self):
+        self.campaign_fixture(omit="libquest_box64.so")
+        with self.assertRaisesRegex(storage.BuildError, "native game ABI"):
+            builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+        self.campaign_fixture(input_key="another-build")
+        with self.assertRaisesRegex(storage.BuildError, "delivery differs"):
+            builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+
     def test_evidence_and_native_architecture_controls(self):
         self.fixture_apk()
         with patch.object(builder, "command", self.tool_output):
@@ -525,23 +559,24 @@ class DevelopmentAndDeploymentTests(Temporary):
             builder.deploy_woven_assemblies(staged, self.data, project)
 
     def test_real_recovery_process_zero_is_not_full_game_readiness(self):
-        launcher = self.repo / "scripts/recover-quest.py"
-        launcher.parent.mkdir()
+        launcher = self.repo / "tools/quest-recovery/full_recovery.py"
+        launcher.parent.mkdir(parents=True)
         launcher.write_text(
             'import argparse,json\nfrom pathlib import Path\np=argparse.ArgumentParser()\n'
-            'p.add_argument("--game-data");p.add_argument("--output-project");p.add_argument("--tool-root")\n'
+            'p.add_argument("--game-data");p.add_argument("--output-project");p.add_argument("--workspace");'
+            'p.add_argument("--tool-cache");p.add_argument("--dotnet");p.add_argument("--managed-dotnet")\n'
             'a=p.parse_args();root=Path(a.output_project);(root/"Assets").mkdir(parents=True)\n'
-            '(root/"quest-recovery-report.json").write_text(json.dumps({"schema":1,"audit":{'
-            '"readiness":{"fullGameReady":False},"shaders":{"placeholderCount":177},'
-            '"addressables":{"deferredBundleCount":12}}}))\n')
-        result = builder.main(["prepare", "--repo-root", str(self.repo), "--game-root", str(self.data),
-                               "--output-root", str(self.output), "--target", "game", "--dummy-profile",
-                               "--steam-logo", str(self.logo)])
+            '(Path(a.workspace)/"full-recovery.json").write_text(json.dumps({"schema":1,'
+            '"fullOriginalCatalogRecovered":False,"androidPlayerBuilt":False}))\n')
+        with patch("dependencies.python_environment", return_value=Path(sys.executable)), \
+                patch("dependencies.dotnet10", return_value=Path(sys.executable)):
+            result = builder.main(["prepare", "--repo-root", str(self.repo), "--game-root", str(self.data),
+                                   "--output-root", str(self.output), "--target", "game", "--dummy-profile",
+                                   "--steam-logo", str(self.logo), "--dotnet", sys.executable])
         self.assertEqual(result, 1)
         failure = json.loads((self.output / "last-failure.json").read_text())
-        self.assertEqual(failure["stage"], "prepare")
-        self.assertIn("placeholder shaders=177", failure["message"])
-        self.assertIn("deferred bundles=12", failure["message"])
+        self.assertEqual(failure["stage"], "recovery")
+        self.assertIn("did not finish the original catalog", failure["message"])
         self.assertFalse((self.output / "projects").exists())
         self.assertEqual(list((self.output / "receipts").glob("build/*.json")), [])
 

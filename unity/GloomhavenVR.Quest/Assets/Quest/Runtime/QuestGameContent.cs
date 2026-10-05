@@ -12,6 +12,7 @@ namespace GloomhavenVR.Quest
     {
         public int schema;
         public string inputKey, archive, archiveSha256;
+        public bool externalDelivery;
         public QuestGameContentFile[] files;
     }
 

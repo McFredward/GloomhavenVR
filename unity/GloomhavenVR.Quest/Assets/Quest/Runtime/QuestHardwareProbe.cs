@@ -430,7 +430,7 @@ namespace GloomhavenVR.Quest
                 saveStatus = storagePassed ? "savePassed" : "saveFailed";
                 Debug.Log("[GloomhavenVR Quest] diagnostic storage restored=" + storagePassed);
             }
-            catch (Exception error) { saveStatus = "saveFailed"; Debug.LogException(error); }
+            catch (Exception error) { saveStatus = "saveFailed"; UnityEngine.Debug.LogException(error); }
         }
         void WriteStorage()
         {
@@ -451,7 +451,7 @@ namespace GloomhavenVR.Quest
                 File.Move(pending, savePath);
                 ReadStorage();
             }
-            catch (Exception error) { saveStatus = "saveFailed"; Debug.LogException(error); }
+            catch (Exception error) { saveStatus = "saveFailed"; UnityEngine.Debug.LogException(error); }
             RefreshText();
         }
         string Tracked(bool value) => QuestText.Get(value ? "probeYes" : "probeNo", german);

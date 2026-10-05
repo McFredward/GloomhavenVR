@@ -49,7 +49,11 @@ namespace GloomhavenVR.Quest.Editor
 
         public static void RemapAndValidate()
         {
+#if GHVR_QUEST_GAME
+            const string inputPath = "Assets/QuestOriginalCampaign/script-bindings.json";
+#else
             const string inputPath = "Assets/QuestOriginalStartup/script-bindings.json";
+#endif
             if (!File.Exists(inputPath)) throw new InvalidOperationException("Original startup script-binding evidence is missing.");
             var input = JsonUtility.FromJson<Input>(File.ReadAllText(inputPath));
             if (input == null || input.schema != 1 || input.bindings == null || input.assetPaths == null || input.disabledPluginGuids == null)

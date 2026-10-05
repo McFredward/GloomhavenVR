@@ -14,6 +14,13 @@ namespace GloomhavenVR.Quest
     /// <summary>Starts the original scene only after owned content and compatibility validation.</summary>
     public sealed class QuestGameBootstrap : MonoBehaviour
     {
+#if GHVR_QUEST_GAME
+        const string RuntimeScope = "original-campaign-real-vr-mod";
+        const bool CampaignPackageBuilt = true;
+#else
+        const string RuntimeScope = "original-startup-real-vr-mod";
+        const bool CampaignPackageBuilt = false;
+#endif
         [Serializable] sealed class BuildStamp { public int schema = 0, modBuild = 0; public string inputKey = null; }
         [Serializable] sealed class StartupState
         {
@@ -25,7 +32,7 @@ namespace GloomhavenVR.Quest
             public double elapsedSeconds, lastContentProgressAgeSeconds;
             public int mainThreadFrames, startupOverallPercent;
             public QuestFrameSnapshot frameTiming;
-            public bool loadingViewAvailable, contentLogWriteFailed;
+            public bool loadingViewAvailable, contentLogWriteFailed, campaignPackageBuilt, proceduralBridgeConfigured;
             public bool contentReady, modContentReady, addressablesReady, originalBootstrapStarted, modInitializationComplete, rigReady, modLifecycleAvailable, fullGameReady, eosAuthorised, proceduralRuntimeAvailable, voiceNativeAvailable, passthroughActive, inviteKeyboardBound, inviteKeyboardVisible, realKeyboardVisible, focused, paused;
         }
         public string originalScene = "Bootstrap";
@@ -78,7 +85,7 @@ namespace GloomhavenVR.Quest
             // property. Publish immutable managed paths before any original/mod
             // initializer can access them; getters never call Unity afterwards.
             logPath = Path.Combine(Application.persistentDataPath, "quest-startup.log");
-            try { log = new QuestGameStartupLog(logPath, "Unity=" + Application.unityVersion + " platform=" + Application.platform + " scope=original-startup-real-vr-mod fullGameReady=false"); }
+            try { log = new QuestGameStartupLog(logPath, "Unity=" + Application.unityVersion + " platform=" + Application.platform + " scope=" + RuntimeScope + " campaignPackageBuilt=" + CampaignPackageBuilt); }
             catch (Exception e) { UnityEngine.Debug.LogWarning("[Quest startup] diagnostic log initialization failed: " + e.Message); }
             // Original rule loaders can log from workers or block the Unity main
             // thread. Persist immediately in the thread-safe managed-only sink.
@@ -95,7 +102,7 @@ namespace GloomhavenVR.Quest
             try { modLifecycle.PrepareStartupView(); }
             catch (Exception error) { Fail("startup-view", error); }
             if (GetComponent<QuestGameScope>() == null) gameObject.AddComponent<QuestGameScope>();
-            UnityEngine.Debug.Log("[Quest startup] scope=original-startup-real-vr-mod Unity=" + Application.unityVersion + " platform=" + Application.platform + " fullGameReady=false");
+            UnityEngine.Debug.Log("[Quest startup] scope=" + RuntimeScope + " Unity=" + Application.unityVersion + " platform=" + Application.platform + " campaignPackageBuilt=" + CampaignPackageBuilt);
         }
 
         IEnumerator Start()
@@ -142,6 +149,17 @@ namespace GloomhavenVR.Quest
             SaveState();
             yield return modLifecycle.Activate(modRoot);
             if (!modLifecycle.Available) { Fail("real-mod-lifecycle", new InvalidOperationException(modLifecycle.Failure ?? "Original plugin did not reach its observed running rig.")); yield break; }
+#if GHVR_QUEST_GAME
+            try
+            {
+                // Platform capability is published by the real mod activation.
+                // Recover native save backups before original SaveData awakens.
+                QuestGameSaveStorage.Initialize();
+                if (GetComponent<QuestGameNetwork>() == null) gameObject.AddComponent<QuestGameNetwork>();
+            }
+            catch (Exception error) { Fail("campaign-local-services", error); }
+            if (State == "failed") yield break;
+#endif
             preparationCompletedSteps = 2;
             string root = Path.Combine(Application.persistentDataPath, "quest-owned-game");
             yield return EnsureContent(manifest, root, "quest-startup-content.zip", "content");
@@ -169,8 +187,17 @@ namespace GloomhavenVR.Quest
             addressables = new QuestGameAddressables();
             yield return addressables.Install(addressablesManifest, manifest, root, stamp.inputKey);
             if (!addressables.Ready) { Fail("native-addressables", addressables.Failure ?? new InvalidDataException("Native Addressables startup did not complete.")); yield break; }
+#if GHVR_QUEST_GAME
+            try { QuestGameProcedural.Configure(root); }
+            catch (Exception error) { Fail("original-procedural-runtime", error); }
+            if (State == "failed") yield break;
+#endif
             preparationCompletedSteps = 4;
+#if GHVR_QUEST_GAME
+            UnityEngine.Debug.Log("[Quest campaign] Owned content and real VR mod ready; original dynamic generation and Photon/Bolt session-code multiplayer retained. Native engine/device/session execution remains authoritative.");
+#else
             UnityEngine.Debug.LogWarning("[Quest startup] real-mod lifecycle observed=" + ModLifecycleAvailable + "; fullGameReady=false. EOSAuthorised=false; crossplay unverified. proceduralRuntimeAvailable=false; native Apparance lifecycle disabled for menu-only target, campaign generation remains gated. voiceNativeAvailable=false; Android Opus remains gated.");
+#endif
             if (!Application.CanStreamedLevelBeLoaded(originalScene)) { Fail("original-scene", new InvalidDataException("Required original scene is absent: " + originalScene)); yield break; }
             State = "loading-original-bootstrap";
             SaveState();
@@ -191,8 +218,16 @@ namespace GloomhavenVR.Quest
             // boundary and provides byte progress even before the first camera.
             bool sourceIsApk = Application.platform == RuntimePlatform.Android && !Application.isEditor;
             string source = sourceIsApk ? Application.dataPath : Path.Combine(Application.streamingAssetsPath, manifest.archive);
+            if (manifest.externalDelivery)
+            {
+                // Complete Campaign content can exceed the Android APK ZIP32
+                // signing limit. The wireless installer stages the exact bank
+                // named by this APK; warm receipts require no bank reread.
+                sourceIsApk = false;
+                source = Path.Combine(Application.persistentDataPath, "quest-install-input", manifest.inputKey, manifest.archive);
+            }
             currentContentScope = phase;
-            currentContentSource = sourceIsApk ? "installed-apk" : "local-streaming-assets";
+            currentContentSource = manifest.externalDelivery ? "adb-owned-content" : sourceIsApk ? "installed-apk" : "local-streaming-assets";
             // One worker reuses a valid installation receipt without content
             // reads or progress. Legacy adoption is quiet; only actual new bytes
             // request a shared loading view through the managed progress sink.
@@ -225,7 +260,7 @@ namespace GloomhavenVR.Quest
         void ReportContentProgress(QuestGameContentProgress progress)
         {
             if (destroyed) throw new OperationCanceledException("Startup owner was destroyed.");
-            if (progress.Phase == "copying-archive" || progress.Phase == "extracting-file") contentWorkRequested = true;
+            if (progress.Phase == "copying-archive" || progress.Phase == "extracting-file" || progress.Phase == "verifying-archive") contentWorkRequested = true;
             bool record = false;
             lock (contentSync)
             {
@@ -342,9 +377,15 @@ namespace GloomhavenVR.Quest
         internal void SaveState()
         {
             if (logPath == null) return;
+            bool proceduralConfigured = false, nativeVoiceAvailable = false;
+#if GHVR_QUEST_GAME
+            proceduralConfigured = QuestGameProcedural.Configured;
+            nativeVoiceAvailable = QuestGameNetwork.NativeVoiceAvailable;
+#endif
             QuestGameContentProgress progress; double progressTime;
             lock (contentSync) { progress = contentProgress; progressTime = lastContentProgress; }
-            var state = new StartupState { modBuild = build != null ? build.modBuild : 0, inputKey = build != null ? build.inputKey : null, state = State, failureDetail = FailureDetail,
+            var state = new StartupState { scope = RuntimeScope, campaignPackageBuilt = CampaignPackageBuilt, proceduralBridgeConfigured = proceduralConfigured,
+                modBuild = build != null ? build.modBuild : 0, inputKey = build != null ? build.inputKey : null, state = State, failureDetail = FailureDetail,
                 utc = DateTime.UtcNow.ToString("O"), elapsedSeconds = startupClock.Elapsed.TotalSeconds, mainThreadFrames = mainThreadFrames,
                 contentPhase = progress != null ? progress.Phase : null, contentFile = progress != null ? progress.File : null,
                 contentProcessedBytes = progress != null ? progress.ProcessedBytes : 0, contentTotalBytes = progress != null ? progress.TotalBytes : 0,
@@ -365,7 +406,7 @@ namespace GloomhavenVR.Quest
                 // The existing keyboard serves any original TMP field. Module
                 // completion does not prove an invite field or invite binding.
                 realKeyboardVisible = modLifecycle != null && modLifecycle.InviteKeyboardVisible,
-                inviteKeyboardBound = false, inviteKeyboardVisible = false, inviteKeyboardFailure = null, proceduralRuntimeAvailable = false, voiceNativeAvailable = false,
+                inviteKeyboardBound = false, inviteKeyboardVisible = false, inviteKeyboardFailure = null, proceduralRuntimeAvailable = proceduralConfigured, voiceNativeAvailable = nativeVoiceAvailable,
                 loadedScenes = loadedScenes, lastScene = lastScene, focused = focused, paused = paused };
             string path = Path.Combine(Application.persistentDataPath, "quest-startup-state.json"), temp = path + ".tmp";
             try

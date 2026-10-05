@@ -112,11 +112,13 @@ namespace GloomhavenVR.Quest
                             Add((Component)button, "guildmasterUnavailable", false, null, attachedTooltip: true);
                         }
                     }
+#if !GHVR_QUEST_GAME
                     else if (type == "VoiceChat.VoceChatOptions")
                     {
                         object button = RequiredField(behaviour, "_switchChatButton");
                         if (button is Component) Add((Component)button, "startupVoiceUnavailable", false, null);
                     }
+#endif
                     else if (type == "UIBuyDLCSlot" || type == "UIPromotionDLCSlot")
                     {
                         // Keep the original ad image, title, animation and native

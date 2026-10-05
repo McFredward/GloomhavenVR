@@ -240,6 +240,22 @@ namespace GloomhavenVR.Quest
             }
         }
 
+        internal static VerifiedArchive VerifyExternal(QuestGameContentManifest manifest, string sourcePath,
+            Action<QuestGameContentProgress> progress)
+        {
+            QuestGameContent.Validate(manifest, manifest.inputKey, manifest.archive);
+            if (!manifest.externalDelivery) throw new InvalidDataException("External bank is outside this delivery contract.");
+            sourcePath = Path.GetFullPath(sourcePath);
+            ValidateDestination(sourcePath);
+            QuestContentHash.FileIdentity before = QuestContentHash.Identity(sourcePath);
+            CheckLength(before.Size, MaximumArchiveBytes(manifest));
+            if (QuestGameContent.Hash(sourcePath, progress, "verifying-archive", manifest.archive) != manifest.archiveSha256)
+                throw new InvalidDataException("External Campaign bank differs from the selected APK.");
+            // The token checks unchanged identity during extraction. Do not
+            // copy a second multi-GB archive into this same private directory.
+            return new VerifiedArchive(manifest, sourcePath, before);
+        }
+
         static VerifiedArchive Copy(QuestGameContentManifest manifest, Stream input, long length, long maximumBytes, string destination,
             Action<QuestGameContentProgress> progress)
         {

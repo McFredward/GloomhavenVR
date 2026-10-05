@@ -157,7 +157,11 @@ def stage_startup_movies(project: Path, game: Path) -> dict:
         scenes = recovered["selectedScenes"]
     except (OSError, ValueError, KeyError) as error:
         raise BuildError("Movie staging needs the verified original startup scene closure.") from error
-    if not isinstance(scenes, list) or tuple(PurePosixPath(str(path)).stem for path in scenes) != SCENE_NAMES:
+    campaign = recovered.get("target") == "campaign"
+    valid_scenes = (isinstance(scenes, list) and ((not campaign and tuple(PurePosixPath(str(path)).stem for path in scenes) == SCENE_NAMES)
+        or campaign and len(scenes) == 13 and len(set(scenes)) == 13
+        and all(name in {PurePosixPath(str(path)).stem for path in scenes} for name in SCENE_NAMES)))
+    if not valid_scenes:
         raise BuildError("Movie staging needs the declared original menu scene order.")
     for scene in scenes:
         path = PurePosixPath(scene)
@@ -168,7 +172,7 @@ def stage_startup_movies(project: Path, game: Path) -> dict:
     # Movies/*.mov, not the Switch's Movies_MP4_30. The actual owned .mov files are
     # MP4/H264 media; changing names/platform branches is unnecessary here.
     ambient = game / "StreamingAssets/Movies/Ambient"
-    external = sorted(ambient.glob("*.mov")) if ambient.is_dir() else []
+    external = sorted((game / "StreamingAssets/Movies").rglob("*.mov")) if campaign else sorted(ambient.glob("*.mov")) if ambient.is_dir() else []
     if not external:
         raise BuildError("Original startup requires the owned Movies/Ambient menu alternatives.")
 
@@ -280,7 +284,7 @@ def stage_startup_movies(project: Path, game: Path) -> dict:
         source = clips_by_guid[guid]
         source.unlink()
         Path(str(source) + ".meta").unlink()
-    result = {"schema": 1, "scope": "original-startup-menu-movies", "fullGameReady": False,
+    result = {"schema": 1, "scope": "original-campaign-movies" if campaign else "original-startup-menu-movies", "fullGameReady": False,
               "clips": clip_records, "externalMovies": movie_records,
               "totalBytes": sum(row["size"] for row in clip_records + movie_records)}
     write_json(project / "Assets/Quest/Resources" / MOVIES_REPORT, result)

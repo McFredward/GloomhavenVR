@@ -43,15 +43,15 @@ namespace GloomhavenVR.Quest.Editor
         static void BuildPlayer()
         {
             string target = Required("GHVR_QUEST_TARGET");
-            if (target != "probe" && target != "startup")
-                throw new InvalidOperationException("Game target is gated until recovered assets, platform adapter and complete AOT conversion pass.");
+            if (target != "probe" && target != "startup" && target != "game")
+                throw new InvalidOperationException("Unknown Quest build target.");
             string apk = Required("GHVR_QUEST_OUTPUT_APK");
             string package = Required("GHVR_QUEST_PACKAGE");
             var manifest = JsonUtility.FromJson<InputManifest>(File.ReadAllText(Required("GHVR_QUEST_MANIFEST_PATH")));
             if (manifest == null || manifest.mod == null || manifest.mod.modBuild <= 0
                 || !System.Text.RegularExpressions.Regex.IsMatch(manifest.inputKey ?? "", "^[0-9a-f]{64}$"))
                 throw new InvalidDataException("Android build identity is missing.");
-            ConfigureAndroid(package, target == "startup");
+            ConfigureAndroid(package, target != "probe");
             PlayerSettings.bundleVersion = "0.1.0.B" + manifest.mod.modBuild + "." + manifest.inputKey.Substring(0, 12);
             PlayerSettings.Android.bundleVersionCode = manifest.mod.modBuild;
             ConfigureNativePlugin();
@@ -64,10 +64,10 @@ namespace GloomhavenVR.Quest.Editor
                 modBuild = manifest.mod.modBuild, inputKey = manifest.inputKey
             }));
             string[] scenes;
-            if (target == "startup")
+            if (target != "probe")
             {
 #if GHVR_QUEST_STARTUP
-                scenes = PrepareOriginalStartup();
+                scenes = PrepareOriginalStartup(target == "game");
 #else
                 throw new InvalidOperationException("Original startup compile contract is missing; regenerate the startup project.");
 #endif
@@ -85,7 +85,11 @@ namespace GloomhavenVR.Quest.Editor
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Directory.CreateDirectory(Path.GetDirectoryName(apk));
-            var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+            BuildReport report;
+#if GHVR_QUEST_GAME
+            using (target == "game" ? new QuestCampaignContentBuild(apk, manifest.inputKey) : null)
+#endif
+            report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {
                 scenes = scenes, locationPathName = apk,
                 target = BuildTarget.Android, options = BuildOptions.Development
@@ -225,19 +229,21 @@ namespace GloomhavenVR.Quest.Editor
             if (!actual.SequenceEqual(contract.plugins.Select(file => file.path).OrderBy(path => path)))
                 throw new InvalidOperationException("Imported package API contract does not cover all active plugins.");
         }
-        static string[] PrepareOriginalStartup()
+        static string[] PrepareOriginalStartup(bool campaign = false)
         {
             ValidatePackageApiContract();
             const string evidencePath = "Assets/Quest/Resources/quest-startup-report.json";
             const string adapterPath = "Assets/Quest/Resources/quest-standalone-report.json";
             var evidence = JsonUtility.FromJson<StartupEvidence>(File.ReadAllText(evidencePath));
             var adapter = JsonUtility.FromJson<StandaloneEvidence>(File.ReadAllText(adapterPath));
-            if (evidence == null || evidence.schema != 1 || evidence.target != "startup" || evidence.fullGameReady ||
+            if (evidence == null || evidence.schema != 1 || evidence.target != (campaign ? "campaign" : "startup") || evidence.fullGameReady ||
                 adapter == null || !adapter.startupAdapterComplete || adapter.fullGameReady)
                 throw new InvalidOperationException("Original startup evidence is absent or claims an unsupported full game.");
             string[] names = { "Bootstrap", "Intro", "Gloomhaven_unified", "MainMenu" };
-            if (evidence.selectedScenes == null || !evidence.selectedScenes.Select(Path.GetFileNameWithoutExtension).SequenceEqual(names))
+            if (evidence.selectedScenes == null || (!campaign && !evidence.selectedScenes.Select(Path.GetFileNameWithoutExtension).SequenceEqual(names))
+                || campaign && (evidence.selectedScenes.Length != 13 || names.Any(name => !evidence.selectedScenes.Any(path => Path.GetFileNameWithoutExtension(path) == name))))
                 throw new InvalidOperationException("Original Bootstrap/Intro/menu scene names or order were lost.");
+            if (campaign) ValidateCampaignBuildContract();
             foreach (string path in evidence.selectedScenes)
                 if (AssetDatabase.LoadAssetAtPath<SceneAsset>(path) == null)
                     throw new InvalidOperationException("Required original scene is unavailable: " + path);
@@ -251,13 +257,19 @@ namespace GloomhavenVR.Quest.Editor
             QuestPostEffectValidation.Validate(false);
             QuestVideoValidation.Validate(false);
             QuestWorldScreenValidation.Validate(false);
+            if (campaign)
+            {
+                QuestCampaignAssetValidation.Validate();
+                QuestCampaignShaderValidation.Validate();
+            }
             QuestStartupAddressablesBuild.Build();
+            if (campaign) QuestCampaignAssetValidation.ValidateAfterAndroidBuild();
             QuestPostEffectValidation.Validate(true);
             QuestUiAssetValidation.Validate(true);
             QuestVideoValidation.Validate(true);
             QuestWorldScreenValidation.Validate(true);
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            GameObject bootstrap = new GameObject("Original Gloomhaven startup diagnostic");
+            GameObject bootstrap = new GameObject(campaign ? "Gloomhaven Quest Campaign" : "Original Gloomhaven startup diagnostic");
             bootstrap.AddComponent<QuestGameBootstrap>();
             // Preserve the logo import and neutral startup camera. The reusable
             // artwork is created only when actual content installation needs it;
@@ -268,6 +280,31 @@ namespace GloomhavenVR.Quest.Editor
             const string startupScene = "Assets/Quest/Scenes/QuestOriginalStartup.unity";
             EditorSceneManager.SaveScene(scene, startupScene);
             return new[] { startupScene }.Concat(evidence.selectedScenes).ToArray();
+        }
+
+        [Serializable] sealed class CampaignBuildContract
+        {
+            public int schema;
+            public string scope, inputKey;
+            public bool completeOriginalContent, completeCurrentModAot, originalDynamicProceduralAbi, localNativeSaves, originalSessionCodeTransport;
+            public ApiFile[] files;
+        }
+
+        static void ValidateCampaignBuildContract()
+        {
+            const string path = "Assets/Quest/Resources/quest-campaign-build-contract.json";
+            if (!File.Exists(path)) throw new InvalidOperationException("Full Campaign native/content build contract is missing.");
+            var contract = JsonUtility.FromJson<CampaignBuildContract>(File.ReadAllText(path));
+            var inputs = JsonUtility.FromJson<InputManifest>(File.ReadAllText(Required("GHVR_QUEST_MANIFEST_PATH")));
+            if (contract == null || contract.schema != 1 || contract.scope != "complete-campaign-package"
+                || contract.inputKey != inputs.inputKey || !contract.completeOriginalContent || !contract.completeCurrentModAot
+                || !contract.originalDynamicProceduralAbi || !contract.localNativeSaves || !contract.originalSessionCodeTransport
+                || contract.files == null || contract.files.Length == 0)
+                throw new InvalidOperationException("Full Campaign evidence lacks a required original game capability.");
+            foreach (var file in contract.files)
+                if (file.path.Contains("..") || Path.IsPathRooted(file.path) || !file.path.StartsWith("Assets/", StringComparison.Ordinal)
+                    || !File.Exists(file.path) || new FileInfo(file.path).Length != file.size || FileHash(file.path) != file.sha256)
+                    throw new InvalidOperationException("Campaign build evidence changed: " + file.path);
         }
 
         static void PrepareLoadingLogo()
@@ -372,14 +409,24 @@ namespace GloomhavenVR.Quest.Editor
         }
         static void ConfigureNativePlugin()
         {
-            const string path = "Assets/Quest/Plugins/Android/arm64/libghvr_quest_passthrough.so";
-            var importer = AssetImporter.GetAtPath(path) as PluginImporter;
-            if (importer == null) throw new InvalidOperationException("ARM64 passthrough library is missing");
-            importer.SetCompatibleWithAnyPlatform(false);
-            importer.SetCompatibleWithEditor(false);
-            importer.SetCompatibleWithPlatform(BuildTarget.Android, true);
-            importer.SetPlatformData(BuildTarget.Android, "CPU", "ARM64");
-            importer.SaveAndReimport();
+            var paths = new System.Collections.Generic.List<string> { "Assets/Quest/Plugins/Android/arm64/libghvr_quest_passthrough.so" };
+#if GHVR_QUEST_GAME
+            paths.AddRange(new[] { "libQuestApparance.so", "libquest_box64.so", "libquest_wineserver.so", "libopus_egpv.so" }
+                .Select(name => "Assets/Quest/Plugins/Android/arm64-v8a/" + name));
+#endif
+            foreach (string path in paths)
+            {
+                var importer = AssetImporter.GetAtPath(path) as PluginImporter;
+                if (importer == null) throw new InvalidOperationException("Required ARM64 native plugin is missing: " + path);
+                importer.SetCompatibleWithAnyPlatform(false);
+                importer.SetCompatibleWithEditor(false);
+                importer.SetCompatibleWithPlatform(BuildTarget.Android, true);
+                importer.SetPlatformData(BuildTarget.Android, "CPU", "ARM64");
+                // Box64 and the private server launcher are executable PIE
+                // files under nativeLibraryDir; Unity must never dlopen them.
+                importer.isPreloaded = false;
+                importer.SaveAndReimport();
+            }
         }
         static void EnableFeature(string id)
         {

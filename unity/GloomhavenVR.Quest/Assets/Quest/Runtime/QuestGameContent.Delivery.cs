@@ -113,8 +113,16 @@ namespace GloomhavenVR.Quest
             {
                 long archiveBytes = QuestGameArchiveDelivery.SourceLength(manifest, sourcePath, sourceIsApk);
                 tracker.Plan(checked(archiveBytes + neededBytes));
-                archive = QuestGameArchiveDelivery.StageVerified(manifest, sourcePath, archivePath, sourceIsApk, tracker.Stream(0));
-                result.CopiedArchive = true; result.CopiedBytes = archive.Length;
+                if (manifest.externalDelivery && !sourceIsApk)
+                {
+                    archive = QuestGameArchiveDelivery.VerifyExternal(manifest, sourcePath, tracker.Stream(0));
+                    result.ReusedArchive = true;
+                }
+                else
+                {
+                    archive = QuestGameArchiveDelivery.StageVerified(manifest, sourcePath, archivePath, sourceIsApk, tracker.Stream(0));
+                    result.CopiedArchive = true; result.CopiedBytes = archive.Length;
+                }
             }
             else tracker.Plan(neededBytes);
             ExtractDelivered(manifest, archive, root, needed, verified, tracker, result);

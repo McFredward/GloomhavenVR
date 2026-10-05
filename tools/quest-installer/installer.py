@@ -53,7 +53,7 @@ def builder_module():
     # nor replace an application's existing stdlib profile or cached test module.
     missing = object()
     names = ["profile", "storage"]
-    names += [name for name in ("script_order", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets")
+    names += [name for name in ("script_order", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets", "full_assets", "campaign")
               if (REPO / "tools/quest-builder" / (name + ".py")).is_file()]
     names += ["startup", "builder"]
     aliases = [name for name in names if name != "builder"] + ["_ghvr_wireless_" + name for name in names]
@@ -79,6 +79,14 @@ def builder_module():
 
 
 @dataclass(frozen=True)
+class ContentFile:
+    path: Path
+    archive: str
+    sha256: str
+    size: int
+
+
+@dataclass(frozen=True)
 class Source:
     kind: str
     path: Path
@@ -89,6 +97,7 @@ class Source:
     dummy: bool
     mod_build: int | None = None
     input_key: str | None = None
+    content: tuple[ContentFile, ...] = ()
 
     def setting(self):
         return {"kind": self.kind, "path": str(self.path)}
@@ -109,7 +118,36 @@ def apk_identity(apk):
         if value.get("schema") != 1 or type(build) is not int or build <= 0 or not re.fullmatch(r"[0-9a-f]{64}", str(key)):
             raise InstallError("The APK has an invalid embedded Quest build stamp.")
         return {"modBuild": build, "inputKey": key,
-                "isDummy": bool(value.get("profile", {}).get("isDummy"))}
+                "isDummy": bool(value.get("profile", {}).get("isDummy")),
+                "isDiagnostic": value.get("target") != "game"}
+
+
+def apk_content(apk, identity):
+    """Only the selected APK may declare its adjacent owned-content bank."""
+    with zipfile.ZipFile(apk) as archive:
+        name = "assets/Quest/content-delivery.json"
+        if name not in archive.namelist():
+            return ()
+        if not identity or archive.getinfo(name).file_size > 65536:
+            raise InstallError("Campaign delivery requires a bounded, stamped APK manifest.")
+        value = json.loads(archive.read(name))
+    if (value.get("schema") != 1 or value.get("package") != PACKAGE
+            or value.get("inputKey") != identity["inputKey"]
+            or not isinstance(value.get("files"), list) or len(value["files"]) != 1):
+        raise InstallError("Campaign delivery differs from the selected APK identity.")
+    result = []
+    for row in value["files"]:
+        if (not isinstance(row, dict) or row.get("file") != "GloomhavenVR-Quest-content.zip"
+                or row.get("archive") != "quest-startup-content.zip"
+                or not re.fullmatch(r"[0-9a-f]{64}", str(row.get("sha256", "")))
+                or type(row.get("size")) is not int or row["size"] < 22):
+            raise InstallError("Campaign delivery has an invalid content bank.")
+        path = apk.parent / row["file"]
+        if (not path.is_file() or path.is_symlink() or path.resolve().parent != apk.parent.resolve()
+                or path.stat().st_size != row["size"] or digest(path) != row["sha256"]):
+            raise InstallError("The complete Campaign bank is missing or differs from this APK: " + str(path))
+        result.append(ContentFile(path, row["archive"], row["sha256"], row["size"]))
+    return tuple(result)
 
 
 def resolve_source(kind, path, check_zip=True):
@@ -165,8 +203,8 @@ def resolve_source(kind, path, check_zip=True):
                      or (expected_build and identity["modBuild"] != expected_build)):
         raise InstallError("The APK embedded build differs from its handoff evidence.")
     return Source(kind, path, apk, actual, evidence,
-                  bool(details.get("isDiagnostic", identity)), bool(details.get("isDummy", identity.get("isDummy"))),
-                  identity.get("modBuild"), identity.get("inputKey"))
+                  bool(details.get("isDiagnostic", identity.get("isDiagnostic", False))), bool(details.get("isDummy", identity.get("isDummy"))),
+                  identity.get("modBuild"), identity.get("inputKey"), apk_content(apk, identity))
 
 
 def select_source(args, config):
@@ -402,6 +440,64 @@ def write_json(path, value):
         temporary.unlink(missing_ok=True)
 
 
+def install_content(adb, address, source, previous=None):
+    if not source.content:
+        return []
+    # Only this installed game's private external directory is touched.
+    directory = "/sdcard/Android/data/" + PACKAGE + "/files/quest-install-input/" + source.input_key
+    adb.run("-s", address, "shell", "am", "force-stop", PACKAGE, timeout=30)
+    adb.run("-s", address, "shell", "mkdir", "-p", directory, timeout=30)
+    records = []
+    for bank in source.content:
+        if bank.path.stat().st_size != bank.size or digest(bank.path) != bank.sha256:
+            raise InstallError("The Campaign content bank changed during device setup.")
+        remote = directory + "/" + bank.archive
+        partial = remote + ".upload"
+        reused = False
+        previous_banks = previous.get("content", []) if isinstance(previous, dict) else []
+        for saved in previous_banks:
+            previous_remote = str(saved.get("remote", ""))
+            safe = re.fullmatch(r"/sdcard/Android/data/" + re.escape(PACKAGE) + r"/files/quest-install-input/[0-9a-f]{64}/quest-startup-content\.zip", previous_remote)
+            if not safe or saved.get("sha256") != bank.sha256 or saved.get("size") != bank.size:
+                continue
+            try:
+                result = adb.run("-s", address, "shell", "sha256sum", previous_remote, timeout=600, check_text=False)
+            except InstallError:
+                continue
+            if not re.fullmatch(bank.sha256 + r"\s+" + re.escape(previous_remote) + r"\s*", result.strip()):
+                continue
+            if previous_remote != remote:
+                adb.run("-s", address, "shell", "mv", "-f", previous_remote, remote, timeout=30)
+            print("Reusing the verified Campaign content already on this Quest.")
+            reused = True
+            break
+        if reused:
+            records.append({"archive": bank.archive, "size": bank.size, "sha256": bank.sha256, "remote": remote})
+            continue
+        print("Installing complete Campaign content: " + str(bank.size) + " bytes over ADB...")
+        transfer_timeout = min(21600, max(180, 120 + (bank.size + 1048575) // 1048576))
+        adb.run("-s", address, "push", bank.path, partial, timeout=transfer_timeout)
+        result = adb.run("-s", address, "shell", "sha256sum", partial, timeout=600, check_text=False)
+        if not re.fullmatch(bank.sha256 + r"\s+" + re.escape(partial) + r"\s*", result.strip()):
+            raise InstallError("The uploaded Campaign content does not match this APK; the app was not launched.")
+        adb.run("-s", address, "shell", "mv", "-f", partial, remote, timeout=30)
+        records.append({"archive": bank.archive, "size": bank.size, "sha256": bank.sha256, "remote": remote})
+    return records
+
+
+def clean_previous_content(adb, address, previous, installed):
+    if not isinstance(previous, dict) or not installed:
+        return
+    current = {row["remote"] for row in installed}
+    for row in previous.get("content", []):
+        remote = str(row.get("remote", ""))
+        if (remote not in current and re.fullmatch(r"/sdcard/Android/data/" + re.escape(PACKAGE)
+                + r"/files/quest-install-input/[0-9a-f]{64}/quest-startup-content\.zip", remote)):
+            # Only an earlier successful installation's exact bank is removed,
+            # after every new bank has passed its device checksum.
+            adb.run("-s", address, "shell", "rm", "-f", remote, timeout=30)
+
+
 def parser():
     result = argparse.ArgumentParser(description=__doc__)
     source = result.add_mutually_exclusive_group()
@@ -427,6 +523,7 @@ def main(argv=None, runner=None):
         source = select_source(args, config)
         receipt = config_path.parent / "wireless-last-install.json"
         protected = {source.apk, source.path / "latest-build.json" if source.kind == "output-root" else source.path}
+        protected.update(bank.path for bank in source.content)
         if config_path in protected or receipt in protected:
             raise InstallError("Installer settings/receipt must not overwrite the APK or its build evidence.")
         address = endpoint(args.host or config["endpoint"]) if args.host or config.get("endpoint") else None
@@ -434,6 +531,8 @@ def main(argv=None, runner=None):
         print("Embedded build: " + ("B" + str(source.mod_build) + " (input " + source.input_key[:12] + ")" if source.mod_build else "legacy unstamped local APK"))
         print("SHA-256: " + source.sha256 + (" (DIAGNOSTIC)" if source.diagnostic else "")
               + (" (DUMMY IDENTITY)" if source.dummy else ""))
+        if source.content:
+            print("Complete owned Campaign bank: " + str(sum(bank.size for bank in source.content)) + " bytes; installed automatically with the APK.")
         if args.dry_run:
             print("Dry run: no ADB command or settings write. Endpoint: " + str(address or "USB setup required"))
             return 0
@@ -471,6 +570,15 @@ def main(argv=None, runner=None):
                                    + "; expected B" + str(source.mod_build) + ". No launch or success receipt was written.")
             installed_version = int(versions[0])
             print("Confirmed installed build: B" + str(installed_version) + " (input " + source.input_key[:12] + ")")
+        previous = None
+        if receipt.is_file():
+            try:
+                prior = read_json(receipt)
+                if prior.get("deviceSerial") == hardware and prior.get("package") == PACKAGE: previous = prior
+            except (OSError, ValueError):
+                pass
+        content_records = install_content(adb, address, source, previous)
+        clean_previous_content(adb, address, previous, content_records)
         if not args.no_launch:
             adb.run("-s", address, "shell", "am", "start", "-W", "-n", ACTIVITY,
                     timeout=45, positive=r"^Status:\s*ok\s*$")
@@ -482,6 +590,7 @@ def main(argv=None, runner=None):
                              "isDiagnostic": source.diagnostic, "isDummy": source.dummy,
                              "modBuild": source.mod_build, "inputKey": source.input_key,
                              "installedVersionCode": installed_version,
+                             "content": content_records,
                              "completedUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
         print("Installed with app data retained" + (" and launched" if not args.no_launch else "")
               + ": " + address + ". Device behavior remains for hardware testing.")
