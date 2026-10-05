@@ -229,7 +229,7 @@ class PackageApiStageTests(Temporary):
     def setUp(self):
         super().setUp()
         self.dotnet = self.write(self.root / "dotnet", b"controlled CLI executable")
-        self.args = SimpleNamespace(dotnet=str(self.dotnet))
+        self.args = SimpleNamespace(dotnet=str(self.dotnet), target="startup")
         self.tools = {"editor": str(self.editor), "androidSdk": "controlled-sdk",
                       "androidNdk": "controlled-ndk", "jdk": "controlled-jdk"}
         self.sdk = self.project / "QuestStartupEvidence/PlayerSdk"
@@ -256,6 +256,7 @@ class PackageApiStageTests(Temporary):
             self.import_count += 1
             self.assertIn("-buildTarget", argv)
             self.assertIn("GloomhavenVR.Quest.Editor.QuestBuild.CompileStartupSdk", argv)
+            self.assertEqual(kwargs["env"]["GHVR_QUEST_TARGET"], self.args.target)
             storage.write_json(self.sdk / "compilation.json", self.player_evidence)
             return "controlled package import"
         self.cli_count += 1
@@ -290,6 +291,13 @@ class PackageApiStageTests(Temporary):
         self.assertEqual((self.import_count, self.cli_count), (2, 1))
         self.assertEqual(set(first["sdkAssemblies"]), {name + ".dll" for name in SDK_NAMES})
         self.assertEqual(set(first["inputAssemblies"]), {"GH.Runtime.dll", "GloomhavenVR.dll"})
+
+    def test_complete_sdk_import_uses_the_full_player_graphics_target(self):
+        self.args.target = "game"
+        with patch.object(builder, "command", side_effect=self.command):
+            report = self.bind()
+        self.assertTrue(report["complete"])
+        self.assertEqual(self.import_count, 1)
         self.assertEqual(first["sdkAssemblies"], {row["path"]: row["sha256"] for row in storage.inventory(self.sdk, [name + ".dll" for name in SDK_NAMES])})
         for path, data in before.items():
             self.assertEqual(path.read_bytes(), data)
