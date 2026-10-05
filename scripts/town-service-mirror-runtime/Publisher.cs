@@ -48,6 +48,12 @@ namespace GloomhavenVR.WorldUI
     {
         internal static bool HasLocallyHeldStock(int id) => CardMounts.Values.Any(entry => entry.ItemId == id && entry.Sample.IsHeld && !entry.Selling);
         internal TownCatalogSlot[] StockLayout = Array.Empty<TownCatalogSlot>();
+        // Native construction/art loading is a declared boundary in this publisher fixture.
+        // The production preparation helper is exercised by the catalog runtime suite.
+        internal bool OriginalBankPrepared;
+        internal uint OriginalBankRevision;
+        internal readonly List<Entry> PreparedOriginalEntries = new();
+        internal IReadOnlyList<Entry> PublicationEntries => Entries;
         internal static readonly Dictionary<Transform, Entry> CardMounts = new();
         internal sealed class Control { internal string Key = ""; internal TownServiceSurface Surface = new(); }
         internal sealed class Entry
@@ -180,7 +186,7 @@ namespace GloomhavenVR.WorldUI
         internal sealed class Recorded
         { internal string Key = ""; internal Transform Source = null!; internal Transform? Provenance; internal Func<Transform, Transform?>? CloneOf; internal bool Prewarm; }
         private sealed class Published
-        { internal ushort Id; internal bool Seen; internal string Address = "", Identity = ""; internal Transform Source = null!; internal Func<Transform,bool> Exclude = null!; }
+        { internal ushort Id; internal bool Seen, CatalogResident; internal string Address = "", Identity = ""; internal Transform Source = null!; internal Func<Transform,bool> Exclude = null!; }
         private sealed class SourceEntry
         { internal TownRackState? RackClock; internal Transform? Parent; internal readonly List<CanvasGroup> Groups = new(); internal readonly List<UnityEngine.UI.RectMask2D> Masks = new(); internal bool Seen,Complete; internal string Key=""; internal Transform Root=null!; internal Transform? CatalogOwner; internal List<Published> Parts = new(); }
         private readonly Vector3[] Corners = new Vector3[4];

@@ -160,6 +160,8 @@ public static partial class MirrorProgram
         TownServicePublicMerchant.Catalog = null; TownServicePublicMerchant.FixtureResetVisibility();
         drawer.FixtureDisposeFollower(); NativeTemplates.BoundaryRoots.Clear(); TownServiceCatalog.CardMounts.Clear();
         TownServiceMirror.Shutdown(); Baselines.Clear();
+        IEnumerator preparedBank = PreparedCatalogBankParity();
+        while (preparedBank.MoveNext()) yield return preparedBank.Current;
     }
 
     private static string NavigationReadiness(TownRackState state)

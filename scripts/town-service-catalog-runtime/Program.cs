@@ -10,7 +10,7 @@ using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using ScenarioRuleLibrary;
-public static class InteractionProgram
+public static partial class InteractionProgram
 {
     private static int assertions;
     private static void Check(bool value,string message){assertions++;if(!value)throw new Exception(message);}
@@ -578,14 +578,14 @@ public static class InteractionProgram
             "native face, body and pickup mount rest just ahead of the imported leather seat inside the carved cheek");
         int initializedBefore=UIShopItemSlot.Initializations;
         Census(catalog);Check(catalog.Entries[0].CardRoot==stableRoot,"unchanged census retains physical identity");
-        Check(UIShopItemSlot.Initializations-initializedBefore==20,
-            "stable census initializes only the current and prewarmed native pages, not all 164 hidden rows");
+        Check(UIShopItemSlot.Initializations-initializedBefore==0,
+            "unchanged complete native bank performs zero repeated row initialization");
         var cold=catalog.Entries.FindEntry(0,false,2);
         Check(cold.RowSource.LastPrice==10,"cold native price source keeps its previous hidden value");
         inventory.service.Price=17;inventory.service.Affordable=false;Census(catalog);
         Check(stable.RowSource.LastPrice==17&&!stable.RowSource.LastAffordable,
             "visible original stock price and affordability retain the native census cadence");
-        Check(cold.RowSource.LastPrice==10,"cold source defers invisible price work");
+        Check(cold.RowSource.LastPrice==17,"changed original price is prepared even on a never-selected native page");
         var pageTestRack=catalog.Drawers[0];
         WorldUIConfig.ImmersiveTownSoundEffects.Value=false;
         Check(pageTestRack.Select(1,false),"category test starts the preceding transition");
@@ -785,6 +785,7 @@ public static class InteractionProgram
         Check(GloomhavenVR.Cards.CardArtWatch.Captures>=161,"every merchant stock face captures the proven zero-aliased-frame art watcher");
         Check(GloomhavenVR.Cards.CardArtWatch.Polls>=161,"merchant stock polls async art arrival before its first visible frame");
         Check(GloomhavenVR.Cards.CardArtWatch.Clears>=161,"merchant stock releases every art watcher at teardown");
+        NativeBankPreparationProof(inventory, anchor.transform);
         UnityEngine.Object.DestroyImmediate(root);UnityEngine.Object.DestroyImmediate(prefab);UnityEngine.Object.DestroyImmediate(events);
         return assertions;
     }

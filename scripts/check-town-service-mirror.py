@@ -25,7 +25,7 @@ def expression(text, signature):
 def sources(root):
     base = root / "src/GloomhavenVR"
     names = ["TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta",
-             "TownServiceFrame", "TownRackState", "TownCatalogLayout", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMirror.PublicVisibility", "TownServiceMirror.Offerings", "TownServiceMirror.Voice", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
+             "TownServiceFrame", "TownCatalogBank", "TownServiceMirror.CatalogBank", "TownRackState", "TownCatalogLayout", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMirror.PublicVisibility", "TownServiceMirror.Offerings", "TownServiceMirror.Voice", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
     bound['NativePurse.cs'] = (root / 'scripts/town-purse-runtime/NativePurse.cs').read_text()
     bound['TownServicePursePresentation.cs'] = (base / 'WorldUI/TownServices/TownServicePursePresentation.cs').read_text()
@@ -70,6 +70,7 @@ def sources(root):
     network = next(line for line in publisher.splitlines() if "internal static void ResetNetwork()" in line)
     bound["PublisherTick.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing GloomhavenVR.Hands;\nusing GloomhavenVR.Net;\nusing GloomhavenVR.Net.TownServices;\nusing GloomhavenVR.Cards;\nusing UnityEngine;\nusing UnityEngine.UI;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceSync {\n" + wrappers + "\n" + network + "\n" + "\n".join(expression(publisher, declaration) for declaration in declarations) + "\n" + "\n".join(method(publisher, signature) for signature in signatures) + "\n}\n"
     publish = method(publisher, "private void Publish(string key, Transform? source, Transform? provenance = null, Func<Transform, Transform?>? cloneOf = null, bool prewarm = false)").replace("private void Publish(", "private void PublishNative(", 1)
+    bound["TownServiceSync.CatalogBank.cs"] = (base / "WorldUI/TownServices/TownServiceSync.CatalogBank.cs").read_text()
     bound["PublisherNative.cs"] = "using System;\nusing System.IO;\nusing System.Collections.Generic;\nusing UnityEngine;\nusing GloomhavenVR.Net.TownServices;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceSync {\n" + publish + "\n}\n"
     catalog = (base / "WorldUI/TownServices/TownServiceCatalog.cs").read_text()
     bound["CatalogOwnership.cs"] = "using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class TownServiceCatalog {\n" + method(catalog, "internal static Transform? PresentationOwner(Transform source)") + "\n}\n"
@@ -130,6 +131,7 @@ def main():
                         help="Runtime fixture to bind when resuming an integrated checkout's control")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
     parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock", "catalog-lifetime", "public-catalog", "voice-relay", "shared-interaction", "item-transfer", "motion-fast"), default="full")
+    parser.add_argument("--bank-controls", action="store_true", help="Run only production plus prepared cabinet bank counterfactuals")
     parser.add_argument("--no-negative-controls", action="store_true")
     parser.add_argument("--only-mutation", help="Run production plus one selected negative control after a focused fixture fix")
     parser.add_argument("--skip-production", action="store_true", help="Resume only --only-mutation when production already passed on the same source tree")
@@ -222,7 +224,7 @@ def main():
             variants += [
                 ("rack-dead-host", "TownServiceMirror.cs", "RetireDestroyedRemoteModules(entry.Key, standing);", "// disabled dead-host recovery", "destroyed rack and child recover from retained owner frames"),
                 ("rack-phase-alias", "TownServiceMirror.Racks.cs", "float displayed=replaying?TownRackState.Progress(clock.Elapsed):1f;", "float displayed=1f;", "missing one dependency preserves the owner's current intermediate rack pose"),
-                ("rack-incomplete-page", "TownServiceMirror.Racks.cs", "bool complete=RackPageReady(pair.Key,clock.DisplayPage==clock.FromPage?clock.Outgoing??state:state,clock.DisplayPage,modules);", "bool complete=true;", "owner replacement boundary hides the obsolete page and every incomplete target fragment"),
+                ("rack-incomplete-page", "TownServiceMirror.Racks.cs", "bool complete=RackPageReady(pair.Key,clock.DisplayPage==clock.FromPage?clock.Outgoing??state:state,clock.DisplayPage,modules,peer);", "bool complete=true;", "owner replacement boundary hides the obsolete page and every incomplete target fragment"),
                 ("rack-owner-age-loss", "TownServiceMirror.Racks.cs", "float ownerAge=Mathf.Clamp(state.Elapsed+Mathf.Max(0f,now-clock.ReceivedTime)", "float ownerAge=Mathf.Clamp(Mathf.Max(0f,now-clock.ReceivedTime)", "missing one dependency preserves the owner's current intermediate rack pose"),
                 ("rack-native-fade", "TownServiceMirror.Racks.cs", "shown?stamp.Alpha:0f", "shown?1f:0f", "page gate preserves independent native ancestor fades"),
                 ("rack-hidden-body", "TownServiceMirror.Racks.cs", "renderer.forceRenderingOff=!shown;", "renderer.forceRenderingOff=true;", "incoming physical body appears with its face"),
@@ -310,6 +312,18 @@ def main():
                 "bool found = NetAvatarDriver.TryGetTownHeldStock(RealPeer(key), wanted, out int avatarItem);",
                 "bool found = false; int avatarItem = 0;",
                 "atomic avatar stock provenance preserves public vacancy and pickup voice with zero heldstock modules"))
+    if args.bank_controls:
+        if args.suite != "public-catalog": parser.error("--bank-controls requires --suite public-catalog")
+        variants = [("production", None, None, None, ""),
+            ("catalog-bank-no-updates", "TownServiceMirror.CatalogBank.cs", "Members = refs, Updates = updates", "Members = refs, Updates = Array.Empty<TownServiceFrame>()", "prepared cold far category stays fully populated at owner boundary"),
+            ("catalog-bank-retire-dormant", "PublisherTick.cs", "module.Seen = TownServiceMirror.IsPublicAuthor && module.CatalogResident;", "module.Seen = false;", "prepared cold far category stays fully populated at owner boundary"),
+            ("catalog-bank-cache-wrong-content", "TownServiceMirror.CatalogBank.cs", "SameBankMembers(cache.Last.Members, refs)", "cache.Last.Members.Length == refs.Length", "genuinely changed original price is installed atomically"),
+            ("catalog-bank-ignore-preparation", "TownServiceMirror.CatalogBank.cs", "Prepared = cache.Prepared, Members = refs", "Prepared = true, Members = refs", "partial dormant preparation never claims a complete original bank"),
+            ("catalog-bank-parent-binding", "TownServiceMirror.CatalogBank.cs", "Array.IndexOf(CatalogOriginalBinding(parent).Bindings, update.ParentBinding) < 0", "false", "missing original cabinet parent binding is rejected before any atomic pending or baseline mutation"),
+            ("catalog-bank-root-topology", "TownServiceMirror.CatalogBank.cs", "CatalogOriginalBinding(root).Validate(root, Assets);", "_ = CatalogOriginalBinding(root);", "missing original cabinet root topology is rejected before any atomic pending or baseline mutation"),
+            ("catalog-bank-peer-recycle", "TownServiceMirror.cs", "ClearCatalogPeer(peer); ReceivedCatalogBanks.Remove(peer);", "ReceivedCatalogBanks.Remove(peer);", "departed public peer clears original content keys before peer identity can be recycled"),
+            ("catalog-bank-delayed-clock", "TownServiceMirror.Racks.cs", "clock.ReceivedTime=Mathf.Min(clock.ReceivedTime,now-Mathf.Max(0f,", "clock.ReceivedTime=Mathf.Min(clock.ReceivedTime,now-0f*Mathf.Max(0f,", "delayed atomic bank seeks newer same-owner manifest age without replaying an obsolete rack turn"),
+        ]
     print(f"Production binding: {args.source_root.resolve()}; evidence: {run}", flush=True)
     if args.only_mutation:
         selected = [case for case in variants if case[0] == args.only_mutation]

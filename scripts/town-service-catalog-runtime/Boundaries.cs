@@ -27,7 +27,7 @@ namespace ScenarioRuleLibrary
         public int ID;public uint NetworkID;public string Name="Item";public bool Tradeable=true;public int SellPrice=5;
         public Data YMLData=new();public CItem(int id){ID=id;NetworkID=(uint)id;Name="Item"+id;}
         public bool CanEquipItem(int id)=>true;
-        public class Data{public EItemSlot Slot;}
+        public class Data{public EItemSlot Slot;public List<string> ValidEquipCharacterClassIDs=new();}
     }
 }
 namespace MapRuleLibrary.Party { public class CMapCharacter{public int CharacterID;} }
@@ -128,7 +128,7 @@ public class UITextTooltipTarget:MonoBehaviour
     public void OnPointerExit(UnityEngine.EventSystems.PointerEventData data){TooltipShown=false;}
 }
 namespace UnityEngine.UI{public class UITooltip:MonoBehaviour{public RectTransform? m_AnchorToTarget;}}
-public class ItemCardUI:MonoBehaviour{public UITextTooltipTarget? AllHintsCardTooltip;public CItem item=null!;public void Show(bool highlightElement){gameObject.SetActive(true);}}
+public class ItemCardUI:MonoBehaviour{public Image cardBackground=null!,validOwnerIcon=null!;public UITextTooltipTarget? AllHintsCardTooltip;public CItem item=null!;public void Show(bool highlightElement){gameObject.SetActive(true);}}
 public static class ObjectPool
 {
     public enum ECardType{Item}public static int Alive;
@@ -227,14 +227,14 @@ namespace GloomhavenVR.Net
         internal void TickLive(){}internal void Destroy(){foreach(var clone in _clones.Values)if(clone!=null)UnityEngine.Object.DestroyImmediate(clone.gameObject);}
     }
     internal static class RemoteItemCardSource
-    {internal static void ReturnBorrowed(int id,GameObject go){if(!go.GetComponent<Image>().raycastTarget||!go.GetComponent<GraphicRaycaster>().enabled||!go.GetComponent<Canvas>().enabled)throw new Exception("pool input restore");ObjectPool.Alive--;UnityEngine.Object.DestroyImmediate(go);}}
+    { internal static bool Resident=true;internal static bool PrepareMapItemForLoading(int id)=>Resident;internal static void ReturnBorrowed(int id,GameObject go){if(!go.GetComponent<Image>().raycastTarget||!go.GetComponent<GraphicRaycaster>().enabled||!go.GetComponent<Canvas>().enabled)throw new Exception("pool input restore");ObjectPool.Alive--;UnityEngine.Object.DestroyImmediate(go);}}
 }
 namespace GloomhavenVR.WorldUI
 {
     internal static class TownServiceMerchantHandoff { internal static bool CanReclaim(TownServiceToken token) => false; internal static bool IsParkedStock(TownServiceToken token) => Parked == token;internal static TownServiceToken? Parked;internal static int InspectedCount;internal static bool LastAvailable;internal static void StockInspected(CItem item,bool available){InspectedCount++;LastAvailable=available;} }
 
     internal static class TownServiceCardBody{internal static GameObject Create(Transform p){var g=new GameObject("Body",typeof(MeshRenderer));g.transform.SetParent(p,false);return g;}internal static void SetVisibility(GameObject g,float v){}internal static void Dispose(GameObject g){}}
-    internal static class NativeTemplates{internal static UnityEngine.UI.UITooltip? Tooltip;}
+    internal static class NativeTemplates{internal static UnityEngine.UI.UITooltip? Tooltip;internal sealed class Part{internal string Path="";}internal static System.Collections.Generic.IReadOnlyList<Part> Parts(string key)=>new[]{new Part()};internal static int Resolved;internal static void Resolve(byte service,ushort template,string address){Resolved++;} }
     internal static class TownServiceNativeAssets{internal static void PrepareItem(ItemCardUI i){}}
     internal class TownServiceSurface{}
     internal static class TownServicePhysicalRay{internal static void Claim(GloomhavenVR.Hands.VRHand hand){}}

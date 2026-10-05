@@ -12,7 +12,14 @@ internal static partial class TownServiceMirror
     private static readonly Dictionary<int,Dictionary<ushort,RackPlayback>> RemoteRacks = new();
     private static readonly List<ushort> RetiredRacks = new();
     internal static void SetRack(ushort module,TownRackState state)
-    { state.Validate(module);if(Local.ContainsKey(module)){if(!LocalRacks.ContainsKey(module))_local.ParentLinksDirty=true;LocalRacks[module]=state;} }
+    {
+        state.Validate(module); if(!Local.ContainsKey(module))return;
+        if(!LocalRacks.TryGetValue(module,out var previous))_local.ParentLinksDirty=true;
+        bool changed=previous==null||previous.Members.Length!=state.Members.Length;
+        if(!changed)for(int i=0;i<state.Members.Length;i++)if(previous!.Members[i].Id!=state.Members[i].Id){changed=true;break;}
+        if(changed)_nextManifest=0; // Dormant originals joining a tray must enter its same-turn census.
+        LocalRacks[module]=state;
+    }
     internal static void SetRackMember(ushort module,TownRackStamp state,CanvasGroup? pageGate = null)
     { if(Local.ContainsKey(module)){LocalRackMembers[module]=state;if(pageGate!=null)LocalRackGates[module]=pageGate;} }
     internal static void SetRackMember(ushort module,ushort rack,ushort page,uint turn,bool detached,CanvasGroup? gate)
@@ -99,6 +106,14 @@ internal static partial class TownServiceMirror
             if(!clocks.TryGetValue(frame.Module,out var clock))
             { if(clocks.Count>=2)continue;clock=new RackPlayback();clocks.Add(frame.Module,clock); }
             clock.Observe(frame,now);
+            // A large atomic bank can arrive after a newer manifest from this same
+            // canonical owner. Seek its known session age rather than replaying the
+            // old turn from packet arrival; never borrow another lane/claim's clock.
+            if(frame.CatalogBank!=null&&frame.PublicCatalog&&frame.PublicClaim==session.PublicClaim
+                && !float.IsNaN(session.SessionAge)&&!float.IsInfinity(session.SessionAge)
+                && !float.IsNaN(frame.SessionAge)&&!float.IsInfinity(frame.SessionAge))
+                clock.ReceivedTime=Mathf.Min(clock.ReceivedTime,now-Mathf.Max(0f,
+                    session.SessionAge+Mathf.Max(0f,now-session.ReceivedTime)-frame.SessionAge));
         }
         RetiredRacks.Clear();
         foreach(ushort id in clocks.Keys)

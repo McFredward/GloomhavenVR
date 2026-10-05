@@ -870,7 +870,7 @@ internal static partial class TownServiceMirror
                         && (now < module.NextRefresh || module.Last != null && module.LastSent < module.Last.Sequence)) continue;
                     frame.Sequence = NextSequence();
                     TownServiceFrame emitted;
-                    if (module.Baseline == null || now >= module.NextBaseline || !TownServiceDelta.Compatible(module.Baseline, frame))
+                    if (frame.CatalogBank != null || module.Baseline == null || now >= module.NextBaseline || !TownServiceDelta.Compatible(module.Baseline, frame))
                     { emitted = TownServiceDelta.Retain(frame); module.Baseline = emitted; module.NextBaseline = float.PositiveInfinity; }
                     else emitted = TownServiceDelta.Create(module.Baseline, frame);
                     emitted.HighPriority = module.HighPriority || module.WasPriority || NeedsHeartbeat(module);
@@ -1462,7 +1462,7 @@ internal static partial class TownServiceMirror
     }
     private static void ClearRemoteModules(int peer)
     {
-        ReceivedCatalogBanks.Remove(peer); RemoteRacks.Remove(peer); if (!Remote.TryGetValue(peer, out Dictionary<ushort, RemoteModule>? modules)) return;
+        ClearCatalogPeer(peer); ReceivedCatalogBanks.Remove(peer); RemoteRacks.Remove(peer); if (!Remote.TryGetValue(peer, out Dictionary<ushort, RemoteModule>? modules)) return;
         foreach (RemoteModule module in modules.Values) module.Dispose(); Remote.Remove(peer); }
     private static string TemplateKey(byte service, ushort template, string address = "")
     { if (service < 1 || service > 3 || template == 0) throw new ArgumentException("Invalid town-service template identity.");
