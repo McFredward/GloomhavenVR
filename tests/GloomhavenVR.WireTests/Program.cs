@@ -10,6 +10,8 @@ internal static class Program
         string repoRoot = args.Length > 0 ? args[0] : FindRepoRoot();
 
         var t = new Harness();
+        if (args.Length > 1 && args[1] == "town-catalog-warm")
+        { TownCatalogWarmVectors.Run(t); return t.Report(); }
         if (args.Length > 1 && args[1] == "town-catalog-bank")
         { TownCatalogBankVectors.Run(t); if (args.Length > 2) TownCatalogBankVectors.RunNativeCapture(t, args[2]); return t.Report(); }
         if (args.Length > 1 && args[1] == "town-item-held")
@@ -46,6 +48,7 @@ internal static class Program
             PresentationCompressionVectors.Run(t);
             TownServiceTransportVectors.Run(t);
             TownCatalogBankVectors.Run(t);
+            TownCatalogWarmVectors.Run(t);
             TownVisitorStockTransportVectors.Run(t);
             TownMotionVectors.Run(t);
             TownResidentsVectors.Run(t);

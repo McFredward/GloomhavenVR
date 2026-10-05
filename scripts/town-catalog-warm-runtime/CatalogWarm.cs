@@ -15,6 +15,7 @@ public static partial class MirrorProgram
     private static IEnumerator CatalogWarmClock()
     {
         TownServiceMirror.Shutdown(); Baselines.Clear(); NetPlayerActors.Peer = 1;
+        var identities = new PublicNavigationIdentities();
         Transform owner = Go("actual housing source frame").transform, viewer = Go("warm original observer").transform;
         TownServiceAssets.Furniture = Resources.Load<GameObject>("TownServices/Prefabs/TownMerchant");
         Check(TownServiceAssets.Furniture != null, "actual authored merchant prefab is loaded from current source assets");
@@ -69,13 +70,13 @@ public static partial class MirrorProgram
         TownServiceFrame measured = TownServiceDelta.Copy(initial); measured.CatalogBank = null; measured.Rack!.Members = Array.Empty<TownRackMember>();
         File.WriteAllBytes(Path.Combine(_output, "native-housing.packet"), TownServiceCodec.Write(measured));
         File.WriteAllText(Path.Combine(_output, "housing.txt"), "actual housing nodes=" + measured.Nodes.Length + " bytes=" + TownServiceCodec.Write(measured).Length + "\n");
-        NetPlayerActors.Peer = 2;
+        identities.Switch(2);
         var queue = new NetAvatarDriver();
         foreach (var frame in captured) queue.QueueFixture(1, TownServiceCodec.Write(frame));
         queue.ApplyFixture(); TownServiceMirror.TickRemote(_ => viewer);
         Check(Remote(-1, 30) == null && Remote(-1, 31) == null && Remote(-1, 32) == null,
             "dormant prewarm retains exact frames without constructing visible off-page clones");
-        NetPlayerActors.Peer = 1;
+        identities.Switch(1);
         canvases[1].enabled = true; bodies[1].forceRenderingOff = false;
         using (TownServiceMirror.UsePublicLane())
         {
@@ -89,16 +90,27 @@ public static partial class MirrorProgram
         Check(warm.CatalogBank!.HeaderBaseKeys.Count(key => key != 0) >= 2
             && warm.CatalogBank.Headers.Count(h => h.Nodes.Any(n => n.Values.ContainsKey(TownServiceProperty.Canvas) || n.Values.ContainsKey(TownServiceProperty.Mesh))) >= 2,
             "actual captured Canvas and mesh exposure changes produce genuine original property patches");
-        NetPlayerActors.Peer = 2;
+        identities.Switch(2);
         Check(TownServiceMirror.Receive(1, TownServiceCodec.Write(warm), TownServiceCodec.Write(warm).Length),
             "prepared far page accepts actual captured native toggle deltas before the full bank arrives");
         Check(PendingFrame(-1, 31).Nodes.Any(n => n.Values.TryGetValue(TownServiceProperty.Canvas, out var value) && value.Numbers[0] == 1f)
             && PendingFrame(-1, 32).Nodes.Any(n => n.Values.TryGetValue(TownServiceProperty.Mesh, out var value) && value.Numbers[1] == 0f),
             "warm reconstruction preserves actual new original Canvas enabled and body forceRenderingOff values");
-        TownServiceFrame claim = TownServiceDelta.Copy(next); claim.PublicClaim++;
-        foreach (TownServiceFrame original in claim.CatalogBank!.Updates) { original.PublicClaim = claim.PublicClaim; original.Sequence += 100; }
-        claim.Sequence += 200; claim.Rack!.Turn++;
-        foreach (TownServiceFrame original in claim.CatalogBank.Updates) original.RackMember!.Turn = claim.Rack.Turn;
+        // Sequential process adapter keeps each actual player's private claim
+        // counter separate while the real election/capture/receive paths run.
+        TownServiceMirror.ClaimPublicCatalog();
+        var visitorPackets = Capture().Select(Decode).ToList();
+        TownServiceFrame visitorRoot = visitorPackets.Last(f => f.Module == 10);
+        Check(visitorRoot.PublicClaim > next.PublicClaim, "actual visitor claim elects a newer author through production capture");
+        identities.Switch(10);
+        Check(!ReceiveWarm(2, TownCatalogClock.Create(visitorRoot, originals)), "first visit from another real sender requires its own prepared originals");
+        foreach (var packet in visitorPackets) ReceiveWarm(2, packet);
+        Check(ReceiveWarm(2, TownCatalogClock.Create(visitorRoot, originals)), "genuinely delivered visitor originals enable its repeated warm clock");
+        identities.Switch(1);
+        TownServiceMirror.ClaimPublicCatalog();
+        TownServiceFrame claim = Capture().Select(Decode).Last(f => f.Module == 10);
+        Check(claim.PublicClaim > visitorRoot.PublicClaim, "actual host reclaims after the visitor with a monotonically newer claim");
+        identities.Switch(10);
         var reauthorized = TownCatalogClock.Create(claim, originals);
         Check(ReceiveWarm(1, reauthorized), "same actual sender/session explicitly reauthorizes exact native content under a higher claim");
         Check(PendingFrame(-1, 31).PublicClaim == claim.PublicClaim && PendingFrame(-1, 31).RackMember!.Turn == claim.Rack.Turn,
@@ -114,6 +126,24 @@ public static partial class MirrorProgram
         var changedRefs = TownCatalogClock.Create(changed, new Dictionary<ushort, TownServiceFrame>());
         Check(!ReceiveWarm(1, changedRefs), "changed native content without the exact patch base stays incomplete");
         Check(ReceiveWarm(1, changed), "complete same-sequence fallback repairs a rejected reference clock");
+        var wrongKey = TownServiceDelta.Copy(TownCatalogClock.Create(changed, originals)); wrongKey.Sequence++;
+        wrongKey.CatalogBank!.Members[1] = new(wrongKey.CatalogBank.Members[1].Id, wrongKey.CatalogBank.Members[1].ContentKey ^ 1UL);
+        ulong retainedSequence = PendingFrame(-1, 31).Sequence;
+        Check(!ReceiveWarm(1, wrongKey) && PendingFrame(-1, 31).Sequence == retainedSequence,
+            "an exact node patch with a wrong target key changes no pending original state");
+        var wrongParent = TownServiceDelta.Copy(changed); wrongParent.Sequence++;
+        var parentHeader = wrongParent.CatalogBank!.Updates[1]; parentHeader.ParentModule = 10; parentHeader.ParentBinding = uint.MaxValue;
+        wrongParent.CatalogBank.Members[1] = new(parentHeader.Module, TownCatalogBank.ContentKey(parentHeader));
+        Check(!ReceiveWarm(1, TownCatalogClock.Create(wrongParent, new Dictionary<ushort, TownServiceFrame>())),
+            "foreign original parent binding never borrows a cached native child");
+        Check(!ReceiveWarm(1, wrongParent), "even complete repair rejects an absent actual native parent binding");
+        TownServiceMirror.ForgetTemplates(1, "item.62201|");
+        TownServiceMirror.RegisterTemplate(1, 1, sources[31], address: "item.62201|");
+        Check(!ReceiveWarm(1, changedRefs), "a new native template object lifetime cannot reuse the prior borrowed original");
+        var freshLifetime = TownServiceDelta.Copy(changed); freshLifetime.Sequence += 100;
+        foreach (var update in freshLifetime.CatalogBank!.Updates) update.Sequence += 100;
+        Check(ReceiveWarm(1, freshLifetime), "complete genuine original repair prepares the replacement template lifetime");
+        Check(ReceiveWarm(1, TownCatalogClock.Create(freshLifetime, originals)), "the freshly prepared native lifetime enables another warm clock");
         TownServiceMirror.RemovePeer(1);
         Check(!ReceiveWarm(1, reauthorized), "departed public sender clears all dormant native revisions");
         var coldQueue = new NetAvatarDriver(); coldQueue.QueueFixture(4, TownServiceCodec.Write(reauthorized)); coldQueue.QueueFixture(4, TownServiceCodec.Write(claim));
