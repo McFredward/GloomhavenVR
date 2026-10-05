@@ -14,10 +14,13 @@ namespace GloomhavenVR
     {
         const string BundleName = "gloomhavenvr.bundle";
         const string ContentRoot = "Assets/Bundle";
+        const string TownRoot = ContentRoot + "/TownServices";
+        const string TownBundleName = "ghvr-town.bundle";
+        const string VoiceBundleName = "ghvr-town-voices.bundle";
         static readonly string[] ExcludedExtensions = { ".md", ".txt", ".gitkeep", ".meta", ".cginc" };
         // These are the authored assets required by the real menu's hand/controller,
         // board and bundled-shader paths. The original main bank also contains the
-        // environment shells. Town art/voices are distinct later campaign banks.
+        // environment shells. Full Campaign also includes the separate town banks.
         static readonly string[] RequiredAssets =
         {
             "Assets/Bundle/Hands/VRHand_L.prefab", "Assets/Bundle/Hands/VRHand_R.prefab",
@@ -35,7 +38,22 @@ namespace GloomhavenVR
             "Assets/Bundle/Environments/Env_Swamp.prefab", "Assets/Bundle/Environments/Env_Cellar.prefab"
         };
 
+        static readonly string[] RequiredTownAssets =
+        {
+            TownRoot + "/Prefabs/TownMerchant.prefab", TownRoot + "/Prefabs/TownPriestess.prefab",
+            TownRoot + "/Prefabs/TownEnchantress.prefab", TownRoot + "/Prefabs/TownWorkTray.prefab",
+            TownRoot + "/Shaders/TownNpc.shader", TownRoot + "/Shaders/TownEye.shader",
+            TownRoot + "/Shaders/TownCornea.shader", TownRoot + "/Shaders/TownFlame.shader",
+            TownRoot + "/town-facial-rig-contract.json"
+        };
+
         [Serializable] public sealed class FileReceipt { public string path, sha256; public long size; }
+        [Serializable] public sealed class BankReceipt
+        {
+            public string bundleName;
+            public string[] assetNames, requiredAssetNames, dependencies;
+            public FileReceipt bundle;
+        }
         [Serializable] public sealed class Receipt
         {
             public int schema = 1;
@@ -44,6 +62,8 @@ namespace GloomhavenVR
             public bool typeTreesEnabled = true, chunkBasedCompression = true, townBanksIncluded = false;
             public string[] assetNames, requiredAssetNames, builtinDependencies;
             public FileReceipt bundle;
+            public FileReceipt[] bundles;
+            public BankReceipt[] banks;
             public FileReceipt[] sourceFiles;
         }
 
@@ -78,6 +98,10 @@ namespace GloomhavenVR
             if (string.IsNullOrWhiteSpace(configured) || !Path.IsPathRooted(configured))
                 throw new InvalidOperationException("GHVR_QUEST_MOD_BUNDLE_OUTPUT must select fresh absolute private output.");
             string output = Path.GetFullPath(configured);
+            string fullGameValue = Environment.GetEnvironmentVariable("GHVR_QUEST_MOD_FULL_GAME");
+            if (!string.IsNullOrEmpty(fullGameValue) && fullGameValue != "0" && fullGameValue != "1")
+                throw new InvalidOperationException("GHVR_QUEST_MOD_FULL_GAME must be 0 or 1.");
+            bool fullGame = fullGameValue == "1";
             string project = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
             if (output == project || output.StartsWith(project + Path.DirectorySeparatorChar, StringComparison.Ordinal)
                 || project.StartsWith(output + Path.DirectorySeparatorChar, StringComparison.Ordinal)
@@ -95,16 +119,78 @@ namespace GloomhavenVR
             assets.Sort(StringComparer.Ordinal);
             foreach (string required in RequiredAssets)
                 if (!assets.Contains(required)) throw new InvalidOperationException("Required authored mod asset is unavailable: " + required);
-            string[] dependencies = AssetDatabase.GetDependencies(assets.ToArray(), true);
-            if (dependencies.Any(p => p.StartsWith(ContentRoot + "/TownServices/", StringComparison.Ordinal)))
+            string[] mainDependencies = AssetDatabase.GetDependencies(assets.ToArray(), true);
+            if (mainDependencies.Any(p => p.StartsWith(TownRoot + "/", StringComparison.Ordinal)))
                 throw new InvalidOperationException("Main Android mod bank has an unexpected town-art dependency.");
+            var builds = new List<AssetBundleBuild>
+            {
+                new AssetBundleBuild { assetBundleName = BundleName, assetNames = assets.ToArray() }
+            };
+            if (fullGame)
+            {
+                // Match BuildTownServices.BuildBundle's authored selection exactly.
+                // Authoring/rebuilding furniture or actors is ordinary mod development;
+                // the Quest builder compiles their current immutable snapshot only.
+                string[] art = Directory.GetFiles(TownRoot + "/Prefabs", "*.prefab", SearchOption.AllDirectories)
+                    .Concat(Directory.GetFiles(TownRoot + "/Shaders", "*.shader"))
+                    .Concat(new[] { TownRoot + "/town-facial-rig-contract.json" })
+                    .Select(path => path.Replace('\\', '/')).OrderBy(path => path, StringComparer.Ordinal).ToArray();
+                string[] voices = Directory.GetFiles(TownRoot + "/Audio", "*", SearchOption.AllDirectories)
+                    .Where(path => path.EndsWith(".wav", StringComparison.OrdinalIgnoreCase)
+                        || path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                    .Select(path => path.Replace('\\', '/')).OrderBy(path => path, StringComparer.Ordinal).ToArray();
+                if (art.Length == 0 || !voices.Any(path => path.EndsWith(".wav", StringComparison.OrdinalIgnoreCase))
+                    || !voices.Any(path => path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidOperationException("Full Quest Campaign requires authored town art, voice clips and metadata.");
+                foreach (string required in RequiredTownAssets)
+                    if (!art.Contains(required) || !File.Exists(required) || AssetDatabase.AssetPathToGUID(required) == string.Empty)
+                        throw new InvalidOperationException("Required authored town asset is unavailable: " + required);
+                foreach (string path in voices)
+                {
+                    if (path.EndsWith(".wav", StringComparison.OrdinalIgnoreCase) && AssetDatabase.LoadAssetAtPath<AudioClip>(path) == null)
+                        throw new InvalidOperationException("Town voice clip failed Android import: " + path);
+                    if (path.EndsWith(".json", StringComparison.OrdinalIgnoreCase) && AssetDatabase.LoadAssetAtPath<TextAsset>(path) == null)
+                        throw new InvalidOperationException("Town voice metadata failed Android import: " + path);
+                }
+                foreach (string path in art.Where(path => path.EndsWith(".prefab", StringComparison.Ordinal)))
+                {
+                    GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                    if (prefab == null) throw new InvalidOperationException("Town prefab failed Android import: " + path);
+                    foreach (MeshFilter filter in prefab.GetComponentsInChildren<MeshFilter>(true))
+                        if (filter.sharedMesh == null) throw new InvalidOperationException("Town prefab has a missing mesh: " + path + "/" + filter.name);
+                    string furnitureName = path.EndsWith("TownPriestess.prefab", StringComparison.Ordinal) ? "Shrine"
+                        : path.EndsWith("TownEnchantress.prefab", StringComparison.Ordinal) ? "Workbench" : "";
+                    if (furnitureName.Length == 0) continue;
+                    Transform furniture = prefab.transform.Find(furnitureName);
+                    if (furniture == null || furniture.GetComponentsInChildren<Transform>(true).Length > 128)
+                        throw new InvalidOperationException("Town cloth furniture exceeds its original mirror module contract: " + path);
+                    int runners = furniture.GetComponentsInChildren<MeshFilter>(true)
+                        .Count(filter => filter.name.StartsWith("ClothRunner_", StringComparison.Ordinal));
+                    if (runners != (furnitureName == "Shrine" ? 2 : 1))
+                        throw new InvalidOperationException("Town cloth runner count changed: " + path);
+                }
+                builds.Add(new AssetBundleBuild { assetBundleName = TownBundleName, assetNames = art });
+                builds.Add(new AssetBundleBuild { assetBundleName = VoiceBundleName, assetNames = voices });
+            }
+            string[] dependencies = AssetDatabase.GetDependencies(builds.SelectMany(build => build.assetNames).ToArray(), true);
             var sourcePaths = new SortedSet<string>(dependencies.Where(File.Exists), StringComparer.Ordinal);
             // Shader include text is a real compiler input even when Unity omits
             // it from its serialized object dependency graph. Hash it without
             // packing it as a dead TextAsset in the bank.
             foreach (string include in Directory.GetFiles(ContentRoot, "*.cginc", SearchOption.AllDirectories))
-                if (!include.Replace('\\', '/').StartsWith(ContentRoot + "/TownServices/", StringComparison.Ordinal))
+                if (fullGame || !include.Replace('\\', '/').StartsWith(TownRoot + "/", StringComparison.Ordinal))
                     sourcePaths.Add(include.Replace('\\', '/'));
+            if (fullGame)
+            {
+                foreach (string script in Directory.GetFiles("Assets", "*.cs", SearchOption.AllDirectories))
+                    sourcePaths.Add(script.Replace('\\', '/'));
+                foreach (string assembly in Directory.GetFiles("Assets", "*.asmdef", SearchOption.AllDirectories))
+                    sourcePaths.Add(assembly.Replace('\\', '/'));
+                // These immutable inputs are separate from Unity's generated
+                // package lock and the private PlayerSettings overrides above.
+                foreach (string setting in new[] { "Packages/manifest.json", "ProjectSettings/ProjectVersion.txt" })
+                    if (File.Exists(setting)) sourcePaths.Add(setting);
+            }
             foreach (string path in sourcePaths.ToArray())
                 if (File.Exists(path + ".meta")) sourcePaths.Add(path + ".meta");
             FileReceipt[] sources = sourcePaths.Select(Describe).ToArray();
@@ -113,24 +199,41 @@ namespace GloomhavenVR
             // authored paths compile their actual Android shaders/textures; type trees
             // remain enabled, and LZ4 permits LoadFromFile's normal on-demand reads.
             AssetBundleManifest manifest = BuildPipeline.BuildAssetBundles(output,
-                new[] { new AssetBundleBuild { assetBundleName = BundleName, assetNames = assets.ToArray() } },
+                builds.ToArray(),
                 BuildAssetBundleOptions.ChunkBasedCompression | BuildAssetBundleOptions.ForceRebuildAssetBundle | BuildAssetBundleOptions.StrictMode,
                 BuildTarget.Android);
-            if (manifest == null || !manifest.GetAllAssetBundles().SequenceEqual(new[] { BundleName }))
+            if (manifest == null || !manifest.GetAllAssetBundles().OrderBy(name => name, StringComparer.Ordinal)
+                .SequenceEqual(builds.Select(build => build.assetBundleName).OrderBy(name => name, StringComparer.Ordinal)))
                 throw new InvalidOperationException("Android authored mod bundle manifest is absent or unexpected.");
             foreach (FileReceipt source in sources)
                 if (Describe(source.path).sha256 != source.sha256)
                     throw new InvalidOperationException("Authored mod source changed during bundle build: " + source.path);
+            BankReceipt[] banks = builds.Select(build => new BankReceipt
+            {
+                bundleName = build.assetBundleName, assetNames = build.assetNames,
+                requiredAssetNames = build.assetBundleName == BundleName ? RequiredAssets
+                    : build.assetBundleName == TownBundleName ? RequiredTownAssets : build.assetNames,
+                dependencies = manifest.GetAllDependencies(build.assetBundleName),
+                bundle = Describe(Path.Combine(output, build.assetBundleName))
+            }).ToArray();
+            foreach (BankReceipt bank in banks)
+            {
+                bank.bundle.path = bank.bundleName;
+                if (bank.dependencies.Any(dependency => !builds.Any(build => build.assetBundleName == dependency)))
+                    throw new InvalidOperationException("Authored Android bank requires an unshipped dependency: " + bank.bundleName);
+            }
             var receipt = new Receipt
             {
                 unityVersion = Application.unityVersion, assetNames = assets.ToArray(), requiredAssetNames = RequiredAssets,
                 sourceFiles = sources, builtinDependencies = dependencies.Where(p => !File.Exists(p)).OrderBy(p => p, StringComparer.Ordinal).ToArray(),
-                bundle = Describe(Path.Combine(output, BundleName))
+                bundle = banks[0].bundle, bundles = banks.Select(bank => bank.bundle).ToArray(), banks = banks,
+                townBanksIncluded = fullGame
             };
             receipt.bundle.path = BundleName;
             File.WriteAllText(Path.Combine(output, "quest-mod-bundles.json"), JsonUtility.ToJson(receipt, true));
-            Debug.Log("[GloomhavenVR Quest] authored Android mod bank built: assets=" + assets.Count
-                + " sourceFiles=" + sources.Length + " bytes=" + receipt.bundle.size + " sha256=" + receipt.bundle.sha256);
+            Debug.Log("[GloomhavenVR Quest] authored Android mod banks built: banks=" + banks.Length
+                + " assets=" + banks.Sum(bank => bank.assetNames.Length) + " sourceFiles=" + sources.Length
+                + " bytes=" + banks.Sum(bank => bank.bundle.size) + " fullCampaign=" + fullGame);
         }
 
         static FileReceipt Describe(string path)
