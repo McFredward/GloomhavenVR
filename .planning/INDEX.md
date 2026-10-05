@@ -1,11 +1,11 @@
 # Planning index
 
-Updated 2026-10-05 for Build626: complete native enhancement admission,
-cumulative owner deltas, actual selectable-area print fitting and per-render
-original merchant/enchantress returns on additive TLV107. Build625 remains the
-prepared cabinet, accepted temple and local loading baseline. Hardware outcomes
-remain separate from source/runtime evidence. This directory holds internal
-engineering records, historical decisions and current status; it is not the player manual.
+Updated 2026-10-06 for Build627: the approved common PC/Frame rendering handover,
+nine reversible controls, native ownership review and final integrated validation.
+NPC626 remains the original enhancement admission/print and per-render return
+baseline. Hardware outcomes remain separate from source/runtime evidence. This
+directory holds internal engineering records, historical decisions and current
+status; it is not the player manual.
 
 ## Current entry points
 
@@ -15,6 +15,8 @@ engineering records, historical decisions and current status; it is not the play
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [../docs/performance/FRAME-627-INTEGRATION.md](../docs/performance/FRAME-627-INTEGRATION.md) | Reviewed PC/Frame controls, native ownership, final gate continuations and hardware limits |
+| [FRAME-627-RENDER-REVIEW.md](FRAME-627-RENDER-REVIEW.md) | Actual native environment/terrain boundaries, early probe refusal and source/pixel proof |
 | [NPC-626-REVIEW.md](NPC-626-REVIEW.md) | Paired Build625 enhancement admission, actual print geometry, per-render returns, 1:1 boundaries and explicit validation continuations |
 | [NPC-626-FLIGHTS.md](NPC-626-FLIGHTS.md) | Full live card-flight inventory, original clock/root admission and source-bound local/observer proofs |
 | [NPC-625-REVIEW.md](NPC-625-REVIEW.md) | Build624 paired evidence, actual queued cabinet delivery, native metadata, return/audio/loading fixes and 1:1 boundaries |

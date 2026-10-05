@@ -1,5 +1,11 @@
 # Isolated Steam Frame implementation based on Build625
 
+This is the historical isolated candidate receipt. The maintainer approved its
+handover on October 5; integration after NPC Build626 uses **ModBuild627**.
+[FRAME-627-INTEGRATION.md](FRAME-627-INTEGRATION.md) records the subsequent
+review, final integrated validation and additional safety corrections. The
+restricted 82/141 attempt below remains partial historical evidence.
+
 This is an implementation candidate based on `dev`
 `01503d4c2e28ee50b0b3662debb48a9ad19f88f0`, not a released Build625 binary or a
 new headset measurement. The supplied October 5 hardware capture remains

@@ -1,5 +1,42 @@
 # State — where the project stands
 
+**Build627 integration complete, 2026-10-06: 1.1.0.**
+
+The separately approved Build625 Frame candidate is integrated only after NPC626
+reached origin/dev. Nine reversible common PC/Frame controls cover private source-
+verified environment geometry, camera instancing, continuous cheap wall shading,
+near/distant 3D terrain detail, compatible visible-idle sampling and exact scoped
+material/UI reads. Frame seeds absent entries; saved values and eye resolution
+survive. Native originals, collision, tactical contents, NPC626 clocks and the
+accepted temple path remain intact. No Quest implementation is integrated.
+
+The source/native review adds ownership safeguards for supplementary streams,
+internal static batches, probe lighting, rendering layers and material-load start.
+Idle proxies retain native LOD and cloth-bearing rigs; late renderer state restores
+original submission. Missing asset sources cannot erase prepared meshes. Rejected
+lighting is evaluated before private geometry preparation. Conservative probe
+flags can reject many native groups; refusal is not an FPS or draw-call gain.
+
+The complete local attempt records 141 scopes: 140 direct passes and one retained
+merchant-catalogue Unity-startup timeout. Continuing the unchanged compiled
+manifest passes 23,974 production assertions and 51 controls. All 14 source gates,
+affected bounded continuations, 308358 golden assertions, strict Release with zero
+warnings/errors, documents, bundle and actual package checks pass. Successful
+unrelated scopes were not repeated. The sole bounded early-admission production
+fix preceded its scheduled environment scope; actual final source/fixture hashes
+match. All 10,333 runtime/test/asset inputs remain stable afterward. Compiled
+Build626-to-627 output changes 25 types and adds seven, with no removal; eight
+changed types differ only by the inlined build. Public surfaces retain all entries:
+669 config keys (+9), 215 literal patch registrations (+1), 4,790 log tokens.
+
+No Build627 headset performance/appearance outcome exists. See
+[FRAME-627-INTEGRATION.md](../docs/performance/FRAME-627-INTEGRATION.md) and the
+[source review](FRAME-627-RENDER-REVIEW.md) for safety limits, independent controls,
+source-bound evidence and next paired/Frame checks. Exact original reports and
+continuations remain in `.planning/debug/frame627/validation-ledger.json`.
+
+---
+
 **Build626 integration complete, 2026-10-05: 1.1.0.**
 
 Both supplied NPC peers are Build625. Exact native class-highlight admission and
