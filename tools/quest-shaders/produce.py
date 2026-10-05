@@ -242,9 +242,9 @@ def shader_source(form, record, cache, includes, graphics_api="Vulkan"):
                 # when its immediate index definition remains IMUL/ISHL.
                 # Reoptimizing the recovered original instruction math folds
                 # that into a quotient and destroys its reflection pattern.
-                # Keep the front-end addressing; the GLES driver still owns
+                # Keep the front-end addressing; the GLES/Vulkan driver owns
                 # normal native optimization. No original instance is capped.
-                lines.append('#pragma skip_optimizations gles3')
+                lines.append('#pragma skip_optimizations gles3' + (' vulkan' if graphics_api == 'Vulkan' else ''))
             lines += _keyword_pragmas(vertex, fragment, keys, mandatory)
             lines += ['#pragma hardware_tier_variants ' + ('vulkan' if graphics_api == 'Vulkan' else 'gles3'), '#pragma multi_compile_instancing', '#pragma multi_compile __ STEREO_INSTANCING_ON STEREO_MULTIVIEW_ON',
                       '#define UNITY_LIGHT_PROBE_PROXY_VOLUME 1', '#include "UnityCG.cginc"']

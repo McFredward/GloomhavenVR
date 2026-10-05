@@ -250,6 +250,10 @@ class VulkanNativeInterface(unittest.TestCase):
         self.assertEqual(len(historical_probe), 4)
         self.assertEqual(sum(v['coverageKind'] == 'quest-synthetic' for v in historical_probe), 2)
         self.assertIn('#pragma multi_compile __ STEREO_INSTANCING_ON STEREO_MULTIVIEW_ON', source)
+        with patch.object(produce, 'recovery_module', return_value=native_stub), patch.object(produce, '_fragment_eye', return_value=False), patch.object(produce, '_instance_layout', return_value=True), patch.object(produce, '_native_light_field', return_value=False):
+            instanced, _ = produce.shader_source(form, {'guid': 'a'*32, 'variants': rows}, Path('.'), includes, 'Vulkan')
+        self.assertIn('#pragma skip_optimizations gles3 vulkan', instanced)
+        self.assertNotIn('#pragma skip_optimizations', source)
 
     def test_vulkan_recovers_exact_original_layer_semantic(self):
         source = ('struct SPIRV_Cross_Input { float4 position : POSITION0; };\n'
