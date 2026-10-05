@@ -6,9 +6,9 @@ using System.Collections.Generic;
 using UnityEngine;
 namespace TMPro { public class TextMeshProUGUI : UnityEngine.UI.Text { } public class TMP_Text : MonoBehaviour { public string text = ""; public RectTransform rectTransform => (RectTransform)transform; } }
 namespace FFSNet { public static class FFSNetwork { public static bool IsOnline; } }
-namespace ScenarioRuleLibrary { public class CItem { public enum EItemSlotState{None,Spent,Consumed} public EItemSlotState SlotState; public CItem(){} public CItem(int id){ID=id;} public int ID; public bool Tradeable = true; } }
+namespace ScenarioRuleLibrary { public class CAbilityCard { } public class CItem { public enum EItemSlotState{None,Spent,Consumed} public EItemSlotState SlotState; public CItem(){} public CItem(int id){ID=id;} public int ID; public bool Tradeable = true; } }
 namespace MapRuleLibrary.Party {
- public class CMapCharacter { public string CharacterName="Brute"; public bool IsUnderMyControl = true; public readonly List<ScenarioRuleLibrary.CItem> AllCharacterItems = new(); }
+ public class CMapCharacter { public string CharacterName="Brute"; public bool IsUnderMyControl = true; public readonly List<ScenarioRuleLibrary.CItem> AllCharacterItems = new(); public readonly List<ScenarioRuleLibrary.CAbilityCard> AbilityCards = new(); }
  public class CMapParty { public readonly List<ScenarioRuleLibrary.CItem> Stock = new(); }
 }
 namespace MapRuleLibrary.Adventure {
@@ -120,6 +120,7 @@ namespace GloomhavenVR.Cards {
  public class VRCard { }
  public static class CardsDriver {
   internal static bool OffScenarioFanIsOpen;
+  internal static IReadOnlyList<VRCard>? OffScenarioFanCards;
   internal static int SuppressedOpenEdges, SuppressedCloseEdges;
   internal static void StandDownForItemFanContact(Hands.VRHand? hand, IReadOnlyList<ItemsPile.ItemChip> chips) { }
   internal static void PlayCardSound(string sound,Transform at) { }
@@ -208,6 +209,10 @@ namespace GloomhavenVR.WorldUI.MapRoom {
  public static class MapCharacterSelection { public static MapRuleLibrary.Party.CMapCharacter? Selected; public static MapRuleLibrary.Party.CMapCharacter? Current(out string source) { source="fixture"; return Selected; } }
  internal sealed partial class MapRoomHand {
   private static MapRoomHand s_live = new(); private bool _engaged = true;
+  private const int MaxCards=12;
+  private MapRuleLibrary.Party.CMapCharacter? _character = null;
+  private readonly List<ScenarioRuleLibrary.CAbilityCard> _loadout = new();
+  private static void ResolveLoadout(MapRuleLibrary.Party.CMapCharacter character,List<ScenarioRuleLibrary.CAbilityCard> into){into.Clear();into.AddRange(character.AbilityCards);}
   internal static readonly List<MapRuleLibrary.Party.CMapCharacter> FixtureParty = new();
   private static List<MapRuleLibrary.Party.CMapCharacter> PartyMembers() {
    if(FixtureParty.Count>0)return FixtureParty;
@@ -215,7 +220,7 @@ namespace GloomhavenVR.WorldUI.MapRoom {
   }
   internal static uint s_localFanCharacterKey;
   public static int NormalRebuilds, NormalReleases;
-  private void ReleaseFan(string why) { NormalReleases++; }
+  private void ReleaseFan(string why) { NormalReleases++; Cards.CardsDriver.OffScenarioFanCards=null; }
   private void RebuildFan() { NormalRebuilds++; }
  }
 }

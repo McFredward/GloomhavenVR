@@ -31,6 +31,11 @@ public static class InteractionProgram
   for(int i=0;i<87;i++)original.AllCharacterItems.Add(new CItem{ID=100+i});
   MapRoomHand.FixtureParty.Clear();MapRoomHand.FixtureParty.Add(original);MapRoomHand.FixtureParty.Add(other);
   MapCharacterSelection.Selected=original;MapRoomDriver.Active=true;
+  original.AbilityCards.Add(new CAbilityCard());
+  int beforeReadRelease=MapRoomHand.NormalReleases,beforeReadRebuild=MapRoomHand.NormalRebuilds;
+  Check(MapRoomHand.HasOwnedTownAbilityCards() && MapRoomHand.NormalReleases==beforeReadRelease
+      && MapRoomHand.NormalRebuilds==beforeReadRebuild && CardsDriver.OffScenarioFanCards==null,
+      "native ability eligibility census never republishes an ordinary fan over merchant items");
   FFSNet.FFSNetwork.IsOnline=true;original.IsUnderMyControl=true;
   var pile=ItemsPile.CreateInspection((c,p,h)=>{});pile.TickInspection(original.AllCharacterItems,1);
   MapRoomHand.s_localFanCharacterKey=0; int releases=MapRoomHand.NormalReleases;
@@ -203,6 +208,13 @@ public static class InteractionProgram
   TownServiceMerchantHandoff.Tick();
   Check(TownServiceVoice.Sells==3,"an inventory refresh without native confirmation cannot voice another sale");
   Check(first.TownOffering && !first.IsCollapsing,"native inventory mutation cannot destroy a pending offered card");
+  var currentItemFan=ItemsPile.InspectionCurrent;
+  CardsDriver.OffScenarioFanCards=new List<VRCard>{new VRCard()};
+  int releasedOrdinary=MapRoomHand.NormalReleases;
+  TownServiceMerchantHandoff.LateTick();
+  Check(CardsDriver.OffScenarioFanCards==null && ReferenceEquals(currentItemFan,ItemsPile.InspectionCurrent)
+      && TownServiceMerchantHandoff.Active && MapRoomHand.NormalReleases==releasedOrdinary+1,
+      "merchant post-transaction final frame retains only its canonical item fan");
   // Leaving cancels only our own confirmation and restores the original hand.
   int restore=MapRoomHand.NormalRebuilds;
   int cancelsBeforeLeaving=Singleton<UIItemConfirmationBox>.Instance.Cancels;

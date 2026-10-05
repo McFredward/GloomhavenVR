@@ -951,6 +951,7 @@ internal sealed partial class MapRoomHand
     /// </summary>
     private void Publish(bool swap)
     {
+        if (TownInspection) return;
         CardsDriver.OffScenarioFanCards = _cards.Count > 0 ? _cards : null;
         PublishInitiatives();
         if (swap)

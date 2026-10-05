@@ -10,6 +10,27 @@ internal sealed partial class MapRoomHand
 {
     private bool _merchantInspection, _templeInspection, _townInspectionFanWasOpen;
     private bool TownInspection => _merchantInspection || _templeInspection;
+    // Opening another service must not temporarily republish ability cards over an
+    // existing item fan simply to find out whether this character owns an ability.
+    // Read the native loadout without changing either presentation or selection.
+    internal static bool HasOwnedTownAbilityCards()
+    {
+        CMapCharacter? character = OwnedMerchantCharacter();
+        if (character == null) return false;
+        MapRoomHand? hand = s_live;
+        if (hand == null) return false;
+        var cards = hand._loadout;
+        if (!ReferenceEquals(hand._character, character))
+        {
+            hand._townAbilityCensus.Clear();
+            ResolveLoadout(character, hand._townAbilityCensus);
+            cards = hand._townAbilityCensus;
+        }
+        foreach (CAbilityCard card in cards) if (card != null) return true;
+        return false;
+    }
+    private readonly List<CAbilityCard> _townAbilityCensus = new(MaxCards);
+
     internal static CMapCharacter? OwnedMerchantCharacter()
     {
         CMapCharacter? character = MapCharacterSelection.Current(out _);
@@ -68,7 +89,15 @@ internal sealed partial class MapRoomHand
     internal static void SetMerchantInspection(bool active)
     {
         MapRoomHand? hand = s_live;
-        if (hand == null || hand._merchantInspection == active) return;
+        if (hand == null) return;
+        if (hand._merchantInspection == active)
+        {
+            // Native transaction callbacks may request a normal hand rebuild. The
+            // actual merchant inspection still owns this wrist until its teardown.
+            if (active && CardsDriver.OffScenarioFanCards != null)
+                hand.ReleaseFan("merchant owned-item inspection remains active");
+            return;
+        }
         bool wasInspecting = hand.TownInspection;
         hand._merchantInspection = active;
         hand.SetTownInspectionFan(active, wasInspecting, "merchant owned-item inspection");

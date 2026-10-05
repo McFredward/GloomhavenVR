@@ -96,6 +96,7 @@ def sources(root):
 
 def mutations():
     return [
+        ("post-trade-ordinary-fan", "TownServiceMerchantHandoff.cs", "        MapRoomHand.SetMerchantInspection(true); // A native buy/sell refresh never restores the ordinary ability fan here.\n", "", "merchant post-transaction final frame retains only its canonical item fan"),
         ("physical-occupation", "TownServiceMerchantHandoff.cs", "|| _pending != null;", "|| _pending != null || _tradeItem != null || OwnsPendingDecision;", "merchant occupation ends at physical card removal while the original cancel fade is pending"),
         ("immediate-reservation-release", "TownServiceMerchantHandoff.cs", "if (!preserveReservation) TownServiceMirror.SetLocalTransactionActive(1, false);", "/* retain removed card reservation */", "first merchant cancel releases the physical reservation on the same input stack"),
         ("inspection-tapped-item", "ActualItemLifecycle.cs", "chip.State == ItemChip.Visual.Spent && _inspectionRelease == null", "chip.State == ItemChip.Visual.Spent", "merchant inspection keeps a native spent item upright on first reveal"),

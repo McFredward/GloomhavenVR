@@ -94,7 +94,7 @@ internal static class TownServiceMerchantHandoff
             && !TownServicePresentation.NativeFallbackFor(1)
             && selected != null && TownServicePopulation.Available(1)
             && (mode == EGuildmasterMode.None || mode == EGuildmasterMode.Merchant
-                || mode == EGuildmasterMode.Temple || mode == EGuildmasterMode.Enchantress)
+                || mode == EGuildmasterMode.Temple)
             && !TownServiceEnhancementHandoff.WantsAbilityFan
             && !TownServiceTempleOffering.WantsPurseFocus;
         if (!context) { Reset(); return; }
@@ -139,6 +139,7 @@ internal static class TownServiceMerchantHandoff
     internal static void LateTick()
     {
         if (!Active || _station == null) return;
+        MapRoomHand.SetMerchantInspection(true); // A native buy/sell refresh never restores the ordinary ability fan here.
         _palm ??= Find(_station.Root, "ActivityOfferingPalm");
         if (_palm == null) return;
         if (_seat == null)
