@@ -13,8 +13,10 @@ import re
 
 if __package__:
     from .native import ComputeRecoveryError
+    from .vulkan_compiled import validate_vulkan
 else:
     from native import ComputeRecoveryError
+    from vulkan_compiled import validate_vulkan
 
 
 def validate_objects(manifest: dict, objects: list[dict]) -> dict:
@@ -22,10 +24,6 @@ def validate_objects(manifest: dict, objects: list[dict]) -> dict:
             or len(manifest.get("shaders", [])) != 13 or sum(len(row["kernels"]) for row in manifest["shaders"]) != 36:
         raise ComputeRecoveryError("Cooked gate requires the complete 13-shader / 36-kernel original contract.")
     if manifest.get("graphicsApi") == "Vulkan":
-        if __package__:
-            from .vulkan_compiled import validate_vulkan
-        else:
-            from vulkan_compiled import validate_vulkan
         return validate_vulkan(manifest, objects)
     if manifest.get("graphicsApi") not in (None, "OpenGLES3"):
         raise ComputeRecoveryError("Unknown cooked compute graphics API.")

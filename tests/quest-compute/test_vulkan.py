@@ -73,6 +73,28 @@ class VulkanTests(unittest.TestCase):
         changed=bytearray(code);struct.pack_into('<I',changed,24,10)
         with self.assertRaisesRegex(ComputeRecoveryError,'capability'):Module(changed)
 
+    def test_builder_temporary_path_loader_retains_vulkan_backend(self):
+        # The builder restores sys.path after executing its isolated module.
+        spec=importlib.util.spec_from_file_location('quest_compute_builder_fixture',PACKAGE/'compiled.py')
+        isolated=importlib.util.module_from_spec(spec)
+        sys.path.insert(0,str(PACKAGE))
+        try:spec.loader.exec_module(isolated)
+        finally:sys.path.pop(0)
+        program,expected,cbs=fixture()
+        contracts=[];objects=[]
+        for index in range(13):
+            count=2 if index>=10 else 3
+            kernels=[dict(copy.deepcopy(expected),name='Kernel'+str(k)) for k in range(count)]
+            contracts.append({'name':'Object'+str(index),'assetPath':'Assets/Fixture.compute','guid':'0'*32,'localFileId':7200000,'kernels':kernels})
+            objects.append({'m_Name':'Object'+str(index),'variants':[{'targetRenderer':21,'targetLevel':0,'constantBuffers':cbs,
+                'kernels':[{'name':k['name'],'variantMap':[['',dict(program,threadGroupSize=expected['threadGroups'])]]} for k in kernels]}]})
+        manifest={'schema':1,'graphicsApi':'Vulkan','shaderCount':13,'kernelCount':36,'shaders':contracts}
+        receipt=isolated.validate_objects(manifest,objects)
+        self.assertEqual(receipt['kernelCount'],36)
+        self.assertTrue(receipt['actualVulkanSpirvBytesVerified'])
+        self.assertFalse(receipt['allKernelsActualVulkanDriverValidated'])
+        self.assertFalse(receipt['hardwareVerified'])
+
     def test_vulkan_does_not_inherit_original_gles_msvo_exclusion(self):
         evidence=native_platform_contract('MultiScaleVODownsample1')
         self.assertFalse(evidence['androidOpenGlesBranchReachable'])
