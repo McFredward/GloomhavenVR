@@ -74,7 +74,7 @@ internal static class AudioSourceChecks
                 blessing.SampleBlessing(7,1,.1f,true);
                 Check(blessingRoot.GetComponentsInChildren<AudioSource>().Length==0,
                     "unready blessing audio waits without consuming the shared event");
-                TownServiceAssets.Spell=clip;
+                AudioController.Items[TownServiceActivityAudio.DefaultBlessingItem]=new FixtureAudioItem {subItems=new[]{new FixtureAudioSubItem{Clip=clip}}};
                 FaceClock.Now=10.2f;blessing.SampleBlessing(7,1,.3f,true);
                 var voice=blessingRoot.GetComponentInChildren<AudioSource>();
                 Check(voice!=null && voice.clip==clip && Math.Abs(voice.time-.3f)<.02f,

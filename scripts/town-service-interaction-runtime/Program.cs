@@ -1193,14 +1193,72 @@ public static class InteractionProgram
         }
     }
 
+    private static void PurseReturnFlight()
+    {
+        foreach (float mapScale in new[] { .62f, 1f, 198.12f })
+        {
+            var shared = Probe.Go("Owner shared map").transform;
+            shared.rotation = Quaternion.Euler(0f, 17f, 0f);
+            var home = Probe.Go("Owner moving wrist fan").transform;
+            home.SetPositionAndRotation(new Vector3(.3f, .8f, -.2f) * mapScale, Quaternion.Euler(0f, 31f, 0f));
+            home.localScale = Vector3.one * mapScale;
+            var labelled = Probe.Go("Actual ordinary returning purse", home).transform;
+            labelled.localPosition = new Vector3(.02f, -.07f, .09f);
+            var body = NativePurse.Create(labelled);
+            var inscription = (RectTransform)Probe.Go("Original purse inscription", labelled).transform;
+            inscription.sizeDelta = new Vector2(.125f, .15f); inscription.gameObject.AddComponent<Image>();
+            var button = Probe.Go("Original native donate button").AddComponent<Button>();
+            var destination = new VRHand {Side=HandSide.Left,WorldScale=mapScale};
+            var grabbing = new VRHand {Side=HandSide.Right,WorldScale=mapScale,TriggerUp=true};
+            destination.Rig.Root.position = new Vector3(.1f,.7f,-.3f) * mapScale;
+            destination.Rig.Root.rotation = Quaternion.Euler(15f,23f,-8f);
+            destination.Rig.Root.localScale = Vector3.one * mapScale;
+            grabbing.Rig.Root.position = new Vector3(.8f,1.1f,.4f) * mapScale;
+            grabbing.Rig.Root.localScale = Vector3.one * mapScale;
+            int requests=0; object identity=new();
+            using var token=new TownServiceToken(inscription,button,()=>identity,()=>identity,()=>true,
+                shared,labelled,drop:()=>{requests++;return true;},eligible:()=>true,inspect:()=>true,
+                uprightProp:true,physicalBody:body,dropLocation:world=>false);
+            token.Tick(mapScale);
+            Check(grabbing.Grabber.ForceGrab(token,true),"ordinary return starts from actual native purse pickup");
+            token.Tick(mapScale);grabbing.Grabber.ReleaseTick();
+            Check(requests==0&&token.IsMoving&&!token.IsHeld,"ordinary purse release never invokes donation");
+            var start=typeof(TownServiceToken).GetField("_returnStarted",BindingFlags.Instance|BindingFlags.NonPublic)!;
+            start.SetValue(token,Time.unscaledTime-.07f);
+            Check(token.TryReturnMotion(body,destination,shared,out uint revision,out float[] values)
+                && revision!=0&&Mathf.Abs(values[0]-.07f)<.002f&&values[1]==.35f,
+                "ordinary return exports the exact actual owner lifetime and complete endpoint");
+            var holder=Probe.Go("Approved rendered remote holder").transform;
+            holder.SetPositionAndRotation(destination.Rig.Root.position,destination.Rig.Root.rotation);
+            holder.localScale=Vector3.one * mapScale;
+            var observer=Probe.Go("Observer same original purse").transform;
+            observer.SetParent(shared,false);
+            foreach(float age in new[]{.07f,.13f,.20f,.28f,.35f})
+            {
+                start.SetValue(token,Time.unscaledTime-age);token.Tick(mapScale);
+                GloomhavenVR.Net.TownServices.TownServiceReturnMotion.Apply(observer,holder,shared,values,age);
+                Check(Vector3.Distance(observer.position,body.position)<.0002f*mapScale,
+                    "late observer renders actual owner purse return position at shared age");
+                Check(Quaternion.Angle(observer.rotation,body.rotation)<.02f,
+                    "late observer renders actual owner purse return rotation at shared age");
+                Check(Vector3.Distance(observer.lossyScale,body.lossyScale)<.0002f*mapScale,
+                    "late observer renders actual owner purse return scale at shared age");
+            }
+            start.SetValue(token,Time.unscaledTime-1f);token.Tick(mapScale);
+            Check(!token.TryReturnMotion(body,destination,shared,out _,out _),
+                "completed original purse return cannot overwrite a later wrist fan placement");
+            Clean();
+        }
+    }
+
     public static int Run()
     {
         _assertions = 0;
         try
         {
             if (Array.IndexOf(Environment.GetCommandLineArgs(), "-purseTransitionsOnly") >= 0)
-            { PurseTransitions(); return _assertions; }
-            NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); MerchantConfirmationPreparationFailure(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); UnconvertedMerchantController(); MerchantContextLifecycle(); MerchantCoordinatorTimeout(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); StalledEnhancementRestoresNativeWindow(); RollbackAndContinuation(); OptionalPresentation(); SharedRitualPlacement(); MapHandFallback(); PhysicalPurse(); PurseSettlement(); PurseTransitions(); return _assertions;
+            { PurseTransitions(); PurseReturnFlight(); return _assertions; }
+            NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); MerchantConfirmationPreparationFailure(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); UnconvertedMerchantController(); MerchantContextLifecycle(); MerchantCoordinatorTimeout(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); StalledEnhancementRestoresNativeWindow(); RollbackAndContinuation(); OptionalPresentation(); SharedRitualPlacement(); MapHandFallback(); PhysicalPurse(); PurseSettlement(); PurseTransitions(); PurseReturnFlight(); return _assertions;
         }
         finally { Clean(); }
     }

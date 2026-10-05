@@ -42,8 +42,9 @@ public sealed class AudioController {
  public static List<ClockStone.AudioObject> Playing=new();
  public static AudioController? DoesInstanceExist()=>Current;
  public static List<ClockStone.AudioObject> GetPlayingAudioObjects()=>Playing;
- public static bool IsValidAudioID(string id)=>false;
- internal static FixtureAudioItem GetAudioItem(string id)=>new();
+ internal static Dictionary<string,FixtureAudioItem> Items=new();
+ public static bool IsValidAudioID(string id)=>Items.ContainsKey(id);
+ internal static FixtureAudioItem GetAudioItem(string id)=>Items[id];
 }
 public sealed class GlobalData {public int MasterVolume=100,StoryVolume=100,SFXVolume=100;}
 public sealed class SaveData {public static SaveData? Instance=new(); public GlobalData? Global=new();}
@@ -53,7 +54,7 @@ public sealed class SaveData {public static SaveData? Instance=new(); public Glo
 // final resident mesh authoring are outside this presentation-replay fixture.
 internal static class ReplayClock { internal static float Now, Delta=1f/90f; }
 internal sealed class FixtureAudioItem { internal FixtureAudioSubItem[] subItems=Array.Empty<FixtureAudioSubItem>(); }
-internal sealed class FixtureAudioSubItem { internal AudioClip? Clip; }
+internal sealed class FixtureAudioSubItem { internal AudioClip? Clip; internal string ItemModeAudioID=string.Empty; }
 namespace GloomhavenVR.Core {
  internal static class VRLayers { internal const int ModLayer=27; internal static void Apply(GameObject root)=>root.layer=ModLayer; }
 }

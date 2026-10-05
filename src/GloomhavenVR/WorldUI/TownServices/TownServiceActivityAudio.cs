@@ -30,6 +30,11 @@ internal sealed class TownServiceActivityAudio : IDisposable
     private uint _blessingEpoch, _blessingGeneration;
     private bool _blessingPending;
     private AudioClip? _blessingClip;
+    private float _nextBlessingResolve;
+    // The native controller's configured item is read without invoking its gameplay callback.
+    // Its original ordered clip/alias bank is identical on every peer; observers never roll.
+    internal static Func<string>? NativeBlessingName = null;
+    internal const string DefaultBlessingItem = "PlaySound_UIReceivedItem";
     private bool _failed;
     private static AudioClip? _coinClink;
     private static float _nextCoinResolve;
@@ -68,19 +73,14 @@ internal sealed class TownServiceActivityAudio : IDisposable
             _blessingPending = generation != 0;
         }
         if (!interactive || generation == 0 || age < 0f || (float.IsNaN(age) || float.IsInfinity(age))
-            || age >= 1.3f || !WorldUIConfig.ImmersiveTownSoundEffects.Value)
+            || age >= 4f || !WorldUIConfig.ImmersiveTownSoundEffects.Value)
         {
             _blessingPending = false;
             if (_voices[0] != null) _voices[0]!.Stop();
             return;
         }
         if (!_blessingPending) return;
-        if (_blessingClip == null)
-        {
-            _blessingClip = TownServiceAssets.Audio("spell-soft-4");
-            if (_blessingClip != null && _blessingClip.loadState == AudioDataLoadState.Unloaded)
-                _blessingClip.LoadAudioData();
-        }
+        PrepareBlessingClip();
         AudioClip? clip = _blessingClip;
         if (clip == null || clip.loadState != AudioDataLoadState.Loaded || !HeadEar.Claim(_claim)) return;
         _blessingPending = false;
@@ -90,12 +90,37 @@ internal sealed class TownServiceActivityAudio : IDisposable
         source.transform.position = _root.TransformPoint(TownServiceRitualLayout.Origin + TownServiceTempleBowl.Center);
         source.time = Mathf.Clamp(age, 0f, Mathf.Max(0f, clip.length - .001f));
         source.pitch = 1f;
-        _gains[0] = .075f;
-        _ends[0] = Time.unscaledTime + Mathf.Min(1.3f, clip.length) - age;
+        _gains[0] = .35f;
+        _ends[0] = Time.unscaledTime + Mathf.Min(4f, clip.length) - age;
         GlobalData? global = SaveData.Instance?.Global;
         float master = global == null ? 1f : Mathf.Clamp01(global.MasterVolume / 100f) * Mathf.Clamp01(global.SFXVolume / 100f);
         source.volume = master * _gains[0];
         source.Play();
+    }
+
+    private void PrepareBlessingClip()
+    {
+        if (_service != 2 || _blessingClip != null || Time.unscaledTime < _nextBlessingResolve) return;
+        _nextBlessingResolve = Time.unscaledTime + .10f;
+        _blessingClip = ResolveNativeBlessing(NativeBlessingName?.Invoke() ?? DefaultBlessingItem, 0);
+        if (_blessingClip != null && _blessingClip.loadState == AudioDataLoadState.Unloaded)
+            _blessingClip.LoadAudioData();
+    }
+
+    private static AudioClip? ResolveNativeBlessing(string name, int depth)
+    {
+        if (depth >= 4 || string.IsNullOrEmpty(name) || !AudioController.IsValidAudioID(name)) return null;
+        var item = AudioController.GetAudioItem(name);
+        if (item?.subItems == null) return null;
+        foreach (var take in item.subItems)
+        {
+            // Select the first declared original, even while unloaded. Selecting the
+            // first READY clip instead would make two peers play different takes.
+            if (take.Clip != null) return take.Clip;
+            if (!string.IsNullOrEmpty(take.ItemModeAudioID))
+                return ResolveNativeBlessing(take.ItemModeAudioID, depth + 1);
+        }
+        return null;
     }
 
     internal void Tick(int author, uint epoch, float workClock, float elapsed, bool visible,
@@ -105,6 +130,9 @@ internal sealed class TownServiceActivityAudio : IDisposable
         if (_failed) return;
         try
         {
+            // Prepare the exact original while the stand is ready, before a visitor
+            // pays. Donation must not wait for a cold first audio decode.
+            if (visible && WorldUIConfig.ImmersiveTownSoundEffects.Value) PrepareBlessingClip();
             float sharedClock = float.IsNaN(performanceClock) ? workClock : performanceClock;
             bool newLifetime = _eventAuthor != author || _eventEpoch != epoch;
             if (newLifetime)

@@ -44,7 +44,9 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     private TownServiceOfferingCard? _offering;
     private Action? _offeringReclaimed;
     private Quaternion _homeRotation, _returnRotation;
-    private float _returnStarted;
+    internal const float ReturnSeconds = .35f;
+    private float _returnStarted = float.NegativeInfinity;
+    private uint _returnRevision;
     private Vector3 _returnScale;
     private bool _returning, _heldTracked;
     private bool _settling, _settlementDecided;
@@ -55,6 +57,9 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     internal float PhysicalVisibility { get; private set; } = 1f;
     internal bool IsPhysical => _physical != null;
     internal bool PhysicalAtHome => _physical != null && ReferenceEquals(_physical.parent, _physicalHomeParent);
+    internal bool HasReturnMotion => !_disposed && _hand == null && !_settling && _offering == null
+        && _returnRevision != 0 && Time.unscaledTime - _returnStarted >= 0f
+        && Time.unscaledTime - _returnStarted <= ReturnSeconds + .25f;
     internal bool IsMoving => _hand != null || _returning || _offering != null || _settling && PhysicalVisibility > 0f;
     private readonly GameObject _pick;
     private readonly BoxCollider _shape;
@@ -195,7 +200,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         _offering?.Tick();
         if (_returning && _physical != null)
         {
-            float t = Mathf.Clamp01((Time.unscaledTime - _returnStarted) / .35f);
+            float t = Mathf.Clamp01((Time.unscaledTime - _returnStarted) / ReturnSeconds);
             float ease = t * t * (3f - 2f * t);
             _physical.localPosition = Vector3.Lerp(_returnPosition, _homePosition, ease);
             _physical.localRotation = Quaternion.Slerp(_returnRotation, _homeRotation, ease);
@@ -300,6 +305,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         _pickedIdentity = _identity();
         _pickedContext = _contextIdentity();
         if (_pickedIdentity == null) return;
+        _returnStarted = float.NegativeInfinity;
         _hand = hand; PickupSequence=++_nextPickup; _heldTracked = false; _insidePhysicalDrop = false;
         TownServicePhysicalRay.Claim(hand);
         float side = Board.FigureGrab.HeldPoseMirror.OffsetSign(hand.Side == HandSide.Left);
@@ -406,7 +412,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
             Hover(false);
             _physical.SetParent(_homeParent, true);
             _returnPosition = _physical.localPosition; _returnRotation = _physical.localRotation; _returnScale = _physical.localScale;
-            _returnStarted = Time.unscaledTime; _returning = true;
+            BeginReturn();
             _held = null; _hand = null; _pickedIdentity = null; _pickedContext = null;
             if (commit)
             {
@@ -415,6 +421,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
                     // Await the original native confirmation in the physical bowl. This
                     // is visual ownership only; successful payment still runs exclusively
                     // through the native service callback, including its host validation.
+                    _returnStarted = float.NegativeInfinity;
                     _returning = false; _settling = true; _settlementDecided = false;
                     _settledIdentity = _identity(); _settledContext = _contextIdentity();
                     _physical.SetParent(_mat, true);
@@ -469,12 +476,13 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         PhysicalVisibility = 1f;
         _physical.SetParent(_homeParent, true);
         _returnPosition = _physical.localPosition; _returnRotation = _physical.localRotation;
-        _returnScale = _physical.localScale; _returnStarted = Time.unscaledTime; _returning = true;
+        _returnScale = _physical.localScale; BeginReturn();
     }
 
     internal void ParkOffering(Transform seat, Action reclaimed)
     {
         if (_physical == null || _disposed || _hand != null) return;
+        _returnStarted = float.NegativeInfinity;
         _returning = false; _offeringReclaimed = reclaimed;
         float nativeScale = _homeParent != null ? Mathf.Abs(_homeParent.lossyScale.x) : 1f;
         // Cabinet cards are small samples; the hand presentation is comfortably readable.
@@ -488,7 +496,50 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
         if (_disposed || _physical == null || _hand != null) return;
         _physical.SetParent(_homeParent, true);
         _returnPosition = _physical.localPosition; _returnRotation = _physical.localRotation;
-        _returnScale = _physical.localScale; _returnStarted = Time.unscaledTime; _returning = true;
+        _returnScale = _physical.localScale; BeginReturn();
+    }
+
+    private void BeginReturn()
+    {
+        _returnStarted = Time.unscaledTime; _returning = true;
+        if (++_returnRevision == 0) _returnRevision = 1;
+    }
+
+    /// <summary>Author the actual local return tween against the approved destination holder.
+    /// Keep its final endpoint briefly for a delayed packet; pickup/deposit/cancel invalidate it.
+    /// A receiver evaluates the same SmoothStep instead of stretching this short flight into
+    /// the sparse wrist-fan interpolation interval.</summary>
+    internal bool TryReturnMotion(Transform source, VRHand destination, Transform shared,
+        out uint revision, out float[] numbers)
+    {
+        revision = _returnRevision; numbers = Array.Empty<float>();
+        float age = Time.unscaledTime - _returnStarted;
+        if (_disposed || _physical == null || _homeParent == null || _hand != null || _settling
+            || _offering != null || revision == 0 || age < 0f || age > ReturnSeconds + .25f
+            || !(source == _physical || source.IsChildOf(_physical))) return false;
+        numbers = new float[22]; numbers[0] = age; numbers[1] = ReturnSeconds;
+        Matrix4x4 relative = _physical.worldToLocalMatrix * source.localToWorldMatrix;
+        Quaternion relativeRotation = Quaternion.Inverse(_physical.rotation) * source.rotation;
+        WriteReturnPose(numbers, 2, _returnPosition, _returnRotation, _returnScale, relative,
+            relativeRotation, destination, shared);
+        WriteReturnPose(numbers, 12, _homePosition, _homeRotation, _homeScale, relative,
+            relativeRotation, destination, shared);
+        return true;
+    }
+
+    private void WriteReturnPose(float[] values, int at, Vector3 position, Quaternion rotation,
+        Vector3 scale, Matrix4x4 relative, Quaternion relativeRotation, VRHand hand, Transform shared)
+    {
+        Matrix4x4 world = _homeParent!.localToWorldMatrix * Matrix4x4.TRS(position, rotation, scale) * relative;
+        float holderScale = Mathf.Max(.0001f, Mathf.Abs(hand.WorldScale));
+        Vector3 p = Quaternion.Inverse(hand.Rig.Root.rotation)
+            * (world.MultiplyPoint3x4(Vector3.zero) - hand.Rig.Root.position) / holderScale;
+        Quaternion r = Quaternion.Inverse(shared.rotation) * _homeParent.rotation * rotation * relativeRotation;
+        Vector3 size = new(world.GetColumn(0).magnitude / holderScale,
+            world.GetColumn(1).magnitude / holderScale, world.GetColumn(2).magnitude / holderScale);
+        values[at] = p.x; values[at + 1] = p.y; values[at + 2] = p.z;
+        values[at + 3] = r.x; values[at + 4] = r.y; values[at + 5] = r.z; values[at + 6] = r.w;
+        values[at + 7] = size.x; values[at + 8] = size.y; values[at + 9] = size.z;
     }
 
     private bool WithinDropZone(Vector3 point) => InDropZone(point) && Mathf.Abs(point.x) < _zoneHalfWidth;
@@ -561,6 +612,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
             _physical.localScale = _homeScale;
         }
         else if (_held != null) UnityEngine.Object.Destroy(_held);
+        _returnStarted = float.NegativeInfinity;
         _returning = false; _offering = null; _offeringReclaimed = null;
         _settling = _settlementDecided = false; PhysicalVisibility = 1f; _settledIdentity = _settledContext = null;
         _held = null; _hand = null; _pickedIdentity = null; _pickedContext = null;

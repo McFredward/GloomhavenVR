@@ -22,6 +22,7 @@ namespace HarmonyLib
 
     internal static class AccessTools
     {
+        internal static FieldInfo? Field(Type type, string name) => type.GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         internal static MethodInfo? Method(Type type, string name, Type[]? parameters = null) =>
             parameters == null ? type.GetMethod(name) : type.GetMethod(name, parameters);
     }
@@ -53,7 +54,15 @@ internal class UIWindow
 }
 
 internal sealed class UIShopItemWindow { }
-internal sealed class UITempleWindow { }
+internal sealed class UITempleWindow
+{
+    public string audioItemBless = "PlaySound_UIReceivedItem";
+    internal UIWindow? Window;
+    internal T? GetComponent<T>() where T : class => typeof(T)==typeof(UITempleWindow) ? this as T : Window as T;
+    public void OnConfirmedBuy() { }
+    public void ProxyBuyBlessing(string id, MapRuleLibrary.YML.Locations.TempleYML.TempleBlessingDefinition blessing) { }
+}
+namespace MapRuleLibrary.YML.Locations { internal static class TempleYML { internal sealed class TempleBlessingDefinition { } } }
 internal sealed class UINewEnhancementWindow { }
 
 internal sealed class UIPartyCharacterEnhancementAbilityCardsDisplay
@@ -84,6 +93,8 @@ namespace GloomhavenVR.WorldUI.MapRoom
 namespace GloomhavenVR.WorldUI
 {
     internal static partial class ModalFallback { }
+    internal static class TownServiceActivityAudio { internal const string DefaultBlessingItem="PlaySound_UIReceivedItem"; internal static Func<string>? NativeBlessingName; }
+    internal static class NativeTemplates { internal static UITempleWindow? Original(string key)=>null; }
     internal static class WorldUIConfig { internal static BoolSetting ImmersiveTownServices = new(); }
     internal static class TownServiceEnhancementHandoff { internal static bool Enabled; }
 }

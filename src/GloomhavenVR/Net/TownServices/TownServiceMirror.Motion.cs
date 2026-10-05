@@ -43,6 +43,7 @@ internal static partial class TownServiceMirror
     private sealed class MotionHandReference { internal VRHand Hand = null!; internal bool FollowsRotation; }
     private static readonly Dictionary<Transform, MotionHandReference> MotionHands = new();
     private static readonly HashSet<Transform> MotionOfferings = new();
+    private static readonly Dictionary<Transform, TownServiceToken> MotionReturns = new();
     private static readonly HashSet<LocalModule> MotionSourceRemoval = new();
     private static readonly List<TownServiceMotionPending> MotionWaiting = new(), MotionLive = new(), MotionVisibleFan = new();
     private static readonly List<Transform> MotionHandRemoval = new();
@@ -88,6 +89,18 @@ internal static partial class TownServiceMirror
         if (offering ? MotionOfferings.Add(source) : MotionOfferings.Remove(source)) _motionHandRevision++;
     }
 
+    internal static void RegisterMotionReturn(Transform source, TownServiceToken token)
+    {
+        if (source != null) MotionReturns[source] = token;
+    }
+
+    private static TownServiceToken? MotionReturn(Transform source)
+    {
+        for (Transform? node = source; node != null; node = node.parent)
+            if (MotionReturns.TryGetValue(node, out TownServiceToken? token)) return token;
+        return null;
+    }
+
     internal static void CaptureMotion(Action<byte[], int, object?> send)
     {
         float now = Time.unscaledTime;
@@ -101,6 +114,9 @@ internal static partial class TownServiceMirror
             MotionHandRemoval.Clear();
             foreach (Transform source in MotionOfferings) if (source == null) MotionHandRemoval.Add(source!);
             foreach (Transform gone in MotionHandRemoval) MotionOfferings.Remove(gone);
+            MotionHandRemoval.Clear();
+            foreach (var pair in MotionReturns) if (pair.Key == null) MotionHandRemoval.Add(pair.Key!);
+            foreach (Transform gone in MotionHandRemoval) MotionReturns.Remove(gone);
         }
         MotionSourceRemoval.Clear();
         foreach (var pair in MotionSources) MotionSourceRemoval.Add(pair.Key);
@@ -155,7 +171,10 @@ internal static partial class TownServiceMirror
             if (!MotionSources.TryGetValue(module, out SourceMotion? source))
             { source = new SourceMotion(); MotionSources.Add(module, source); }
             TownServiceFrame? previous = source.Previous;
-            if (ReferenceEquals(previous, frame) && source.HandRevision == _motionHandRevision)
+            if (MotionReturn(module.Binding.Root)?.HasReturnMotion != true)
+                source.Slots.Remove(MotionHeader(frame, laneId, 7).Key);
+            if (ReferenceEquals(previous, frame) && source.HandRevision == _motionHandRevision
+                && MotionReturn(module.Binding.Root)?.HasReturnMotion != true)
             {
                 foreach (MotionSlot slot in source.Slots.Values)
                     if (slot.Dirty || now - slot.SentAt >= TownServiceMotionCodec.Heartbeat) AddMotionWaiting(slot, source);
@@ -188,7 +207,17 @@ internal static partial class TownServiceMirror
                   if (!followsRotation) { Quaternion rotation = Quaternion.Inverse(lane.SharedFrame.rotation) * canvas.transform.rotation;
                     root.CanvasPose[3] = rotation.x; root.CanvasPose[4] = rotation.y; root.CanvasPose[5] = rotation.z; root.CanvasPose[6] = rotation.w; } }
             }
-            source.Live = LiveMotion(module.Address, root.Hand) || MotionOffering(module.Binding.Root);
+            TownServiceMotionEntry? flight = null;
+            if (frame.Service == 2 && hand != null && root.Hand > 2
+                && MotionReturn(module.Binding.Root) is TownServiceToken returning
+                && returning.TryReturnMotion(module.Binding.Root, hand, lane.SharedFrame,
+                    out uint returnRevision, out float[] returnNumbers))
+            {
+                flight = MotionHeader(frame, laneId, 7); flight.Hand = root.Hand;
+                flight.Revision = returnRevision; flight.Numbers = returnNumbers;
+                UpdateMotionSlot(source, flight);
+            }
+            source.Live = flight != null || LiveMotion(module.Address, root.Hand) || MotionOffering(module.Binding.Root);
             source.VisibleFan = root.Hand is 3 or 4 && root.Visible && root.ParentAlpha > 0f;
             source.Slots.TryGetValue(root.Key, out MotionSlot? priorRoot);
             root.HasCanvasUpdate = priorRoot == null || now - priorRoot.SentAt >= TownServiceMotionCodec.Heartbeat
@@ -311,7 +340,7 @@ internal static partial class TownServiceMirror
     private static bool SameMotion(TownServiceMotionEntry a, TownServiceMotionEntry b) => a.Kind == b.Kind
         && a.Session == b.Session && a.Structure == b.Structure && a.PublicClaim == b.PublicClaim
         && a.ParentModule == b.ParentModule && a.Binding == b.Binding && a.Property == b.Property && a.Offset == b.Offset
-        && a.ParentAlpha == b.ParentAlpha && a.Visible == b.Visible && a.Hand == b.Hand
+        && a.ParentAlpha == b.ParentAlpha && a.Visible == b.Visible && a.Hand == b.Hand && a.Revision == b.Revision
         && a.HasCanvasFrame == b.HasCanvasFrame && a.CanvasOnHand == b.CanvasOnHand && a.CanvasSortingOrder == b.CanvasSortingOrder
         && a.CanvasSortingLayer == b.CanvasSortingLayer && SameNumbers(a.Pose, b.Pose)
         && SameNumbers(a.Numbers, b.Numbers) && SameNumbers(a.CanvasPose, b.CanvasPose)
@@ -402,8 +431,9 @@ internal static partial class TownServiceMirror
             { MotionFrameRemoval.Add(module); continue; }
             bool changed = !ReferenceEquals(composed.Author, module.LastFrame);
             foreach (MotionSlot slot in composed.Slots) changed |= slot.Dirty;
-            MotionSlot? root = null;
-            foreach (MotionSlot slot in composed.Slots) if (slot.Entry.Kind == 1) root = slot;
+            MotionSlot? root = null, flight = null;
+            foreach (MotionSlot slot in composed.Slots)
+            { if (slot.Entry.Kind == 1) root = slot; else if (slot.Entry.Kind == 7) flight = slot; }
             if (changed)
             {
                 try
@@ -435,13 +465,32 @@ internal static partial class TownServiceMirror
             // every render frame, rather than replaying an old shared-world pose.
             if (root != null && root.Entry.Hand != 0 && composed.Merged != null
                 && root.Entry.Visible && root.Entry.ParentAlpha > 0f && module.Host.activeInHierarchy)
+            {
                 ApplyMotionRoot(module, root.Entry, composed, composed.Merged, now, continuousHand: true);
+                if (flight != null && flight.Entry.Hand == root.Entry.Hand)
+                    ApplyReturnMotion(module, flight, composed, composed.Merged, now);
+            }
             // This continuous path writes only rig transforms. The registered
             // furniture anchor already measures those live transforms in its own
             // distance tick; reassert native sorting only after binding above.
         }
         foreach (RemoteModule removed in MotionFrameRemoval) MotionRemoteFrames.Remove(removed);
         MotionDiagnostics(now);
+    }
+
+    private static void ApplyReturnMotion(RemoteModule module, MotionSlot sample, RemoteMotion motion,
+        TownServiceFrame authored, float now)
+    {
+        TownServiceMotionEntry entry = sample.Entry;
+        float age = entry.Numbers[0] + Mathf.Max(0f, now - sample.ReceivedAt);
+        if (age > entry.Numbers[1] + .25f) return;
+        if (!NetAvatarDriver.TryGetTownMotionHand(motion.Owner, (byte)((entry.Hand - 1) & 1),
+                out Transform? hand) || hand == null) return;
+        Transform? shared = SharedFrameForRemote?.Invoke(motion.Owner); if (shared == null) return;
+        Transform root = module.AddedCanvas != null && !authored.HasCanvasFrame
+            ? module.Host.transform : module.Binding.Root;
+        TownServiceReturnMotion.Apply(root, hand, shared, entry.Numbers, age);
+        if (module.AddedCanvas != null && !authored.HasCanvasFrame) NormalizeDetachedRoot(module);
     }
 
     private static TownServiceFrame? EffectiveRemoteFrame(RemoteModule module) =>
@@ -555,7 +604,7 @@ internal static partial class TownServiceMirror
 
     internal static void ForgetRemoteMotion(int peer) { MotionPeers.Remove(peer); TownServiceSharedCue.Forget(peer); }
     internal static void ResetMotionNetwork()
-    { MotionSources.Clear(); MotionPeers.Clear(); MotionHands.Clear(); MotionOfferings.Clear(); MotionWaiting.Clear(); MotionLive.Clear(); MotionVisibleFan.Clear(); MotionRemoteFrames.Clear(); TownServiceSharedCue.Reset();
+    { MotionSources.Clear(); MotionPeers.Clear(); MotionHands.Clear(); MotionOfferings.Clear(); MotionReturns.Clear(); MotionWaiting.Clear(); MotionLive.Clear(); MotionVisibleFan.Clear(); MotionRemoteFrames.Clear(); TownServiceSharedCue.Reset();
       MotionSourceRemoval.Clear(); MotionRemoval.Clear(); _nextMotionSend = 0f; _motionCursor = _motionLiveCursor = _motionVisibleCursor = 0;
       _motionCommitSession = _motionCommitRevision = 0; _nextMotionCommit = 0f;
       _motionCue = null; _nextMotionCue = 0f;

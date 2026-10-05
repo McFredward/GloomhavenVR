@@ -77,6 +77,9 @@ public static class InteractionProgram
         }
         TownServiceAssets.Clips["spell-soft-4"] = NativeAsset<AudioClip>("spell-soft-4.wav");
         TownServiceAssets.Clips["spell-soft-4"].LoadAudioData();
+        // The original AudioController lookup is the fixture boundary; production reads the game bank.
+        AudioController.Items[TownServiceActivityAudio.DefaultBlessingItem] = new FixtureAudioItem
+            {subItems=new[]{new FixtureAudioSubItem{Clip=TownServiceAssets.Clips["spell-soft-4"]}}};
         var owner = Face("Donation author");
         var observer = Face("Late donation observer");
         var listener = new GameObject("Local head");

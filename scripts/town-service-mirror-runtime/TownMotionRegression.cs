@@ -329,6 +329,40 @@ public static partial class MirrorProgram
                 Check(Vector3.Distance(copy.Root.position, receiver.TransformPoint(relative)) < .0002f * worldScale,
                     "held original purse follows the approved smoothed rig between network events");
             }
+            // The exact token-to-endpoint calculation is bound separately to the
+            // complete production Token and original game purse. This adapter now
+            // exercises its output through actual capture, TLV106, receiver and
+            // existing inert same-module geometry without constructing new art.
+            source.SetParent(preview, true); TownServiceMirror.RegisterMotionHand(source, hand, followsRotation:false);
+            Vector3 begin = Quaternion.Inverse(handRoot.rotation) * (source.position-handRoot.position) / worldScale;
+            Vector3 end = Quaternion.Inverse(handRoot.rotation)
+                * (preview.TransformPoint(new Vector3(0f,-.065f,0f))-handRoot.position) / worldScale;
+            Quaternion returnRotation=Quaternion.Inverse(shared.rotation)*source.rotation;
+            Vector3 size=source.lossyScale/worldScale;
+            var returnToken=new GloomhavenVR.WorldUI.TownServiceToken {ReturnStarted=Time.unscaledTime,
+                ReturnNumbers=new[]{0f,.35f,begin.x,begin.y,begin.z,returnRotation.x,returnRotation.y,returnRotation.z,returnRotation.w,
+                    size.x,size.y,size.z,end.x,end.y,end.z,returnRotation.x,returnRotation.y,returnRotation.z,returnRotation.w,size.x,size.y,size.z}};
+            TownServiceMirror.RegisterMotionReturn(source,returnToken);
+            for(float until=Time.unscaledTime+.08f;Time.unscaledTime<until;)yield return null;
+            FastCapture flight=CaptureFast(); Receive(1,flight.Artwork); DeliverMotion(1,flight);
+            float receivedAt=Time.unscaledTime;
+            TownServiceMotionEntry? flightEntry=null;
+            foreach(byte[] bytes in flight.Motion)
+                if(TownServiceMotionCodec.TryRead(bytes,bytes.Length,out TownServiceMotionPacket? parsed))
+                    foreach(TownServiceMotionEntry entry in parsed!.Entries)if(entry.Kind==7)flightEntry=entry;
+            Check(flightEntry!=null && flightEntry.Module==17 && flightEntry.Revision==5,
+                "ordinary purse return publishes its same-module complete additive timeline immediately");
+            for(int step=0;step<5;step++)
+            {
+                TownServiceMirror.TickRemote(_=>observer);
+                float age=flightEntry!.Numbers[0]+Time.unscaledTime-receivedAt;
+                float t=Mathf.Clamp01(age/.35f);float ease=t*t*(3f-2f*t);
+                Vector3 expected=receiver.TransformPoint(Vector3.Lerp(begin,end,ease));
+                Check(Vector3.Distance(copy.Root.position,expected)<.0003f*worldScale,
+                    "received ordinary purse return follows its exact owner flight between sparse packets");
+                yield return null;
+            }
+            returnToken.ReturnNumbers=null;
             source.SetParent(preview, true); TownServiceMirror.RegisterMotionHand(source, null);
             source.localPosition = new Vector3(0f, -.065f, 0f);
             for (float until = Time.unscaledTime + .08f; Time.unscaledTime < until;) yield return null;

@@ -46,7 +46,7 @@ internal static class TownServiceMotionCodec
     // bytes without increasing the actual event size or its 15 Hz cadence. The
     // expanded payload is bounded independently; legacy record97 stays unchanged.
     internal const int MaxExpandedBytes = 8192, MaxExpandedEntries = 128;
-    internal const byte PackedRecordId = 98, VisitorReadyRecordId = 99;
+    internal const byte PackedRecordId = 98, VisitorReadyRecordId = 99, ReturnRecordId = 106;
     // Independent message rather than an art fragment: a several-second catalog
     // baseline must never sit in front of a visitor's current hand/hover/scroll.
     internal const byte MessageType = 26, RecordId = 97;
@@ -61,6 +61,7 @@ internal static class TownServiceMotionCodec
         4 => 28 + entry.Numbers.Length * 4,
         5 => 15 + (entry.HasSharedCue ? 9 : 0),
         6 => 10,
+        7 => 112,
         _ => throw new InvalidDataException("Unknown fast motion kind.")
     };
 
@@ -104,7 +105,7 @@ internal static class TownServiceMotionCodec
             using var body = new MemoryStream(); using var part = new BinaryWriter(body);
             WriteEntry(part, entry); byte[] bytes = body.ToArray();
             if (bytes.Length > 255) throw new InvalidDataException("Fast town motion entry exceeds its record.");
-            writer.Write(entry.Kind == 6 ? VisitorReadyRecordId : RecordId);
+            writer.Write(entry.Kind == 6 ? VisitorReadyRecordId : entry.Kind == 7 ? ReturnRecordId : RecordId);
             writer.Write((byte)bytes.Length); writer.Write(bytes);
         }
         if (stream.Length > maxBytes) throw new InvalidDataException("Fast town motion exceeds one bounded event.");
@@ -145,10 +146,10 @@ internal static class TownServiceMotionCodec
                     packedAt += readCount;
                     continue;
                 }
-                if (id != RecordId && id != VisitorReadyRecordId) { stream.Position = end; continue; }
+                if (id != RecordId && id != VisitorReadyRecordId && id != ReturnRecordId) { stream.Position = end; continue; }
                 if (count == 0) return false;
                 byte kind = reader.ReadByte();
-                if ((id == VisitorReadyRecordId) != (kind == 6)) return false;
+                if ((id == VisitorReadyRecordId) != (kind == 6) || (id == ReturnRecordId) != (kind == 7)) return false;
                 if (kind == 0)
                 {
                     if (clock || result.Entries.Count != 0 || count != 13) return false;
@@ -187,6 +188,8 @@ internal static class TownServiceMotionCodec
         if (e.Kind == 5) { w.Write(e.CueReady); w.Write(e.CueStrength); w.Write(e.HasSharedCue);
           if (e.HasSharedCue) { w.Write(e.SharedCueReady); w.Write(e.SharedCueStrength); w.Write(e.SharedGuideOwner); } return; }
         w.Write(e.PublicClaim); w.Write(e.Module); w.Write(e.Structure);
+        if (e.Kind == 7)
+        { w.Write(e.Hand); w.Write(e.Revision); Floats(w, e.Numbers); return; }
         if (e.Kind == 1)
         {
             w.Write(e.ParentModule); w.Write(e.Binding); w.Write(e.ParentAlpha); w.Write(e.Visible);
@@ -210,6 +213,8 @@ internal static class TownServiceMotionCodec
           if (e.HasSharedCue) { e.SharedCueReady = Bool(r); e.SharedCueStrength = r.ReadSingle(); e.SharedGuideOwner = r.ReadInt32(); }
           Validate(e); return e; }
         e.PublicClaim = r.ReadUInt32(); e.Module = r.ReadUInt16(); e.Structure = r.ReadUInt32();
+        if (kind == 7)
+        { e.Hand = r.ReadByte(); e.Revision = r.ReadUInt32(); e.Numbers = Floats(r, 22); Validate(e); return e; }
         if (kind == 1)
         {
             e.ParentModule = r.ReadUInt16(); e.Binding = r.ReadUInt32(); e.ParentAlpha = r.ReadSingle();
@@ -238,7 +243,7 @@ internal static class TownServiceMotionCodec
       foreach (float v in values) if (!Finite(v)) throw new InvalidDataException("Nonfinite fast motion value."); }
     private static void Validate(TownServiceMotionEntry e)
     {
-        if (e.Kind < 1 || e.Kind > 6 || e.Lane > 2 || e.Service < 1 || e.Service > 3 || e.Session == 0
+        if (e.Kind < 1 || e.Kind > 7 || e.Lane > 2 || e.Service < 1 || e.Service > 3 || e.Session == 0
             || e.Lane != 0 && e.Service != 1) throw new InvalidDataException("Invalid fast town motion affinity.");
         if (e.Kind == 3)
         { if (e.Lane != 0 || e.Service != 2 || e.Revision == 0 || !Finite(e.CommitAge) || e.CommitAge < 0f || e.CommitAge > 30f)
@@ -252,6 +257,21 @@ internal static class TownServiceMotionCodec
               throw new InvalidDataException("Invalid shared mage cue."); return; }
         if (e.Module >= TownServiceFrame.VoiceModule || e.Structure == 0 || e.Lane != 1 && e.PublicClaim != 0)
             throw new InvalidDataException("Invalid fast town module identity.");
+        if (e.Kind == 7)
+        {
+            CheckFloats(e.Numbers, 22);
+            if (e.Lane != 0 || e.Service != 2 || e.Hand is not (3 or 4) || e.Revision == 0
+                || e.Numbers[0] < 0f || e.Numbers[0] > 4f || e.Numbers[1] <= 0f || e.Numbers[1] > 1f)
+                throw new InvalidDataException("Invalid purse return clock.");
+            for (int at = 2; at <= 12; at += 10)
+            {
+                float q = 0f; for (int n = 3; n <= 6; n++) q += e.Numbers[at + n] * e.Numbers[at + n];
+                if (q < .99f || q > 1.01f || e.Numbers[at + 7] <= 0f
+                    || e.Numbers[at + 8] <= 0f || e.Numbers[at + 9] <= 0f)
+                    throw new InvalidDataException("Invalid purse return pose.");
+            }
+            return;
+        }
         if (e.Kind == 1)
         {
             CheckFloats(e.Pose, 10);

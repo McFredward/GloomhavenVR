@@ -238,7 +238,12 @@ internal sealed class TownServiceTempleOffering : IDisposable
             Root.localScale = Vector3.one * (hand.WorldScale / parentScale);
         }
         _visibility = Mathf.MoveTowards(_visibility, shown ? 1f : 0f, Time.unscaledDeltaTime / .16f);
-        _gate.alpha = _visibility;
+        bool movingPurse = false;
+        foreach (TownServiceRitual.Piece piece in _ritual.Pieces) movingPurse |= piece.Token.IsMoving;
+        // A release return is a visible physical flight even when the destination
+        // palm is down. Its native inscriptions and remote ParentAlpha must not be
+        // suppressed by the closed fan's ancestor CanvasGroup during that flight.
+        _gate.alpha = movingPurse ? 1f : _visibility;
         _gate.interactable = shown && _visibility >= .99f;
         foreach (TownServiceRitual.Piece piece in _ritual.Pieces)
             piece.SetVisibility(TownServicePursePresentation.Visibility(piece.Token, _visibility));

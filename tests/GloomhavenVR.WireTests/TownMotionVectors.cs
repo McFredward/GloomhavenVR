@@ -11,7 +11,34 @@ internal static class TownMotionVectors
     internal static TownServiceFrame? CapturedFront;
     internal static void Run(Harness t)
     {
-        Codec(t); Packed(t); MotionBudget(t); VisibleFanBudget(t); Saturation(t);
+        Codec(t); Packed(t); MotionBudget(t); VisibleFanBudget(t); Saturation(t); ReturnClock(t);
+    }
+    private static void ReturnClock(Harness t)
+    {
+        t.Case("Additive106 preserves the actual purse return clock and rig-relative endpoints");
+        var returning = new TownServiceMotionEntry {Kind=7,Service=2,Session=7,Module=3,Structure=4,
+            Hand=3,Revision=5,Numbers=new[]{.125f,.35f,1f,2f,3f,0f,0f,0f,1f,1f,1f,1f,0f,0f,0f,0f,0f,0f,1f,1f,1f,1f}};
+        byte[] bytes = TownServiceMotionCodec.Write(Packet(returning));
+        t.Wire(Hex.Bytes("31 52 56 47 03 1A 61 0D 00 01 00 00 00 00 00 00 00 00 00 00 40 6A 6E 07 00 02 07 00 00 00 00 00 00 00 03 00 04 00 00 00 03 05 00 00 00 00 00 00 3E 33 33 B3 3E 00 00 80 3F 00 00 00 40 00 00 40 40 00 00 00 00 00 00 00 00 00 00 00 00 00 00 80 3F 00 00 80 3F 00 00 80 3F 00 00 80 3F 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 80 3F 00 00 80 3F 00 00 80 3F 00 00 80 3F"), bytes, bytes.Length,
+            "independent Python struct vector binds exact return lifetime and endpoint grammar");
+        t.True(TownServiceMotionCodec.EntryBytes(returning) == bytes.Length - 21,
+            "return clock uses its exact bounded numeric budget");
+        t.True(TownServiceMotionCodec.TryRead(bytes,bytes.Length,out var parsed)
+            && parsed!.Entries[0].Hand==3 && parsed.Entries[0].Revision==5,
+            "purse return retains original holder and flight identity");
+        for(int i=0;i<22;i++)t.Equal(returning.Numbers[i],parsed!.Entries[0].Numbers[i],
+            "purse return endpoint survives unchanged");
+        byte[] wrong=(byte[])bytes.Clone(); wrong[21]=97;
+        t.True(!TownServiceMotionCodec.TryRead(wrong,wrong.Length,out _),
+            "return entry cannot reinterpret original record97 grammar");
+        for(int count=0;count<bytes.Length;count++)t.True(!TownServiceMotionCodec.TryRead(bytes,count,out _),
+            "truncated return clock cannot publish a partial flight");
+        foreach(int at in new[]{23+17,23+18,23+22,23+26,23+42})
+        {
+            wrong=(byte[])bytes.Clone(); for(int n=0;n<4 && at+n<wrong.Length;n++)wrong[at+n]=(byte)(at==23+18 || at==23+26 ? 0 : 255);
+            t.True(!TownServiceMotionCodec.TryRead(wrong,wrong.Length,out _),
+                "invalid return hand revision age duration and rotation fail atomically");
+        }
     }
     private static void Packed(Harness t)
     {

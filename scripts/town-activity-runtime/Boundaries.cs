@@ -63,7 +63,7 @@ namespace GloomhavenVR.Core { internal static class VRLayers {internal const int
 
 internal sealed class GlobalData { public int MasterVolume=100,SFXVolume=100; }
 internal sealed class SaveData { public static SaveData Instance=new(); public GlobalData Global=new(); }
-internal sealed class FixtureAudioSubItem { public AudioClip? Clip; }
+internal sealed class FixtureAudioSubItem { public AudioClip? Clip; public string ItemModeAudioID = string.Empty; }
 internal sealed class FixtureAudioItem { public FixtureAudioSubItem[] subItems=Array.Empty<FixtureAudioSubItem>(); }
 internal static class AudioController
 {

@@ -100,7 +100,7 @@ namespace GloomhavenVR.Hands
     internal enum HapticPreset { GrabPulse,ClickPulse,HoverTick }
     internal struct FingerJoints { internal bool IsValid; internal Transform Tip; }
     internal sealed class RigFixture
-    { internal Transform GrabAnchor = Probe.Go("hand").transform; internal FingerJoints GetFinger(Finger f) => default; }
+    { internal Transform GrabAnchor = Probe.Go("hand").transform; internal Transform Root => GrabAnchor; internal FingerJoints GetFinger(Finger f) => default; }
     internal sealed class VRHand
     {
         internal bool HasPose = true, TriggerUp;

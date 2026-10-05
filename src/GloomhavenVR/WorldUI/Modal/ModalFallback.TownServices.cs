@@ -108,8 +108,9 @@ internal static partial class ModalFallback
 /// <summary>Suppress the hidden flat town UI's show/hide sounds while its physical replacement
 /// is active. The native controllers and their callbacks still run; exact serialized fields are
 /// blank only for their calls and direct UI audio is skipped only inside an automatic service
-/// transition. Flat mode, confirmation and purchase feedback, resident speech, physical map
-/// presses and cabinet/card sounds remain untouched.</summary>
+/// transition. Immersive blessings redirect their exact native item to the shared donation clock.
+/// Flat mode, other confirmation and purchase feedback, resident speech, physical map presses
+/// and cabinet/card sounds remain untouched.</summary>
 internal static class TownServiceNativeAudioSilence
 {
     private sealed class ImmersiveOpenMarker { }
@@ -117,6 +118,10 @@ internal static class TownServiceNativeAudioSilence
     private static bool _installed;
     [ThreadStatic] private static int _automaticTransitionDepth;
     [ThreadStatic] private static string? _automaticTransitionContext;
+    [ThreadStatic] private static int _blessingDepth;
+    [ThreadStatic] private static string? _blessingItem;
+    private static readonly System.Reflection.FieldInfo? BlessingItemField =
+        AccessTools.Field(typeof(UITempleWindow), "audioItemBless");
     private static int _traceLines;
     private const int TraceLineBudget = 32;
     private static readonly ConditionalWeakTable<UIWindow, ImmersiveOpenMarker> ImmersiveOpenWindows = new();
@@ -141,6 +146,14 @@ internal static class TownServiceNativeAudioSilence
             finalizer: new HarmonyMethod(typeof(TownServiceNativeAudioSilence), nameof(AfterWindowHide)));
         VRSession.Harmony.Patch(nativePlay,
             prefix: new HarmonyMethod(typeof(TownServiceNativeAudioSilence), nameof(BeforeNativePlay)));
+        var blessing = AccessTools.Method(typeof(UITempleWindow), "OnConfirmedBuy");
+        var proxyBlessing = AccessTools.Method(typeof(UITempleWindow), "ProxyBuyBlessing",
+            new[] { typeof(string), typeof(MapRuleLibrary.YML.Locations.TempleYML.TempleBlessingDefinition) });
+        foreach (var callback in new[] { blessing, proxyBlessing })
+            if (callback != null) VRSession.Harmony.Patch(callback,
+                prefix: new HarmonyMethod(typeof(TownServiceNativeAudioSilence), nameof(BeforeBlessing)),
+                finalizer: new HarmonyMethod(typeof(TownServiceNativeAudioSilence), nameof(AfterBlessing)));
+        TownServiceActivityAudio.NativeBlessingName = ReadBlessingItem;
         _installed = true;
     }
 
@@ -169,9 +182,34 @@ internal static class TownServiceNativeAudioSilence
     /// item-name based: the same UI item is legitimate when the player presses a physical map cap.</summary>
     internal static bool BeforeNativePlay(string audioItem)
     {
+        if (_blessingDepth > 0 && audioItem == _blessingItem) return false;
         if (_automaticTransitionDepth <= 0) return true;
         Trace("AudioControllerUtils.PlaySound", audioItem, Caller());
         return false;
+    }
+
+    private static string ReadBlessingItem()
+    {
+        UITempleWindow? temple = NativeTemplates.Original("temple")?.GetComponent<UITempleWindow>();
+        return temple != null && BlessingItemField?.GetValue(temple) is string item && item.Length > 0
+            ? item : TownServiceActivityAudio.DefaultBlessingItem;
+    }
+
+    internal static void BeforeBlessing(UITempleWindow __instance, out string? __state)
+    {
+        __state = null;
+        UIWindow? window = __instance.GetComponent<UIWindow>();
+        if (window == null || !ShouldSilence(window)) return;
+        __state = _blessingItem ?? string.Empty;
+        _blessingItem = BlessingItemField?.GetValue(__instance) as string ?? TownServiceActivityAudio.DefaultBlessingItem;
+        _blessingDepth++;
+    }
+
+    internal static Exception? AfterBlessing(string? __state, Exception? __exception)
+    {
+        if (__state != null)
+        { _blessingDepth--; _blessingItem = __state.Length == 0 ? null : __state; }
+        return __exception;
     }
 
     /// <summary>The immersive hand path is the switch that decides whether these native windows

@@ -41,7 +41,22 @@ internal static class Program
         WorldUIConfig.ImmersiveTownServices.Value = true;
         TownServiceEnhancementHandoff.Enabled = true;
         TownServiceNativeAudioSilence.EnsureInstalled();
-        Check(VRSession.Harmony!.Targets.Count == 4, "window, cards-display and direct native audio seams installed before map entry");
+        Check(VRSession.Harmony!.Targets.Count == 6, "window, cards-display and direct native audio seams installed before map entry");
+        var nativeTemple = new UITempleWindow { Window = Window<UITempleWindow>(), audioItemBless = "configured-native-bless" };
+        TownServiceNativeAudioSilence.BeforeBlessing(nativeTemple, out string? blessingState);
+        Check(!TownServiceNativeAudioSilence.BeforeNativePlay("configured-native-bless"),
+            "immersive native blessing callback defers its exact serialized sound to shared cue");
+        Check(TownServiceNativeAudioSilence.BeforeNativePlay("other-native-item"),
+            "unrelated native sound is not swallowed by blessing scope");
+        var blessingFailure = new Exception("fixture blessing");
+        Check(ReferenceEquals(TownServiceNativeAudioSilence.AfterBlessing(blessingState, blessingFailure), blessingFailure)
+            && TownServiceNativeAudioSilence.BeforeNativePlay("configured-native-bless"),
+            "blessing finalizer restores sound scope without hiding original exception");
+        WorldUIConfig.ImmersiveTownServices.Value = false;
+        TownServiceNativeAudioSilence.BeforeBlessing(nativeTemple, out blessingState);
+        Check(blessingState == null && TownServiceNativeAudioSilence.BeforeNativePlay("configured-native-bless"),
+            "ordinary flat temple retains its exact native blessing audio");
+        WorldUIConfig.ImmersiveTownServices.Value = true;
         CheckService(Window<UIShopItemWindow>());
         CheckService(Window<UITempleWindow>());
         UIWindow enchantress = Window<UINewEnhancementWindow>();

@@ -132,6 +132,12 @@ namespace GloomhavenVR.WorldUI
     }
     internal sealed class TownServiceToken
     {
+        internal float[]? ReturnNumbers;
+        internal float ReturnStarted;
+        internal bool TryReturnMotion(Transform source, Hands.VRHand hand, Transform shared, out uint revision, out float[] values)
+        { revision=5; values=ReturnNumbers == null ? Array.Empty<float>() : (float[])ReturnNumbers.Clone();
+          if(values.Length>0)values[0]=Time.unscaledTime-ReturnStarted;return HasReturnMotion; }
+        internal bool HasReturnMotion => ReturnNumbers != null && Time.unscaledTime-ReturnStarted<=.60f;
         internal bool IsPhysical, IsMoving, IsHeld;
         internal bool PhysicalAtHome = true;
         internal GloomhavenVR.Hands.VRHand? HoldingHand;

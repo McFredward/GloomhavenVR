@@ -13,7 +13,9 @@ internal static class TownServicePursePresentation
         // A bowl deposit has left the fan and must also clear the ancestor's hand.
         VRHand? hand = token.IsHeld ? token.HoldingHand : token.PhysicalAtHome ? previewHand : null;
         TownServiceMirror.RegisterMotionHand(root, hand, followsRotation: false);
+        TownServiceMirror.RegisterMotionReturn(root, token);
         TownServiceMirror.RegisterMotionHand(body, hand, followsRotation: false);
+        TownServiceMirror.RegisterMotionReturn(body, token);
     }
 
     internal static float Visibility(TownServiceToken token, float fanVisibility) => token.IsMoving ? 1f : fanVisibility;

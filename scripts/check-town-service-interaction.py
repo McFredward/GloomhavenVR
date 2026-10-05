@@ -57,16 +57,21 @@ def sources(root):
     bound['NativePurse.cs'] = purse_fixture
     # The transport adapter retains the real registration/ancestor lookup methods;
     # the purse selector and the real Piece opacity method are production-bound.
-    bound['PursePresentation.cs'] = raw['PursePresentation.cs'].replace('TownServiceMirror.RegisterMotionHand', 'PurseMotionBindings.RegisterMotionHand')
+    bound['PursePresentation.cs'] = raw['PursePresentation.cs'].replace('TownServiceMirror.RegisterMotionHand', 'PurseMotionBindings.RegisterMotionHand').replace('TownServiceMirror.RegisterMotionReturn', 'PurseMotionBindings.RegisterMotionReturn')
     motion = (base / 'Net/TownServices/TownServiceMirror.Motion.cs').read_text()
     bound['PurseMotionBindings.cs'] = ('using System; using System.Collections.Generic; using GloomhavenVR.Hands; using UnityEngine; '
         'namespace GloomhavenVR.Hands { internal static class VRHands { internal static VRHand? Left, Right; } } '
         'namespace GloomhavenVR.WorldUI { internal static class PurseMotionBindings { '
         'private sealed class MotionHandReference { internal VRHand Hand = null!; internal bool FollowsRotation; } '
         'private static readonly Dictionary<Transform, MotionHandReference> MotionHands = new(); private static ulong _motionHandRevision; '
+        'private static readonly Dictionary<Transform, TownServiceToken> MotionReturns = new(); '
+
         'internal static void Clear() { MotionHands.Clear(); VRHands.Left = VRHands.Right = null; }\n'
+        + method(motion, 'internal static void RegisterMotionReturn(Transform source, TownServiceToken token)') + '\n'
         + method(motion, 'internal static void RegisterMotionHand(Transform source, VRHand? hand, bool followsRotation = true)') + '\n'
         + method(motion, 'private static VRHand? MotionHand(Transform source, out bool followsRotation)').replace('private static VRHand?', 'internal static VRHand?', 1) + '\n} }\n')
+    bound['ReturnMotion.cs'] = (base / 'Net/TownServices/TownServiceReturnMotion.cs').read_text()
+    hashes['Net/TownServices/TownServiceReturnMotion.cs'] = hashlib.sha256(bound['ReturnMotion.cs'].encode()).hexdigest()
     hashes['Net/TownServices/TownServiceMirror.Motion.cs'] = hashlib.sha256(motion.encode()).hexdigest()
     sync = (base / 'WorldUI/TownServices/TownServiceSync.cs').read_text()
     offering = (base / 'WorldUI/TownServices/TownServiceTempleOffering.cs').read_text()
@@ -203,6 +208,9 @@ def mutations():
         ("purse-label-pick", "Token.cs", "if (_uprightProp && _physical != null)\n        {\n            // Only original mesh", "if (false && _physical != null)\n        {\n            // Only original mesh", "purse collider encloses the original body independently of inscriptions"),
         ("purse-double-scale", "Token.cs", "physical.TransformVector(neck)", "physical.TransformDirection(neck)", "original purse neck stays at the tracked pinch through map scales"),
         ("purse-labelled-root-seat", "Token.cs", "- _physical.TransformVector(bottom)", "- Vector3.zero", "accepted original purse bottom meets its actual authored bowl seat"),
+        ("purse-return-linear", "ReturnMotion.cs", "float ease = t * t * (3f - 2f * t);", "float ease = t;", "late observer renders actual owner purse return position at shared age"),
+        ("purse-return-restarts", "ReturnMotion.cs", "float t = Mathf.Clamp01(age / values[1]);", "float t = 0f;", "late observer renders actual owner purse return position at shared age"),
+        ("purse-return-wrong-holder", "ReturnMotion.cs", "holder.TransformPoint(Vector3.Lerp(Position(values, 2), Position(values, 12), ease))", "Vector3.Lerp(Position(values, 2), Position(values, 12), ease)", "late observer renders actual owner purse return position at shared age"),
         ("purse-stale-preview-hand", "PursePresentation.cs", "token.IsHeld ? token.HoldingHand : token.PhysicalAtHome ? previewHand : null", "previewHand", "held labelled purse body inscriptions and tooltip share the actual grabbing hand"),
         ("purse-bowl-preview-hand", "PursePresentation.cs", "token.PhysicalAtHome ? previewHand : null", "previewHand", "bowl deposit clears every labelled purse hand attachment"),
         ("purse-closed-fan-sink", "PursePresentation.cs", "token.IsMoving ? 1f : fanVisibility", "token.IsHeld ? 1f : fanVisibility", "closed fan preserves the pending original bowl purse opacity"),
