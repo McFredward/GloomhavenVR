@@ -1,5 +1,5 @@
-// The standalone codec test compiles the production codec with only its two
-// additive record identifiers. Protocol identity itself is covered by WireTests.
+// The standalone codec test compiles the production codec with its additive
+// record identifiers. Protocol identity itself is covered by WireTests.
 namespace GloomhavenVR.Net
 {
     internal static class NetProtocol
@@ -11,6 +11,7 @@ namespace GloomhavenVR.Net
         internal const byte ExtIdTownCatalogLayout = 94, ExtIdTownVisitorStock = 95, ExtIdTownDonationClock = 93;
         internal const byte ExtIdTownCatalogBank = 102;
         internal const byte ExtIdTownCatalogHeaders = 103;
+        internal const byte ExtIdTownNativeTemplateState = 105;
     }
 }
 
