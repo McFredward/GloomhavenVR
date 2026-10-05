@@ -84,7 +84,7 @@ def main():
              'ClearLocalModules(); ClearVoiceOutgoing(); _nextManifest = 0;',
              "starting a stock hold preserves the other NPC's queued private cue"),
             ('secondary-purse-inscriptions', 'TownServiceMirror.cs',
-             '|| address.StartsWith("temple.row|", StringComparison.Ordinal);', '|| false;',
+             '|| address.StartsWith("temple.row|", StringComparison.Ordinal)', '|| false',
              'secondary visitor retains the original held-purse inscriptions'),
             ('stock-restore-warm-page', 'TownServiceMirror.Stock.cs',
              'shown &= module.Host.GetComponent<CanvasGroup>().alpha > .01f;',
