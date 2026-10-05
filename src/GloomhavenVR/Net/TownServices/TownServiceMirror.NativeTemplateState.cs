@@ -54,7 +54,7 @@ internal static partial class TownServiceMirror
         if (cached != null) cached.Binding.Dispose();
         var binding = new TownServiceBinding(template.transform);
         var basis = new NativeTemplateBasis { Template = template, Generation = Assets.Generation,
-            Structure = binding.Structure, Nodes = binding.Read(Assets), Binding = binding };
+            Structure = binding.Structure, Nodes = binding.Read(Assets, includeInactiveGraphics: true), Binding = binding };
         basis.Key = NativeBasisKey(basis);
         NativeTemplateBases[key] = basis;
         return basis;

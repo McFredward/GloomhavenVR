@@ -142,8 +142,16 @@ internal sealed class TownServiceBinding : IDisposable
         return image != null && image.sprite == null && image.color.a == 0f;
     }
 
-    internal TownServiceNode[] Read(TownServiceAssets assets)
+    private bool _readInactiveGraphics;
+    internal TownServiceNode[] Read(TownServiceAssets assets, bool includeInactiveGraphics = false)
     {
+        // Inert frozen originals stay below an inactive bank. Their serialized
+        // artwork is a reconstruction basis, without enabling native callbacks.
+        if (_readInactiveGraphics != includeInactiveGraphics)
+        {
+            foreach (NodeCache entry in _cache) entry.Dirty = true;
+            _readInactiveGraphics = includeInactiveGraphics;
+        }
         TownServiceNode[] result = _sampled;
         bool checkStructure = false;
         for (int i = 0; i < Nodes.Length; i++)
@@ -157,7 +165,8 @@ internal sealed class TownServiceBinding : IDisposable
             for (int c = 0; c < cache.Components.Length; c++)
                 if (!ReferenceEquals(cache.Components[c], cache.ComponentProbe[c])) throw new InvalidDataException("Native town-service topology changed.");
             bool meshChanged = ReadMesh(cache, assets);
-            bool draw = cache.Graphic != null && cache.Graphic.enabled && node.gameObject.activeInHierarchy;
+            bool draw = cache.Graphic != null && cache.Graphic.enabled
+                && (includeInactiveGraphics || node.gameObject.activeInHierarchy);
             // Establish the font's serialized atlas dependencies before sampling its material.
             // The inverse order loses a complete text/card module on duplicate native wrappers.
             if (draw && cache.Graphic is TMP_Text fontOwner) assets.Key(fontOwner.font);
