@@ -144,3 +144,28 @@ original collection/equality-comparer branches. The real Unity Android SDK passe
 with17 assemblies and these exact roots. Independent original/native-save fixtures
 serialize identical bytes through the original/reflection paths; full headset
 Campaign save/load and cross-platform session admission remain hardware tests.
+
+The complete portable image lane now preserves all31 native Cubemaps and their
+1,272 face/mip levels. Both HDR cubes retain original half-float pixels and
+precomputed roughness levels. Actual Unity imports check all31 cubes,132 HDR
+face/mip GPU readbacks, three Alpha8 font textures and four native RenderTextures.
+Source BC6H decoding and actual GLES import do not establish original D3D/Quest
+pixel parity. All5,159 native Sprites are covered:1,790 packed objects stay
+byte-identical, while3,369 ordinary objects retain native drawing geometry and
+UV streams. Actual complete ordinary-Sprite Editor import validation passes
+after normalizing physical case collisions without changing original keys.
+
+All13 native ComputeShaders and36 kernels are reconstructed from the original
+DXBC instructions, with exact property bindings, native image allocations and
+structured-buffer strides. Actual Android GLES3.1 cooked bytes retain the whole
+kernel/input/output census. Independent host GPU fixtures reproduce the original
+EyeHistogram64-bin weighted counts and Waveform16-byte RGB counter words. These
+fixtures do not certify every original dispatch edge or Quest rendering. The
+production builder additionally decodes the actual signed APK and adjacent
+complete bank, rejecting missing objects or conflicting compiled duplicates.
+
+Current focused Python builder gate passes189 tests in the provisioned private
+Python environment; compute fixtures pass14 and case-path fixtures pass12. Own
+superseded APKs are removed; B622 native symbols are retained with matching build
+ID9a2274f00b636520 before deleting its generated28-GB Library. Final full-player
+compilation, signed APK and Windows hardware package still remain required.
