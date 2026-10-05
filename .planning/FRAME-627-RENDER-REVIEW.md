@@ -80,6 +80,10 @@ Original Windows shader bytecode and headset images do not execute here.
   to require original material-array ownership too.
 - Final native loader restoration follow-up: 11,265 assertions and its corrected
   precise control, `load-restoration-final/run-lfcpll_i`.
+- Final bounded refusal-summary follow-up: 11,266 production assertions,
+  `refusal-report/run-fmo9ckgx`. The only new effect is the existing Debug summary
+  reporting preparation refusals; all required causal controls remain recorded
+  above and are included in the integrator's final complete gate.
 
 Earlier failed fixture runs are retained as evidence, never counted as passed
 controls. The original broad environment scope was stopped after its fixture was
@@ -89,6 +93,9 @@ instancing disabled. This GL backend's automatic-instancing path does not provid
 a stable supplementary-position pixel oracle, so that separate branch checks
 native source references/masks and absence of private commands instead.
 
+The existing one-shot preparation Debug summary now reports the number of
+probe-enabled original candidates refused at chunk preparation. Existing applied
+camera counters still count only surviving source masks, never those refusals.
 Normal logging gains no per-frame diagnostic streams. Optional failures keep
 existing once-per-session fail-open context. Runtime morph/fade curves, asset
 loading and floor/door ownership are source-verified; OpenXR output, live shader

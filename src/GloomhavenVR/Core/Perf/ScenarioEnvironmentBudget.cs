@@ -607,7 +607,7 @@ internal static class ScenarioEnvironmentBudget
             }
             return false;
         }
-        private int _effects = 100, _unreadable, _renderDepth;
+        private int _effects = 100, _unreadable, _probeRefusals, _renderDepth;
         private Shader? _shader;
 
         internal bool IsPreparingPresentation => _pending.Count > 0 || _parts.Count > 0;
@@ -853,7 +853,7 @@ internal static class ScenarioEnvironmentBudget
         private void PrepareBatches()
         {
             _buildPending = false;
-            _parts.Clear(); _unreadable = 0;
+            _parts.Clear(); _unreadable = 0; _probeRefusals = 0;
             _dead.Clear();
             foreach (var pair in _surfaces) if (pair.Value.Renderer == null) _dead.Add(pair.Key);
             foreach (int id in _dead) { InvalidateBatch(id); _surfaces.Remove(id); }
@@ -879,7 +879,8 @@ internal static class ScenarioEnvironmentBudget
                 if (surface.ReadableMesh == null && _meshBankOn && ScenarioEnvironmentMeshBank.TryGetExact(surface.Mesh, out Mesh exact)) surface.ReadableMesh = exact;
                 if (surface.ReadableMesh == null) { _unreadable++; continue; }
                 Material material = renderer.sharedMaterial;
-                if (material == null || !ChunkLightingCompatible(renderer)) continue;
+                if (material == null) continue;
+                if (!ChunkLightingCompatible(renderer)) { _probeRefusals++; continue; }
                 var key = new BatchKey(surface, material);
                 if (!groups.TryGetValue(key, out List<Surface> members)) groups.Add(key, members = new List<Surface>());
                 members.Add(surface);
@@ -1177,7 +1178,7 @@ internal static class ScenarioEnvironmentBudget
             foreach (InstanceBatch batch in _instances) batch.Dispose();
             _instances.Clear(); _instanceBySource.Clear(); _renderCameras.Clear();
             foreach (Batch batch in _batches) batch.Dispose();
-            _batches.Clear(); _batchBySource.Clear(); _parts.Clear(); _renderDepth = 0;
+            _batches.Clear(); _batchBySource.Clear(); _parts.Clear(); _renderDepth = 0; _probeRefusals = 0;
         }
         private void Report()
         {
@@ -1186,7 +1187,8 @@ internal static class ScenarioEnvironmentBudget
             if (!VRLog.Wants(VRLogLevel.Debug)) return;
             VRLog.Debug(Scope, "Scenario environment budget: " + _surfaces.Count + " compatible static surfaces; "
                 + batched + " source renderers / " + _batches.Count + " chunks; " + _unreadable
-                + " unreadable originals retained; " + _materials.Count + " simpler materials; "
+                + " unreadable originals retained; " + _probeRefusals + " probe-enabled originals retained at chunk preparation; "
+                + _materials.Count + " simpler materials; "
                 + (_structuralOn ? "audited structural chunks on; " : "structural chunks off; ")
                 + _instances.Count + " explicit instance groups; " + (_meshBankOn ? "verified private mesh bank on; " : "private mesh bank off; ")
                 + _ambient.Count + " identified ambient solvers; effects " + _effects + "%. Actual FPS remains a hardware measurement.");

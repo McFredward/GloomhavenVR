@@ -60,6 +60,8 @@ public static partial class EnvironmentProgram
         first.lightProbeUsage = second.lightProbeUsage = LightProbeUsage.BlendProbes;
         Configure(true, false, 100); ScenarioEnvironmentBudget.BeforeLoadingComplete();
         Check(room.Chunks().Length == 0, "original per-object probe lighting never enters a combined chunk");
+        Check(VRLog.DebugLines.Exists(line => line.Contains("2 probe-enabled originals retained at chunk preparation")),
+            "bounded preparation diagnostic states actual per-object probe refusals");
         first.lightProbeUsage = second.lightProbeUsage = LightProbeUsage.Off;
         first.reflectionProbeUsage = second.reflectionProbeUsage = ReflectionProbeUsage.BlendProbes;
         ScenarioEnvironmentBudget.Placed(room.Generated); ScenarioEnvironmentBudget.BeforeLoadingComplete();
