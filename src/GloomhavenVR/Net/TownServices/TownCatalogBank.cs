@@ -11,7 +11,9 @@ namespace GloomhavenVR.Net.TownServices;
 /// reuse complete original snapshots; changed snapshots travel inside the same packet.</summary>
 internal sealed class TownCatalogBank
 {
-    internal const int MaxRawUpdateBytes = 512 * 1024;
+    // Actual native ItemCard captures exceed512KiB before price/body modules. Keep
+    // inflation bounded without excluding the measured48-card original aggregate.
+    internal const int MaxRawUpdateBytes = 4 * 1024 * 1024;
     internal const int MaxPackedUpdateBytes = 55 * 1024;
     internal const int MaxPayloadBytes = 14 + 10 * TownRackState.MaxMembers + MaxPackedUpdateBytes;
     private static readonly UTF8Encoding Utf8 = new(false, true);

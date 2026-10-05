@@ -11,7 +11,7 @@ internal static class Program
 
         var t = new Harness();
         if (args.Length > 1 && args[1] == "town-catalog-bank")
-        { TownCatalogBankVectors.Run(t); return t.Report(); }
+        { TownCatalogBankVectors.Run(t); if (args.Length > 2) TownCatalogBankVectors.RunNativeCapture(t, args[2]); return t.Report(); }
         if (args.Length > 1 && args[1] == "town-item-held")
         { TownItemHeldVectors.Run(t); HeldFaceAtomicVectors.Run(t); ExtrasFragmentVectors.Run(t); TownResidentsVectors.Run(t); TownFaceVectors.Run(t); TownActivityVectors.Run(t); SharedWindowMotionVectors.Run(t); return t.Report(); }
         try

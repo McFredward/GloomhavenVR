@@ -303,18 +303,28 @@ internal static class TownCatalogBankVectors
             + " outer=" + packet.Length + "/" + TownServiceFrame.MaxBytes + " originals=" + previous!.CatalogBank!.Updates.Length);
 
         originals.Clear();
-        for (ushort id = 12; id < 142; id++)
+        int completeBytes = 0;
+        for (ushort id = 12; id < 12 + TownRackState.MaxMembers; id++)
         {
             var original = Original(id);
-            original.Nodes[0].Values[TownServiceProperty.Mesh] = new TownServiceValue { Numbers = new float[1024] };
+            original.Nodes[0].Values[TownServiceProperty.TmpText].Text = new[] {
+                new string('A', 16384), new string('B', 16384), new string('C', 16384) };
+            original.RackMember = new TownRackStamp { Rack = 10, Page = 0, Turn = 4 };
             originals.Add(original);
+            completeBytes += 4 + TownServiceCodec.Write(original).Length;
+            if (completeBytes > TownCatalogBank.MaxRawUpdateBytes) break;
         }
         TownServiceFrame rawOverflow = WithUpdates(originals.ToArray());
         t.True(Throws(() => TownServiceCodec.Write(rawOverflow)), "highly compressible originals still obey the raw inflation bound");
-        TownServiceFrame rawNear = WithUpdates(originals.Take(118).ToArray());
+        int nearCount = originals.Count - 1;
+        TownServiceFrame rawNear = WithUpdates(originals.Take(nearCount).ToArray());
         packet = TownServiceCodec.Write(rawNear);
         t.True(TownServiceCodec.TryRead(packet, packet.Length, out var rawReceived)
-            && rawReceived!.CatalogBank!.Updates.Length == 118, "legal near-raw-bound originals remain complete");
+            && rawReceived!.CatalogBank!.Updates.Length == nearCount, "legal near-raw-bound originals remain complete");
+        t.True(completeBytes > TownCatalogBank.MaxRawUpdateBytes && completeBytes < TownCatalogBank.MaxRawUpdateBytes + TownServiceFrame.MaxBytes,
+            "raw-bound fixture crosses the actual declared limit by one complete legal original");
+        Console.WriteLine("catalog-bank synthetic raw bound: nearOriginals=" + nearCount + " overflowBytes=" + completeBytes
+            + "/" + TownCatalogBank.MaxRawUpdateBytes);
     }
 
     private static void FragmentAtomicityAndHeartbeat(Harness t)
@@ -357,6 +367,54 @@ internal static class TownCatalogBankVectors
         t.True(completed != null && TownServiceCodec.TryRead(completed, completed.Length, out var fresh)
             && fresh!.CatalogBank!.Updates.Length == 2, "retained heartbeat recovers both exact original snapshots together");
         if (completed != null) t.Wire(heartbeat, completed, completed.Length, "fresh atomic packet carries unchanged required native content");
+    }
+
+    // Optional hardware-independent artifact from actual loaded ItemCard prefab ->
+    // neutralized inert clone -> production Binding.Read/Codec.Write. The supplied
+    // capture is evidence, not a substitute widget or a guessed original node tree.
+    internal static void RunNativeCapture(Harness t, string packetPath)
+    {
+        t.Case("Actual captured native ItemCard packets survive bounded12/24/36/48-original banks");
+        byte[] sampled = File.ReadAllBytes(packetPath);
+        t.True(TownServiceCodec.TryRead(sampled, sampled.Length, out var native)
+            && native!.PublicCatalog && native.Service == 1 && native.CatalogBank == null && native.BaseSequence == 0,
+            "supplied artifact is a complete production public original capture");
+        if (native == null) return;
+        foreach (int count in new[] { 12, 24, 36, 48 })
+        {
+            var originals = new TownServiceFrame[count];
+            for (int i = 0; i < count; i++)
+            {
+                TownServiceFrame original = TownServiceDelta.Copy(native);
+                original.Module = (ushort)(100 + i); original.Sequence = (ulong)(i + 1);
+                // Preserve every captured original node/template/rendering field.
+                // Distinct source IDs have the native address grammar and same width.
+                original.TemplateAddress = "item." + (62200 + i) + "|";
+                originals[i] = original;
+            }
+            TownServiceFrame root = WithUpdates(originals);
+            root.Session = native.Session; root.PublicClaim = native.PublicClaim;
+            byte[] raw = TownServiceCodec.Write(root);
+            bool admitted = TownServiceCodec.TryRead(raw, raw.Length, out var bank);
+            t.True(admitted && bank!.CatalogBank!.Updates.Length == count,
+                "all captured original faces admit together: " + count);
+            if (!admitted) continue;
+            int completeBytes = 0;
+            for (int i = 0; i < count; i++)
+            {
+                t.Equal(native.Template, bank!.CatalogBank!.Updates[i].Template, "actual native template identity remains original");
+                t.Equal(native.Structure, bank.CatalogBank.Updates[i].Structure, "actual native binding structure remains original");
+                byte[] original = TownServiceCodec.Write(originals[i]), received = TownServiceCodec.Write(bank.CatalogBank.Updates[i]);
+                completeBytes += 4 + original.Length;
+                t.Wire(original, received, received.Length, "every actual original node/property/material/text survives byte-for-byte");
+            }
+            byte[] payload = root.CatalogBank!.Write(root);
+            int updatesAt = 4 + count * 10;
+            Console.WriteLine("catalog-bank actual captured ItemCard lower bound: originals=" + count
+                + " nodesPerOriginal=" + native.Nodes.Length + " raw=" + completeBytes + "/" + TownCatalogBank.MaxRawUpdateBytes
+                + " packed=" + BitConverter.ToUInt32(payload, updatesAt + 6) + "/" + TownCatalogBank.MaxPackedUpdateBytes
+                + " outer=" + raw.Length + "/" + TownServiceFrame.MaxBytes + " price/body/holderExcluded=true");
+        }
     }
 
     private static TownServiceFrame Root() => new()
