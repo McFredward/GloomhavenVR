@@ -19,6 +19,7 @@ import shutil
 from manifest import ValidationError, sha256
 import integer_bits
 import load_bounds
+import instance_nan
 
 
 @functools.lru_cache(maxsize=1)
@@ -300,7 +301,7 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
     _program_features.cache_clear()
     _native_light_field.cache_clear()
     recovery_module.cache_clear()
-    generator_paths = (Path(__file__), Path(integer_bits.__file__), Path(load_bounds.__file__),
+    generator_paths = (Path(__file__), Path(integer_bits.__file__), Path(load_bounds.__file__), Path(instance_nan.__file__),
                        Path(__file__).resolve().parents[1] / 'quest-builder/full_shaders.py')
     generator_hashes = {path.name: sha256(path) for path in generator_paths}
     project, cache, output = Path(project).resolve(), Path(cache).resolve(), Path(output).resolve()
@@ -338,6 +339,7 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
                                             input_signature, output_signature, graphics_api=graphics_api)
             wrapped, load_proofs = load_bounds.restore(wrapped)
             wrapped, integer_proof = integer_bits.restore(wrapped)
+            wrapped, instance_read_proofs = instance_nan.restore(wrapped, json.loads((cache / "interfaces" / (key[1] + ".json")).read_text()))
             path = Path('Assets/QuestOriginalCampaign/ShaderPrograms') / (key[0] + '-' + key[1] + '.hlsl')
             target = output / path
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -348,7 +350,8 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
                                    'outputInterfaceAdapters': row.get('outputInterfaceAdapters', []),
                                    'samplingInterfaceAdapters': sampling_adapters,
                                    'originalInputSignature': input_signature, 'originalOutputSignature': output_signature,
-                                   'integerCarrierProof': integer_proof, 'textureLoadProofs': load_proofs}
+                                   'integerCarrierProof': integer_proof, 'textureLoadProofs': load_proofs,
+                                   'nativeNaNInstanceReadProofs': instance_read_proofs}
     shaders = []
     for shader in inventory['shaders']:
         form = json.loads((cache / 'forms' / (shader['originalParsedFormSha256'] + '.json')).read_text())

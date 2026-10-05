@@ -362,3 +362,26 @@ native Vulkan banks/144stages and five original material consumers. Twelve real
 negative controls rejected arbitrary source hashes, reassigned GUIDs, wrong
 source roles and missing receipts. Evidence lives in the asset worker's private
 `preserved-ui-vulkan-v1/unity-vulkan-corrected.log` and `ProbeOutput/results.json`.
+
+The native alias sweep caught an FXC internal abort in the instanced
+`Amp_Low/Amp_CharShader_Low` fragment. The original fragment DXBC is
+`2732a0dd6ccc6376f06d46a97d5635234edd512f36b3767105b74aabdbd8ef8c`,
+interface `1f8658c98da87ec209557e2dfc9bea08333d31ef0525b824309b10150b6442be`.
+The failing read is the original `_InvisibilityControl` field at byte offset92
+in `UnityInstancing_Amp_CharShader_Low`, inside an `isnan`/min/max statement.
+Capturing that exact readonly floating field into a local before the predicate
+makes the same original Vulkan alias compile. The CB index expression, its
+integer overflow/division, field identity, original float consumers and NaN
+rules remain unchanged. Constant-index and instrumentation-removal experiments
+were diagnostic only and were discarded.
+
+`instance_nan.py` applies this transformation only to actual original instance
+fields inside real NaN operands. It rejects unaudited field types and repeated
+loop/header evaluations. Each adapted source records its exact original buffer,
+structure, field, byte offset and index expression. The generator hashes the
+helper with the other source-producing modules, preventing stale output reuse.
+An actual complete producer execution emitted all688physical shaders,
+11,656bound includes and exactly51,564original Vulkan aliases;120typed native
+read sites qualified. The formerly failing alias passed the real Unity Vulkan
+gate. Its complete Campaign/shard census and affected-material pixel evidence
+remain separate ongoing checks.
