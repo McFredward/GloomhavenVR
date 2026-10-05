@@ -619,7 +619,8 @@ class InstallerTests(unittest.TestCase):
                 installer.adb_path(self.root / "missing-adb.exe")
 
     def test_builder_import_preserves_preexisting_profile_storage_and_startup_modules(self):
-        names = ("profile", "storage", "script_order", "startup", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets")
+        names = ("profile", "storage", "script_order", "startup", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets",
+                 "build_provenance", "_ghvr_wireless_build_provenance")
         previous = {name: types.ModuleType("existing_" + name) for name in names}
         profile, storage, startup = (previous[name] for name in ("profile", "storage", "startup"))
         with mock.patch.dict(sys.modules, previous):
@@ -630,17 +631,88 @@ class InstallerTests(unittest.TestCase):
             self.assertIs(sys.modules["startup"], startup)
             self.assertIsNot(module.startup, startup)
             self.assertIs(module.startup.BuildError, module.BuildError)
+            self.assertTrue(callable(module.build_provenance.capture))
+            self.assertIs(module.build_provenance.BuildError, module.BuildError)
+            self.assertIsNot(module.build_provenance, previous["build_provenance"])
             for name, value in previous.items(): self.assertIs(sys.modules[name], value)
 
     def test_builder_import_does_not_leave_new_global_dependency_aliases(self):
         with mock.patch.dict(sys.modules):
-            names = ("profile", "storage", "script_order", "startup", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets")
+            names = ("profile", "storage", "script_order", "startup", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets",
+                     "build_provenance", "_ghvr_wireless_build_provenance")
             for name in names:
                 sys.modules.pop(name, None)
             module = installer.builder_module()
             self.assertTrue(callable(module.startup.inspect_project))
             self.assertIs(module.startup.BuildError, module.BuildError)
+            self.assertTrue(callable(module.build_provenance.capture))
+            self.assertIs(module.build_provenance.BuildError, module.BuildError)
             self.assertTrue(all(name not in sys.modules for name in names))
+
+    def test_builder_import_loads_provenance_in_fresh_isolated_process(self):
+        script = """
+from pathlib import Path
+import sys
+import types
+sys.path.insert(0, sys.argv[1])
+import installer
+names = ("profile", "storage", "script_order", "media", "shaders", "dlcs", "audio",
+         "sprites", "ui_assets", "full_assets", "campaign", "mod_assets", "build_provenance", "startup")
+aliases = names + tuple("_ghvr_wireless_" + name for name in (*names, "builder"))
+assert all(name not in sys.modules for name in aliases), "test dependencies already loaded"
+if sys.argv[2] == "preexisting":
+    for name in aliases:
+        sys.modules[name] = types.ModuleType("sentinel_" + name)
+missing = object()
+previous = {name: sys.modules.get(name, missing) for name in aliases}
+paths = list(sys.path)
+module = installer.builder_module()
+assert callable(module.verified_latest_build)
+assert callable(module.build_provenance.capture)
+assert Path(module.build_provenance.__file__) == installer.REPO / "tools/quest-builder/build_provenance.py"
+assert module.build_provenance.BuildError is module.BuildError
+assert module.build_provenance.record_file is module.record_file
+assert module.startup.BuildError is module.BuildError
+assert sys.path == paths, "builder loader changed import search paths"
+for name, value in previous.items():
+    assert sys.modules.get(name, missing) is value, "dependency alias was not restored: " + name
+print("isolated builder provenance and module restoration passed")
+"""
+        for state in ("absent", "preexisting"):
+            with self.subTest(state=state):
+                result = subprocess.run(
+                    [sys.executable, "-I", "-B", "-c", script, str(ROOT / "tools/quest-installer"), state],
+                    cwd=self.root, text=True, capture_output=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("isolated builder provenance and module restoration passed", result.stdout)
+
+    def test_builder_provenance_import_failure_restores_dependency_modules(self):
+        repo = self.root / "isolated provenance repo"
+        tools = repo / "tools/quest-builder"
+        tools.mkdir(parents=True)
+        (tools / "profile.py").write_text("PROFILE_FIXTURE = True\n")
+        (tools / "storage.py").write_text("class BuildError(RuntimeError): pass\n")
+        (tools / "build_provenance.py").write_text(
+            "from storage import BuildError\nraise BuildError('fixture provenance rejected')\n")
+        for name in ("startup", "builder"):
+            (tools / (name + ".py")).write_text("raise AssertionError('later dependency must not execute')\n")
+        names = ("profile", "storage", "build_provenance", "startup", "builder")
+        aliases = tuple(name for name in names if name != "builder") + tuple("_ghvr_wireless_" + name for name in names)
+        for state in ("absent", "preexisting"):
+            with self.subTest(state=state), mock.patch.object(installer, "REPO", repo), mock.patch.dict(sys.modules):
+                previous = {}
+                for name in aliases:
+                    if state == "preexisting":
+                        previous[name] = sys.modules[name] = types.ModuleType("sentinel_" + name)
+                    else:
+                        sys.modules.pop(name, None)
+                with self.assertRaisesRegex(RuntimeError, "fixture provenance rejected"):
+                    installer.builder_module()
+                for name in aliases:
+                    if state == "preexisting":
+                        self.assertIs(sys.modules[name], previous[name])
+                    else:
+                        self.assertNotIn(name, sys.modules)
 
     def test_builder_startup_import_failure_restores_preexisting_dependency_modules(self):
         repo = self.root / "isolated builder repo"
