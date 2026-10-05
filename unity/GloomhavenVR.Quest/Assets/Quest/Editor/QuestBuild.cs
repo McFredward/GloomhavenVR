@@ -49,6 +49,66 @@ namespace GloomhavenVR.Quest.Editor
             if (string.IsNullOrWhiteSpace(value)) throw new InvalidOperationException("Missing build input " + key);
             return value;
         }
+#if GHVR_QUEST_GAME
+        [Serializable] public sealed class CampaignMemorySample
+        {
+            public string stage;
+            public long managedBytes, monoUsedBytes, unityAllocatedBytes, unityReservedBytes, workingSetBytes;
+            public bool processMemoryObserved;
+        }
+        [Serializable] public sealed class CampaignMemoryReceipt
+        {
+            public int schema = 1;
+            public string inputKey, unityVersion;
+            public CampaignMemorySample[] samples;
+            public bool unreachableManagedMemoryCollected, unusedImportedAssetsUnloadRequested;
+            public bool playerBuildCompleted, headsetPictureVerified;
+        }
+        public const string CampaignMemoryReceiptPath = "QuestCampaignEvidence/player-build-memory.json";
+
+        public static void ReleaseCampaignBuildMemory(string inputKey)
+        {
+            // f392 completed the entire native bank, then the host OOM killer
+            // terminated Unity during Player scene assembly (13GB anonymous
+            // RSS). SBP's completed contexts and typed-validation temporaries
+            // are no longer needed at this boundary. Release only unreachable
+            // managed objects and unused imported assets; keep the saved startup
+            // scene, live references, settings and all actual content intact.
+            // This does not guarantee an RSS reduction or cure Player peak RAM.
+            var before = SampleCampaignMemory("before-player-memory-release");
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            EditorUtility.UnloadUnusedAssetsImmediate();
+            GC.Collect();
+            var after = SampleCampaignMemory("after-player-memory-release");
+            Directory.CreateDirectory(Path.GetDirectoryName(CampaignMemoryReceiptPath));
+            File.WriteAllText(CampaignMemoryReceiptPath, JsonUtility.ToJson(new CampaignMemoryReceipt {
+                inputKey = inputKey, unityVersion = Application.unityVersion,
+                samples = new[] { before, after }, unreachableManagedMemoryCollected = true,
+                unusedImportedAssetsUnloadRequested = true
+            }, true) + "\n");
+            Debug.Log("[Quest Campaign build] memory handoff managed=" + before.managedBytes + "->" + after.managedBytes +
+                " nativeAllocated=" + before.unityAllocatedBytes + "->" + after.unityAllocatedBytes +
+                " workingSet=" + before.workingSetBytes + "->" + after.workingSetBytes +
+                "; actual Player peak remains measured by the host.");
+        }
+        static CampaignMemorySample SampleCampaignMemory(string stage)
+        {
+            var sample = new CampaignMemorySample {
+                stage = stage, managedBytes = GC.GetTotalMemory(false),
+                monoUsedBytes = UnityEngine.Profiling.Profiler.GetMonoUsedSizeLong(),
+                unityAllocatedBytes = UnityEngine.Profiling.Profiler.GetTotalAllocatedMemoryLong(),
+                unityReservedBytes = UnityEngine.Profiling.Profiler.GetTotalReservedMemoryLong()
+            };
+            try
+            {
+                using (var process = System.Diagnostics.Process.GetCurrentProcess())
+                { sample.workingSetBytes = process.WorkingSet64; sample.processMemoryObserved = true; }
+            }
+            catch (Exception) { sample.workingSetBytes = -1; }
+            return sample;
+        }
+#endif
         public static void Build()
         {
             using (new AndroidToolsOverride()) BuildPlayer();
@@ -103,11 +163,16 @@ namespace GloomhavenVR.Quest.Editor
 #if GHVR_QUEST_GAME
             using (target == "game" ? new QuestCampaignContentBuild(apk, manifest.inputKey) : null)
 #endif
-            report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {
-                scenes = scenes, locationPathName = apk,
-                target = BuildTarget.Android, options = BuildOptions.Development
-            });
+#if GHVR_QUEST_GAME
+                if (target == "game") ReleaseCampaignBuildMemory(manifest.inputKey);
+#endif
+                report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+                {
+                    scenes = scenes, locationPathName = apk,
+                    target = BuildTarget.Android, options = BuildOptions.Development
+                });
+            }
 #if GHVR_QUEST_GAME
             if (target == "game" && report.summary.result == BuildResult.Succeeded)
                 QuestCampaignComputeValidation.Validate();
