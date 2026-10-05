@@ -1,5 +1,30 @@
 # State — where the project stands
 
+**Build624 integration complete, 2026-10-05: 1.1.0.**
+
+First-save converted merchant onboarding now completes its exact native BuyItem
+promise after a genuine close, including purchase followed by release of an
+already-native-hidden VR shop. Explicit X/second Merchant intent is separate
+from map-surface switching. The original EN/DE hint names those real controls.
+Immersive residents still skip only the obsolete flat merchant navigation
+steps through native progression; delayed hides, option changes, late shop
+initialization and converted 2D are covered. No save flags are written directly.
+
+The complete local attempt recorded 137 scopes: 136 direct passes and one
+retained mirror fixture failure resolved through a focused continuation.
+Successful unrelated scopes were not repeated. All 14 source gates, 308061
+golden assertions, strict Release (zero warnings/errors), document, bundle and
+surface checks pass. All 2806 runtime/asset inputs remain unchanged after the
+fixture-only continuation. The actual Build623-to-624 compiled comparison
+explains seven added and fourteen changed types, with no removals.
+
+No new headset log was supplied for this report. See
+[ONBOARDING-624-REVIEW.md](ONBOARDING-624-REVIEW.md) for the source causes,
+continuation boundaries and fresh-save hardware checks. Original validation
+reports remain in `.planning/debug/onboarding624/validation-ledger.json`.
+
+---
+
 **Build623 integration complete, 2026-10-05: 1.1.0.**
 
 Both supplied multiplayer peers are Build622. The maintainer confirms that the
