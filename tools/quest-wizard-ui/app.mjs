@@ -122,8 +122,9 @@ async function loadArtwork(artwork) {
       if(!response.ok||Number(response.headers.get('Content-Length'))>8*1024*1024||response.headers.get('Content-Type')!=='image/png')continue;
       const blob=await response.blob();if(blob.size>8*1024*1024)continue;
       const blobUrl=URL.createObjectURL(blob);newUrls.push(blobUrl);
-      const card=document.createElement('div');card.className='art-card';const image=document.createElement('img');image.src=blobUrl;image.alt=t('ownedArtwork');
-      const caption=document.createElement('span');caption.dataset.i18n='ownedArtwork';caption.textContent=t('ownedArtwork');card.append(image,caption);cards.push(card);
+      const card=document.createElement('div');card.className='art-card';const image=document.createElement('img');image.alt=t('ownedArtwork');
+      image.addEventListener('load',()=>card.classList.toggle('landscape',image.naturalWidth/image.naturalHeight>=1.45),{once:true});
+      image.src=blobUrl;card.append(image);cards.push(card);
     }catch{ /* Optional artwork never blocks a genuine build state. */ }
   }
   if(generation!==artworkGeneration){newUrls.forEach(url=>URL.revokeObjectURL(url));return;}

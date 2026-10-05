@@ -61,8 +61,13 @@ test('actual loopback HTTP browser: module/CSP/token flow, plan, reopen, safe lo
       const pixels=await client.evaluate("(async()=>{const state=await(await fetch('/api/status?session="+session+"',{headers:{'X-Quest-Token':location.hash.slice(1)}})).json();const rows=[];for(const image of state.state.artwork){const r=await fetch(image.url,{headers:{'X-Quest-Token':location.hash.slice(1)}});const bytes=await r.arrayBuffer();rows.push({id:image.id,status:r.status,type:r.headers.get('Content-Type'),sha256:[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(value=>value.toString(16).padStart(2,'0')).join('')});}return rows})()");
       assert.deepEqual(pixels.map(row=>row.sha256),ownedArt.sha256);
       assert.ok(pixels.every(row=>row.status===200&&row.type==='image/png'));
+      const images=await client.evaluate("[...document.querySelectorAll('#gallery img')].map(image=>({ratio:image.naturalWidth/image.naturalHeight,fit:getComputedStyle(image).objectFit,caption:image.parentElement.querySelector('span')!==null}))");
+      assert.ok(images.filter(image=>image.ratio>=1.45).length>=2);
+      assert.ok(images.filter(image=>image.ratio>=1.45).every(image=>image.fit==='contain'),'landscape titles remain fully visible');
+      assert.ok(images.every(image=>image.caption===false),'no repeated caption covers original artwork');
       await client.evaluate("document.querySelector('[data-language=en]').click()");
-      assert.ok((await client.evaluate("[...document.querySelectorAll('#gallery img+span')].map(node=>node.textContent)")).every(value=>value==='Artwork from your local game copy'));
+      assert.ok((await client.evaluate("[...document.querySelectorAll('#gallery img')].map(node=>node.alt)")).every(value=>value==='Artwork from your local game copy'));
+      assert.equal(await client.evaluate("document.getElementById('gallery-note').textContent"),'Artwork from your local game copy');
       await client.evaluate("document.querySelector('[data-language=de]').click()");
     }
     await client.evaluate("document.querySelector('#progress-page details').open=true;document.getElementById('load-log').click()");
