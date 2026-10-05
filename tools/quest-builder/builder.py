@@ -501,6 +501,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
                                   project / "Assets/QuestOriginalCampaign/campaign-computes.json",
                                   project / "Assets/QuestOriginalCampaign/native-platform-images.json",
                                   project / "Assets/QuestOriginalCampaign/native-texture2d.json",
+                                  project / "Assets/QuestOriginalCampaign/native-texture-references.json",
                                   project / "Assets/QuestOriginalCampaign/ordinary-texture2d-audit.json"])
                 native = json.loads((project / "QuestCampaignEvidence/native-runtime.json").read_text())
                 contracts.extend(project / row["path"] for row in native["nativeFiles"])

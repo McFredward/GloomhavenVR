@@ -168,8 +168,11 @@ The complete ordinary Texture2D audit covers14,862 PNG exports. Thirty-three
 float/HDR originals require native reconstruction instead of an8-bit PNG: eight
 RGBAHalf animation textures and25 BC6H skies retain their original half-float
 sampling and complete mip chains. All294 actual GPU mip readbacks match restored
-pixel bytes. The consuming material PPtr type remains a separate integration
-gate; successful standalone import alone does not certify those references.
+pixel bytes. The consuming material PPtr type was a separate integration defect:
+the retained imported-image type3 reference did not resolve a native type2 target.
+Exact GUID/fileID-targeted repair changes69 real references in65 original
+materials, and actual Unity import resolves every reference to its original
+texture identity. Scalar strings and immutable original object hashes stay intact.
 
 The full Quest player follows the current mod's public MultiPass stereo contract.
 Its existing per-eye camera callbacks and authored Shader banks therefore use
