@@ -43,7 +43,7 @@ Queued `Graphics.DrawMeshInstanced` would survive a later native pre-cull write;
 clearing/removing a command buffer can revoke the obsolete draw before restoring
 originals. This is deliberately conservative: forward cameras without native
 command-buffer consumers, depth-texture consumers, lightmaps, LOD groups, MPBs,
-shadow casting/receiving, local probes, negative transforms, or unsupported render
+shadow casting/receiving, local probes, overlapping group bounds, negative transforms, or unsupported render
 flags are eligible. All other paths retain originals. Imported shaders must
 already advertise native instancing, or use the known instanced simple shader.
 
@@ -83,6 +83,11 @@ means the exact tier remains available. Across admitted generated reductions:
 50 tiers retain 459,403 of 930,807 original triangles; strongest tiers retain
 228,897 of 951,106. These are asset counts, not measured scene/FPS savings.
 
+For terrain's final 15-name wall/pillar allowlist, 12 verified asset definitions are
+available: 9,116 original triangles, 3,486 at tier50 and 1,186 at the strongest tier.
+The three absent thin-wall identities remain native. These totals count model
+definitions once each, not instances in the tested scenario.
+
 Generation:
 
 ```bash
@@ -103,6 +108,14 @@ consumers. `HasNativeCommandBufferConsumers(Camera)` is the shared conservative
 consumer query; pass it to terrain/idle so a known mod buffer does not veto their
 unrelated presentation.
 
+Configure `ConfigureAssetPreparation(Func<bool>)` with the shared loader and load
+`ghvr-environment.bundle` before optional scenario preparation. `IsReady` warms
+the index and `IsUnavailable` reports corrupt-index/loader-exception terminal
+states. The parent loader additionally reports terminal missing-file failure;
+terrain discovery must settle to native originals rather than remain preparing
+forever. `ConfigureBeforeNativeContentChange(Action)` releases the idle lane's
+independent masks in addition to terrain and environment before source cloning.
+
 Load `ghvr-environment.bundle` before optional scenario preparation. It contains
 `Assets/Bundle/EnvironmentMeshes/index.json`, the generated `.bytes` TextAssets,
 and the terrain lane's cheap shader. The runtime looks up those exact asset paths
@@ -117,12 +130,25 @@ cloning and cancellable instanced command buffers. Original native geometry is
 extracted losslessly from read-only bundles. The fixture's native scene classes,
 configuration, material shader artwork and controllers are explicit surrogates.
 
-The Linux editor rejected freshly generated standalone TextAsset banks although
-their wrapper/editor versions were correct. Retained failed receipts establish
-that this host cannot prove the game's Windows standalone loading path. Only
-asset lookup is therefore bound to actual imported Unity TextAssets; Application's
-StreamingAssets location is bound to the original read-only game directory. The
-rest of the production bank executes unchanged. Packaging/load proof in the
-Windows game, original material lighting, HMD images, Frame FPS, and multiplayer
-headroom remain hardware-open. Counts and final focused evidence follow in the
-worker's delivery message and gitignored validation ledger.
+Two freshly generated fixture banks using `ChunkBasedCompression` failed their
+immediate load with "not compatible with this newer version" despite format7,
+Unity2021.3.5f1 and serialized format22 (Linux and Windows targets). Those retained
+receipts do not establish a general Linux/Windows incompatibility. The integrator
+independently built the actual `ghvr-environment.bundle` using the exact editor,
+Windows target and `BuildAssetBundleOptions.None`; an empty exact Unity Linux
+editor loaded all 3,170 geometry TextAssets, the index and cheap shader. That
+separate production package/load receipt is in the integrator's
+`.planning/debug/frame-packaged-environment-load/load.log`.
+
+This behavioral fixture still binds only asset lookup to actual imported Unity
+TextAssets and Application's StreamingAssets location to the original read-only
+game directory; all other production bank code executes unchanged. Original
+native material lighting, HMD images, Frame FPS and multiplayer headroom remain
+hardware-open. Counts and final focused evidence follow in the
+worker's delivery message and gitignored validation ledger. The complete focused
+suite passed **11,226 production assertions plus all 52 causal negative controls**
+(53 variants total). It proves real clone-only pixels between cameras, inside
+pre-cull and after nested-camera source restitution, and same-frame original
+fallback after newly overlapping instance bounds. The strict Release build passed
+with zero warnings/errors. The structural-instancing suite and four focused
+source checks also passed; the integrator still owns the complete final-tree gate.

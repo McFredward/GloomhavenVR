@@ -6,7 +6,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 
-public static class EnvironmentProgram
+public static partial class EnvironmentProgram
 {
     private static int count;
     private static int materialReads;
@@ -72,6 +72,7 @@ public static class EnvironmentProgram
             VRLog.Faults.Clear();
             VRLog.DebugLines.Clear(); VRLog.DebugEnabled = true; PerfMonitor.ThrowDrawTrace = false;
             Configure(false, false, 100);
+            PerfConfig.SharedEnvironmentMaterialReadsOn = true; PerfConfig.EnvironmentMeshBankOn = false; PerfConfig.EnvironmentDrawInstancingOn = false;
             ScenarioEnvironmentBudget.ConfigureStructuralBatching(() => false);
             Root = new GameObject("RuntimeFixture.Scenario"); Root.AddComponent<ProceduralScenario>();
             var tile = Child("RuntimeFixture.Tile", Root.transform); Tile = tile.AddComponent<ProceduralMapTile>();
@@ -1024,7 +1025,7 @@ public static class EnvironmentProgram
         {
             PresentationPreparationVisibility(); ScopeAndMaterials(); AmbientScopes(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault(); StructuralChunks(); NativeWallChannelsAndRenderedClock();
             int sharedStart = count;
-            SharedOriginalMaterialValidation();
+            SharedOriginalMaterialValidation(); SharedReadOptionToggle(); VerifiedEnvironmentBank(); UnreadableExactChunks(); ExplicitCameraInstances(); MultipleSubmeshInstances(); RevealedClonePixels();
             Debug.Log("Shared-material validation assertions=" + (count - sharedStart));
             NativeHighHistoricalDelivery();
             NativeHighHistoricalDelivery(toggleNative:true);

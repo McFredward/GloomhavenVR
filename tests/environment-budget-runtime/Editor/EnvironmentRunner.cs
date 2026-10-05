@@ -39,6 +39,8 @@ public static class EnvironmentRunner
                 try
                 {
                     var assembly = Assembly.LoadFile(entry.dll);
+                    assembly.GetType("GloomhavenVR.Core.BankFixtureAssets").GetField("Provider",BindingFlags.Static|BindingFlags.NonPublic)
+                        .SetValue(null,new Func<string,TextAsset>(path => AssetDatabase.LoadAssetAtPath<TextAsset>(path)));
                     int count = (int)assembly.GetType("EnvironmentProgram").GetMethod("Run").Invoke(null,null);
                     if (!String.IsNullOrEmpty(entry.expected)) throw new Exception("negative control escaped: " + entry.name);
                     output.WriteLine("PASS " + entry.name + ": " + count + " runtime assertions");

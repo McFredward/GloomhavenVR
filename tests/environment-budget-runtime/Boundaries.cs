@@ -11,6 +11,7 @@ namespace HarmonyLib
 
 public class ProceduralBase : MonoBehaviour { public void NotifyContentPlacementComplete() { } }
 public sealed class ProceduralMapTile : ProceduralBase { public void ShowContent(GameObject o) { } }
+public sealed class ApparanceEntity { public static GameObject CreateInstance(GameObject template, Vector3 position, Vector3 scale, Quaternion rotation, Transform parent) => UnityEngine.Object.Instantiate(template, parent); }
 public sealed class ProceduralScenario : ProceduralBase { }
 public sealed class ProceduralProp : MonoBehaviour { }
 public sealed class ProceduralDoorway : MonoBehaviour { }
@@ -40,9 +41,12 @@ namespace GloomhavenVR.Core
         internal static bool IsRunning;
         internal static readonly HarmonyLib.Harmony Harmony = new HarmonyLib.Harmony();
     }
+    internal static class BankFixtureAssets { internal static Func<string, TextAsset?> Provider = _ => null; internal static TextAsset? Resolve(string path) => Provider(path); }
+    internal static class BankFixturePaths { internal static string streamingAssetsPath => Environment.GetEnvironmentVariable("GHVR_ENVIRONMENT_STREAMING_ASSETS")!; }
     internal static class PerfConfig
     {
         internal static bool StaticScenarioBatchesOn, SimpleEnvironmentShadingOn;
+        internal static bool SharedEnvironmentMaterialReadsOn = true, EnvironmentMeshBankOn = false, EnvironmentDrawInstancingOn = false;
         internal static int EnvironmentEffectsDensityPercent = 100;
     }
     internal static class VRLog

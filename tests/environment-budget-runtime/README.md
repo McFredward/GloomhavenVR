@@ -2,8 +2,10 @@
 
 `python3 scripts/check-environment-budget-runtime.py` reads the current production
 driver and simplified environment shader from `--source-root` on every invocation.
-It compiles the complete driver, imports the actual shader and runs both in Unity
-2021.3.5 with a graphics context. No game assets are copied. Native scene classes,
+It compiles the complete driver and private mesh-bank decoder, imports the actual
+shader and runs them in Unity 2021.3.5 with a graphics context. Selected read-only
+original geometry exports are imported as fixture TextAssets; the original game
+bundles remain untouched. Native scene classes,
 Harmony registration, settings, registry collection and logging are explicit
 boundaries; all meshes, materials, particle solvers, transforms, cloning, rendering
 callbacks, renderer flags and pixels are actual Unity objects or operations.
@@ -26,6 +28,21 @@ The generated scene covers:
   remain independent. Only a read-entry counter is added to the complete production
   compatibility method. Warmed storage is reused and verdict references clear after
   each invocation; allocation claims additionally require a calibrated live counter.
+- The independent shared-read option returns to 48 complete material validations
+  when Off, then back to two when On. Verified private meshes preserve actual native
+  positions, normals, UVs, indices and bounds. Unknown metadata, stale bounds,
+  corrupted private streams and mismatched original/prepared SHA256 reject a substitute.
+- Actual unreadable original floor meshes create exact private chunks. The bank option
+  Off restores original rendering; the new path never changes native shared meshes,
+  native material slots or static-batch metadata.
+- Real bounded explicit instance commands preserve pixels and multiple material
+  submeshes. Independent option Off, lightmaps, motion flags and newly active wall
+  channels restore originals. A native renderer write after actual pre-cull submission
+  clears and detaches queued commands before releasing native source masks.
+- Nested cameras keep separate revocable command buffers. The consumer query compares
+  exact native buffer identities because Unity returns new managed wrappers. Original
+  source cloning during rendering and after interrupted rendering runs the production
+  Apparance prefix and retains the original nonempty mesh/material slots and draw flags.
 - Native floor pixels before/after combining, same-render fallback after visibility,
   mesh, transform, material array, property block and common render-flag changes.
 - Render-only leases, real balanced and nested camera callback execution, original
@@ -43,7 +60,7 @@ The generated scene covers:
   resolver failure executes the production API guard and confirms native continuation
   survives while optional preparation stops and reports its fault once.
 
-Negative controls mutate actual production source and must compile successfully
+Fifty-two negative controls mutate actual production source and must compile successfully
 before failing the intended runtime assertion. The source SHA-256, generated source,
 case assemblies, manifest and logs remain in the selected output directory. Unity
 import caches and duplicate API references are not retained.
