@@ -61,13 +61,13 @@ public static partial class MirrorProgram
             TownServiceMirror.SetRack(10, new TownRackState { Cassette = true, Crank = 11,
                 Members = sources.Keys.Where(id => id < 30).Select(id => new TownRackMember(id, 0, false)).ToArray() });
         }
-        List<TownServiceFrame> captured = Capture().Select(Decode).ToList();
+        List<TownServiceFrame> captured = CaptureCatalogSource625().ToList();
         // Dormant loss repair now has a CPU slice; execute actual later capture ticks
         // rather than requiring an unbounded all-original serialization in one frame.
         float preparationUntil = Time.unscaledTime + 3f;
         while (captured.Where(f => f.RackMember != null && f.BaseSequence == 0).Select(f => f.Module).Distinct().Count() < 6
             && Time.unscaledTime < preparationUntil)
-        { yield return new WaitForSecondsRealtime(.06f); captured.AddRange(Capture().Select(Decode)); }
+        { yield return new WaitForSecondsRealtime(.06f); captured.AddRange(CaptureCatalogSource625()); }
         var originals = captured.Where(f => f.RackMember != null && f.BaseSequence == 0).GroupBy(f => f.Module).ToDictionary(g => g.Key, g => g.Last());
         Check(originals.Count == 6, "production loading capture genuinely sends dormant original modules before exposure");
         TownServiceFrame initial = captured.Last(f => f.Module == 10);
@@ -91,7 +91,7 @@ public static partial class MirrorProgram
             TownServiceMirror.SetRack(10, new TownRackState { Cassette = true, Crank = 11, Turn = 1, From = 0, To = 1280, Page = 1280, Elapsed = .46f,
                 Members = sources.Keys.Select(id => new TownRackMember(id, (ushort)(id >= 30 ? 1280 : 0), false)).ToArray() });
         }
-        TownServiceFrame next = Capture().Select(Decode).Last(f => f.Module == 10);
+        TownServiceFrame next = CaptureCatalogSource625().Last(f => f.Module == 10);
         TownServiceFrame warm = TownCatalogClock.Create(next, originals);
         Check(warm.CatalogBank!.HeaderBaseKeys.Count(key => key != 0) >= 2
             && warm.CatalogBank.Headers.Count(h => h.Nodes.Any(n => n.Values.ContainsKey(TownServiceProperty.Canvas) || n.Values.ContainsKey(TownServiceProperty.Mesh))) >= 2,
@@ -105,7 +105,7 @@ public static partial class MirrorProgram
         // Sequential process adapter keeps each actual player's private claim
         // counter separate while the real election/capture/receive paths run.
         TownServiceMirror.ClaimPublicCatalog();
-        var visitorPackets = Capture().Select(Decode).ToList();
+        var visitorPackets = CaptureCatalogSource625().ToList();
         TownServiceFrame visitorRoot = visitorPackets.Last(f => f.Module == 10);
         Check(visitorRoot.PublicClaim > next.PublicClaim, "actual visitor claim elects a newer author through production capture");
         identities.Switch(10);
@@ -114,7 +114,7 @@ public static partial class MirrorProgram
         Check(ReceiveWarm(2, TownCatalogClock.Create(visitorRoot, originals)), "genuinely delivered visitor originals enable its repeated warm clock");
         identities.Switch(1);
         TownServiceMirror.ClaimPublicCatalog();
-        TownServiceFrame claim = Capture().Select(Decode).Last(f => f.Module == 10);
+        TownServiceFrame claim = CaptureCatalogSource625().Last(f => f.Module == 10);
         Check(claim.PublicClaim > visitorRoot.PublicClaim, "actual host reclaims after the visitor with a monotonically newer claim");
         identities.Switch(10);
         var reauthorized = TownCatalogClock.Create(claim, originals);
@@ -188,6 +188,31 @@ public static partial class MirrorProgram
         TownServiceMirror.ResetNetwork();
         Check(!ReceiveWarm(4, reauthorized), "network reset also clears dormant original banks without any living remote host");
         yield return null;
+    }
+    // This suite intentionally authors complete fallback/patch mutations. Keep
+    // the actual sampler callback metadata separately from its small prepared
+    // wire clock; decoding that clock cannot reconstruct missing original nodes.
+    // The native-state proof checks the emitted clock and each genuine repair.
+    private static List<TownServiceFrame> CaptureCatalogSource625()
+    {
+        var frames = new List<TownServiceFrame>();
+        Action<byte[], int, object?> send = (bytes, length, identity) =>
+        {
+            Check(bytes.Length == length, "catalog source callback retains the complete immutable packet");
+            Check(TownServiceCodec.TryRead(bytes, length, out TownServiceFrame? decoded), "captured catalog source packet decodes");
+            Check(decoded != null, "decoded catalog source frame exists");
+            if (identity is TownServiceFrame source && source.CatalogBank?.Prepared == true)
+            {
+                Check(decoded!.CatalogBank != null && decoded.CatalogBank.Updates.Length == 0
+                    && decoded.CatalogBank.Headers.Length == source.CatalogBank.Members.Length,
+                    "prepared wire clocks stay sparse while sampler metadata retains exact repair originals");
+                frames.Add(TownServiceDelta.Retain(source));
+            }
+            else frames.Add(decoded!);
+        };
+        typeof(TownServiceMirror).GetMethod("CaptureCore", PrivateStatic)!
+            .Invoke(null, new object[] { send, false });
+        return frames;
     }
     private static bool ReceiveWarm(int peer, TownServiceFrame frame)
     { byte[] packet = TownServiceCodec.Write(frame); return TownServiceMirror.Receive(peer, packet, packet.Length); }

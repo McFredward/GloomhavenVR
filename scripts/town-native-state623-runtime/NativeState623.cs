@@ -204,6 +204,9 @@ public static partial class MirrorProgram
             TownServiceFrame original = NativeFrame623(row, id, 1, "merchant.row|");
             original.Service = 1; original.PublicCatalog = true; original.PublicClaim = root.PublicClaim;
             original.Session = root.Session; original.Sequence = (ulong)(2 + i);
+            original.HasCanvasFrame = true;
+            original.CanvasRect = new[] { 400f, 60f, .5f, .5f };
+            original.CanvasSettings = new[] { 1f, 0f, 0f, 0f, 0f };
             original.RackMember = new TownRackStamp { Rack = root.Module, Turn = root.Rack.Turn };
             originals[i] = original; references[i] = new TownCatalogBankMember(id, TownCatalogBank.ContentKey(original));
             root.Rack.Members[i] = new TownRackMember(id, 0, false);
@@ -214,6 +217,13 @@ public static partial class MirrorProgram
         catch (InvalidDataException error) { packedOverflow = error.Message == "Original catalog updates exceed the packed bank bound."; }
         Check(packedOverflow, "actual captured original catalog exceeds the packed bank envelope");
         var repairs = new List<byte[]>(); byte[] reference;
+        long legacyAllocation = GC.GetAllocatedBytesForCurrentThread();
+        var legacyClock = System.Diagnostics.Stopwatch.StartNew();
+        for (int measure = 0; measure < 4; measure++)
+            try { TownServiceCodec.Write(root); }
+            catch (InvalidDataException error) when (error.Message == "Original catalog updates exceed the packed bank bound.") { }
+        legacyClock.Stop(); legacyAllocation = GC.GetAllocatedBytesForCurrentThread() - legacyAllocation;
+        long clockAllocation = 0; double clockMs = 0;
         using (TownServiceMirror.UsePublicLane())
         {
             TownServiceMirror.BeginSession(1, root.Session, author, rack);
@@ -224,8 +234,22 @@ public static partial class MirrorProgram
                     "actual bank splitter emits complete independently tagged original repairs");
                 repairs.Add(bytes);
             };
-            reference = (byte[])typeof(TownServiceMirror).GetMethod("WriteCatalogPacket", PrivateStatic)!
-                .Invoke(null, new object[] { root, send })!;
+            reference = PreparedCatalogPacket625(root, send);
+            Check(repairs.Count == 0, "prepared catalog publication performs no synchronous original repair work");
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            var measured = System.Diagnostics.Stopwatch.StartNew();
+            for (int measure = 0; measure < 32; measure++)
+                reference = PreparedCatalogPacket625(root, send);
+            measured.Stop(); clockAllocation = GC.GetAllocatedBytesForCurrentThread() - before;
+            clockMs = measured.Elapsed.TotalMilliseconds / 32;
+            Check(legacyAllocation == 0 || clockAllocation / 32 < legacyAllocation / 4 / 4,
+                "prepared page clock allocates less than one quarter of synchronous full native bank encoding");
+            // Publication retains exact original dependencies as metadata. The
+            // transport owns their bounded delivery; exercise their real native
+            // writer independently here before the receiver admission checks.
+            foreach (TownServiceFrame original in root.CatalogBank.Updates)
+                repairs.Add((byte[])typeof(TownServiceMirror).GetMethod("WriteNativeTownFrame", PrivateStatic)!
+                    .Invoke(null, new object[] { original })!);
             TownServiceMirror.EndSession();
         }
         Check(repairs.Count == originals.Length, "oversized native catalog retains every exact original repair");
@@ -253,6 +277,12 @@ public static partial class MirrorProgram
         Receive(2, new[] { repairs[repairs.Count - 1] });
         Check(TownServiceMirror.Receive(2, reference, reference.Length),
             "actual split bank admits immediately after its final exact original repair");
+        TownServiceFrame forged = TownServiceDelta.Retain(clock!);
+        forged.Sequence++;
+        forged.CatalogBank!.Headers[0].CanvasSortingOrder++;
+        byte[] forgedBytes = TownServiceCodec.Write(forged);
+        Check(!TownServiceMirror.Receive(2, forgedBytes, forgedBytes.Length),
+            "cached original key cannot authorize a changed canonical canvas header");
         var pending = (Dictionary<int, Dictionary<ushort, TownServiceFrame>>)typeof(TownServiceMirror)
             .GetField("Pending", PrivateStatic)!.GetValue(null)!;
         Check(pending.TryGetValue(-2, out var full) && full.ContainsKey(root.Module),
@@ -264,10 +294,27 @@ public static partial class MirrorProgram
             AssertNativeEqual623(original, restored!);
         }
         File.WriteAllText(Path.Combine(_output, "native-bank-split623.txt"),
-            "Packed original bank exceeded 56320 B; repairs=" + repairs.Count
+            "Packed original bank exceeded 56320 B; independent repairs=" + repairs.Count
             + "; reference=" + reference.Length + " B; current headers=" + clock!.CatalogBank!.Headers.Length
-            + "; no dependency loss; final repair admits complete original catalog\n");
+            + "; no dependency loss; final repair admits complete original catalog\n"
+            + "Full native bank encoder=" + (legacyClock.Elapsed.TotalMilliseconds / 4).ToString("F3")
+            + " ms and " + (legacyAllocation / 4) + " B/call; prepared original clock="
+            + clockMs.ToString("F3") + " ms and " + (clockAllocation / 32) + " B/call\n");
         yield return null;
+    }
+
+    private static byte[] PreparedCatalogPacket625(TownServiceFrame root, Action<byte[], int, object?> send)
+    {
+        try
+        {
+            return (byte[])typeof(TownServiceMirror).GetMethod("WriteCatalogPacket", PrivateStatic)!
+                .Invoke(null, new object[] { root, send })!;
+        }
+        catch (TargetInvocationException error) when (error.InnerException is InvalidDataException)
+        {
+            Check(false, "prepared page clock excludes synchronous full-bank compression");
+            throw;
+        }
     }
 
     private static void AssertNativeEqual623(TownServiceFrame original, TownServiceFrame reconstructed)
