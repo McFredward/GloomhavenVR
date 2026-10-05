@@ -753,3 +753,19 @@ Gradle packaging. Real sparse-filesystem controls preserve small APKs, non-APK
 files, native inputs and files outside the generated APK directory. The exact
 callback compiles against the pinned Unity Android/Editor SDK. Imports, Library,
 C++ objects, signing data, saves and other Gradle task outputs remain reusable.
+
+The production delivered-graphics gate now verifies all688 exact original Shader
+GUID roots and51,564 native pass/tier/keyword aliases, separately from the native
+SVC projection. It resolves cooked CAB/pathID ownership and samples16 original
+public material bindings. The report explicitly does not claim all9,187 material
+objects or headset pixel parity. All27 focused native-graphics controls and the
+361 affected builder tests pass. The production module also passes the actual
+1,275-alias native fixture and rejects its incomplete original control.
+
+The complete compute postflight of the manually packaged096d candidate rejected
+an additional native backend. Targeted readback shows that EyeHistogram still
+matches its previously witnessed desktop-OpenGL bank, while the1,421,936-byte
+original postprocess bundle contains the other12 compute objects with both
+desktop OpenGL17/11 and Android Vulkan21/0. The Vulkan validator remains unchanged;
+exact additional-bank qualification is being completed before the retained build
+retry. This rejected candidate has not replaced the last accepted hardware APK.
