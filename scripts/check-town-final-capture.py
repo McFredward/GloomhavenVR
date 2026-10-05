@@ -94,6 +94,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-root", type=Path, default=repo)
     parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-final-capture")
+    parser.add_argument("--no-negative-controls", action="store_true", help="Production-only continuation; reuse unchanged controls explicitly, not a complete gate")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
     args = parser.parse_args()
     root = args.source_root.resolve(); args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -120,6 +121,8 @@ def main():
         ("before-panel-order", "ScheduledWorldUI.cs", order + "\n            // Read-only capture follows every visual writer, including native town handoff/Sync\n            // and panel sorting. Capturing in UseBarsSurface.Late sampled their previous frame.\n            " + final, final + "\n            " + order, "capture includes the final canvas sorting state"),
         ("before-grab-tween", "ScheduledWorldUI.cs", tween, final + "\n            " + tween, "capture includes the final drawn grab-bar geometry"),
         ("no-final-publisher", "ScheduledWorldUI.cs", final, "// missing final publication", "registered Late frame captures town exactly once")]
+    if args.no_negative_controls:
+        variants = variants[:1]
     manifest = {"result": str(run / "results.txt"), "evidence": str(run), "suite": "town-final-capture", "cases": []}
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     print(f"Production binding: {root}; evidence: {run}", flush=True)
