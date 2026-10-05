@@ -106,7 +106,7 @@ namespace GloomhavenVR.Net
     internal sealed class FfsNetTransport : INetTransport
     {
         public bool IsOnline { get; set; } = true; public int LocalPlayerId { get; set; } = 1;
-        public event Action<int, byte[], int>? PacketReceived; public void Install() { } public void Uninstall() { }
+        public event Action<int, byte[], int>? PacketReceived; public void Install() { } public void Uninstall() { PacketReceived = null; }
         internal readonly List<byte[]> Packets = new();
         internal int Drains; internal bool SendTownControl(byte[] bytes, int length, bool hostOnly) => true;
         public void Send(byte[] bytes, int length, object? identity = null)
