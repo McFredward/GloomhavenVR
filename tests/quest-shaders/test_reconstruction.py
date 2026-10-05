@@ -226,6 +226,11 @@ if __name__ == '__main__':
     unittest.main()
 
 class VulkanNativeInterface(unittest.TestCase):
+    def test_full_producer_backend_reaches_shaderlab_wrapper(self):
+        import inspect
+        self.assertEqual(inspect.signature(produce.shader_source).parameters['graphics_api'].default, 'Vulkan')
+        self.assertEqual(inspect.signature(produce.restore_project).parameters['graphics_api'].default, 'Vulkan')
+
     def test_vulkan_recovers_exact_original_layer_semantic(self):
         source = ('struct SPIRV_Cross_Input { float4 position : POSITION0; };\n'
                   'struct SPIRV_Cross_Output { float4 gl_Position : SV_Position; uint o1 : TEXCOORD3;\n};\n'

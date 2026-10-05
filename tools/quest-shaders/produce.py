@@ -189,7 +189,7 @@ def _keyword_pragmas(vertex, fragment, keys, mandatory):
     return rows
 
 
-def shader_source(form, record, cache, includes):
+def shader_source(form, record, cache, includes, graphics_api="Vulkan"):
     native = recovery_module()
     lines = ['Shader ' + json.dumps(form['m_Name']) + ' {', 'Properties {', properties(form), '}']
     compiler_variants = []
