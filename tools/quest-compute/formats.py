@@ -25,6 +25,7 @@ def native_platform_contract(shader: str) -> dict | None:
     if shader.startswith("MultiScaleVO"):
         return {**common, "method": "AmbientOcclusion.IsEnabledAndSupported",
             "mode": "MultiScaleVolumetricObscurance", "androidOpenGlesBranchReachable": False,
+            "androidVulkanBranchReachableSubjectToOriginalCapabilities": True,
             "requiredComputeSupport": True, "requiredNotAndroidOpenGL": True,
             "androidOpenGLDefinitionMethod": "RuntimeUtilities.get_isAndroidOpenGL",
             "androidOpenGLDefinition": "Application.platform == Android && graphicsDeviceType != Vulkan",
@@ -35,6 +36,7 @@ def native_platform_contract(shader: str) -> dict | None:
     if shader == "Lut3DBaker":
         return {**common, "method": "ColorGradingRenderer.Render",
             "pipeline": "HDR 3D LUT compute baker", "androidOpenGlesBranchReachable": False,
+            "androidVulkanBranchReachableSubjectToOriginalCapabilities": True,
             "requiredComputeSupport": True, "required3DRenderTextureSupport": True,
             "excludedGraphicsDevices": ["OpenGLCore", "OpenGLES3"],
             "originalOpenGlesPipeline": "RenderHDRPipeline2D"}

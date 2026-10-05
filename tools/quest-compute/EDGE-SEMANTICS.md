@@ -1,4 +1,4 @@
-# Original compute resource edges on Android GLES
+# Original compute resource edges on Android backends
 
 The adapter retains all 13 original compute objects and 36 kernels. This audit
 uses their original DXBC instructions and the owner's unchanged
@@ -57,6 +57,12 @@ known lanes during partial register MOVs. Native dispatch indices carried as
 float bits must not become constant zero when the remaining register lanes are
 unknown. An actual odd-size Downsample dispatch exposed this issue; the focused
 fixture and real five-output test cover it.
+
+The full-game backend now uses Vulkan. Its actual raw-SPIR-V and host driver
+proof is recorded in [VULKAN.md](VULKAN.md). Both Vulkan and GLES integer loads
+need the explicit D3D-zero bounds guards, and both retain invalid image-store
+discard under their API environment rules. The GLES evidence below remains
+secondary proof; its platform exclusions do not apply to Vulkan.
 
 ## Existing native GLES capability decisions
 

@@ -21,6 +21,14 @@ def validate_objects(manifest: dict, objects: list[dict]) -> dict:
     if manifest.get("schema") != 1 or manifest.get("shaderCount") != 13 or manifest.get("kernelCount") != 36 \
             or len(manifest.get("shaders", [])) != 13 or sum(len(row["kernels"]) for row in manifest["shaders"]) != 36:
         raise ComputeRecoveryError("Cooked gate requires the complete 13-shader / 36-kernel original contract.")
+    if manifest.get("graphicsApi") == "Vulkan":
+        if __package__:
+            from .vulkan_compiled import validate_vulkan
+        else:
+            from vulkan_compiled import validate_vulkan
+        return validate_vulkan(manifest, objects)
+    if manifest.get("graphicsApi") not in (None, "OpenGLES3"):
+        raise ComputeRecoveryError("Unknown cooked compute graphics API.")
     contracts = {shader["name"]: shader for shader in manifest["shaders"]}
     observed = {shader.get("m_Name"): shader for shader in objects}
     if len(observed) != len(objects) or observed.keys() != contracts.keys():
@@ -115,7 +123,7 @@ def validate_objects(manifest: dict, objects: list[dict]) -> dict:
             "originalLocalFileId": contract["localFileId"], "nativeRenderer": 11, "nativeTargetLevel": 3,
             "kernels": kernel_rows, "nativePlatformCapabilityEvidence": contract.get("nativePlatformCapabilityEvidence")})
     return {"schema": 1, "shaderCount": len(rows), "kernelCount": sum(len(row["kernels"]) for row in rows),
-        "androidCompiled": True, "actualGles31BytesVerified": True, "originalKernelIdentitiesRetained": True,
+        "androidCompiled": True, "graphicsApi": "OpenGLES3", "actualExecutableBytesVerified": True, "actualGles31BytesVerified": True, "originalKernelIdentitiesRetained": True,
         "compilationEvidence": "Unity Android-cooked executable source and native binding metadata; no all-kernel physical GLES driver claim",
         "originalNativePlatformCapabilityBranchesRetained": True,
         "allKernelsActualGlesDriverValidated": False,

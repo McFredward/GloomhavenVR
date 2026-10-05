@@ -11,7 +11,7 @@ using UnityEditor.Rendering;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-/// <summary>Require actual Android GLES3 compilation of the complete native compute bank.</summary>
+/// <summary>Require actual Android Vulkan/GLES3 compilation of the complete native compute bank.</summary>
 public static class QuestCampaignComputeValidation
 {
     const string DefaultManifest = "Assets/QuestOriginalCampaign/campaign-computes.json";
@@ -19,6 +19,7 @@ public static class QuestCampaignComputeValidation
     [Serializable] sealed class Recovery
     {
         public int schema, shaderCount, kernelCount;
+        public string graphicsApi;
         public ShaderContract[] shaders;
     }
     [Serializable] sealed class ShaderContract
@@ -44,7 +45,7 @@ public static class QuestCampaignComputeValidation
         public string name, assetPath, guid;
         public long localFileId;
         public int kernelCount;
-        public string[] platforms, compiledGlesKernels, warnings;
+        public string[] platforms, compiledKernels, compiledGlesKernels, compiledVulkanKernels, warnings;
     }
 
     static string Sha(string path)
@@ -71,6 +72,13 @@ public static class QuestCampaignComputeValidation
         return result;
     }
 
+    static GraphicsDeviceType GraphicsApi(Recovery recovery)
+    {
+        if (recovery.graphicsApi == "Vulkan") return GraphicsDeviceType.Vulkan;
+        if (string.IsNullOrEmpty(recovery.graphicsApi) || recovery.graphicsApi == "OpenGLES3") return GraphicsDeviceType.OpenGLES3;
+        throw new InvalidDataException("Unsupported original compute graphics API.");
+    }
+
     /// <summary>Call after the normal Android bank/player build has compiled shaders.</summary>
     public static CompilationReceipt Validate()
     {
@@ -94,11 +102,12 @@ public static class QuestCampaignComputeValidation
 
     static CompilationReceipt Inspect(string manifestPath, bool requireCompiledBank)
     {
+        Recovery recovery = Read(manifestPath);
+        GraphicsDeviceType requiredApi = GraphicsApi(recovery);
         if (Application.unityVersion != "2021.3.5f1" || EditorUserBuildSettings.activeBuildTarget != BuildTarget.Android
             || PlayerSettings.GetUseDefaultGraphicsAPIs(BuildTarget.Android)
-            || !PlayerSettings.GetGraphicsAPIs(BuildTarget.Android).SequenceEqual(new[] { GraphicsDeviceType.OpenGLES3 }))
-            throw new InvalidOperationException("Original compute gate requires Unity 2021.3.5f1 Android GLES3.");
-        Recovery recovery = Read(manifestPath);
+            || !PlayerSettings.GetGraphicsAPIs(BuildTarget.Android).SequenceEqual(new[] { requiredApi }))
+            throw new InvalidOperationException("Original compute gate requires Unity 2021.3.5f1 Android " + requiredApi + ".");
         var rows = new List<ShaderCompilation>();
         foreach (var contract in recovery.shaders)
         {
@@ -138,26 +147,28 @@ public static class QuestCampaignComputeValidation
                 + string.Join(" | ", errors.Select(error => error.message).Take(8)));
             int count = requireCompiledBank ? Call<int>("GetComputeShaderPlatformCount", shader) : 0;
             var platforms = new List<string>();
-            string[] glesKernels = null;
+            string[] compiledKernels = null;
             for (int platform = 0; platform < count; platform++)
             {
                 var type = Call<GraphicsDeviceType>("GetComputeShaderPlatformType", shader, platform);
                 platforms.Add(type.ToString());
-                if (type != GraphicsDeviceType.OpenGLES3) continue;
-                if (glesKernels != null) throw new InvalidDataException("Duplicate compute GLES platform bank.");
+                if (type != requiredApi) continue;
+                if (compiledKernels != null) throw new InvalidDataException("Duplicate compute platform bank.");
                 int kernels = Call<int>("GetComputeShaderPlatformKernelCount", shader, platform);
-                glesKernels = Enumerable.Range(0, kernels).Select(kernel =>
+                compiledKernels = Enumerable.Range(0, kernels).Select(kernel =>
                     Call<string>("GetComputeShaderPlatformKernelName", shader, platform, kernel)).ToArray();
             }
-            if (requireCompiledBank && (glesKernels == null || !glesKernels.SequenceEqual(contract.kernels.Select(kernel => kernel.name))))
-                throw new InvalidDataException("Compiled GLES compute bank does not contain every original kernel: " + contract.name);
+            if (requireCompiledBank && (compiledKernels == null || !compiledKernels.SequenceEqual(contract.kernels.Select(kernel => kernel.name))))
+                throw new InvalidDataException("Compiled compute bank does not contain every original kernel: " + contract.name);
             rows.Add(new ShaderCompilation { name = contract.name, assetPath = contract.assetPath, guid = guid, localFileId = localId,
-                kernelCount = contract.kernelCount, platforms = platforms.ToArray(), compiledGlesKernels = glesKernels,
+                kernelCount = contract.kernelCount, platforms = platforms.ToArray(), compiledKernels = compiledKernels,
+                compiledGlesKernels = requiredApi == GraphicsDeviceType.OpenGLES3 ? compiledKernels : null,
+                compiledVulkanKernels = requiredApi == GraphicsDeviceType.Vulkan ? compiledKernels : null,
                 warnings = messages.Where(message => message.severity != ShaderCompilerMessageSeverity.Error)
                     .Select(message => message.platform + ": " + message.message).Distinct().Take(16).ToArray() });
         }
         var receipt = new CompilationReceipt { shaderCount = rows.Count, kernelCount = rows.Sum(row => row.kernelCount),
-            unityVersion = Application.unityVersion, buildTarget = BuildTarget.Android.ToString(), graphicsApi = GraphicsDeviceType.OpenGLES3.ToString(),
+            unityVersion = Application.unityVersion, buildTarget = BuildTarget.Android.ToString(), graphicsApi = requiredApi.ToString(),
             recoveryManifestSha256 = Sha(manifestPath), androidCompiled = requireCompiledBank, allOriginalKernelIdentitiesRetained = true,
             hardwareVerified = false, shaders = rows.ToArray() };
         return receipt;
@@ -172,8 +183,8 @@ public static class QuestCampaignComputeValidation
         if (!EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Android, BuildTarget.Android))
             throw new InvalidOperationException("Android compute proof target switch failed.");
         PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
-        PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] { GraphicsDeviceType.OpenGLES3 });
         Recovery recovery = Read(manifest);
+        PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] { GraphicsApi(recovery) });
         foreach (var shader in recovery.shaders)
             AssetDatabase.ImportAsset(shader.assetPath, ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
         Directory.CreateDirectory(output);
@@ -185,7 +196,7 @@ public static class QuestCampaignComputeValidation
         if (built == null || !built.GetAllAssetBundles().SequenceEqual(new[] { "quest-compute-proof.bundle" }))
             throw new InvalidOperationException("Actual Android compute proof bank failed.");
         var receipt = Validate(manifest, Path.Combine(output, "compute-compilation.json"));
-        Debug.Log("Quest original compute Android GLES3 proof: " + receipt.shaderCount + " shaders / " + receipt.kernelCount + " original kernels.");
+        Debug.Log("Quest original compute Android " + receipt.graphicsApi + " proof: " + receipt.shaderCount + " shaders / " + receipt.kernelCount + " original kernels.");
     }
 }
 #endif

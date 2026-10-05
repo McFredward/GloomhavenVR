@@ -11,7 +11,7 @@ names, order, thread groups, native constant-buffer fields, textures, UAV names,
 structured-buffer strides, GUIDs and local fileID 7200000 are retained. No modern
 PostProcessing shader revision is substituted for unknown original mathematics.
 
-GLES needs interfaces and edge semantics that a literal DXBC register
+Android backends need interfaces and edge semantics that a literal DXBC register
 translation loses:
 
 - Typed image storage is restored from the unchanged native allocation/binding
@@ -35,6 +35,8 @@ translation loses:
   writes. Original colour math, in-bounds values, image-store discard and
   normalized sampler behavior remain unchanged.
 
+The full-game backend is Vulkan. The [actual Vulkan audit](VULKAN.md) records
+compiled SPIR-V, native formats and real all-kernel host pipeline creation.
 The [complete edge/caller audit](EDGE-SEMANTICS.md) records all 36 kernels and
 actual bounded GPU fixtures. The original MSVO Android GLES capability branch
 excludes its 18 kernels; HDR colour grading retains the native 2D GLES pipeline.
@@ -80,9 +82,10 @@ Run `QuestCampaignComputeValidation.ValidateSources()` before Addressables and
 `Validate()` after the Android bank/player compilation. The default receipt is
 `Temp/QuestCampaignComputeValidation/compiled.json`; optional
 `GHVR_QUEST_COMPUTE_MANIFEST` and `GHVR_QUEST_COMPUTE_RECEIPT` override those paths.
-The gate requires Unity 2021.3.5f1, Android and exactly OpenGLES3, matching original
+The gate requires Unity 2021.3.5f1, Android and the exact manifest graphics API
+(Vulkan for full game, legacy OpenGLES3 retained), matching original
 GUID/localID, ordered source dispatch declarations, no compiler errors and a
-native GLES bank containing every original kernel. The headless editor never
+native platform bank containing every original kernel. The headless editor never
 executes `ComputeShader.FindKernel` or `GetKernelThreadGroupSizes`: those device
 APIs attempt to compile the current Null renderer under `-nographics`.
 
@@ -102,16 +105,19 @@ OWNER_BUILDER_PYTHON tools/quest-compute/compiled.py \
 ```
 
 The last command uses the builder's existing UnityPy dependency, inspects actual
-cooked class72 bytes, requires GLES renderer11/level3 executable GLSL, verifies
+cooked class72 bytes, requires Vulkan renderer21/level0 actual SPIR-V for the
+full game (or legacy GLES renderer11/level3 executable GLSL), verifies
 all 36 native and textual dispatch extents, original input/output properties,
 structured buffer bindings and the allocation-derived GLSL image qualifiers.
-It rejects a missing kernel, empty/non-GLES code or a misleading rgba32f image
+It rejects a missing kernel, empty/wrong-backend code or a misleading rgba32f image
 substitution for an R/RG native allocation.
 
 Actual owner-data proof on 2026-10-05 passed both the Unity Android gate and the
 cooked-byte gate for 13 shaders / 36 kernels. The receipts explicitly keep
 `hardwareVerified` and `originalPixelParityVerified` false. Compilation and
 binding closure do not establish Quest GPU output or complete image parity.
+See `host_vulkan.py` and [VULKAN.md](VULKAN.md) for the full-game host driver proof;
+the older GLES scripts below remain secondary evidence for that backend.
 
 `host_histogram.py --bundle BANK --shader EyeHistogram|Waveform --receipt PATH`
 provides an additional real EGL/GLES dispatch proof on a host driver. Its

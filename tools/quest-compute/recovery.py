@@ -117,7 +117,7 @@ def stage(source_project: Path, overlay_directory: Path, *, graphics_module: Pat
     for path, expected in inputs.items():
         if digest(source / path) != expected:
             raise ComputeRecoveryError("Original compute input changed during conversion: " + path)
-    manifest = {"schema": 1, "scope": "complete-original-campaign-compute", "shaderCount": 13, "kernelCount": 36,
+    manifest = {"schema": 1, "scope": "complete-original-campaign-compute", "shaderCount": 13, "kernelCount": 36, "graphicsApi": "Vulkan",
         "recovery": "exact-original-DXBC-to-SPIRV-to-HLSL-with-native-interface-restoration",
         "originalPostProcessingRuntimeSha256": digest(source / "Assets/Plugins/Unity.Postprocessing.Runtime.dll"),
         "graphicsConverterModuleSha256": digest(Path(graphics_module)), "originalInputs": inputs,
@@ -126,6 +126,7 @@ def stage(source_project: Path, overlay_directory: Path, *, graphics_module: Pat
         "shaders": rows, "originalInputsUnchanged": True, "androidCompiled": False,
         "originalNativePlatformCapabilityBranchesRetained": True,
         "allKernelsActualGlesDriverValidated": False,
+        "allKernelsActualVulkanDriverValidated": False,
         "originalPixelParityVerified": False, "hardwareVerified": False}
     receipt = overlay / MANIFEST
     receipt.parent.mkdir(parents=True, exist_ok=True)
