@@ -20,14 +20,19 @@ def api(library, name, returns, *arguments):
     return function
 
 
-def expected_histogram(width=16, height=16) -> list[int]:
+def expected_histogram(width=16, height=16, source_width=None, source_height=None) -> list[int]:
+    source_width = width if source_width is None else source_width
+    source_height = height if source_height is None else source_height
     result = [0] * 64
     for y in range(height):
         for x in range(width):
             # Audited original DXBC: max RGB, log2, scale+offset, saturation,
             # uint truncation into 64 bins. Weight is the original centre mask.
             brightness = 1.0 if (x + y) % 2 else 0.125
-            bucket = int(max(0.0, min(1.0, math.log2(brightness) / 12.0 + 8.0 / 12.0)) * 63.0)
+            if x >= source_width or y >= source_height:
+                bucket = 0  # Original D3D LD returns all-zero colour, log2 -> -inf.
+            else:
+                bucket = int(max(0.0, min(1.0, math.log2(brightness) / 12.0 + 8.0 / 12.0)) * 63.0)
             radius2 = (x / width - 0.5) ** 2 + (y / height - 0.5) ** 2
             weight = int(max(1.0 - radius2, 0.0) ** 2 * 64.0)
             result[bucket] += weight
@@ -46,7 +51,9 @@ def expected_waveform(width=16, height=16) -> list[int]:
     return result
 
 
-def run(bundle: Path, name="EyeHistogram") -> dict:
+def run(bundle: Path, name="EyeHistogram", source_width=16, source_height=16) -> dict:
+    if not 1 <= source_width <= 16 or not 1 <= source_height <= 16 or name != "EyeHistogram" and (source_width, source_height) != (16, 16):
+        raise ValueError("Bounded edge fixture accepts a 1..16 EyeHistogram source; Waveform uses its original 16x16 fixture.")
     import UnityPy
     matching = [obj.read_typetree() for obj in UnityPy.load(str(bundle)).objects
         if obj.type.name == "ComputeShader" and obj.read_typetree()["m_Name"] == name]
@@ -102,12 +109,12 @@ def run(bundle: Path, name="EyeHistogram") -> dict:
         api(gl, "glGenTextures", None, integer, C.POINTER(unsigned))(1, C.byref(texture))
         api(gl, "glActiveTexture", None, unsigned)(0x84C0)
         api(gl, "glBindTexture", None, unsigned, unsigned)(0x0DE1, texture)
-        api(gl, "glTexStorage2D", None, unsigned, integer, unsigned, integer, integer)(0x0DE1, 1, 0x8814, 16, 16)
+        api(gl, "glTexStorage2D", None, unsigned, integer, unsigned, integer, integer)(0x0DE1, 1, 0x8814, source_width, source_height)
         green, blue = (0.0625, 0.03125) if name == "EyeHistogram" else (0.25, 0.5)
-        pixels = (C.c_float * (16 * 16 * 4))(*[value for y in range(16) for x in range(16)
+        pixels = (C.c_float * (source_width * source_height * 4))(*[value for y in range(source_height) for x in range(source_width)
             for value in ((1.0 if (x + y) % 2 else 0.125), green, blue, 1.0)])
         api(gl, "glTexSubImage2D", None, unsigned, integer, integer, integer, integer, integer, unsigned, unsigned, pointer)(
-            0x0DE1, 0, 0, 0, 16, 16, 0x1908, 0x1406, pixels)
+            0x0DE1, 0, 0, 0, source_width, source_height, 0x1908, 0x1406, pixels)
         parameter = api(gl, "glTexParameteri", None, unsigned, unsigned, integer)
         parameter(0x0DE1, 0x2801, 0x2600); parameter(0x0DE1, 0x2800, 0x2600)
         location = api(gl, "glGetUniformLocation", integer, unsigned, C.c_char_p)(program, b"_Source")
@@ -121,7 +128,7 @@ def run(bundle: Path, name="EyeHistogram") -> dict:
         base = api(gl, "glBindBufferBase", None, unsigned, unsigned, unsigned)
         params = (C.c_float * 4)(*( (1.0 / 12.0, 8.0 / 12.0, 16, 16) if name == "EyeHistogram" else (16, 16, 0, 0)))
         bind(0x8A11, buffers[0]); data(0x8A11, C.sizeof(params), params, 0x88E4); base(0x8A11, 0, buffers[0])
-        expected = expected_histogram() if name == "EyeHistogram" else expected_waveform()
+        expected = expected_histogram(source_width=source_width, source_height=source_height) if name == "EyeHistogram" else expected_waveform()
         zeros = (unsigned * len(expected))()
         bind(0x90D2, buffers[1]); data(0x90D2, C.sizeof(zeros), zeros, 0x88E8); base(0x90D2, 0, buffers[1])
         api(gl, "glDispatchCompute", None, unsigned, unsigned, unsigned)(1 if name == "EyeHistogram" else 16, 1, 1)
@@ -138,7 +145,9 @@ def run(bundle: Path, name="EyeHistogram") -> dict:
             raise RuntimeError("Actual original histogram formula mismatch: " + json.dumps({"expected": expected, "actual": observed}))
         return {"schema": 1, "kernel": name + "/" + expected_kernel, "hostRenderer": renderer, "hostGlesVersion": version,
             "actualGlslSha256": hashlib.sha256(code + b"\0").hexdigest(), "actualHistogram": observed,
-            "expectedOriginalInstructionHistogram": expected, "binaryExactInputPixelCount": 256,
+            "expectedOriginalInstructionHistogram": expected, "binaryExactInputPixelCount": source_width*source_height,
+            "sourceSize": [source_width, source_height], "originalViewportSize": [16,16],
+            "originalOutOfBoundsZeroReadCount": 256-source_width*source_height,
             "weightedHistogramSum": sum(observed), "actualHostDispatchPassed": True,
             "completeOriginalPixelParityVerified": False, "hardwareVerified": False}
     finally:
@@ -150,8 +159,10 @@ if __name__ == "__main__":
     parser.add_argument("--bundle", required=True, type=Path)
     parser.add_argument("--receipt", required=True, type=Path)
     parser.add_argument("--shader", choices=("EyeHistogram", "Waveform"), default="EyeHistogram")
+    parser.add_argument("--source-width", type=int, default=16)
+    parser.add_argument("--source-height", type=int, default=16)
     args = parser.parse_args()
-    receipt = run(args.bundle, args.shader)
+    receipt = run(args.bundle, args.shader, args.source_width, args.source_height)
     args.receipt.parent.mkdir(parents=True, exist_ok=True)
     args.receipt.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps({key: receipt[key] for key in ("hostRenderer", "weightedHistogramSum", "actualHostDispatchPassed", "hardwareVerified")}))

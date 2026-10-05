@@ -23,6 +23,10 @@ class Scalar:
 def scalarize(expression: str, values: dict[str, list[Scalar | None]]) -> list[Scalar | None] | None:
     expression = re.sub(r"\b(0x[0-9a-fA-F]+|\d+)[uU]\b", r"uint(\1)", expression)
     expression = re.sub(r"\b((?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?)[fF]\b", r"\1", expression)
+    # HLSL permits a scalar literal's repeated x swizzle (0.0f.xx.x).
+    # Parenthesize the literal for Python's parser; its exact IEEE bits remain
+    # unchanged. Losing this syntax must not invalidate unrelated MOV lanes.
+    expression = re.sub(r"(?<![\w.])((?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?)(?=\.[xyzw])", r"(\1)", expression)
     try:
         tree = ast.parse(expression, mode="eval").body
     except SyntaxError:
@@ -156,6 +160,10 @@ def restore_integer_addresses(hlsl: str) -> tuple[str, list[dict]]:
         declaration = re.match(r"\s*(?:float|int|uint)([1-4]?)\s+(\w+)\b", original_line)
         if declaration:
             widths[declaration[2]] = int(declaration[1] or 1)
+            # A partial register MOV often names its still-uninitialized other
+            # lanes. Keep their width/unknown values without discarding the
+            # independent known lanes in the same vector constructor.
+            values.setdefault(declaration[2], [None] * widths[declaration[2]])
         assignment = re.fullmatch(r"\s*(?:(?:float|int|uint)[1-4]?\s+)?(\w+)(?:\.([xyzw]+))?\s*=\s*(.*);\s*", original_line)
         captured = None
         if assignment:

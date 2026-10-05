@@ -51,7 +51,7 @@ def validate_objects(manifest: dict, objects: list[dict]) -> dict:
             outputs = {binding["name"]: binding for binding in program["outBuffers"]}
             if outputs.keys() != {binding["name"] for binding in expected["outputBindings"]}:
                 raise ComputeRecoveryError("Actual GLES compute output property closure differs.")
-            images = []
+            images, bounded_reads = [], []
             for binding in expected["outputBindings"]:
                 storage = binding.get("imageStorage")
                 actual_output = outputs[binding["name"]]
@@ -75,19 +75,50 @@ def validate_objects(manifest: dict, objects: list[dict]) -> dict:
                     + r"\b[^\n]*\)[^\n]*\b" + dimension + r"\s+" + re.escape(binding["name"]) + r"\s*;", text)
                 if match is None:
                     raise ComputeRecoveryError("Actual GLES image qualifier differs from native RenderTexture: " + name + "/" + binding["name"])
+                if storage.get("gles31CoreImageFormat") is False and not storage.get("originalAndroidGlesCapabilityBranchExcludesShader"):
+                    raise ComputeRecoveryError("Non-core GLES image format has no original Android capability exclusion.")
                 images.append({"name": binding["name"], "renderTextureFormat": storage["renderTextureFormat"],
-                    "glslImageQualifier": storage["glslImageQualifier"], "actualDeclaration": match[0].strip()})
+                    "glslImageQualifier": storage["glslImageQualifier"], "actualDeclaration": match[0].strip(),
+                    "gles31CoreImageFormat": storage.get("gles31CoreImageFormat"),
+                    "originalAndroidGlesCapabilityBranchExcludesShader": storage.get("originalAndroidGlesCapabilityBranchExcludesShader", False)})
             names = {binding["name"] for binding in program["textures"] + program["inBuffers"]}
             expected_inputs = {binding["name"] for binding in expected["interface"]["bindings"] if binding["kind"] in ("texture", "buffer")}
             if not expected_inputs <= names:
                 raise ComputeRecoveryError("Actual GLES input property closure differs.")
+            bounds = expected.get("integerTextureLoadBounds", [])
+            instructions = expected.get("nativeResourceInstructions", {})
+            if "textureLoad" in instructions and sum(binding["originalLoadCount"] for binding in bounds) != instructions["textureLoad"]:
+                raise ComputeRecoveryError("Original native integer-read bounds census differs.")
+            for binding in bounds:
+                if binding["dimension"] not in ("2D", "3D") or binding["mipLevel"] != 0 \
+                        or binding["outOfBoundsResult"] != [0,0,0,0] or binding["name"] not in names:
+                    raise ComputeRecoveryError("Unproven original integer texture-read bounds contract.")
+                if not re.search(r"\btextureSize\(\s*" + re.escape(binding["name"]) + r"\s*,\s*0\s*\)", text):
+                    raise ComputeRecoveryError("Actual cooked integer read lost the bound resource dimension query.")
+                if not re.search(r"\btexelFetch\(\s*" + re.escape(binding["name"]) + r"\s*,", text):
+                    raise ComputeRecoveryError("Actual cooked original integer texture read is missing.")
+                bounded_reads.append({"name": binding["name"], "dimension": binding["dimension"],
+                    "originalLoadCount": binding["originalLoadCount"], "actualBoundResourceDimensionQueryPresent": True})
+            atomics = expected.get("structuredAtomicBounds", [])
+            for binding in atomics:
+                if binding["name"] != "_VectorscopeBuffer" or binding["strideBytes"] != 4 \
+                        or binding["originalAtomicCount"] != 1 or not binding["originalReturnedValueUnusedVerified"]:
+                    raise ComputeRecoveryError("Unproven original atomic invalid-write discard contract.")
+                if not re.search(r"\b" + re.escape(binding["name"]) + r"_buf\.length\(\)", text):
+                    raise ComputeRecoveryError("Actual cooked structured atomic lost the bound buffer count query.")
+                if not re.search(r"\batomicAdd\(", text):
+                    raise ComputeRecoveryError("Actual cooked original structured atomic is missing.")
             kernel_rows.append({"name": expected["name"], "threadGroups": expected["threadGroups"],
-                "actualGlslSha256": hashlib.sha256(code).hexdigest(), "actualCodeBytes": len(code), "images": images})
+                "actualGlslSha256": hashlib.sha256(code).hexdigest(), "actualCodeBytes": len(code), "images": images,
+                "integerTextureLoadBounds": bounded_reads, "structuredAtomicBounds": atomics})
         rows.append({"name": name, "assetPath": contract["assetPath"], "guid": contract["guid"],
             "originalLocalFileId": contract["localFileId"], "nativeRenderer": 11, "nativeTargetLevel": 3,
-            "kernels": kernel_rows})
+            "kernels": kernel_rows, "nativePlatformCapabilityEvidence": contract.get("nativePlatformCapabilityEvidence")})
     return {"schema": 1, "shaderCount": len(rows), "kernelCount": sum(len(row["kernels"]) for row in rows),
         "androidCompiled": True, "actualGles31BytesVerified": True, "originalKernelIdentitiesRetained": True,
+        "compilationEvidence": "Unity Android-cooked executable source and native binding metadata; no all-kernel physical GLES driver claim",
+        "originalNativePlatformCapabilityBranchesRetained": True,
+        "allKernelsActualGlesDriverValidated": False,
         "originalThreadGroupsRetained": True, "nativeImageAllocationsMatched": True,
         "originalPixelParityVerified": False, "hardwareVerified": False, "shaders": rows}
 

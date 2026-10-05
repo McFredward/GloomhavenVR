@@ -11,7 +11,8 @@ names, order, thread groups, native constant-buffer fields, textures, UAV names,
 structured-buffer strides, GUIDs and local fileID 7200000 are retained. No modern
 PostProcessing shader revision is substituted for unknown original mathematics.
 
-GLES also needs two interfaces that a literal DXBC register translation loses:
+GLES needs interfaces and edge semantics that a literal DXBC register
+translation loses:
 
 - Typed image storage is restored from the unchanged native allocation/binding
   bodies. RFloat/RHalf, RGFloat/RGHalf, R8/RG16 and ARGBHalf require their matching
@@ -28,9 +29,21 @@ GLES also needs two interfaces that a literal DXBC register translation loses:
   Exact IEEE float-literal bits also survive extraction: native byte offsets
   such as 4 and 8 appear as subnormal float literals in translated registers and
   must not be flushed to zero by a new floating point compilation.
+- Integer texture reads query each bound texture's actual dimensions and return
+  the original D3D all-zero result outside them. The original Vectorscope
+  flattened atomic index queries the bound counter count and discards invalid
+  writes. Original colour math, in-bounds values, image-store discard and
+  normalized sampler behavior remain unchanged.
+
+The [complete edge/caller audit](EDGE-SEMANTICS.md) records all 36 kernels and
+actual bounded GPU fixtures. The original MSVO Android GLES capability branch
+excludes its 18 kernels; HDR colour grading retains the native 2D GLES pipeline.
+All kernels remain assets, including the original non-core MSVO image formats.
+A cooked kernel is not evidence that those formats compile or bind on a GLES
+driver. No format substitution or extra feature-disable switch is introduced.
 
 Unity's image qualifier contract is documented in the
-[official compute shader manual](https://docs.unity3d.com/2022.3/Documentation/Manual/class-ComputeShader.html).
+[official compute shader manual](https://docs.unity3d.com/2021.3/Documentation/Manual/class-ComputeShader.html).
 The allocation evidence comes from the owner's original
 `Unity.Postprocessing.Runtime.dll`, not from a presumed package version.
 
@@ -106,3 +119,10 @@ binary-exact synthetic pixels exercise the original histogram weighting/bins
 and Waveform's separate RGB uint counters with native 16-byte stride. It uses
 the actual cooked GLSL, not a rewritten test shader. This host result remains
 separate from Quest hardware and full visual/pixel parity.
+
+`host_edges.py --bundle BANK --receipt PATH` dispatches the actual cooked 3D
+lerp and Vectorscope kernels on GLES, including a mismatched texture extent and
+invalid original projected atomic index. Its MSVO fixture explicitly adapts
+only the language prologue for desktop GL4.3 because the original Android GLES
+branch excludes those native image formats. The receipts distinguish these
+cases and never claim all 36 kernels passed physical GLES driver compilation.

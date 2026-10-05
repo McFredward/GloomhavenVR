@@ -8,10 +8,12 @@ if __package__:
     from .native import ComputeRecoveryError
     from .addressing import restore_integer_addresses
     from .formats import image_contract
+    from .bounds import restore_texture_loads, restore_vectorscope_atomic
 else:
     from native import ComputeRecoveryError
     from addressing import restore_integer_addresses
     from formats import image_contract
+    from bounds import restore_texture_loads, restore_vectorscope_atomic
 
 
 def declarations(program: bytes, graphics) -> dict:
@@ -24,7 +26,7 @@ def declarations(program: bytes, graphics) -> dict:
     words = struct.unpack("<" + "I" * (len(code) // 4), code)
     if len(words) < 2 or words[0] >> 16 != 5 or words[1] != len(words):
         raise ComputeRecoveryError("Original bytecode is not a complete compute shader.")
-    position, groups, outputs = 2, None, {}
+    position, groups, outputs, instructions = 2, None, {}, {}
     while position < len(words):
         token = words[position]
         opcode, length = token & 2047, token >> 24 & 127
@@ -32,6 +34,7 @@ def declarations(program: bytes, graphics) -> dict:
             length = words[position + 1]
         if not length or position + length > len(words):
             raise ComputeRecoveryError("Malformed native compute instruction extent.")
+        instructions[opcode] = instructions.get(opcode, 0) + 1
         if opcode == 0x9b:  # D3D11_SB_OPCODE_DCL_THREAD_GROUP
             if length != 4 or groups is not None:
                 raise ComputeRecoveryError("Unknown original compute thread group declaration.")
@@ -50,7 +53,7 @@ def declarations(program: bytes, graphics) -> dict:
         position += length
     if groups is None:
         raise ComputeRecoveryError("Original compute thread group declaration is missing.")
-    return {"threadGroups": groups, "outputs": outputs}
+    return {"threadGroups": groups, "outputs": outputs, "instructions": instructions}
 
 
 def restore(hlsl: str, kernel: dict, graphics) -> tuple[str, dict]:
@@ -136,6 +139,17 @@ def restore(hlsl: str, kernel: dict, graphics) -> tuple[str, dict]:
     hlsl, uniforms = graphics.restore_uniforms(hlsl, kernel["interface"],
         resource_layouts=graphics.native_buffer_layouts(kernel["code"]))
     hlsl, addresses = restore_integer_addresses(hlsl)
+    if any(native["instructions"].get(opcode) for opcode in (0x2e, 0xa3)):
+        raise ComputeRecoveryError("Native multisample/UAV load needs an explicit additional bounds contract.")
+    hlsl, bounds = restore_texture_loads(hlsl, native["instructions"].get(0x2d, 0))
+    atomic_bounds = []
+    if kernel["shaderName"] == "Vectorscope" and kernel["name"] == "KVectorscopeGather":
+        # Original ATOMIC_IADD has no returned value. SPIRV-Cross introduces
+        # an unused HLSL out operand; its non-use is verified by the adapter.
+        if native["instructions"].get(0xad, 0) != 1 or native["instructions"].get(0xb4, 0):
+            raise ComputeRecoveryError("Original vectorscope structured atomic instruction shape changed.")
+        hlsl, atomic = restore_vectorscope_atomic(hlsl)
+        atomic_bounds.append(atomic)
     groups = re.findall(r"\[numthreads\((\d+), (\d+), (\d+)\)\]", hlsl)
     if groups != [tuple(str(value) for value in kernel["threadGroups"])]:
         raise ComputeRecoveryError("Translated compute dispatch extent differs from the original.")
@@ -143,5 +157,9 @@ def restore(hlsl: str, kernel: dict, graphics) -> tuple[str, dict]:
         raise ComputeRecoveryError("Translated compute entry point changed unexpectedly.")
     hlsl = re.sub(r"\bvoid main\(", "void " + kernel["name"] + "(", hlsl)
     return hlsl, {"uniformBindings": uniforms, "outputBindings": observed, "integerAddressIdentityProofs": addresses,
+        "integerTextureLoadBounds": bounds, "nativeResourceInstructions": {
+            "textureLoad": native["instructions"].get(0x2d, 0), "textureLoadMultisample": native["instructions"].get(0x2e, 0),
+            "imageLoad": native["instructions"].get(0xa3, 0), "imageStore": native["instructions"].get(0xa4, 0)},
+        "structuredAtomicBounds": atomic_bounds,
         "threadGroupDxbcAndMetadataAgree": True, "originalDispatchSystemValuesRetained": True,
         "originalInstructionTranslation": True, "androidCompiled": False, "pixelParityVerified": False}

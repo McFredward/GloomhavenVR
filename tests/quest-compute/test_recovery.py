@@ -15,7 +15,8 @@ spec.loader.exec_module(module)
 from quest_compute_test.addressing import scalarize, restore_integer_addresses
 from quest_compute_test.adapter import declarations, restore
 from quest_compute_test.compiled import validate_objects
-from quest_compute_test.formats import image_contract
+from quest_compute_test.formats import image_contract, native_platform_contract
+from quest_compute_test.bounds import restore_texture_loads, restore_vectorscope_atomic
 from quest_compute_test.native import ComputeRecoveryError, parse
 
 
@@ -82,6 +83,15 @@ ComputeShader:
 
 
 class NativeTests(unittest.TestCase):
+    def test_native_capability_evidence_preserves_original_platform_decisions(self):
+        msvo = native_platform_contract("MultiScaleVOUpsample")
+        self.assertFalse(msvo["androidOpenGlesBranchReachable"])
+        self.assertEqual(msvo["requiredLoadStoreFormats"], ["R32_SFloat", "R16_SFloat", "R8_UNorm"])
+        self.assertTrue(msvo["originalMethodUnchanged"])
+        lut = native_platform_contract("Lut3DBaker")
+        self.assertEqual(lut["originalOpenGlesPipeline"], "RenderHDRPipeline2D")
+        self.assertIsNone(native_platform_contract("Texture3DLerp"))
+
     def test_exact_metadata_shape(self):
         parsed = parse(YAML)
         self.assertEqual(parsed["name"], "Fixture")
@@ -123,9 +133,21 @@ class NativeTests(unittest.TestCase):
         with self.assertRaises(ComputeRecoveryError): image_contract("Unknown", "Unknown", "Unknown")
         self.assertEqual(image_contract("MultiScaleVODownsample1", "MultiScaleVODownsample1_MSAA", "LinearZ")["glslImageQualifier"], "rg16f")
         self.assertEqual(image_contract("MultiScaleVORender", "MultiScaleVORender_interleaved", "Occlusion")["glslImageQualifier"], "r8")
+        self.assertFalse(image_contract("MultiScaleVODownsample1", "MultiScaleVODownsample1", "LinearZ")["gles31CoreImageFormat"])
+        self.assertTrue(image_contract("MultiScaleVODownsample1", "MultiScaleVODownsample1", "LinearZ")["originalAndroidGlesCapabilityBranchExcludesShader"])
 
 
 class IntegerIdentityTests(unittest.TestCase):
+    def test_scalar_literal_swizzles_preserve_other_mov_address_lanes(self):
+        text = "void comp_main()\n{\n    float2 original = asfloat(int3(gl_WorkGroupID).xy * int2(16,16) + int3(gl_LocalInvocationID).xy);\n    float4 r0;\n    r0 = float4(original.x, original.y, r0.z, r0.w);\n    r0 = float4(r0.x, r0.y, 0.0f.xx.x, 0.0f.xx.y);\n    float4 value = Depth.Load(int3(asint(r0.xy), asint(0u)));\n}\n"
+        result, proof = restore_integer_addresses(text)
+        self.assertNotIn("asint(r0.xy)", result)
+        self.assertIn("gl_WorkGroupID.x", result)
+        self.assertIn("gl_LocalInvocationID.y", result)
+        self.assertEqual(scalarize("0.5f.xxxx", {})[0].text, "uint(0x3f000000)")
+        self.assertEqual(len(scalarize("0.0f.xx.y", {})), 1)
+        self.assertGreater(len(proof), 0)
+
     def test_signedness_and_hex_literals_are_preserved(self):
         for expression, kind in (("int(gl_LocalInvocationID.x) >> 2u", "int"),
             ("uint(gl_LocalInvocationID.x) >> 2", "uint"), ("uint(0x12f)", "uint")):
@@ -180,6 +202,47 @@ class IntegerIdentityTests(unittest.TestCase):
         self.assertIn("uint(4)", result)
         self.assertIn("uint(8)", result)
         self.assertIn("5.6051938572992682836949183331597e-45f;", result)
+
+
+class TextureBoundsTests(unittest.TestCase):
+    def test_vectorscope_preserves_scope_projection_and_guards_actual_atomic_count(self):
+        text = "RWStructuredBuffer<uint> _VectorscopeBuffer;\nvoid comp_main()\n{\n    uint _256;\n    float colour = originalProjectedColour;\n    InterlockedAdd(_VectorscopeBuffer[originalIntegerIndex], 1u, _256);\n}\n"
+        result, proof = restore_vectorscope_atomic(text)
+        self.assertIn("_VectorscopeBuffer.GetDimensions(count, stride)", result)
+        self.assertIn("[branch] if (index < count)", result)
+        self.assertIn("originalProjectedColour", result)
+        self.assertIn("QuestOriginalVectorscopeAddWithinBuffer(originalIntegerIndex, 1u, _256)", result)
+        self.assertTrue(proof["originalReturnedValueUnusedVerified"])
+        with self.assertRaises(ComputeRecoveryError): restore_vectorscope_atomic(text.replace("    float colour", "    readResult(_256);\n    float colour"))
+    def test_native_read_zero_guards_real_bound_extent_and_keeps_sampling_and_store(self):
+        text = "Texture2D<float4> Depth;\nRWTexture2D<float> Output;\nvoid comp_main()\n{\n    float value = Depth.Load(int3(int2(dispatch.xy), asint(0u))).x;\n    value += Depth.SampleLevel(Sampler, uv, 0).x;\n    Output[int2(-1, 2)] = value;\n}\n"
+        result, proof = restore_texture_loads(text, 1)
+        self.assertIn("Depth.GetDimensions(extent.x, extent.y);", result)
+        self.assertIn("any(location.xy < 0)", result)
+        self.assertIn("any(uint2(location.xy) >= extent)", result)
+        self.assertIn("return float4(0, 0, 0, 0);", result)
+        self.assertIn("QuestOriginalLoadZero_Depth(int3(int2(dispatch.xy), asint(0u)))", result)
+        self.assertIn("Depth.SampleLevel(Sampler, uv, 0)", result)
+        self.assertIn("Output[int2(-1, 2)] = value;", result)
+        self.assertEqual(proof[0]["originalLoadCount"], 1)
+        self.assertEqual(result.count("Depth.Load("), 1)
+
+    def test_3d_and_two_calls_query_each_resource_and_evaluate_coordinates_once(self):
+        text = "Texture3D<float4> From;\nTexture3D<float4> To;\nvoid comp_main()\n{\n    float4 value = From.Load(int4(dispatch.xyz, 0)) + To.Load(int4(other.xyz, 0));\n}\n"
+        result, proof = restore_texture_loads(text, 2)
+        self.assertEqual([row["dimension"] for row in proof], ["3D", "3D"])
+        self.assertIn("To.GetDimensions(extent.x, extent.y, extent.z)", result)
+        self.assertEqual(result.count("other.xyz"), 1)
+        self.assertIn("uint3(location.xyz) >= extent", result)
+
+    def test_native_census_unknown_mip_dimensions_or_overload_require_reaudit(self):
+        for declaration, operand, count in (("Texture2D<float4>", "int3(pixel.xy, 0)", 2),
+                ("Texture2D<float4>", "int3(pixel.xy, mip)", 1),
+                ("Texture2D<float4>", "int3(pixel.xy, 1)", 1),
+                ("Texture2DArray<float4>", "int4(pixel.xyz, 0)", 1),
+                ("Texture2D<float4>", "int3(pixel.xy, 0), int2(1, 0)", 1)):
+            with self.subTest(declaration=declaration, operand=operand), self.assertRaises(ComputeRecoveryError):
+                restore_texture_loads(declaration + " Source;\nvoid comp_main()\n{\n    float4 value = Source.Load(" + operand + ");\n}\n", count)
 
 
 def cooked_fixture():

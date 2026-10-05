@@ -12,11 +12,11 @@ import sys
 if __package__:
     from .adapter import restore
     from .native import ComputeRecoveryError, parse
-    from .formats import POST_PROCESSING_SHA256
+    from .formats import POST_PROCESSING_SHA256, native_platform_contract
 else:
     from adapter import restore
     from native import ComputeRecoveryError, parse
-    from formats import POST_PROCESSING_SHA256
+    from formats import POST_PROCESSING_SHA256, native_platform_contract
 
 NAMES = {"EyeHistogram", "Lut3DBaker", "MultiScaleVODownsample2", "Vectorscope", "Histogram",
     "AutoExposure", "MultiScaleVOUpsample", "Waveform", "ExposureHistogram", "MultiScaleVODownsample1",
@@ -112,7 +112,8 @@ def stage(source_project: Path, overlay_directory: Path, *, graphics_module: Pat
         path_map[relative] = target
         rows.append({"name": shader["name"], "originalPath": relative, "assetPath": target, "guid": guid,
             "classId": 72, "localFileId": 7200000, "sourceSha256": digest(destination), "metaSha256": digest(meta),
-            "kernelCount": len(kernels), "kernels": kernels})
+            "kernelCount": len(kernels), "kernels": kernels,
+            "nativePlatformCapabilityEvidence": native_platform_contract(shader["name"])})
     for path, expected in inputs.items():
         if digest(source / path) != expected:
             raise ComputeRecoveryError("Original compute input changed during conversion: " + path)
@@ -123,6 +124,8 @@ def stage(source_project: Path, overlay_directory: Path, *, graphics_module: Pat
         "files": output_files, "pathMap": path_map,
         "removePaths": [path for original in path_map for path in (original, original + ".meta")],
         "shaders": rows, "originalInputsUnchanged": True, "androidCompiled": False,
+        "originalNativePlatformCapabilityBranchesRetained": True,
+        "allKernelsActualGlesDriverValidated": False,
         "originalPixelParityVerified": False, "hardwareVerified": False}
     receipt = overlay / MANIFEST
     receipt.parent.mkdir(parents=True, exist_ok=True)
