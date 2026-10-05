@@ -159,6 +159,7 @@ namespace GloomhavenVR.Cards {
    private Vector3 _homePos,_emergeFrom,_collapseWorld,_collapseFrom;
    private Quaternion _homeRot=Quaternion.identity,_emergeSpin,_collapseFromRot,_collapseSpin;
    private float _homeScale=1f,_releaseGlide,_emergeTime,_emergeDelay,_collapseFromScale,_collapseTime,_collapseDelay,_heldScale=1f,_pop;
+   private uint _townReturnRevision;
    private Vector3 _heldPos;
    private const float ReleaseGlideSeconds=.35f;
    private bool _emerging,_collapsing,_fingerPopped,_laserPopped,_recessPopped;
