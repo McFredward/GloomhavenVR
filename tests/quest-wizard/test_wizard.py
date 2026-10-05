@@ -440,10 +440,13 @@ def read_artwork(row):
 class SourceHistoryTests(Fixture):
     def test_remote_source_is_shallow_and_explicit_commit_fetch_is_bounded(self):
         chosen='e'*40;saved=self.plan(sourceCommit=chosen);calls=[]
+        checkout=self.store.root/'source'/saved['session'];(checkout/'.git').mkdir(parents=True)
+        state.atomic_json(self.store.session_dir(saved['session'])/'source-attempt.json',{'schema':1,'session':saved['session'],'origin':provision.LOCK['source']['url']})
         def run(argv,log,**_):
             args=list(map(str,argv));calls.append(args);log.parent.mkdir(parents=True,exist_ok=True);log.write_text('')
             if 'clone' in args:
                 checkout=Path(args[-1]);(checkout/'.git').mkdir(parents=True);(checkout/'source.py').write_text('selected immutable source')
+            elif 'rev-parse' in args:raise state.WizardError('child_failed','clone interrupted before HEAD')
             elif 'cat-file' in args:raise state.WizardError('child_failed','not present in shallow ref')
             elif '-c' in args and 'import sys;' in args[args.index('-c')+1]:
                 record=Path(args[-1]);checkout=Path(args[-2]);state.atomic_json(record,{'schema':1,'files':[{'path':'source.py','sha256':state.digest(checkout/'source.py'),'size':(checkout/'source.py').stat().st_size}],'commit':chosen,'dirty':False})

@@ -196,6 +196,14 @@ def source_checkout(store, session, choices, details, supervisor, repo):
     # git removes failed clone directories itself when possible. A hard kill can
     # leave its owned incomplete clone; retaining the receipt lets us safely retry.
     if checkout.exists() and not (checkout / ".git").is_dir(): shutil.rmtree(checkout)
+    if checkout.exists() and not (store.session_dir(session) / "source-resolution.json").exists():
+        try:
+            supervisor.run([git, "-C", checkout, "rev-parse", "--verify", "HEAD"], log_root / "source-clone-complete.log", env=env)
+        except WizardError as error:
+            if error.code != "child_failed": raise
+            # Only the matching attempt-owned clone with no resolved commit is
+            # repaired. A cancelled command or completed checkout is retained.
+            shutil.rmtree(checkout)
     if not checkout.exists():
         argv = [git, "-c", "core.longpaths=true", "clone", "--no-checkout", "--no-hardlinks"]
         if not local: argv += ["--depth", "1", "--single-branch", "--branch", choices.get("sourceRef") or LOCK["source"]["ref"]]
