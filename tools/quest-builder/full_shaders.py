@@ -1138,8 +1138,10 @@ def stereo_wrapper(hlsl, stage, output_adapters=(), input_signature=(), output_s
         raise ShaderRecoveryError("Unsupported native graphics interface backend.")
     if graphics_api == "Vulkan":
         for adapter in output_adapters:
+            if adapter["kind"] != "native-vertex-layer-to-unity-framebuffer" or not re.fullmatch(r"o\d+", adapter["nativeOutput"]):
+                raise ShaderRecoveryError("Unproven original Vulkan output-interface adapter.")
             name = re.escape(adapter["nativeOutput"])
-            pattern = r"(\buint\s+" + name + r"\s*:\s*)TEXCOORD" + str(adapter["portableLocation"]) + r";"
+            pattern = r"(\b(?:uint|int)\s+" + name + r"\s*:\s*)TEXCOORD" + str(adapter["portableLocation"]) + r";"
             hlsl, count = re.subn(pattern, r"\1SV_RenderTargetArrayIndex;", hlsl)
             if count != 1:
                 raise ShaderRecoveryError("Original Vulkan layer cannot recover its witnessed native output.")

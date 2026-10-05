@@ -237,5 +237,7 @@ class VulkanNativeInterface(unittest.TestCase):
         self.assertIn('stage_output.o1=uint(_DepthSlice);', actual)
         self.assertIn('UNITY_VERTEX_OUTPUT_STEREO_EYE_INDEX', actual)
         self.assertNotIn('stereoTargetEyeIndexAsRTArrayIdx', actual)
+        signed = native.stereo_wrapper(source.replace('uint o1', 'int o1'), 'vertex', [adapter], graphics_api='Vulkan')
+        self.assertIn('int o1 : SV_RenderTargetArrayIndex;', signed)
         with self.assertRaisesRegex(native.ShaderRecoveryError, 'witnessed native output'):
             native.stereo_wrapper(source.replace('TEXCOORD3', 'TEXCOORD4'), 'vertex', [adapter], graphics_api='Vulkan')
