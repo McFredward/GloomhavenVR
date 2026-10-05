@@ -180,7 +180,7 @@ their supported route, and the Quest flat-screen adapter selects the completed
 eye texture through that same route. Desktop mode selection is unchanged.
 
 Current focused Python builder gate passes196 tests in the provisioned private
-Python environment; compute fixtures pass26 and case-path fixtures pass12. Own
+Python environment; compute fixtures pass27 and case-path fixtures pass12. Own
 superseded APKs are removed; B622 native symbols are retained with matching build
 ID9a2274f00b636520 before deleting its generated28-GB Library. Final full-player
 compilation, signed APK and Windows hardware package still remain required.
@@ -212,3 +212,18 @@ all36 pipelines and executes the original Lerp, cleared Vectorscope, Gather and
 MSVO dispatch-edge fixtures with robustness disabled. This does not establish
 Quest driver performance, all post-effect pixel parity or a hardware playthrough.
 The signed-player delivery gate records backend-specific executable-byte proof.
+
+The complete native Vulkan pass smoke test compiles all1,432 original pass banks
+and resolves all9,187 original material associations. Independent executable
+inspection and live host-driver creation accept1,432 aliases/544 distinct graphics
+pipelines. Eight original Windows/D3D versus Vulkan image witnesses match exactly
+for geometry, lighting, diffuse color, UVs, opacity, animation and eye transforms;
+two negative controls fail as intended. These are host witnesses, not Quest images.
+
+Shipping coverage retains all51,564 original native Vulkan keyword aliases.
+Synthetic future multiview aliases are tracked separately and do not inflate that
+census. The complete alias sweep remains in progress: actual instancing compiler
+failures require exact interface corrections and successful failing-bank retests
+before the final source freeze. No original alias or rendering calculation is
+dropped to satisfy compilation. The interrupted prepare copies are removed only
+after retaining their unique receipts; the canonical recovered content remains.
