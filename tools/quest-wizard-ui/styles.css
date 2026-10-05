@@ -38,6 +38,7 @@ h1 br{display:block}
 .art-symbol{font-size:44px;color:#c4a76b8a;font-family:Georgia,serif;margin-bottom:17px}
 .art-card>span:last-child{font-size:10px;color:#c8c2b6;letter-spacing:.07em}
 .art-card img{height:100%;width:100%;object-fit:cover;position:absolute;inset:0}
+.art-card:first-child img{object-position:left center}
 .art-card img+span{position:absolute;bottom:0;left:0;right:0;padding:20px 10px 10px;background:linear-gradient(transparent,#000b)}
 .gallery-note{color:#888a8d;font-size:10px;line-height:1.7;min-height:35px;margin:11px 0 0}
 .privacy{display:flex;gap:13px;border-top:1px solid #ffffff0a;padding-top:23px;margin-top:25px}

@@ -15,7 +15,7 @@ MAX_IMAGE = 8 * 1024 * 1024
 # Optional display ranking, not asset identity or DLC ownership. These original
 # decorative files are considered only after exact source report/hash validation.
 PREFERRED_ART = {name: 20 - index for index, name in enumerate((
-    "HeroPortrait_Brute.png", "LoadoutBackground.png", "GH_CampaignMap_01.png"))}
+    "HeroPortrait_Brute.png", "DLC_Promo_JawsOfTheLion.png", "DLC_Promo_SoloScenarios.png"))}
 
 
 def _owned_file(project, relative):

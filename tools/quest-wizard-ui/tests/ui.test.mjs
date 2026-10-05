@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {strings,translate} from '../i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,artworkUrl,sessionId} from '../model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,artworkUrl,sessionId} from '../model.mjs';
 import {LocalApi,PreviewApi} from '../transport.mjs';
 
 test('German and English expose the same strings and parameter ABI',()=>{
@@ -33,6 +33,11 @@ test('progress preserves an unknown percentage instead of inventing elapsed-time
   assert.equal(progressView({...state,progress:{percent:72}}).width,72);
   assert.equal(macroStep(state),2);assert.equal(macroStep({...state,status:'complete'}),3);
   assert.equal(isActive({status:'cancel_requested'}),true);assert.equal(isActive({status:'cancelled'}),false);
+  const interrupted={status:'interrupted',stages:[{id:'tools',status:'complete'},{id:'build',status:'interrupted'},{id:'install',status:'pending'}],progress:{phase:null,percent:null}};
+  assert.equal(progressView(interrupted).phase,'build');assert.equal(macroStep(interrupted),2);assert.equal(isActive(interrupted),false);
+  assert.equal(stageStatus({choices:{install:false}},{id:'install',status:'complete'}),'skipped');
+  assert.equal(stageStatus({choices:{install:true}},{id:'install',status:'complete',details:{requested:false}}),'skipped');
+  assert.equal(stageStatus({choices:{install:true}},{id:'install',status:'complete',details:{requested:true}}),'complete');
 });
 
 test('browser artwork URLs and session IDs remain local and bounded',()=>{

@@ -18,7 +18,7 @@ export function progressView(state) {
   const stages = Array.isArray(state?.stages) ? state.stages : [];
   const completed = Number.isInteger(state?.progress?.completed) ? state.progress.completed : stages.filter(row => row.status === 'complete').length;
   const total = Number.isInteger(state?.progress?.total) && state.progress.total > 0 ? state.progress.total : stages.length;
-  const current = stages.find(row => row.status === 'running') ?? stages.find(row => ['blocked','failed','pending'].includes(row.status));
+  const current = stages.find(row => row.status === 'running') ?? stages.find(row => ['blocked','failed','interrupted'].includes(row.status)) ?? stages.find(row=>row.status==='pending');
   const raw = state?.progress?.percent;
   const percent = typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 && raw <= 100 ? raw : null;
   return {completed, total, phase:state?.progress?.phase ?? current?.id ?? '', percent,
@@ -32,6 +32,9 @@ export function macroStep(state) {
   return 1;
 }
 export function isActive(state) { return ['running','cancelling','cancel_requested'].includes(state?.status); }
+export function stageStatus(state,stage) {
+  return stage.id==='install'&&stage.status==='complete'&&(stage.details?.requested===false||state?.choices?.install===false)?'skipped':stage.status;
+}
 export function artworkUrl(value, origin) {
   try { const url = new URL(value, origin); return url.origin === origin && url.pathname === '/api/artwork' ? url.href : null; }
   catch { return null; }

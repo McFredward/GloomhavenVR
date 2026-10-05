@@ -1,5 +1,5 @@
 import {translate} from './i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,artworkUrl,sessionId} from './model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,artworkUrl,sessionId} from './model.mjs';
 import {LocalApi,PreviewApi} from './transport.mjs';
 
 const $ = id => document.getElementById(id);
@@ -81,11 +81,12 @@ function updateView() {
 }
 function renderProgress() {
   if(!state)return;
-  const active=isActive(state),stopped=['failed','cancelled'].includes(state.status),blocked=state.status==='blocked',done=state.status==='complete';
+  const active=isActive(state),stopped=['failed','cancelled','interrupted'].includes(state.status),blocked=state.status==='blocked',done=state.status==='complete';
+  if(state.requestError)error(state.requestError);
   $('progress-title').textContent=t(done?'completeTitle':blocked?'blockedTitle':stopped?'stoppedTitle':state.status==='ready'?'readyTitle':'progressTitle');
   $('progress-copy').textContent=t(done?'completeCopy':blocked?'blockedCopy':stopped?'stoppedCopy':state.status==='ready'?'readyCopy':'progressCopy');
   const progress=progressView(state);
-  $('phase-label').textContent=t('stage_'+progress.phase);
+  $('phase-label').textContent=t(done?'done':t('stage_'+progress.phase)==='stage_'+progress.phase?'waiting':'stage_'+progress.phase);
   $('progress-count').textContent=t(progress.percent===null?'phaseSteps':'phasePercent',progress);
   const track=$('progress-track');track.classList.toggle('indeterminate',progress.indeterminate);
   track.setAttribute('aria-valuemin','0');track.setAttribute('aria-valuemax','100');
@@ -94,10 +95,10 @@ function renderProgress() {
   $('progress-detail').textContent=state.progress?.message ? message(state.progress.message) : active?t('firstBuild'):t(stopped?'stoppedCopy':'footerNote');
   $('stage-list').replaceChildren();
   for(const stage of state.stages??[]) {
-    const li=document.createElement('li');li.className=stage.status;
-    const marker=document.createElement('span');marker.className='stage-marker';marker.textContent=stage.status==='complete'?'✓':stage.status==='running'?'·':['blocked','failed'].includes(stage.status)?'!':'';
+    const displayed=stageStatus(state,stage),li=document.createElement('li');li.className=displayed;
+    const marker=document.createElement('span');marker.className='stage-marker';marker.textContent=displayed==='complete'?'✓':displayed==='running'?'·':['blocked','failed'].includes(displayed)?'!':'';
     const label=document.createElement('span');label.textContent=t('stage_'+stage.id);
-    const status=document.createElement('span');status.className='stage-state';status.textContent=t(stage.status);li.append(marker,label,status);$('stage-list').append(li);
+    const status=document.createElement('span');status.className='stage-state';status.textContent=t(displayed);li.append(marker,label,status);$('stage-list').append(li);
   }
   const action=state.needsActions?.[0];$('action-needed').hidden=!action&&!blocked&&!stopped;
   if(action||blocked||stopped){const blockedStage=state.stages?.find(stage=>stage.status==='blocked');const code=typeof action==='string'?action:action?.code??blockedStage?.details?.needsAction;
@@ -122,7 +123,7 @@ async function loadArtwork(artwork) {
       const blob=await response.blob();if(blob.size>8*1024*1024)continue;
       const blobUrl=URL.createObjectURL(blob);newUrls.push(blobUrl);
       const card=document.createElement('div');card.className='art-card';const image=document.createElement('img');image.src=blobUrl;image.alt=t('ownedArtwork');
-      const caption=document.createElement('span');caption.textContent=t('ownedArtwork');card.append(image,caption);cards.push(card);
+      const caption=document.createElement('span');caption.dataset.i18n='ownedArtwork';caption.textContent=t('ownedArtwork');card.append(image,caption);cards.push(card);
     }catch{ /* Optional artwork never blocks a genuine build state. */ }
   }
   if(generation!==artworkGeneration){newUrls.forEach(url=>URL.revokeObjectURL(url));return;}

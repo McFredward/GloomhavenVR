@@ -84,3 +84,12 @@ a durable session and wrong-token rejection. CDP intercepts any accidental `/run
 attempt before it reaches the server; the test requires that no such attempt occurs.
 It executes no provisioning, child tools, game conversion or Unity. Missing backend
 configuration is reported as a skipped test rather than successful native evidence.
+
+For the optional real owned-art transport check, additionally set
+`QUEST_WIZARD_OWNED_GAME`, `QUEST_WIZARD_OWNED_RECOVERY` and
+`QUEST_WIZARD_OWNED_INPUT` to matching private original provenance. The test copies
+only three actual PNGs plus the unchanged recovery report/input manifest into its
+temporary owned cache and establishes a clearly labeled fixture inspect receipt.
+This inheritance proves the HTTP/UI artwork route and exact response hashes; it
+does not represent a fresh inspect, recovery or build. Browser screenshots remain
+private. All temporary projected game files are removed when the test finishes.
