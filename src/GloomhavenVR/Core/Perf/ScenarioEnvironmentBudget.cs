@@ -394,6 +394,7 @@ internal static class ScenarioEnvironmentBudget
         private readonly Dictionary<int, Ambient> _ambient = new();
         private readonly Dictionary<Material, Material> _materials = new();
         private readonly Dictionary<Material, Material> _originalByVariant = new();
+        private readonly Dictionary<Material, bool> _preCullMaterialVerdicts = new();
         private readonly List<ProceduralMapTile> _tiles = new();
         private readonly List<Batch> _batches = new();
         private readonly Dictionary<int, Batch> _batchBySource = new();
@@ -730,16 +731,32 @@ internal static class ScenarioEnvironmentBudget
             // MaterialLoader completion. Revalidate the original, not saved properties
             // copied into our variant. No hierarchy query or material-array allocation
             // is needed on the unchanged path. Restore before either eye is culled.
+            // Build624's three-room Frame capture measures 3.653ms/frame in PreCull.
+            // Many admitted surfaces share one original; repeating that material's
+            // native shader/property/keyword reads per renderer adds no new evidence
+            // within this synchronous callback. Reuse only this invocation's verdict:
+            // the next camera/eye must see in-place native edits immediately. The
+            // renderer-specific property-block veto remains live for every surface.
+            _preCullMaterialVerdicts.Clear();
             _dead.Clear();
             foreach (var pair in _surfaces)
             {
                 Surface surface = pair.Value;
                 if (surface.Applied == null || surface.Renderer == null) continue;
-                bool compatible = !surface.Renderer.HasPropertyBlock();
+                bool compatible = !surface.Renderer.HasPropertyBlock() && (surface.Floor || surface.Structural);
                 foreach (Material original in surface.Original)
-                    compatible &= CompatibleMaterial(original, surface.Floor || surface.Structural);
+                {
+                    if (original == null) { compatible = false; continue; }
+                    if (!_preCullMaterialVerdicts.TryGetValue(original, out bool materialCompatible))
+                    {
+                        materialCompatible = CompatibleMaterial(original, true);
+                        _preCullMaterialVerdicts.Add(original, materialCompatible);
+                    }
+                    compatible &= materialCompatible;
+                }
                 if (!compatible) _dead.Add(pair.Key);
             }
+            _preCullMaterialVerdicts.Clear();
             foreach (int id in _dead)
             {
                 Surface surface = _surfaces[id];
@@ -878,6 +895,7 @@ internal static class ScenarioEnvironmentBudget
 
         internal void RestoreAll()
         {
+            _preCullMaterialVerdicts.Clear();
             ReleaseBatches();
             foreach (Surface surface in _surfaces.Values) surface.RestoreMaterial();
             foreach (Ambient ambient in _ambient.Values) ambient.Apply(false);

@@ -143,11 +143,21 @@ def main():
             ('structural-effect-release-missing','InvalidateBatch(id);\n            if (_surfaces.TryGetValue(id, out Surface surface))','/* injected: substitute survives write */\n            if (_surfaces.TryGetValue(id, out Surface surface))','wall effect write restores structural sources and material synchronously',1),
             ('live-floor-dissolve-not-preserved','if (NativeWallFadeEnabled(material)) return false;','/* injected: native floor shader channel lost */','live native floor wall channels retain original shaders',1),
             ('late-native-channel-not-retired','RetireChangedNativeMaterials();','/* injected: late original wall channel ignored */','late native material gate retires the simpler variant before actual camera culling',1),
+            ('shared-original-verdict-recomputed','if (!_preCullMaterialVerdicts.TryGetValue(original, out bool materialCompatible))','_preCullMaterialVerdicts.Clear();\n                    if (!_preCullMaterialVerdicts.TryGetValue(original, out bool materialCompatible))','one camera validates each shared original material once',1),
+            ('shared-original-cross-camera-cache','_preCullMaterialVerdicts.Clear();','/* injected: stale material verdict survives cameras */','native keyword edit between camera invocations restores every sharing surface before culling',3),
+            ('shared-original-renderer-veto-missing','!surface.Renderer.HasPropertyBlock() && (surface.Floor || surface.Structural)','surface.Floor || surface.Structural','shared original verdict never bypasses an individual native property-block veto',1),
             ('native-continuation-fault-guard-removed','try { _driver?.MaterialReady(renderer); }\n        catch (Exception error) { StopAfterFailure(error); }','_driver?.MaterialReady(renderer);','generated shader resolver fault',1),
         ]
         for name, before, after, expected, occurrences in changes:
             assert source.count(before) == occurrences, 'negative control binding drift: '+name
             variants.append((name,source.replace(before,after),expected))
+        storage = 'private readonly Dictionary<Material, bool> _preCullMaterialVerdicts = new();'
+        entry_clear = '_preCullMaterialVerdicts.Clear();\n            _dead.Clear();'
+        assert source.count(storage) == 1 and source.count(entry_clear) == 1, 'material storage control binding drift'
+        variants.append(('shared-original-storage-reallocated',
+            source.replace(storage, storage.replace('readonly ', ''))
+                .replace(entry_clear, '_preCullMaterialVerdicts = new Dictionary<Material, bool>();\n            _dead.Clear();'),
+            'warmed material validation reuses its bounded dictionary storage'))
         before = 'if (!surface.Mesh.isReadable) { _unreadable++; continue; }'
         guard = '!s.Mesh.isReadable || '
         assert source.count(before) == 1 and source.count(guard) == 1, 'negative control binding drift: unreadable geometry'
@@ -206,7 +216,10 @@ def main():
     dotnet = shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
     for name, value, expected in variants:
         build = run/name; production = build/'production'; production.mkdir(parents=True)
-        (production/'Environment.cs').write_text(value)
+        read_entry = 'private static bool CompatibleMaterial(Material material, bool floor)\n    {'
+        assert value.count(read_entry) == 1, 'complete original material-read counter binding drift'
+        (production/'Environment.cs').write_text(value.replace(read_entry,
+            read_entry + '\n        global::EnvironmentProgram.RecordMaterialRead();'))
         (production/'WallFloorTile.cs').write_text(floor)
         (production/'WallDelivery.cs').write_text(delivery_variants.get(name,delivery))
         (production/'WallClock.cs').write_text(clock_variants.get(name,clock))

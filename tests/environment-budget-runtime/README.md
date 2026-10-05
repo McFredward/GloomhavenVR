@@ -20,6 +20,12 @@ The generated scene covers:
 - Exact original texture/tint/UV properties and material references; native in-place
   material completion; foreign replacements; unknown native clones restored before
   disposing an owned material variant.
+- Forty-eight surfaces sharing two originals validate each material once per real
+  camera invocation. A native keyword/property edit between camera invocations
+  restores every affected surface; an individual property block and foreign material
+  remain independent. Only a read-entry counter is added to the complete production
+  compatibility method. Warmed storage is reused and verdict references clear after
+  each invocation; allocation claims additionally require a calibrated live counter.
 - Native floor pixels before/after combining, same-render fallback after visibility,
   mesh, transform, material array, property block and common render-flag changes.
 - Render-only leases, real balanced and nested camera callback execution, original

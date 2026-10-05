@@ -9,6 +9,10 @@ using UnityEngine.SceneManagement;
 public static class EnvironmentProgram
 {
     private static int count;
+    private static int materialReads;
+    // The source binder adds only this counter at the complete production
+    // CompatibleMaterial entry; all actual Unity shader/property reads still execute.
+    public static void RecordMaterialRead() => materialReads++;
     private static readonly List<string> InvalidCallbackMessages = new();
     private static void EngineMessage(string text, string stack, LogType type)
     {
@@ -695,6 +699,76 @@ public static class EnvironmentProgram
             "all environment optimizations off preserve native wall rendering and its authored live material");
     }
 
+    private static void SharedOriginalMaterialValidation()
+    {
+        using var room = new Room();
+        var secondMaterial = room.Material();
+        var first = new List<MeshRenderer>();
+        var second = new List<MeshRenderer>();
+        for (int i = 0; i < 24; i++)
+        {
+            first.Add(room.Floor());
+            second.Add(room.Surface("CV_Floor_Base_SharedSecond", material: secondMaterial));
+        }
+        Configure(false, true, 100);
+        ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(Members("_surfaces") == 48, "shared original fixture adopts every eligible surface");
+        materialReads = 0;
+        room.Render();
+        Check(materialReads == 2,
+            "one camera validates each shared original material once while retaining every surface: reads=" + materialReads);
+        foreach (var renderer in first)
+            Check(renderer.sharedMaterial != room.Original, "unchanged shared original keeps its simpler presentation");
+
+        var field = Driver.GetType().GetField("_preCullMaterialVerdicts", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        object storage = field.GetValue(Driver)!;
+        var retire = (Action)Delegate.CreateDelegate(typeof(Action), Driver,
+            Driver.GetType().GetMethod("RetireChangedNativeMaterials", BindingFlags.Instance | BindingFlags.NonPublic)!);
+        for (int i = 0; i < 16; i++) retire();
+        long calibration = GC.GetAllocatedBytesForCurrentThread();
+        var allocationProbe = new byte[8192]; GC.KeepAlive(allocationProbe);
+        bool counterSupported = GC.GetAllocatedBytesForCurrentThread() > calibration;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 64; i++) retire();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Check(ReferenceEquals(storage, field.GetValue(Driver)),
+            "warmed material validation reuses its bounded dictionary storage");
+        Check(!counterSupported || allocated == 0,
+            "supported allocation counter proves warmed material validation allocates nothing: bytes=" + allocated);
+        Debug.Log("Shared-material allocation receipt: calibrated counter=" + counterSupported
+            + "; bytes=" + allocated + "; same dictionary=True; live originals=2, sources=48");
+
+        // These are two successive actual Camera.Render invocations, modelling the
+        // native edit seam between MultiPass eyes without claiming an XR pixel test.
+        room.Original.EnableKeyword("_WALLFADE_ON_ON");
+        room.Render();
+        foreach (var renderer in first)
+            Check(renderer.sharedMaterial == room.Original && !renderer.forceRenderingOff,
+                "native keyword edit between camera invocations restores every sharing surface before culling");
+        foreach (var renderer in second)
+            Check(renderer.sharedMaterial != secondMaterial,
+                "other shared original remains admitted after one material changes");
+        Check(Members("_preCullMaterialVerdicts") == 0,
+            "material verdicts retain no original references between camera invocations");
+
+        var block = new MaterialPropertyBlock(); block.SetFloat("_WallFade_On", 1f);
+        second[0].SetPropertyBlock(block);
+        room.Render();
+        Check(second[0].sharedMaterial == secondMaterial && !second[0].forceRenderingOff,
+            "shared original verdict never bypasses an individual native property-block veto");
+        Check(second[1].sharedMaterial != secondMaterial,
+            "individual property-block retirement leaves its unchanged shared-material sibling admitted");
+        var foreign = room.Material(); second[1].sharedMaterial = foreign;
+        secondMaterial.SetFloat("_ToggleWallFadeLocal", -1f);
+        room.Render();
+        Check(second[1].sharedMaterial == foreign,
+            "shared-material retirement preserves a later foreign material replacement");
+        for (int i = 2; i < second.Count; i++)
+            Check(second[i].sharedMaterial == secondMaterial && !second[i].forceRenderingOff,
+                "native property edit restores remaining shared originals without a stale cross-camera verdict");
+        Check(Members("_surfaces") == 0, "retired shared originals release the complete surface ledger");
+    }
+
     // Actual original Apply/DriveNativeProp bodies and historical two textures execute.
     // This shader is an explicitly bounded GL branch surrogate, not original Windows
     // bytecode. Different valid simplex samples can have different HIGH pixel curves;
@@ -949,6 +1023,9 @@ public static class EnvironmentProgram
         try
         {
             PresentationPreparationVisibility(); ScopeAndMaterials(); AmbientScopes(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault(); StructuralChunks(); NativeWallChannelsAndRenderedClock();
+            int sharedStart = count;
+            SharedOriginalMaterialValidation();
+            Debug.Log("Shared-material validation assertions=" + (count - sharedStart));
             NativeHighHistoricalDelivery();
             NativeHighHistoricalDelivery(toggleNative:true);
             NativeHighHistoricalDelivery(mounted:true);
