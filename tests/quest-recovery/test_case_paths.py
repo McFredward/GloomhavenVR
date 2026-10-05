@@ -137,6 +137,51 @@ class CasePathContracts(unittest.TestCase):
         self.assertEqual(len([name for name in report["manifestSha256"] if name.startswith("Assets/QuestOriginalCampaign/")]), 9)
         self.assertEqual(case_paths.migrate(self.project), report)
 
+    def campaign_only_manifests(self, asset, guid):
+        (self.project / case_paths.ADDRESSABLES).unlink()
+        (self.project / case_paths.BINDINGS).unlink()
+        root = self.project / "Assets/QuestOriginalCampaign"
+        root.mkdir()
+        entry = {"assetPath": asset, "originalAssetPath": asset, "recoveredGuid": guid,
+                 "provider": "BundledAssetProvider", "keys": ["native-campaign-key"], "nativeFileId": 17}
+        (self.project / case_paths.CAMPAIGN_ADDRESSABLES).write_text(json.dumps({"schema": 1, "entries": [entry]}))
+        (self.project / case_paths.CAMPAIGN_BINDINGS).write_text(json.dumps({"schema": 1, "assetPaths": [asset]}))
+
+    def test_complete_campaign_without_diagnostic_startup_manifests(self):
+        core, bundled = "Assets/Resources/Hex.prefab", "Assets/Resources/hex.prefab"
+        self.asset(core, "1" * 32)
+        self.asset(bundled, "2" * 32, "native Campaign callback and dependency bytes\n")
+        self.campaign_only_manifests(bundled, "2" * 32)
+        original = self.file_bytes()
+        report = case_paths.migrate(self.project)
+        destination = case_paths.mapped(bundled, report["pathMappings"])
+        self.assertEqual(report["target"], "game")
+        self.assertNotEqual(destination, bundled)
+        self.assertFalse(case_paths.resource_path(destination))
+        self.assertEqual((self.project / destination).read_bytes(), original[bundled])
+        self.assertEqual((self.project / (destination + ".meta")).read_bytes(), original[bundled + ".meta"])
+        self.assertFalse((self.project / case_paths.ADDRESSABLES).exists())
+        self.assertFalse((self.project / case_paths.BINDINGS).exists())
+        catalog = json.loads((self.project / case_paths.CAMPAIGN_ADDRESSABLES).read_text())
+        self.assertEqual(catalog["entries"][0]["assetPath"], destination)
+        self.assertEqual(catalog["entries"][0]["originalAssetPath"], bundled)
+        self.assertEqual(catalog["entries"][0]["keys"], ["native-campaign-key"])
+        self.assertEqual(case_paths.migrate(self.project), report)
+
+    def test_campaign_only_incomplete_pair_and_wrong_guid_reject_without_mutation(self):
+        asset = "Assets/Native.prefab"
+        self.asset(asset, "1" * 32)
+        self.campaign_only_manifests(asset, "2" * 32)
+        before = self.file_bytes()
+        with self.assertRaisesRegex(case_paths.CasePathError, "GUID mismatch"):
+            case_paths.migrate(self.project)
+        self.assertEqual(self.file_bytes(), before)
+        (self.project / case_paths.CAMPAIGN_BINDINGS).unlink()
+        before = self.file_bytes()
+        with self.assertRaisesRegex(case_paths.CasePathError, "Incomplete Campaign"):
+            case_paths.migrate(self.project)
+        self.assertEqual(self.file_bytes(), before)
+
     def test_folder_metadata_and_nested_references_move_with_owner(self):
         self.asset("Assets/A/Child.asset", "1" * 32)
         self.asset("Assets/a/Child.asset", "2" * 32, "m_Target: {fileID: 71}\n")

@@ -16,6 +16,8 @@ import sys
 
 ADDRESSABLES = "Assets/QuestOriginalStartup/startup-addressables.json"
 BINDINGS = "Assets/QuestOriginalStartup/script-bindings.json"
+CAMPAIGN_ADDRESSABLES = "Assets/QuestOriginalCampaign/campaign-addressables.json"
+CAMPAIGN_BINDINGS = "Assets/QuestOriginalCampaign/script-bindings.json"
 RECEIPT = "QuestStartupEvidence/case-path-migration.json"
 VARIANTS = "Assets/QuestOriginalStartup/CaseVariants"
 GUID = re.compile(r"^guid:\s*([0-9a-f]{32})\s*$", re.M)
@@ -77,42 +79,46 @@ def nodes(project):
 
 
 def load_manifests(project):
-    addressables = json.loads((project / ADDRESSABLES).read_text())
-    bindings = json.loads((project / BINDINGS).read_text())
-    if addressables.get("schema") != 1 or not isinstance(addressables.get("entries"), list):
-        raise CasePathError("Unsupported startup Addressables manifest")
-    if bindings.get("schema") != 1 or not isinstance(bindings.get("assetPaths"), list):
-        raise CasePathError("Unsupported startup script bindings manifest")
+    # A complete Campaign recovery has its own authoritative manifests; it is
+    # not an extension of the diagnostic startup closure. Validate every pair
+    # that is present, without requiring or fabricating diagnostic manifests.
+    addressables = bindings = None
     associated = set()
-    for row in addressables["entries"]:
-        path = row.get("assetPath")
-        if path is None:
+    found = False
+    for label, addressable_path, binding_path in (
+            ("startup", ADDRESSABLES, BINDINGS),
+            ("Campaign", CAMPAIGN_ADDRESSABLES, CAMPAIGN_BINDINGS)):
+        present = (project / addressable_path).is_file(), (project / binding_path).is_file()
+        if not any(present):
             continue
-        relative_path(path)
-        if not (project / path).is_file():
-            raise CasePathError("Declared startup asset is absent: " + path)
-        if asset_guid(project, path) != row.get("recoveredGuid"):
-            raise CasePathError("Addressables original GUID mismatch: " + path)
-        if "BundledAssetProvider" in row.get("provider", ""):
-            associated.add(path)
-    for path in bindings["assetPaths"]:
-        relative_path(path)
-        if not (project / path).is_file():
-            raise CasePathError("Declared script binding asset is absent: " + path)
-    campaign_path = project / "Assets/QuestOriginalCampaign/campaign-addressables.json"
-    if campaign_path.is_file():
-        campaign = json.loads(campaign_path.read_text())
-        if campaign.get("schema") != 1 or not isinstance(campaign.get("entries"), list):
-            raise CasePathError("Unsupported Campaign Addressables manifest")
-        for row in campaign["entries"]:
+        if not all(present):
+            raise CasePathError("Incomplete " + label + " asset manifest pair")
+        catalog = json.loads((project / addressable_path).read_text())
+        scripts = json.loads((project / binding_path).read_text())
+        if catalog.get("schema") != 1 or not isinstance(catalog.get("entries"), list):
+            raise CasePathError("Unsupported " + label + " Addressables manifest")
+        if scripts.get("schema") != 1 or not isinstance(scripts.get("assetPaths"), list):
+            raise CasePathError("Unsupported " + label + " script bindings manifest")
+        for row in catalog["entries"]:
             path = row.get("assetPath")
-            if path is None: continue
+            if path is None:
+                continue
             relative_path(path)
-            if not (project / path).is_file() or asset_guid(project, path) != row.get("recoveredGuid"):
-                raise CasePathError("Campaign original asset identity mismatch: " + path)
+            if not (project / path).is_file():
+                raise CasePathError("Declared " + label + " asset is absent: " + path)
+            if asset_guid(project, path) != row.get("recoveredGuid"):
+                raise CasePathError(label + " Addressables original GUID mismatch: " + path)
             if "BundledAssetProvider" in row.get("provider", ""):
-                bundled_path = row["assetPath"]
-                associated.add(bundled_path)
+                associated.add(path)
+        for path in scripts["assetPaths"]:
+            relative_path(path)
+            if not (project / path).is_file():
+                raise CasePathError("Declared " + label + " script binding asset is absent: " + path)
+        found = True
+        if label == "startup":
+            addressables, bindings = catalog, scripts
+    if not found:
+        raise CasePathError("No complete original asset manifest pair")
     return addressables, bindings, associated
 
 
@@ -228,7 +234,7 @@ def plan(nodes_by_path, bundled):
 
 
 def verify_receipt(project, receipt):
-    if receipt.get("schema") != 1 or receipt.get("target") != "startup":
+    if receipt.get("schema") != 1 or receipt.get("target") not in ("startup", "game"):
         raise CasePathError("Unsupported generated case migration receipt")
     for row in receipt.get("files", []):
         path = relative_path(row["assetPath"])
@@ -271,12 +277,14 @@ def migrate(project):
         guid = asset_guid(project, owner)
         rows.append({"originalPath": path, "assetPath": destination, "guid": guid,
                      "sha256": digest(project / path), "size": (project / path).stat().st_size})
-    new_addressables, new_bindings = copy.deepcopy(addressables), copy.deepcopy(bindings)
-    for row in new_addressables["entries"]:
-        if row.get("assetPath") is not None:
-            row["assetPath"] = mapped(row["assetPath"], moves)
-    new_bindings["assetPaths"] = [mapped(p, moves) for p in bindings["assetPaths"]]
-    updates = {ADDRESSABLES: new_addressables, BINDINGS: new_bindings}
+    updates = {}
+    if addressables is not None:
+        new_addressables, new_bindings = copy.deepcopy(addressables), copy.deepcopy(bindings)
+        for row in new_addressables["entries"]:
+            if row.get("assetPath") is not None:
+                row["assetPath"] = mapped(row["assetPath"], moves)
+        new_bindings["assetPaths"] = [mapped(p, moves) for p in bindings["assetPaths"]]
+        updates.update({ADDRESSABLES: new_addressables, BINDINGS: new_bindings})
     updates.update(campaign_manifest_updates(project, moves))
     previous = {path: (project / path).read_bytes() for path in updates}
     operations = sorted(moves.items(), key=lambda item: (item[0].count("/"), item[0]))
@@ -291,7 +299,7 @@ def migrate(project):
             (project / path).write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         if plan(nodes(project), {mapped(p, moves) for p in bundled})[0]:
             raise CasePathError("Generated asset paths remain unsafe")
-        receipt = {"schema": 1, "target": "startup", "fullGameReady": False,
+        receipt = {"schema": 1, "target": "game" if (project / CAMPAIGN_ADDRESSABLES).is_file() else "startup", "fullGameReady": False,
                    "assetContentChanged": False, "serializedReferencesChanged": False,
                    "addressableKeysChanged": False, "pathMappings": moves,
                    "moves": [{"originalPath": p, "assetPath": moves[p], "reason": reasons[p]}

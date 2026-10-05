@@ -180,7 +180,7 @@ their supported route, and the Quest flat-screen adapter selects the completed
 eye texture through that same route. Desktop mode selection is unchanged.
 
 Current focused Python builder gate passes200 tests in the provisioned private
-Python environment; compute fixtures pass27 and case-path fixtures pass12. Own
+Python environment; compute fixtures pass27 and case-path fixtures pass14. Own
 superseded APKs are removed; B622 native symbols are retained with matching build
 ID9a2274f00b636520 before deleting its generated28-GB Library. Final full-player
 compilation, signed APK and Windows hardware package still remain required.
@@ -232,8 +232,21 @@ two negative controls fail as intended. These are host witnesses, not Quest imag
 
 Shipping coverage retains all51,564 original native Vulkan keyword aliases.
 Synthetic future multiview aliases are tracked separately and do not inflate that
-census. The complete alias sweep remains in progress: actual instancing compiler
-failures require exact interface corrections and successful failing-bank retests
-before the final source freeze. No original alias or rendering calculation is
-dropped to satisfy compilation. The interrupted prepare copies are removed only
-after retaining their unique receipts; the canonical recovered content remains.
+census. All three exact final compiler partitions now pass and their verified
+disjoint union contains688 shaders, all9,187 original consumers and11,212 distinct
+actual SPIR-V pairs. The independent full live-driver census remains in progress.
+Seven original/native instanced NaN-control readbacks and three original shadow
+witnesses match the original D3D output, including the formerly failing tier2
+instancing bank. Focused shader fixtures pass51 tests. No original alias or
+rendering calculation is dropped to satisfy compilation.
+
+The first complete preparation reached full native shader reconstruction but
+exposed a shared path-migration helper that required diagnostic startup manifests.
+Campaign-only recovery now validates its own complete catalog/script-binding
+pair; partial manifests and changed GUIDs fail before mutation. The actual full
+generated asset tree passes25 moves/50 byte-preserved files without fabricating
+startup manifests. Script-order selection and four additional dynamically sourced
+Campaign video routes are being completed before the next production freeze.
+The interrupted prepare copies are removed only after retaining their unique
+receipts; the canonical recovered content remains. No full Campaign APK is ready
+yet.
