@@ -875,12 +875,14 @@ internal static class ScenarioEnvironmentBudget
                     || surface.Mesh.subMeshCount != 1 || renderer.sharedMaterials.Length != 1
                     || renderer.GetComponentInParent<LODGroup>(true) != null
                     || (renderer.lightmapIndex >= 0 && renderer.lightmapIndex < 65534)) continue;
-                surface.ReadableMesh = surface.Mesh.isReadable ? surface.Mesh : null;
-                if (surface.ReadableMesh == null && _meshBankOn && ScenarioEnvironmentMeshBank.TryGetExact(surface.Mesh, out Mesh exact)) surface.ReadableMesh = exact;
-                if (surface.ReadableMesh == null) { _unreadable++; continue; }
                 Material material = renderer.sharedMaterial;
                 if (material == null) continue;
                 if (!ChunkLightingCompatible(renderer)) { _probeRefusals++; continue; }
+                // Refused lighting never needs private geometry, source-bundle hashing
+                // or mesh decoding. Admit the complete render contract first.
+                surface.ReadableMesh = surface.Mesh.isReadable ? surface.Mesh : null;
+                if (surface.ReadableMesh == null && _meshBankOn && ScenarioEnvironmentMeshBank.TryGetExact(surface.Mesh, out Mesh exact)) surface.ReadableMesh = exact;
+                if (surface.ReadableMesh == null) { _unreadable++; continue; }
                 var key = new BatchKey(surface, material);
                 if (!groups.TryGetValue(key, out List<Surface> members)) groups.Add(key, members = new List<Surface>());
                 members.Add(surface);

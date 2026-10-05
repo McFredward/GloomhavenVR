@@ -134,6 +134,7 @@ def main():
             ('native-load-start-not-restored', 'ScenarioEnvironmentBudget.BeforeNativeRendererWrite(renderer);', '/* injected late native load-start hide */', 'native material-load start revokes queued geometry before its original hide', 1),
             ('native-load-start-not-installed', 'VRSession.Harmony?.PatchAll(typeof(MaterialLoaderData_Load_EnvironmentBudgetPatch));', '/* injected missing load-start hook */', 'production install registers native material-load start interruption', 1),
             ('native-load-start-other-lease-not-recovered', 'ScenarioEnvironmentBudget.BeforeNativeContentChange();\n        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(renderer);', '/* injected shared idle lease survives */\n        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(renderer);', 'native material-load start dispatches the shared idle lease recovery before hiding', 1),
+            ('rejected-probes-decode-private-geometry', 'if (!ChunkLightingCompatible(renderer)) { _probeRefusals++; continue; }', 'if (!surface.Mesh.isReadable && _meshBankOn) ScenarioEnvironmentMeshBank.TryGetExact(surface.Mesh, out _);\n                if (!ChunkLightingCompatible(renderer)) { _probeRefusals++; continue; }', 'probe-rejected unreadable sources never enter bank hashing or decoding', 1),
             ('instance-post-command-not-detached', 'submission.Camera.RemoveCommandBuffer(CameraEvent.BeforeForwardOpaque, submission.Buffer);', '/* injected: queued instance commands remain attached */', 'instance camera completion restores source masks and removes private commands', 2),
             ('instance-native-clone-prefix-missing', 'private static void Prefix() => ScenarioEnvironmentBudget.BeforeNativeContentChange();', 'private static void Prefix() { }', 'room content changes revoke interrupted queued commands before cloning', 2),
             ('foreign-ui-admitted','node.GetComponent<Canvas>() != null','false','foreign UI material stays untouched',2),
@@ -263,6 +264,9 @@ def main():
         return null;'''
                 assert bank_text.count(lookup) == 1, 'Only actual platform asset lookup is the explicit editor fixture boundary'
                 bank_text = 'using Application = GloomhavenVR.Core.BankFixturePaths;\n'+bank_text.replace(lookup, '        return BankFixtureAssets.Resolve(path);')
+                bank_entry = 'internal static bool TryGetExact(Mesh native, out Mesh mesh) => TryGet(native, 100, out mesh);'
+                assert bank_text.count(bank_entry) == 1, 'Complete original bank read-request counter binding drift'
+                bank_text = bank_text.replace(bank_entry, 'internal static bool TryGetExact(Mesh native, out Mesh mesh) { global::EnvironmentProgram.RecordBankRead(); return TryGet(native, 100, out mesh); }')
             (production/bank_file).write_text(bank_text)
         (production/'Environment.cs').write_text(value.replace(read_entry,
             read_entry + '\n        global::EnvironmentProgram.RecordMaterialRead();'))

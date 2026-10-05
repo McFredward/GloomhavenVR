@@ -80,6 +80,29 @@ public static partial class EnvironmentProgram
             "simplified shader keeps its material compromise without combining per-object probe draws");
     }
 
+    private static void ProbeRejectionSkipsPrivateGeometry()
+    {
+        using var room = new Room();
+        Mesh native = BankOriginal("CV_Floor_Basic_01"); native.UploadMeshData(true);
+        var first = room.Floor(.5f); var second = room.Floor(2.5f);
+        first.GetComponent<MeshFilter>().sharedMesh = second.GetComponent<MeshFilter>().sharedMesh = native;
+        first.lightProbeUsage = second.lightProbeUsage = LightProbeUsage.BlendProbes;
+        Color32[] original = room.Render();
+        Configure(true, false, 100); PerfConfig.EnvironmentMeshBankOn = true;
+        bankReadRequests = 0; ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(bankReadRequests == 0,
+            "probe-rejected unreadable sources never enter bank hashing or decoding");
+        Color32[] retained = room.Render(); bool same = true;
+        for (int i = 0; i < original.Length; i++) same &= original[i].Equals(retained[i]);
+        Check(same && !first.forceRenderingOff && !second.forceRenderingOff && room.Chunks().Length == 0,
+            "early probe refusal preserves native unreadable geometry pixels and masks");
+        first.lightProbeUsage = second.lightProbeUsage = LightProbeUsage.Off;
+        bankReadRequests = 0; ScenarioEnvironmentBudget.Placed(room.Generated); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+        Check(bankReadRequests == 2 && room.Chunks().Length == 1,
+            "probe-free unreadable sources enter the real private bank only after render admission");
+        Configure(false, false, 100); Tick(); UnityEngine.Object.DestroyImmediate(native);
+    }
+
     private static void NativeMaterialLoadStart()
     {
         foreach (bool instanced in new[] { false, true })

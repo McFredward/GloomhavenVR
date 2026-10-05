@@ -11,9 +11,11 @@ public static partial class EnvironmentProgram
 {
     private static int count;
     private static int materialReads;
+    private static int bankReadRequests;
     // The source binder adds only this counter at the complete production
     // CompatibleMaterial entry; all actual Unity shader/property reads still execute.
     public static void RecordMaterialRead() => materialReads++;
+    public static void RecordBankRead() => bankReadRequests++;
     private static readonly List<string> InvalidCallbackMessages = new();
     private static void EngineMessage(string text, string stack, LogType type)
     {
@@ -1059,7 +1061,7 @@ public static partial class EnvironmentProgram
         {
             PresentationPreparationVisibility(); ScopeAndMaterials(); AmbientScopes(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault(); StructuralChunks(); NativeWallChannelsAndRenderedClock();
             int sharedStart = count;
-            SharedOriginalMaterialValidation(); SharedReadOptionToggle(); VerifiedEnvironmentBank(); UnreadableExactChunks(); ExplicitCameraInstances(); MultipleSubmeshInstances(); RevealedClonePixels(); SupplementaryNativeGeometry(); NativeObjectLighting(); NativeMaterialLoadStart();
+            SharedOriginalMaterialValidation(); SharedReadOptionToggle(); VerifiedEnvironmentBank(); UnreadableExactChunks(); ExplicitCameraInstances(); MultipleSubmeshInstances(); RevealedClonePixels(); SupplementaryNativeGeometry(); NativeObjectLighting(); ProbeRejectionSkipsPrivateGeometry(); NativeMaterialLoadStart();
             Debug.Log("Shared-material validation assertions=" + (count - sharedStart));
             NativeHighHistoricalDelivery();
             NativeHighHistoricalDelivery(toggleNative:true);

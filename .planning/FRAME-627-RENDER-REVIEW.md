@@ -15,7 +15,9 @@ This document records source and native-engine evidence, not headset FPS.
   per-object light/reflection probes. Copying flags to a combined renderer is not
   sufficient: its aggregate bounds can sample different lighting. The actual
   simplified shader uses `ShadeSH9`, so selecting it cannot bypass that safeguard.
-  Material simplification remains independent of combining those draws.
+  Material simplification remains independent of combining those draws. Material
+  and probe admission precede readable/bank mesh preparation, so rejected unreadable
+  surfaces do not hash original provenance or decode private geometry needlessly.
 - Terrain proxies now copy the live `renderingLayerMask` for every camera, along
   with the already-preserved sorting, lightmaps, shadows and probe flags.
 - Original `MaterialLoaderData.LoadMaterials` hides its renderer before the
@@ -80,6 +82,11 @@ Original Windows shader bytecode and headset images do not execute here.
   to require original material-array ownership too.
 - Final native loader restoration follow-up: 11,265 assertions and its corrected
   precise control, `load-restoration-final/run-lfcpll_i`.
+- Early unreadable probe-refusal follow-up: 11,271 production assertions and its
+  precise eager-bank-access control, `early-probe-refusal/run-6a3ktir0`. The source
+  binder counts only the complete original `TryGetExact` entry; rejected native
+  floors make zero requests, probe-free floors make two requests and form their
+  real chunk, and camera pixels/masks retain the original refused picture.
 - Final bounded refusal-summary follow-up: 11,266 production assertions,
   `refusal-report/run-fmo9ckgx`. The only new effect is the existing Debug summary
   reporting preparation refusals; all required causal controls remain recorded

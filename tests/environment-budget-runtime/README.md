@@ -49,6 +49,10 @@ The generated scene covers:
   probe-free renderers may use a combined chunk. The simplified shader still reads
   spherical-harmonic ambient lighting, so it does not bypass this native safeguard;
   its material compromise remains available without combining those draws.
+  Probe-rejected unreadable native floors make zero requests to the complete
+  original mesh-bank entry, avoiding provenance work or private geometry decode.
+  Removing the probe requirement admits both real bank requests and their chunk;
+  original pixels and camera masks remain unchanged on the refused path.
 - Real bounded explicit instance commands preserve pixels and multiple material
   submeshes. Independent option Off, lightmaps, motion flags and newly active wall
   channels restore originals. A native renderer write after actual pre-cull submission
