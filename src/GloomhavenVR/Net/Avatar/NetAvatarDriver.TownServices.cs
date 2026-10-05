@@ -16,6 +16,7 @@ internal sealed partial class NetAvatarDriver
     private readonly Dictionary<int, List<TownServiceMotionPacket>> _pendingTownMotion = new();
     private readonly byte[] _activityBuffer = new byte[TownActivityCodec.PacketBytes];
     private float _nextFaceSend, _nextTownCapture;
+    private int _townCaptureFrame = -1;
     private Func<byte[], int, bool, bool>? _merchantControlSender;
     private bool SendMerchantControl(byte[] bytes, int length, bool hostOnly) =>
         _transport is FfsNetTransport ffs && ffs.SendTownControl(bytes, length, hostOnly);
@@ -29,8 +30,9 @@ internal sealed partial class NetAvatarDriver
         // sends, especially for the complete public cabinet. Keep the final-writer seam
         // and one current sample per transport interval; never run catch-up work.
         float now = UnityEngine.Time.unscaledTime;
-        if (now >= _nextTownCapture)
+        if (now >= _nextTownCapture && _townCaptureFrame != UnityEngine.Time.frameCount)
         {
+            _townCaptureFrame = UnityEngine.Time.frameCount;
             _nextTownCapture = now + 1f / 15f;
             using var capture = PerfMonitor.Scope("Net.Town.Capture");
             try { TownServiceMirror.Capture((bytes, length, identity) => _transport.Send(bytes, length, identity)); }
@@ -115,5 +117,5 @@ internal sealed partial class NetAvatarDriver
         if (TownServiceMirror.SharedFrameForRemote != null) TownServiceMirror.TickRemote(TownServiceMirror.SharedFrameForRemote);
     }
     private void ForgetTownServices(int peer) { _pendingTown.Remove(peer); _pendingTownVoice.Remove(peer); _pendingTownMotion.Remove(peer); TownServiceGrantSync.ForgetPeer(peer); TownMerchantControlSync.ForgetPeer(peer); TownServiceMirror.RemovePeer(peer); RemoteTownResidents.Forget(peer); RemoteTownFaces.Forget(peer); RemoteTownActivities.Forget(peer); }
-    private void ResetTownServices() { _pendingTown.Clear(); _pendingTownVoice.Clear(); _pendingTownMotion.Clear(); TownServiceGrantSync.Reset(); TownMerchantControlSync.Reset(); TownServiceMirror.ResetNetwork(); RemoteTownResidents.Reset(); RemoteTownFaces.Reset(); RemoteTownActivities.Reset(); _nextFaceSend = _nextTownCapture = 0f; }
+    private void ResetTownServices() { _pendingTown.Clear(); _pendingTownVoice.Clear(); _pendingTownMotion.Clear(); TownServiceGrantSync.Reset(); TownMerchantControlSync.Reset(); TownServiceMirror.ResetNetwork(); RemoteTownResidents.Reset(); RemoteTownFaces.Reset(); RemoteTownActivities.Reset(); _nextFaceSend = _nextTownCapture = 0f; _townCaptureFrame = -1; }
 }

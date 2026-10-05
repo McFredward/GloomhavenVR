@@ -232,6 +232,9 @@ public static partial class MirrorProgram
             File.WriteAllLines(Path.Combine(_output, "scheduled-trace.txt"), FinalCaptureState.Trace);
             Check(FinalCaptureState.Captures == 1, "registered Late frame captures town exactly once");
             Check(FinalCaptureState.Samples == 1, "final native publication samples at the first due transport interval");
+            int beforeSamples = FinalCaptureState.Samples;
+            NetAvatarDriver.PublishTownServicesFinal();
+            Check(FinalCaptureState.Samples == beforeSamples, "repeat publication in one render frame does not resample native NPC originals");
             string[] native = FinalCaptureState.Trace.Where(x => x.StartsWith("Native.")).ToArray();
             Check(native.SequenceEqual(new[] { "Native.Bonus", "Native.Highlight", "Native.Prompt", "Native.Item", "Native.Tooltip", "Native.Card", "Native.Board", "Native.Plume" }),
                 "all existing native samplers retain their exact registered order");
@@ -270,9 +273,7 @@ public static partial class MirrorProgram
             Check(Vector3.Distance(copy.Root.Find("Original drawn grab rod").localPosition, FinalCaptureState.FinalRod) < .00003f,
                 "capture includes the final drawn grab-bar geometry");
             Check(sort != null && sort.Numbers[2] == 127, "capture includes the final canvas sorting state");
-            int beforeSamples = FinalCaptureState.Samples;
-            NetAvatarDriver.PublishTownServicesFinal();
-            Check(FinalCaptureState.Samples == beforeSamples, "repeat publication in one render frame does not resample native NPC originals");
+
             Check(copy.Root.GetComponent<Canvas>().sortingOrder == 127 && copy.Root.GetComponent<Image>().color == FinalCaptureState.FinalInk,
                 "observer receives the final native canvas sort and appearance");
             Check(Remote(1, rowId) != null, "new actual native pool member reaches the observer in this frame");

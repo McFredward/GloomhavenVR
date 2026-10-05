@@ -50,7 +50,7 @@ def load_binding(root):
     native = (base / "Net/Avatar/NetAvatarDriver.NativePresentation.cs").read_text()
     town = (base / "Net/Avatar/NetAvatarDriver.TownServices.cs").read_text()
     members = native[native.index("    private readonly byte[] _boardBuffer"):native.index("    internal static void PublishTownServicesFinal()")]
-    bound["ScheduledAvatar.cs"] = "using System; using System.Collections.Generic; using UnityEngine; using GloomhavenVR.Core; using GloomhavenVR.WorldUI; using GloomhavenVR.Net.TownServices; namespace GloomhavenVR.Net; internal sealed partial class NetAvatarDriver {\n" + members + "\n" + "\n".join(helper.expression(town, declaration) for declaration in ("private float _nextFaceSend", "private Func<byte[], int, bool, bool>? _merchantControlSender")) + "\n" + helper.expression(town, "private bool SendMerchantControl") + "\n" + "\n".join((
+    bound["ScheduledAvatar.cs"] = "using System; using System.Collections.Generic; using UnityEngine; using GloomhavenVR.Core; using GloomhavenVR.WorldUI; using GloomhavenVR.Net.TownServices; namespace GloomhavenVR.Net; internal sealed partial class NetAvatarDriver {\n" + members + "\n" + "\n".join(helper.expression(town, declaration) for declaration in ("private float _nextFaceSend", "private int _townCaptureFrame", "private Func<byte[], int, bool, bool>? _merchantControlSender")) + "\n" + helper.expression(town, "private bool SendMerchantControl") + "\n" + "\n".join((
         method(avatar, "internal static void PublishUseBarAnimations("),
         method(native, "internal static void PublishTownServicesFinal()"),
         method(native, "private void TickNativePresentationSend("),
