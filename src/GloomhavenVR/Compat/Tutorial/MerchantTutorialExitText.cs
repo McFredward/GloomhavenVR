@@ -17,45 +17,64 @@ namespace GloomhavenVR.Compat;
 /// the converted shop closes through its X or the merchant toggle. Tag only messages
 /// constructed from that exact serialized step, and replace their visible text after
 /// native painting. Configs, keys, queues, conditions and continuation promises stay native.
-/// Language/controller repaint resolves the same replacement anew; no global term changes.
+/// Language/controller repaint revalidates the current producer and serialized row before
+/// resolving the replacement anew. Both converted 2D and nonimmersive 3D shops use this
+/// exit; a retained immersive setting has no effect while the 3D room is inactive.
 /// The immersive resident's flat-step skip is a separate native progression adapter.</summary>
 internal static class MerchantTutorialExitText
 {
-    private sealed class Marker { }
+    private sealed class Marker
+    {
+        internal readonly UIMapFTUEStep Producer;
+        internal readonly IntroductionStepUI Source;
+        internal Marker(UIMapFTUEStep producer, IntroductionStepUI source) { Producer = producer; Source = source; }
+    }
     private static readonly ConditionalWeakTable<CLevelMessage, Marker> Messages = new();
     private static readonly ConditionalWeakTable<CLevelMessagePage, Marker> Pages = new();
 
-    private static bool Active => MapRoomDriver.Active && !WorldUIConfig.ImmersiveTownServices.Value
+    private static bool Active => WorldUIConfig.ConversionActive
+        && (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value)
         && AdventureState.MapState?.IsCampaign == true && MapFTUEManager.IsPlaying
         && Singleton<MapFTUEManager>.Instance?.CurrentStep == EMapFTUEStep.BuyItem;
 
     internal static void Record(IntroductionStepUI step, CLevelMessage message)
     {
-        if (!Active || step.LayoutType != CLevelMessage.ELevelMessageLayoutType.HelpText
-            || !string.Equals(step.LocalizationTextKey, "FTUE_9.3", StringComparison.Ordinal)) return;
+        if (!Active) return;
         UIMapFTUEStep? buy = Singleton<UIShopItemWindow>.Instance?.ftueStep;
-        if (buy?.config == null || buy.Step != EMapFTUEStep.BuyItem) return;
-        bool original = false;
-        foreach (IntroductionStepUI candidate in buy.config.GetSteps())
-            if (ReferenceEquals(candidate, step)) { original = true; break; }
-        if (!original) return;
-        Messages.Remove(message); Messages.Add(message, new Marker());
+        if (!IsOriginal(step, buy)) return;
+        var marker = new Marker(buy!, step);
+        Messages.Remove(message); Messages.Add(message, marker);
         foreach (CLevelMessagePage page in message.Pages)
         {
-            Pages.Remove(page); Pages.Add(page, new Marker());
+            Pages.Remove(page); Pages.Add(page, marker);
         }
     }
 
+    private static bool IsOriginal(IntroductionStepUI step, UIMapFTUEStep? buy)
+    {
+        if (buy?.config == null || buy.Step != EMapFTUEStep.BuyItem
+            || !ReferenceEquals(Singleton<MapFTUEManager>.Instance?.currentStep, buy)
+            || step.LayoutType != CLevelMessage.ELevelMessageLayoutType.HelpText
+            || !string.Equals(step.LocalizationTextKey, "FTUE_9.3", StringComparison.Ordinal)) return false;
+        foreach (IntroductionStepUI candidate in buy.config.GetSteps())
+            if (ReferenceEquals(candidate, step)) return true;
+        return false;
+    }
+
+    private static bool Current(Marker marker) =>
+        ReferenceEquals(Singleton<UIShopItemWindow>.Instance?.ftueStep, marker.Producer)
+        && IsOriginal(marker.Source, marker.Producer);
+
     internal static void ApplyTitle(LevelMessageUILayout ui, CLevelMessage? message)
     {
-        if (Active && message != null && Messages.TryGetValue(message, out _)
+        if (Active && message != null && Messages.TryGetValue(message, out Marker? marker) && Current(marker)
             && ui.title != null && ui.title.gameObject.activeSelf)
             ui.title.text = Loc.MerchantTutorialExit;
     }
 
     internal static void ApplyBody(LevelMessagePageUI ui)
     {
-        if (Active && ui.page != null && Pages.TryGetValue(ui.page, out _)
+        if (Active && ui.page != null && Pages.TryGetValue(ui.page, out Marker? marker) && Current(marker)
             && ui.information != null)
             ui.information.text = Loc.MerchantTutorialExit;
     }

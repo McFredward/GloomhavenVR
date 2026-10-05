@@ -9,12 +9,14 @@ using ScenarioRuleLibrary.CustomLevels;
 // body. Actual Harmony patches run against these methods. This is not a full savegame
 // progression, headset layout or network test; those belong to the native flow lane.
 public enum EMapFTUEStep { None, VisitMerchant = 9, BuyItem = 10, InteractWithMap = 11 }
+public interface IMapFTUEStep { EMapFTUEStep Step { get; } }
 public sealed class MapFTUEManager
 {
     public static bool IsPlaying = true;
-    public EMapFTUEStep CurrentStep = EMapFTUEStep.BuyItem;
+    public IMapFTUEStep? currentStep;
+    public EMapFTUEStep CurrentStep => !IsPlaying || currentStep == null ? EMapFTUEStep.None : currentStep.Step;
 }
-public sealed class UIMapFTUEStep
+public sealed class UIMapFTUEStep : IMapFTUEStep
 {
     public MapFTUEStepConfigUI? config;
     public EMapFTUEStep Step => config!.Phase;
@@ -27,7 +29,11 @@ namespace GloomhavenVR.WorldUI.MapRoom
 namespace GloomhavenVR.WorldUI
 {
     internal sealed class Setting<T> { internal T Value; internal Setting(T value) { Value = value; } }
-    internal static class WorldUIConfig { internal static readonly Setting<bool> ImmersiveTownServices = new(false); }
+    internal static class WorldUIConfig
+    {
+        internal static bool ConversionActive = true;
+        internal static readonly Setting<bool> ImmersiveTownServices = new(false);
+    }
 }
 namespace MapRuleLibrary.Adventure
 {

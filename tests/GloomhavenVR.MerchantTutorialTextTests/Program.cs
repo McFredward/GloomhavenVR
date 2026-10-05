@@ -33,8 +33,6 @@ internal static class Program
             LocalizationTextKey = row.GetProperty("LocalizationTextKey").GetString()!,
             LocalizationTextKeyController = row.GetProperty("LocalizationTextKeyController").GetString()!,
             LayoutType = (CLevelMessage.ELevelMessageLayoutType)row.GetProperty("LayoutType").GetInt32(),
-            ShowScreenBG = row.GetProperty("ShowScreenBG").GetInt32() != 0,
-            Tag = row.GetProperty("Tag").GetString()!,
         };
         Check(original.LocalizationTextKey == "FTUE_9.3" && original.LocalizationTextKeyController == "Consoles/FTUE_9.3_CONTROLLER",
             "Exact native merchant exit keys are pinned without rewriting global translations");
@@ -42,7 +40,7 @@ internal static class Program
         config.Steps.Add(original);
         var shop = new UIShopItemWindow { ftueStep = new UIMapFTUEStep { config = config } };
         Singleton<UIShopItemWindow>.Instance = shop;
-        var manager = new MapFTUEManager(); Singleton<MapFTUEManager>.Instance = manager;
+        var manager = new MapFTUEManager { currentStep = shop.ftueStep }; Singleton<MapFTUEManager>.Instance = manager;
         var harmony = new Harmony("ghvr.test.merchant-exit-text");
         harmony.CreateClassProcessor(typeof(MerchantTutorialExitMessagePatch)).Patch();
         harmony.CreateClassProcessor(typeof(MerchantTutorialExitTitlePatch)).Patch();
@@ -75,6 +73,17 @@ internal static class Program
         var foreignPage = new LevelMessagePageUI { page = new CLevelMessagePage(original.LocalizationTextKey, original.LocalizationTextKeyController) };
         foreignPage.OnLanguageChanged();
         Check(foreignPage.information.text.StartsWith("native:", StringComparison.Ordinal), "Matching page keys outside the exact original message remain native");
+        config.Steps[0] = foreign;
+        Native(title, message, "Retired source rows cannot keep rewriting a successor's native title");
+        page.OnLanguageChanged();
+        Check(page.information.text.StartsWith("native:", StringComparison.Ordinal), "Retired source rows cannot keep rewriting a successor's native page");
+        config.Steps[0] = original;
+        var originalProducer = shop.ftueStep;
+        shop.ftueStep = new UIMapFTUEStep { config = config }; manager.currentStep = shop.ftueStep;
+        Native(title, message, "A replacement BuyItem producer cannot reuse the prior promise's text markers");
+        shop.ftueStep = originalProducer;
+        Native(title, original.ToMessage(), "Only the current native shop promise can author its own instruction");
+        manager.currentStep = shop.ftueStep;
         original.LocalizationTextKey = "OTHER_HELP";
         Native(title, original.ToMessage(), "A future BuyItem help instruction with a different key remains native");
         original.LocalizationTextKey = "FTUE_9.3";
@@ -84,17 +93,22 @@ internal static class Program
         config.Phase = EMapFTUEStep.VisitMerchant;
         Native(title, original.ToMessage(), "A non-BuyItem serialized producer cannot inherit pending BuyItem text");
         config.Phase = EMapFTUEStep.BuyItem;
-        MapRoomDriver.Active = false;
-        Native(title, original.ToMessage(), "Flat and 2D map exit instructions remain native");
+        MapRoomDriver.Active = false; WorldUIConfig.ConversionActive = false;
+        Native(title, original.ToMessage(), "Flat and unconverted map exit instructions remain native");
+        WorldUIConfig.ConversionActive = true; WorldUIConfig.ImmersiveTownServices.Value = true;
+        title.Init(original.ToMessage());
+        Check(title.title.text == Loc.MerchantTutorialExit,
+            "Converted 2D merchant exit remains correct despite the retained immersive setting");
         MapRoomDriver.Active = true; WorldUIConfig.ImmersiveTownServices.Value = true;
         Native(title, original.ToMessage(), "Immersive resident onboarding does not teach a flat merchant exit");
         WorldUIConfig.ImmersiveTownServices.Value = false; AdventureState.MapState!.IsCampaign = false;
         Native(title, original.ToMessage(), "Guildmaster mode cannot inherit campaign onboarding text");
         AdventureState.MapState.IsCampaign = true; MapFTUEManager.IsPlaying = false;
         Native(title, original.ToMessage(), "Completed campaign onboarding cannot change ordinary merchant text");
-        MapFTUEManager.IsPlaying = true; manager.CurrentStep = EMapFTUEStep.InteractWithMap;
+        MapFTUEManager.IsPlaying = true; manager.currentStep = new UIMapFTUEStep
+            { config = new MapFTUEStepConfigUI { Phase = EMapFTUEStep.InteractWithMap } };
         Native(title, original.ToMessage(), "Later map tutorial steps cannot reuse merchant exit text");
-        manager.CurrentStep = EMapFTUEStep.BuyItem;
+        manager.currentStep = shop.ftueStep;
         title.Init(message); WorldUIConfig.ImmersiveTownServices.Value = true; title.OnLanguageChanged(); page.OnLanguageChanged();
         Check(title.title.text.StartsWith("native:", StringComparison.Ordinal) && page.information.text.StartsWith("native:", StringComparison.Ordinal),
             "Mode changes restore native painting even for a previously marked message");

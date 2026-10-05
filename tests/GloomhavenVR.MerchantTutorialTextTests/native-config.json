@@ -1,0 +1,15 @@
+{
+  "source": "sharedassets1.assets",
+  "path": 2109,
+  "sha256": "5046456742db37226405edf3abcb9e999b2d3e46b24a846b74b0be4f263abf96",
+  "config": {
+    "Phase": 10,
+    "Steps": [
+      {
+        "LocalizationTextKey": "FTUE_9.3",
+        "LocalizationTextKeyController": "Consoles/FTUE_9.3_CONTROLLER",
+        "LayoutType": 1
+      }
+    ]
+  }
+}
