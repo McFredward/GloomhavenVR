@@ -85,8 +85,21 @@ internal static partial class ScenarioTerrainBudget
         return name;
     }
     private static bool FloorIdentity(Mesh mesh) =>
-        AuthoredName(mesh.name).IndexOf("_Floor_", StringComparison.OrdinalIgnoreCase) >= 0
-        || AuthoredName(mesh.name).IndexOf("_FloorTiles", StringComparison.OrdinalIgnoreCase) >= 0;
+        AuthoredName(mesh.name).IndexOf("Floor", StringComparison.OrdinalIgnoreCase) >= 0;
+    private static bool StructuralIdentity(Mesh mesh)
+    {
+        // Positively audited wall bodies/pillars from pcg_crypt/cave, in addition
+        // to immutable bank provenance AND live ProceduralWall ownership below.
+        // The bank also contains floors, props, foundations and anonymous meshes:
+        // membership alone cannot authorize a coarse terrain representation.
+        return AuthoredName(mesh.name) is "EN_CR_Pillar_Thin" or "EN_CR_Pillar_Large"
+            or "EN_CR_Pillar_Large_02" or "EN_CR_Wall_Basic_Tall" or "EN_CR_Wall_TrimBasic_01"
+            or "CV_Pillar_Generic_01" or "CV_Pillar_Generic_02"
+            or "CV_Wall_Generic_01" or "CV_Wall_Generic_02" or "CV_Wall_Generic_03"
+            or "CV_Wall_Generic_04" or "CV_Wall_Generic_05"
+            or "CV_Wall_Generic_Thin_01" or "CV_Wall_Generic_Thin_Narrow_01"
+            or "CV_Wall_Generic_Thin_Narrow_02";
+    }
     private static bool Gate(Material material, string key) =>
         material.HasProperty(key) && material.GetFloat(key) != 0f;
 
@@ -112,8 +125,7 @@ internal static partial class ScenarioTerrainBudget
                 || node.name.StartsWith("GloomhavenVR", StringComparison.Ordinal);
             state.Valid &= !blocked;
             state.Generated |= node.name == "Generated Content";
-            state.Structural |= node.GetComponent<ProceduralMapTile>() != null
-                || node.GetComponent<ProceduralWall>() != null;
+            state.Structural |= node.GetComponent<ProceduralWall>() != null;
             state.Scenario |= node.GetComponent<ProceduralScenario>() != null;
             scopes[node] = state;
         }
@@ -254,7 +266,8 @@ internal static partial class ScenarioTerrainBudget
                     MeshRenderer renderer = node.GetComponent<MeshRenderer>();
                     MeshFilter filter = node.GetComponent<MeshFilter>();
                     if (renderer == null || filter == null || filter.sharedMesh == null || !CurrentScope(renderer)
-                        || _eligibleMesh?.Invoke(filter.sharedMesh) != true || FloorIdentity(filter.sharedMesh)) continue;
+                        || _eligibleMesh?.Invoke(filter.sharedMesh) != true || FloorIdentity(filter.sharedMesh)
+                        || !StructuralIdentity(filter.sharedMesh)) continue;
                     int id = renderer.GetInstanceID();
                     if (!_surfaces.ContainsKey(id)) _surfaces.Add(id, new Surface(renderer, filter, transform));
                 }

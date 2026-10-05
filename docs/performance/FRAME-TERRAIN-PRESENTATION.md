@@ -35,6 +35,14 @@ silently cancel the new floor chunks/instancing. Revealed rooms retain every
 native floor and tactical object; there is no room deactivation, planar board,
 new scenery, MR backing, collider replacement or gameplay-state write.
 
+Admission requires a live `ProceduralWall` ancestor, `Generated Content`, native
+scenario ownership, immutable mesh-bank provenance and one of the fifteen audited
+crypt/cave wall-body or pillar identities listed in `StructuralIdentity`.
+`Floor` anywhere in a mesh name is vetoed, including `EN_CR_FloorHex_Edge_Even2`.
+Map-tile ownership alone, foundations/under-wall slabs, top caps, anonymous meshes
+and other bank members never authorize simplification. This intentionally keeps
+unclassified terrain native until its actual source identity is reviewed.
+
 ## Why the missing-room batching defect cannot be recreated here
 
 The history in [static-batching-removed.md](../../.planning/static-batching-removed.md)
