@@ -113,3 +113,11 @@ namespace GloomhavenVR.Net.TownServices
 namespace GloomhavenVR.Net
 { internal static class NetSession { internal static bool FlatNetMode; } }
 #endif
+
+// The game's FFSNetwork lives in the global namespace. Keep its real symbol
+// resolution while the existing fixture coordinator port shares one online state.
+internal static class FFSNetwork
+{
+    internal static bool IsOnline
+    { get => FFSNet.FFSNetwork.IsOnline; set => FFSNet.FFSNetwork.IsOnline = value; }
+}
