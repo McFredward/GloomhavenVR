@@ -64,6 +64,13 @@ def _guest_patch(source):
     module.apply(source)
 
 
+def _host_patch(source, revision):
+    spec = importlib.util.spec_from_file_location("quest_procedural_host_build", HERE / "box64_host.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.apply(source, revision)
+
+
 def _wine_paths(payload):
     spec = importlib.util.spec_from_file_location("quest_procedural_wine_paths", HERE / "wine_paths.py")
     module = importlib.util.module_from_spec(spec)
@@ -98,7 +105,7 @@ def build(output_cache: Path, ndk: Path) -> tuple[Path, dict]:
     ndk = Path(ndk).resolve()
     key = hashlib.sha256((digest(ndk / "source.properties") + "".join(digest(path) for path in
                          (HERE / "runtime.py", HERE / "upstream.lock.json", HERE / "protocol.h", HERE / "worker.c",
-                          HERE / "bridge.c", HERE / "server_launcher.c", HERE / "box64_guest.py"))).encode()).hexdigest()
+                          HERE / "bridge.c", HERE / "server_launcher.c", HERE / "box64_guest.py", HERE / "box64_host.py"))).encode()).hexdigest()
     output = Path(output_cache).resolve() / "procedural-runtime" / key
     output.mkdir(parents=True, exist_ok=True)
     receipt_path = output / "native-build.json"
@@ -130,12 +137,14 @@ def build(output_cache: Path, ndk: Path) -> tuple[Path, dict]:
                 selected.append(item)
         package.extractall(output, members=selected, filter="data")
     _guest_patch(source)
+    _host_patch(source, upstream["revision"])
     tools = _voice_tools()
     cmake = tools.cmake_command()
     command = [cmake, "-S", str(source), "-B", str(output / "box64-build"),
                f"-DCMAKE_TOOLCHAIN_FILE={ndk / 'build/cmake/android.toolchain.cmake'}",
                "-DANDROID_ABI=arm64-v8a", "-DANDROID_PLATFORM=android-29", "-DANDROID=ON", "-DARM64=ON",
-               "-DCMAKE_BUILD_TYPE=Release", "-DNOGIT=ON", f"-DPYTHON_EXECUTABLE={sys.executable}",
+               "-DCMAKE_BUILD_TYPE=Release", "-DNOGIT=ON", f"-DPython3_EXECUTABLE={sys.executable}",
+               f"-DPYTHON_EXECUTABLE={sys.executable}",
                # Unity's old NDK GNU linker lacks --image-base; its own lld supports it.
                "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld"]
     if os.name == "nt":

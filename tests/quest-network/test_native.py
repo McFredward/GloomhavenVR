@@ -15,6 +15,24 @@ SPEC.loader.exec_module(native)
 
 
 class NativeInputTests(unittest.TestCase):
+    def test_windows_ndk_uses_executable_with_literal_path_and_android_target(self):
+        with tempfile.TemporaryDirectory(prefix="Quest build & 100% ") as directory:
+            ndk = Path(directory)
+            tools = ndk / "toolchains/llvm/prebuilt/windows-x86_64/bin"
+            tools.mkdir(parents=True)
+            for name in ("clang.exe", "llvm-nm.exe"):
+                (tools / name).write_bytes(b"tool path fixture")
+            command, auditor = native.android_compiler(ndk, platform="win32")
+            self.assertEqual(command[0], str(tools / "clang.exe"))
+            self.assertEqual(command[1], "--target=aarch64-linux-android29")
+            self.assertEqual(command[2], "--sysroot=" + str(tools.parent / "sysroot"))
+            self.assertEqual(auditor, tools / "llvm-nm.exe")
+            self.assertFalse(any(value.endswith(".cmd") for value in command))
+            (tools / "clang.exe").unlink()
+            (tools / "aarch64-linux-android29-clang.cmd").write_bytes(b"batch wrapper")
+            with self.assertRaisesRegex(RuntimeError, "compiler/symbol auditor"):
+                native.android_compiler(ndk, platform="win32")
+
     def archive(self, root, member="opus-1.5.2/verified.c", link=False):
         output = root / "opus-1.5.2.tar.gz"
         with tarfile.open(output, "w:gz") as package:

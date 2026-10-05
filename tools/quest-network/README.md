@@ -73,3 +73,13 @@ own runtime/result report; receipt flags and process exit must agree before the
 command reports a connection. Missing receipts, timeouts, nonzero exits, callback
 failure or expanded EOS/room/Android flags fail verification. The timeout bounds
 network work to 10–90 seconds, plus 180 seconds for editor startup/import.
+
+## Windows compiler paths
+
+The native voice builder invokes the NDK's real `clang.exe` with the explicit
+Android 29 ARM64 target and sysroot. It does not forward owner-selected paths
+through the NDK's `.cmd` wrapper. Windows batch files can receive shell parsing
+even with Python's default `shell=False`; ordinary `&` and `%` characters must
+remain literal file names. The CMake/Ninja dependency pins and original Opus ABI
+remain unchanged. See the [NDK direct compiler instructions](https://developer.android.com/ndk/guides/other_build_systems)
+and [Python subprocess behavior](https://docs.python.org/3.14/library/subprocess.html#security-considerations).

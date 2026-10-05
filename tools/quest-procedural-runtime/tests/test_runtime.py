@@ -12,10 +12,28 @@ import protocol
 import runtime
 from wine_paths import relocate
 from box64_guest import ORIGINAL, ADAPTED, apply
+import box64_host
 from tasks import canonical_task
 
 
 class RuntimeContracts(unittest.TestCase):
+    def test_box64_header_recipe_preserves_dependencies_without_shell_or_git(self):
+        with tempfile.TemporaryDirectory(prefix="Quest & 100% ") as directory:
+            source = pathlib.Path(directory)
+            original = 'add_custom_command(\n  OUTPUT "${BOX64_ROOT}/src/git_head.h"\n' + box64_host.ORIGINAL + '\n  DEPENDS original_sources\n  VERBATIM)\n'
+            (source / "CMakeLists.txt").write_text(original * 2)
+            box64_host.apply(source, runtime.LOCK["box64"]["revision"])
+            text = (source / "CMakeLists.txt").read_text()
+            self.assertEqual(text.count('DEPENDS original_sources'), 2)
+            self.assertEqual(text.count(box64_host.ADAPTED), 2)
+            self.assertNotIn('COMMAND sh', text)
+            self.assertNotIn('git rev-parse', text)
+            self.assertIn(runtime.LOCK["box64"]["revision"][:7], (source / "quest_git_head.cmake").read_text())
+            with self.assertRaisesRegex(RuntimeError, "audited source"):
+                box64_host.apply(source, runtime.LOCK["box64"]["revision"])
+            with self.assertRaisesRegex(RuntimeError, "full commit ID"):
+                box64_host.apply(source, 'not-a-revision')
+
     def test_copied_boundary_header(self):
         self.assertEqual(protocol.HEADER.size, 20)
         expected = b"GHPR\x01\x00\x08\x00\x07\x00\x00\x00\x03\x00\x00\x00\x00\x00\x00\x00"

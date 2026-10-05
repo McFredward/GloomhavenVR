@@ -44,6 +44,21 @@ def cmake_command() -> str:
     return str(found)
 
 
+def android_compiler(ndk: Path, *, platform: str | None = None) -> tuple[list[str], Path]:
+    """Use the real LLVM executable; Windows batch wrappers parse shell paths."""
+    platform = platform or sys.platform
+    host = {"linux": "linux-x86_64", "darwin": "darwin-x86_64", "win32": "windows-x86_64"}.get(platform)
+    if host is None:
+        raise RuntimeError("Unsupported Android voice build host: " + platform)
+    bin_root = Path(ndk) / "toolchains/llvm/prebuilt" / host / "bin"
+    suffix = ".exe" if platform == "win32" else ""
+    compiler, nm = bin_root / ("clang" + suffix), bin_root / ("llvm-nm" + suffix)
+    if not compiler.is_file() or not nm.is_file():
+        raise RuntimeError("Selected NDK lacks its ARM64 compiler/symbol auditor.")
+    return [str(compiler), "--target=aarch64-linux-android29",
+            "--sysroot=" + str(bin_root.parent / "sysroot")], nm
+
+
 def fetch_source(cache: Path) -> Path:
     cache.mkdir(parents=True, exist_ok=True)
     archive = cache / f"opus-{OPUS_VERSION}.tar.gz"
@@ -101,21 +116,17 @@ def build_network_native(output_cache: Path, ndk: Path | None, *, host_test: boo
     if host_test:
         if sys.platform != "linux":
             raise RuntimeError("The original SDK host codec test currently requires Linux.")
-        compiler = shutil.which("cc")
-        if not compiler:
+        compiler_path = shutil.which("cc")
+        if not compiler_path:
             raise RuntimeError("Host C compiler unavailable.")
+        compiler = [compiler_path]
         nm = shutil.which("nm")
         abi = "x86_64-host-test"
     else:
         if ndk is None:
             raise RuntimeError("Original Photon Voice needs the selected Unity Android NDK.")
         ndk = Path(ndk).resolve()
-        host = {"linux": "linux-x86_64", "darwin": "darwin-x86_64", "win32": "windows-x86_64"}.get(sys.platform)
-        bin_root = ndk / "toolchains/llvm/prebuilt" / str(host) / "bin"
-        compiler = bin_root / ("aarch64-linux-android29-clang.cmd" if os.name == "nt" else "aarch64-linux-android29-clang")
-        nm = bin_root / ("llvm-nm.exe" if os.name == "nt" else "llvm-nm")
-        if not compiler.is_file() or not nm.is_file():
-            raise RuntimeError("Selected NDK lacks the Android29 ARM64 compiler/symbol auditor.")
+        compiler, nm = android_compiler(ndk)
         command += [f"-DCMAKE_TOOLCHAIN_FILE={ndk / 'build/cmake/android.toolchain.cmake'}",
                     "-DANDROID_ABI=arm64-v8a", "-DANDROID_PLATFORM=android-29"]
         abi = "arm64-v8a"
@@ -138,7 +149,7 @@ def build_network_native(output_cache: Path, ndk: Path | None, *, host_test: boo
         archive = build / "libopus.a"
         if not archive.is_file():
             raise RuntimeError("Opus CMake did not produce its expected static archive.")
-        subprocess.run([str(compiler), "-O2", "-fPIC", "-shared", "-fvisibility=hidden",
+        subprocess.run(compiler + ["-O2", "-fPIC", "-shared", "-fvisibility=hidden",
                         "-I", str(source / "include"), str(bridge), "-Wl,--whole-archive",
                         str(archive), "-Wl,--no-whole-archive", "-Wl,--no-undefined",
                         "-Wl,-soname,libopus_egpv.so", "-lm", "-o", str(destination)],

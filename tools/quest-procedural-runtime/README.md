@@ -41,4 +41,13 @@ Android/Bionic loader behavior, SELinux process execution, first Wine-prefix set
 
 Primary sources: [Box64 Wine support](https://github.com/ptitSeb/box64/blob/v0.4.4/docs/WINE.md), [Box64 Android build](https://github.com/ptitSeb/box64/blob/v0.4.4/CMakeLists.txt), [portable Wine build and source instructions](https://github.com/Kron4ek/Wine-Builds), [official Wine 9.0 source](https://gitlab.winehq.org/wine/wine/-/tree/wine-9.0), and [Android executable storage restrictions](https://developer.android.com/about/versions/10/behavior-changes-10#execute-permission).
 
+The Windows x64 source build uses the pinned CMake/Ninja wheels and the selected
+Unity Android NDK. Both modern `Python3_EXECUTABLE` and the upstream compatibility
+variable point to the running private builder interpreter. The two original
+`git_head.h` dependency graphs retain their outputs and dependencies, but generate
+the pinned archive revision through `cmake -P`; a source archive build needs no
+POSIX `sh` or Git subprocess. This affects build provenance only, with the original
+`NOGIT=ON` native option retained. The bridge, launcher and x64 worker use the real
+NDK LLVM executables with explicit targets, not Windows batch wrappers.
+
 The exact socket setup is visible in Wine's original [client setup_config_dir/init_server_dir](https://github.com/wine-mirror/wine/blob/wine-9.0/dlls/ntdll/unix/server.c) and [server create_server_dir](https://github.com/wine-mirror/wine/blob/wine-9.0/server/request.c).
