@@ -256,7 +256,7 @@ def main():
                  "peer physical category button adopts the public page despite missing artwork and a separate merchant transaction"),
                 ("public-declined-claim", "PublicMerchantClaim.cs", "internal static void Claim() { }",
                  "internal static void Claim() { TownServiceMirror.ClaimPublicCatalog(); }",
-                 "joining peer inspection retains the complete original bank author and visible observer copy"),
+                 "visitor inspection preserves the prepared bank author before any reliable cabinet input"),
                 ("public-declined-page-claim", "PublicMerchantClaim.cs", "return TownMerchantControlSync.RequestPage(direction);",
                  "return false;",
                  "a peer page request keeps the shared category and starts the exact native page animation"),

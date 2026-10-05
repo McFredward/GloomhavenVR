@@ -83,6 +83,9 @@ public static partial class MirrorProgram
         TownServiceSync.TickPublic(owner, owner, catalog, 882, 1f);
         Check(TownServiceSync.PublicModuleCount == 0,
             "real observer publisher withdraws its local native modules instead of publishing a second cabinet");
+        TownServicePublicMerchant.Claim();
+        Check(TownServiceMirror.PublicAuthor == 1 && !TownServiceMirror.IsPublicAuthor,
+            "visitor inspection preserves the prepared bank author before any reliable cabinet input");
         var channel = new PublicNavigationChannel(identities);
         TownServicePublicMerchant.Session = 882;
         channel.Install(2);
@@ -191,7 +194,9 @@ public static partial class MirrorProgram
             TownMerchantControlSync.SendReliable = (bytes, count, hostOnly) =>
             {
                 var packet = new byte[count]; Buffer.BlockCopy(bytes, 0, packet, 0, count);
-                (hostOnly ? _requests : _states).Add(packet); return true;
+                Check(TownMerchantControlCodec.TryRead(packet, packet.Length, out var control),
+                    "reliable cabinet delivery carries a validated actual control packet");
+                (control.Kind == TownMerchantControlKind.Request ? _requests : _states).Add(packet); return true;
             };
         }
         internal void Install(int peer)

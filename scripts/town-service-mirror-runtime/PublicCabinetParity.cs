@@ -296,7 +296,11 @@ public static partial class MirrorProgram
         TownServiceSync.TickPublic(owner, owner, catalog, 997, 1f); TownServiceMirror.RequestFullRefresh();
         List<byte[]> latest = Capture(); identities.Switch(4);
         TownServiceMirror.RemovePeer(1); // A genuinely new observer has no earlier rendered turn to coast forward.
-        Receive(1, latest.Where(p => Decode(p).Module == TownServiceFrame.ManifestModule));
+        // A new observer receives the real unpaged category/crank originals as
+        // well as the latest census. Stable author controls are not resent by
+        // every ordinary page request; only the old large bank remains delayed.
+        Receive(1, latest.Where(p => { var f=Decode(p); return f.Module == TownServiceFrame.ManifestModule
+            || f.Rack == null && f.RackMember == null; }));
         Receive(1, takeover.Where(p => { var f=Decode(p); return f.RackMember==null && f.Module!=TownServiceFrame.ManifestModule; }));
         TownServiceMirror.TickRemote(_ => viewer);
         var clocks = (IDictionary)typeof(TownServiceMirror).GetField("RemoteRacks", PrivateStatic)!.GetValue(null)!;
@@ -304,7 +308,16 @@ public static partial class MirrorProgram
         var clockFlags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
         Check(TownServiceMirror.HasReadyPublicPresentation && (ushort)clock.GetType().GetField("DisplayPage", clockFlags)!.GetValue(clock)! == 768
             && !(bool)clock.GetType().GetField("Turning", clockFlags)!.GetValue(clock)!,
-            "delayed atomic bank seeks newer same-owner manifest age without replaying an obsolete rack turn");
+            "delayed atomic bank seeks newer same-owner manifest age without replaying an obsolete rack turn"
+            + ": ready=" + TownServiceMirror.HasReadyPublicPresentation
+            + " page=" + clock.GetType().GetField("DisplayPage", clockFlags)!.GetValue(clock)
+            + " turning=" + clock.GetType().GetField("Turning", clockFlags)!.GetValue(clock)
+            + " elapsed=" + clock.GetType().GetField("Elapsed", clockFlags)!.GetValue(clock)
+            + " sent=" + takeover.Select(Decode).Single(f => f.CatalogBank != null).SessionAge
+            + " latest=" + string.Join(",", latest.Select(Decode).Where(f => f.Module == TownServiceFrame.ManifestModule).Select(f=>f.SessionAge))
+            + " ownerPage=" + rack.Page + " ownerClock=" + rack.FixtureFollowClock
+
+            + " logs=" + string.Join(" | ", GloomhavenVR.Core.VRLog.Messages.TakeLast(8)));
         channel.Dispose(); identities.Switch(1); TownServiceMirror.CommitPublicVisibility = null; TownServiceSync.UseProductionPublish = false;
         TownServiceSync.ResetNetwork(); TownServicePublicMerchant.Catalog = null; TownServicePublicMerchant.FixtureResetVisibility();
         rack.FixtureDisposeFollower(); NativeTemplates.BoundaryRoots.Clear(); TownServiceCatalog.CardMounts.Clear(); TownServiceMirror.Shutdown(); Baselines.Clear();
