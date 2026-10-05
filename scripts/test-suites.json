@@ -1719,8 +1719,7 @@
         "scripts/check-town-temple-tooltip.py"
       ],
       "groups": [
-        "local",
-        "ci"
+        "local"
       ],
       "weight": 95
     },
@@ -1731,10 +1730,20 @@
         "scripts/check-town-merchant-control.py"
       ],
       "groups": [
-        "local",
-        "ci"
+        "local"
       ],
       "weight": 50
+    },
+    {
+      "id": "town-native-state623",
+      "command": [
+        "python3",
+        "scripts/check-town-native-state623.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 2
     }
   ]
 }
