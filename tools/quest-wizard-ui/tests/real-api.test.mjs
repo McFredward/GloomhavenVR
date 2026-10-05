@@ -81,7 +81,13 @@ test('actual loopback HTTP browser: module/CSP/token flow, plan, reopen, safe lo
     for(const path of ['/api/discover','/api/plan','/api/status','/api/log'])assert.ok(requests.includes(path),path);
     await client.picture(ownedArt?'real-api-owned-artwork-de':'real-api-ready-de');
   }finally{
-    await client?.close();child.kill('SIGINT');await Promise.race([new Promise(resolve=>child.once('exit',resolve)),delay(1500)]);if(child.exitCode===null)child.kill('SIGKILL');
-    await rm(stateRoot,{recursive:true,force:true});
+    try{await client?.close();}finally{
+      if(child.exitCode===null&&child.signalCode===null){
+        const exited=new Promise(resolve=>child.once('exit',resolve));
+        child.kill('SIGINT');await Promise.race([exited,delay(1500)]);
+        if(child.exitCode===null&&child.signalCode===null){child.kill('SIGKILL');await exited;}
+      }
+      await rm(stateRoot,{recursive:true,force:true,maxRetries:5,retryDelay:100});
+    }
   }
 });

@@ -11,7 +11,18 @@ export async function browser() {
   const profile=await mkdtemp(join(tmpdir(),'quest-wizard-api-browser-'));
   const child=spawn(chrome,['--headless=new','--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--disable-background-networking','--no-first-run','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],{stdio:'ignore'});
   let socket;
-  async function close(){socket?.close();child.kill('SIGTERM');await Promise.race([new Promise(resolve=>child.once('exit',resolve)),delay(1000)]);if(child.exitCode===null)child.kill('SIGKILL');await rm(profile,{recursive:true,force:true});}
+  async function close(){
+    socket?.close();
+    if(child.exitCode===null&&child.signalCode===null){
+      const exited=new Promise(resolve=>child.once('exit',resolve));
+      child.kill('SIGTERM');
+      await Promise.race([exited,delay(1000)]);
+      if(child.exitCode===null&&child.signalCode===null){child.kill('SIGKILL');await exited;}
+    }
+    // Chrome's separate writers may release their private profile just after
+    // the browser exits; retry directory removal without masking test failures.
+    await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100});
+  }
   try {
     let port;
     for(let attempt=0;attempt<80;attempt++){try{port=Number((await readFile(join(profile,'DevToolsActivePort'),'utf8')).split('\n')[0]);break;}catch{await delay(50);}}
