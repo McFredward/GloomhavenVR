@@ -1,5 +1,7 @@
 """Native binding regressions with meaningful missing-data negative controls."""
 import importlib.util
+import copy
+import json
 from pathlib import Path
 import struct
 import sys
@@ -10,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools/quest-shaders'))
 import converters
 import produce
+import retained
+from manifest import sha256
 
 spec = importlib.util.spec_from_file_location('native_reconstruction', ROOT / 'tools/quest-builder/full_shaders.py')
 native = importlib.util.module_from_spec(spec)
@@ -277,3 +281,28 @@ class VulkanNativeInterface(unittest.TestCase):
             native.stereo_wrapper(source, 'vertex', [adapter], output_signature=[{**signature[0], 'componentType': 2}], graphics_api='Vulkan')
         with self.assertRaisesRegex(native.ShaderRecoveryError, 'witnessed native output'):
             native.stereo_wrapper(source.replace('TEXCOORD3', 'TEXCOORD4'), 'vertex', [adapter], output_signature=signature, graphics_api='Vulkan')
+
+class RetainedImportContract(unittest.TestCase):
+    def test_only_exact_original_retained_role_and_receipt_accept_import_upgrade(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp); receipt = project / 'QuestStartupEvidence/legacy-post-effects.json'
+            receipt.parent.mkdir()
+            for guid, pin in retained.PINS.items():
+                name, path_id, original, upgraded, recipe, replacements = pin
+                proof = dict(guid=guid, name=name, assetPath='Assets/Shader/Original.shader', originalPathId=path_id,
+                    sourceSha256=original, canonicalRecipeSha256=recipe,
+                    importUpgrade=dict(kind='UnityObjectToClipPos', replacements=replacements, sha256=upgraded))
+                receipt.write_text(json.dumps(dict(shaders=[proof])))
+                row = dict(guid=guid, originalName=name, assetPath=proof['assetPath'], originalPathId=path_id,
+                    sourceSha256=original, sourceRestoration='retained-source-contract',
+                    retainedSourceContract=dict(sourceSha256=original, originalProvenance=dict(
+                        receipt='QuestStartupEvidence/legacy-post-effects.json', receiptSha256=sha256(receipt), shader=proof)))
+                self.assertTrue(retained.source_matches(row, upgraded, project))
+                self.assertFalse(retained.source_matches(row, 'f' * 64, project))
+                for mutation in (dict(guid='f' * 32), dict(originalPathId=path_id + 1),
+                                 dict(sourceRestoration='exact-original-dxbc'), dict(retainedSourceContract={})):
+                    self.assertFalse(retained.source_matches({**row, **mutation}, upgraded, project))
+                changed = copy.deepcopy(row); changed['retainedSourceContract']['originalProvenance']['shader']['canonicalRecipeSha256'] = 'f' * 64
+                self.assertFalse(retained.source_matches(changed, upgraded, project))
+                receipt.write_text('{}')
+                self.assertFalse(retained.source_matches(row, upgraded, project))

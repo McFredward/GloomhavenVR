@@ -101,7 +101,8 @@ def load(path: Path, project: Path | None = None):
             variant_ids.add(variant_id)
         if project is not None:
             candidate = project / path_value
-            if not candidate.is_file() or sha256(candidate) != shader["sourceSha256"]:
+            from retained import source_matches
+            if not candidate.is_file() or not source_matches(shader, sha256(candidate), project):
                 raise ValidationError("Actual translated shader bytes differ from provenance: " + guid)
             meta = candidate.with_name(candidate.name + ".meta")
             if not meta.is_file() or re.search(r"(?m)^guid: " + guid + r"$", meta.read_text()) is None:

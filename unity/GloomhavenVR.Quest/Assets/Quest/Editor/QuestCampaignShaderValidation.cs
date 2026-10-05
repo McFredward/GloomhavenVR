@@ -31,10 +31,21 @@ namespace GloomhavenVR.Quest.Editor
         }
         [Serializable] public sealed class OriginalShader
         {
-            public string guid, assetPath, originalName, originalSerializedFile, sourceSha256;
+            public string guid, assetPath, originalName, originalSerializedFile, sourceSha256, sourceRestoration;
             public long originalPathId;
             public Variant[] variants;
+            public RetainedContract retainedSourceContract;
         }
+        [Serializable] public sealed class RetainedContract { public string sourceSha256; public SourceProvenance originalProvenance; }
+        [Serializable] public sealed class SourceProvenance { public string receipt, receiptSha256; public RetainedShader shader; }
+        [Serializable] public sealed class ImportUpgrade { public string kind, sha256; public int replacements; }
+        [Serializable] public sealed class RetainedShader
+        {
+            public string guid, name, assetPath, sourceSha256, canonicalRecipeSha256;
+            public long originalPathId;
+            public ImportUpgrade importUpgrade;
+        }
+        [Serializable] public sealed class RetainedReceipt { public RetainedShader[] shaders; }
         [Serializable] public sealed class OriginalMaterial
         {
             public string guid, assetPath, shaderGuid;
@@ -110,7 +121,7 @@ namespace GloomhavenVR.Quest.Editor
             foreach (var row in input.shaders)
             {
                 string path = ExactAsset(row.guid, row.assetPath);
-                if (Hash(File.ReadAllBytes(path)) != row.sourceSha256)
+                if (!SourceMatches(row, Hash(File.ReadAllBytes(path))))
                     throw new InvalidOperationException("Campaign translated shader bytes differ: " + row.guid);
                 // Complete pending imports before querying current banks.
                 // A diagnostic force reimport is available for an existing
@@ -369,6 +380,43 @@ namespace GloomhavenVR.Quest.Editor
                 return;
             }
             File.WriteAllBytes(path, bytes);
+        }
+
+        public static bool SourceMatches(OriginalShader row, string actual)
+        {
+            if (actual == row.sourceSha256) return true;
+            string name, original, upgraded, recipe; long nativeId; int replacements;
+            switch (row.guid)
+            {
+                case "30881e480b10c1b46a3d99ec13496f5e":
+                    name="Hidden/BlendForBloom"; nativeId=135; replacements=2;
+                    original="84f4f797c3f77fca2797806b388d50bdbac7492118212ded78370a6d9d636ae5";
+                    upgraded="d22461e93e8d3bd6801fe12a8ea8a12632d870fd54afc4d34dca839337838abf";
+                    recipe="263f263605bc9ce88c366f33e895b696b32faf4aa812979f41e508e23fe48653"; break;
+                case "93f40d5ea0c0a7945a5782e2dcd23833":
+                    name="Hidden/BrightPassFilter2"; nativeId=132; replacements=1;
+                    original="26e81ea437fbb5ffb45cb8fc4556bdb2ab6c1c50d5396af5c2c8bc1562b8e424";
+                    upgraded="8a19269566f8fd692a44eb607c44f114abbc0a555d11c06995de22e2112e8dc1";
+                    recipe="feba6bb83a31a7dc0f7388eb0aa7c9af897f76f1c17b1b5750f2e1710ebe854a"; break;
+                case "29d4384c2ae952c4597a9d894d381163":
+                    name="Hidden/BlurAndFlares"; nativeId=137; replacements=4;
+                    original="63283e8f5e60b6a7c2771b175c1c82fe62813648306ccf185c56379f75b196eb";
+                    upgraded="343d875aed4f5f221ce7d5e33df24ffc90459d9533448d7ba9edca80fa40d390";
+                    recipe="4c6e89d84f8d16d060162186390ead698e0e528c805dfd1e4de75359a457cb17"; break;
+                default: return false;
+            }
+            var contract=row.retainedSourceContract; var proof=contract == null ? null : contract.originalProvenance;
+            var shader=proof == null ? null : proof.shader; var upgrade=shader == null ? null : shader.importUpgrade;
+            if (row.sourceRestoration != "retained-source-contract" || row.originalName != name || row.originalPathId != nativeId ||
+                row.sourceSha256 != original || actual != upgraded || contract == null || proof == null || contract.sourceSha256 != original ||
+                shader == null || shader.guid != row.guid || shader.name != name || shader.assetPath != row.assetPath ||
+                shader.originalPathId != nativeId || shader.sourceSha256 != original || shader.canonicalRecipeSha256 != recipe ||
+                upgrade == null || upgrade.kind != "UnityObjectToClipPos" || upgrade.replacements != replacements || upgrade.sha256 != upgraded ||
+                proof.receipt != "QuestStartupEvidence/legacy-post-effects.json" || !File.Exists(proof.receipt) ||
+                Hash(File.ReadAllBytes(proof.receipt)) != proof.receiptSha256) return false;
+            var receipt=JsonUtility.FromJson<RetainedReceipt>(File.ReadAllText(proof.receipt));
+            var witnessed=(receipt.shaders ?? new RetainedShader[0]).Where(value => value.guid == row.guid).ToArray();
+            return witnessed.Length == 1 && JsonUtility.ToJson(witnessed[0]) == JsonUtility.ToJson(shader);
         }
 
         private static void VerifyVulkanBank(QuestVulkanShaderValidation.Result bank, string output, NativeSignature[] nativeOutputs)

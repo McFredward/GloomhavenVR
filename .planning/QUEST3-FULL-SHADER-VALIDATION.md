@@ -350,3 +350,15 @@ FinalPass banks, including the previously rejected alias. The focused test rejec
 an unproven signed original signature and verifies the unchanged internal math.
 Evidence: private `full-production-vulkan-shard-2/QuestPostLayerEvidence` and
 `unity-post-layer.log`. This does not assert a headset picture.
+
+The actual full-builder preservation fixture confirmed Unity's first-import
+`UnityObjectToClipPos` upgrade changes exactly the three legacy Bloom sources.
+The Campaign source gate now recognizes only their pinned original GUID/name/
+pathID, original source hash, exact upgraded hash, canonical native recipe,
+replacement count, retained-source role and unchanged recovery receipt. Other
+source changes remain rejected. Both Python source validation and the actual
+Editor gate enforce this contract. The real six-source fixture passed all72
+native Vulkan banks/144stages and five original material consumers. Twelve real
+negative controls rejected arbitrary source hashes, reassigned GUIDs, wrong
+source roles and missing receipts. Evidence lives in the asset worker's private
+`preserved-ui-vulkan-v1/unity-vulkan-corrected.log` and `ProbeOutput/results.json`.
