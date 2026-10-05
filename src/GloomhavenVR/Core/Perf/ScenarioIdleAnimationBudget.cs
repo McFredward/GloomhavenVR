@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Reflection;
 using GloomhavenVR.Board.FigureGrab;
 using GloomhavenVR.WorldUI;
@@ -20,15 +21,18 @@ internal static class ScenarioIdleAnimationBudget
     private static Driver? _driver;
     private static bool _faultReported;
     internal static void Install(GameObject host, Func<bool> enabled,
-        Func<float>? visibleInterval = null, Func<Camera?>? headCamera = null)
+        Func<float>? visibleInterval = null, Func<Camera?>? headCamera = null,
+        Func<Camera, bool>? nativeCameraConsumers = null)
     {
         if (_driver != null) return;
         _faultReported = false;
         _driver = host.AddComponent<Driver>(); _driver.Enabled = enabled;
         _driver.VisibleInterval = visibleInterval ?? (() => 0f);
         _driver.HeadCamera = headCamera ?? (() => null);
+        _driver.NativeCameraConsumers = nativeCameraConsumers ?? (camera => camera.commandBufferCount > 0);
         PerfMonitor.Register("Figure.IdleTransformCull"); PerfMonitor.Register("Figure.IdleTracked");
         PerfMonitor.Register("Figure.IdleOriginalAlways"); PerfMonitor.Register("Figure.IdleAuthoredCull");
+        PerfMonitor.Register("Figure.VisibleIdleBakes");
         try
         {
             VRSession.Harmony?.PatchAll(typeof(ScenarioIdleAnimationPlayPatch));
@@ -47,6 +51,11 @@ internal static class ScenarioIdleAnimationBudget
     { if (actor != null && pose != null) _driver?.Register(actor, pose); }
     internal static void Release(ActorBehaviour? actor)
     { if (actor != null) _driver?.Release(actor); }
+    internal static void BeforeNativeContentChange()
+    {
+        try { _driver?.ReleaseCameraMasks(); }
+        catch (Exception error) { FailOpen(error); }
+    }
     internal static void NativeAction(Animator? animator)
     {
         try { if (animator != null && _driver != null && _driver.NativeActionsReady) _driver.NativeAction(animator); }
@@ -136,8 +145,11 @@ internal static class ScenarioIdleAnimationBudget
         internal Func<bool> Enabled = () => false;
         internal Func<float> VisibleInterval = () => 0f;
         internal Func<Camera?> HeadCamera = () => null;
+        internal Func<Camera, bool> NativeCameraConsumers = camera => camera.commandBufferCount > 0;
         internal bool NativeActionsReady = VRSession.Harmony != null;
         private readonly Dictionary<ActorBehaviour, Record> _records = new();
+        private readonly List<Record> _bakeOrder = new(32);
+        private int _nextBakeIndex;
         private readonly List<ActorBehaviour> _dead = new(8);
         private readonly Stack<bool> _cameraPolicies = new();
         private void Awake()
@@ -147,22 +159,32 @@ internal static class ScenarioIdleAnimationBudget
             if (_records.TryGetValue(actor, out Record current) && current.Pose == pose) return;
             Release(actor);
             Animator? animator = pose.NativeAnimator;
-            if (animator != null) _records.Add(actor, new Record(actor, pose, animator)
-                { Visible = new ScenarioVisibleIdleSnapshot(pose, transform) });
+            if (animator != null)
+            {
+                var record = new Record(actor, pose, animator)
+                    { Visible = new ScenarioVisibleIdleSnapshot(pose, transform) };
+                _records.Add(actor, record); _bakeOrder.Add(record);
+            }
         }
         internal void Release(ActorBehaviour actor)
-        { if (_records.TryGetValue(actor, out Record current)) { current.Restore(); current.Visible?.Dispose(); _records.Remove(actor); } }
+        { if (_records.TryGetValue(actor, out Record current)) { current.Restore(); current.Visible?.Dispose(); _records.Remove(actor); _bakeOrder.Remove(current); } }
+        internal void ReleaseCameraMasks()
+        {
+            foreach (Record record in _records.Values) record.Visible?.Release();
+            _cameraPolicies.Clear();
+        }
         internal void NativeAction(Animator animator)
         { foreach (Record record in _records.Values) if (record.Animator == animator) record.Resume(); }
         internal void NativeAction(ActorBehaviour actor)
         { if (_records.TryGetValue(actor, out Record record)) record.Resume(); }
         internal void RestoreAll()
-        { foreach (Record record in _records.Values) { record.Restore(); record.Visible?.Dispose(); } _records.Clear(); _cameraPolicies.Clear(); }
+        { foreach (Record record in _records.Values) { record.Restore(); record.Visible?.Dispose(); } _records.Clear(); _bakeOrder.Clear(); _cameraPolicies.Clear(); }
         internal void RestoreAllSafely()
         {
             foreach (Record record in _records.Values)
                 try { record.Restore(); record.Visible?.Dispose(); } catch { /* Continue restoring other live owned actors. */ }
             _records.Clear();
+            _bakeOrder.Clear();
             _cameraPolicies.Clear();
         }
         private void OnDestroy()
@@ -172,10 +194,16 @@ internal static class ScenarioIdleAnimationBudget
             try
             {
                 bool admitted = VRSession.IsRunning && NativeActionsReady && camera == HeadCamera()
-                    && camera != null && camera.commandBufferCount == 0;
+                    && camera != null && !NativeCameraConsumers(camera);
                 _cameraPolicies.Push(admitted);
                 foreach (Record record in _records.Values)
+                {
+                    // A late local/remote grab can occur after this owner's Update. The
+                    // camera admission must read those live native ownership gates too.
+                    if (record.Actor != null && (record.Actor.IsMoving || HeldFigures.Owns(record.Actor)
+                        || NetHeldFigures.Owns(record.Actor) || ActorPropBody.IsHeld(record.Actor))) record.Resume();
                     record.Visible?.BeforeCamera(admitted && record.Applied && record.VisibleInterval > 0f);
+                }
             }
             catch (Exception error) { FailOpen(error); }
         }
@@ -194,7 +222,21 @@ internal static class ScenarioIdleAnimationBudget
         {
             try
             {
-                foreach (Record record in _records.Values) record.Visible?.AfterNativePose();
+                // Every due actor remains on its original skin until sampled. A rotating
+                // bounded lane prevents a crowd of idle rigs causing one synchronized bake
+                // spike, while native animation clocks and actions continue independently.
+                long start = Stopwatch.GetTimestamp();
+                int baked = 0, count = _bakeOrder.Count;
+                for (int scanned = 0; scanned < count && baked < 2; scanned++)
+                {
+                    if (_nextBakeIndex >= _bakeOrder.Count) _nextBakeIndex = 0;
+                    ScenarioVisibleIdleSnapshot? snapshot = _bakeOrder[_nextBakeIndex++].Visible;
+                    int previous = snapshot?.Samples ?? 0;
+                    snapshot?.AfterNativePose();
+                    if ((snapshot?.Samples ?? 0) != previous) baked++;
+                    if ((Stopwatch.GetTimestamp() - start) * 1000d / Stopwatch.Frequency >= 2d) break;
+                }
+                PerfMonitor.Count("Figure.VisibleIdleBakes", baked);
             }
             catch (Exception error) { FailOpen(error); }
         }
@@ -211,8 +253,7 @@ internal static class ScenarioIdleAnimationBudget
             // A camera callback interrupted before PostRender cannot leave native sources masked.
             if (_cameraPolicies.Count > 0)
             {
-                foreach (Record record in _records.Values) record.Visible?.Release();
-                _cameraPolicies.Clear();
+                ReleaseCameraMasks();
             }
             int applied = 0, originalAlways = 0, authoredCull = 0;
             using (PerfMonitor.Scope("ScenarioIdleAnimation"))

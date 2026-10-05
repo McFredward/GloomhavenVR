@@ -726,7 +726,7 @@ internal static partial class Loc
             ["Optimize/ScenarioSimpleEnvironmentShading"] = Pair("Simpler environment shading", "Einfachere Umgebungsschattierung"),
             ["Optimize/ScenarioEnvironmentMeshBank"] = Pair("Private environment mesh copies", "Private Kopien der Umgebungsmeshes"),
             ["Optimize/ScenarioExplicitEnvironmentInstancing"] = Pair("Group repeated environment draws", "Wiederholte Umgebung gemeinsam zeichnen"),
-            ["Optimize/ScenarioCheapWallShading"] = Pair("Simpler walls and floors", "Einfachere Wände und Böden"),
+            ["Optimize/ScenarioCheapWallShading"] = Pair("Simpler wall shading", "Einfachere Wandschattierung"),
             ["Optimize/ScenarioTerrainDetailPercent"] = Pair("3D terrain detail (%)", "3D-Umgebungsdetails (%)"),
             ["Optimize/ScenarioDistantTerrainDetailPercent"] = Pair("Distant 3D terrain detail (%)", "Entfernte 3D-Umgebungsdetails (%)"),
             ["Optimize/ScenarioTerrainDistanceMeters"] = Pair("Distant terrain threshold (m)", "Abstand für entfernte Umgebung (m)"),

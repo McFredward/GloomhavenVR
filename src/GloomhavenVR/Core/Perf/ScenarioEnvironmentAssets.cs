@@ -14,6 +14,7 @@ internal static class ScenarioEnvironmentAssets
     internal const string Filename = "ghvr-environment.bundle";
     private static AssetBundle? _bank;
     private static bool _attempted;
+    internal static bool IsUnavailable => _attempted && _bank == null;
     internal static bool EnsureLoaded()
     {
         if (_bank != null) return true;

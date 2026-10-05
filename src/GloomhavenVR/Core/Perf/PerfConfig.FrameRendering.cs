@@ -37,7 +37,7 @@ internal static partial class PerfConfig
             "Submit eligible repeated static environment geometry in small camera-bound groups. Restores original rendering on unsupported or changed sources. Works live on PC and Frame.");
         ScenarioCheapWallShading = file.Bind("Optimize", "ScenarioCheapWallShading",
             FrameDefaults.Active ? FrameDefaults.ScenarioCheapWallShading : Defaults.ScenarioCheapWallShading,
-            "Use cheaper original-textured wall and floor materials while retaining continuous native wall dissolution. Omits fine lighting and surface detail. Works live; Off restores original materials.");
+            "Use cheaper original-textured wall materials while retaining continuous native wall dissolution. Floors keep original shading. Omits fine lighting and surface detail. Works live; Off restores original materials.");
         ScenarioTerrainDetailPercent = file.Bind("Optimize", "ScenarioTerrainDetailPercent",
             FrameDefaults.Active ? FrameDefaults.ScenarioTerrainDetailPercent : Defaults.ScenarioTerrainDetailPercent,
             new ConfigDescription("Static decorative terrain mesh detail: 100 preserves original geometry, 0 uses the strongest available prepared 3D simplification. Floors, doors, actors, targeting and gameplay collision remain available. Works live on PC and Frame.", new AcceptableValueRange<int>(0, 100)));

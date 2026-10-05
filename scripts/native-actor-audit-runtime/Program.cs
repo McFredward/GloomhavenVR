@@ -313,7 +313,9 @@ public static class InteractionProgram
         // An action begins inside an already acquired camera lease: restoration must
         // be synchronous, not postponed until the next Update or PostRender.
         invokeActionInsideLease = true; eye.Render();
-        Check(!invokeActionInsideLease && animator.cullingMode == AnimatorCullingMode.AlwaysAnimate,
+        Check(!invokeActionInsideLease,
+            "native action immediately releases visible idle masks before continuation");
+        Check(animator.cullingMode == AnimatorCullingMode.AlwaysAnimate,
             "visible idle native action restores before the actual camera finishes");
         visibleInterval = 0f;
         yield return null;

@@ -326,7 +326,7 @@ internal static partial class Loc
                 + "Wirkt sofort; neue Frame-Profile Ein, PC Aus; gespeicherte Werte bleiben erhalten.",
             ["Optimize/ScenarioEnvironmentMeshBank"] = "Erlaubt das Zusammenfassen statischer Umgebung trotz nicht lesbarer Originalmeshes. Benötigt zusätzlichen Speicher und Vorbereitung; Aus erhält das Original.",
             ["Optimize/ScenarioExplicitEnvironmentInstancing"] = "Zeichnet geeignete wiederholte statische Umgebung gemeinsam. Alle aufgedeckten Räume und ihre Interaktionen bleiben verfügbar; Aus stellt einzelne Zeichenvorgänge wieder her.",
-            ["Optimize/ScenarioCheapWallShading"] = "Nutzt sparsamere Wand- und Bodenschattierung. Feine Beleuchtung und Oberflächendetails nehmen ab; Originaltexturen und animierte Wandausblendung bleiben.",
+            ["Optimize/ScenarioCheapWallShading"] = "Nutzt sparsamere Wandschattierung. Feine Beleuchtung und Oberflächendetails nehmen ab; Originaltexturen und animierte Wandausblendung bleiben. Böden behalten ihre Originalschattierung.",
             ["Optimize/ScenarioTerrainDetailPercent"] = "100% erhält die ursprüngliche statische Umgebung; kleinere Werte wählen vorbereitete gröbere 3D-Meshes. Böden, Türen, Figuren und Spielkollisionen bleiben.",
             ["Optimize/ScenarioDistantTerrainDetailPercent"] = "Zusätzliche Detailgrenze für die Umgebung ab dem gewählten Betrachtungsabstand. Alle aufgedeckten spielrelevanten Inhalte bleiben dargestellt.",
             ["Optimize/ScenarioTerrainDistanceMeters"] = "Betrachtungsabstand in VR, ab dem die Detailgrenze für entfernte Umgebung gilt.",
