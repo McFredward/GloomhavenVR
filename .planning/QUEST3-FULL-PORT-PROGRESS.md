@@ -583,3 +583,26 @@ filenames/cache directories now fit the ordinary path budget or report the exact
 required shorter location. Forty backend checks, seven UI checks and four guarded
 artwork checks pass. This is not a clean Windows provisioning or headset claim.
 A signed complete APK, delivered-bank audit and hardware package remain pending.
+
+## Fixed full Player invocation f392a5a2b1a7
+
+The native content build now sets DoNotBuildWithPlayer, uses a source-captured
+standard-library ZIP/ZIP64 helper for true Stored native banks and unchanged
+archive reuse, and temporarily excludes both the source bank and the complete
+Addressables BuildPath while assembling the APK. Exact generated native linker
+bytes remain in Assets. A durable scoped journal restores ZIP/meta/native
+directory after success, constructor failure or process death; restored ownership
+accepts subsequent legitimate mod/profile/linker changes. All99 actual C#
+filesystem controls and the pinned Unity/Addressables metadata compile pass.
+The central Python consumer passes17 focused lifecycle controls plus13 existing
+resume controls on the integrated tree. These do not prove an Android Player.
+
+The actual retained-project retry has derivative
+`f392a5a2b1a7930094b19c8e5adb91d66cf1dee6722ef32fdd02a90d92ea2500`.
+Its portable launch capture binds30 actual host modules,23 staged Editor files
+and the recognized90-header repair. Runtime source/input identity remains
+fa6c1f9a/ModBuild623/7ecd1e97. Both verified managed adaptation stages are reused
+and the real Android SDK/API compilation completes. The Player is running with
+minimum shader mode; the old exhaustive native receipt is not reused or relabelled
+as a new graphics PASS. Native packaging, IL2CPP and delivered artifact gates
+remain pending.
