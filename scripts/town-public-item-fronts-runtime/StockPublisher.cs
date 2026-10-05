@@ -24,15 +24,11 @@ public static partial class MirrorProgram
         var stationary = Entry("stationary rack card", 74, false);
         var retired = Entry("retired native borrower", 75, true); retired.Current = false;
         TownServiceSync.PublishStockFixture(catalog);
-        // Held stock belongs to the separately verified canonical avatar 101
-        // transport. This publisher owns only original return/palm flights.
-        Check(!TownServiceSync.Calls.Exists(call => call.Source == held.MountRoot || call.Source == held.CardRoot
-            || call.Source == held.BodyRoot || call.Source == held.RowContent)
-            && !TownServiceSync.StockFixturePriority(held.MountRoot) && !TownServiceSync.StockFixturePriority(held.CardRoot)
-            && !TownServiceSync.StockFixturePriority(held.BodyRoot!) && !TownServiceSync.StockFixturePriority(held.RowContent!),
-            "canonical held stock never duplicates its original parts in the visitor stock publisher");
-        Check(TownServiceSync.Calls.Count == 8, "independent stock publisher contains only current moving original samples");
-        foreach (var entry in new[] { returning, parked })
+        // The canonical avatar remains the only visible held author (receiver masking is
+        // exercised through the real mirror pipeline in CardReturns626). Prepare the same
+        // original parts here before release so a short return never starts with cold artwork.
+        Check(TownServiceSync.Calls.Count == 12, "independent stock publisher contains only current moving original samples");
+        foreach (var entry in new[] { held, returning, parked })
         {
             Check(TownServiceSync.Calls.FindAll(call => call.Key == "merchant.heldstock" && call.Source == entry.MountRoot).Count == 1,
                 "held stock uses its explicit visitor-owned original mount");
@@ -53,7 +49,14 @@ public static partial class MirrorProgram
                 && !TownServiceSync.StockFixturePriority(entry.MountRoot) && !TownServiceSync.StockFixturePriority(entry.CardRoot)
                 && !TownServiceSync.StockFixturePriority(entry.BodyRoot!) && !TownServiceSync.StockFixturePriority(entry.RowContent!),
                 "stock visitor lane never duplicates stationary or retired cabinet cards");
-        foreach (var entry in catalog.Entries) entry.Sample.IsMoving = false;
+        foreach (var entry in catalog.Entries) { entry.Sample.IsMoving = false; entry.Sample.IsHeld = false; }
+        returning.Sample.ReturnNumbers = new float[38]; returning.Sample.ReturnStarted = Time.unscaledTime;
+        TownServiceSync.PublishStockFixture(catalog);
+        Check(TownServiceSync.Calls.Count == 4 && TownServiceSync.Calls.TrueForAll(call =>
+            call.Source == returning.MountRoot || call.Source == returning.CardRoot
+            || call.Source == returning.BodyRoot || call.Source == returning.RowContent),
+            "completed original stock return retains only its exact endpoint through the bounded observer grace");
+        returning.Sample.ReturnNumbers = null;
         TownServiceSync.PublishStockFixture(catalog);
         Check(TownServiceSync.Calls.Count == 0, "completed stock returns leave no visitor stock publication");
     }
