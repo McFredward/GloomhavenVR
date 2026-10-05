@@ -67,6 +67,19 @@ preparation is bounded during loading and hidden cached pages stay dormant durin
 steady play. Existing record78, numeric motion and original widget contracts remain
 authoritative; no card bitmap or native gameplay callback is transmitted.
 
+Additive103 supplements unchanged102 version1 references with the current author's
+complete native headers and, when necessary, exact original property deltas naming
+a genuinely cached base content key. Original node values are never inferred from
+a page or guessed from local presentation. Validate the complete reconstructed
+target hash, actual template lifetime and original parent bindings before any
+pending/baseline/clock mutation. A monotonically newer claim can reauthorize exact
+cached originals from the same real peer/service/session; another peer or session
+cannot inherit them. Reference and complete recovery packets of the same sequence
+must coexist until admission, so a rejected reference cannot discard its repair.
+Fast clocks share the unchanged bounded transport budget and retain full repairs;
+local completion is never an acknowledgement. Hidden prepared originals remain
+unexposed and cache/repair work remains bounded.
+
 The read-only town publisher runs at the end of the actual registered LateUpdate
 writer list, after native town/card/ring/scroll writes, grip-bar tweens and final
 canvas sorting. Do not move the already approved board/use-bar capture or reorder

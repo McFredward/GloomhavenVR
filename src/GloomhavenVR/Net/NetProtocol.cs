@@ -590,6 +590,11 @@ internal static class NetProtocol
     // Additive record102 carries a public clock's required content keys and complete changed
     // originals together. Validate the entire bank and original asset/topology contracts
     // before admitting its clock; local send completion is never a remote acknowledgement.
+    // Prepared original revisions survive page retirement. Additive record103 carries the
+    // current original headers and explicitly based native property changes before the
+    // complete repair, using the same bounded fragment namespace and scheduler share.
+    // Changed templates, missing originals or invalid parent bindings reject the reference
+    // atomically and retain the full102 repair; no node state is inferred from an observer.
     // Town capture runs after the actual registered native town, tween and canvas writers,
     // while the existing board/use-bar sampling cadence remains unchanged.
     // Merchant item inspection now uses the approved avatar fan/rig held-card pipeline.
