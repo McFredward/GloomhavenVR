@@ -331,7 +331,7 @@ def main():
             variants += [
                 ("offered-unsettled-final-picture", "fixture/OfferedOrientation629.cs",
                  "        clock += .2f; // Finish the independently sampled native drawing target.",
-                 "        /* causal probe: compare the final picture before its drawing endpoint */",
+                 "        clock += .12f; // Causal probe: retain the original unfinished 120ms boundary.",
                  "final native drawing target settles exactly before owner and observer pixel equality"),
                 ("offered-no-print-relation", "TownServiceMirror.Motion.cs", "        ApplyOfferedFrames(now);", "        /* independent overlay and physical root clocks */", "native area stays in the same owner-authored print frame during a hover turn"),
                 ("offered-wrong-print-binding", "TownServiceMirror.Offerings.cs", "int printIndex = Array.IndexOf(physical.Binding.Bindings, relation.OfferedBinding);", "int printIndex = -1;", "native area stays in the same owner-authored print frame during a hover turn"),
