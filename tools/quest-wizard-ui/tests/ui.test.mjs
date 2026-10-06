@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {strings,translate} from '../i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,publisherSourceUrl,sessionId,savedSession} from '../model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,publisherSourceUrl,sessionId,savedSession,activeWorkView,timingView,durationText} from '../model.mjs';
 import {LocalApi,PreviewApi} from '../transport.mjs';
 
 test('German and English expose the same strings and parameter ABI',()=>{
@@ -125,4 +125,23 @@ test('support transport downloads a token-protected ZIP and rejects foreign cont
   await assert.rejects(()=>api.support('../private'),error=>error.code==='invalidReply');
   const bad=new LocalApi('http://127.0.0.1:1234','token',async()=>({ok:true,headers:new Map([['Content-Type','text/html']])}));
   await assert.rejects(()=>bad.support('session-123'),error=>error.code==='invalidReply');
+});
+
+test('active subtask counts use the current operation instead of wizard stage counts',()=>{
+  assert.deepEqual(activeWorkView({activeWork:{operation:'recovery',done:6,total:22,percent:31.7}}),{operation:'recovery',done:6,total:22});
+  assert.equal(activeWorkView({completed:5,total:7}),null);
+  for(const work of [{done:0,total:0},{done:23,total:22},{done:-1,total:22},{done:6.2,total:22},{done:6,total:'22'}])assert.equal(activeWorkView({activeWork:work}),null);
+  assert.equal(activeWorkView({activeWork:{done:6,total:22,operation:'../../invalid'}}).operation,null);
+});
+
+test('durations and ETA retain measured scope, honest missing history and finite ranges',()=>{
+  assert.equal(durationText(8100.9),'02:15:00');assert.equal(durationText(10),'00:00:10');assert.equal(durationText(0),'00:00:00');
+  for(const value of [NaN,Infinity,-1,'10',null]){assert.equal(durationText(value),'');assert.equal(timingView({elapsedSeconds:value}),null);}
+  const row={elapsedSeconds:3600,active:true,elapsedBasis:'since-update',estimate:{status:'estimated',scope:'conversion-batches',remainingSeconds:5400,lowerSeconds:4200,upperSeconds:7200,samples:3}};
+  assert.deepEqual(timingView(row),{elapsedSeconds:3600,active:true,elapsedBasis:'since-update',estimate:{status:'estimated',scope:'conversion-batches',lowerSeconds:4200,upperSeconds:7200}});
+  assert.equal(timingView({...row,estimate:{...row.estimate,upperSeconds:4000}}).estimate.status,'unknown');
+  assert.equal(timingView({...row,estimate:{...row.estimate,remainingSeconds:NaN}}).estimate.status,'unknown');
+  assert.equal(timingView({...row,estimate:{...row.estimate,scope:'whole-build'}}).estimate.status,'unknown','a phase estimate cannot be relabelled as whole-build time');
+  for(const status of ['paused','learning','complete','unknown'])assert.equal(timingView({...row,estimate:{status,scope:'phase'}}).estimate.status,status);
+  assert.equal(timingView({elapsedSeconds:12}).elapsedBasis,'recorded-active');
 });

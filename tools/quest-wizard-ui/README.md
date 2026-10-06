@@ -16,10 +16,10 @@ The pinned Python installation and virtual environment remain script-local.
 The backend's ownership marker and kernel guard also protect this shared user
 workspace against two launchers attempting to build simultaneously.
 
-The UI has no external fonts, analytics or hosted frontend. Twelve pinned public
+The UI has no external fonts, analytics or hosted frontend. Twenty-one pinned public
 publisher images are included for immediate offline display; the backend may
 repair missing images from their exact approved public CDN URLs. The Unity
-terms and publisher attribution are explicit external links. German and English strings are
+terms, GitHub repository and maintainer support page are explicit external links. German and English strings are
 kept in `i18n.mjs`. Further technical settings and bounded logs are collapsed.
 
 ## Backend boundary
@@ -60,6 +60,23 @@ between tasks. Unknown substep totals remain indeterminate while the stage's
 last observed total and concrete current task stay visible. These percentages
 describe scheduled work, not time remaining; elapsed time never invents progress.
 
+The active count uses `progress.activeWork.done/total`, naming its current
+operation. For conversion this includes its scheduled source/core/batch/final
+subtasks, not the seven top-level wizard stages. Missing counts are labelled as
+not reported; the UI never substitutes completed wizard stages. Repeated native
+merge activity carries its explicit batch and native index number, observed
+file/byte counts and current file detail so distinct work remains identifiable.
+
+`state.timing` and the current stage's `timing` provide recorded active duration.
+Waiting, stopped/offline intervals are excluded by the backend. Legacy sessions
+without prior timing display "since this update" rather than reconstructing an
+invented old duration. The backend's estimate is shown as a bounded duration range
+with its scope: the current phase or remaining conversion batches. Later Unity
+and packaging work is not included in a conversion estimate. Insufficient/stale
+observations, paused work and unavailable estimates are labelled directly. Neither
+the elapsed clock nor an ETA changes the observed percentages. Durations are
+formatted `HH:MM:SS`; the UI does not derive whole-build time from a progress ratio.
+
 Unity reporting combines observed editor task counters, content-bank boundaries,
 Player build callbacks and known log/Bee counters. The editor does not expose a
 reliable percentage for every internal operation. Tasks without a measured total
@@ -74,15 +91,18 @@ declaration. An explicit empty declaration means base game only.
 
 The hero heading combines `assets/gloomhavenvr-logo.png`, an unchanged copy of
 the project's tracked `docs/img/logo.png`, with a localized connector and the
-Meta Quest logo. Logo origins are recorded in `assets/provenance.json`. `assets/promo/` contains twelve exact publicly published
+Meta Quest logo. Logo origins are recorded in `assets/provenance.json`. `assets/promo/` contains twenty-one exact publicly published
 character/enemy promotional images, with source attribution in that directory
 and SHA/size/dimensions pins in `promo-artwork.json`. They are not extracted from
 the owner's game or recovered game banks. The default `Gallery` validates these
 bundled files synchronously and serves opaque IDs through authenticated
 `/api/promo-artwork`. Selecting a game without owned artwork does not erase the
 publisher slideshow. The image area, captions and manual slideshow controls
-remain available during setup and build progress. The attribution link follows
-the active publisher picture; only the official Steam news origin is accepted.
+remain available during setup and build progress. Picture provenance is retained
+in `assets/promo/README.md` and the pinned manifest, outside the product flow.
+The two footer icons use the exact GitHub/support links already in the project
+README, without loading remote widgets or contacting those sites on page load.
+Their original SVG sources and the GitHub icon license are pinned locally.
 
 The optional stdlib `artwork.py` adapter consumes a locally recovered Campaign
 project and an independently verified game fingerprint. It requires the original
@@ -168,3 +188,13 @@ temporary owned cache and establishes a clearly labeled fixture inspect receipt.
 This inheritance proves the HTTP/UI artwork route and exact response hashes; it
 does not represent a fresh inspect, recovery or build. Browser screenshots remain
 private. All temporary projected game files are removed when the test finishes.
+
+The 2026-10-06 footer/count/timing update's focused worker gate passes all 21
+Node UI cases without skips, including eight direct Chrome workflows and the
+actual loopback gallery displaying all 21 bundled images. Four owned-art adapter
+cases also pass. The stage browser witnesses a 22-subtask active conversion,
+explicit native index 2/2, precise whole-stage movement, elapsed stage/whole
+runtime and a conversion-scoped ETA range. Unknown/new-update timing remains
+labelled, completed state clears task counts, and desktop/mobile footer icons
+load locally with accessible labels and no horizontal overflow. These are
+UI/HTTP fixtures; they do not certify a Windows full export or Unity throughput.

@@ -192,6 +192,150 @@
         "en": "Night Demon (Elite)",
         "de": "Night Demon (Elite)"
       }
+    },
+    {
+      "id": "bandit-guard-elite",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/d5c4696fbc7c9c8baab084e5fa9fa02b05934072.jpg",
+      "sha256": "1d3d522f3b4be449ef3f3b2fb4f1c687f07bada487db5b0fc52b9e4b27041ac1",
+      "size": 732660,
+      "dimensions": [
+        1767,
+        995
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/bandit-guard-elite.jpg",
+      "caption": {
+        "en": "Bandit Guard (Elite)",
+        "de": "Bandit Guard (Elite)"
+      }
+    },
+    {
+      "id": "bandit-archer-elite",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/dfa8267fb75af4174836fc92ddbfe734917a36e2.jpg",
+      "sha256": "af1136d0c017123c52835162323c4000d2afd153dac236de7ddf50dfd85946a7",
+      "size": 715763,
+      "dimensions": [
+        1767,
+        982
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/bandit-archer-elite.jpg",
+      "caption": {
+        "en": "Bandit Archer (Elite)",
+        "de": "Bandit Archer (Elite)"
+      }
+    },
+    {
+      "id": "living-bones-elite",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/a604456cce8b32fe9d64c40de02936c7df4cd3fe.jpg",
+      "sha256": "cc8e4c382dcaa1dbfb6d12db1aca51ecfac96a400541cf3c30a410cc4a5380d5",
+      "size": 1099618,
+      "dimensions": [
+        1755,
+        988
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/living-bones-elite.jpg",
+      "caption": {
+        "en": "Living Bones (Elite)",
+        "de": "Living Bones (Elite)"
+      }
+    },
+    {
+      "id": "living-corpse-elite",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/521023e8440a61f13648327fc11e58e32f2db8fb.jpg",
+      "sha256": "fd105c5f6ac1de45cbd9e47b9d02d7ae366a6111a32e3c681326626f4db87451",
+      "size": 906268,
+      "dimensions": [
+        1767,
+        982
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/living-corpse-elite.jpg",
+      "caption": {
+        "en": "Living Corpse (Elite)",
+        "de": "Living Corpse (Elite)"
+      }
+    },
+    {
+      "id": "living-spirit-elite",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/3e078e4d3e2a9897c8f579b53a67297f9637f580.jpg",
+      "sha256": "3d49a113b199da2b1ceecb2fa21a5131dd13bb332da4e0051438563bdeb45397",
+      "size": 981548,
+      "dimensions": [
+        1767,
+        982
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/living-spirit-elite.jpg",
+      "caption": {
+        "en": "Living Spirit (Elite)",
+        "de": "Living Spirit (Elite)"
+      }
+    },
+    {
+      "id": "cultist-elite",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/c9ee32fda803ce49d35ff7a63db9f0cc90e291ca.jpg",
+      "sha256": "85b46fe2763212eaa7397ec411afd0831034fb0d37853603e7dc9822bffe7931",
+      "size": 709090,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/cultist-elite.jpg",
+      "caption": {
+        "en": "Cultist (Elite)",
+        "de": "Cultist (Elite)"
+      }
+    },
+    {
+      "id": "sun-demon-elite",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/22adc1bdaa0c1a21b9627cc788455cb57acae878.jpg",
+      "sha256": "2bd567e1d1fa42e808743d2cdb1cde031330347bffdfc1d8f9226ad9d574e783",
+      "size": 1017739,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/sun-demon-elite.jpg",
+      "caption": {
+        "en": "Sun Demon (Elite)",
+        "de": "Sun Demon (Elite)"
+      }
+    },
+    {
+      "id": "bandit-commander",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/10f9207d547ce2903dd174821b7559ceaebd9381.jpg",
+      "sha256": "abe3610fbcf932402d8289a511d17fd16cacc6beb7daf533ebe52a2bc42e5522",
+      "size": 818780,
+      "dimensions": [
+        1750,
+        997
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/bandit-commander.jpg",
+      "caption": {
+        "en": "Bandit Commander",
+        "de": "Bandit Commander"
+      }
+    },
+    {
+      "id": "nightcrawler-scoundrel",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/4f30fa0ca8fda602d406d30b23e64ae31ebbefc2.jpg",
+      "sha256": "9e9b06d764ae30e01ec0a0032c7a4a93e7c280fa4689a5cd8e118d30fe763460",
+      "size": 3122690,
+      "dimensions": [
+        3840,
+        2160
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1564327021&feed=steam_community_announcements",
+      "localPath": "assets/promo/nightcrawler-scoundrel.jpg",
+      "caption": {
+        "en": "Nightcrawler Scoundrel",
+        "de": "Nightcrawler Scoundrel"
+      }
     }
   ]
 }

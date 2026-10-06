@@ -16,6 +16,32 @@
       "sha256": "d1c32368e301a28a902ea0f66b8a536ccd1e84d0ca9ede9c2f260bd5e7e501ec",
       "size": 8870,
       "license": "CC0-1.0 per source file page; Meta trademark ownership retained"
+    },
+    {
+      "path": "github-mark.svg",
+      "source": "https://github.com/primer/octicons/blob/main/icons/mark-github-16.svg",
+      "url": "https://raw.githubusercontent.com/primer/octicons/main/icons/mark-github-16.svg",
+      "transformation": "none (GitHub uses CSS monochrome presentation on dark background)",
+      "sha256": "7421820090b50ac79d7c2bf7c951a433d7098a8a9c474809207bdd45f62d9d46",
+      "size": 822,
+      "license": "MIT; bundled octicons-LICENSE.txt; GitHub trademark ownership retained"
+    },
+    {
+      "path": "buymeacoffee-cup.svg",
+      "source": "https://buymeacoffee.com/brand",
+      "url": "https://cdn.buymeacoffee.com/buttons/bmc-new-btn-logo.svg?1",
+      "transformation": "none",
+      "sha256": "a668a2adad6bae5ee7e6d669cfa7876a75d572db71ac9a91f30c2e295bedb3de",
+      "size": 8133,
+      "license": "Official brand/button artwork; Buy Me a Coffee trademark ownership retained"
+    },
+    {
+      "path": "octicons-LICENSE.txt",
+      "source": "https://github.com/primer/octicons/blob/main/LICENSE",
+      "transformation": "none",
+      "sha256": "da259c8bd0de62713ccdcf88910aebca810644f98c2c912bad814fc79ea778df",
+      "size": 1068,
+      "license": "MIT"
     }
   ],
   "originalGameArtworkIncluded": false

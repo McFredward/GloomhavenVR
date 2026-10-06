@@ -13,6 +13,15 @@ or embedded images. This logo was also visually compared with the wordmark on
 174 × 26 bitmap would be too small for the builder heading.
 
 `provenance.json` records the exact source URL, hash, byte count and presentation
-for the copied logos. The slideshow's twelve public publisher images have their
+for the copied logos. The slideshow's twenty-one public publisher images have their
 own [provenance notes](promo/README.md) and hash/dimension manifest. Neither logos
 nor slideshow pictures are extracted from the user's installed game.
+
+The two footer link icons are exact locally pinned SVG copies. The GitHub mark
+is the official Primer Octicons `mark-github-16` (MIT; complete license in
+`octicons-LICENSE.txt`). The cup is Buy Me a Coffee's own button artwork, linked
+from its brand-kit ecosystem. Their source URLs, hashes and byte sizes are in
+`provenance.json`. GitHub and Buy Me a Coffee retain their respective trademarks.
+GitHub's black icon is presented white through CSS; the yellow cup is unchanged.
+The links use the repository and maintainer support URLs from the project README.
+They do not embed a remote widget, tracking script, font or remote image request.

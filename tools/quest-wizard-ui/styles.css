@@ -32,7 +32,6 @@ h1{font-family:Georgia,"Times New Roman",serif;font-size:clamp(32px,2.65vw,42px)
 .hero-platform{display:flex;align-items:center;gap:16px;max-width:100%}
 .hero-for{font-family:Inter,"Segoe UI",system-ui,sans-serif;font-size:18px;font-weight:400;letter-spacing:0;color:var(--muted)}
 .hero-quest-logo{display:block;width:235px;max-width:calc(100% - 48px);height:auto;filter:brightness(0) invert(1)}
-.hero-copy{font-size:15px;line-height:1.75;color:var(--muted);max-width:520px;margin:20px 0 0}
 .gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:44px}
 .art-card{height:150px;border:1px solid #c3a77525;border-radius:9px;position:relative;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 20%,#92704624,transparent 80%),linear-gradient(145deg,#292820,#181c1e);box-shadow:0 8px 30px #0002}
 .art-card:nth-child(2){background:radial-gradient(ellipse at 50% 20%,#49646733,transparent 80%),linear-gradient(145deg,#202b2c,#181c1e)}
@@ -169,7 +168,6 @@ h1{font-size:34px;white-space:normal;margin:17px 0}
 .hero-game-logo{width:min(100%,440px)}
 .hero-quest-logo{width:215px}
 .hero-for{font-size:16px}
-.hero-copy{max-width:none;font-size:13px}
 .gallery-note{min-height:0;margin-top:10px}
 .wizard{margin-top:28px}
 .panel-body{min-height:0}
@@ -208,4 +206,16 @@ h2{font-size:23px}
 .stage-list li{align-items:start}.stage-content{flex:1;min-width:0}.stage-content strong{font-size:12px;font-weight:500}.stage-content small{display:block;color:var(--muted);font-size:10px;line-height:1.6;overflow-wrap:anywhere;margin:5px 0}.stage-content progress{width:100%;height:5px;accent-color:var(--gold)}.stage-state{white-space:nowrap;font-variant-numeric:tabular-nums}.unity-actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
 @media(max-width:850px){.gallery.slideshow{aspect-ratio:16/9;max-height:330px}.hero-copy{margin-top:16px}.stage-state{white-space:normal;max-width:100px;text-align:right}}
 
-.progress-scope{display:block;font-size:10px;color:var(--muted);margin-top:5px}.progress-header #progress-count{font-size:18px;color:var(--gold);font-variant-numeric:tabular-nums}.progress-track{height:7px}.substep-progress{border-top:1px solid #ffffff10;margin-top:15px;padding-top:13px}.substep-progress .progress-header{font-size:10px;color:var(--muted);align-items:start}.substep-progress .progress-header>span{white-space:normal}.substep-progress .progress-track{height:4px;margin-top:10px}.substep-progress .progress-track>div{background:#91aaa9}.mod-source{margin:0 0 17px;padding:9px 11px;border:1px solid #ffffff10;border-radius:7px;color:#b4bac3;font-size:10px;line-height:1.6;overflow-wrap:anywhere}.gallery-note#gallery-source{display:inline-block;min-height:0;margin-top:14px}.gallery-controls{flex-wrap:wrap}.stage-list .stage-state{min-width:75px;text-align:right}
+.progress-scope{display:block;font-size:10px;color:var(--muted);margin-top:5px}.progress-header #progress-count{font-size:18px;color:var(--gold);font-variant-numeric:tabular-nums}.progress-track{height:7px}.substep-progress{border-top:1px solid #ffffff10;margin-top:15px;padding-top:13px}.substep-progress .progress-header{font-size:10px;color:var(--muted);align-items:start}.substep-progress .progress-header>span{white-space:normal}.substep-progress .progress-track{height:4px;margin-top:10px}.substep-progress .progress-track>div{background:#91aaa9}.mod-source{margin:0 0 17px;padding:9px 11px;border:1px solid #ffffff10;border-radius:7px;color:#b4bac3;font-size:10px;line-height:1.6;overflow-wrap:anywhere}.gallery-controls{flex-wrap:wrap}.stage-list .stage-state{min-width:75px;text-align:right}
+
+.footer-actions{display:flex;align-items:center;gap:16px;flex-wrap:wrap;justify-content:flex-end}
+.project-links{display:flex;align-items:center;gap:4px}
+.project-links a{display:grid;place-items:center;width:40px;height:40px;border:1px solid transparent;border-radius:8px;background:#ffffff03;transition:background .2s}
+.project-links a:hover{background:#ffffff0b;border-color:#ffffff12}
+.project-links img{display:block;max-width:24px;max-height:29px}
+#project-github img{filter:brightness(0) invert(1);opacity:.72}
+.build-timing{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0 0;padding-top:13px;border-top:1px solid #ffffff10}
+.build-timing dt{font-size:10px;color:var(--muted);line-height:1.6}
+.build-timing dd{font-size:11px;line-height:1.65;margin:3px 0 0;color:#d1d6dd;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.build-timing small{display:block;margin-top:5px;font-size:9px;color:var(--muted);line-height:1.6}
+@media(max-width:500px){.site-footer{align-items:center;flex-wrap:wrap}.footer-actions{justify-content:flex-start;gap:12px}.build-timing{grid-template-columns:1fr}}

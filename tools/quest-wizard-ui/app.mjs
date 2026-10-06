@@ -1,5 +1,5 @@
 import {translate} from './i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,publisherSourceUrl,sessionId,savedSession} from './model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,savedSession,activeWorkView,timingView,durationText} from './model.mjs';
 import {LocalApi,PreviewApi} from './transport.mjs';
 
 const $ = id => document.getElementById(id);
@@ -15,7 +15,6 @@ const reducedMotion=matchMedia('(prefers-reduced-motion:reduce)');
 let slides=[],slideIndex=0,slideTimer=null,slidePaused=reducedMotion.matches,artPollTimer=null,actionBusy=false,logBusy=false,logSelectionManual=false;
 const blobUrls=[];
 const galleryTemplate=[...$('gallery').children].map(node=>node.cloneNode(true));
-const defaultGallerySource=$('gallery-source').href;
 function readStorage(key) { try { return localStorage.getItem(key); } catch { return null; } }
 function writeStorage(key,value) { try { localStorage.setItem(key,value); } catch { } }
 function t(key,parameters) { return translate(language,key,parameters); }
@@ -28,6 +27,7 @@ function setLanguage(value) {
   language=value;writeStorage('quest-wizard-language',value);document.documentElement.lang=value;
   document.querySelectorAll('[data-i18n]').forEach(node => node.textContent=t(node.dataset.i18n));
   document.querySelectorAll('[data-i18n-aria]').forEach(node=>node.setAttribute('aria-label',t(node.dataset.i18nAria)));
+  document.querySelectorAll('[data-i18n-title]').forEach(node=>node.title=t(node.dataset.i18nTitle));
   document.querySelectorAll('[data-language]').forEach(node => node.setAttribute('aria-pressed',String(node.dataset.language===value)));
   $('gallery').querySelectorAll('.art-card img').forEach((node,index)=>node.alt=t(slides[index]?.altCode??'ownedArtwork'));
   $('gallery-pause').textContent=t(slidePaused?'galleryPlay':'galleryPause');
@@ -62,8 +62,6 @@ function showSlide(index) {
   $('gallery-count').textContent=(slideIndex+1)+' / '+slides.length;
   const row=slides[slideIndex],caption=row.caption?.[language]??row.caption?.en;
   $('gallery-note').textContent=[caption,t(row.altCode??'ownedArtwork')].filter(Boolean).join(' · ');
-  $('gallery-source').hidden=row.altCode!=='promoArtwork';
-  $('gallery-source').href=publisherSourceUrl(row.source)??defaultGallerySource;
   clearTimeout(slideTimer);if(!slidePaused&&!document.hidden)slideTimer=setTimeout(()=>showSlide(slideIndex+1),6500);
 }
 function phaseLabel(phase='') {
@@ -93,7 +91,31 @@ function substepLabel(value) {
   const batch=value.recoveryBatchIndex,total=value.recoveryBatchTotal;
   const context=Number.isSafeInteger(batch)&&Number.isSafeInteger(total)&&batch>0&&batch<=total
     ?t('recoveryBatchContext',{index:batch,total}):'';
-  return t('substep',{phase:[phaseLabel(value.phase),context].filter(Boolean).join(' · ')});
+  const native=value.recoveryNativeIndex,nativeTotal=value.recoveryNativeTotal;
+  const nativeContext=Number.isSafeInteger(native)&&Number.isSafeInteger(nativeTotal)&&native>0&&native<=nativeTotal
+    ?t('recoveryNativeContext',{index:native,total:nativeTotal}):'';
+  return t('substep',{phase:[phaseLabel(value.phase),context,nativeContext].filter(Boolean).join(' · ')});
+}
+function workSummary(value) {
+  const work=activeWorkView(value),operation=work?.operation;
+  if(!work)return t('activeWorkUnknown');
+  const label=operation?phaseLabel('operation:'+operation):t('activeWorkCurrent');
+  return t('activeWorkCompleted',{operation:label,done:new Intl.NumberFormat(language).format(work.done),total:new Intl.NumberFormat(language).format(work.total)});
+}
+function renderTiming(current) {
+  const whole=timingView(state?.timing),stage=timingView(current?.timing),estimate=stage?.estimate;
+  $('build-timing').hidden=!whole&&!stage;
+  $('elapsed-label').textContent=t(whole?.elapsedBasis==='since-update'?'elapsedSinceUpdate':'elapsedBuild');
+  $('elapsed-value').textContent=whole?durationText(whole.elapsedSeconds):t('timingUnavailable');
+  $('stage-elapsed').hidden=!stage;
+  $('stage-elapsed').textContent=stage?t(stage.elapsedBasis==='since-update'?'elapsedStageSinceUpdate':'elapsedStage',{duration:durationText(stage.elapsedSeconds)}):'';
+  $('eta-label').textContent=t(estimate?.scope==='conversion-batches'?'etaBatches':'etaPhase');
+  let text;
+  if(state?.status==='complete')text=t('etaComplete');
+  else if(estimate?.status==='estimated')text=t('etaRange',{lower:durationText(estimate.lowerSeconds),upper:durationText(estimate.upperSeconds)});
+  else text=t(estimate?.status==='complete'?'etaComplete':estimate?.status==='paused'?'etaPaused':estimate?.status==='learning'?'etaLearning':'etaUnknown');
+  $('eta-value').textContent=text;
+  $('eta-value').title=t('etaScopeHint');
 }
 function renderGames() {
   $('game-list').replaceChildren();
@@ -170,7 +192,9 @@ function renderProgress() {
   const sub=stageProgress(progress.current);
   const hasSubstep=!done&&sub.phase&&!['pending','starting','complete'].includes(sub.phase);
   $('progress-detail').textContent=[!hasSubstep&&sub.phase?substepLabel(sub):'',counters(sub),sub.detail??'',waiting?t('waitingSince',{seconds:Math.max(0,Math.floor(Date.now()/1000-waiting.since))}):''].filter(Boolean).join(' · ');
-  $('progress-completed').textContent=t('completedStages',progress);
+  $('progress-completed').hidden=done;
+  $('progress-completed').textContent=workSummary(sub);
+  renderTiming(progress.current);
   $('substep-progress').hidden=!hasSubstep;
   $('substep-label').textContent=substepLabel(sub);
   $('substep-count').textContent=sub.phasePercent===null?t('phaseUnknown'):t('phasePercent',{percent:percentText(sub.phasePercent)});
@@ -206,7 +230,7 @@ async function loadArtwork(artwork,{publisher=false}={}) {
   if(!Array.isArray(artwork)||!artwork.length)return;
   if(publisher){publisherArtwork=artwork;if(ownedArtwork.length)return;}
   else ownedArtwork=artwork;
-  const selected=artwork.slice(0,12),key=selected.map(row=>row.id+':'+(row.sha256??'')+':'+row.url).join('|');if(key===artworkKey)return;
+  const selected=artwork.slice(0,32),key=selected.map(row=>row.id+':'+(row.sha256??'')+':'+row.url).join('|');if(key===artworkKey)return;
   artworkKey=key;const generation=++artworkGeneration;
   artworkSource=publisher?'publisher':'owned';
   const cards=[],newUrls=[],loadedRows=[];

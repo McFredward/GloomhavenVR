@@ -53,6 +53,29 @@ export function stageProgress(stage) {
   const phasePercent=typeof phaseRaw==='number'&&Number.isFinite(phaseRaw)&&phaseRaw>=0&&phaseRaw<=100?phaseRaw:null;
   return {...value,percent,phasePercent,waiting:stage?.waiting??null};
 }
+export function activeWorkView(progress) {
+  const work=progress?.activeWork;
+  if(!work||!Number.isSafeInteger(work.done)||!Number.isSafeInteger(work.total)||work.total<1||work.done<0||work.done>work.total)return null;
+  const operation=typeof work.operation==='string'&&/^[a-z0-9-]{1,64}$/.test(work.operation)?work.operation:null;
+  return {done:work.done,total:work.total,operation};
+}
+export function durationText(value) {
+  // Actual elapsed/estimated durations come from the backend. Formatting a
+  // clock never advances a progress bar or reconstructs missing old runtime.
+  if(typeof value!=='number'||!Number.isFinite(value)||value<0)return '';
+  const seconds=Math.floor(value),hours=Math.floor(seconds/3600),minutes=Math.floor(seconds/60)%60;
+  return [hours,minutes,seconds%60].map(number=>String(number).padStart(2,'0')).join(':');
+}
+export function timingView(value) {
+  if(!value||typeof value.elapsedSeconds!=='number'||!Number.isFinite(value.elapsedSeconds)||value.elapsedSeconds<0)return null;
+  const raw=value.estimate??{},status=['learning','estimated','unknown','paused','complete'].includes(raw.status)?raw.status:'unknown';
+  const scope=raw.scope==='conversion-batches'?'conversion-batches':'phase';
+  const valid=raw.scope==='phase'||raw.scope==='conversion-batches';
+  const bounds=valid&&['remainingSeconds','lowerSeconds','upperSeconds'].every(key=>typeof raw[key]==='number'&&Number.isFinite(raw[key])&&raw[key]>=0)
+    &&raw.lowerSeconds<=raw.remainingSeconds&&raw.remainingSeconds<=raw.upperSeconds;
+  return {elapsedSeconds:value.elapsedSeconds,active:value.active===true,elapsedBasis:value.elapsedBasis==='since-update'?'since-update':'recorded-active',
+    estimate:{status:status==='estimated'&&!bounds?'unknown':status,scope,lowerSeconds:bounds?raw.lowerSeconds:null,upperSeconds:bounds?raw.upperSeconds:null}};
+}
 export function sessionId(value) { return typeof value === 'string' && /^[a-zA-Z0-9_-]{8,128}$/.test(value) ? value : null; }
 export function savedSession(discovery) {
   // The owner workspace, rather than this browser's changing loopback origin,
