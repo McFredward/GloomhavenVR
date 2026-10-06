@@ -1,5 +1,31 @@
 # State — where the project stands
 
+**Quest B627 observed export work, scoped timing and native merge speed, 2026-10-06 (tooling only).**
+
+The new support capture identifies shipped Builder source 5dce and advances
+through package 5 of 16. Repeated native labels describe different package/index
+work; equal whole-stage weights made measured progress almost invisible. The
+builder now announces its package schedule early, counts 22 current conversion
+tasks for this installation, reserves useful conversion/import spans and reads
+real exporter collection counters live. Previous work curves migrate without
+resetting or losing the first new observed increment. Labels distinguish package
+and native index activity. GitHub/Buy Me a Coffee footer icons, removed hero/source
+copy and 21 offline pinned publisher pictures complete the requested presentation.
+
+Observed active time survives compatible continuation and excludes waits/offline
+time. ETA is a measured, explicitly scoped range for the current phase or data
+packages; unobserved later Unity work remains unknown. Native parsing/ancestor
+work, unchanged index rewrites and an extra bundle hash pass are avoided while
+known prior raw-export profiles remain reusable. Small Linux merge median falls
+2.062→0.791 seconds; full Windows speed and ETA accuracy are not established.
+The final focused gate at 0b4a20341 passes 485 cases (483 pass, two existing
+optional skips), including all 21 UI cases/eight Chrome workflows. Actual capture
+progress/timing replays qualify observed behavior without exporting game assets.
+See [wizard evidence](QUEST-WIZARD-20261006.md). No runtime/host APK/shader/wire
+change or build. Publish only the updated source Builder ZIP/Quest feature branch,
+preserve the active Windows build and `%USERPROFILE%\.ghvrq`, and clean only
+completed owned worker trees after the extracted release is qualified.
+
 **Quest B627 measured substeps and minimum recovery work, 2026-10-06 (tooling only).**
 
 Nested measured work now advances the persistent whole-stage percentage inside

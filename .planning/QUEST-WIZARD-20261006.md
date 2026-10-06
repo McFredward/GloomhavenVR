@@ -1,5 +1,86 @@
 # Quest wizard stage progress and offline presentation
 
+## Actual conversion counts, scoped estimates and repeated native work
+
+The supplied `quest-build-support-20261006T201048Z-1ddc1ec1.zip` identifies the
+published Builder source `5dce06841e30d1befbe9761223e6e188a6b81adc`, ModBuild 627.
+Its bounded logs show distinct packages progressing through package 5 of 16,
+not a proved deadlock. Three truncated support-log lines are explicitly excluded
+from replay. The old equally weighted build schedule gave all conversion just
+1/21 of the bar and all packages just 1/7 of that span. Consequently the native
+recipe work could remain at the same displayed 29.97 despite actual activity.
+
+The producer now announces its real catalog package count before core export.
+Conversion reserves 40 percent of the complete build operation, later Unity
+import 18 percent; these are work spans, not elapsed-time estimates. Each package
+is one conversion task alongside six other sections: this capture's schedule has
+22 tasks. `progress.activeWork` names and counts the currently running operation,
+rather than seven top-level Wizard stages. Actual exporter `ExportProgress`
+collection counters are read while its synchronous request runs. Their upstream
+denominator includes collections skipped by bundle-only export; successful
+request return and committing the package remain independent boundaries.
+Existing stored high-water is anchored once to the remaining measured work when
+changing the distribution, so updating cannot reset or stall the bar's curve.
+
+Labels include the active package and native index number, and incoming/retained
+index activity is explicit. Native indexes share invocation-local parsed state
+between journal preparation and merge; identical indexes are not rewritten.
+Each actual recipe still qualifies its bytes while duplicate ancestor walks are
+removed. The catalog uses current source-inventory hashes instead of rereading
+all original bundles again. Exact known previous orchestration profiles,
+including the actual shipped 5dce profile and its old log observer, remain eligible
+for raw-export reuse. The exporter binary, C# capture and identity format are
+unchanged. Cold/changed/corrupt/link evidence still invalidates reuse explicitly.
+
+`row.timing` and `state.timing` report observed monotonic active time without
+advancing work percentages or writing on status polls. Waiting, cancellation,
+offline intervals and unobserved old runtime are excluded; old sessions identify
+"since update" measurements. Counter throughput requires at least three
+observations spanning ten seconds; package estimates require two completed fresh
+packages with the same schedule. Retained packages do not train fresh duration.
+ETA is explicitly a range for the current phase or remaining data packages;
+later unobserved Unity/Android work has no fabricated whole-build estimate.
+Estimate/timing details join the existing bounded progress log.
+
+GitHub and Buy Me a Coffee links use exact README destinations and locally pinned
+brand symbols in the footer. The requested hero sentence and visible picture
+source link are removed; provenance remains in developer asset documentation.
+Nine further unchanged publisher pictures expand the offline gallery to 21.
+
+### Qualification and limits
+
+The final integrated tooling tree at `0b4a20341` passes 485 cases: 483 pass and
+two existing optional recovery binding cases skip. It includes 177 Wizard cases,
+149 recovery cases, 34 raw-resume cases and all 21 Node UI cases, with eight real
+Chrome workflows and no UI skips. An initial startup check incorrectly tried to
+serve the newly bundled icon license as an image. The test now qualifies its
+local bytes while retaining the existing narrow static MIME endpoint; the final
+complete focused gate passes. Browser screenshots cover desktop/mobile icons,
+current-operation tasks, native index context and scoped timing presentation.
+
+The exact received exporter log yields 6,352 observed collections out of the
+14,940 upstream exportable upper bound. Offline replay of 2,669 captured package
+progress events through the actual integrated work planner is monotone, includes
+all five witnessed package boundaries and never claims whole-stage completion.
+A separate actual captured timing replay excludes retained package 1 and trains
+on fresh packages 2–4 (356.368, 400.749 and 448.403 seconds). Its last packet-5
+estimate is about 77 minutes of remaining data-package work, with a wide 54–122
+minute band; this is evidence of the method, not verified prediction accuracy.
+
+The actual small 2,000-recipe Linux fixture compares shipped 5dce code to the new
+implementation: hot native merge median 2.062 to 0.791 seconds, ancestor
+qualifications 14,008 to 4,012, unchanged index writes one to zero. This does not
+predict the complete Windows runtime or remaining exporter cost. Parallel full
+exporter processes are not added: they reload the original core and would
+multiply memory use before an actual memory/ownership scheduler is qualified.
+No host APK/Player build, fresh full game export/import, exhaustive shader or
+unrelated runtime/wire gate runs. Full Windows completion, ETA accuracy and the
+headset outcome remain maintainer tests. Preserve the active build and owner
+workspace; use the new source ZIP for a subsequent run or compatible continuation.
+Compact evidence lives outside worker checkouts under
+`quest3-local/build/evidence/B627-wizard-native-timing-final`,
+`B627-recovery-speed-2ac40e85c` and `B627-wizard-timing`.
+
 ## Measured substeps, branding and minimum checkpoint work
 
 The maintainer's later report asks that measured substeps continuously contribute
