@@ -196,7 +196,7 @@ def mutations():
         ("retired-remote-guide", "TownServiceSharedCue.cs", "gate.alpha = 0f; gate.interactable = gate.blocksRaycasts = false;", "gate.alpha = 1f; gate.interactable = gate.blocksRaycasts = true;", "legacy shared guide samples never restore remote pre-drop drawing or occupation"),
         ("readiness-freshness", "TownServiceSharedCue.cs", "if (!visitor.Ready || now - visitor.Received > FreshSeconds) continue;", "if (!visitor.Ready) continue;", "expired visitor readiness cannot leave a phantom global offering pose"),
         ("quiet-window-gate", "QuietControllerFixture.cs", "window.IsOpen || TownServicePresentation.IsQuietController(window, service)", "window.IsOpen", "first opening shows neutral palm locator while native input remains blocked"),
-        ("walkaway-window", name, "ModalFallback.CloseFloatedWindow(current._window);", "", "walking away closes empty native service through its existing exit path"),
+        ("walkaway-window", name, "ModalFallback.CloseFloatedWindow(current._window);", "{ }", "walking away closes empty native service through its existing exit path"),
         ("tiny-offer", name, "card.SetHome(_seat, Vector3.zero, Quaternion.identity, size);", "card.SetHome(_seat, Vector3.zero, Quaternion.identity, .90f);", "offered mage card preserves tracked reading size across independent resident scale"),
         ("reclaim-modal", name, "&& _current.ReclaimReady", "&& _current.Ready", "an existing physical offer remains manually reclaimable while a peer claim changes"),
         ("flat-card", name, "card.SetHome(_seat, Vector3.zero, Quaternion.identity, size);", "card.SetHome(_seat, Vector3.zero, Quaternion.Euler(75f, 0f, 0f), size);", "offered ability card is upright over the palm"),
