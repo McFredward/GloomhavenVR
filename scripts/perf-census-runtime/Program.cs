@@ -73,6 +73,8 @@ public static class InteractionProgram
             Check(scene.Contains("bounded slice(s)")&&scene.Contains("max atomic work unit"),"incremental CPU/slice/atomic provenance is explicit");
             Check(sim.Contains("1 enabled animator(s) own NO Renderer"),"inactive child renderer retains original animator population rule");
             Check(gfx.Contains("LOD groups: 1 active, 1 enabled"),"same sliced native LOD population reaches GFX");
+            Check(gfx.Contains("terrainCameraSourceLimit=64")&&gfx.Contains("worldMaterialMode=2"),
+                "loaded GFX census reports configured terrain and material compromises");
             Check(Inventory<Renderer>("_inventoryRenderers")==0,"completed inventory releases retained renderer references");
             // Actual adaptive refresh dispatch closes timing windows without restarting
             // the real incremental inventory. Its enumerator must survive each boundary.
