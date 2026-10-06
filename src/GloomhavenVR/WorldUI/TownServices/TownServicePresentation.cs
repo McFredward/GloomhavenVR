@@ -168,8 +168,8 @@ internal static class TownServicePresentation
         byte quietService = TownServiceQuietController.RequestedService;
         // A real parked offer keeps its resident until withdrawn. Otherwise wrist focus may
         // elect the quiet temple independently of the game's map/window destination.
-        if (quietTemple && !TownServiceMerchantHandoff.HasParkedOffer
-            && !TownServiceEnhancementHandoff.HasCurrentOffering) quietService = 2;
+        if (quietTemple && (_ritual?.HasTemplePurseInHand == true || _ritual?.HasParkedTempleOffer == true
+            || !TownServiceMerchantHandoff.HasParkedOffer && !TownServiceEnhancementHandoff.HasCurrentOffering)) quietService = 2;
         EGuildmasterMode mode = quietService switch
         {
             1 => EGuildmasterMode.Merchant,

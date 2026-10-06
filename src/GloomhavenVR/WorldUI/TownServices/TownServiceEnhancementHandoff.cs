@@ -93,6 +93,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     /// <summary>The local fan hand is deliberately aimed at this resident. This affects
     /// only the player's hand contents; other nearby residents retain their own attention.</summary>
     internal static bool WantsAbilityFan => RefreshAbilityFanFocus();
+    internal static bool KeepsQuietVisit => _headInside || _cardInside || _abilityFanFocused;
     /// <summary>Whether this local player has a native palm cue or parked card.
     /// The resident's hand extension follows independent proximity attention;
     /// this property describes only the local native handoff presentation.</summary>

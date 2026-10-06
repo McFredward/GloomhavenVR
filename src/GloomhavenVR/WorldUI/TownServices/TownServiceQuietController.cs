@@ -40,17 +40,24 @@ internal static class TownServiceQuietController
                 return _requested = 0;
             if (_requested == 1 && !TownServiceMerchantHandoff.Active
                 || _requested == 3 && !TownServiceEnhancementHandoff.HasCurrentOffering
+                && !TownServiceEnhancementHandoff.KeepsQuietVisit
                 && (TownServicePopulation.Acquire(3) is not TownServiceStation mage
                     || !mage.IsLocalVisitorNear(true))) return _requested = 0;
             return _requested;
         }
     }
-    internal static EGuildmasterMode InteractionMode => RequestedService switch
+    internal static EGuildmasterMode InteractionMode
     {
-        1 => EGuildmasterMode.Merchant,
-        3 => EGuildmasterMode.Enchantress,
-        _ => GuildmasterDestinations.CurrentDestinationMode()
-    };
+        get
+        {
+            byte requested = RequestedService;
+            if (requested == 1) return EGuildmasterMode.Merchant;
+            if (requested == 3) return EGuildmasterMode.Enchantress;
+            UIWindow? current = TownServicePresentation.Window;
+            if (current != null && TownServicePresentation.IsQuietTemple(current)) return EGuildmasterMode.Temple;
+            return GuildmasterDestinations.CurrentDestinationMode();
+        }
+    }
     internal static bool IsOpen(UIWindow? window, byte service) => window != null
         && (window.IsOpen || TownServicePresentation.IsQuietController(window, service));
     internal static void EndRequest(byte service) { if (_requested == service) _requested = 0; }
@@ -82,6 +89,8 @@ internal static class TownServiceQuietController
             && destination != EGuildmasterMode.Temple && destination != EGuildmasterMode.Enchantress) return false;
         if (_requested != service && (TownServiceMerchantHandoff.HasParkedOffer
             || TownServiceEnhancementHandoff.HasCurrentOffering)) return false;
+        if (TownServicePresentation.Ritual?.HasTemplePurseInHand == true
+            || TownServicePresentation.Ritual?.HasParkedTempleOffer == true) return false;
         _requested = service;
         return true;
     }
@@ -135,7 +144,10 @@ internal static class TownServiceQuietController
                 shop.character = slot.Service;
                 shop.enhancementShop.Clear();
                 shop.OnSelectedCardToEnhance(null);
-                shop.mode = UINewEnhancementWindow.ShopMode.BUY;
+                Field(shop, "previousSelectedCard").SetValue(shop, null);
+                // Keep the original mode transition and tab value coherent. OnSelectedSlot
+                // reads mode, while the visible native options retain their original state.
+                shop.buyButton.Activate();
                 ActivateSource(shop.CardsDisplay.transform);
                 PrepareOriginalCardSlots(shop);
                 MethodInfo method = Method(shop, "OnControllableOwnershipChanged");
