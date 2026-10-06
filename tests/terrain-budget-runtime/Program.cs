@@ -330,7 +330,7 @@ public static partial class TerrainProgram
         Object.DestroyImmediate(script); edited.gameObject.AddComponent<Animator>();
         Check(!DuringRender(camera,()=>edited.forceRenderingOff),"same-count native component replacement between eyes remains freshly guarded");
         Object.DestroyImmediate(edited.GetComponent<Animator>());
-        edited.transform.name="TO_INT_Doorway";
+        edited.transform.name="Preview";
         Check(!DuringRender(camera,()=>edited.forceRenderingOff),"current source rename cannot reuse an old capped native scope");
         edited.transform.name="Body";
         TerrainWriteObserver.MaterialReads=0; PerfConfig.TerrainCameraSourceLimit=0;

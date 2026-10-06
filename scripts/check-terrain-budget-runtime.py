@@ -85,12 +85,12 @@ def main():
     # map, pow and simplex work. Pixel/native-route controls below prove its result.
     assert shader.index('if (ToggleWallFade == 0)') < shader.index('float4 occlusion = tex2D(_TilesOcclusionMap, uv);'), 'inactive native dissolve early-out occurs before texture work'
     controls += [
-        ('terrain-cap-ignored','if (limit > 0 && candidates >= limit)','if (false)',
+        ('terrain-cap-ignored','if (limit > 0 && candidates >= limit)','if (limit < 0 && candidates >= limit)',
          'terrain CPU cap admits only bounded private substitutes',source,1),
-        ('terrain-frustum-ignored','if (OutsideFrustum(surface.Renderer))','if (false)',
+        ('terrain-frustum-ignored','if (OutsideFrustum(surface.Renderer))','if (OutsideFrustum(surface.Renderer) && limit < 0)',
          'actual current camera frustum rejects offscreen substitute work',source,1),
         ('terrain-classification-cross-type-stale','if (shared && Roles.TryGetValue(type, out ComponentRole cached)) return cached;',
-         'if (shared && Roles.Count > 0) return ComponentRole.None;',
+         'if (shared && Roles.Count > 0 && component is CInteractable) return ComponentRole.None;',
          'new native component between eyes revokes capped terrain admission',admission,1),
         ('inactive-shader-toggle-inverted','if (ToggleWallFade == 0)','if (ToggleWallFade != 0)',
          'production native wall map has multiple visible intermediate frames',shader,1),

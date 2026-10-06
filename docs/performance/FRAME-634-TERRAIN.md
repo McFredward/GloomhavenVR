@@ -61,7 +61,7 @@ No new frequent normal-level stream is introduced.
 ## Validation boundaries
 
 A source-bound Unity fixture builds 96 independent native renderer sources. Its
-first production pass confirms 12 actual material getter calls under limit12,
+complete production pass confirms 12 actual material getter calls under limit12,
 84 originals retaining the native fallback, stable selection and immediate live
 zero restoring all96 calls. It also tests component addition and same-count
 replacement between actual camera invocations, native source rename, current
@@ -83,3 +83,31 @@ acceptance. The next hardware run should compare the fully loaded same viewpoint
 at limit0/64 and inspect terrain scope timing, evaluated/fallback work and all rooms,
 including near geometry and native wall fade. Original GPU cost may rise as native
 sources take over; remaining native/scene workload still needs its own reductions.
+
+## Completed worker evidence
+
+The final focused run executes production plus all 46 negative variants in actual
+Unity2021.3.5/GL, with 316 production assertions. Every negative variant compiles
+strictly and reaches its intended runtime assertion; compile or shader errors do
+not count as passing controls. Source hashes remain unchanged throughout the run.
+The independent mesh audit verifies ten original structural definitions, original
+channel/index bytes and every coarse digest. The 96-source case measures an 87.5%
+reduction in actual live material reads (96 to12), with all84 omitted native sources
+retained. This measures source operations, not CPU milliseconds or headset FPS.
+
+Evidence lives in the worker's private debug directory:
+
+- `frame634-terrain-verified/run-3uxgvpsl`: 47 variants, runtime report, source
+  snapshots/hashes, stability manifest, native mesh audit, shader samples and Unity
+  log; production316 and negative46 pass.
+- `frame634-terrain-release.log` and `frame634-terrain-debug.log`: final strict
+  solution builds, both zero warnings/errors.
+- `frame634-terrain-source/results.json`: all14 source suites pass.
+- `frame634-terrain-initial-proof`, `frame634-terrain-complete` and
+  `frame634-terrain-final`: preserved initial fixture compile failures and the
+  earlier foundation-control ordering failure. The final rename case uses the
+  independent Preview boundary, preserving the original captured-foundation
+  negative control and its specific oracle.
+
+These are focused worker checks. The integrator still runs the complete final-tree
+gate, including wire golden vectors, after combining all owned changes.
