@@ -16,7 +16,10 @@ namespace UnityEngine.UI { public class UIWindow : MonoBehaviour
     public void Hide() { onHidden.Invoke(); IsOpen = false; Probe.Events.Add("native-continuation"); }
 }
 }
-public enum EGuildmasterMode { Merchant, Temple, Enchantress }
+public enum EGuildmasterMode { None, Merchant, Temple, Enchantress }
+public enum PartySlotState { Empty,Assigned }
+public sealed class NewPartyCharacterUI { public PartySlotState State=PartySlotState.Assigned;public int Clicks;public void OnClick(){Clicks++;NewPartyDisplayUI.PartyDisplay!.SelectedUISlot=this;} }
+public sealed class NewPartyDisplayUI { public static NewPartyDisplayUI? PartyDisplay;public NewPartyCharacterUI? SelectedUISlot,FirstSlot; }
 public class UIShopItemWindow : UIWindow { public UIShopItemInventory ItemInventory = null!; public Button exitShopButton = null!; }
 public class UIShopItemInventory : MonoBehaviour
 { public object character = new object(); public int mode; public List<UIShopItemSlot> slotPool = new(); }
@@ -54,7 +57,7 @@ public static class Probe
 namespace GloomhavenVR.Core { internal static class VRLog { public static bool WantsDebug => false; public static void Note(string a, string b) { if (b.StartsWith("TOWN SERVICE FALLBACK")) Console.WriteLine(b); } public static void Warn(string a,string b) {} public static void Debug(string a,string b) {} } }
 // Production timing scopes do not change the interaction fixture's behavior.
 namespace GloomhavenVR.Core { internal static class PerfMonitor { internal static IDisposable Scope(string _) => EmptyScope.Instance; private sealed class EmptyScope : IDisposable { internal static readonly EmptyScope Instance = new(); public void Dispose() { } } } }
-namespace GloomhavenVR.WorldUI { internal static class TownServiceTempleOffering { internal static void TickApproach() {} } }
+namespace GloomhavenVR.WorldUI { internal static class TownServiceTempleOffering { internal static bool WantsPurseFocus;internal static void TickApproach() {} } }
 namespace GloomhavenVR.Core
 { internal static class Loc { internal static event Action? OnChanged { add { } remove { } } internal static string Mod(string key) => key; } }
 namespace TMPro
@@ -170,10 +173,13 @@ namespace GloomhavenVR.WorldUI.MapRoom
 {
     internal static class MapRoomDriver
     {
-        internal static bool Active = true;
+        internal static bool Active = true;internal static int Presses;internal static bool SwitchForcesFirst;
+        internal static bool PressGuildmasterMode(EGuildmasterMode mode,string reason,bool suppressNativeSound=false)
+        { Presses++;WorldUI.GuildmasterDestinations.Mode=mode;var window=WorldUI.GuildmasterDestinations.Window;if(window!=null){window.IsOpen=window.IsVisible=true;}if(SwitchForcesFirst&&NewPartyDisplayUI.PartyDisplay!=null)NewPartyDisplayUI.PartyDisplay.SelectedUISlot=NewPartyDisplayUI.PartyDisplay.FirstSlot;return true; }
         internal static bool TryGetParchmentFrame(out Vector3 center, out float scale)
         { center = Vector3.zero; scale = 1; return true; }
     }
+    internal static class MapRoomHand { internal static object? Owned=new();internal static object? OwnedMerchantCharacter()=>Owned;internal static void SetTempleInspection(bool enabled){} }
 }
 namespace GloomhavenVR.WorldUI
 {
@@ -290,7 +296,7 @@ namespace GloomhavenVR.WorldUI
         internal static bool TestOfferStalled;
         internal OfferingLate? Handoff => TestOfferStalled ? new OfferingLate() : null;
         internal sealed class OfferingLate { internal bool NativeOfferStalled => TestOfferStalled; internal object? Card; internal void LateTick() {} }
-        internal bool HasParkedTempleOffer => false;
+        internal bool HasParkedTempleOffer => false;internal bool HasTemplePurseInHand => false;
         internal bool TempleGrantStalled => false;
         internal static bool Fail;
         private readonly List<TownServiceToken> _tokens = new();
@@ -405,11 +411,34 @@ namespace GloomhavenVR.Net
 namespace GloomhavenVR.WorldUI { internal static class MaskClock { internal static float Now; } }
 
 // The handoff itself is exercised by the separate actual-card Unity suite.
-namespace GloomhavenVR.WorldUI { internal static class TownServiceEnhancementHandoff { internal static bool Enabled = true; internal static void TickApproach() { } } }
+namespace GloomhavenVR.WorldUI { internal static class TownServiceEnhancementHandoff { internal static bool Enabled = true;internal static bool HasCurrentOffering; internal static void TickApproach() { } } }
 
 namespace GloomhavenVR.WorldUI {internal static class TownServicePublicMerchant {internal static void Tick(){}internal static void LateTick(){}internal static void Reset(){} }}
 
 namespace GloomhavenVR.WorldUI { internal static class TownServiceMerchantHandoff {internal static bool Reclaim; internal static bool HasParkedOffer; internal static int FailedPresentations; internal static bool CanReclaim(TownServiceToken token)=>Reclaim; internal static void LateTick(){} internal static void Reset(){} internal static void AbortUnavailable(){HasParkedOffer=false;} internal static void AbortUnpresentableConfirmation(){HasParkedOffer=false;FailedPresentations++;} } }
+
+// This suite binds the complete real Presentation and Surface lifecycle. Native quiet
+// controller preparation is an explicit faultable boundary here; its complete real
+// reflection/pool/callback/mask implementation is bound by check-town-quiet-controller.py.
+namespace GloomhavenVR.WorldUI
+{
+    internal static class TownServiceQuietController
+    {
+        internal static byte RequestedService;internal static int Prepares,Releases,Resets;internal static bool ThrowPrepare;
+        internal static UIWindow? Owner;
+        internal static bool Prepare(UIWindow window,byte service){Prepares++;if(ThrowPrepare)throw new InvalidOperationException("quiet native fixture preparation failed");Owner=window;return true;}
+        internal static bool OwnsWindow(UIWindow window)=>Owner!=null&&(ReferenceEquals(Owner,window)||window.transform.IsChildOf(Owner.transform));
+        internal static bool IsSourceBoundary(Transform source)=>Owner!=null&&ReferenceEquals(source,Owner.transform);
+        internal static bool OriginalVisible(Transform source,UIWindow window,byte service)=>ReferenceEquals(Owner,window)&&TownServicePresentation.IsQuietController(window,service);
+        internal static void Release(){Releases++;Owner=null;}
+        internal static void Reset(){Resets++;Release();RequestedService=0;}
+    }
+    internal static class TownServiceTempleController
+    {
+        internal static int Prepares,Resets;internal static bool Prepare(UIWindow window){Prepares++;return true;}
+        internal static void Reset(){Resets++;}
+    }
+}
 
 public class UIItemConfirmationBox : MonoBehaviour {
  public Component titleText=null!,informationText=null!; public Button confirmButton=null!,cancelButton=null!;

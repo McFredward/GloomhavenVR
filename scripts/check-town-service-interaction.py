@@ -224,6 +224,10 @@ def mutations():
     # Every mutant compiles and must reach the specified runtime assertion. A compile error,
     # unrelated exception or changed source binding cannot count as a rejected negative control.
     return [
+        ("quiet-flat-destination", "Presentation.cs", "        _quietService = quietService;", "        _quietService = quietService; if (quietService != 0) OpenOriginalWindow(window, quietService, \"mutant normal quiet visit\");", "normal quiet presentation never opens a flat destination or changes selected character"),
+        ("quiet-option-native-restore", "Presentation.cs", "                OpenOriginalWindow(restore, restoringQuietService, \"original town windows selected\");", "                TownServiceQuietController.Reset();", "explicit quiet opt-out opens the original window once and restores its ordinary converter"),
+        ("quiet-failure-fence", "Presentation.cs", "            _failedWindow = window;\n            window.onHidden.AddListener(OnFallbackHidden);", "            _failedWindow = null;\n            window.onHidden.AddListener(OnFallbackHidden);", "quiet failed source is fenced from immediate immersive reclamation"),
+        ("quiet-early-reset", "Presentation.cs", "{ TownServiceTempleController.Reset(); TownServiceQuietController.Release(); return; }", "{ TownServiceTempleController.Reset(); return; }", "early presentation reset releases prepared sources even before a station or mat exists"),
         ("palm-book-clearance", "PalmConfirmation.cs", "Service == 3 ? 1.26f : 1.17f", "1.17f", "complete enhancement decision stays above the raised book throughout the visitor yaw sweep and map scales"),
         ("purse-return-before-payment", "Token.cs", "_physical.SetParent(_mat, true);", "_physical.SetParent(_homeParent, true);", "accepted purse waits at actual bowl instead of returning to moving hand before native payment"),
         ("purse-restart-completion", "Token.cs", "if (_settlementDecided) return;", "", "confirmed purse sinks and fades once at bowl without restarting on duplicate completion"),

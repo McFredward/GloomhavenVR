@@ -89,7 +89,7 @@ public static partial class InteractionProgram
         }
     }
 
-    private static Session Open(byte service, bool enabled = true)
+    private static Session Open(byte service, bool enabled = true, bool quiet = false)
     {
         WorldUIConfig.ImmersiveTownServices.Value = enabled;
         new GameObject("events", typeof(EventSystem));
@@ -143,8 +143,17 @@ public static partial class InteractionProgram
         s.Button.onClick.AddListener(() => s.Clicks++);
         GuildmasterDestinations.Window = s.Window;
         GuildmasterDestinations.Mode = service == 1 ? EGuildmasterMode.Merchant : service == 2 ? EGuildmasterMode.Temple : EGuildmasterMode.Enchantress;
-        ModalFallback.TryConvertWindow(s.Window);
-        s.OriginalPanel = ModalFallback.Converted[0];
+        if (quiet)
+        {
+            s.Window.IsOpen=s.Window.IsVisible=false;GuildmasterDestinations.Mode=EGuildmasterMode.None;
+            TownServiceQuietController.RequestedService=service==2?(byte)0:service;
+            TownServiceTempleOffering.WantsPurseFocus=service==2;
+        }
+        else
+        {
+            ModalFallback.TryConvertWindow(s.Window);
+            s.OriginalPanel = ModalFallback.Converted[0];
+        }
         TownServicePresentation.Tick();
         Refresh(); // The production census is intentionally rate limited across openings.
         return s;
@@ -167,6 +176,11 @@ public static partial class InteractionProgram
         Textures.Clear();
         WorldUIConfig.ImmersiveTownServices.Value = true;
         TownServiceEnhancementHandoff.Enabled = true;
+        TownServiceEnhancementHandoff.HasCurrentOffering=false;TownServiceTempleOffering.WantsPurseFocus=false;
+        TownServiceQuietController.RequestedService=0;TownServiceQuietController.ThrowPrepare=false;
+        GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Presses=0;
+        GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.SwitchForcesFirst=false;
+        NewPartyDisplayUI.PartyDisplay=null;GuildmasterDestinations.Mode=EGuildmasterMode.None;
     }
 
     private static void MapHandFallback()
@@ -185,6 +199,63 @@ public static partial class InteractionProgram
         Clean(); TownServiceEnhancementHandoff.Enabled = false; session = Open(3);
         Check(!TownServicePresentation.Active && CanvasConversion.ActivePanels.Count == 1,
             "manual enhancement visit without map hand keeps complete native window");
+        Clean();
+    }
+
+    private static void QuietPresentationLifecycle()
+    {
+        foreach(byte service in new byte[]{1,2,3})
+        {
+            Clean();
+            var selected=new NewPartyCharacterUI();var first=new NewPartyCharacterUI();
+            NewPartyDisplayUI.PartyDisplay=new NewPartyDisplayUI{SelectedUISlot=selected,FirstSlot=first};
+            GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.SwitchForcesFirst=true;
+            var session=Open(service,quiet:true);
+            Check(TownServicePresentation.Active&&TownServicePresentation.IsQuietController(session.Window,service)
+                &&!session.Window.IsOpen&&!session.Window.IsVisible&&GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Presses==0
+                &&ReferenceEquals(NewPartyDisplayUI.PartyDisplay.SelectedUISlot,selected)&&selected.Clicks==0,
+                "normal quiet presentation never opens a flat destination or changes selected character");
+            Check(CanvasConversion.ActivePanels.Count==0,"normal quiet presentation never converts the whole invisible native window");
+            uint sourceSession=TownServicePresentation.Session;
+            for(int i=0;i<5;i++)TownServicePresentation.Tick();
+            Check(TownServicePresentation.Active&&TownServicePresentation.Session==sourceSession
+                &&GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Presses==0,
+                "quiet presentation retains its one physical lifecycle across ordinary render ticks");
+            WorldUIConfig.ImmersiveTownServices.Value=false;TownServicePresentation.Tick();
+            Check(!TownServicePresentation.Active&&session.Window.IsOpen&&session.Window.IsVisible
+                &&GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Presses==1&&CanvasConversion.ActivePanels.Count==1,
+                "explicit quiet opt-out opens the original window once and restores its ordinary converter");
+            Check(ReferenceEquals(NewPartyDisplayUI.PartyDisplay.SelectedUISlot,selected)&&selected.Clicks==1,
+                "explicit original-window fallback preserves the exact selected character after native entry");
+            for(int i=0;i<4;i++)TownServicePresentation.Tick();
+            Check(GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Presses==1&&CanvasConversion.ActivePanels.Count==1,
+                "disabled immersive preference never repeats native entry or window conversion");
+            Clean();
+        }
+        foreach(bool preparationFault in new[]{true,false})
+        {
+            TownServiceQuietController.ThrowPrepare=preparationFault;TownServiceRitual.Fail=!preparationFault;
+            int preparations=TownServiceQuietController.Prepares;
+            var session=Open(3,quiet:true);
+            Check(!TownServicePresentation.Active&&session.Window.IsOpen
+                &&GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Presses==1&&TownServiceQuietController.Owner==null,
+                "quiet preparation or presentation fault restores a usable original native window once");
+            Check(TownServicePresentation.NativeFallbackFor(3),"quiet failed source is fenced from immediate immersive reclamation");
+            TownServiceRitual.Fail=false;
+            for(int i=0;i<5;i++)TownServicePresentation.Tick();
+            Check(!TownServicePresentation.Active&&TownServiceQuietController.Prepares==preparations+1
+                &&GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Presses==1,
+                "failed quiet source never retries native preparation or reclaims its fallback every frame");
+            Check(!TownServicePresentation.OwnsWindow(session.Window),"failed quiet original belongs to the ordinary fallback window converter");
+            session.Window.Hide();Check(!TownServicePresentation.NativeFallbackFor(3),"closing exact failed native fallback releases its visit fence");
+            Clean();
+        }
+        var orphan=Probe.Go("Prepared controller before first station").AddComponent<UIShopItemWindow>();
+        TownServiceQuietController.Owner=orphan;int releases=TownServiceQuietController.Releases;
+        int templeResets=TownServiceTempleController.Resets;TownServicePresentation.Reset();
+        Check(TownServiceQuietController.Owner==null&&TownServiceQuietController.Releases==releases+1
+            &&TownServiceTempleController.Resets==templeResets+1,
+            "early presentation reset releases prepared sources even before a station or mat exists");
         Clean();
     }
 
@@ -1260,7 +1331,7 @@ public static partial class InteractionProgram
         {
             if (Array.IndexOf(Environment.GetCommandLineArgs(), "-purseTransitionsOnly") >= 0)
             { PurseTransitions(); PurseReturnFlight(); return _assertions; }
-            NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); MerchantConfirmationPreparationFailure(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); UnconvertedMerchantController(); MerchantContextLifecycle(); MerchantCoordinatorTimeout(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); StalledEnhancementRestoresNativeWindow(); RollbackAndContinuation(); OptionalPresentation(); SharedRitualPlacement(); MapHandFallback(); PhysicalPurse(); PurseSettlement(); PurseTransitions(); PurseReturnFlight(); return _assertions;
+            NativeFolioAndTeardown(); EnhancementDecisionLayout(); PalmConfirmationLifecycle(); MerchantConfirmationPreparationFailure(); ParkedStockRegrab(); PhysicalCommitCases(); PhysicalMerchantSamples(); WindowMaskLifecycle(); UnconvertedMerchantController(); MerchantContextLifecycle(); MerchantCoordinatorTimeout(); ConfirmationFadeLifecycle(); IdentityChanges(); HoverAndRelease(); CancellationCompatibility(); Handoff(); StalledEnhancementRestoresNativeWindow(); RollbackAndContinuation(); OptionalPresentation(); SharedRitualPlacement(); MapHandFallback(); PhysicalPurse(); PurseSettlement(); PurseTransitions(); PurseReturnFlight(); QuietPresentationLifecycle(); return _assertions;
         }
         finally { Clean(); }
     }
