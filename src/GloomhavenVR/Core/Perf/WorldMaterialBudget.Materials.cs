@@ -137,9 +137,9 @@ internal static partial class WorldMaterialBudget
         }
         private bool RendererEffect(MeshRenderer renderer, int slot, Material original)
         {
+            if (!renderer.HasPropertyBlock()) return false;
             int route = ShaderRoute(original);
             if (route < 0) return false;
-            if (!renderer.HasPropertyBlock()) return false;
             renderer.GetPropertyBlock(_block);
             renderer.GetPropertyBlock(_slotBlock, slot);
             foreach (string property in EffectProperties)
