@@ -148,6 +148,7 @@ internal static partial class TownServiceMirror
         foreach (var pair in MotionSources) MotionSourceRemoval.Add(pair.Key);
         MotionWaiting.Clear(); MotionLive.Clear(); MotionVisibleFan.Clear();
         CaptureMotionLane(PrivateLane, 0, now); CaptureMotionLane(PublicLane, 1, now); CaptureMotionLane(StockLane, 2, now);
+        CollectOfferedFrameMotion(PrivateLane, now);
         foreach (LocalModule gone in MotionSourceRemoval) MotionSources.Remove(gone);
         TownServiceMotionEntry? commit = null;
         if (TryLocalTempleDonationCommit(out uint session, out uint revision, out float age)
@@ -384,6 +385,8 @@ internal static partial class TownServiceMirror
         && a.Session == b.Session && a.Structure == b.Structure && a.PublicClaim == b.PublicClaim
         && a.ParentModule == b.ParentModule && a.Binding == b.Binding && a.Property == b.Property && a.Offset == b.Offset
         && a.ParentAlpha == b.ParentAlpha && a.Visible == b.Visible && a.Hand == b.Hand && a.Revision == b.Revision
+        && a.OfferedModule == b.OfferedModule && a.OfferedStructure == b.OfferedStructure && a.OfferedBinding == b.OfferedBinding
+        && a.OfferedLocalScale == b.OfferedLocalScale
         && a.HasCanvasFrame == b.HasCanvasFrame && a.CanvasOnHand == b.CanvasOnHand && a.CanvasSortingOrder == b.CanvasSortingOrder
         && a.CanvasSortingLayer == b.CanvasSortingLayer && SameNumbers(a.Pose, b.Pose)
         && SameNumbers(a.Numbers, b.Numbers) && SameNumbers(a.CanvasPose, b.CanvasPose)
@@ -473,7 +476,7 @@ internal static partial class TownServiceMirror
             if (!module.Alive || composed.Slots.Count == 0)
             { MotionFrameRemoval.Add(module); continue; }
             bool changed = !ReferenceEquals(composed.Author, module.LastFrame);
-            foreach (MotionSlot slot in composed.Slots) changed |= slot.Dirty;
+            foreach (MotionSlot slot in composed.Slots) changed |= slot.Dirty && slot.Entry.Kind != 9;
             MotionSlot? root = null, flight = null;
             foreach (MotionSlot slot in composed.Slots)
             { if (slot.Entry.Kind == 1) root = slot; else if (slot.Entry.Kind is 7 or 8) flight = slot; }
@@ -530,6 +533,7 @@ internal static partial class TownServiceMirror
             // furniture anchor already measures those live transforms in its own
             // distance tick; reassert native sorting only after binding above.
         }
+        ApplyOfferedFrames();
         foreach (RemoteModule removed in MotionFrameRemoval) MotionRemoteFrames.Remove(removed);
         MotionDiagnostics(now);
     }
@@ -611,9 +615,11 @@ internal static partial class TownServiceMirror
                 || module.Address.StartsWith("enchant.holder", StringComparison.Ordinal)))
         { motion.OfferedRootSequence = 0; return; }
         if (motion.OfferedRootSequence == sample.ReceivedSequence) return;
-        Transform? shared = SharedFrameForRemote?.Invoke(motion.Owner); if (shared == null) return;
+        Transform? shared = SharedFrameForRemote?.Invoke(motion.Owner);
+        if (shared == null || !ValidMotionScale(shared.lossyScale)) return;
         Transform target = module.AddedCanvas != null && !module.LastFrame.HasCanvasFrame
             ? module.Host.transform : module.Binding.Root;
+        if (!ValidMotionScale(target.lossyScale)) return;
         float blend = motion.OfferedDuration > 0f
             ? Mathf.Clamp01((now - motion.OfferedStarted) / motion.OfferedDuration) : 1f;
         motion.OfferedFrom = motion.OfferedRootSequence == 0 ? shared.InverseTransformPoint(target.position)
@@ -636,10 +642,17 @@ internal static partial class TownServiceMirror
     private static Vector3 DivideMotionScale(Vector3 value, Vector3 divisor) => new(
         value.x / divisor.x, value.y / divisor.y, value.z / divisor.z);
 
+    private static bool ValidMotionScale(Vector3 scale) => ValidMotionScaleAxis(scale.x)
+        && ValidMotionScaleAxis(scale.y) && ValidMotionScaleAxis(scale.z);
+    private static bool ValidMotionScaleAxis(float value) => !float.IsNaN(value) && !float.IsInfinity(value)
+        && Mathf.Abs(value) >= .0000001f && Mathf.Abs(value) <= 100000f;
+
     private static void ApplyOfferedRootMotion(RemoteModule module, RemoteMotion motion, TownServiceFrame authored, float now)
     {
-        Transform? shared = SharedFrameForRemote?.Invoke(motion.Owner); if (shared == null) return;
+        Transform? shared = SharedFrameForRemote?.Invoke(motion.Owner);
+        if (shared == null || !ValidMotionScale(shared.lossyScale)) return;
         Transform root = module.AddedCanvas != null && !authored.HasCanvasFrame ? module.Host.transform : module.Binding.Root;
+        if (root.parent == null || !ValidMotionScale(root.parent.lossyScale)) return;
         float blend = Mathf.Clamp01((now - motion.OfferedStarted) / motion.OfferedDuration);
         root.position = shared.TransformPoint(Vector3.LerpUnclamped(motion.OfferedFrom, motion.OfferedTarget, blend));
         root.rotation = shared.rotation * Quaternion.SlerpUnclamped(motion.OfferedRotationFrom, motion.OfferedRotationTarget, blend);
@@ -665,6 +678,12 @@ internal static partial class TownServiceMirror
             int index = Array.IndexOf(parent.Binding.Bindings, entry.Binding); if (index < 0) return;
             mount = parent.Binding.Nodes[index];
         }
+        // Materialization may temporarily collapse a shared/canvas parent. Do
+        // not divide through a singular frame or overwrite a last valid pose.
+        Transform selectedRoot = module.AddedCanvas != null && !authored.HasCanvasFrame ? module.Host.transform : module.Binding.Root;
+        if (!ValidMotionScale(shared.lossyScale) || !ValidMotionScale(mount.lossyScale)
+            || selectedRoot.parent == null || !ValidMotionScale(selectedRoot.parent.lossyScale)
+            || authored.HasCanvasFrame && !ValidMotionScale(Scale(authored.CanvasPose))) return;
         float blend = motion.HandDuration > 0f ? Mathf.Clamp01((now - motion.HandStarted) / motion.HandDuration) : 1f;
         if (authored.HasCanvasFrame && module.AddedCanvas != null)
         {
@@ -726,7 +745,7 @@ internal static partial class TownServiceMirror
 
     internal static void ForgetRemoteMotion(int peer) { MotionPeers.Remove(peer); TownServiceSharedCue.Forget(peer); }
     internal static void ResetMotionNetwork()
-    { MotionSources.Clear(); MotionPeers.Clear(); MotionHands.Clear(); MotionOfferings.Clear(); MotionReturns.Clear(); CardReturns.Clear(); MotionWaiting.Clear(); MotionLive.Clear(); MotionVisibleFan.Clear(); MotionRemoteFrames.Clear(); TownServiceSharedCue.Reset();
+    { MotionSources.Clear(); MotionPeers.Clear(); MotionHands.Clear(); MotionOfferings.Clear(); OfferedFrames.Clear(); ActiveOfferedFrames.Clear(); DeadOfferedFrames.Clear(); MotionReturns.Clear(); CardReturns.Clear(); MotionWaiting.Clear(); MotionLive.Clear(); MotionVisibleFan.Clear(); MotionRemoteFrames.Clear(); TownServiceSharedCue.Reset();
       MotionSourceRemoval.Clear(); MotionRemoval.Clear(); _nextMotionSend = 0f; _motionCursor = _motionLiveCursor = _motionVisibleCursor = 0;
       _motionCommitSession = _motionCommitRevision = 0; _nextMotionCommit = 0f;
       _motionCue = null; _nextMotionCue = 0f;

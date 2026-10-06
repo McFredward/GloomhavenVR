@@ -22,9 +22,11 @@ def main():
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     names = ["src/GloomhavenVR/Net/TownServices/TownServiceMotionCodec.cs",
+             "src/GloomhavenVR/Net/TownServices/TownServiceMotionCodec.OfferedFrame.cs",
              "src/GloomhavenVR/Net/TownServices/TownServiceFastNumbers.cs",
              "src/GloomhavenVR/Net/TownServices/TownServiceMotionBudget.cs",
-             "tests/GloomhavenVR.WireTests/TownMotionVectors.cs"]
+             "tests/GloomhavenVR.WireTests/TownMotionVectors.cs",
+             "tests/GloomhavenVR.WireTests/TownOfferedFrameVectors.cs"]
     stamp = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in names}
     stamp["src/GloomhavenVR/Net/TownServices/TownServiceSendQueue.cs"] = hashlib.sha256((root / "src/GloomhavenVR/Net/TownServices/TownServiceSendQueue.cs").read_bytes()).hexdigest()
     stamp["src/GloomhavenVR/Net/ExtrasSendQueue.cs"] = hashlib.sha256((root / "src/GloomhavenVR/Net/ExtrasSendQueue.cs").read_bytes()).hexdigest()

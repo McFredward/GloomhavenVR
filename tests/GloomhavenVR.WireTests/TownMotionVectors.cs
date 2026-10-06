@@ -11,7 +11,7 @@ internal static class TownMotionVectors
     internal static TownServiceFrame? CapturedFront;
     internal static void Run(Harness t)
     {
-        Codec(t); Packed(t); MotionBudget(t); VisibleFanBudget(t); Saturation(t); ReturnClock(t); CardReturnClock(t); CardReturnBudget(t);
+        TownOfferedFrameVectors.Run(t); Codec(t); Packed(t); MotionBudget(t); VisibleFanBudget(t); Saturation(t); ReturnClock(t); CardReturnClock(t); CardReturnBudget(t);
     }
     private static void CardReturnBudget(Harness t)
     {

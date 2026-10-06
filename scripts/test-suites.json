@@ -982,6 +982,12 @@
       "weight": 100
     },
     {
+      "id": "town-offered-orientation",
+      "command": ["python3", "scripts/check-town-service-mirror.py", "--suite", "offered-orientation"],
+      "groups": ["local"],
+      "weight": 70
+    },
+    {
       "id": "town-service-mirror",
       "command": [
         "python3",

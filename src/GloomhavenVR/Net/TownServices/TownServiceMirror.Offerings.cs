@@ -12,6 +12,137 @@ internal static partial class TownServiceMirror
     internal const string MerchantOfferingAddress = "merchant.offering|";
     private const float OfferingFreshSeconds = 3f;
     private static readonly Dictionary<int, TownServiceFrame> MerchantOfferings = new();
+    private static readonly Dictionary<Transform, Transform> OfferedFrames = new();
+    private static readonly HashSet<MotionSlot> ActiveOfferedFrames = new();
+    private static readonly List<Transform> DeadOfferedFrames = new();
+
+    // The real native fitter supplies both originals. Addresses and a viewer's
+    // head are insufficient to identify a print while old cards return to a fan.
+    internal static void RegisterOfferedFrame(Transform nativeHolder, Transform? physicalPrint)
+    {
+        if (ReferenceEquals(nativeHolder, null)) return;
+        if (physicalPrint == null) OfferedFrames.Remove(nativeHolder);
+        else if (nativeHolder != null) OfferedFrames[nativeHolder] = physicalPrint;
+    }
+
+    private static bool FindOfferedOriginal(LocalLane lane, Transform original, out LocalModule? module, out uint binding)
+    {
+        foreach (LocalModule candidate in lane.Modules.Values)
+        {
+            if (candidate.Last == null || candidate.Baseline == null) continue;
+            int index = Array.IndexOf(candidate.Binding.Nodes, original);
+            if (index < 0) continue;
+            module = candidate; binding = candidate.Binding.Bindings[index]; return true;
+        }
+        module = null; binding = 0; return false;
+    }
+
+    private static void CollectOfferedFrameMotion(LocalLane lane, float now)
+    {
+        // Other lanes and returning cards have no native enhancement frame.
+        ActiveOfferedFrames.Clear(); DeadOfferedFrames.Clear();
+        foreach (var stale in OfferedFrames)
+            if (stale.Key == null || stale.Value == null) DeadOfferedFrames.Add(stale.Key);
+        foreach (Transform stale in DeadOfferedFrames) OfferedFrames.Remove(stale);
+        if (lane.Active && lane.Service == 3) foreach (var pair in OfferedFrames)
+        {
+            if (pair.Key == null || pair.Value == null || !ValidMotionScale(pair.Value.lossyScale)
+                || !ValidMotionScale(pair.Key.lossyScale)
+                || !FindOfferedOriginal(lane, pair.Key, out LocalModule? holder, out uint holderBinding)
+                || !FindOfferedOriginal(lane, pair.Value, out LocalModule? print, out uint printBinding)
+                || holder == print || !MotionSources.TryGetValue(holder!, out SourceMotion? motion)) continue;
+            var entry = MotionHeader(holder!.Last!, 0, 9);
+            entry.Visible = true; entry.Binding = holderBinding; entry.OfferedModule = print!.Id;
+            entry.OfferedStructure = print.Last!.Structure; entry.OfferedBinding = printBinding;
+            // Capture the fitted SOURCE pose, including the native pivot/inset and
+            // depth bias. An observer neither refits an approximation nor faces
+            // the copied widget towards its own head.
+            entry.Numbers = ReadPose(pair.Key, pair.Value);
+            Canvas? canvas = pair.Key.GetComponentInParent<Canvas>(true);
+            if (holder.Last.HasCanvasFrame && canvas != null && canvas.transform != pair.Key)
+            {
+                if (!ValidMotionScale(canvas.transform.lossyScale)) continue;
+                entry.HasCanvasFrame = true; entry.CanvasPose = ReadPose(canvas.transform, pair.Value);
+                if (ReferenceEquals(pair.Key, holder.Binding.Root) && ReferenceEquals(pair.Key.parent, canvas.transform))
+                {
+                    // A rotated child of a stretched canvas cannot recover its
+                    // exact local scale by dividing two lossy world scales. The
+                    // receiver has this exact copied parent: retain source TRS.
+                    entry.OfferedLocalScale = true;
+                    Vector3 scale = pair.Key.localScale;
+                    entry.Numbers[7] = scale.x; entry.Numbers[8] = scale.y; entry.Numbers[9] = scale.z;
+                }
+            }
+            UpdateMotionSlot(motion, entry);
+            MotionSlot slot = motion.Slots[entry.Key];
+            ActiveOfferedFrames.Add(slot);
+            if ((slot.Dirty || now - slot.SentAt >= TownServiceMotionCodec.Heartbeat)
+                && !MotionLive.Contains(slot)) MotionLive.Add(slot);
+        }
+        foreach (var pair in MotionSources)
+        {
+            SourceMotion motion = pair.Value;
+            if (pair.Key.Last == null) continue;
+            var key = new TownServiceMotionKey(9, 0, pair.Key.Id, 0, 0, 0);
+            if (!motion.Slots.TryGetValue(key, out MotionSlot? slot) || ActiveOfferedFrames.Contains(slot)) continue;
+            if (slot.Entry.Visible)
+            {
+                var withdrawn = MotionHeader(pair.Key.Last!, 0, 9);
+                withdrawn.Binding = slot.Entry.Binding; withdrawn.Numbers = IdentityPose();
+                UpdateMotionSlot(motion, withdrawn);
+            }
+            if ((slot.Dirty || now - slot.SentAt >= TownServiceMotionCodec.Heartbeat)
+                && !MotionLive.Contains(slot)) MotionLive.Add(slot);
+        }
+    }
+
+    private static void ApplyOfferedFrames()
+    {
+        // Run once AFTER all independently authored native child/root tweens.
+        // A hover-only update cannot put the ring and the physical card in
+        // separate planes, even when the numeric budget delivers them separately.
+        foreach (var pair in MotionRemoteFrames)
+        {
+            RemoteModule module = pair.Key;
+            if (!module.Alive || !module.Host.activeInHierarchy) continue;
+            foreach (MotionSlot slot in pair.Value.Slots)
+            {
+                TownServiceMotionEntry relation = slot.Entry;
+                if (relation.Kind != 9 || relation.Lane != 0 || !relation.Visible
+                    || !Remote.TryGetValue(pair.Value.Owner, out Dictionary<ushort, RemoteModule>? modules)
+                    || !modules.TryGetValue(relation.OfferedModule, out RemoteModule? physical)
+                    || !physical.Alive || !physical.Host.activeInHierarchy || physical.LastFrame == null
+                    || physical.Session != relation.Session || physical.LastFrame.Structure != relation.OfferedStructure
+                    || physical.LastFrame.Service != relation.Service || physical.LastFrame.PublicClaim != relation.PublicClaim) continue;
+                int holderIndex = Array.IndexOf(module.Binding.Bindings, relation.Binding);
+                int printIndex = Array.IndexOf(physical.Binding.Bindings, relation.OfferedBinding);
+                if (holderIndex < 0 || printIndex < 0) continue;
+                Transform holder = module.Binding.Nodes[holderIndex], print = physical.Binding.Nodes[printIndex];
+                if (holder == null || print == null || holder.parent == null
+                    || !ValidMotionScale(print.lossyScale) || !ValidMotionScale(holder.parent.lossyScale)) continue;
+                // The source's converted canvas belongs to this same print. Its
+                // native masks cannot stay in an independently interpolated world
+                // frame while only the child ink follows the offered card.
+                if (relation.HasCanvasFrame)
+                {
+                    if (module.AddedCanvas == null || module.Host.transform.parent == null
+                        || !ValidMotionScale(module.Host.transform.parent.lossyScale)) continue;
+                    ApplyOfferedPose(module.Host.transform, print, relation.CanvasPose);
+                }
+                if (relation.OfferedLocalScale && !ReferenceEquals(holder.parent, module.Host.transform)) continue;
+                ApplyOfferedPose(holder, print, relation.Numbers, relation.OfferedLocalScale);
+                slot.Dirty = false;
+            }
+        }
+    }
+
+    private static void ApplyOfferedPose(Transform target, Transform print, float[] pose, bool originalLocalScale = false)
+    {
+        target.position = print.TransformPoint(Position(pose));
+        target.rotation = print.rotation * Rotation(pose);
+        target.localScale = originalLocalScale ? Scale(pose)
+            : DivideMotionScale(Vector3.Scale(print.lossyScale, Scale(pose)), target.parent.lossyScale);
+    }
 
     internal static bool RemoteMerchantOffering
     {

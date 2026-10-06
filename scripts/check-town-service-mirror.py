@@ -72,7 +72,7 @@ def sources(root):
     if merchant_control.exists(): bound[merchant_control.name] = merchant_control.read_text()
     native_publication = base / "Net/TownServices/TownServiceMirror.NativePublication.cs"
     if native_publication.exists(): bound[native_publication.name] = native_publication.read_text()
-    for fast in ("TownServiceFastNumbers", "TownServiceMotionCodec", "TownServiceMotionBudget", "TownServiceReturnMotion", "TownCardReturnMotion", "TownServiceMirror.Motion"):
+    for fast in ("TownServiceFastNumbers", "TownServiceMotionCodec", "TownServiceMotionCodec.OfferedFrame", "TownServiceMotionBudget", "TownServiceReturnMotion", "TownCardReturnMotion", "TownServiceMirror.Motion"):
         path = base / "Net/TownServices" / (fast + ".cs")
         if path.exists(): bound[path.name] = path.read_text()
     pad = base / "Hands/Interact/PokeOnlyTarget.cs"
@@ -322,6 +322,14 @@ def main():
             ]
     if args.suite == "offered-orientation":
         variants = [("production", None, None, None, "")]
+        if not args.no_negative_controls:
+            variants += [
+                ("offered-old-root-clock", "TownServiceMirror.Motion.cs", "PrepareOfferedRootMotion(module, composed, root, now);", "/* old all-node native hover tween */", "physical offered print facing remains invariant under unrelated native artwork hover"),
+                ("offered-no-print-relation", "TownServiceMirror.Motion.cs", "        ApplyOfferedFrames();", "        /* independent overlay and physical root clocks */", "native area stays in the same owner-authored print frame during a hover turn"),
+                ("offered-wrong-print-binding", "TownServiceMirror.Offerings.cs", "int printIndex = Array.IndexOf(physical.Binding.Bindings, relation.OfferedBinding);", "int printIndex = -1;", "native area stays in the same owner-authored print frame during a hover turn"),
+                ("offered-observer-facing", "TownServiceMirror.Offerings.cs", "target.rotation = print.rotation * Rotation(pose);", "target.rotation = GloomhavenVR.Rig.VRRigDriver.HeadCamera.transform.rotation * Rotation(pose);", "independent offered print and native overlays share the same intermediate owner rotation"),
+                ("offered-lossy-parent-scale", "TownServiceMirror.Offerings.cs", "entry.OfferedLocalScale = true;", "entry.OfferedLocalScale = false;", "native area stays in the same owner-authored print frame during a hover turn"),
+            ]
     if args.suite == "card-return":
         variants = [("production", None, None, None, "")]
         if not args.no_negative_controls:

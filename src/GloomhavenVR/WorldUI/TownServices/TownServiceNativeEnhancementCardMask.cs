@@ -183,6 +183,8 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
     internal void Restore()
     {
         if (!_masked) return;
+        if (!ReferenceEquals(_highlighterRect, null))
+            Net.TownServices.TownServiceMirror.RegisterOfferedFrame(_highlighterRect, null);
         if (_highlighterRect != null && _nativePrint != null)
         {
             _highlighterRect.localPosition = _printRootPosition;
@@ -400,6 +402,7 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
             - physical.forward * (physicalHeight * .0003f);
         if (translation.sqrMagnitude > physicalHeight * physicalHeight * .000000000001f)
             _highlighterRect.position += translation;
+        Net.TownServices.TownServiceMirror.RegisterOfferedFrame(_highlighterRect, physical);
     }
 
     private void CaptureNativeAuraRotation()

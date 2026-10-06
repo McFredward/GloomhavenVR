@@ -151,6 +151,8 @@ internal static class NetProtocol
     /// <summary>Original town card return endpoints, easing and common age, independent of artwork.</summary>
     public const byte ExtIdTownCardReturn = 107;
     public const byte ExtIdTownVisibleCensus = 108;
+    /// <summary>Exact owner-declared offered native overlay frame against its original physical print.</summary>
+    public const byte ExtIdTownOfferedFrame = 109;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
