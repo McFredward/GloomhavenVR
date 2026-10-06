@@ -32,7 +32,9 @@ the whole `Camera.onPreCull` listener list, before native culling. Restoration i
 `onPreRender` is too late: masked originals have already left the native cull
 list. The final boundary checks the live light-probe source/count, camera
 depth/path, foreign command-buffer identities, and cheap lighting usage/volume
-override flags on currently masked chunk members. It revokes obsolete geometry
+override and lightmap-index flags on currently masked chunk members. A changed
+native lightmap index is also checked by the initial camera validation, beyond
+the earlier preparation-only refusal. It revokes obsolete geometry
 and restores originals before native culling. Stable cameras perform no second
 material/geometry/transform sweep. `EnvironmentBudget.FinalPreCull` measures this
 additional work. Every subscriber owns a fail-open exception guard. Installation
@@ -64,7 +66,20 @@ separate anchors. Removing the final seam, live registry, flag check or native
 consumer check is tested causally. Plugin owner teardown/replacement is tested
 against the actual patched Unity method. The fixture uses an explicit GL native
 lighting shader; original game Windows shaders, live three-room admission,
-Frame FPS and multiplayer headroom remain hardware measurements.
+Frame FPS and multiplayer headroom remain hardware measurements. The original
+lightmap color-texture oracle executes actual Unity `LIGHTMAP_ON` selection and
+`DecodeLightmap`, with both initial and late native index writes, retained PNGs,
+and separate causal early/final validation controls.
+
+The complete worker fixture before the lightmap correction passed **11,358
+production assertions and all 74 runtime/evidence-bridge negative controls**
+(75 variants), plus the material-repair source binding and removed-edge control.
+The final lightmap extension passed **11,372 production assertions and both new
+early/final native-lightmap controls**, with matching native/retained PNG hashes
+and a distinct failed-final-check image. Strict final Debug and Release builds
+both passed with zero warnings/errors. The delivery ledger separates the earlier
+full-source hash from this final focused-source hash; the integrator owns the
+complete 77-variant suite and repository gate on the final combined tree.
 
 ## Historical failure is a contract
 

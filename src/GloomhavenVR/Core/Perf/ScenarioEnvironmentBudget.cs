@@ -344,7 +344,7 @@ internal static class ScenarioEnvironmentBudget
             foreach (Surface source in Sources)
             {
                 MeshRenderer r = source.Renderer;
-                if (r == null || r.lightProbeUsage != lightUsage || r.reflectionProbeUsage != reflectionUsage
+                if (r == null || HasNativeLightmap(r) || r.lightProbeUsage != lightUsage || r.reflectionProbeUsage != reflectionUsage
                     || (lightUsage != LightProbeUsage.Off && r.lightProbeProxyVolumeOverride != null)) return true;
             }
             return false;
@@ -368,6 +368,7 @@ internal static class ScenarioEnvironmentBudget
                     && Renderer != null && SameRenderFlags(r, Renderer)
                     && Object != null && r.gameObject.layer == Object.layer
                     && inverse * r.transform.localToWorldMatrix == Matrices[i];
+                if (valid && HasNativeLightmap(r!)) { valid = false; LightingRefused = true; }
                 if (valid && !ChunkLightingCompatible(r!)) { valid = false; LightingRefused = true; }
             }
             // Aggregate bounds can intersect a local reflection volume which none
@@ -546,6 +547,12 @@ internal static class ScenarioEnvironmentBudget
     // recheck each camera so a late native stream write cannot lose its channels.
     private static bool NativeGeometryCompatible(MeshRenderer r) =>
         !r.isPartOfStaticBatch && r.additionalVertexStreams == null;
+
+    private static bool HasNativeLightmap(MeshRenderer r)
+    {
+        int index = r.lightmapIndex;
+        return index >= 0 && index < 65534;
+    }
 
     private static readonly List<ReflectionProbeBlendInfo> ReflectionScratch = new(4);
     private static bool ChunkLightingCompatible(MeshRenderer r)

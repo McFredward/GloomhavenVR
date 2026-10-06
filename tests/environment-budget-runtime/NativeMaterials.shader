@@ -51,9 +51,9 @@ Shader "Amp_Basic_N_MRAO"
             float _FixtureProbeLighting;
             int ToggleWallFade;
             struct appdata { float4 vertex:POSITION; float3 normal:NORMAL; float2 texcoord:TEXCOORD0; UNITY_VERTEX_INPUT_INSTANCE_ID };
-            struct v2f { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; float4 screen:TEXCOORD1; float objY:TEXCOORD2; float3 ambient:TEXCOORD3; float3 normal:TEXCOORD4; };
+            struct v2f { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; float4 screen:TEXCOORD1; float objY:TEXCOORD2; float3 ambient:TEXCOORD3; float3 normal:TEXCOORD4; float2 lightmapUV:TEXCOORD5; };
             v2f vert(appdata v)
-            { UNITY_SETUP_INSTANCE_ID(v); v2f o; o.pos=UnityObjectToClipPos(v.vertex); float2 uv=v.texcoord.xy*_UVTiling+_UV_Offset; o.uv=TRANSFORM_TEX(uv,_MainTex); o.screen=ComputeScreenPos(o.pos); o.objY=v.vertex.y; o.normal=UnityObjectToWorldNormal(v.normal); o.ambient=ShadeSH9(float4(o.normal,1)); return o; }
+            { UNITY_SETUP_INSTANCE_ID(v); v2f o; o.pos=UnityObjectToClipPos(v.vertex); float2 uv=v.texcoord.xy*_UVTiling+_UV_Offset; o.uv=TRANSFORM_TEX(uv,_MainTex); o.screen=ComputeScreenPos(o.pos); o.objY=v.vertex.y; o.normal=UnityObjectToWorldNormal(v.normal); o.ambient=ShadeSH9(float4(o.normal,1)); o.lightmapUV=v.texcoord*unity_LightmapST.xy+unity_LightmapST.zw; return o; }
             fixed4 frag(v2f i):SV_Target
             {
                 // Explicit GL surrogate for the documented native LOW fragment branch.
@@ -64,7 +64,13 @@ Shader "Amp_Basic_N_MRAO"
                     clip(1-tex2D(_TilesOcclusionMap,i.screen.xy/i.screen.w).r-_Cutoff);
                 float3 lighting=1;
                 if (_FixtureProbeLighting > 0.5)
-                    lighting=i.ambient+DecodeHDR(UNITY_SAMPLE_TEXCUBE(unity_SpecCube0,i.normal),unity_SpecCube0_HDR);
+                {
+                    float3 diffuse=i.ambient;
+                    #if defined(LIGHTMAP_ON)
+                    diffuse=DecodeLightmap(UNITY_SAMPLE_TEX2D(unity_Lightmap,i.lightmapUV));
+                    #endif
+                    lighting=diffuse+DecodeHDR(UNITY_SAMPLE_TEXCUBE(unity_SpecCube0,i.normal),unity_SpecCube0_HDR);
+                }
                 return fixed4(tex2D(_MainTex,i.uv).rgb*_Tint.rgb*lighting,1);
             }
             ENDCG

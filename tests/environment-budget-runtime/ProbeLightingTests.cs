@@ -7,6 +7,15 @@ using UnityEngine.Rendering;
 
 public static partial class EnvironmentProgram
 {
+    private static void CaptureNativeLighting(string stage,Color32[] pixels)
+    {
+        string path=System.IO.Path.Combine(Environment.GetEnvironmentVariable("GHVR_ENVIRONMENT_EVIDENCE")!,
+            typeof(EnvironmentProgram).Assembly.GetName().Name+"-"+stage+".png");
+        var image=new Texture2D(48,48,TextureFormat.RGBA32,false);
+        try { image.SetPixels32(pixels); image.Apply(); System.IO.File.WriteAllBytes(path,image.EncodeToPNG()); }
+        finally { UnityEngine.Object.DestroyImmediate(image); }
+    }
+
     private static void NativeCameraCallbackFailureIsProcessBound()
     {
         using var room=new Room();
@@ -16,6 +25,53 @@ public static partial class EnvironmentProgram
         catch(InvalidOperationException error) { caught=error.Message=="Environment.NativeCameraCallback.Sentinel"; }
         finally { room.ObserveRender=null; }
         Check(caught,"actual native camera callback assertions propagate after Render into the runner process status");
+    }
+
+    private static void NativeChunkLightmapWrites()
+    {
+        LightmapData[] saved=LightmapSettings.lightmaps;
+        LightmapsMode savedMode=LightmapSettings.lightmapsMode;
+        var texture=new Texture2D(2,2,TextureFormat.RGBA32,false);
+        texture.SetPixels(new[]{new Color(.4f,.015f,.01f,1),new Color(.4f,.015f,.01f,1),new Color(.4f,.015f,.01f,1),new Color(.4f,.015f,.01f,1)}); texture.Apply();
+        try
+        {
+            LightmapSettings.lightmapsMode=LightmapsMode.NonDirectional;
+            LightmapSettings.lightmaps=new[]{new LightmapData { lightmapColor=texture }};
+            foreach(bool late in new[]{false,true})
+            {
+                using var room=new Room(); var first=room.Floor(.5f); var second=room.Floor(2.5f);
+                room.Original.SetFloat("_FixtureProbeLighting",1);
+                first.lightProbeUsage=second.lightProbeUsage=LightProbeUsage.BlendProbes;
+                Color32[] unlit=room.Render(); first.lightmapIndex=0; Color32[] native=room.Render();
+                CaptureNativeLighting((late?"late":"early")+"-lightmap-common",unlit);
+                CaptureNativeLighting((late?"late":"early")+"-lightmap-native",native);
+                Check(!SamePixels(unlit,native),"actual original camera pixels respond to native renderer lightmap index and color texture");
+                first.lightmapIndex=-1; Configure(true,false,100); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+                Check(room.Chunks().Length==1,"native unlightmapped common-fallback surfaces prepare a chunk before later lightmap writes");
+                bool initialNative=false,started=false,finalNative=false;
+                room.ObserveRender=()=>
+                {
+                    initialNative=!first.forceRenderingOff&&!second.forceRenderingOff&&Array.TrueForAll(room.Chunks(),r=>!r.enabled);
+                    started=first.forceRenderingOff&&second.forceRenderingOff;
+                    if(late) first.lightmapIndex=0;
+                };
+                if(!late) first.lightmapIndex=0;
+                Camera.CameraCallback observer=camera=>
+                {
+                    if(camera==room.Camera) finalNative=!first.forceRenderingOff&&!second.forceRenderingOff&&Array.TrueForAll(room.Chunks(),r=>!r.enabled);
+                };
+                Camera.onPreRender+=observer; PerfMonitor.Counts.Clear(); Color32[] retained;
+                try { retained=room.Render(); }
+                finally { Camera.onPreRender-=observer; room.ObserveRender=null; }
+                CaptureNativeLighting((late?"late":"early")+"-lightmap-retained",retained);
+                if(!late) Check(initialNative,"changed native chunk lightmap index restores originals at the initial camera validation");
+                else Check(started&&finalNative,"late native chunk lightmap index restores original sources before actual camera culling");
+                Check(SamePixels(native,retained),"early and late native lightmap writes preserve actual original camera pixels");
+                Check(PerfMonitor.Counts.TryGetValue("Environment.LightingFallback",out long count)&&count==1&&!PerfMonitor.Counts.ContainsKey("Environment.ChunkSources"),
+                    "native lightmap refusal reports lighting fallback without surviving substitute source savings");
+            }
+        }
+        finally { LightmapSettings.lightmaps=saved; LightmapSettings.lightmapsMode=savedMode; UnityEngine.Object.DestroyImmediate(texture); }
     }
 
     private static void NativeCameraBoundaryLifecycle()
