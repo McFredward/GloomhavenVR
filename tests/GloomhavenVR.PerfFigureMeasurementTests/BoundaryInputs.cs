@@ -44,7 +44,7 @@ namespace GloomhavenVR.Core
         private static bool _firstSampleDone;
         private sealed class Step { internal double FrameSeconds; internal int FrameCalls; }
         private static readonly List<Step> StepOrder = new();
-        private static readonly Tally TestTally = new("boundary-work");
+        private static readonly Tally TestTally = new("boundary-work") { DebugOnly = false };
         internal static void Register(string name) => TestTally.PrintZero = true;
         internal static readonly List<(string State, float Seconds, int Frames, long Work, long WorstWork, bool CompleteProbesOnly)> Closed = new();
         internal static bool PendingCleared => _frameModSeconds == 0 && _depth == 0

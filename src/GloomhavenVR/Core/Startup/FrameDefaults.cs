@@ -73,6 +73,8 @@ internal static class FrameDefaults
     internal const bool SharedEnvironmentMaterialReads = true;
     internal const bool SharedUiWindowReads = true;
     internal const float VisibleIdleAnimationIntervalSeconds = .2f;
+    // A separate reversible shape compromise, not implicit in idle pose sampling.
+    internal const bool VisibleIdleDisabledClothApproximation = true;
 
     // A 4 s wall-rescan cadence was active in the tested Frame configuration. It reduces
     // rescan frequency, not the duration of an individual rescan.

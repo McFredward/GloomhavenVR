@@ -115,7 +115,12 @@ public static class InteractionProgram
             };
         }
         internal bool Apply(bool original, bool root = false, bool rects = true)
-        { Proof.Recording = true; bool result = original ? Pair.ApplyOriginal(root, rects) : Pair.Apply(root, rects); Proof.Recording = false; return result; }
+        {
+            Proof.Recording = true;
+            using var work = NativeMirrorReadWork.Begin();
+            try { return original ? Pair.ApplyOriginal(root, rects) : Pair.Apply(root, rects); }
+            finally { Proof.Recording = false; }
+        }
         internal string State(bool source = false)
         {
             Transform t = source ? Source : Destination;
@@ -244,6 +249,54 @@ public static class InteractionProgram
             ((Image)f.SourceGraphic!).fillAmount = .91f;
             Proof.Reset(); f.Apply(false);
             Check(Reads("_srcImage.fillAmount") == 2 && PerfConfig.ModeReads == 1, "live Off from native callback restores next Apply's legacy read");
+        }
+        // Count the actual instrumented nonvirtual subset independently of production counters.
+        string[] measuredReads = { "_srcRect.anchorMin", "_srcRect.anchorMax", "_srcRect.pivot", "_srcRect.sizeDelta", "_srcRect.anchoredPosition3D", "Src.localPosition", "Src.localRotation", "Src.localScale", "_srcGraphic.enabled", "_srcImage.sprite", "_srcImage.overrideSprite", "_srcImage.type", "_srcImage.fillAmount", "_srcRaw.texture", "_srcRaw.uvRect", "_srcGroup.alpha" };
+        foreach (string kind in new[] { "image", "raw", "text", "plain" })
+        {
+            using var f = new Fixture(kind); f.Animate(0);
+            using var old = new Fixture(kind); old.Animate(0);
+            Proof.Reset(); old.Apply(true); int legacySubset = measuredReads.Sum(Reads);
+            Proof.Reset(); PerfConfig.SharedUiWindowReadsOn = true; f.Apply(false);
+            int actualSubset = measuredReads.Sum(Reads);
+            Check(PerfMonitor.Value("Mirror.NativeSourceReads") == actualSubset, "debug counters equal evaluated nonvirtual source getters");
+            Check(PerfMonitor.Value("Mirror.NativeSourceReadsReused") == legacySubset - actualSubset, "debug saved reads count only actual removed second observations");
+            Check(PerfMonitor.Value("Mirror.ReadReuseOnNodes") == 1 && PerfMonitor.Value("Mirror.ReadReuseOffNodes") == 0, "debug node counts describe read mode, never peers");
+            f.Animate(2); Proof.Reset(); PerfConfig.SharedUiWindowReadsOn = false; f.Apply(false);
+            Check(PerfMonitor.Value("Mirror.NativeSourceReads") == measuredReads.Sum(Reads) && PerfMonitor.Value("Mirror.NativeSourceReadsReused") == 0, "debug Off counts retain every evaluated legacy read");
+            Check(PerfMonitor.Value("Mirror.ReadReuseOffNodes") == 1, "debug Off node mode is explicit");
+            PerfMonitor.StepsActive = false; f.Animate(3); Proof.Reset(); f.Apply(false);
+            Check(PerfMonitor.Reports == 0 && PerfMonitor.Counts.Count == 0, "normal rendering emits no diagnostic reports");
+            PerfMonitor.StepsActive = true;
+            VRLog.WantsDebug = false; f.Animate(4); Proof.Reset(); f.Apply(false);
+            Check(PerfMonitor.Reports == 0 && measuredReads.Sum(Reads) > 0, "normal log level performs native reads without diagnostic sampling");
+            VRLog.WantsDebug = true;
+        }
+        Proof.Reset(); PerfMonitor.RegisterDebug("diagnostic-zero");
+        PerfMonitor.ReportCounters();
+        Check(VRLog.Last.Contains("diagnostic-zero 0/s"), "Debug displays diagnostic zero as evidence of no executed work");
+        VRLog.WantsDebug = false; VRLog.Last = ""; PerfMonitor.ReportCounters();
+        Check(VRLog.Last == "", "normal log level emits no diagnostic-only counter line");
+        PerfMonitor.Count("existing-lifecycle", 7); PerfMonitor.Count("diagnostic-zero", 4); PerfMonitor.ReportCounters();
+        Check(VRLog.Last.Contains("existing-lifecycle 7/s") && !VRLog.Last.Contains("diagnostic-zero"), "normal counters retain existing useful reports and exclude diagnostics");
+        VRLog.WantsDebug = true;
+        using (var first = new Fixture("image"))
+        using (var second = new Fixture("raw"))
+        {
+            first.Animate(0); second.Animate(0); Proof.Reset(); PerfConfig.SharedUiWindowReadsOn = true;
+            using (NativeMirrorReadWork.Begin())
+            {
+                first.Apply(false); second.Apply(false);
+                Check(PerfMonitor.Reports == 0, "nested reads wait for outer mirror scope before reporting");
+            }
+            Check(PerfMonitor.Reports == 4 && PerfMonitor.Value("Mirror.ReadReuseOnNodes") == 2, "nested mirror scopes flush once and retain all visited nodes");
+            Check(PerfMonitor.Value("Mirror.NativeSourceReads") == measuredReads.Sum(Reads), "nested mirror scopes retain exact source read counts");
+            Proof.Reset();
+            try { using var interrupted = NativeMirrorReadWork.Begin(); first.Animate(4); first.Apply(false); throw new InvalidOperationException("interrupted callback"); }
+            catch (InvalidOperationException) { }
+            Check(PerfMonitor.Reports == 4, "exception unwinding releases the diagnostic scope");
+            Proof.Reset(); second.Animate(5); second.Apply(false);
+            Check(PerfMonitor.Reports == 4 && PerfMonitor.Value("Mirror.ReadReuseOnNodes") == 1 && PerfMonitor.Value("Mirror.NativeSourceReads") == measuredReads.Sum(Reads), "interrupted mirror scope cannot leak counts into a later update");
         }
         int oldReads = 0, newReads = 0;
         for (int panel = 0; panel < 20; panel++)

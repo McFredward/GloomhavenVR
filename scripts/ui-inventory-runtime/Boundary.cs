@@ -6,10 +6,12 @@ namespace GloomhavenVR.Core {
  internal static class PerfConfig { internal static bool SharedUiWindowReadsOn=true; }
  internal static class VRLog {
   internal static int Errors;
+  internal static bool WantsDebug => false;
   internal static void Info(string s,string m) {} internal static void Note(string s,string m) {}
   internal static void Warn(string s,string m) { Errors++; } internal static void Alert(string s,string m) {Errors++;}
  }
- internal static class PerfMonitor { internal readonly struct Token:IDisposable {public void Dispose() {}} internal static Token Scope(string s)=>new(); internal static void Count(string s,int n) {} }
+ // This inventory fixture excludes telemetry; shared-ui-window tests exercise actual counters.
+ internal static class PerfMonitor { internal readonly struct Token:IDisposable {public void Dispose() {}} internal static Token Scope(string s)=>new(); internal static bool StepsActive => false; internal static void Count(string s,long n) {} }
 }
 namespace GloomhavenVR.Cards {
  internal static class CardFaceMipBake {

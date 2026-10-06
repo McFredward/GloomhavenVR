@@ -7,10 +7,19 @@ namespace GloomhavenVR.Core
     internal static class PerfConfig { internal static bool SharedUiWindowReadsOn = true; }
     internal static class VRLog
     {
+        internal static bool WantsDebug = true;
         internal static void Note(string s, string m) { }
     }
     internal static class PerfMonitor
     {
+        internal static bool StepsActive = true;
+        internal static readonly Dictionary<string, long> Counts = new();
+        internal static void Count(string name, long amount)
+        {
+            if (!StepsActive || amount == 0) return;
+            Counts.TryGetValue(name, out long before); Counts[name] = before + amount;
+        }
+        internal static long Value(string name) => Counts.TryGetValue(name, out long value) ? value : 0;
         internal readonly struct Token : IDisposable { public void Dispose() { } }
         internal static Token Scope(string name) => default;
     }
@@ -54,7 +63,7 @@ namespace GloomhavenVR.WorldUI
     internal static class Proof
     {
         internal static int RegistryScans, RegistryMembers, ComponentCaptures, GroupReads, NativeCullCallbacks;
-        internal static void Reset() { RegistryScans = RegistryMembers = ComponentCaptures = GroupReads = NativeCullCallbacks = 0; }
+        internal static void Reset() { RegistryScans = RegistryMembers = ComponentCaptures = GroupReads = NativeCullCallbacks = 0; GloomhavenVR.Core.PerfMonitor.Counts.Clear(); }
     }
     internal static partial class CanvasConversion
     {

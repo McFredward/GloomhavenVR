@@ -362,6 +362,15 @@ internal static partial class PerfMonitor
         Intern(name).PrintZero = true;
     }
 
+    /// <summary>Diagnostic work rows remain visible at zero in Debug without adding
+    /// detailed measurements to normal player logs. Existing lifecycle/anomaly rows remain.</summary>
+    internal static void RegisterDebug(string name)
+    {
+        Tally tally = Intern(name);
+        tally.PrintZero = true;
+        tally.DebugOnly = true;
+    }
+
     private static Tally Intern(string name)
     {
         if (!Counters.TryGetValue(name, out Tally tally))
@@ -388,6 +397,23 @@ internal static partial class PerfMonitor
         if (_host != null)
             return;
         _host = root.AddComponent<PerfHost>();
+        // Explicit zeros distinguish an enabled but unproductive optional lane from
+        // missing diagnostics in the maintainer's loaded-scenario Debug comparison.
+        RegisterDebug("Environment.ChunkSources");
+        RegisterDebug("Environment.ChunkGroups");
+        RegisterDebug("Environment.InstanceSources");
+        RegisterDebug("Environment.InstanceGroups");
+        RegisterDebug("Environment.LightingFallback");
+        RegisterDebug("Environment.CameraPathFallback");
+        RegisterDebug("Mirror.NativeSourceReads");
+        RegisterDebug("Mirror.NativeSourceReadsReused");
+        RegisterDebug("Mirror.ReadReuseOnNodes");
+        RegisterDebug("Mirror.ReadReuseOffNodes");
+        RegisterDebug("UI.WindowRegistrySharedScans");
+        RegisterDebug("UI.WindowRegistrySharedMembers");
+        RegisterDebug("UI.WindowRegistryIndependentScans");
+        RegisterDebug("UI.WindowRegistryIndependentMembers");
+        RegisterDebug("UI.WindowRegistryReusePanels");
         PerfFrameSplit.Install(root);
         ResetWindow(Time.unscaledTime);
     }
@@ -1056,9 +1082,13 @@ internal static partial class PerfMonitor
         if (!PerfConfig.Attribution.Value || CounterOrder.Count == 0)
             return;
 
+        bool debug = VRLog.WantsDebug;
         bool any = false;
         for (int i = 0; i < CounterOrder.Count && !any; i++)
-            any = CounterOrder[i].WindowTotal > 0L || CounterOrder[i].PrintZero;
+        {
+            Tally tally = CounterOrder[i];
+            any = (!tally.DebugOnly || debug) && (tally.WindowTotal > 0L || tally.PrintZero);
+        }
         if (!any)
             return;
 
@@ -1070,7 +1100,7 @@ internal static partial class PerfMonitor
         for (int i = 0; i < CounterOrder.Count; i++)
         {
             Tally t = CounterOrder[i];
-            if (t.WindowTotal <= 0L && !t.PrintZero)
+            if ((t.DebugOnly && !debug) || (t.WindowTotal <= 0L && !t.PrintZero))
                 continue;
             sb.Append(first ? string.Empty : " | ").Append(t.Name).Append(' ')
               .Append((t.WindowTotal / Mathf.Max(0.001f, windowSeconds)).ToString("F0"))

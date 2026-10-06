@@ -56,6 +56,10 @@ public static partial class EnvironmentProgram
     private static void NativeObjectLighting()
     {
         using var room = new Room();
+        LightProbes saved = LightmapSettings.lightProbes;
+        LightmapSettings.lightProbes = NativeProbeFixture;
+        try
+        {
         var first = room.Floor(.5f); var second = room.Floor(2.5f);
         first.lightProbeUsage = second.lightProbeUsage = LightProbeUsage.BlendProbes;
         Configure(true, false, 100); ScenarioEnvironmentBudget.BeforeLoadingComplete();
@@ -64,8 +68,11 @@ public static partial class EnvironmentProgram
             "bounded preparation diagnostic states actual per-object probe refusals");
         first.lightProbeUsage = second.lightProbeUsage = LightProbeUsage.Off;
         first.reflectionProbeUsage = second.reflectionProbeUsage = ReflectionProbeUsage.BlendProbes;
+        var local = Room.Child("NativeLocalReflection",room.Generated.transform).AddComponent<ReflectionProbe>();
+        local.size = new Vector3(8,8,8);
         ScenarioEnvironmentBudget.Placed(room.Generated); ScenarioEnvironmentBudget.BeforeLoadingComplete();
         Check(room.Chunks().Length == 0, "original per-object reflection probes never enter a combined chunk");
+        local.enabled = false;
         first.reflectionProbeUsage = second.reflectionProbeUsage = ReflectionProbeUsage.Off;
         ScenarioEnvironmentBudget.Placed(room.Generated); ScenarioEnvironmentBudget.BeforeLoadingComplete();
         Check(room.Chunks().Length == 1, "probe-free original floors retain exact combined submission");
@@ -78,11 +85,17 @@ public static partial class EnvironmentProgram
         Configure(true, true, 100); ScenarioEnvironmentBudget.BeforeLoadingComplete();
         Check(room.Chunks().Length == 0 && first.sharedMaterial != room.Original,
             "simplified shader keeps its material compromise without combining per-object probe draws");
+        }
+        finally { LightmapSettings.lightProbes = saved; }
     }
 
     private static void ProbeRejectionSkipsPrivateGeometry()
     {
         using var room = new Room();
+        LightProbes saved = LightmapSettings.lightProbes;
+        LightmapSettings.lightProbes = NativeProbeFixture;
+        try
+        {
         Mesh native = BankOriginal("CV_Floor_Basic_01"); native.UploadMeshData(true);
         var first = room.Floor(.5f); var second = room.Floor(2.5f);
         first.GetComponent<MeshFilter>().sharedMesh = second.GetComponent<MeshFilter>().sharedMesh = native;
@@ -101,6 +114,8 @@ public static partial class EnvironmentProgram
         Check(bankReadRequests == 2 && room.Chunks().Length == 1,
             "probe-free unreadable sources enter the real private bank only after render admission");
         Configure(false, false, 100); Tick(); UnityEngine.Object.DestroyImmediate(native);
+        }
+        finally { LightmapSettings.lightProbes = saved; }
     }
 
     private static void NativeMaterialLoadStart()

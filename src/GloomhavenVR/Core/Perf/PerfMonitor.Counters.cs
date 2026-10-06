@@ -17,6 +17,7 @@ internal static partial class PerfMonitor
         /// <see cref="PerfMonitor.Register"/>. Off by default so the line does not fill with rows
         /// for subsystems that are simply not standing this session.</summary>
         public bool PrintZero;
+        public bool DebugOnly;
 
         private long _frame;
 

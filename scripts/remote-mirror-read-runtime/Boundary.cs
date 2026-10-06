@@ -5,8 +5,42 @@ using UnityEngine.UI;
 
 namespace GloomhavenVR.Core
 {
+    internal static partial class PerfMonitor
+    {
+        internal static bool StepsActive = true;
+        private static readonly Dictionary<string, Tally> Tallies = new();
+        private static readonly List<Tally> CounterOrder = new();
+        private static readonly System.Text.StringBuilder Sb = new();
+        private static Tally Intern(string name)
+        {
+            if (!Tallies.TryGetValue(name, out Tally tally))
+            { tally = new Tally(name); Tallies.Add(name, tally); CounterOrder.Add(tally); }
+            return tally;
+        }
+        internal static void ResetCounters() { Counts.Clear(); Reports = 0; Tallies.Clear(); CounterOrder.Clear(); VRLog.Last = ""; }
+        internal static void ReportCounters() { foreach (Tally tally in CounterOrder) tally.RollFrame(); LogCounters(1f); }
+        internal static readonly Dictionary<string, long> Counts = new();
+        internal static int Reports;
+        internal static void Count(string name, long amount)
+        {
+            if (!StepsActive) return;
+            Reports++;
+            if (amount == 0) return;
+            Intern(name).Add(amount);
+            Counts.TryGetValue(name, out long before); Counts[name] = before + amount;
+        }
+        internal static long Value(string name) => Counts.TryGetValue(name, out long value) ? value : 0;
+    }
+    internal static class VRLog
+    {
+        internal static bool WantsDebug = true;
+        internal static string Last = "";
+        internal static void Info(string scope, string message) { Last = message; }
+    }
     internal static class PerfConfig
     {
+        internal sealed class Switch { internal bool Value = true; }
+        internal static readonly Switch Attribution = new();
         private static bool _sharedReads;
         internal static int ModeReads;
         internal static bool SharedUiWindowReadsOn
@@ -56,6 +90,7 @@ namespace GloomhavenVR.Net
         {
             Recording = false; SourceReads = 0; Reads.Clear(); Trace.Clear(); CurrentWrite = ""; OnCallback = null;
             GloomhavenVR.Core.PerfConfig.ModeReads = 0;
+            GloomhavenVR.Core.PerfMonitor.ResetCounters();
         }
     }
 }

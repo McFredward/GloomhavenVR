@@ -34,12 +34,19 @@ namespace GloomhavenVR.Core
     }
     internal static class PerfMonitor
     {
+        internal static bool StepsActive = true;
         internal readonly struct Sample : IDisposable { public void Dispose() { } }
         internal static Sample Scope(string label) => default;
-        internal static void Count(string label, long value) { }
+        internal static readonly System.Collections.Generic.Dictionary<string,long> Counts = new();
+        internal static void Count(string label, long value) => Counts[label] = value;
         internal static void Register(string label) { }
+        internal static void RegisterDebug(string label) { }
     }
-    internal static class PerfConfig { internal static float ActorBarPoseCheckInterval = 0.2f; }
+    internal static class PerfConfig
+    {
+        internal static float ActorBarPoseCheckInterval = 0.2f;
+        internal static bool VisibleIdleClothApproximation;
+    }
     internal static class VRSession
     {
         internal static bool IsRunning = true;
@@ -48,6 +55,10 @@ namespace GloomhavenVR.Core
     internal static class ScenarioFigureDetailBudget
     {
         internal static ScenarioFigureMeshBank.Record? OriginalRecordFor(Renderer renderer) => null;
+        internal readonly struct MaskRead : IDisposable { public void Dispose() { } }
+        internal static MaskRead BeginLodMaskRead() => default;
+        internal static readonly System.Collections.Generic.HashSet<Renderer> OwnedMasks = new();
+        internal static bool OwnsLodMask(Renderer renderer) => OwnedMasks.Contains(renderer) && renderer.forceRenderingOff;
     }
     internal static class ScenarioFigureMeshBank
     {
@@ -70,7 +81,11 @@ namespace GloomhavenVR.Board.FigureGrab
         internal static ActorBehaviour? Held;
         internal static bool Owns(ActorBehaviour actor) => Held == actor;
     }
-    internal static class ActorPropBody { internal static bool IsHeld(ActorBehaviour actor) => false; }
+    internal static class ActorPropBody
+    {
+        internal static ActorBehaviour? Held;
+        internal static bool IsHeld(ActorBehaviour actor) => Held==actor;
+    }
     internal static class FigureOverlay
     {
         internal static Mesh? SourceMesh(Renderer renderer) => renderer is SkinnedMeshRenderer skin

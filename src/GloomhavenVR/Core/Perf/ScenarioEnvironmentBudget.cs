@@ -76,6 +76,8 @@ internal static class ScenarioEnvironmentBudget
         _recovery = host.AddComponent<LeaseRecovery>();
         try
         {
+            ScenarioCameraCullBoundary.Install();
+            ScenarioCameraCullBoundary.Subscribe(AfterNativePreCull);
             VRSession.Harmony?.PatchAll(typeof(ProceduralBase_Placed_EnvironmentBudgetPatch));
             VRSession.Harmony?.PatchAll(typeof(ProceduralMapTile_Show_EnvironmentBudgetPatch));
             VRSession.Harmony?.PatchAll(typeof(MaterialLoaderData_Load_EnvironmentBudgetPatch));
@@ -89,6 +91,7 @@ internal static class ScenarioEnvironmentBudget
     internal static void Shutdown()
     {
         if (_driver == null) return;
+        ScenarioCameraCullBoundary.Unsubscribe(AfterNativePreCull);
         _driver.RestoreAll();
         UnityEngine.Object.Destroy(_driver);
         _driver = null;
@@ -105,6 +108,11 @@ internal static class ScenarioEnvironmentBudget
         catch (Exception error) { StopAfterFailure(error); }
     }
     internal static void BeforeLoadingComplete() { if (!_failed) _driver?.FinishLoading(); }
+    private static void AfterNativePreCull(Camera camera)
+    {
+        try { if (!_failed) _driver?.FinishCameraPreCull(camera); }
+        catch (Exception error) { StopAfterFailure(error); }
+    }
     // This is the fail-open lifecycle mechanism, not a removable diagnostic.
     internal static void StopAfterFailure(Exception error)
     {
@@ -322,10 +330,29 @@ internal static class ScenarioEnvironmentBudget
         internal readonly List<Matrix4x4> Matrices = new();
         private bool _owned;
         internal int MaskedSourceCount => _owned ? Sources.Count : 0;
+        internal bool LightingRefused;
         private readonly List<Material> _materialScratch = new(1);
+
+        internal bool HasLateLightingWrite()
+        {
+            if (!_owned || Renderer == null) return false;
+            LightProbeUsage lightUsage = Renderer.lightProbeUsage;
+            ReflectionProbeUsage reflectionUsage = Renderer.reflectionProbeUsage;
+            // Only masked originals are at risk. This is a cheap native lighting
+            // flag comparison after all camera callbacks, not another material,
+            // transform, geometry or reflection-volume validation sweep.
+            foreach (Surface source in Sources)
+            {
+                MeshRenderer r = source.Renderer;
+                if (r == null || HasNativeLightmap(r) || r.lightProbeUsage != lightUsage || r.reflectionProbeUsage != reflectionUsage
+                    || (lightUsage != LightProbeUsage.Off && r.lightProbeProxyVolumeOverride != null)) return true;
+            }
+            return false;
+        }
 
         internal void Validate()
         {
+            LightingRefused = false;
             bool valid = Object != null && Material != null;
             Matrix4x4 inverse = Object != null ? Object.transform.worldToLocalMatrix : Matrix4x4.identity;
             for (int i = 0; valid && i < Sources.Count; i++)
@@ -337,11 +364,16 @@ internal static class ScenarioEnvironmentBudget
                 valid = r != null && !TerrainOwns(r) && r.enabled && r.gameObject.activeInHierarchy && !r.HasPropertyBlock()
                     && NativeGeometryCompatible(r) && r.forceRenderingOff == _owned && source.Filter != null
                     && source.Filter.sharedMesh == source.Mesh && _materialScratch.Count == 1
-                    && _materialScratch[0] == Material && ChunkLightingCompatible(r)
+                    && _materialScratch[0] == Material
                     && Renderer != null && SameRenderFlags(r, Renderer)
                     && Object != null && r.gameObject.layer == Object.layer
                     && inverse * r.transform.localToWorldMatrix == Matrices[i];
+                if (valid && HasNativeLightmap(r!)) { valid = false; LightingRefused = true; }
+                if (valid && !ChunkLightingCompatible(r!)) { valid = false; LightingRefused = true; }
             }
+            // Aggregate bounds can intersect a local reflection volume which none
+            // of the separate source bounds intersects. Never adopt its sample.
+            if (valid && !ChunkLightingCompatible(Renderer!)) { valid = false; LightingRefused = true; }
             if (valid == _owned) return;
             // Restore original visuals in the same render frame on any visibility/effect or
             // transform change. Never keep a combined room visible after a native hide.
@@ -516,11 +548,40 @@ internal static class ScenarioEnvironmentBudget
     private static bool NativeGeometryCompatible(MeshRenderer r) =>
         !r.isPartOfStaticBatch && r.additionalVertexStreams == null;
 
-    // A combined renderer samples native object probes at its aggregate bounds.
-    // That is not the originals' lighting. The simplified shader also reads ShadeSH9;
-    // shader selection alone cannot prove that those per-object samples are unused.
-    private static bool ChunkLightingCompatible(MeshRenderer r) =>
-        r.lightProbeUsage == LightProbeUsage.Off && r.reflectionProbeUsage == ReflectionProbeUsage.Off;
+    private static bool HasNativeLightmap(MeshRenderer r)
+    {
+        int index = r.lightmapIndex;
+        return index >= 0 && index < 65534;
+    }
+
+    private static readonly List<ReflectionProbeBlendInfo> ReflectionScratch = new(4);
+    private static bool ChunkLightingCompatible(MeshRenderer r)
+    {
+        // Build627 authored BlendProbes on almost all Crypt originals, even when
+        // no live baked probes exist. Flag presence is not per-object lighting.
+        // Admit only the native common ambient/sky fallback, never an inferred
+        // scene absence or copied aggregate sample. Check original AND proxy at
+        // every camera; no source flags, probe data or anchors are overwritten.
+        if (r.lightProbeUsage != LightProbeUsage.Off)
+        {
+            if (r.lightProbeUsage != LightProbeUsage.BlendProbes || r.lightProbeProxyVolumeOverride != null) return false;
+            LightProbes probes = LightmapSettings.lightProbes;
+            if (probes != null && probes.count != 0) return false;
+        }
+        if (r.reflectionProbeUsage == ReflectionProbeUsage.Off) return true;
+        if (r.reflectionProbeUsage != ReflectionProbeUsage.BlendProbes
+            && r.reflectionProbeUsage != ReflectionProbeUsage.BlendProbesAndSkybox
+            && r.reflectionProbeUsage != ReflectionProbeUsage.Simple) return false;
+        // Native registration events cover enable/add/remove, not every position,
+        // influence-volume or texture write. With any active local probe, keep
+        // authored probe consumers native even when its current bounds miss them.
+        // Otherwise a later callback could move that volume inside already-culled
+        // source bounds. Common global sky reflection remains admissible.
+        if (_driver == null || _driver.HasLocalReflectionProbes) return false;
+        ReflectionScratch.Clear();
+        r.GetClosestReflectionProbes(ReflectionScratch);
+        return ReflectionScratch.Count == 0;
+    }
 
     private static bool SupportedInstanceFlags(MeshRenderer r) =>
         NativeGeometryCompatible(r) &&
@@ -588,9 +649,16 @@ internal static class ScenarioEnvironmentBudget
         private readonly List<InstanceBatch> _instances = new();
         private readonly Dictionary<int, InstanceBatch> _instanceBySource = new();
         private readonly List<Camera> _renderCameras = new();
+        private readonly List<LightProbes?> _cameraProbeSources = new();
+        private readonly List<int> _cameraProbeCounts = new();
+        private readonly List<DepthTextureMode> _cameraDepthModes = new();
+        private readonly List<RenderingPath> _cameraPaths = new();
+        private readonly List<bool> _cameraHadForeignCommands = new();
+        private readonly HashSet<ReflectionProbe> _reflectionProbes = new();
+        internal bool HasLocalReflectionProbes => _reflectionProbes.Count > 0;
         private bool _instancesOn, _meshBankOn;
         private readonly List<int> _dead = new();
-        private bool _batchOn, _structuralOn, _simpleOn, _active, _buildPending;
+        private bool _batchOn, _structuralOn, _simpleOn, _active, _buildPending, _reportPending;
         internal Material CanonicalMaterial(Material material) => material != null && _originalByVariant.TryGetValue(material, out Material original) ? original : material!;
         internal bool OwnsSubstitute(Renderer r) => r != null && (_batchBySource.ContainsKey(r.GetInstanceID()) || _instanceBySource.ContainsKey(r.GetInstanceID()));
         internal bool HasForeignCommands(Camera camera)
@@ -607,7 +675,10 @@ internal static class ScenarioEnvironmentBudget
             }
             return false;
         }
-        private int _effects = 100, _unreadable, _probeRefusals, _renderDepth;
+        private int _effects = 100, _unreadable, _probeRefusals, _renderDepth, _reports;
+        private int _chunkCandidates, _instanceCandidates, _instanceFlagRefusals, _instanceMaterialRefusals;
+        private int _meshVisits, _nativeScopeRefusals, _nativeMaterialRefusals, _nativeWallChannelRefusals;
+        private int _terrainRefusals, _mpbRefusals, _lightmapRefusals, _lodRefusals, _shadowRefusals, _geometryRefusals, _lightProbeFlagRefusals, _reflectionFlagRefusals;
         private Shader? _shader;
 
         internal bool IsPreparingPresentation => _pending.Count > 0 || _parts.Count > 0;
@@ -618,12 +689,16 @@ internal static class ScenarioEnvironmentBudget
             SceneManager.sceneUnloaded += OnSceneUnloaded;
             Camera.onPreCull += HandlePreCull;
             Camera.onPostRender += HandlePostRender;
+            ReflectionProbe.reflectionProbeChanged += HandleReflectionProbeChange;
+            LightProbes.needsRetetrahedralization += HandleLightProbeChange;
+            LightProbes.tetrahedralizationCompleted += HandleLightProbeChange;
+            RefreshReflectionProbes();
         }
         private void OnDisable() => RecoverRenderLeases();
         internal void RecoverRenderLeases()
         {
             if (_renderDepth == 0) return;
-            _renderDepth = 0; _renderCameras.Clear();
+            _renderDepth = 0; _renderCameras.Clear(); _cameraProbeSources.Clear(); _cameraProbeCounts.Clear(); _cameraDepthModes.Clear(); _cameraPaths.Clear(); _cameraHadForeignCommands.Clear();
             foreach (InstanceBatch batch in _instances) batch.ClearCameras();
             foreach (Batch batch in _batches) batch.Unmask();
             foreach (Ambient ambient in _ambient.Values) ambient.Unmask();
@@ -634,10 +709,38 @@ internal static class ScenarioEnvironmentBudget
             SceneManager.sceneUnloaded -= OnSceneUnloaded;
             Camera.onPreCull -= HandlePreCull;
             Camera.onPostRender -= HandlePostRender;
+            ReflectionProbe.reflectionProbeChanged -= HandleReflectionProbeChange;
+            LightProbes.needsRetetrahedralization -= HandleLightProbeChange;
+            LightProbes.tetrahedralizationCompleted -= HandleLightProbeChange;
             RestoreAll();
         }
-        private void OnSceneLoaded(Scene scene, LoadSceneMode mode) { if (VRSession.IsRunning) Seed(); }
-        private void OnSceneUnloaded(Scene scene) { RestoreAll(); }
+        private void OnSceneLoaded(Scene scene, LoadSceneMode mode) { RefreshReflectionProbes(); if (VRSession.IsRunning) Seed(); }
+        private void OnSceneUnloaded(Scene scene) { RestoreAll(); _reports = 0; }
+        private void RefreshReflectionProbes()
+        {
+            _reflectionProbes.Clear();
+            foreach (ReflectionProbe probe in UnityEngine.Object.FindObjectsOfType<ReflectionProbe>())
+                if (probe != null && probe.isActiveAndEnabled) _reflectionProbes.Add(probe);
+        }
+        private void HandleReflectionProbeChange(ReflectionProbe probe, ReflectionProbe.ReflectionProbeEvent change)
+        {
+            try
+            {
+                if (change == ReflectionProbe.ReflectionProbeEvent.ReflectionProbeAdded) _reflectionProbes.Add(probe);
+                else _reflectionProbes.Remove(probe);
+                // Runs inside the native enable/add call, before subsequent camera
+                // culling. Pre-render recovery alone is too late: the originals may
+                // already have been excluded from the native draw list.
+                if (_renderDepth > 0) PerfMonitor.Count("Environment.LightingFallback");
+                RecoverRenderLeases();
+            }
+            catch (Exception error) { StopAfterFailure(error); }
+        }
+        private void HandleLightProbeChange()
+        {
+            try { RecoverRenderLeases(); }
+            catch (Exception error) { StopAfterFailure(error); }
+        }
         private void Seed()
         {
             SceneRegistry.MapTiles.Collect(_tiles);
@@ -684,6 +787,8 @@ internal static class ScenarioEnvironmentBudget
                 Walk(loading ? 4096 : NodesPerFrame);
                 if (_buildPending && _pending.Count == 0) PrepareBatches();
                 DrainBatches(loading ? int.MaxValue : 2);
+                if (_reportPending && !_buildPending && !IsPreparingPresentation)
+                { _reportPending = false; Report(); }
             }
             catch (Exception error) { StopAfterFailure(error); }
         }
@@ -721,6 +826,7 @@ internal static class ScenarioEnvironmentBudget
                 Walk(int.MaxValue);
                 PrepareBatches();
                 DrainBatches(int.MaxValue);
+                _reportPending = false;
                 Report();
             }
             catch (Exception error) { StopAfterFailure(error); }
@@ -783,6 +889,17 @@ internal static class ScenarioEnvironmentBudget
                 }
                 bool compatible = materials.Length > 0;
                 foreach (Material material in materials) compatible &= CompatibleMaterial(material, floor || structural);
+                if (VRLog.Wants(VRLogLevel.Debug))
+                {
+                    ++_meshVisits;
+                    if (!floor && !structural) ++_nativeScopeRefusals;
+                    else if (!compatible)
+                    {
+                        ++_nativeMaterialRefusals;
+                        foreach (Material material in materials)
+                            if (material != null && NativeWallFadeEnabled(material)) { ++_nativeWallChannelRefusals; break; }
+                    }
+                }
                 if (compatible)
                 {
                     var surface = new Surface { Renderer = renderer, Id = renderer.GetInstanceID(), Filter = filter, Tile = tile,
@@ -853,7 +970,10 @@ internal static class ScenarioEnvironmentBudget
         private void PrepareBatches()
         {
             _buildPending = false;
+            _reportPending = true;
             _parts.Clear(); _unreadable = 0; _probeRefusals = 0;
+            _chunkCandidates = 0; _instanceCandidates = 0; _instanceFlagRefusals = 0; _instanceMaterialRefusals = 0;
+            _terrainRefusals = 0; _mpbRefusals = 0; _lightmapRefusals = 0; _lodRefusals = 0; _shadowRefusals = 0; _geometryRefusals = 0; _lightProbeFlagRefusals = 0; _reflectionFlagRefusals = 0;
             _dead.Clear();
             foreach (var pair in _surfaces) if (pair.Value.Renderer == null) _dead.Add(pair.Key);
             foreach (int id in _dead) { InvalidateBatch(id); _surfaces.Remove(id); }
@@ -867,6 +987,7 @@ internal static class ScenarioEnvironmentBudget
             foreach (Surface surface in _surfaces.Values)
             {
                 MeshRenderer renderer = surface.Renderer;
+                RecordPreparationRefusals(renderer, false);
                 if (renderer == null || TerrainOwns(renderer) || _instanceBySource.ContainsKey(renderer.GetInstanceID()) || _batchBySource.ContainsKey(renderer.GetInstanceID())
                     || !(surface.Floor ? _batchOn : surface.Structural && _structuralOn && surface.IsApplied()) || surface.Tile == null || surface.Mesh == null
                     || renderer.transform.localToWorldMatrix.determinant <= 0f
@@ -877,6 +998,7 @@ internal static class ScenarioEnvironmentBudget
                     || (renderer.lightmapIndex >= 0 && renderer.lightmapIndex < 65534)) continue;
                 Material material = renderer.sharedMaterial;
                 if (material == null) continue;
+                ++_chunkCandidates;
                 if (!ChunkLightingCompatible(renderer)) { _probeRefusals++; continue; }
                 // Refused lighting never needs private geometry, source-bundle hashing
                 // or mesh decoding. Admit the complete render contract first.
@@ -910,17 +1032,20 @@ internal static class ScenarioEnvironmentBudget
             foreach (Surface surface in _surfaces.Values)
             {
                 MeshRenderer r = surface.Renderer;
+                RecordPreparationRefusals(r, true);
                 if (r == null || TerrainOwns(r) || _batchBySource.ContainsKey(surface.Id) || _instanceBySource.ContainsKey(surface.Id)
                     || surface.Mesh == null || surface.Filter == null || surface.Filter.sharedMesh != surface.Mesh
                     || !r.enabled || !r.gameObject.activeInHierarchy || r.forceRenderingOff || r.HasPropertyBlock()
-                    || surface.Tile == null || !SupportedInstanceFlags(r)) continue;
+                    || surface.Tile == null) continue;
+                ++_instanceCandidates;
+                if (!SupportedInstanceFlags(r)) { ++_instanceFlagRefusals; continue; }
                 Material[] materials = r.sharedMaterials;
                 if (materials.Length != surface.Mesh.subMeshCount || materials.Length == 0) continue;
                 bool supported = true;
                 foreach (Material material in materials)
                     supported &= material != null && CompatibleMaterial(material, surface.Floor || surface.Structural)
                         && SupportsInstanceMaterial(material);
-                if (!supported) continue;
+                if (!supported) { ++_instanceMaterialRefusals; continue; }
                 var key = (new BatchKey(surface, materials[0]), surface.Mesh.GetInstanceID());
                 if (!groups.TryGetValue(key, out List<Surface> group)) groups.Add(key, group = new List<Surface>());
                 group.Add(surface);
@@ -950,6 +1075,27 @@ internal static class ScenarioEnvironmentBudget
 
         private void QueuePortion(List<Surface> members)
         { if (members.Count > 1) _parts.Enqueue(new List<Surface>(members)); }
+
+        private void RecordPreparationRefusals(MeshRenderer renderer, bool instances)
+        {
+            if (!VRLog.Wants(VRLogLevel.Debug) || renderer == null) return;
+            // The paths can inspect the same source and several flags can veto
+            // one source. These bounded preparation observations intentionally
+            // overlap; they are never distinct scene counts or FPS measurements.
+            if (TerrainOwns(renderer)) ++_terrainRefusals;
+            if (renderer.HasPropertyBlock()) ++_mpbRefusals;
+            if (renderer.lightmapIndex >= 0 && renderer.lightmapIndex < 65534) ++_lightmapRefusals;
+            if (renderer.GetComponentInParent<LODGroup>(true) != null) ++_lodRefusals;
+            if (!NativeGeometryCompatible(renderer)) ++_geometryRefusals;
+            if (instances && (renderer.shadowCastingMode != ShadowCastingMode.Off || renderer.receiveShadows)) ++_shadowRefusals;
+            if (renderer.lightProbeUsage != LightProbeUsage.Off)
+            {
+                LightProbes probes = LightmapSettings.lightProbes;
+                if (instances || renderer.lightProbeUsage != LightProbeUsage.BlendProbes
+                    || renderer.lightProbeProxyVolumeOverride != null || (probes != null && probes.count > 0)) ++_lightProbeFlagRefusals;
+            }
+            if (renderer.reflectionProbeUsage != ReflectionProbeUsage.Off && (instances || HasLocalReflectionProbes)) ++_reflectionFlagRefusals;
+        }
 
         private void DrainBatches(int budget)
         {
@@ -1121,10 +1267,14 @@ internal static class ScenarioEnvironmentBudget
             {
                 RetireChangedNativeMaterials();
                 _renderDepth++; _renderCameras.Add(camera);
+                LightProbes probes = LightmapSettings.lightProbes;
+                _cameraProbeSources.Add(probes); _cameraProbeCounts.Add(probes != null ? probes.count : 0);
+                _cameraDepthModes.Add(camera.depthTextureMode); _cameraPaths.Add(camera.renderingPath);
                 // DrawRenderer command buffers target exact native Renderer identities.
                 // Keep these sources available with native flags for command-buffer
                 // consumers; such cameras use originals, never a substitute mask.
                 bool foreignCommands = camera != null && HasNativeCommandBufferConsumers(camera);
+                _cameraHadForeignCommands.Add(foreignCommands);
                 PerfMonitor.Count("Environment.NativeBufferFallback", foreignCommands && (_batches.Count > 0 || _instances.Count > 0) ? 1 : 0);
                 if (camera != null && camera.commandBufferCount > 0 && foreignCommands)
                     foreach (Batch batch in _batches) { batch.Unmask(); }
@@ -1140,6 +1290,9 @@ internal static class ScenarioEnvironmentBudget
             if (_renderCameras.Count == 0 || _renderCameras[_renderCameras.Count - 1] != camera) { RecoverRenderLeases(); return; }
             ReportCameraDrawCounts();
             _renderCameras.RemoveAt(_renderCameras.Count - 1);
+            _cameraProbeSources.RemoveAt(_cameraProbeSources.Count - 1); _cameraProbeCounts.RemoveAt(_cameraProbeCounts.Count - 1);
+            _cameraDepthModes.RemoveAt(_cameraDepthModes.Count - 1); _cameraPaths.RemoveAt(_cameraPaths.Count - 1);
+            _cameraHadForeignCommands.RemoveAt(_cameraHadForeignCommands.Count - 1);
             --_renderDepth;
             foreach (InstanceBatch batch in _instances) batch.EndCamera(camera);
             if (_renderDepth > 0)
@@ -1150,6 +1303,26 @@ internal static class ScenarioEnvironmentBudget
             }
             foreach (Batch batch in _batches) batch.Unmask();
             foreach (Ambient ambient in _ambient.Values) ambient.Unmask();
+        }
+        internal void FinishCameraPreCull(Camera camera)
+        {
+            if (_renderDepth <= 0 || _renderCameras.Count == 0 || _renderCameras[_renderCameras.Count - 1] != camera) return;
+            using var scope = PerfMonitor.Scope("EnvironmentBudget.FinalPreCull");
+            // A raw LightmapSettings assignment does not notify Unity2021's probe
+            // events synchronously. Compare the real global source and count only
+            // after every pre-cull listener, but still before native culling. A
+            // stable camera costs no second per-renderer or per-material sweep.
+            LightProbes probes = LightmapSettings.lightProbes;
+            int last = _cameraProbeSources.Count - 1;
+            bool foreign = camera.commandBufferCount > 0 && HasNativeCommandBufferConsumers(camera);
+            bool changedPath = _cameraDepthModes[last] != camera.depthTextureMode || _cameraPaths[last] != camera.renderingPath;
+            bool changedLighting = _cameraProbeSources[last] != probes || _cameraProbeCounts[last] != (probes != null ? probes.count : 0);
+            foreach (Batch batch in _batches) if (batch.HasLateLightingWrite()) { changedLighting = true; break; }
+            if (!foreign && !changedPath && !changedLighting) return;
+            if (foreign && !_cameraHadForeignCommands[last]) PerfMonitor.Count("Environment.NativeBufferFallback");
+            if (changedPath) PerfMonitor.Count("Environment.CameraPathFallback");
+            if (changedLighting) PerfMonitor.Count("Environment.LightingFallback");
+            RecoverRenderLeases();
         }
         private void ReportCameraDrawCounts()
         {
@@ -1174,19 +1347,27 @@ internal static class ScenarioEnvironmentBudget
             PerfMonitor.Count("Environment.InstanceSources", instanceSources);
             PerfMonitor.Count("Environment.InstanceGroups", instanceGroups);
         }
-        private void ValidateBatches() { foreach (Batch batch in _batches) batch.Validate(); }
+        private void ValidateBatches()
+        {
+            foreach (Batch batch in _batches)
+            {
+                batch.Validate();
+                if (batch.LightingRefused) PerfMonitor.Count("Environment.LightingFallback");
+            }
+        }
         private void ReleaseBatches()
         {
             foreach (InstanceBatch batch in _instances) batch.Dispose();
-            _instances.Clear(); _instanceBySource.Clear(); _renderCameras.Clear();
+            _instances.Clear(); _instanceBySource.Clear(); _renderCameras.Clear(); _cameraProbeSources.Clear(); _cameraProbeCounts.Clear(); _cameraDepthModes.Clear(); _cameraPaths.Clear(); _cameraHadForeignCommands.Clear();
             foreach (Batch batch in _batches) batch.Dispose();
             _batches.Clear(); _batchBySource.Clear(); _parts.Clear(); _renderDepth = 0; _probeRefusals = 0;
         }
         private void Report()
         {
+            if (!VRLog.Wants(VRLogLevel.Debug) || _reports >= 32) return;
+            ++_reports;
             int batched = 0;
             foreach (Batch batch in _batches) batched += batch.Sources.Count;
-            if (!VRLog.Wants(VRLogLevel.Debug)) return;
             VRLog.Debug(Scope, "Scenario environment budget: " + _surfaces.Count + " compatible static surfaces; "
                 + batched + " source renderers / " + _batches.Count + " chunks; " + _unreadable
                 + " unreadable originals retained; " + _probeRefusals + " probe-enabled originals retained at chunk preparation; "
@@ -1194,6 +1375,20 @@ internal static class ScenarioEnvironmentBudget
                 + (_structuralOn ? "audited structural chunks on; " : "structural chunks off; ")
                 + _instances.Count + " explicit instance groups; " + (_meshBankOn ? "verified private mesh bank on; " : "private mesh bank off; ")
                 + _ambient.Count + " identified ambient solvers; effects " + _effects + "%. Actual FPS remains a hardware measurement.");
+            VRLog.Debug(Scope, "Scenario environment preparation: chunk candidates=" + _chunkCandidates
+                + ", instance candidates=" + _instanceCandidates + ", instance native-flag refusals=" + _instanceFlagRefusals
+                + ", instance material refusals=" + _instanceMaterialRefusals
+                + ". Prepared groups are membership; completed camera counters report surviving source masks.");
+            VRLog.Debug(Scope, "Scenario environment discovery: mesh visits=" + _meshVisits
+                + ", native scope refusals=" + _nativeScopeRefusals + ", native material refusals=" + _nativeMaterialRefusals
+                + ", live wall-channel refusals=" + _nativeWallChannelRefusals
+                + ". Discovery counts visits since the previous report, not distinct renderers.");
+            VRLog.Debug(Scope, "Scenario environment native refusal observations: terrain=" + _terrainRefusals
+                + ", MPB=" + _mpbRefusals + ", lightmap=" + _lightmapRefusals + ", LOD=" + _lodRefusals
+                + ", shadows(instances)=" + _shadowRefusals + ", source geometry=" + _geometryRefusals
+                + ", light probes=" + _lightProbeFlagRefusals + ", local reflections=" + _reflectionFlagRefusals
+                + ". Flags may overlap and sources may occur in both grouping paths.");
+            _meshVisits = 0; _nativeScopeRefusals = 0; _nativeMaterialRefusals = 0; _nativeWallChannelRefusals = 0;
         }
         private void RestoreClonedMaterials()
         {
@@ -1226,6 +1421,8 @@ internal static class ScenarioEnvironmentBudget
             foreach (Material material in _materials.Values) if (material != null) UnityEngine.Object.Destroy(material);
             _materials.Clear(); _originalByVariant.Clear(); _surfaces.Clear(); _ambient.Clear(); _pending.Clear(); _queued.Clear();
             _buildPending = false;
+            _reportPending = false;
+            _meshVisits = 0; _nativeScopeRefusals = 0; _nativeMaterialRefusals = 0; _nativeWallChannelRefusals = 0;
         }
     }
 }

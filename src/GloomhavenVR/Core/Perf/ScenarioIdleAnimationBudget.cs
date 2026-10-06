@@ -31,16 +31,21 @@ internal static class ScenarioIdleAnimationBudget
         _driver.HeadCamera = headCamera ?? (() => null);
         _driver.NativeCameraConsumers = nativeCameraConsumers ?? (camera => camera.commandBufferCount > 0);
         PerfMonitor.Register("Figure.IdleTransformCull"); PerfMonitor.Register("Figure.IdleTracked");
-        PerfMonitor.Register("Figure.IdleOriginalAlways"); PerfMonitor.Register("Figure.IdleAuthoredCull");
+        PerfMonitor.RegisterDebug("Figure.IdleOriginalAlways"); PerfMonitor.RegisterDebug("Figure.IdleAuthoredCull");
         PerfMonitor.Register("Figure.VisibleIdleBakes");
         PerfMonitor.Register("Figure.VisibleIdleSampling");
         PerfMonitor.Register("Figure.VisibleIdleSources");
         PerfMonitor.Register("Figure.VisibleIdleLodRefused");
         PerfMonitor.Register("Figure.VisibleIdlePhysicsRefused");
+        PerfMonitor.RegisterDebug("Figure.VisibleIdleClothApproximation");
         try
         {
-            VRSession.Harmony?.PatchAll(typeof(ScenarioIdleAnimationPlayPatch));
-            VRSession.Harmony?.PatchAll(typeof(ScenarioIdleAnimationLocomotionPatch));
+            Harmony harmony = VRSession.Harmony ?? throw new InvalidOperationException("Native idle hooks require the session Harmony owner.");
+            harmony.PatchAll(typeof(ScenarioIdleAnimationPlayPatch));
+            harmony.PatchAll(typeof(ScenarioIdleAnimationLocomotionPatch));
+            harmony.PatchAll(typeof(ScenarioIdleAnimationClonePatch));
+            ScenarioCameraCullBoundary.Install();
+            ScenarioCameraCullBoundary.Subscribe(AfterNativePreCull);
         }
         catch (Exception error)
         {
@@ -58,6 +63,11 @@ internal static class ScenarioIdleAnimationBudget
     internal static void BeforeNativeContentChange()
     {
         try { _driver?.ReleaseCameraMasks(); }
+        catch (Exception error) { FailOpen(error); }
+    }
+    internal static void AfterNativePreCull(Camera camera)
+    {
+        try { _driver?.ValidateCamera(camera); }
         catch (Exception error) { FailOpen(error); }
     }
     internal static void NativeAction(Animator? animator)
@@ -93,6 +103,7 @@ internal static class ScenarioIdleAnimationBudget
     internal static void Shutdown()
     {
         if (_driver == null) return;
+        ScenarioCameraCullBoundary.Unsubscribe(AfterNativePreCull);
         _driver.RestoreAll(); UnityEngine.Object.Destroy(_driver); _driver = null;
     }
 
@@ -117,9 +128,12 @@ internal static class ScenarioIdleAnimationBudget
             if (Applied && Animator.cullingMode != AnimatorCullingMode.CullUpdateTransforms)
             { Applied = false; Foreign = true; }
             VisibleLodRefused = visibleInterval > 0f && Visible?.HasActiveNativeLod == true;
-            VisiblePhysicsRefused = visibleInterval > 0f && Pose.HasIdleCloth;
+            VisiblePhysicsRefused = visibleInterval > 0f && (Pose.HasActiveIdleCloth
+                || (Pose.HasIdleCloth && !PerfConfig.VisibleIdleClothApproximation));
             bool visibleAllowed = visibleInterval > 0f && !VisibleLodRefused && !VisiblePhysicsRefused;
-            bool eligible = (enabled || visibleAllowed) && !Foreign && Original == AnimatorCullingMode.AlwaysAnimate
+            bool eligible = (enabled || visibleAllowed) && !Foreign
+                && (Original == AnimatorCullingMode.AlwaysAnimate
+                    || (visibleAllowed && Original == AnimatorCullingMode.CullUpdateTransforms))
                 && Actor.gameObject.activeInHierarchy && !Actor.IsMoving
                 && !HeldFigures.Owns(Actor) && !NetHeldFigures.Owns(Actor) && !ActorPropBody.IsHeld(Actor)
                 && Time.frameCount >= ResumeAfterFrame && Pose.IsEventFreeNativeIdle();
@@ -241,10 +255,42 @@ internal static class ScenarioIdleAnimationBudget
                 int masked = 0;
                 foreach (Record record in _records.Values) masked += record.Visible?.MaskedSurfaceCount ?? 0;
                 PerfMonitor.Count("Figure.VisibleIdleSources", masked);
+                if (PerfMonitor.StepsActive && VRLog.WantsDebug)
+                {
+                    int clothApproximations = 0;
+                    foreach (Record record in _records.Values)
+                        if (record.Visible?.HasMaskedClothApproximation == true) clothApproximations++;
+                    PerfMonitor.Count("Figure.VisibleIdleClothApproximation", clothApproximations);
+                }
                 if (_cameraPolicies.Count > 0) _cameraPolicies.Pop();
                 bool restoreOuter = _cameraPolicies.Count > 0 && _cameraPolicies.Peek();
                 foreach (Record record in _records.Values)
                     record.Visible?.BeforeCamera(restoreOuter && record.Applied && record.VisibleInterval > 0f);
+            }
+            catch (Exception error) { FailOpen(error); }
+        }
+        internal void ValidateCamera(Camera camera)
+        {
+            try
+            {
+                // A later onPreCull listener may change camera consumers, the setting
+                // or local/remote ownership after our early admission callback.
+                bool admitted = isActiveAndEnabled && VRSession.IsRunning && NativeActionsReady
+                    && camera == HeadCamera() && camera != null && !NativeCameraConsumers(camera);
+                float interval = Mathf.Clamp(VisibleInterval(), 0f, .5f);
+                foreach (Record record in _records.Values)
+                {
+                    bool owned = record.Visible?.IsMasked == true;
+                    if (interval <= 0f && record.Applied && record.VisibleInterval > 0f)
+                    { record.Resume(); continue; }
+                    if (!owned) continue;
+                    if (!admitted || record.Actor == null || record.Actor.IsMoving
+                        || HeldFigures.Owns(record.Actor) || NetHeldFigures.Owns(record.Actor)
+                        || ActorPropBody.IsHeld(record.Actor))
+                    { record.Resume(); continue; }
+                    record.Visible?.ValidateCameraLease();
+                    if (record.Visible?.IsMasked != true) record.Resume();
+                }
             }
             catch (Exception error) { FailOpen(error); }
         }
@@ -291,7 +337,9 @@ internal static class ScenarioIdleAnimationBudget
                 foreach (KeyValuePair<ActorBehaviour, Record> item in _records)
                 {
                     if (!item.Value.Tick(enabled, visibleInterval, false)) _dead.Add(item.Key);
-                    if (item.Value.Applied) applied++;
+                    // Existing native CullUpdateTransforms is not a new offscreen gain.
+                    // Its visible substitution is reported separately after real cameras.
+                    if (item.Value.Applied && item.Value.Original == AnimatorCullingMode.AlwaysAnimate) applied++;
                     if (item.Value.VisibleLodRefused)
                     {
                         lodRefused++;
@@ -334,6 +382,15 @@ internal static class ScenarioIdleAnimationPlayPatch
 {
     [HarmonyPrefix]
     private static void Prefix(Animator animator) => ScenarioIdleAnimationBudget.NativeAction(animator);
+}
+
+// Render-only held/observer copies also read original LOD renderer tables. Do not let
+// a clone inherit a camera's temporary proxy references or forceRenderingOff masks.
+[HarmonyPatch(typeof(FigureVisualMirror), nameof(FigureVisualMirror.CloneVisual))]
+internal static class ScenarioIdleAnimationClonePatch
+{
+    [HarmonyPrefix]
+    private static void Prefix() => ScenarioIdleAnimationBudget.BeforeNativeContentChange();
 }
 
 [HarmonyPatch]

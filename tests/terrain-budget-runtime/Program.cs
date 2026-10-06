@@ -7,7 +7,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using Object = UnityEngine.Object;
 
-public static class TerrainProgram
+public static partial class TerrainProgram
 {
     private static int _checks;
     private static readonly Dictionary<Mesh,Mesh[]> Bank = new();
@@ -117,6 +117,25 @@ public static class TerrainProgram
         Check(clone.transform.childCount==0,"native clone inherits no private proxy"); Object.DestroyImmediate(clone);
         Check(wall.GetComponent<MeshRenderer>().isPartOfStaticBatch==false,"native source never acquires internal static batch state");
 
+        MeshRenderer liveProxy=Proxies(host).Find(r=>r.transform.position==wall.transform.position)!;
+        liveProxy.transform.hasChanged=false; TerrainWriteObserver.PoseWrites=0; Render(camera);
+        Check(!liveProxy.transform.hasChanged&&TerrainWriteObserver.PoseWrites==0,"settled terrain camera retains private proxy transform without repeated native writes");
+        wall.transform.position+=Vector3.right*.1f;
+        Check(DuringRender(camera,()=>liveProxy.transform.position==wall.transform.position),"native structural movement remains immediate after private pose reuse");
+        wall.transform.position-=Vector3.right*.1f; Render(camera);
+        wall.shadowCastingMode=ShadowCastingMode.TwoSided; wall.receiveShadows=false;
+        wall.lightProbeUsage=LightProbeUsage.CustomProvided; wall.reflectionProbeUsage=ReflectionProbeUsage.Simple;
+        wall.sortingOrder=7; wall.allowOcclusionWhenDynamic=false; wall.motionVectorGenerationMode=MotionVectorGenerationMode.ForceNoMotion;
+        var anchor=new GameObject("Native probe anchor"); wall.probeAnchor=anchor.transform;
+        Check(DuringRender(camera,()=>liveProxy.shadowCastingMode==wall.shadowCastingMode&&liveProxy.receiveShadows==wall.receiveShadows
+            &&liveProxy.lightProbeUsage==wall.lightProbeUsage&&liveProxy.reflectionProbeUsage==wall.reflectionProbeUsage
+            &&liveProxy.probeAnchor==anchor.transform&&liveProxy.sortingOrder==7&&!liveProxy.allowOcclusionWhenDynamic
+            &&liveProxy.motionVectorGenerationMode==wall.motionVectorGenerationMode),"every native renderer-state edit remains live after exact private write reuse");
+        wall.shadowCastingMode=ShadowCastingMode.On; wall.receiveShadows=true;
+        wall.lightProbeUsage=LightProbeUsage.BlendProbes; wall.reflectionProbeUsage=ReflectionProbeUsage.BlendProbes;
+        wall.sortingOrder=0; wall.allowOcclusionWhenDynamic=true; wall.motionVectorGenerationMode=MotionVectorGenerationMode.Object;
+        wall.probeAnchor=null; Object.DestroyImmediate(anchor);
+
         // Static Camera callbacks still run when their MonoBehaviour host is inactive.
         // Compare actual camera pixels with the native route, not post-render flags alone.
         PerfConfig.CheapWallShadingOn=false; Color[] nativeView=Pixels(camera);
@@ -182,6 +201,8 @@ public static class TerrainProgram
         };
         Camera.onPreCull+=inspect; Render(camera); Camera.onPreCull-=inspect;
         Check(leased&&restored,"native pre-cull write synchronously revokes an already prepared proxy");
+        Check(PerfMonitor.Counts["Terrain.OriginalTriangles"]==0&&PerfMonitor.Counts["Terrain.CheapSurfaces"]==0,
+            "revoked native-write camera leases are absent from terrain completion counters");
         material.EnableKeyword("_WALLFADE_ON_ON"); material.SetFloat("_WallFade_On",1f); Pixels(camera);
         Check(Proxies(host).Find(r=>r.transform.position==wall.transform.position)!.sharedMaterial.GetFloat("_GHVRTerrainNativeRoute")==3,"native keyword edits remain live between actual camera invocations");
         material.DisableKeyword("_WALLFADE_ON_ON"); material.SetFloat("_WallFade_On",0);
@@ -251,6 +272,7 @@ public static class TerrainProgram
         ShaderPixels(camera);
         NoisePixels(camera);
         Check(VRLog.Faults.FindAll(text=>text.Contains("presentation failed")).Count==1,"optional failure reports once with useful normal-level context");
+        scenario.SetActive(false); NativeCoverage(camera);
         Object.DestroyImmediate(host); Object.DestroyImmediate(scenario); Object.DestroyImmediate(camera.targetTexture); Object.DestroyImmediate(cameraGo); Object.DestroyImmediate(material); DisposeBank();
         return _checks;
     }

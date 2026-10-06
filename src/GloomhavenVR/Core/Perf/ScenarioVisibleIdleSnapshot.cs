@@ -16,17 +16,55 @@ namespace GloomhavenVR.Core;
 /// </summary>
 internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
 {
+    private sealed class LodLease
+    {
+        internal LODGroup Group = null!;
+        internal LOD[] Original = null!, Replacement = null!;
+        internal bool Enabled, Masked;
+        internal float Size;
+        internal Vector3 Reference;
+        internal bool Matches()
+            => Group != null && Group.enabled == Enabled && Group.fadeMode == LODFadeMode.None
+                && Group.size == Size && Group.localReferencePoint == Reference
+                && SameTable(Group.GetLODs(), Masked ? Replacement : Original);
+        internal void Release()
+        {
+            // Preserve a late native/foreign table. The same group keeps its hidden
+            // ForceLOD state: never ForceLOD, disable, clone or recalculate its bounds.
+            if (Masked && Group != null && SameTable(Group.GetLODs(), Replacement)) Group.SetLODs(Original);
+            Masked = false;
+        }
+    }
+
+    private static bool SameTable(LOD[] left, LOD[] right)
+    {
+        if (left.Length != right.Length) return false;
+        for (int i = 0; i < left.Length; i++)
+        {
+            if (left[i].screenRelativeTransitionHeight != right[i].screenRelativeTransitionHeight
+                || left[i].fadeTransitionWidth != right[i].fadeTransitionWidth
+                || left[i].renderers.Length != right[i].renderers.Length) return false;
+            for (int j = 0; j < left[i].renderers.Length; j++)
+                if (left[i].renderers[j] != right[i].renderers[j]) return false;
+        }
+        return true;
+    }
     private sealed class Surface
     {
         internal SkinnedMeshRenderer Source = null!;
         internal Mesh Original = null!, Baked = null!;
         internal MeshRenderer Proxy = null!;
         internal Material[] Materials = Array.Empty<Material>();
+        internal Cloth? Cloth;
+        internal SkinQuality SkinQuality;
+        internal SkinWeights SkinWeights;
         internal bool Masked;
         internal bool Matches(List<Material> current)
         {
             if (Source == null || Proxy == null || Source.sharedMesh != Original
                 || !Source.enabled || !Source.gameObject.activeInHierarchy || Source.HasPropertyBlock()
+                || Source.GetComponent<Cloth>() != Cloth || (Cloth != null && Cloth.enabled)
+                || Source.quality != SkinQuality || QualitySettings.skinWeights != SkinWeights
                 || Source.lightmapIndex >= 0
                 || Source.shadowCastingMode != Proxy.shadowCastingMode || Source.receiveShadows != Proxy.receiveShadows
                 || Source.lightProbeUsage != Proxy.lightProbeUsage || Source.reflectionProbeUsage != Proxy.reflectionProbeUsage
@@ -38,7 +76,7 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
             current.Clear(); Source.GetSharedMaterials(current);
             if (current.Count != Materials.Length) return false;
             for (int i = 0; i < current.Count; i++) if (current[i] != Materials[i]) return false;
-            return Masked || !Source.forceRenderingOff;
+            return Masked ? Source.forceRenderingOff : !Source.forceRenderingOff;
         }
         internal void Release()
         {
@@ -53,6 +91,7 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
     private readonly LODGroup[] _nativeLods;
     private readonly List<SkinnedMeshRenderer> _sources = new(8);
     private readonly List<Surface> _surfaces = new(8);
+    private readonly List<LodLease> _lodLeases = new(4);
     private readonly List<Material> _materialScratch = new(8);
     private float _nextSample, _interval;
     private int _sampleFrame = -1;
@@ -61,13 +100,19 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
     internal int Samples { get; private set; }
     internal bool IsMasked { get; private set; }
     internal int MaskedSurfaceCount => IsMasked ? _surfaces.Count : 0;
+    internal bool HasMaskedClothApproximation => IsMasked && _pose.HasIdleCloth
+        && PerfConfig.VisibleIdleClothApproximation;
     internal bool AwaitingNativePose => _sampleFrame >= 0;
     internal bool HasActiveNativeLod
     {
         get
         {
             foreach (LODGroup group in _nativeLods)
-                if (group != null && group.enabled && group.gameObject.activeInHierarchy) return true;
+                // Crossfade uses per-renderer native fade state. It has no exact private
+                // proxy proof yet and stays native. Ordinary native LOD/ForceLOD selection
+                // stays on the SAME group through a reversible camera table lease.
+                if (group != null && group.enabled && group.gameObject.activeInHierarchy
+                    && group.fadeMode != LODFadeMode.None) return true;
             return false;
         }
     }
@@ -75,15 +120,14 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
     internal ScenarioVisibleIdleSnapshot(ActorBarPose pose, Transform host)
     {
         _pose = pose; _host = host;
-        // A proxy outside the original LODGroup would draw all enabled LOD skins together.
-        // ForceLOD has hidden native state, so copying the group cannot prove equivalent
-        // selection. Cache identities during preparation and retain native LOD ownership.
+        // Keep original groups, including hidden ForceLOD selection. The renderer table
+        // is leased only while this camera renders and restored before cloning/actions.
         _nativeLods = pose.NativeRoot.GetComponentsInChildren<LODGroup>(true);
     }
 
     internal void Tick(bool eligible, float interval, bool requestSample = true)
     {
-        _active = eligible && interval > 0f && !_disposed && !HasActiveNativeLod && !_pose.HasIdleCloth;
+        _active = eligible && interval > 0f && !_disposed && !HasActiveNativeLod && !_pose.HasActiveIdleCloth;
         _interval = interval;
         if (!_active) { Release(); _sampleFrame = -1; return; }
         if (requestSample) RequestSample(interval);
@@ -106,7 +150,7 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
         using var scope = PerfMonitor.Scope("Figure.VisibleIdleBake");
         try
         {
-            if (HasActiveNativeLod || _pose.HasIdleCloth
+            if (HasActiveNativeLod || _pose.HasActiveIdleCloth
                 || !_pose.CopyIdleSkinSources(_sources) || _sources.Count == 0) { Reset(); return; }
             bool same = _sources.Count == _surfaces.Count;
             for (int i = 0; same && i < _sources.Count; i++)
@@ -150,7 +194,27 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
             proxy.allowOcclusionWhenDynamic = source.allowOcclusionWhenDynamic;
             proxy.sortingLayerID = source.sortingLayerID; proxy.sortingOrder = source.sortingOrder;
             _surfaces.Add(new Surface { Source = source, Original = mesh, Baked = baked,
-                Proxy = proxy, Materials = proxy.sharedMaterials });
+                Proxy = proxy, Materials = proxy.sharedMaterials, Cloth = source.GetComponent<Cloth>(),
+                SkinQuality = source.quality, SkinWeights = QualitySettings.skinWeights });
+        }
+        foreach (LODGroup group in _nativeLods)
+        {
+            if (group == null) continue;
+            LOD[] original = group.GetLODs();
+            var replacement = new LOD[original.Length];
+            bool changed = false;
+            for (int level = 0; level < original.Length; level++)
+            {
+                Renderer[] renderers = (Renderer[])original[level].renderers.Clone();
+                for (int index = 0; index < renderers.Length; index++)
+                    foreach (Surface surface in _surfaces)
+                        if (renderers[index] == surface.Source)
+                        { renderers[index] = surface.Proxy; changed = true; break; }
+                replacement[level] = new LOD(original[level].screenRelativeTransitionHeight, renderers)
+                    { fadeTransitionWidth = original[level].fadeTransitionWidth };
+            }
+            if (changed) _lodLeases.Add(new LodLease { Group = group, Original = original, Replacement = replacement,
+                Enabled = group.enabled, Size = group.size, Reference = group.localReferencePoint });
         }
     }
 
@@ -158,8 +222,9 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
     {
         Release();
         if (!admitted || !_active || _sampleFrame >= 0 || !HasPose || !_pose.IsEventFreeNativeIdle()) return;
-        if (HasActiveNativeLod || _pose.HasIdleCloth) { Reset(); return; }
+        if (HasActiveNativeLod || _pose.HasActiveIdleCloth) { Reset(); return; }
         foreach (Surface surface in _surfaces) if (!surface.Matches(_materialScratch)) { Reset(); return; }
+        foreach (LodLease lod in _lodLeases) if (!lod.Matches()) { Reset(); return; }
         foreach (Surface surface in _surfaces)
         {
             Transform source = surface.Source.transform, proxy = surface.Proxy.transform;
@@ -176,11 +241,24 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
         {
             surface.Source.forceRenderingOff = true; surface.Masked = true; surface.Proxy.enabled = true;
         }
+        foreach (LodLease lod in _lodLeases)
+            if (lod.Enabled && lod.Group.gameObject.activeInHierarchy)
+            { lod.Group.SetLODs(lod.Replacement); lod.Masked = true; }
         IsMasked = true;
+    }
+
+    internal void ValidateCameraLease()
+    {
+        if (!IsMasked) return;
+        if (!_pose.IsEventFreeNativeIdle() || HasActiveNativeLod || _pose.HasActiveIdleCloth)
+        { Reset(); return; }
+        foreach (Surface surface in _surfaces) if (!surface.Matches(_materialScratch)) { Reset(); return; }
+        foreach (LodLease lod in _lodLeases) if (!lod.Matches()) { Reset(); return; }
     }
 
     internal void Release()
     {
+        foreach (LodLease lod in _lodLeases) lod.Release();
         foreach (Surface surface in _surfaces) surface.Release();
         IsMasked = false;
     }
@@ -193,6 +271,7 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
             if (surface.Baked != null) UnityEngine.Object.Destroy(surface.Baked);
         }
         _surfaces.Clear();
+        _lodLeases.Clear();
     }
     internal void Reset() { ResetSurfaces(); _sampleFrame = -1; _active = false; }
     public void Dispose() { Reset(); _sources.Clear(); _materialScratch.Clear(); _disposed = true; }

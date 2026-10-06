@@ -5,7 +5,8 @@ compromises, individually adjustable in the same PC/Steam Frame binary. A 2.5D
 board is explicitly excluded. Resolution remains the maintainer's own next-test
 comparison and is not changed by this lane.
 
-This lane starts at `01503d4c` / Build625. The shared configuration contract was
+The initial lane started at `01503d4c` / Build625; the steady-state extension
+starts at `a517e0090` / Build627 (October 6, 2026). The shared configuration contract was
 prepared separately (`c101027f`, cherry-picked locally as `4585c163`). Its config,
 defaults, localization, lifecycle and asset-builder wiring belong to the parent
 integrator; only this lane's subsequent owned files are delivered.
@@ -38,12 +39,19 @@ native floor and tactical object; there is no room deactivation, planar board,
 new scenery, MR backing, collider replacement or gameplay-state write.
 
 Admission requires a live `ProceduralWall` ancestor, `Generated Content`, native
-scenario ownership, immutable mesh-bank provenance and one of the fifteen audited
-crypt/cave wall-body or pillar identities listed in `StructuralIdentity`.
+scenario ownership, immutable mesh-bank provenance and one of the twenty-five audited
+crypt/cave/city wall-body or pillar identities listed in `StructuralIdentity`.
 `Floor` anywhere in a mesh name is vetoed, including `EN_CR_FloorHex_Edge_Even2`.
 Map-tile ownership alone, foundations/under-wall slabs, top caps, anonymous meshes
-and other bank members never authorize simplification. This intentionally keeps
-unclassified terrain native until its actual source identity is reviewed.
+and other bank members never authorize simplification. The October 6 extension adds exactly ten CR_INT wall/pillar definitions present
+in the three-room Gaming-PC capture, independently byte-verified against the
+original `pcg_city.asset.bundle` (SHA-256
+`518fc10dce054b1e4d342dbe9f521bac7959b2a5d32d77287b2aaa1a965ee4a0`).
+Original prefab references show the same meshes inside under-wall and doorway
+templates too, so live under-wall/foundation/slab/top-cap/doorway/entrance/exit
+ancestor boundaries retain native rendering regardless of matching mesh identity.
+Shelves, candles, tapestries, bases and arbitrary CR_INT names are excluded.
+This intentionally keeps unclassified terrain native until its source is reviewed.
 
 ## Why the missing-room batching defect cannot be recreated here
 
@@ -88,11 +96,16 @@ wall shading is disabled; the geometry control is independent. Floors do not
 participate in this transition.
 
 The bank generator's `tools/environment-mesh/manifest.json` detail receipts
-contain twelve prepared asset definitions among the fifteen admitted identities.
+originally covered twelve prepared asset definitions among fifteen admitted identities.
 Their aggregate original/50/0 triangle counts are 9,116/3,486/1,186 (38.2% and
 13.0% of original). For example, `EN_CR_Pillar_Thin` is 2,040/362/108;
 `EN_CR_Wall_Basic_Tall` is 116/116/60, so its unchanged 50 tier retains the
 native renderer. The three absent thin-wall identities retain their originals.
+The ten newly audited CR_INT definitions add 3,472/2,088/1,180 triangles at
+100/50/0, growing bank-covered definitions from twelve to twenty-two without
+regenerating any asset. They are present by name in the Build627 log, but that
+log does not provide a distinct live eligible-renderer count.
+
 These are prepared asset-definition totals, not scenario instance counts,
 vertex-memory savings or measured frame-time gains. Original vertex indexing
 and channel counts remain intact to support the continuous morph.
@@ -120,6 +133,25 @@ Frame619 review:
 
 Omitted surface-lighting work is an authorized visual compromise. This source
 review and fixture do not establish the final native game/HMD picture.
+
+## Settled-board work and coverage diagnostics
+
+Only source preparation changes during loading; the optimization target is the
+fully loaded board. Unsupported floor/mesh identities are refused before any
+bank decode. Native renderer flags, material routes and renderer-wide/per-slot
+MPBs remain live per camera. Shared material route reads are reused only inside
+that camera. Identical private transform, renderer-state, mesh and material-array
+writes are skipped; native matrix/host changes still immediately rebuild and
+validate the private pose. No native transform/material/filter is changed.
+
+The original triangle/cheap counter tokens now report only leases surviving
+to their paired PostRender callback after late native-write revocation. They
+do not count frustum/occlusion results or GPU executions. Bounded Debug
+`Scenario terrain coverage` summaries report current prepared membership and
+distinct discovery visits/refusals, including zero membership, after preparation
+and live option changes. Refusal counts describe discovery since reseeding,
+not an instantaneous renderer census. Ordinary useful fallback/build context
+and the existing `Scenario terrain budget` token remain available.
 
 ## Integration contract
 

@@ -925,6 +925,7 @@ internal static class ConfigCatalog
                                      || key == "SharedEnvironmentMaterialReads"
                                      || key == "SharedUiWindowReads"
                                      || key == "VisibleIdleAnimationIntervalSeconds"
+                                     || key == "VisibleIdleDisabledClothApproximation"
                                      || key == "ScenarioFigureClothSimulation"
                                      || key == "ReduceScenarioGenerationDetail"))
             return ConfigTopic.Visual;

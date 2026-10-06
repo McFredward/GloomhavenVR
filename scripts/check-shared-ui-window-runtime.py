@@ -63,6 +63,9 @@ def main():
         sources[filename] = code
     variants = [
         ('production', '', '', '', ''),
+        ('debug-registry-undercount', 'CanvasConversion.9e.HiddenWindowVeil.cs',
+         'IndependentRegistryScans++;', 'IndependentRegistryScans += 0;',
+         'debug Off registry counters equal actual native iteration work'),
         ('unsupported-version-fallback', 'CanvasConversion.9e.SharedWindowReads.cs',
          'if (added != empty && read(probe) != added) return read;',
          'if (added != empty && read(probe) != added) return null;', ''),
@@ -101,7 +104,7 @@ def main():
          'option-off between native callbacks immediately resumes independent window reads'),
         ('scope-not-disposed', 'LateTick.cs',
          'using var sharedWindowReads = BeginSharedVeilWindowReads();', 'var sharedWindowReads = BeginSharedVeilWindowReads();',
-         'shared pass releases all route and registry references'),
+         'debug Off registry counters equal actual native iteration work'),
     ]
     if args.case:
         known = {entry[0] for entry in variants}

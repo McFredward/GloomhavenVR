@@ -66,6 +66,7 @@ internal sealed class ActorBarPose
     private readonly Transform _root;
     private readonly Transform _head;
     private readonly Skin[] _skins;
+    private readonly Skin[] _idleSkins;
     private readonly Cloth[] _idleClothes;
     private readonly Animator? _animator;
     private readonly Dictionary<AnimationClip, Bounds> _loops = new();
@@ -91,6 +92,32 @@ internal sealed class ActorBarPose
     {
         _root = root; _head = head; _bones = bones; _skins = skins;
         _idleClothes = root.GetComponentsInChildren<Cloth>(true);
+        // The bar envelope deliberately omits physics surfaces. Visible idle presentation
+        // needs a separate COMPLETE body list, including cloth whose solver is disabled.
+        // Keep those vertices out of the envelope and retain the same positive skeleton,
+        // native ownership and FX exclusions used by Capture.
+        var idleSkins = new List<Skin>();
+        foreach (SkinnedMeshRenderer skin in root.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+        {
+            if (skin.isPartOfStaticBatch || skin.GetComponentInParent<Canvas>(true) != null
+                || skin.GetComponentInParent<FigureVisualMirror>(true) != null
+                || skin.GetComponentInParent<ParticleSystem>(true) != null) continue;
+            bool mod = false;
+            for (Transform? node = skin.transform; node != null && node != root; node = node.parent)
+                if (node.name.StartsWith("GloomhavenVR.", StringComparison.Ordinal)
+                    || node.name.StartsWith("VR_", StringComparison.Ordinal)
+                    || node.name.StartsWith("P_", StringComparison.Ordinal)) { mod = true; break; }
+            if (mod) continue;
+            Transform[] palette = skin.bones;
+            bool ownsHead = skin.rootBone != null && head.IsChildOf(skin.rootBone);
+            if (!ownsHead) foreach (Transform bone in palette) if (bone == head) { ownsHead = true; break; }
+            if (!ownsHead || palette.Length == 0) continue;
+            ScenarioFigureMeshBank.Record? owner = ScenarioFigureDetailBudget.OriginalRecordFor(skin);
+            Mesh mesh = owner?.Original ?? skin.sharedMesh;
+            if (mesh != null && mesh.vertexCount == 0) continue; // native empty far-cull skin
+            idleSkins.Add(new Skin { Renderer = skin, Original = mesh!, Bones = palette, Owner = owner });
+        }
+        _idleSkins = idleSkins.ToArray();
         _animator = head.GetComponentInParent<Animator>(true);
         if (_animator != null && _animator.transform.IsChildOf(root)) PrepareLoops();
     }
@@ -103,27 +130,52 @@ internal sealed class ActorBarPose
     internal string AuditRefusal => _auditRefusal;
     internal Animator? NativeAnimator => _animator;
     internal GameObject NativeRoot => _root.gameObject;
-    // Cloth skins are intentionally absent from the sampled envelope. Never replace only
-    // the other body pieces while a native physics surface keeps its independent pose.
+    // Presence is diagnostic; only an active solver prevents the complete body snapshot.
     internal bool HasIdleCloth => _idleClothes.Length != 0;
+    internal bool HasActiveIdleCloth
+    {
+        get
+        {
+            foreach (Cloth cloth in _idleClothes)
+                if (cloth != null && cloth.enabled && cloth.gameObject.activeInHierarchy) return true;
+            return false;
+        }
+    }
 
     internal bool CopyIdleSkinSources(List<SkinnedMeshRenderer> result)
     {
         result.Clear();
         if (!IsEventFreeNativeIdle()) return false;
-        foreach (Skin skin in _skins)
+        // This read contains native getters only. Coalesce identical table verification
+        // inside this one invocation, then discard it before any callback/frame/camera.
+        using var maskRead = ScenarioFigureDetailBudget.BeginLodMaskRead();
+        foreach (Skin skin in _idleSkins)
         {
             if (!skin.SourceMatches()) { result.Clear(); return false; }
+            if (skin.Renderer != null && skin.Renderer.sharedMesh == null) { result.Clear(); return false; }
+            if (skin.Renderer != null && skin.Renderer.forceRenderingOff
+                && ScenarioFigureDetailBudget.OwnsLodMask(skin.Renderer)) continue;
             if (skin.Renderer != null && skin.Renderer.enabled && skin.Renderer.gameObject.activeInHierarchy)
                 result.Add(skin.Renderer);
+        }
+        foreach (Cloth cloth in _idleClothes)
+        {
+            if (cloth == null) continue;
+            SkinnedMeshRenderer renderer = cloth.GetComponent<SkinnedMeshRenderer>();
+            if (renderer != null && renderer.enabled && renderer.gameObject.activeInHierarchy
+                && renderer.sharedMesh != null && renderer.sharedMesh.vertexCount > 0 && !result.Contains(renderer)
+                && !ScenarioFigureDetailBudget.OwnsLodMask(renderer))
+            { result.Clear(); return false; } // unknown garment ownership must never yield a partial body
         }
         return true;
     }
 
     internal bool IsEventFreeNativeIdle()
     {
-        foreach (Cloth cloth in _idleClothes)
-            if (cloth != null && cloth.enabled && cloth.gameObject.activeInHierarchy) return false;
+        if (HasActiveIdleCloth) return false;
+        // Disabled Cloth can still display frozen solver deformation which BakeMesh
+        // does not retain. Only the separate, explicit approximation may replace it.
+        if (HasIdleCloth && !PerfConfig.VisibleIdleClothApproximation) return false;
         if (!SparseEligible || _animator == null || !_animator.isActiveAndEnabled
             || _animator.runtimeAnimatorController != _preparedController || _animator.layerCount != 1
             || _animator.IsInTransition(0) || _animator.GetNextAnimatorStateInfo(0).fullPathHash != 0)

@@ -82,6 +82,8 @@ def main():
     parser.add_argument('--case', action='append', help='Partial development run; repeat to select named variants')
     args = parser.parse_args()
     source_path = args.source_root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentBudget.cs'
+    boundary_path = args.source_root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentBudget.CameraBoundary.cs'
+    boundary = boundary_path.read_text()
     shader_path = args.source_root/'unity/GloomhavenVR.Assets/Assets/Bundle/Environments/ScenarioSimpleEnvironment.shader'
     repair_path = args.source_root/'src/GloomhavenVR/Core/MaterialLoaderHeal.cs'
     floor_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallFloorTile.cs'
@@ -101,7 +103,7 @@ def main():
     delivery = delivery.replace('\n} }\n',native_prop+'\n} }\n')
     assert '_nativeTransitionMaps' not in wall + dissolve, 'Retired square-mask bank must not return'
     assert 'Shader.PropertyToID("_EnableOcclusionMap")' in wall, 'Original native enable binding must remain explicit'
-    clock_variants, delivery_variants, trace_variants = {}, {}, {}
+    clock_variants, delivery_variants, trace_variants, boundary_variants = {}, {}, {}, {}
     wall_writes = []
     for path in (args.source_root/'src/GloomhavenVR/Core/WallFade').glob('WallSegmentFade*.cs'):
         text = path.read_text()
@@ -129,8 +131,20 @@ def main():
             ('instance-native-write-survives', 'instances.Dispose(); _instances.Remove(instances); _buildPending = true;', '/* injected: queued draw survives native write */ _buildPending = true;', 'late native pre-cull write revokes queued instance geometry before restoring originals', 1),
             ('supplementary-native-geometry-admitted', '!r.isPartOfStaticBatch && r.additionalVertexStreams == null', 'true', 'initial native supplementary geometry keeps exact original camera draws', 1),
             ('late-chunk-supplementary-geometry-ignored', '&& NativeGeometryCompatible(r) && r.forceRenderingOff', '&& r.forceRenderingOff', 'late native supplementary geometry revokes private submission before actual culling', 1),
-            ('original-object-probe-lighting-combined', 'r.lightProbeUsage == LightProbeUsage.Off && r.reflectionProbeUsage == ReflectionProbeUsage.Off', 'true', 'original per-object probe lighting never enters a combined chunk', 1),
-            ('simplified-probe-contract-bypassed', 'r.lightProbeUsage == LightProbeUsage.Off && r.reflectionProbeUsage == ReflectionProbeUsage.Off', '(r.sharedMaterial != null && r.sharedMaterial.shader.name == SimpleShader) || r.lightProbeUsage == LightProbeUsage.Off && r.reflectionProbeUsage == ReflectionProbeUsage.Off', 'simplified shader keeps its material compromise without combining per-object probe draws', 1),
+            ('original-object-probe-lighting-combined', 'if (probes != null && probes.count != 0) return false;', '/* injected: actual populated light probes ignored */', 'native populated baked light probes refuse absence-aware chunks', 1),
+            ('simplified-probe-contract-bypassed', 'if (probes != null && probes.count != 0) return false;', 'if (probes != null && probes.count != 0 && r.sharedMaterial.shader.name != SimpleShader) return false;', 'simplified shader keeps its material compromise without combining per-object probe draws', 1),
+            ('absent-probe-flags-refused', 'if (r.lightProbeUsage != LightProbeUsage.BlendProbes || r.lightProbeProxyVolumeOverride != null) return false;', 'if (bool.Parse("true")) return false;', 'authored probe defaults with actual absent light and reflection probes create exact chunks', 1),
+            ('native-reflection-registry-ignored', 'if (_driver == null || _driver.HasLocalReflectionProbes) return false;', '/* injected: moving live reflection volumes ignored */', 'active off-volume reflection consumers stay native before later movement or rebake', 1),
+            ('late-probe-native-event-not-recovered', 'if (_renderDepth > 0) PerfMonitor.Count("Environment.LightingFallback");\n                RecoverRenderLeases();', '/* injected: native reflection add retains old camera source masks */', 'late native reflection appearance revokes the chunk before render and retains actual original lighting pixels', 1),
+            ('late-baked-probe-final-boundary-missing', 'if (!_failed) _driver?.FinishCameraPreCull(camera);', '/* injected: raw native baked-probe installation survives all pre-cull callbacks */', 'late native baked-probe installation restores original source masks before culling', 1),
+            ('late-native-consumer-final-check-missing', 'bool foreign = camera.commandBufferCount > 0 && HasNativeCommandBufferConsumers(camera);', 'bool foreign = false;', 'late foreign native DrawRenderer consumer restores original identity before actual camera culling', 1),
+            ('late-native-lighting-flags-final-check-missing', 'foreach (Batch batch in _batches) if (batch.HasLateLightingWrite()) { changedLighting = true; break; }', '/* injected: late per-original lighting flags ignored */', 'late native custom or proxy lighting flags restore masked original sources before actual culling', 1),
+            ('native-chunk-lightmap-early-check-missing', 'if (valid && HasNativeLightmap(r!)) { valid = false; LightingRefused = true; }', '/* injected: changed native lightmap index ignored at initial validation */', 'changed native chunk lightmap index restores originals at the initial camera validation', 1),
+            ('native-chunk-lightmap-final-check-missing', 'r == null || HasNativeLightmap(r) || r.lightProbeUsage', 'r == null || r.lightProbeUsage', 'late native chunk lightmap index restores original sources before actual camera culling', 1),
+            ('live-preparation-summary-missing', 'if (_reportPending && !_buildPending && !IsPreparingPresentation)', 'if (_reportPending && bool.Parse("false"))', 'live post-load settings rebuild publishes its bounded actual candidate/refusal summary', 1),
+            ('preparation-report-unbounded', '_reports >= 32', 'bool.Parse("false")', 'preparation diagnostics are bounded for each scene despite repeated native placement', 1),
+            ('option-off-resets-scene-report-bound', '_reportPending = false;\n            _meshVisits', '_reportPending = false; _reports = 0;\n            _meshVisits', 'complete option off/on toggles cannot reset the current scene preparation diagnostic bound', 1),
+            ('live-native-refusal-sampling-missing', 'if (!VRLog.Wants(VRLogLevel.Debug) || renderer == null) return;', 'if (bool.Parse("true")) return;', 'live preparation exposes positive native refusal field terrain', 1),
             ('native-load-start-not-restored', 'ScenarioEnvironmentBudget.BeforeNativeRendererWrite(renderer);', '/* injected late native load-start hide */', 'native material-load start revokes queued geometry before its original hide', 1),
             ('native-load-start-not-installed', 'VRSession.Harmony?.PatchAll(typeof(MaterialLoaderData_Load_EnvironmentBudgetPatch));', '/* injected missing load-start hook */', 'production install registers native material-load start interruption', 1),
             ('native-load-start-other-lease-not-recovered', 'ScenarioEnvironmentBudget.BeforeNativeContentChange();\n        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(renderer);', '/* injected shared idle lease survives */\n        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(renderer);', 'native material-load start dispatches the shared idle lease recovery before hiding', 1),
@@ -217,6 +231,12 @@ def main():
             assert delivery.count(before) == occurrences, 'Native historical delivery mutation binding drift: '+name
             variants.append((name,source,expected))
             delivery_variants[name] = delivery.replace(before,after)
+    if not args.production_only:
+        before = 'if (ReferenceEquals(_installedOwner, owner)) return;'
+        assert boundary.count(before) == 1, 'Cold native camera install lifecycle binding drift'
+        name = 'same-domain-camera-owner-never-reinstalled'
+        variants.append((name,source,'new plugin owner installs the shared native camera boundary exactly once'))
+        boundary_variants[name] = boundary.replace(before,'if (_installedOwner != null) return;')
     bank_variants = {}
     if not args.production_only:
         bank_path = args.source_root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentMeshBank.cs'
@@ -229,6 +249,9 @@ def main():
         for name,before,after,expected in bank_changes:
             assert bank_source.count(before) == 1, 'Bank causal binding drift: '+name
             variants.append((name,source,expected)); bank_variants[name] = bank_source.replace(before,after)
+    if not args.production_only:
+        variants.append(('native-camera-callback-failure-swallowed',source,
+            'actual native camera callback assertions propagate after Render into the runner process status'))
     if args.case:
         unknown = set(args.case)-{name for name,_,_ in variants}
         if unknown: raise SystemExit('Unknown selected case: '+', '.join(sorted(unknown)))
@@ -244,8 +267,19 @@ def main():
     shutil.copytree(ROOT/'tests/environment-budget-runtime', fixture)
     fixture_hashes = {str(path.relative_to(fixture)): hashlib.sha256(path.read_bytes()).hexdigest()
                       for path in fixture.rglob('*') if path.is_file()}
+    swallowed_fixture = None
+    if any(name == 'native-camera-callback-failure-swallowed' for name,_,_ in variants):
+        guard = 'if (callbackFailure != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(callbackFailure).Throw();'
+        program = (fixture/'Program.cs').read_text()
+        assert program.count(guard) == 1, 'Native camera callback process-status binding drift'
+        # This fixture-only control tests the evidence bridge itself. The complete
+        # production source stays unchanged; Unity must not hide failed assertions.
+        swallowed_fixture = run/'fixture-callback-swallowed'
+        shutil.copytree(fixture,swallowed_fixture)
+        (swallowed_fixture/'Program.cs').write_text(program.replace(guard,
+            'if (callbackFailure != null && bool.Parse("false")) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(callbackFailure).Throw();'))
     manifest = {'result':str(run/'results.txt'),'cases':[]}
-    bound_sources = {source_path:source,shader_path:shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,trace_path:trace,occlusion_path:occlusion,dissolve_path:dissolve}
+    bound_sources = {source_path:source,boundary_path:boundary,shader_path:shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,trace_path:trace,occlusion_path:occlusion,dissolve_path:dissolve}
     for bank_file in ('ScenarioEnvironmentMeshBank.cs','ScenarioEnvironmentMeshStream.cs'):
         bank_path = args.source_root/'src/GloomhavenVR/Core/Perf'/bank_file
         bound_sources[bank_path] = bank_path.read_text()
@@ -270,6 +304,7 @@ def main():
             (production/bank_file).write_text(bank_text)
         (production/'Environment.cs').write_text(value.replace(read_entry,
             read_entry + '\n        global::EnvironmentProgram.RecordMaterialRead();'))
+        (production/'CameraBoundary.cs').write_text(boundary_variants.get(name,boundary))
         (production/'WallFloorTile.cs').write_text(floor)
         (production/'WallDelivery.cs').write_text(delivery_variants.get(name,delivery))
         (production/'WallClock.cs').write_text(clock_variants.get(name,clock))
@@ -277,7 +312,8 @@ def main():
         (production/'OcclusionFade.cs').write_text(occlusion)
         project = build/'Environment.csproj'; shutil.copyfile(fixture/'Environment.csproj',project)
         assembly = 'EnvironmentBudget_'+name.replace('-','_')
-        command = [dotnet,'build',str(project),'-c','Release','--nologo','--verbosity','quiet','-p:CaseName='+assembly,'-p:FixtureDir='+str(fixture),'-p:ProductionDir='+str(production),'-p:UnityManaged='+str(args.unity.parent/'Data/Managed')]
+        case_fixture = swallowed_fixture if name == 'native-camera-callback-failure-swallowed' else fixture
+        command = [dotnet,'build',str(project),'-c','Release','--nologo','--verbosity','quiet','-p:CaseName='+assembly,'-p:FixtureDir='+str(case_fixture),'-p:ProductionDir='+str(production),'-p:UnityManaged='+str(args.unity.parent/'Data/Managed')]
         result = subprocess.run(command,capture_output=True,text=True)
         (build/'build.log').write_text(result.stdout+result.stderr)
         if result.returncode: raise SystemExit(result.stdout+result.stderr+'\nA compilation failure cannot pass as a negative control')
@@ -287,6 +323,22 @@ def main():
     shutil.copyfile(fixture/'Editor/EnvironmentRunner.cs',unity_project/'Assets/Editor/EnvironmentRunner.cs')
     shutil.copyfile(fixture/'NativeMaterials.shader',unity_project/'Assets/NativeMaterials.shader')
     shutil.copyfile(fixture/'NativeHighBranch.shader',unity_project/'Assets/NativeHighBranch.shader')
+    # Exact versions match the production BepInEx.Core -> HarmonyX dependency
+    # graph. Private test copies never overwrite references or the editor install.
+    native_dependencies = (
+        'harmonyx/2.7.0/lib/net45/0Harmony.dll',
+        'monomod.runtimedetour/21.12.13.1/lib/net452/MonoMod.RuntimeDetour.dll',
+        'monomod.utils/21.12.13.1/lib/net452/MonoMod.Utils.dll',
+        'mono.cecil/0.11.4/lib/net40/Mono.Cecil.dll',
+    )
+    plugins = unity_project/'Assets/Plugins'; plugins.mkdir()
+    native_provenance = []
+    for relative in native_dependencies:
+        dependency = Path.home()/'.nuget/packages'/relative
+        if not dependency.is_file(): raise SystemExit('Pinned production HarmonyX dependency absent: '+str(dependency))
+        shutil.copyfile(dependency,plugins/dependency.name)
+        native_provenance.append({'path':str(dependency),'sha256':hashlib.sha256(dependency.read_bytes()).hexdigest()})
+    (run/'native-harmony-provenance.json').write_text(json.dumps(native_provenance,indent=2)+'\n')
     # Independent imported shader metadata routes. Unity Shader.name writes do not
     # change the compiled shader name, so a renamed Object is not route coverage.
     native_shader = (fixture/'NativeMaterials.shader').read_text()

@@ -4,12 +4,13 @@ Run `python3 scripts/check-terrain-budget-runtime.py`. The complete focused suit
 compiles the actual two `ScenarioTerrainBudget` production source files and
 imports the actual `ScenarioCheapTerrain.shader` into an isolated Unity 2021.3.5f1
 project. Its CPU-side boundaries are explicit substitutes for native scene types,
-configuration, held props/hands, logging, shader loading and the verified mesh
-bank. Actual Unity meshes, transforms, renderers, materials, MPBs, cloning,
+configuration, held props/hands, logging, shader loading and bank lookup.
+The original synthetic cases remain; ten additional cases read independently
+verified native structural streams through the actual production mesh decoder. Actual Unity meshes, transforms, renderers, materials, MPBs, cloning,
 command buffers and `Camera.Render` callbacks execute; there is no simulated
 renderer or pixel oracle substituted for the production fragment.
 
-The production case makes 105 assertions. Thirty-two independently compiled
+The production case makes 290 assertions. Thirty-seven independently compiled
 negative variants each corrupt a production statement and must fail at a named
 assertion. Shader compilation failures and unrelated exceptions never count as
 passing negative controls. `--production-only` and repeatable `--case NAME` are
@@ -36,15 +37,24 @@ material slots, lack private proxy children and never acquire internal static
 batch state; native colliders remain unchanged.
 
 Actual pre-cull observations distinguish a live source lease from post-render
-cleanup. A later native renderer write immediately disables an already-prepared
+cleanup. Production triangle/cheap counters now count only surviving paired
+post-render leases; a late native write is excluded from those counters. These
+remain camera admissions, without a frustum/occlusion or GPU draw claim. A later native renderer write immediately disables an already-prepared
 proxy. An actual `host.SetActive(false)` followed by `Camera.Render` retains every
 native pixel and acquires no source masks; reactivation resumes paired leases.
 The causal guard variant replaces `isActiveAndEnabled` with `enabled`, reproducing
 the missing wall pixels because static callbacks survive host deactivation while
 the host's private proxies cannot render. Per-slot MPB precedence, live native keyword edits and resolution of an
 existing environment material variant back to the genuine native original are
-checked. The private proxy also copies the native rendering-layer mask anew
-for each actual camera invocation, including live edits between cameras.
+checked. Every native renderer-state value is read fresh for each camera, including
+live layer/probe/shadow/sorting/motion edits. Identical private renderer, mesh,
+material-array and transform writes are skipped. An explicit invocation observer calls the unchanged actual Unity pose setter;
+this observer and a causal always-rewrite variant prove that a parked proxy does
+not repeatedly call it. Unity `hasChanged` alone was insufficient because
+identical setters leave that flag clear. This measurement boundary is stated
+in the compiled harness and is never added to shipped production.
+Material route reuse expires with that one camera; a cross-camera-stale variant
+must fail the native keyword edit. Per-renderer and per-slot MPBs remain fresh.
 Live renderer-wide vertex and per-slot emissive MPB gates immediately
 retain the native shader and geometry. Native command-buffer consumers veto substitutions; an explicitly
 known mod buffer is recognized by its nonzero native handle plus camera/event,
@@ -54,6 +64,32 @@ Temporary bank readiness retains pending discovery without replacing sources.
 Terminal failure clears discovery, preserves native continuation and reports
 one bounded ordinary-level fallback. A later ready bank reseeds the scene.
 A shader-resolver failure restores originals and reports once.
+
+## Independently verified captured structural definitions
+
+`verify-native-coverage.py` reads the original read-only `pcg_city.asset.bundle`,
+checks its committed SHA-256 and mesh metadata, and independently exports every
+original channel/index byte for ten CR_INT wall/pillar definitions occurring in
+the Build627 PC capture. The exact bank streams must match byte for byte; the
+coarse streams must match the committed full digests. Authored prefab references
+prove structural uses and also reveal identical meshes inside under-wall and
+doorway/entrance/exit templates. Those ancestor boundaries remain native, even
+under a live ProceduralWall; actual late reparent/name changes execute this veto.
+No blanket CR_INT/Wall/Pillar name admission is permitted.
+
+Every definition executes actual unreadable original geometry, multi-slot
+materials, independent cheap/geometry switches, continuous morphing, nonempty
+3D endpoint pixels, untouched native collider/mesh/slots, per-slot native-effect
+veto, late-write counter revocation and native cloning during a camera. Cloned
+originals retain their original camera silhouette. New causal variants remove
+captured coverage, source-template boundaries or completion-counter revocation
+and must fail their named assertions. Native material/art are explicit fixture
+boundaries; original geometry/provenance is independently native-source-bound.
+
+The new ten asset definitions total 3,472/2,088/1,180 triangles at 100/50/0.
+These are asset-definition counts, not scene-instance coverage or FPS. The
+allowlist grows from fifteen identities/twelve present bank definitions to
+twenty-five identities/twenty-two present definitions, without changing assets.
 
 ## Pixel evidence and independent native samples
 
@@ -74,14 +110,15 @@ the fixture tolerates small GPU float/FMA differences. Replacing simplex with
 zero must fail those assertions.
 
 Each run retains the compiled cases, shader copies, source/fixture hashes,
-results, editor log, actual exit code and endpoint PNGs beneath the worktree's
+results, editor log, actual exit code, native-coverage/provenance receipts and endpoint PNGs beneath the worktree's
 gitignored `.planning/debug/terrain-budget-runtime/`. The native game bundle and
 raw original shader bytecode/art are never checked in.
 
 ## Evidence limits
 
-The verified-bank boundary in this fixture is synthetic; the environment-bank
-suite separately proves the generated asset streams and provenance. This suite
+Lookup and native procedural ownership remain explicit boundaries. The initial
+synthetic cases are supplemented by ten independently verified original bank
+definitions; the environment-bank suite separately covers the complete package. This suite
 does not execute original procedural controllers, Windows shader bytecode,
 original game textures, network state or headset presentation. The software GL
 graphics device is appropriate for engine/pixel contracts and cannot establish
