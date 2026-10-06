@@ -143,6 +143,38 @@ internal sealed class TownServiceBinding : IDisposable
     }
 
     private bool _readInactiveGraphics;
+    /// <summary>Whether this partition actually submits original visible output.
+    /// Active empty mounts and culled/disabled original UI are dependencies, not ink.</summary>
+    internal bool HasVisibleOutput()
+    {
+        foreach (NodeCache cache in _cache)
+        {
+            Transform node = cache.Transform;
+            if (node == null || !node.gameObject.activeInHierarchy) continue;
+            Graphic? graphic = cache.Graphic;
+            bool ink = graphic != null && graphic.enabled && !graphic.canvasRenderer.cull
+                && graphic.color.a > 0f && graphic.canvasRenderer.GetColor().a > 0f;
+            if (ink && graphic is TMP_Text text && string.IsNullOrWhiteSpace(text.text)) ink = false;
+            if (ink && graphic is Text legacy && string.IsNullOrWhiteSpace(legacy.text)) ink = false;
+            bool mesh = cache.Mesh != null && cache.Mesh.enabled && !cache.Mesh.forceRenderingOff;
+            // CanvasGroup only affects canvas graphics, never a physical mesh.
+            // A hidden native UI ancestor cannot erase its separately visible prop.
+            if (mesh) return true;
+            if (!ink || graphic!.canvas == null || !graphic.canvas.isActiveAndEnabled) continue;
+            float alpha = 1f;
+            for (Transform? parent = node; parent != null; parent = parent.parent)
+            {
+                bool stop = false;
+                parent.GetComponents(_visibilityGroups);
+                foreach (CanvasGroup group in _visibilityGroups)
+                    if (group.enabled) { alpha *= group.alpha; if (group.ignoreParentGroups) stop = true; }
+                if (alpha <= 0f || stop) break;
+            }
+            if (alpha > 0f) return true;
+        }
+        return false;
+    }
+    private readonly List<CanvasGroup> _visibilityGroups = new(2);
     internal TownServiceNode[] Read(TownServiceAssets assets, bool includeInactiveGraphics = false)
     {
         // Inert frozen originals stay below an inactive bank. Their serialized

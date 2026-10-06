@@ -37,7 +37,7 @@ internal static partial class TownServiceMirror
         internal ushort[] Modules = Array.Empty<ushort>();
         internal float Started, ReportAt;
         internal int Reports;
-        internal bool Ready;
+        internal bool Ready, Displayed, DelayReported;
     }
     private static readonly Dictionary<int, MageAdmissionTrace> MageAdmissionTraces = new();
 
@@ -51,9 +51,9 @@ internal static partial class TownServiceMirror
         Dictionary<ushort, TownServiceFrame> pending, string? blocker, ushort module = 0,
         string address = "")
     {
-        // Debug-only first-picture evidence separates transport census waits from
-        // exact native asset validation. No hierarchy scan/formatting runs for users.
-        if (!VRLog.WantsDebug) return;
+        // Debug traces describe bounded first-picture progress. Ordinary users get
+        // only one significant delay report per exact transaction/census, with the
+        // missing dependency needed to investigate a hardware bug report.
         if (!session.TransactionActive) { TraceMageAdmissionReset(peer); return; }
         ushort[] required = session.RequiredVisibleModules ?? session.Modules;
         bool same = MageAdmissionTraces.TryGetValue(peer, out MageAdmissionTrace? trace)
@@ -70,23 +70,51 @@ internal static partial class TownServiceMirror
         float now = Time.unscaledTime;
         if (blocker == null)
         {
-            if (!trace!.Ready)
-                VRLog.Debug("TownServices", "Native enhancement picture admitted: peer=" + peer
+            if (!trace!.Ready && VRLog.WantsDebug)
+                VRLog.Info("TownServices", "Native enhancement picture admitted: peer=" + peer
                     + " session=" + session.Session + " required=" + required.Length + " prepared=" + session.Modules.Length
                     + " age=" + (now - trace.Started).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "s.");
             trace!.Ready = true; return;
         }
-        if (now < trace!.ReportAt || trace.Reports >= 8) return;
-        trace.ReportAt = now + 1f; trace.Reports++;
+        bool debug = VRLog.WantsDebug;
+        if (!debug && (trace!.DelayReported || now - trace.Started < 1f)) return;
+        if (debug && (now < trace!.ReportAt || trace.Reports >= 8)) return;
+        trace!.ReportAt = now + 1f; trace.Reports++;
+        if (!debug) trace.DelayReported = true;
         int received = 0;
         foreach (ushort id in required)
             if (pending.TryGetValue(id, out TownServiceFrame? frame)
                 && frame.Session == session.Session && frame.Service == 3) received++;
-        VRLog.Debug("TownServices", "Native enhancement picture waiting: peer=" + peer
+        string message = "Native enhancement picture waiting: peer=" + peer
             + " session=" + session.Session + " required=" + required.Length + " prepared=" + session.Modules.Length
             + " received=" + received + " blocker=" + blocker + " module=" + module
             + " address=" + address + " age="
-            + (now - trace.Started).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "s.");
+            + (now - trace.Started).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "s.";
+        if (debug) VRLog.Info("TownServices", message);
+        else VRLog.Note("TownServices", message);
+    }
+
+    private static void TraceMageDisplayed(int peer, TownServiceSessionInfo session,
+        Dictionary<ushort, RemoteModule> standing)
+    {
+        // Admission alone predates clone construction. Confirm the actual original
+        // roots after validation/apply/mount/activation, so the next paired hardware
+        // log can distinguish packet delivery from a missing Unity picture.
+        if (!VRLog.WantsDebug || !MageAdmissionTraces.TryGetValue(peer, out MageAdmissionTrace? trace)
+            || !trace.Ready || trace.Displayed || trace.Session != session.Session) return;
+        int ink = 0;
+        foreach (ushort id in trace.Modules)
+        {
+            if (!standing.TryGetValue(id, out RemoteModule? module) || !module.Alive
+                || module.LastFrame == null || module.LastFrame.Session != session.Session
+                || !module.Host.activeInHierarchy || !module.Binding.Root.gameObject.activeInHierarchy) return;
+            if (module.Binding.HasVisibleOutput()) ink++;
+        }
+        trace.Displayed = true;
+        VRLog.Info("TownServices", "Native enhancement picture displayed: peer=" + peer
+            + " session=" + session.Session + " required=" + trace.Modules.Length + " painted=" + ink
+            + " age=" + (Time.unscaledTime - trace.Started).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+            + "s; exact original clones validated, applied, mounted and active.");
     }
 
     private static readonly UTF8Encoding NativeTemplateUtf8 = new(false, true);

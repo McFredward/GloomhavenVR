@@ -9,6 +9,7 @@ internal static class TownServiceTransportVectors
 {
     internal static void Run(Harness t)
     {
+        ExactOriginalPool(t);
         RackClocks(t);
         PublicCatalogLanes(t);
         PrivateWorkspaceCloth(t);
@@ -368,11 +369,11 @@ internal static class TownServiceTransportVectors
     {
         t.Case("Grabbing a card promotes its in-flight bundle baseline");
         var queue=new TownServiceSendQueue(65536);var receiver=new TownServiceFragments();
-        for(ushort id=1;id<=20;id++){var baseline=Frame(id,1,16);byte[] raw=TownServiceCodec.Write(baseline);queue.Enqueue(raw,raw.Length,baseline);}
+        for(ushort id=1;id<=20;id++){var baseline=PromotionFrame(id,1);byte[] raw=TownServiceCodec.Write(baseline);queue.Enqueue(raw,raw.Length,baseline);}
         byte[] first=queue.Next(0)!;
         t.Equal((int)TownServiceFrame.BundleStream,TownServiceFragments.Stream(first,first.Length),"initial catalog uses the background bundle stream");
         t.True(receiver.Accept(2,first,first.Length,0)==null,"cold bundle is still in flight");
-        TownServiceFrame original=Frame(2,1,16), current=Frame(2,2,16);current.Pose[0]=.4f;
+        TownServiceFrame original=PromotionFrame(2,1), current=PromotionFrame(2,2);current.Pose[0]=.4f;
         TownServiceFrame moving=TownServiceDelta.Create(original,current);moving.HighPriority=true;
         byte[] bytes=TownServiceCodec.Write(moving);queue.Enqueue(bytes,bytes.Length,moving);
         bool baselineArrived=false,poseArrived=false,bundleArrived=false;
@@ -428,7 +429,7 @@ internal static class TownServiceTransportVectors
                 t.True(TownServiceCodec.TryRead(child,child.Length,out TownServiceFrame? frame),"every original background dependency still decodes");
                 if(frame==null)continue;
                 t.True(frame.Module>=1&&frame.Module<=20,"background bundle retains the original catalog membership");
-                byte[] expected=TownServiceCodec.Write(Frame(frame.Module,1,16));
+                byte[] expected=TownServiceCodec.Write(PromotionFrame(frame.Module,1));
                 t.Wire(expected,child,child.Length,"urgent promotion leaves each background original byte unchanged");
                 backgroundModules.Add(frame.Module);
             }
@@ -437,6 +438,21 @@ internal static class TownServiceTransportVectors
         }
         t.True(bundleArrived&&backgroundModules.Count==20,"cold catalog still completes without dropping promoted or neighboring originals");
         Console.WriteLine("TOWN_PROMOTION baseline="+baselineAt.ToString("F3")+" pose="+poseAt.ToString("F3")+" cold="+coldAt.ToString("F3"));
+    }
+    private static TownServiceFrame PromotionFrame(ushort id, ulong sequence)
+    {
+        var frame = Frame(id, sequence, 16); var random = new Random(id * 991);
+        // Exact cross-module pooling can now finish twenty identical originals in
+        // one page. This proof needs a genuine in-flight cold bundle; distinct
+        // owner text keeps that precondition without weakening any assertion.
+        foreach (var node in frame.Nodes)
+            if (node.Values.TryGetValue(TownServiceProperty.TmpText, out var text))
+            {
+                var characters = new char[128];
+                for (int i = 0; i < characters.Length; i++) characters[i] = (char)('a' + random.Next(26));
+                text.Text[0] = "Original owner " + id + "/" + node.Binding + ": " + new string(characters);
+            }
+        return frame;
     }
     private static void BundleBounds(Harness t)
     {
@@ -700,6 +716,78 @@ internal static class TownServiceTransportVectors
             }
         }
         t.Equal(revision.Sequence, arrived, "coalescing delivers the newest complete native revision");
+    }
+
+    private static void ExactOriginalPool(Harness t)
+    {
+        t.Case("Exact native original pools have independent bounded additive110 vectors");
+        var frame = Frame(1, 1, 1); var builder = new TownServiceCodec.OriginalValuePoolBuilder();
+        byte[] original = TownServiceCodec.Write(frame);
+        t.True(builder.TryAdd(original), "complete native module admitted");
+        byte[] packet = builder.Write();
+        // Independently specified grammar1: frame/value/scalar/string tables,
+        // exact node map, ordinary original header and native node indices.
+        byte[] expected = Hex.Bytes("31 52 56 47 03 13 6E AB 01 01 00 02 00 02 00 00 00 00 00 00 00 80 3F 00 00 0A 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 01 00 01 00 01 00 00 01 00 01 00 00 01 00 01 00 00 00 02 01 00 00 02 01 00 6A 00 31 52 56 47 03 13 4E 62 02 01 63 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 03 00 00 00 7B 00 00 00 00 FF FF 00 00 00 00 00 00 80 3F 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 80 3F 00 00 80 3F 00 00 80 3F 00 00 80 3F 00 00 00 00 00 01 01 00 00 00");
+        t.Wire(expected, packet, expected.Length, "record110 retains stable scalar/string/value/node/header ordering");
+        t.True(TownServiceCodec.TryReadBundle(expected, expected.Length, out var decoded), "independently specified original-pool vector decodes");
+        t.Wire(original, decoded![0], original.Length, "original identity and every float survive the independent pool vector");
+        for (int length = 0; length < expected.Length; length++)
+            t.True(!TownServiceCodec.TryReadBundle(expected, length, out _), "every truncated additive110 vector remains inert");
+        byte[][] fragments = ExtrasFragments.Encode(packet, packet.Length, 65536UL + TownServiceFrame.BundleStream,
+            TownServiceCodec.MessageType, TownServiceCodec.FragmentType, TownServiceFrame.MaxBytes, compress: true);
+        var receiver = new TownServiceFragments(); byte[]? complete = null;
+        for (int i = fragments.Length - 1; i >= 0; i--) complete = receiver.Accept(2, fragments[i], fragments[i].Length, .1) ?? complete;
+        t.True(complete != null && TownServiceCodec.TryReadBundle(complete, complete.Length, out decoded), "real compressed/reordered fragment transport preserves the exact original pool");
+
+        var first = new TownServiceCodec.OriginalValuePoolBuilder();
+        for (ushort id = 1; id <= 24; id++) t.True(first.TryAdd(TownServiceCodec.Write(PromotionFrame(id, 1))), "all distinct exact originals fit the loss-test bounded pool");
+        byte[] cold = first.Write();
+        byte[][] lost = ExtrasFragments.Encode(cold, cold.Length, 65536UL + TownServiceFrame.UrgentBundleStream,
+            TownServiceCodec.MessageType, TownServiceCodec.FragmentType, TownServiceFrame.MaxBytes, compress: true);
+        t.True(lost.Length > 2, "loss proof requires a genuine multi-datagram exact native picture");
+        receiver = new TownServiceFragments();
+        for (int i = 1; i < lost.Length; i++)
+            t.True(receiver.Accept(2, lost[i], lost[i].Length, .2) == null, "a missing first page exposes no partial native originals or census");
+        // A cumulative replacement/session change supersedes the incomplete old
+        // picture. No original depends on a dictionary from that missing packet.
+        var replacement = new TownServiceCodec.OriginalValuePoolBuilder(); var exact = new List<byte[]>();
+        for (ushort id = 1; id <= 24; id++)
+        {
+            var next = PromotionFrame(id, 2); next.Session = 100;
+            byte[] native = TownServiceCodec.Write(next); exact.Add(native);
+            t.True(replacement.TryAdd(native), "new owner session remains a self-contained exact picture");
+        }
+        byte[] newer = replacement.Write();
+        fragments = ExtrasFragments.Encode(newer, newer.Length, 196608UL + TownServiceFrame.UrgentBundleStream,
+            TownServiceCodec.MessageType, TownServiceCodec.FragmentType, TownServiceFrame.MaxBytes, compress: true);
+        complete = null;
+        for (int i = fragments.Length - 1; i >= 0; i--)
+        {
+            byte[]? arrived = receiver.Accept(2, fragments[i], fragments[i].Length, .3);
+            if (i > 0) t.True(arrived == null, "reordered replacement remains atomic until all exact metadata arrives");
+            complete = arrived ?? complete;
+        }
+        t.True(complete != null && TownServiceCodec.TryReadBundle(complete, complete.Length, out decoded), "a replacement picture recovers from packet loss without the old dictionary/session");
+        if (complete != null && decoded != null)
+            for (int i = 0; i < exact.Count; i++) t.Wire(exact[i], decoded[i], exact[i].Length, "replacement retains every original byte of the new owner session");
+        t.True(receiver.Accept(2, lost[0], lost[0].Length, .4) == null, "a late old-session page cannot overwrite the complete replacement picture");
+
+        var releaseQueue = new TownServiceSendQueue(0); receiver = new TownServiceFragments();
+        var census = Frame(TownServiceFrame.ManifestModule, 1, 0); census.Template = 0; census.Structure = 0;
+        census.Modules = new ushort[] { 1 }; census.TransactionActive = true;
+        byte[] held = TownServiceCodec.Write(census); releaseQueue.Enqueue(held, held.Length, census);
+        byte[] page = releaseQueue.Next(0)!;
+        t.True(receiver.Accept(2, page, page.Length, 0) != null, "the transaction census is initially delivered");
+        var released = TownServiceDelta.Retain(census); released.TransactionActive = false; released.Sequence = 2;
+        byte[] cancelled = TownServiceCodec.Write(released); releaseQueue.Enqueue(cancelled, cancelled.Length, released);
+        page = releaseQueue.Next(.051)!;
+        t.True(page != null, "withdrawal with unchanged prepared modules does not wait five seconds for the heartbeat");
+        if (page != null)
+        {
+            byte[]? release = receiver.Accept(2, page, page.Length, .051);
+            t.True(release != null && TownServiceCodec.TryRead(release, release.Length, out var open) && !open!.TransactionActive,
+                "a cancelled offered picture immediately releases only its exact NPC transaction");
+        }
     }
 
     private static byte[] Slice(byte[] bytes,int at,int count)

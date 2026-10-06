@@ -25,12 +25,12 @@ internal static partial class TownServiceCodec
         private readonly List<TownServiceFrame> _frames = new();
         private readonly List<byte[]> _headers = new();
         private readonly List<TownServiceValue> _values = new();
-        private readonly Dictionary<TownServiceValue, ushort> _indices = new(TownServiceValueComparer.Instance);
+        private readonly Dictionary<TownServiceValue, ushort> _indices = new(OriginalPoolValueComparer.Instance);
         private readonly HashSet<ushort> _modules = new();
         private readonly List<TownServiceNode> _nodeValues = new();
         private readonly Dictionary<TownServiceNode, ushort> _nodeIndices = new(OriginalPoolNodeComparer.Instance);
         private readonly List<float> _numbers = new();
-        private readonly Dictionary<float, ushort> _numberIndices = new();
+        private readonly Dictionary<float, ushort> _numberIndices = new(OriginalPoolFloatComparer.Instance);
         private readonly List<string> _strings = new();
         private readonly Dictionary<string, ushort> _stringIndices = new(StringComparer.Ordinal);
         private int _bytes = 11, _nodes, _references, _expanded;
@@ -39,14 +39,16 @@ internal static partial class TownServiceCodec
         internal bool TryAdd(byte[] packet)
         {
             if (_frames.Count >= MaxOriginalValuePoolFrames || !TryRead(packet, packet.Length, out TownServiceFrame? frame)
-                || frame!.Module >= TownServiceFrame.VoiceModule || frame.CatalogBank != null || frame.Rack != null
+                || frame!.Module >= TownServiceFrame.VoiceModule && frame.Module != TownServiceFrame.ManifestModule || frame.CatalogBank != null || frame.Rack != null
                 || _modules.Contains(frame.Module)) return false;
             if (_frames.Count != 0 && !SameOriginalPoolLane(_frames[0], frame)) return false;
             TownServiceFrame header = TownServiceDelta.Retain(frame);
-            header.Visible = false; header.Nodes = Array.Empty<TownServiceNode>();
-            byte[] headerBytes = AppendUnknownOriginalRecords(TownServiceCodec.Write(header), packet);
-            var added = new HashSet<TownServiceValue>(TownServiceValueComparer.Instance);
-            var addedNumbers = new HashSet<float>(); var addedStrings = new HashSet<string>(StringComparer.Ordinal);
+            header.Visible = frame.Module == TownServiceFrame.ManifestModule && frame.Visible; header.Nodes = Array.Empty<TownServiceNode>();
+            byte[] headerBytes;
+            try { headerBytes = AppendUnknownOriginalRecords(TownServiceCodec.Write(header), packet); }
+            catch (InvalidDataException) { return false; }
+            var added = new HashSet<TownServiceValue>(OriginalPoolValueComparer.Instance);
+            var addedNumbers = new HashSet<float>(OriginalPoolFloatComparer.Instance); var addedStrings = new HashSet<string>(StringComparer.Ordinal);
             int bytes = 5 + headerBytes.Length + 2 * frame.Nodes.Length, references = 0;
             var addedNodes = new HashSet<TownServiceNode>(OriginalPoolNodeComparer.Instance);
             foreach (TownServiceNode node in frame.Nodes)
@@ -93,6 +95,13 @@ internal static partial class TownServiceCodec
         internal byte[] Write()
         {
             if (_frames.Count == 0) throw new InvalidDataException("An original-value bundle must contain an original module.");
+            // Adjacent exact names/scalars compress as a family instead of following
+            // an arbitrary component traversal. Indices are rebuilt locally; owner
+            // property arrays, order and IEEE bits are never mutated or approximated.
+            _strings.Sort(StringComparer.Ordinal);
+            for (int i = 0; i < _strings.Count; i++) _stringIndices[_strings[i]] = (ushort)i;
+            _numbers.Sort();
+            for (int i = 0; i < _numbers.Count; i++) _numberIndices[_numbers[i]] = (ushort)i;
             using var body = new MemoryStream(_bytes);
             using (var writer = new BinaryWriter(body, Utf8, true))
             {
@@ -158,6 +167,32 @@ internal static partial class TownServiceCodec
         return output.ToArray();
     }
 
+    private sealed class OriginalPoolFloatComparer : IEqualityComparer<float>
+    {
+        internal static readonly OriginalPoolFloatComparer Instance = new();
+        public bool Equals(float a, float b) => a == b && (a != 0f || float.IsNegativeInfinity(1f / a) == float.IsNegativeInfinity(1f / b));
+        public int GetHashCode(float number) => number == 0f && float.IsNegativeInfinity(1f / number) ? int.MinValue : number.GetHashCode();
+    }
+    private sealed class OriginalPoolValueComparer : IEqualityComparer<TownServiceValue>
+    {
+        internal static readonly OriginalPoolValueComparer Instance = new();
+        public bool Equals(TownServiceValue? a, TownServiceValue? b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a == null || b == null || !TownServiceValueComparer.Instance.Equals(a, b)) return false;
+            for (int i = 0; i < a.Numbers.Length; i++)
+                if (!OriginalPoolFloatComparer.Instance.Equals(a.Numbers[i], b.Numbers[i])) return false;
+            return true;
+        }
+        public int GetHashCode(TownServiceValue value)
+        {
+            int hash = TownServiceValueComparer.Instance.GetHashCode(value);
+            for (int i = 0; i < value.Numbers.Length; i++)
+                if (value.Numbers[i] == 0f && float.IsNegativeInfinity(1f / value.Numbers[i])) hash = unchecked(hash * 397 ^ i ^ int.MinValue);
+            return hash;
+        }
+    }
+
     private sealed class OriginalPoolNodeComparer : IEqualityComparer<TownServiceNode>
     {
         internal static readonly OriginalPoolNodeComparer Instance = new();
@@ -167,7 +202,7 @@ internal static partial class TownServiceCodec
             if (a == null || b == null || a.Binding != b.Binding || a.Values.Count != b.Values.Count) return false;
             foreach (var pair in a.Values)
                 if (!b.Values.TryGetValue(pair.Key, out TownServiceValue? value)
-                    || !TownServiceValueComparer.Instance.Equals(pair.Value, value)) return false;
+                    || !OriginalPoolValueComparer.Instance.Equals(pair.Value, value)) return false;
             return true;
         }
         public int GetHashCode(TownServiceNode node)
@@ -177,7 +212,7 @@ internal static partial class TownServiceCodec
             // insertion order. Equality still compares every owner float/string.
             for (ushort key = 1; key <= TownServiceProperty.Last; key++)
                 if (node.Values.TryGetValue(key, out TownServiceValue? value))
-                    hash = unchecked(hash * 397 ^ key ^ TownServiceValueComparer.Instance.GetHashCode(value));
+                    hash = unchecked(hash * 397 ^ key ^ OriginalPoolValueComparer.Instance.GetHashCode(value));
             return hash;
         }
     }
@@ -259,8 +294,8 @@ internal static partial class TownServiceCodec
                 int count = reader.ReadUInt16();
                 if (count < 8 || count > body.Length - body.Position) return false;
                 byte[] header = reader.ReadBytes(count);
-                if (!TryRead(header, header.Length, out TownServiceFrame? frame) || frame!.Visible || frame.Nodes.Length != 0
-                    || frame.Module >= TownServiceFrame.VoiceModule || frame.CatalogBank != null || frame.Rack != null
+                if (!TryRead(header, header.Length, out TownServiceFrame? frame) || frame!.Visible && frame.Module != TownServiceFrame.ManifestModule || frame.Nodes.Length != 0
+                    || frame.Module >= TownServiceFrame.VoiceModule && frame.Module != TownServiceFrame.ManifestModule || frame.CatalogBank != null || frame.Rack != null
                     || !modules.Add(frame.Module) || first != null && !SameOriginalPoolLane(first, frame)) return false;
                 first ??= frame;
                 byte visible = reader.ReadByte(); if (visible > 1) return false; frame.Visible = visible != 0;

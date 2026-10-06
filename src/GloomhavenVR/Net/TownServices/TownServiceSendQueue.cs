@@ -181,7 +181,12 @@ internal sealed class TownServiceLaneSendQueue
     internal byte[]? Next(double now)
     {
         PrepareOneCatalogRepair();
-        byte[]? census = NextManifest(now);
+        // A cold offered picture owns its changed visible census atomically.
+        // Sending that tiny census as a separate urgent page consumed one of
+        // the same six borrowed turns and stranded the final original behind
+        // the next global town turn. Empty/withdrawal and in-flight census
+        // updates keep the immediate established manifest path.
+        byte[]? census = BundleColdManifest ? null : NextManifest(now);
         if (census != null) return census;
         // Two urgent turns, then one background turn. A held face cannot wait behind
         // thousands of catalog rows; the full catalog cannot starve behind a held card.
@@ -288,6 +293,12 @@ internal sealed class TownServiceLaneSendQueue
         }
         return null;
     }
+    private bool BundleColdManifest => _manifestFrame != null && _manifestBytes != null
+        && _manifestFrame.TransactionActive && !_manifestFrame.PublicCatalog && !_manifestFrame.VisitorStock
+        && _manifestFrame.Service is 1 or 3 && _coldPriority.Count > 0
+        && !_urgentBundle.HasPending && !_urgentBundle.HasInFlight
+        && (!_queues.TryGetValue(TownServiceFrame.ManifestModule, out var manifest) || !manifest.HasInFlight);
+
     private byte[]? TakeBundle(double now, bool urgent)
     {
         ExtrasSendQueue bundle = urgent ? _urgentBundle : _bundle;
@@ -297,6 +308,12 @@ internal sealed class TownServiceLaneSendQueue
             var bytes = new List<byte[]>(); frames.Clear();
             var originalValues = new TownServiceCodec.OriginalValuePoolBuilder();
             if (!urgent) { _bundleBytes.Clear(); _promotedBundle.Clear(); }
+            if (urgent && BundleColdManifest && originalValues.TryAdd(_manifestBytes!))
+            {
+                bytes.Add(_manifestBytes!); frames.Add(_manifestFrame!);
+                _sentManifest = _manifestFrame; _manifestBytes = null; _manifestFrame = null;
+                _nextManifest = now + (_sentManifest!.Visible ? 5 : .5);
+            }
             // Share exact native property values *before* the bounded snapshot is
             // assembled. Four12 KiB native enhancement rows used to fill this
             // batch, even when they all repeated the same original material/font
@@ -359,7 +376,7 @@ internal sealed class TownServiceLaneSendQueue
     }
     private static bool SameCensus(TownServiceFrame a, TownServiceFrame b)
     {
-        if (a.VisitorStock != b.VisitorStock || a.PublicCatalog != b.PublicCatalog || a.PublicClaim != b.PublicClaim || a.Session != b.Session || a.Service != b.Service || a.Visible != b.Visible || a.Modules.Length != b.Modules.Length) return false;
+        if (a.VisitorStock != b.VisitorStock || a.PublicCatalog != b.PublicCatalog || a.PublicClaim != b.PublicClaim || a.Session != b.Session || a.Service != b.Service || a.Visible != b.Visible || a.TransactionActive != b.TransactionActive || a.Modules.Length != b.Modules.Length) return false;
         for (int i = 0; i < a.Modules.Length; i++) if (a.Modules[i] != b.Modules[i]) return false;
         if ((a.RequiredVisibleModules == null) != (b.RequiredVisibleModules == null)) return false;
         if (a.RequiredVisibleModules != null)

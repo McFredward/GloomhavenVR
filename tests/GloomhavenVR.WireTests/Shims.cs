@@ -55,6 +55,7 @@ namespace GloomhavenVR.Core
     /// </summary>
     internal static class VRLog
     {
+        internal static bool WantsDebug => false;
         internal static void Warn(string scope, string message) { _ = scope; _ = message; }
         internal static void Info(string scope, string message) { _ = scope; _ = message; }
 

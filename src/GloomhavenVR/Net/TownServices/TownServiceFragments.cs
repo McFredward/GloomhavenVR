@@ -14,6 +14,45 @@ internal sealed class TownServiceFragments
     private readonly Dictionary<long, double> _lastActivity = new();
     private readonly List<long> _expired = new();
     private double _nextSweep;
+    private sealed class OriginalAssemblyTrace
+    {
+        internal ulong Sequence;
+        internal double Began;
+        internal int Reports;
+    }
+    private readonly Dictionary<long, OriginalAssemblyTrace> _originalTraces = new();
+    private void BeginOriginalTrace(long key, int stream, byte[] packet, double now)
+    {
+        if (!GloomhavenVR.Core.VRLog.WantsDebug
+            || stream != TownServiceFrame.BundleStream && stream != TownServiceFrame.UrgentBundleStream) return;
+        // Stream/Lane have already validated this page's complete metadata. Keep
+        // only the first eight assemblies per sender/lane/stream, never a motion log.
+        int expected = NetPacket.PeekType(packet, packet.Length) == NetProtocol.MsgPresentationCompression
+            ? NetProtocol.ExtIdPresentationCompression : NetProtocol.ExtIdExtrasFragment;
+        ulong sequence = 0;
+        for (int at = 6; at < packet.Length;)
+        {
+            int id = packet[at++], length = packet[at++];
+            if (id == expected) { for (int b = 0; b < 8; b++) sequence |= (ulong)packet[at + b] << (8 * b); break; }
+            at += length;
+        }
+        if (!_originalTraces.TryGetValue(key, out OriginalAssemblyTrace? trace))
+        {
+            if (_originalTraces.Count >= 96) return;
+            trace = new OriginalAssemblyTrace(); _originalTraces.Add(key, trace);
+        }
+        if (sequence <= trace.Sequence || trace.Reports >= 8) return;
+        trace.Sequence = sequence; trace.Began = now;
+    }
+    private void FinishOriginalTrace(long key, int sender, int stream, double now, int bytes, int members)
+    {
+        if (!GloomhavenVR.Core.VRLog.WantsDebug || !_originalTraces.TryGetValue(key, out OriginalAssemblyTrace? trace)
+            || trace.Reports >= 8) return;
+        trace.Reports++;
+        GloomhavenVR.Core.VRLog.Info("TownServices", "Native original bundle assembled: peer=" + sender
+            + " stream=" + stream + " sequence=" + trace.Sequence + " members=" + members + " bytes=" + bytes
+            + " assembly=" + (now - trace.Began).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "s.");
+    }
     internal byte[]? Accept(int sender, byte[] packet, int length, double now)
     {
         int stream = Stream(packet, length);
@@ -24,7 +63,7 @@ internal sealed class TownServiceFragments
             foreach (var pair in _lastActivity)
                 if (now - pair.Value > AssemblyLifetime) _expired.Add(pair.Key);
             foreach (long expired in _expired)
-            { _streams[expired].Clear(); _streams.Remove(expired); _lastActivity.Remove(expired); }
+            { _streams[expired].Clear(); _streams.Remove(expired); _lastActivity.Remove(expired); _originalTraces.Remove(expired); }
         }
         int lane = Lane(packet, length);
         if (lane < 0) return null;
@@ -36,6 +75,7 @@ internal sealed class TownServiceFragments
                 TownServiceFrame.MaxBytes, AssemblyLifetime);
             _streams.Add(key, assembler);
         }
+        BeginOriginalTrace(key, stream, packet, now);
         _lastActivity[key] = now;
         byte[]? result = assembler.Accept(sender, packet, length, now);
         if (result == null) return null;
@@ -50,6 +90,7 @@ internal sealed class TownServiceFragments
                 if (publicCatalog.HasValue && publicCatalog.Value != decoded.PublicCatalog) return null;
                 publicCatalog = decoded.PublicCatalog;
             }
+            FinishOriginalTrace(key, sender, stream, now, result.Length, bundle!.Length);
             return result;
         }
         if (!TownServiceCodec.TryRead(result, result.Length, out TownServiceFrame? frame)
@@ -63,9 +104,9 @@ internal sealed class TownServiceFragments
     {
         var keys = new List<long>();
         foreach (long key in _streams.Keys) if (key >> 18 == sender) keys.Add(key);
-        foreach (long key in keys) { _streams[key].Clear(); _streams.Remove(key); _lastActivity.Remove(key); }
+        foreach (long key in keys) { _streams[key].Clear(); _streams.Remove(key); _lastActivity.Remove(key); _originalTraces.Remove(key); }
     }
-    internal void Clear() { foreach (ExtrasFragments assembler in _streams.Values) assembler.Clear(); _streams.Clear(); _lastActivity.Clear(); _expired.Clear(); _nextSweep = 0; }
+    internal void Clear() { foreach (ExtrasFragments assembler in _streams.Values) assembler.Clear(); _streams.Clear(); _lastActivity.Clear(); _expired.Clear(); _originalTraces.Clear(); _nextSweep = 0; }
     // Bit 16 retains the historical private/public prefix. The high sequence bit
     // marks only the additive stock lane; old bit 17 remains a sequence counter.
     // A stock+public combination is invalid, rather than a fourth cosmetic lane.

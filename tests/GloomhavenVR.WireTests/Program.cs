@@ -10,6 +10,8 @@ internal static class Program
         string repoRoot = args.Length > 0 ? args[0] : FindRepoRoot();
 
         var t = new Harness();
+        if (args.Length > 1 && args[1] == "town-first-picture632")
+        { TownServiceTransportVectors.Run(t); return t.Report(); }
         if (args.Length > 1 && args[1] == "town-visible-census")
         { TownVisibleCensusVectors.Run(t); return t.Report(); }
         if (args.Length > 1 && args[1] == "town-catalog-warm")

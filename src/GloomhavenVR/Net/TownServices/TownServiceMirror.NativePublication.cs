@@ -25,9 +25,10 @@ internal static partial class TownServiceMirror
         trace.Modules.TryGetValue(module.Id, out int count);
         if (count >= 2) return;
         trace.Modules[module.Id] = count + 1; trace.Reports++;
-        GloomhavenVR.Core.VRLog.Debug("TownServices", "Native visible original queued: service=" + frame.Service
+        GloomhavenVR.Core.VRLog.Info("TownServices", "Native visible original queued: service=" + frame.Service
             + " session=" + frame.Session + " module=" + frame.Module + " address=" + frame.TemplateAddress
             + " bytes=" + bytes + " nodes=" + frame.Nodes.Length + " baseline=" + frame.BaseSequence
+            + " sequence=" + frame.Sequence + " sample=" + frame.SampleTime.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
             + " parent=" + frame.ParentModule + " required=" + (_local.RequiredVisibleModules?.Length ?? -1)
             + " prepared=" + _local.Modules.Count + " kind=" + (frame.BaseSequence == 0 ? "cold-original" : "owner-delta") + ".");
     }

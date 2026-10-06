@@ -1196,7 +1196,7 @@ internal static partial class TownServiceMirror
                         NormalizeDetachedRoot(module);
                     if (module.LastFrame != null && module.Host.activeSelf && module.LastFrame.ParentModule == frame.ParentModule
                         && module.LastFrame.ParentBinding == frame.ParentBinding)
-                        module.Motion.AfterApply(now, frame.SampleTime - module.LastFrame.SampleTime);
+                        module.Motion.AfterApply(now, frame.SampleTime - module.LastFrame.SampleTime, sourceSampleTime: frame.SampleTime);
                     RemoteRetry.Remove(retryKey); module.Sequence = frame.Sequence; module.LastFrame = frame;
                     if (frame.PublicCatalog && frame.RackMember != null) module.CatalogContentKey = IncomingCatalogContentKey(entry.Key, frame);
                     reorder = true;
@@ -1236,6 +1236,8 @@ internal static partial class TownServiceMirror
                 }
             }
             if (reorder) OrderOriginalSiblings(standing);
+            if (!secondaryVisitor && !stockVisitor && session.Service == 3)
+                TraceMageDisplayed(entry.Key, session, standing);
             if (!secondaryVisitor && !stockVisitor)
             { UpdateRackClocks(entry.Key, pending, now); TickRackClocks(entry.Key, standing, now); }
         }
@@ -1622,6 +1624,17 @@ internal static partial class TownServiceMirror
 
     private static bool CurrentModuleVisible(LocalModule module)
     {
+        // Build629 treated every active transform as a visible widget, including
+        // empty holder partitions and retained original fan UI. The44-module
+        // hardware census could therefore include unnecessary unpainted originals. Children
+        // with ignoreParentGroups are evaluated at the original graphic; their
+        // empty native parent mounts are then added separately by the census.
+        if (_service == 3 && !module.Address.StartsWith("enchant.counter|", StringComparison.Ordinal)
+            || _service == 1 && module.Address.StartsWith("item.confirm.part.", StringComparison.Ordinal))
+            return module.Binding.HasVisibleOutput();
+        // Resident furniture/offering clocks can be semantic transform-only
+        // modules. They retain their existing activity contract; ink filtering
+        // only narrows the heavy native UI picture and confirmation partitions.
         Transform? source = module.Binding.Root;
         if (source == null || !source.gameObject.activeInHierarchy) return false;
         float alpha = 1f;

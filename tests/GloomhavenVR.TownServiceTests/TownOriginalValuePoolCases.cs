@@ -11,6 +11,16 @@ internal static class TownOriginalValuePoolCases
     { checks++; if (!condition) throw new Exception(message); }
     internal static void Run()
     {
+        var signedBuilder = new TownServiceCodec.OriginalValuePoolBuilder();
+        var signedOriginals = new List<byte[]>();
+        for (ushort id = 1; id <= 2; id++)
+        {
+            var signed = Frame(id); var pose = Identity(); pose[0] = id == 1 ? 0f : BitConverter.Int32BitsToSingle(int.MinValue);
+            signed.Nodes[0].Values[TownServiceProperty.Transform] = new TownServiceValue { Numbers = pose };
+            byte[] bytes = TownServiceCodec.Write(signed); signedOriginals.Add(bytes); Check(signedBuilder.TryAdd(bytes), "signed-zero exact original admitted");
+        }
+        byte[] signedPool = signedBuilder.Write(); Check(TownServiceCodec.TryReadBundle(signedPool, signedPool.Length, out var signedDecoded), "signed-zero original pool decoded");
+        for (int i = 0; i < signedOriginals.Count; i++) Check(signedOriginals[i].SequenceEqual(signedDecoded![i]), "positive and negative zero owner bits survive across native modules");
         var originals = new List<byte[]>();
         var builder = new TownServiceCodec.OriginalValuePoolBuilder();
         for (ushort id = 1; id <= 44; id++)
