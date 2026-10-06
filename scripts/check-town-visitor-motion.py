@@ -33,7 +33,7 @@ def main():
              'held purse continues moving between slower owner samples'),
             ('always-continuous', '_continuousDecisionFacing = address.StartsWith', '_continuousDecisionFacing = true || address.StartsWith',
              'non-held discrete controls retain their rapid response'),
-            ('restart-at-target', '_from[i] = Read(_nodes[i]);', '_from[i] = _hasTarget ? _to[i] : Read(_nodes[i]);',
+            ('restart-at-target', '_before[i] = Read(_nodes[i]);', '_before[i] = _hasTarget ? _to[i] : Read(_nodes[i]);',
              "binding's unchanged properties start from the complete previous owner target"),
         ]
     fixture = ROOT / 'scripts/town-visitor-motion-runtime'
