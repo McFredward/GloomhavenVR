@@ -924,8 +924,6 @@ internal static class ConfigCatalog
                                      || key == "ScenarioTerrainDistanceMeters"
                                      || key == "SharedEnvironmentMaterialReads"
                                      || key == "SharedUiWindowReads"
-                                     || key == "VisibleIdleAnimationIntervalSeconds"
-                                     || key == "VisibleIdleDisabledClothApproximation"
                                      || key == "ScenarioFigureClothSimulation"
                                      || key == "ReduceScenarioGenerationDetail"))
             return ConfigTopic.Visual;

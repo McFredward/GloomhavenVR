@@ -26,11 +26,6 @@ namespace GloomhavenVR.Core
             UnityEngine.Debug.Log(area + ": " + text);
         }
         internal static void Info(string area, string text) => UnityEngine.Debug.Log(area + ": " + text);
-        internal static int VisibleIdleLodReports;
-        internal static void Debug(string area, string text)
-        {
-            if (text.StartsWith("Visible idle retains native LOD for ", StringComparison.Ordinal)) VisibleIdleLodReports++;
-        }
     }
     internal static class PerfMonitor
     {
@@ -45,7 +40,6 @@ namespace GloomhavenVR.Core
     internal static class PerfConfig
     {
         internal static float ActorBarPoseCheckInterval = 0.2f;
-        internal static bool VisibleIdleClothApproximation;
     }
     internal static class VRSession
     {
@@ -55,10 +49,7 @@ namespace GloomhavenVR.Core
     internal static class ScenarioFigureDetailBudget
     {
         internal static ScenarioFigureMeshBank.Record? OriginalRecordFor(Renderer renderer) => null;
-        internal readonly struct MaskRead : IDisposable { public void Dispose() { } }
-        internal static MaskRead BeginLodMaskRead() => default;
-        internal static readonly System.Collections.Generic.HashSet<Renderer> OwnedMasks = new();
-        internal static bool OwnsLodMask(Renderer renderer) => OwnedMasks.Contains(renderer) && renderer.forceRenderingOff;
+
     }
     internal static class ScenarioFigureMeshBank
     {

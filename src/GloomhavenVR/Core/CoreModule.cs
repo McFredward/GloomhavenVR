@@ -69,9 +69,7 @@ internal sealed class CoreModule : IVRModule
         ScenarioSceneryBudget.Install(_hostGo);
         ScenarioGenerationDetail.Install();
         ScenarioFigureDetailBudget.Install(_hostGo);
-        ScenarioIdleAnimationBudget.Install(_hostGo, () => PerfConfig.OffscreenIdleAnimationOn,
-            () => PerfConfig.VisibleIdleAnimationInterval, () => VRCameraPolicy.AllowedHead,
-            ScenarioEnvironmentBudget.HasNativeCommandBufferConsumers);
+        ScenarioIdleAnimationBudget.Install(_hostGo, () => PerfConfig.OffscreenIdleAnimationOn);
         ScenarioEnvironmentMeshBank.ConfigureAssetPreparation(ScenarioEnvironmentAssets.EnsureLoaded);
         ScenarioTerrainBudget.ConfigureMeshBank(ScenarioEnvironmentMeshBank.IsTerrainEligible,
             ScenarioEnvironmentMeshBank.TryGetDetail);
@@ -85,7 +83,6 @@ internal sealed class CoreModule : IVRModule
         ScenarioEnvironmentBudget.ConfigureTerrainIntegration(ScenarioTerrainBudget.QueueRoot,
             ScenarioTerrainBudget.MaterialReady, ScenarioTerrainBudget.BeforeNativeRendererWrite,
             ScenarioTerrainBudget.BeforeNativeContentChange, ScenarioTerrainBudget.OwnsRenderSubstitute);
-        ScenarioEnvironmentBudget.ConfigureBeforeNativeContentChange(ScenarioIdleAnimationBudget.BeforeNativeContentChange);
         ScenarioEnvironmentBudget.ConfigureStructuralBatching(() => PerfConfig.StructuralBatchingOn);
         ScenarioEnvironmentBudget.Install(_hostGo);
         ScenarioStructuralInstancing.Install(_hostGo, () => PerfConfig.StructuralInstancingOn);

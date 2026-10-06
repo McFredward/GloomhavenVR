@@ -332,8 +332,6 @@ internal static partial class Loc
             ["Optimize/ScenarioTerrainDistanceMeters"] = "Betrachtungsabstand in VR, ab dem die Detailgrenze für entfernte Wände und Säulen gilt.",
             ["Optimize/SharedEnvironmentMaterialReads"] = "Spart wiederholte identische Materialprüfungen innerhalb eines Kameraaufrufs. Aus ermöglicht den direkten Vergleich; die Darstellung bleibt gleich.",
             ["Optimize/SharedUiWindowReads"] = "Spart wiederholte Fensterabfragen und unmittelbare Originalabfragen in Multiplayer-Spiegeln. Inhalte, native Sichtbarkeit und Animation bleiben unmittelbar; Aus ermöglicht einen Vergleich.",
-            ["Optimize/VisibleIdleAnimationIntervalSeconds"] = "0 erhält jede ursprüngliche Ruhepose. Höhere Werte entlasten optionale Ruhebewegungen; Aktionen und gehaltene Figuren behalten ihre Originalanimation.",
-            ["Optimize/VisibleIdleDisabledClothApproximation"] = "Ersetzt bei abgetasteten Ruheposen die eingefrorene Stoffverformung durch die Skelettform. Erfordert ein Ruhepose-Intervall über 0. Aus stellt die Originaloberfläche wieder her; aktive Stoffsimulation, Aktionen und gehaltene Figuren bleiben original. Neue PC-Konfigurationen Aus, Frame Ein; gespeicherte Werte bleiben erhalten.",
             ["Optimize/ScenarioEnvironmentEffectsDensityPercent"] =
                 "Anteil dekorativer Szenario-Umgebungseffekte, etwa Motten, Kerzen- und Fackelpartikel. "
                 + "0% pausiert geeignete Dauereffekte, 100% stellt sie wieder her. Lichtquellen, Angriffe, "

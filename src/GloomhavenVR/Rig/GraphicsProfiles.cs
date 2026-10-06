@@ -72,8 +72,6 @@ internal static class GraphicsProfiles
             Set(PerfConfig.ScenarioTerrainDistanceMeters, FrameDefaults.ScenarioTerrainDistanceMeters);
             Set(PerfConfig.SharedEnvironmentMaterialReads, true);
             Set(PerfConfig.SharedUiWindowReads, true);
-            Set(PerfConfig.VisibleIdleAnimationIntervalSeconds, standalone ? FrameDefaults.VisibleIdleAnimationIntervalSeconds : 0f);
-            Set(PerfConfig.VisibleIdleDisabledClothApproximation, standalone ? FrameDefaults.VisibleIdleDisabledClothApproximation : Defaults.VisibleIdleDisabledClothApproximation);
             Set(PerfConfig.FigureDistanceLod, standalone ? FrameDefaults.FigureDistanceLod : index < 3);
             Set(PerfConfig.SkinningBoneLimit, standalone ? FrameDefaults.SkinningBoneLimit : low ? 2 : index == 2 ? 4 : 0);
             Set(PerfConfig.OffscreenIdleAnimation, standalone ? FrameDefaults.OffscreenIdleAnimation : index < 3);

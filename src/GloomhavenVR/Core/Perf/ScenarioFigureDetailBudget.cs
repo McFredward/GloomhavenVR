@@ -90,17 +90,6 @@ internal static class ScenarioFigureDetailBudget
     internal static Mesh? OriginalMeshFor(Renderer renderer) => _driver?.OriginalMeshFor(renderer);
     internal static ScenarioFigureMeshBank.Record? OriginalRecordFor(Renderer renderer)
         => _driver?.OriginalRecordFor(renderer);
-    // Visible-idle sampling may omit ONLY fine body renderers actually removed by this
-    // current owned native table. An arbitrary forceRenderingOff flag is not ownership.
-    internal static bool OwnsLodMask(Renderer renderer) => _driver?.OwnsLodMask(renderer) == true;
-    internal readonly struct LodMaskReadScope : IDisposable
-    {
-        private readonly Action? _finish;
-        internal LodMaskReadScope(Action? finish) => _finish = finish;
-        public void Dispose() => _finish?.Invoke();
-    }
-    internal static LodMaskReadScope BeginLodMaskRead() => _driver?.BeginLodMaskRead() ?? default;
-
     internal static void ActorReady(GameObject root)
     {
         if (VRSession.IsRunning && BudgetActive) _driver?.QueueRoot(root);
@@ -211,14 +200,6 @@ internal static class ScenarioFigureDetailBudget
             if (Group == null || !SameTable(Group.GetLODs(), Applied))
             { RestoreMasks(); Foreign = true; Applied = null; }
         }
-        internal bool OwnsMask(Renderer renderer, HashSet<LodRecord>? verified = null)
-        {
-            if (Foreign || Applied == null || renderer == null || !renderer.forceRenderingOff
-                || !_masked.Contains(renderer)) return false;
-            if (verified == null || verified.Add(this)) CheckOwnership();
-            return !Foreign && Applied != null && _masked.Contains(renderer) && renderer.forceRenderingOff;
-        }
-
         internal void Restore()
         {
             try { Apply(100); }
@@ -324,25 +305,6 @@ internal static class ScenarioFigureDetailBudget
                     if (mesh.Renderer == renderer && (mesh.UsesDerivative || mesh.Current == mesh.Original))
                         return mesh;
             return null;
-        }
-        internal bool OwnsLodMask(Renderer renderer)
-        {
-            foreach (LodRecord lod in _lods)
-                if (lod.OwnsMask(renderer, _maskReadDepth > 0 ? _maskReadVerified : null)) return true;
-            return false;
-        }
-        private readonly HashSet<LodRecord> _maskReadVerified = new();
-        private int _maskReadDepth;
-        private Action? _finishMaskRead;
-        internal LodMaskReadScope BeginLodMaskRead()
-        {
-            if (_maskReadDepth++ == 0) _maskReadVerified.Clear();
-            _finishMaskRead ??= EndLodMaskRead;
-            return new LodMaskReadScope(_finishMaskRead);
-        }
-        private void EndLodMaskRead()
-        {
-            if (--_maskReadDepth == 0) _maskReadVerified.Clear();
         }
         private readonly Dictionary<int, ActorRecord> _roots = new();
         private readonly HashSet<int> _seen = new();

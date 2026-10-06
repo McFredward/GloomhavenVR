@@ -732,8 +732,6 @@ internal static partial class Loc
             ["Optimize/ScenarioTerrainDistanceMeters"] = Pair("Distant wall detail threshold (m)", "Abstand für entfernte Wanddetails (m)"),
             ["Optimize/SharedEnvironmentMaterialReads"] = Pair("Share current material checks", "Aktuelle Materialprüfungen teilen"),
             ["Optimize/SharedUiWindowReads"] = Pair("Share current window reads", "Aktuelle Fensterabfragen teilen"),
-            ["Optimize/VisibleIdleAnimationIntervalSeconds"] = Pair("Visible idle pose interval (s)", "Sichtbare Ruhepose: Intervall (s)"),
-            ["Optimize/VisibleIdleDisabledClothApproximation"] = Pair("Simplify disabled idle clothing", "Deaktivierte Ruhekleidung vereinfachen"),
             ["Optimize/ScenarioEnvironmentEffectsDensityPercent"] = Pair("Scenario ambient effects (%)", "Szenario-Umgebungseffekte (%)"),
             ["Optimize/ReduceScenarioGenerationDetail"] = Pair("Reduced scenario generation", "Sparsame Szenario-Erzeugung"),
             ["Optimize/SharedWallReadCache"] = Pair("Cache wall preparation reads", "Wandvorbereitung cachen"),

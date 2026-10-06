@@ -38,9 +38,11 @@ internal static class Program
             Check(PerfConfig.ScenarioTerrainDetailPercent.Value==(i==0?0:i==1?50:100), "3D terrain detail restores original at balanced/high quality");
             Check(PerfConfig.ScenarioDistantTerrainDetailPercent.Value==(i<2?0:i==2?50:100), "distant 3D geometry has an independent cap");
             Check(PerfConfig.ScenarioTerrainDistanceMeters.Value==GloomhavenVR.FrameDefaults.ScenarioTerrainDistanceMeters, "VR distance threshold is platform-independent");
-            Check(PerfConfig.VisibleIdleAnimationIntervalSeconds.Value==(i==0?GloomhavenVR.FrameDefaults.VisibleIdleAnimationIntervalSeconds:0f), "visible idle motion compromise is opt-in on PC profiles");
-            Check(PerfConfig.VisibleIdleDisabledClothApproximation.Value==(i==0), "disabled cloth shape compromise is separate and enabled only in standalone preset");
             Check(PerfConfig.SharedEnvironmentMaterialReads.Value && PerfConfig.SharedUiWindowReads.Value, "exact work removal is selectable on every platform");
+            foreach (var file in ModuleConfig.Snapshot())
+                foreach (var key in file.Value.Entries.Keys)
+                    Check(!key.Key.StartsWith("VisibleIdle",StringComparison.Ordinal),
+                        "profiles never bind retired visible idle controls");
             foreach(var file in ModuleConfig.Snapshot()) Check(file.Value.SaveOnConfigSet, "autosave flags restored for every file");
         }
         Check(GraphicsProfiles.Apply(0), "can return to standalone after high-end");
@@ -54,16 +56,14 @@ internal static class Program
         PerfConfig.ScenarioExplicitEnvironmentInstancing.Value=false;
         PerfConfig.ScenarioTerrainDetailPercent.Value=75;
         PerfConfig.ScenarioDistantTerrainDetailPercent.Value=25;
-        PerfConfig.VisibleIdleAnimationIntervalSeconds.Value=0f;
-        PerfConfig.VisibleIdleDisabledClothApproximation.Value=false;
         PerfConfig.SharedEnvironmentMaterialReads.Value=false;
         PerfConfig.SharedUiWindowReads.Value=false;
         Check(!PerfConfig.ScenarioCheapWallShading.Value && !PerfConfig.ScenarioExplicitEnvironmentInstancing.Value,
             "individual rendering toggles remain independently editable after preset");
         Check(PerfConfig.ScenarioTerrainDetailPercent.Value==75 && PerfConfig.ScenarioDistantTerrainDetailPercent.Value==25,
             "near and distant detail choices remain independent after preset");
-        Check(PerfConfig.VisibleIdleAnimationIntervalSeconds.Value==0f && !PerfConfig.VisibleIdleDisabledClothApproximation.Value && !PerfConfig.SharedEnvironmentMaterialReads.Value && !PerfConfig.SharedUiWindowReads.Value,
-            "every added animation/cache choice retains an explicit original path");
+        Check(!PerfConfig.SharedEnvironmentMaterialReads.Value && !PerfConfig.SharedUiWindowReads.Value,
+            "exact cache choices retain an explicit original path");
         int calls=native.Calls; var names=QualitySettings.names; QualitySettings.names=new[]{"Good"};
         Check(!GraphicsProfiles.Apply(0) && native.Calls==calls && RenderQuality.MsaaLevel.Value==4, "missing native level leaves tuned VR controls untouched");
         QualitySettings.names=names; native.ThrowOnCallback=true;

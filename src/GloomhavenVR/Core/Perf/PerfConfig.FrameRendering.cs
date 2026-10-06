@@ -15,8 +15,6 @@ internal static partial class PerfConfig
     internal static ConfigEntry<float> ScenarioTerrainDistanceMeters = null!;
     internal static ConfigEntry<bool> SharedEnvironmentMaterialReads = null!;
     internal static ConfigEntry<bool> SharedUiWindowReads = null!;
-    internal static ConfigEntry<float> VisibleIdleAnimationIntervalSeconds = null!;
-    internal static ConfigEntry<bool> VisibleIdleDisabledClothApproximation = null!;
 
     internal static bool EnvironmentMeshBankOn => ScenarioEnvironmentMeshBank?.Value ?? Defaults.ScenarioEnvironmentMeshBank;
     internal static bool EnvironmentDrawInstancingOn => ScenarioExplicitEnvironmentInstancing?.Value ?? Defaults.ScenarioExplicitEnvironmentInstancing;
@@ -26,8 +24,6 @@ internal static partial class PerfConfig
     internal static float TerrainDistanceMeters => Mathf.Clamp(ScenarioTerrainDistanceMeters?.Value ?? Defaults.ScenarioTerrainDistanceMeters, .1f, 10f);
     internal static bool SharedEnvironmentMaterialReadsOn => SharedEnvironmentMaterialReads?.Value ?? Defaults.SharedEnvironmentMaterialReads;
     internal static bool SharedUiWindowReadsOn => SharedUiWindowReads?.Value ?? Defaults.SharedUiWindowReads;
-    internal static float VisibleIdleAnimationInterval => Mathf.Clamp(VisibleIdleAnimationIntervalSeconds?.Value ?? Defaults.VisibleIdleAnimationIntervalSeconds, 0f, .5f);
-    internal static bool VisibleIdleClothApproximation => VisibleIdleDisabledClothApproximation?.Value ?? Defaults.VisibleIdleDisabledClothApproximation;
 
     private static void BindFrameRendering(ConfigFile file)
     {
@@ -55,11 +51,6 @@ internal static partial class PerfConfig
         SharedUiWindowReads = file.Bind("Optimize", "SharedUiWindowReads",
             FrameDefaults.Active ? FrameDefaults.SharedUiWindowReads : Defaults.SharedUiWindowReads,
             "Share exact current native window-registry reads across converted panels and reuse immediate original-property reads in multiplayer mirrors. Off retains independent reads for A/B comparison. Content, visibility and intermediate animation remain immediate.");
-        VisibleIdleAnimationIntervalSeconds = file.Bind("Optimize", "VisibleIdleAnimationIntervalSeconds",
-            FrameDefaults.Active ? FrameDefaults.VisibleIdleAnimationIntervalSeconds : Defaults.VisibleIdleAnimationIntervalSeconds,
-            new ConfigDescription("Seconds between optional visible event-free scenario idle pose evaluations. 0 preserves every original idle pose. Actions, native state clocks, held figures and unknown/eventful clips retain their original paths; works live.", new AcceptableValueRange<float>(0f, .5f)));
-        VisibleIdleDisabledClothApproximation = file.Bind("Optimize", "VisibleIdleDisabledClothApproximation",
-            FrameDefaults.Active ? FrameDefaults.VisibleIdleDisabledClothApproximation : Defaults.VisibleIdleDisabledClothApproximation,
-            "Allow visible idle pose sampling to replace disabled cloth's frozen physical deformation with its skeletal shape. Requires a nonzero VisibleIdleAnimationIntervalSeconds. This changes clothing shape while sampled; active cloth, actions and held figures retain native rendering. Off restores the original frozen surface live. Fresh PC Off, Frame On; saved choices are preserved.");
+
     }
 }
