@@ -63,6 +63,7 @@ def variants(source):
         ('map-depth-ignored','occlusion.a >= depth ? 1. : 1. - occlusion.r','1.','native continuous wall/alpha coverage',1),
         ('simplex-zero','return dot(m*m, float4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));','return 0.;','production simplex',1),
         ('radical-still-lit','if (_GHVRWorldMaterialMode < 1.5)','if (_GHVRWorldMaterialMode < 2.5)','actual material-slot MPB pixels',1),
+        ('ambient-omitted','_GHVRWorldAmbientWeight > 0.','_GHVRWorldAmbientWeight < 0.','addressed native albedo/CPU ambient across views',1),
         ('caster-main-alpha','if (_GHVRWorldNativeRoute == 5.) clip(1. - _Cutoff);','if (_GHVRWorldNativeRoute < 9.) clip(tex2D(_MainTex,i.uv).a - _Cutoff);\n                if (_GHVRWorldNativeRoute == 5.) clip(1. - _Cutoff);','audited native AMP/fallback caster',1),
     ]
     for name,before,after,expected,count in mutations:
@@ -80,7 +81,7 @@ def main():
     parser.add_argument('--case',action='append')
     parser.add_argument('--skip-native',action='store_true',help='Partial development only; omit addressed DXBC digest verification')
     args=parser.parse_args();root=args.source_root.resolve();run=args.output_dir.resolve();run.mkdir(parents=True,exist_ok=True)
-    inputs=[root/SHADER,root/FIXTURE/'NativeReference.shader',root/FIXTURE/'Editor/WorldMaterialRunner.cs',root/FIXTURE/'extract-native.py',root/FIXTURE/'native-contract.json',root/'tests/terrain-budget-runtime/native-noise-vectors.json',Path(__file__).resolve()]
+    inputs=[root/SHADER,root/FIXTURE/'NativeReference.shader',root/FIXTURE/'Editor/WorldMaterialRunner.cs',root/FIXTURE/'extract-native.py',root/FIXTURE/'native-contract.json',root/FIXTURE/'extract-appearance.py',root/FIXTURE/'appearance-contract.json',root/'tests/terrain-budget-runtime/native-noise-vectors.json',Path(__file__).resolve()]
     hashes={str(p.relative_to(root)):sha(p) for p in inputs if p.exists()}
     if not args.skip_native:
         result=subprocess.run(['/home/claw/unitypy-venv/bin/python',str(root/FIXTURE/'extract-native.py'),'--source-root',str(root),'--output-dir',str(run/'native')],capture_output=True,text=True)
@@ -103,6 +104,9 @@ def main():
             sets=[{tuple(sorted(k for k in p['keywords']if k not in ('DIRECTIONAL','LIGHTPROBE_SH')))for p in o['programs']if p['stage']=='progFragment'and p['pass']==0}for o in actual if o['route']==int(route)]
             assert [list(k)for k in sorted(set.intersection(*sets))]==effects,'Native compiled effect intersection changed: '+route
         (run/'native-verified.json').write_text(json.dumps({'objects':len(contract['objects']),'programs':sum(len(o['programs'])for o in contract['objects']),'contractSha256':sha(root/FIXTURE/'native-contract.json'),'limits':contract['limits']},indent=2)+'\n')
+    appearance=subprocess.run(['/home/claw/unitypy-venv/bin/python',str(root/FIXTURE/'extract-appearance.py'),'--source-root',str(root),'--output-dir',str(run/'appearance')],capture_output=True,text=True)
+    (run/'appearance-extract.log').write_text(appearance.stdout+appearance.stderr)
+    if appearance.returncode: raise SystemExit('Original appearance extraction failed; see '+str(run/'appearance-extract.log'))
     project=run/'unity-project'; assets=project/'Assets'; assets.mkdir(parents=True,exist_ok=True); (assets/'Editor').mkdir(exist_ok=True)
     (project/'ProjectSettings').mkdir(exist_ok=True);(project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
     (project/'Packages').mkdir(exist_ok=True);(project/'Packages/manifest.json').write_text('{"dependencies":{"com.unity.modules.imgui":"1.0.0"}}\n')
@@ -121,7 +125,7 @@ def main():
         (assets/(name+'-high.shader')).write_text(high_probe(canonical,high));(assets/(name+'-noise.shader')).write_text(noise_probe(canonical,noise));(assets/(name+'-caster.shader')).write_text(caster_probe(canonical,caster))
         cases.append(dict(name=name,shader=shader,high=high,noise=noise,caster=caster,expected=expected))
     assert cases,'No selected cases'
-    manifest=run/'manifest.json';manifest.write_text(json.dumps({'result':str(run/'result.txt'),'evidence':str(run),'cases':cases},indent=2)+'\n')
+    manifest=run/'manifest.json';manifest.write_text(json.dumps({'result':str(run/'result.txt'),'evidence':str(run),'appearance':str(run/'appearance/appearance.json'),'cases':cases},indent=2)+'\n')
     (run/'source-binding.json').write_text(json.dumps({'inputs':hashes,'nativeVerified':not args.skip_native,'partial':bool(args.case or args.production_only or args.skip_native),'cases':cases,'generated':{str(p.relative_to(project)):sha(p)for p in assets.rglob('*')if p.is_file()}},indent=2)+'\n')
     env=os.environ.copy();env['GHVR_WORLD_NOISE_VECTORS']=str(root/'tests/terrain-budget-runtime/native-noise-vectors.json')
     command=[str(args.unity),'-batchmode','-force-glcore','-projectPath',str(project),'-executeMethod','WorldMaterialRunner.Run','-worldMaterialManifest',str(manifest),'-logFile',str(run/'Unity.log')]
