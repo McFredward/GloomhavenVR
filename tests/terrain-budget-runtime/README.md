@@ -10,7 +10,7 @@ verified native structural streams through the actual production mesh decoder. A
 command buffers and `Camera.Render` callbacks execute; there is no simulated
 renderer or pixel oracle substituted for the production fragment.
 
-The production case makes 290 assertions. Thirty-seven independently compiled
+The production case makes 335 assertions. Fifty-seven independently compiled
 negative variants each corrupt a production statement and must fail at a named
 assertion. Shader compilation failures and unrelated exceptions never count as
 passing negative controls. `--production-only` and repeatable `--case NAME` are
@@ -109,6 +109,21 @@ new shader. The time-zero world samples include the native 6/7/10 frequency scal
 the fixture tolerates small GPU float/FMA differences. Replacing simplex with
 zero must fail those assertions.
 
+## Frame636 synchronous reads and property blocks
+
+Actual production primitive-access observers call the unchanged Unity operation
+and count it. For 96 prepared sources, one Update reads the current head position
+and scale once and each tracked hand position once. The next Update freshly
+observes tracking loss and changed hand scale. Bounds and original-mesh guards
+remain per-source. A settled empty-block camera retains 96 fresh native presence
+guards with no block reads, effect reads or private block writes. Late native
+color/texture blocks, removed renderer/index blocks and live vertex/emissive
+effects execute through actual Camera.Render callbacks. A separate direct helper
+case checks both legacy/world floor never-fade channels without admitting floors
+to production geometry substitution. Causal variants corrupt each optimization
+or freshness/safety boundary. See
+[the terrain CPU follow-up](../../docs/performance/FRAME-636-TERRAIN-CPU.md).
+
 Each run retains the compiled cases, shader copies, source/fixture hashes,
 results, editor log, actual exit code, native-coverage/provenance receipts and endpoint PNGs beneath the worktree's
 gitignored `.planning/debug/terrain-budget-runtime/`. The native game bundle and
@@ -123,5 +138,5 @@ does not execute original procedural controllers, Windows shader bytecode,
 original game textures, network state or headset presentation. The software GL
 graphics device is appropriate for engine/pixel contracts and cannot establish
 Frame GPU costs, multiplayer performance or a correct headset picture. The
-parent must run the complete integration gate and the maintainer must compare
+integrator must run the affected integration checks required by AGENTS.md and the maintainer must compare
 the independently adjustable controls on hardware with every room revealed.

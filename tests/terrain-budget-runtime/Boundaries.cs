@@ -23,6 +23,27 @@ namespace GloomhavenVR.Core
         internal static void SetPositionAndRotation(Transform target, Vector3 position, Quaternion rotation)
         { PoseWrites++; target.SetPositionAndRotation(position, rotation); }
     }
+    // The harness wraps only production primitive accesses, then executes the
+    // exact Unity operation. Counts are not inferred from mirrored logic.
+    internal static class TerrainReadObserver
+    {
+        internal static int HeadPositions, HeadScales, HandPositions, PropertyGuards, PropertyReads, PropertyWrites, EffectReads;
+        internal static Vector3 HeadPosition(Transform head) { HeadPositions++; return head.position; }
+        internal static float HeadScale(Transform head) { HeadScales++; return head.lossyScale.x; }
+        internal static Vector3 HandPosition(GloomhavenVR.Hands.VRHand hand) { HandPositions++; return hand.transform.position; }
+        internal static bool HasPropertyBlock(Renderer renderer) { PropertyGuards++; return renderer.HasPropertyBlock(); }
+        internal static void GetPropertyBlock(Renderer renderer, MaterialPropertyBlock block)
+        { PropertyReads++; renderer.GetPropertyBlock(block); }
+        internal static void GetPropertyBlock(Renderer renderer, MaterialPropertyBlock block, int slot)
+        { PropertyReads++; renderer.GetPropertyBlock(block, slot); }
+        internal static void SetPropertyBlock(Renderer renderer, MaterialPropertyBlock block)
+        { PropertyWrites++; renderer.SetPropertyBlock(block); }
+        internal static void SetPropertyBlock(Renderer renderer, MaterialPropertyBlock? block, int slot)
+        { PropertyWrites++; renderer.SetPropertyBlock(block, slot); }
+        internal static float Effect(MaterialPropertyBlock block, string key) { EffectReads++; return block.GetFloat(key); }
+        internal static void Reset()
+        { HeadPositions=HeadScales=HandPositions=PropertyGuards=PropertyReads=PropertyWrites=EffectReads=0; }
+    }
     internal static class VRSession { internal static bool IsRunning = true; }
     internal static class PerfConfig
     {
