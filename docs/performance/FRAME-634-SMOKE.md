@@ -19,8 +19,8 @@ torches and around the large skull. They establish the visible defect, not the
 responsible shader, blend equation or depth/viewport cause.
 
 Every observed QUALITY-CONTROLS summary reports **environmentFX=0%**, including
-Player rows 9583, 9800 and the later windows. The live eye request changes from
-1.00 to 0.80 at `Player:9695`; the diagnostic explicitly retains the 1.00
+Player raw LF rows 9581, 9798 and the later windows. The live eye request changes from
+1.00 to 0.80 at `Player:9693`; the diagnostic explicitly retains the 1.00
 allocation and requests viewport 0.80. The timing is consistent with the reported
 visual change, but this smoke fix does not assign its native rendering cause or
 claim to repair a viewport shader defect.
