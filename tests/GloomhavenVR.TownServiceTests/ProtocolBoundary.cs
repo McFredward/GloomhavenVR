@@ -12,6 +12,7 @@ namespace GloomhavenVR.Net
         internal const byte ExtIdTownCatalogBank = 102;
         internal const byte ExtIdTownCatalogHeaders = 103;
         internal const byte ExtIdTownNativeTemplateState = 105;
+        internal const byte ExtIdTownVisibleCensus = 108;
     }
 }
 

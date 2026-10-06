@@ -279,6 +279,7 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\ExtrasSendQueue.cs" Link="wire\ExtrasSendQueue.cs" />
     <Compile Include="TownServiceTransportVectors.cs" />
     <Compile Include="TownCatalogBankVectors.cs" />
+    <Compile Include="TownVisibleCensusVectors.cs" />
     <Compile Include="TownCatalogWarmVectors.cs" />
     <Compile Include="TownVisitorStockTransportVectors.cs" />
     <Compile Include="TownResidentsVectors.cs" />
