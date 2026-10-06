@@ -115,7 +115,21 @@ public static partial class MirrorProgram
             if (advancedFrame == Time.frameCount) { yield return null; continue; }
             advancedFrame = Time.frameCount;
             channel.Install(1);
+            if (!sampled)
+            {
+                // This editor harness runs clients sequentially. Under concurrent test
+                // load one real unscaled delta can skip the entire .15-.35s window.
+                // Arrange only the native elapsed-clock seam after the actual reliable
+                // category callback authored its turn. Tick still advances and applies
+                // the exact production animation; no pose/remote state is substituted.
+                Check(drawer.FixtureFollowingTurn && drawer.FromPage == 256 && drawer.ToPage == 0,
+                    "deterministic intermediate sample belongs to the actual peer-authored category turn");
+                typeof(TownServiceMerchantDrawer).GetField("_clock", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .SetValue(drawer, .25f - Time.unscaledDeltaTime);
+            }
             drawer.FixtureTick(); foreach (var key in catalog.Categories) key.Tick(1f);
+            if (!sampled) Check(Mathf.Abs(drawer.FixtureFollowClock - .25f) < .00001f,
+                "actual native Tick advances its arranged source clock to the deterministic parity sample");
             TownServiceSync.TickPublic(owner, owner, catalog, 882, 1f);
             List<byte[]> packets = Capture();
             identities.Switch(3); Receive(1, packets); TownServiceMirror.TickRemote(_ => observer);
