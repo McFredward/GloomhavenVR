@@ -68,8 +68,13 @@ public static class InteractionProgram
     {
         // Real discovery has a per-update realtime deadline. A fixed frame count depends
         // on other suites' CPU load; wait for actual queued work without invoking a seed or
-        // loading-close hook that could conceal a broken loading-edge notification.
-        for(int frame=0;frame<2000&&HasQueuedDiscovery(driver);frame++)Tick(driver);
+        // loading-close hook that could conceal a broken loading-edge notification. Queue
+        // work does not advance this fixture's independently controlled unscaled clock:
+        // otherwise a slow host consumes the two-second fallback before the next test leaf
+        // exists. Keep the production realtime work deadline and advance game time only at
+        // explicit lifecycle boundaries below.
+        var update=driver.GetType().GetMethod("Update",Private)!;
+        for(int frame=0;frame<2000&&HasQueuedDiscovery(driver);frame++)update.Invoke(driver,null);
         Check(!HasQueuedDiscovery(driver),"native queued discovery finishes within the bounded fixture update window");
     }
     private static void CheckPositiveCreationFastPath(Transform parent, Transform holder)
@@ -679,8 +684,10 @@ public static class InteractionProgram
             SceneController.Instance.IsLoading=false; Tick(driver);
             DrainQueuedDiscovery(driver);
             Check(late.forceRenderingOff, "loading-complete edge discovers late Apparance content missed by scene entry");
+            Check((bool)driver.GetType().GetField("_settlePending",Private)!.GetValue(driver)!,
+                "late-registration fixture creates its leaf before the pending fallback deadline");
             var settled=Leaf(full.transform,"FR_Floor_Scatter_Grass_Medium_05");
-            SceneryClock.Now+=3; Tick(driver,100);
+            SceneryClock.Now+=3; Tick(driver); DrainQueuedDiscovery(driver);
             Check(settled.forceRenderingOff,"settled loading-complete catchup discovers registration after first completion scan");
             // The explicit native placement notification covers subsequent regeneration/reveals.
             var regenerated=Leaf(full.transform,"FR_Floor_Detail_Grass_05_PR");
