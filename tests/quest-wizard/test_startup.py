@@ -55,7 +55,15 @@ try:
         assert hashlib.sha256(raw).hexdigest() == row['sha256']
     assert not local.promo.diagnostics
     branding = json.loads((repo / 'tools/quest-wizard-ui/assets/provenance.json').read_text())['assets']
+    branding_images = 0
     for row in branding:
+        if row['path'].endswith('.txt'):
+            # License notices belong to the release, not the UI's static image
+            # endpoint. Keep that endpoint's existing narrow MIME boundary.
+            raw = (repo / 'tools/quest-wizard-ui/assets' / row['path']).read_bytes()
+            assert hashlib.sha256(raw).hexdigest() == row['sha256'], row['path']
+            continue
+        branding_images += 1
         connection = http.client.HTTPConnection(*local.server_address, timeout=10)
         connection.request('GET', '/assets/' + row['path'])
         response = connection.getresponse()
@@ -69,7 +77,7 @@ try:
     assert sys.modules['profile'] is original_profile
     assert 'native_plugins' not in sys.modules
     print(json.dumps({'discoveryStatus': response.status, 'stdlibProfilePreserved': True,
-                      'offlinePublisherImages': len(pins), 'brandingAssets': len(branding),
+                      'offlinePublisherImages': len(pins), 'brandingAssets': branding_images,
                       'displayedModBuild': value['modSource']['modBuild']}))
 finally:
     local.shutdown()
