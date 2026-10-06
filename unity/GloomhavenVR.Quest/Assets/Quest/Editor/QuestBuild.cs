@@ -360,6 +360,9 @@ namespace GloomhavenVR.Quest.Editor
             }
             string[] actual = Directory.GetFiles("Assets", "*.dll", SearchOption.AllDirectories)
                 .Select(path => path.Replace('\\', '/'))
+                // Match the builder audit: StreamingAssets DLLs are copied runtime
+                // payloads, while nested Plugins/StreamingAssets remains a plugin path.
+                .Where(path => !path.StartsWith("Assets/StreamingAssets/", StringComparison.OrdinalIgnoreCase))
                 .Where(path => !packages.Contains(Path.GetFileNameWithoutExtension(path))).OrderBy(path => path).ToArray();
             if (!actual.SequenceEqual(contract.plugins.Select(file => file.path).OrderBy(path => path)))
                 throw new InvalidOperationException("Imported package API contract does not cover all active plugins.");
