@@ -170,6 +170,61 @@ class SupportTests(unittest.TestCase):
         self.assertNotIn('must not ship', text)
         self.assertEqual(json.loads(rows['diagnostic.json'])['events'][0]['parameters']['total'], 29)
 
+    def test_migrated_recovery_exports_bound_workspace_logs_and_receipt_sizes_only(self):
+        current, original = 'a' * 64, 'b' * 64
+        folder = self.root / 'build/cache/full-original-recovery' / original
+        folder.mkdir(parents=True)
+        (folder / 'core-export.log').write_text('Retained core export completed\n')
+        receipt = folder / 'core-recovery.json'
+        with receipt.open('wb') as stream:
+            stream.write(b'MUST NEVER EXPORT THE ASSET CATALOG')
+            stream.truncate(24 * 1048576)
+        write_json(self.root / 'build/cache/raw-recovery-resume' / (current + '.json'), {
+            'schema': 1, 'owner': 'Quest raw recovery resume', 'currentRecipeKey': current,
+            'originalWorkspaceKey': original, 'private': 'MUST NOT EXPORT'})
+        write_json(self.root / 'build/last-failure.json', {
+            'schema': 1, 'stage': 'recovery', 'key': current, 'message': 'Receipt failure'})
+        before = receipt.stat()
+        _, rows = self.export()
+        self.assertIn('recovery/' + original + '/core-export.log', rows)
+        stats = json.loads(rows['diagnostic.json'])['recoveryReceipts'][0]
+        self.assertEqual(stats['workspaceKey'], original)
+        self.assertEqual(stats['selection'], 'raw-resume-binding')
+        self.assertFalse(stats['contentVerified'])
+        self.assertEqual(stats['files'][0], {'name': 'core-recovery.json', 'exists': True, 'bytes': 24 * 1048576})
+        self.assertNotIn('MUST NEVER EXPORT', '\n'.join(rows.values()))
+        self.assertNotIn('MUST NOT EXPORT', '\n'.join(rows.values()))
+        self.assertEqual(receipt.stat().st_mtime_ns, before.st_mtime_ns)
+
+    def test_failure_before_binding_includes_recent_candidates_without_claiming_ownership(self):
+        current, original = 'a' * 64, 'b' * 64
+        folder = self.root / 'build/cache/full-original-recovery' / original
+        folder.mkdir(parents=True)
+        (folder / 'core-export.log').write_text('Prior export finished\n')
+        write_json(self.root / 'build/last-failure.json', {'schema': 1, 'stage': 'recovery', 'key': current})
+        _, rows = self.export()
+        self.assertIn('recovery/' + original + '/core-export.log', rows)
+        self.assertEqual(json.loads(rows['diagnostic.json'])['recoveryReceipts'][0]['selection'], 'recent-candidate')
+
+    def test_corrupt_or_path_binding_cannot_follow_outside_diagnostic_roots(self):
+        current = 'a' * 64
+        folder = self.root / 'build/cache/full-original-recovery' / current
+        folder.mkdir(parents=True)
+        (folder / 'core-export.log').write_text('Current log\n')
+        outside = self.root / 'private-export/core-export.log'
+        outside.parent.mkdir(); outside.write_text('MUST NEVER SHIP')
+        binding = self.root / 'build/cache/raw-recovery-resume' / (current + '.json')
+        binding.parent.mkdir()
+        failure = {'schema': 1, 'stage': 'recovery', 'key': current}
+        write_json(self.root / 'build/last-failure.json', failure)
+        for value in ('broken JSON', json.dumps({'schema': 1, 'owner': 'Quest raw recovery resume',
+                      'currentRecipeKey': current, 'originalWorkspaceKey': '../../../private-export'})):
+            with self.subTest(binding=value):
+                binding.write_text(value)
+                _, rows = self.export()
+                self.assertIn('Current log', '\n'.join(rows.values()))
+                self.assertNotIn('MUST NEVER SHIP', '\n'.join(rows.values()))
+
     def test_procedural_support_keeps_actual_failures_without_runtime_or_owner_data(self):
         key = 'd' * 64
         prefix = 'procedural/procedural-runtime-proton/' + key + '/'

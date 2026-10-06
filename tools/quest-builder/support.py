@@ -72,18 +72,60 @@ def read_object(path, limit=4 * 1048576):
     return json.loads(path.read_text(encoding='utf-8'))
 
 
-def recovery_logs(build_root, failure=None):
-    """Known export logs only; never enumerate assets or recurse through caches."""
+def recovery_workspaces(build_root, failure=None):
+    """Select diagnostic folders, including an observed raw-export binding.
+
+    This is log selection, not qualification of reusable game bytes. Only an
+    owner-labelled binding with matching current key can name another hash folder;
+    no arbitrary path from metadata is followed. Before binding publication a
+    migration error may have no current folder, so expose the two recent retained
+    folders as candidates, without claiming either is the failed export.
+    """
     root = ordinary(build_root / 'cache/full-original-recovery')
     if not root.is_dir(): return []
     key = failure.get('key') if isinstance(failure, dict) and failure.get('stage') == 'recovery' else None
+    folders = []
     if isinstance(key, str) and re.fullmatch(r'[0-9a-f]{64}', key):
-        folders = [ordinary(root / key)]
-    else:
-        folders = sorted((ordinary(row) for row in root.iterdir() if re.fullmatch(r'[0-9a-f]{64}', row.name)
-                          and not row.is_symlink() and row.is_dir()), key=lambda row: row.stat().st_mtime, reverse=True)[:2]
+        current = ordinary(root / key)
+        if current.is_dir(): folders.append((current, 'failure-key'))
+        try:
+            binding = read_object(build_root / 'cache/raw-recovery-resume' / (key + '.json'), limit=65536)
+            if (isinstance(binding, dict) and binding.get('schema') == 1
+                    and binding.get('owner') == 'Quest raw recovery resume'
+                    and binding.get('currentRecipeKey') == key
+                    and re.fullmatch(r'[0-9a-f]{64}', str(binding.get('originalWorkspaceKey', '')))):
+                bound = ordinary(root / binding['originalWorkspaceKey'])
+                if bound.is_dir() and bound != current: folders.insert(0, (bound, 'raw-resume-binding'))
+        except (OSError, ValueError, BuildError):
+            pass  # Damaged binding must not suppress the actual failure logs.
+    if not folders:
+        recent = sorted((ordinary(row) for row in root.iterdir() if re.fullmatch(r'[0-9a-f]{64}', row.name)
+                         and not row.is_symlink() and row.is_dir()), key=lambda row: row.stat().st_mtime, reverse=True)[:2]
+        folders = [(row, 'recent-candidate') for row in recent]
+    return folders[:2]
+
+
+def recovery_receipt_stats(folders):
+    """Sizes/existence only; never read or export proprietary asset catalogs."""
     result = []
-    for folder in folders:
+    for folder, selection in folders:
+        files = []
+        for name in ('core-recovery.json', 'original-source.json', 'core-identities.jsonl',
+                     'RecoveredProject/quest-full-recovery-progress.json', 'BundleRecovery/merge-pending.json'):
+            path = ordinary(folder / name)
+            row = {'name': name, 'exists': path.is_file()}
+            if row['exists']: row['bytes'] = path.stat().st_size
+            files.append(row)
+        result.append({'workspaceKey': folder.name, 'selection': selection, 'files': files,
+                       'contentVerified': False})
+    return result
+
+
+def recovery_logs(build_root, failure=None, *, workspaces=None):
+    """Known export logs only; never enumerate assets or recurse through caches."""
+    folders = recovery_workspaces(build_root, failure) if workspaces is None else workspaces
+    result = []
+    for folder, _ in folders:
         for name in ('core-export.log', 'core-export.console.log'):
             core = ordinary(folder / name)
             if core.is_file(): result.append(('recovery/' + folder.name + '/' + name, core))
@@ -160,6 +202,8 @@ def export_support(state_root, session, destination=None):
     failure = read_object(build_root / 'last-failure.json')
     if isinstance(failure, dict):
         meta['buildFailure'] = {key: safe_json(failure[key], replacements) for key in ('stage', 'error', 'message') if key in failure}
+    recovery_folders = recovery_workspaces(build_root, failure)
+    if recovery_folders: meta['recoveryReceipts'] = recovery_receipt_stats(recovery_folders)
     # Include only the selected build's small identity fields, never copy complete
     # receipts (which contain profile data, full game inventories and file paths).
     for name in ('latest-input.json', 'latest-build.json'):
@@ -183,7 +227,7 @@ def export_support(state_root, session, destination=None):
     for name in RESOURCE_FILES:
         path = ordinary(build_root / 'evidence' / name)
         if path.is_file(): candidates.append((path.stat().st_mtime_ns, 'resources/' + name, path, True))
-    for name, path in recovery_logs(build_root, failure):
+    for name, path in recovery_logs(build_root, failure, workspaces=recovery_folders):
         candidates.append((path.stat().st_mtime_ns, name, path, False))
     for name, path in procedural_logs(build_root):
         candidates.append((path.stat().st_mtime_ns, name, path, name.endswith('.json')))

@@ -2,6 +2,7 @@
 from __future__ import annotations
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -107,6 +108,45 @@ def unity_paths():
     return editors, hubs
 
 
+def recent_sessions(store):
+    """Offer only readable owner session IDs; a stale latest pointer is optional.
+
+    Discovery never resumes work or reconciles a running process. Loading the
+    chosen session through the status endpoint retains those existing lock rules.
+    Browser origins change with the local port, so the owned store supplies the
+    restart selection instead of browser storage.
+    """
+    recent = []
+    for path in (store.root / "sessions").glob("*/state.json"):
+        try:
+            value = read_json(path)
+            session = value.get("session")
+            selected = value.get("choices")
+            updated = value.get("updated", value.get("created", 0))
+            if (not isinstance(session, str) or re.fullmatch(r"[0-9a-f]{32}", session) is None
+                    or path.parent != store.session_dir(session) or not isinstance(selected, dict)
+                    or not isinstance(selected.get("gameRoot"), str)
+                    or value.get("status") not in ("ready", "running", "complete", "failed", "blocked", "cancelled", "interrupted")
+                    or type(updated) not in (int, float) or not math.isfinite(updated)):
+                continue
+            recent.append({"session": session, "status": value["status"],
+                           "gameRoot": selected["gameRoot"], "updated": updated})
+        except (OSError, ValueError, KeyError, WizardError):
+            continue
+    recent.sort(key=lambda row: (row["updated"], row["session"]), reverse=True)
+    latest = None
+    try:
+        pointer = read_json(store.root / "latest-session.json").get("session")
+        if any(row["session"] == pointer for row in recent): latest = pointer
+    except (OSError, ValueError, WizardError):
+        pass
+    if latest is None and recent: latest = recent[0]["session"]
+    visible = recent[:8]
+    if latest is not None and not any(row["session"] == latest for row in visible):
+        visible[-1] = next(row for row in recent if row["session"] == latest)
+    return visible, latest
+
+
 def discover(repo, store):
     helper = builder(repo); games = []; candidates = []
     steam = helper.discover_steam_root()
@@ -151,16 +191,7 @@ def discover(repo, store):
                       "displayName": "Gloomhaven", "profileAvailable": provider == "steam",
                       "ownershipComplete": False})
     editors, hubs = unity_paths()
-    recent = []
-    for path in (store.root / "sessions").glob("*/state.json"):
-        try:
-            state = read_json(path)
-            recent.append({"session": state["session"], "status": state["status"],
-                           "gameRoot": state["choices"]["gameRoot"], "updated": state.get("updated", state.get("created", 0))})
-        except (OSError, ValueError, KeyError, WizardError): pass
-    recent.sort(key=lambda row: row["updated"], reverse=True)
-    latest = None
-    if (store.root / "latest-session.json").is_file(): latest = read_json(store.root / "latest-session.json")["session"]
+    recent, latest = recent_sessions(store)
     return {"schema": 1, "event": "discovery", "modSource": mod_source(repo), "games": games, "unityEditors": editors, "unityHubs": hubs,
-            "recentSessions": recent[:8], "latestSession": latest,
+            "recentSessions": recent, "latestSession": latest,
             "capabilities": {"browse": os.name == "nt", "artwork": False, "logs": True, "support": True, "spaceEstimate": True, "capture": False, "cleanCache": False}}

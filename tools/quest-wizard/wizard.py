@@ -80,6 +80,9 @@ class Engine:
     def _run(self, state, session):
         if value_hash(state["choices"]) != state["choicesKey"]:
             raise WizardError("choices_changed", "Saved choices changed; create a new session.")
+        # Remember the explicitly continued run, including an older selection.
+        # Read-only discovery/status never changes this restart preference.
+        atomic_json(self.store.root / "latest-session.json", {"schema": 1, "session": session})
         self.store.clear_cancel(session); state["status"] = "running"; state["needsActions"] = []
         supervisor = self.supervisor_factory(self.store, session)
         self.store.event(state, "run_started")
