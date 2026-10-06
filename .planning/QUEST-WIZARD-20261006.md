@@ -48,6 +48,31 @@ not rerun either exporter. Restart selection tests establish readable pointer
 fallback, fresh-store persistence, no startup state mutation and explicit older
 session continuation. Actual Windows full-game success still requires a retest.
 
+The final integrated focused gate passes 269 cases without skips: 136 wizard,
+42 builder, 25 builder-startup, 18 release/support, 25 raw-export resume,
+19 Node UI and four artwork tests. Eight direct Chrome DOM/loopback workflows
+exercise restoration, unchanged choices, retained 28.6% stage total and five
+completed prerequisites, no POST on startup, same-ID Continue across a changed
+server port, status/result handling, explicit new selection and a visible/retryable
+inaccessible saved session. The source-update explanation is limited to default
+package source; advanced source pins remain authoritative.
+
+Fresh Linux test Chrome profiles require `--password-store=basic` and
+`--use-mock-keychain` so a host keyring cannot indefinitely prevent dispatching
+loopback requests. Both test launchers use these flags only in temporary profiles;
+the product browser is untouched. Bounded CDP command errors/connection-close
+rejection retain failure evidence and allow owned test cleanup. No transport bridge
+or production reload workaround was used.
+
+The final extracted ZIP is independently compared with its committed helper/UI
+bytes, exercised through isolated offline discovery and six exact image responses,
+and reopened through two genuine local backend ports with the same failed owner
+state. That witness creates no new session/build, keeps choices/progress/state
+bytes intact and checks CLI discovery against the release commit. Compact audit
+and private screenshots remain; clean finished worker checkouts and temporary
+extractions are removed. This verifies delivered tooling, not a complete Windows
+conversion or Quest rendering.
+
 The maintainer's 2026-10-06 report requires a total percentage for every main
 stage: finishing a substep must not finish the stage or reset its total. A later
 clarification explicitly permits a second resetting substep bar alongside the

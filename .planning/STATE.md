@@ -1,5 +1,37 @@
 # State — where the project stands
 
+**Quest B627 large receipt and automatic wizard continuation, 2026-10-06 (tooling only).**
+
+The later Windows capture `quest-build-support-20261006T175224Z-14c642bc.zip`
+contains the expected updated source and fails before recovery child launch:
+the raw-resume helper's 16 MiB limit rejects `core-recovery.json`. Its full export
+inventory now has a bounded 256 MiB allowance, while small control manifests stay
+at 16 MiB. Reader failures expose observed bytes/limits and distinct causes;
+all original/exporter/core/batch/journal qualification remains mandatory.
+The capture does not supply the exact on-disk receipt size.
+
+Its fresh session ID also explains repeated prerequisite steps: ordinary Continue
+formerly created a new session unless the secondary reopen action was selected.
+The wizard now restores its last readable owner session, choices and stage total
+on startup without starting tools. Continue uses the same ID; an explicit new-build
+selection preserves previous state and caches. Failed restoration cannot silently
+plan fresh work. The persistent owner store survives release-folder updates and
+changed loopback ports. Default-source updates are shown separately and correctly
+revalidate affected stages, while compatible raw exports remain eligible for reuse.
+
+Support exports follow an observed raw-resume binding, or label bounded recent
+folders as candidates before binding exists. They report sizes/existence for five
+fixed receipt/identity/journal files without reading/exporting asset catalogs.
+Large receipt fixtures run actual child integrity checks and merge-journal replay
+without repeating exporters. Backend-focused checks pass: 136 wizard, 42 builder,
+25 builder-startup, 18 release/support and 25 raw-resume cases. The final 269-case
+gate also passes 19 Node UI and four artwork tests, with eight direct Chrome
+DOM/loopback workflows and no skips. Browser and extracted-release qualification
+are recorded in [the wizard evidence](QUEST-WIZARD-20261006.md) before publication.
+No runtime change, host APK build or exhaustive shader gate;
+Windows whole-game success remains a maintainer test. Publish only the Quest source
+Builder ZIP and feature branch, retain `%USERPROFILE%\.ghvrq`.
+
 **Quest B627 recovery finalization and resumed Windows build, 2026-10-06 (tooling only).**
 
 The new Windows support capture ends after all 2761 collections merge, then
