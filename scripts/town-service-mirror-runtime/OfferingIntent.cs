@@ -22,6 +22,18 @@ public static partial class MirrorProgram
             TownServiceMirror.RegisterTemplate(1, 2, zone, address: "ordinary|");
             TownServiceMirror.RegisterModule(1, 2, zone, address: "ordinary|");
             TownServiceFrame? offering = null, manifest = null;
+            // Cold, alpha-zero originals are intentionally not serialized by the
+            // visibility admission boundary. First admit an actual active request,
+            // then park that same native guide while testing its intent heartbeat.
+            foreach (byte[] packet in Capture())
+            {
+                Check(TownServiceCodec.TryRead(packet, packet.Length, out TownServiceFrame? frame), "cold offering fixture packet decodes");
+                if (frame!.Module == TownServiceFrame.ManifestModule) manifest = frame;
+                else Check(frame.Module != 10, "cold invisible offering publishes no original artwork");
+            }
+            Check(manifest != null, "cold offering retains owner session membership");
+            Check(Remote(2, 10) == null, "cold invisible offering has no observer artwork");
+            zone.GetComponent<CanvasGroup>().alpha = 1f;
             foreach (byte[] packet in Capture())
             {
                 Check(TownServiceCodec.TryRead(packet, packet.Length, out TownServiceFrame? frame), "offering fixture packet decodes");
@@ -30,6 +42,7 @@ public static partial class MirrorProgram
             }
             Check(offering != null && manifest != null, "owner supplies original offering module and membership");
             TownServiceDelivery.Completed!(offering!);
+            zone.GetComponent<CanvasGroup>().alpha = 0f;
             var modules = (IDictionary)typeof(TownServiceMirror).GetProperty("Local", PrivateStatic)!.GetValue(null)!;
             object ownerModule = modules[(ushort)10]!;
             FieldInfo refresh = ownerModule.GetType().GetField("NextRefresh", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -68,6 +81,8 @@ public static partial class MirrorProgram
             TownServiceMirror.InteractionOwner(1);
             for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
             Check(TownServiceMirror.RemoteMerchantOffering, "parked zero-alpha overlay keeps the shared palm open");
+            TownServiceMirror.TickRemote(_ => shared);
+            Check(Remote(2, 10) == null, "shared offering intent never publishes the visitor-local pre-drop guide");
             byte[] stale = TownServiceCodec.Write(offering!);
             offering!.Visible = false; Deliver(offering);
             Check(!TownServiceMirror.RemoteMerchantOffering, "owner withdrawal closes the shared palm before any asset playback");
