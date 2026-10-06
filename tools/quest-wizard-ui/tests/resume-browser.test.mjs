@@ -136,7 +136,7 @@ test('choice editing keeps session ID; only explicit new-build selection creates
       // Page.reload acknowledges the command before the replacement document
       // necessarily exists. Wait for its restoration, rather than clicking
       // a still-visible control in the previous running document.
-      await client.wait("!window.__resumeWitnessOldDocument&&document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden&&document.getElementById('progress-title').textContent==='The build has stopped.'");
+      await client.wait("!window.__resumeWitnessOldDocument&&document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden&&document.getElementById('progress-title').textContent==='Build failed'");
       const before=JSON.parse(JSON.stringify(server.setup.state));
       await client.evaluate("document.getElementById('new-build').click()");
       await client.wait("!document.getElementById('game-page').hidden");

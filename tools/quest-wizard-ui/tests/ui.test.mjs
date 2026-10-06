@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {strings,translate} from '../i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,publisherSourceUrl,sessionId,savedSession,activeWorkView,timingView,durationText} from '../model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,publisherSourceUrl,sessionId,savedSession,activeWorkView,timingView,durationText,failureView,activityView} from '../model.mjs';
 import {LocalApi,PreviewApi} from '../transport.mjs';
 
 test('German and English expose the same strings and parameter ABI',()=>{
@@ -12,6 +12,19 @@ test('German and English expose the same strings and parameter ABI',()=>{
   }
   assert.equal(translate('en','foundOne'),'Found one local game copy.');
   assert.equal(translate('de','foundMany',{count:3}),'3 lokale Spielkopien gefunden.');
+});
+
+test('terminal failure exposes its concrete bounded cause; stale activity never invents progress',()=>{
+  const action={stage:'build',message:{de:'Konvertierung fehlgeschlagen',en:'Conversion failed'},parameters:{failureStage:'recovery',cause:"Traceback:\n ModuleNotFoundError: No module named 'recover'"}};
+  assert.deepEqual(failureView({status:'failed',needsActions:[action]}),{stage:'recovery',message:action.message,cause:"ModuleNotFoundError: No module named 'recover'"});
+  for(const status of ['running','blocked','complete','cancelled'])assert.equal(failureView({status,needsActions:[action]}),null,'retained old errors are not active failures');
+  assert.equal(failureView({status:'failed',stages:[{id:'build',status:'failed'}]}).stage,'build');
+  assert.equal(stageProgress({status:'failed',waiting:{since:100}}).waiting,null,'a retained prerequisite does not conceal a failed stage');
+  assert.equal(failureView({status:'failed',needsActions:[{parameters:{builderError:'x'.repeat(900)}}]}).cause.length,360);
+  assert.deepEqual(activityView({progress:{updatedAt:100}},140),{seconds:40,quiet:false});
+  assert.deepEqual(activityView({progress:{updatedAt:100}},280),{seconds:180,quiet:true});
+  assert.deepEqual(activityView({progress:{updatedAt:100}},90),{seconds:0,quiet:false});
+  for(const updatedAt of [null,undefined,NaN,Infinity,-1,0,'100'])assert.equal(activityView({progress:{updatedAt}},140),null);
 });
 
 test('ownership is never inferred from selected checkboxes unless explicitly declared',()=>{

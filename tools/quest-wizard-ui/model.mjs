@@ -32,6 +32,23 @@ export function macroStep(state) {
   return 1;
 }
 export function isActive(state) { return ['running','cancelling','cancel_requested'].includes(state?.status); }
+export function failureView(state) {
+  if(state?.status!=='failed')return null;
+  const action=state.needsActions?.find(value=>value&&typeof value==='object')??{};
+  const parameters=action.parameters??{};
+  const cause=typeof parameters.cause==='string'?parameters.cause:typeof parameters.builderError==='string'?parameters.builderError:'';
+  // Show one concrete, bounded diagnostic rather than a traceback wall. Text
+  // stays untrusted textContent; the complete original remains in the logs.
+  const lines=cause.split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
+  return {stage:typeof parameters.failureStage==='string'?parameters.failureStage:action.stage??state.stages?.find(row=>row.status==='failed')?.id,
+    message:action.message??null,cause:lines.at(-1)?.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,360)??''};
+}
+export function activityView(stage,now=Date.now()/1000) {
+  const updated=stage?.progress?.updatedAt;
+  if(typeof updated!=='number'||!Number.isFinite(updated)||updated<=0||typeof now!=='number'||!Number.isFinite(now))return null;
+  const seconds=Math.max(0,Math.floor(now-updated));
+  return {seconds,quiet:seconds>=60};
+}
 export function stageStatus(state,stage) {
   return stage.id==='install'&&stage.status==='complete'&&(stage.details?.requested===false||state?.choices?.install===false)?'skipped':stage.status;
 }
@@ -51,7 +68,7 @@ export function stageProgress(stage) {
     typeof raw==='number'&&Number.isFinite(raw)&&raw>=0&&raw<=100?Math.min(99.9,raw):0;
   const phaseRaw=value.percent;
   const phasePercent=typeof phaseRaw==='number'&&Number.isFinite(phaseRaw)&&phaseRaw>=0&&phaseRaw<=100?phaseRaw:null;
-  return {...value,percent,phasePercent,waiting:stage?.waiting??null};
+  return {...value,percent,phasePercent,waiting:['running','blocked'].includes(stage?.status)?stage?.waiting??null:null};
 }
 export function activeWorkView(progress) {
   const work=progress?.activeWork;

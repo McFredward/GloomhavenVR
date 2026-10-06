@@ -1,5 +1,5 @@
 import {translate} from './i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,savedSession,activeWorkView,timingView,durationText} from './model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,savedSession,activeWorkView,timingView,durationText,failureView,activityView} from './model.mjs';
 import {LocalApi,PreviewApi} from './transport.mjs';
 
 const $ = id => document.getElementById(id);
@@ -10,6 +10,7 @@ let language = (preview ? new URLSearchParams(location.search).get('lang') : nul
 if (!['de','en'].includes(language)) language='de';
 let page=0,selected=null,discovery=null,state=null,busy=false,after=0,log=[],loadedLog=null,pollTimer=null,canConnect=preview||Boolean(token),artworkKey='',artworkGeneration=0;
 let qualification=null,resumeFailed=null,restoredSession=null,sessionGeneration=0;
+let logUnavailable=false,lastFailureFocus='';
 let publisherArtwork=[],ownedArtwork=[],artworkSource='';
 const reducedMotion=matchMedia('(prefers-reduced-motion:reduce)');
 let slides=[],slideIndex=0,slideTimer=null,slidePaused=reducedMotion.matches,artPollTimer=null,actionBusy=false,logBusy=false,logSelectionManual=false;
@@ -177,10 +178,13 @@ function renderProgress() {
   if(!state)return;
   const active=isActive(state),stopped=['failed','cancelled','interrupted'].includes(state.status),blocked=state.status==='blocked',done=state.status==='complete';
   if(state.requestError)error(state.requestError);
-  const waiting=state.stages?.find(row=>row.waiting)?.waiting;
+  const failure=failureView(state);
+  // A retained prerequisite record must never replace a confirmed terminal
+  // failure with a misleading "waiting for user" presentation.
+  const waiting=(active||blocked)?state.stages?.find(row=>row.waiting)?.waiting:null;
   $('action-needed-title').textContent=t(waiting||blocked?'actionNeeded':'failureTitle');
-  $('progress-title').textContent=t(waiting?'actionNeeded':done?'completeTitle':blocked?'blockedTitle':stopped?'stoppedTitle':state.status==='ready'?'readyTitle':'progressTitle');
-  $('progress-copy').textContent=t(done?'completeCopy':blocked?'blockedCopy':stopped?'stoppedCopy':state.status==='ready'?'readyCopy':'progressCopy');
+  $('progress-title').textContent=t(failure?'failureTitle':waiting?'actionNeeded':done?'completeTitle':blocked?'blockedTitle':stopped?'stoppedTitle':state.status==='ready'?'readyTitle':'progressTitle');
+  $('progress-copy').textContent=t(failure?'failureCopy':done?'completeCopy':blocked?'blockedCopy':stopped?'stoppedCopy':state.status==='ready'?'readyCopy':'progressCopy');
   const progress=progressView(state);
   if(!logSelectionManual&&progress.current?.id)$('log-stage').value=progress.current.id;
   $('phase-label').textContent=t(done?'done':t('stage_'+progress.phase)==='stage_'+progress.phase?'waiting':'stage_'+progress.phase);
@@ -195,6 +199,11 @@ function renderProgress() {
   $('progress-completed').hidden=done;
   $('progress-completed').textContent=workSummary(sub);
   renderTiming(progress.current);
+  const activity=activityView(progress.current);
+  $('activity-status').hidden=!active||Boolean(waiting);
+  $('activity-status').classList.toggle('quiet',activity?.quiet===true);
+  $('activity-status').textContent=t(activity?.quiet?'activityQuiet':activity?'activityRecent':'activityUnknown',{duration:durationText(activity?.seconds??0)});
+  $('log-status').hidden=!logUnavailable;$('log-status').textContent=t('logUnavailable');
   $('substep-progress').hidden=!hasSubstep;
   $('substep-label').textContent=substepLabel(sub);
   $('substep-count').textContent=sub.phasePercent===null?t('phaseUnknown'):t('phasePercent',{percent:percentText(sub.phasePercent)});
@@ -211,11 +220,22 @@ function renderProgress() {
     const bar=document.createElement('progress');bar.max=100;bar.setAttribute('aria-label',t('stage_'+stage.id)+' · '+t('stageTotal'));bar.value=measured.percent;label.append(bar);
     const status=document.createElement('span');status.className='stage-state';status.textContent=t('measuredPercent',{percent:percentText(measured.percent)})+' · '+t(measured.waiting?'blocked':displayed);li.append(marker,label,status);$('stage-list').append(li);
   }
-  const action=state.needsActions?.[0];$('action-needed').hidden=!action&&!blocked&&!stopped;
+  const action=active&&!waiting?null:state.needsActions?.[0];$('action-needed').hidden=!action&&!blocked&&!stopped;
+  $('action-needed').classList.toggle('failure',Boolean(failure));
+  $('action-needed').setAttribute('role',failure?'alert':'status');
+  $('failure-cause').hidden=!failure?.cause;
+  $('failure-cause').textContent=failure?.cause?t('failureCause',{cause:failure.cause}):'';
+  $('failure-next').hidden=!failure;$('failure-actions').hidden=!failure;
+  $('failure-retry').disabled=busy||!canConnect||Boolean(resumeFailed);
+  $('failure-support').hidden=preview||discovery?.capabilities?.support!==true;
+  $('failure-support').disabled=!sessionId(state.session);
   if(action||blocked||stopped){const blockedStage=state.stages?.find(stage=>stage.status==='blocked');const code=typeof action==='string'?action:action?.code??blockedStage?.details?.needsAction;
     const hint=action?.message?message(action.message):blockedStage?.details?.message?message(blockedStage.details.message):t('action_'+code)!=='action_'+code?t('action_'+code):t('unknownAction');
     const phase=action?.parameters?.failureStage;const stageName=phase?t('phase_stage_'+phase):action?.stage?t('stage_'+action.stage):progress.current?t('stage_'+progress.current.id):'';
     $('action-needed-copy').textContent=(stageName?stageName+': ':'')+hint;}
+  const failureKey=failure?state.session+':'+failure.stage+':'+failure.cause:'';
+  if(failureKey&&failureKey!==lastFailureFocus){$('action-needed').focus({preventScroll:true});$('action-needed').scrollIntoView({block:'nearest'});}
+  lastFailureFocus=failureKey;
   $('unity-actions').hidden=!waiting;$('edit-choices').hidden=active;
   for(const id of ['unity-open','unity-check'])$(id).disabled=actionBusy;
   $('result-card').hidden=!done;
@@ -262,7 +282,7 @@ function restoreChoices(choices) {
 async function openSession(session) {
   if(!sessionId(session)||busy)return false;clearError();busy=true;clearTimeout(pollTimer);sessionGeneration++;updateView();
   try {const result=await api.status(session);if(!result.state||result.state.session!==session)throw {code:'invalidReply'};
-    resetArtwork();clearLoadedLog();state=result.state;resumeFailed=null;restoredSession=session;restoreChoices(state.choices);page=2;after=0;log=[];schedulePoll();return true;}
+    resetArtwork();clearLoadedLog();logUnavailable=false;state=result.state;resumeFailed=null;restoredSession=session;restoreChoices(state.choices);page=2;after=0;log=[];schedulePoll();return true;}
   catch(value){resumeFailed=session;error(value);return false;}finally{busy=false;renderGames();updateView();}
 }
 function schedulePoll() {clearTimeout(pollTimer);if(state?.session)pollTimer=setTimeout(poll,1000);}
@@ -272,9 +292,15 @@ async function poll() {
   try {
     const result=await api.status(session);if(generation!==sessionGeneration||state?.session!==session)return;
     if(!result.state||result.state.session!==session)throw {code:'invalidReply'};
-    const events=await api.events(session,after);if(generation!==sessionGeneration||state?.session!==session)return;state=result.state;
-    for(const event of events.events??[])if(Number(event.sequence)>after) {log.push([event.time,event.stage,event.code,event.message?message(event.message):event.parameters?.message?message(event.parameters.message):event.parameters?.cause??event.parameters?.detail??''].filter(Boolean).join(' · '));after=Math.max(after,Number(event.sequence));}
-    log=log.slice(-50);clearError();updateView();
+    // Status is authoritative. A failed/slow log endpoint used to discard a
+    // successful status response and leave the screen claiming RUNNING.
+    state=result.state;clearError();updateView();
+    try {
+      const events=await api.events(session,after);if(generation!==sessionGeneration||state?.session!==session)return;
+      for(const event of events.events??[])if(Number(event.sequence)>after) {log.push([event.time,event.stage,event.code,event.message?message(event.message):event.parameters?.message?message(event.parameters.message):event.parameters?.cause??event.parameters?.detail??''].filter(Boolean).join(' · '));after=Math.max(after,Number(event.sequence));}
+      log=log.slice(-50);logUnavailable=false;
+    }catch{if(generation!==sessionGeneration||state?.session!==session)return;logUnavailable=true;}
+    updateView();
     if($('live-log').checked&&document.querySelector('#progress-page details').open)await refreshLog();
   }catch(value){if(generation===sessionGeneration)error(value);}
   if(isActive(state))schedulePoll();
@@ -324,12 +350,16 @@ $('new-build').addEventListener('click',()=>{
   updateView();$('game-root').focus();
 });
 $('edit-choices').addEventListener('click',()=>{if(isActive(state))return;clearTimeout(pollTimer);restoreChoices(state?.choices);page=0;clearError();updateView();$('game-root').focus();});
-$('save-support').addEventListener('click',async()=>{
-  $('save-support').disabled=true;
+async function saveSupport() {
+  if(!sessionId(state?.session))return;
+  $('save-support').disabled=true;$('failure-support').disabled=true;
   try {const result=await api.support(state.session);const url=URL.createObjectURL(result.blob);
     const link=document.createElement('a');link.href=url;link.download=result.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
-  }catch(value){error(value);}finally{$('save-support').disabled=false;}
-});
+  }catch(value){error(value);}finally{$('save-support').disabled=false;$('failure-support').disabled=false;}
+}
+$('save-support').addEventListener('click',saveSupport);
+$('failure-support').addEventListener('click',saveSupport);
+$('failure-retry').addEventListener('click',primary);
 $('log-stage').addEventListener('change',()=>{logSelectionManual=true;if($('live-log').checked)refreshLog();});
 document.querySelector('#progress-page details').addEventListener('toggle',()=>{if(document.querySelector('#progress-page details').open&&$('live-log').checked)refreshLog();});
 $('load-log').addEventListener('click',async()=>{const button=$('load-log');button.disabled=true;try{const result=await api.log(state.session,$('log-stage').value);if(typeof result.text!=='string'||result.text.length>65536)throw {code:'invalidReply'};loadedLog={stage:result.stage,text:result.text,truncated:result.truncated===true};$('stage-log').textContent=result.text;$('stage-log').hidden=false;$('log-truncated').hidden=!result.truncated;}catch(value){error(value);}finally{button.disabled=false;}});

@@ -1,5 +1,8 @@
 export const strings = {
   de: {
+    failureCopy:'Der Build wurde mit einem Fehler beendet. Es wird keine weitere Arbeit ausgeführt.',failureCause:'Ursache: {cause}',failureNext:'Vorhandene Ergebnisse bleiben erhalten. Speichere das Diagnosepaket und versuche es mit dem korrigierten Builder erneut.',failureRetry:'Erneut versuchen',
+    activityRecent:'Letzter gemeldeter Fortschritt vor {duration}.',activityQuiet:'Seit {duration} wurde kein weiterer Fortschritt gemeldet. Ob das Werkzeug weiterarbeitet, ist noch nicht bestätigt.',activityUnknown:'Das Werkzeug hat bisher keine Fortschrittsmeldung geliefert.',logUnavailable:'Die zusätzlichen Ereignisprotokolle sind derzeit nicht verfügbar. Der angezeigte Build-Status wurde trotzdem aktualisiert.',
+    "phase_recovery-asset-references":"Verknüpfungen der Spielassets erfassen",
     projectLinks:'Projektlinks',githubLink:'GloomhavenVR auf GitHub',coffeeLink:'McFredward auf Buy Me a Coffee unterstützen',
     recoveryNativeContext:'Asset-Verzeichnis {index} / {total}',
     activeWorkCompleted:'{operation}: {done} / {total} Teilaufgaben abgeschlossen',activeWorkUnknown:'Die Anzahl der Teilaufgaben dieses Abschnitts wird noch nicht gemeldet.',activeWorkCurrent:'Aktueller Abschnitt',
@@ -116,7 +119,7 @@ export const strings = {
     missingTerms:'Bitte bestätige die Unity-Bedingungen, bevor die Einrichtung beginnt.', offline:'Die Verbindung zum lokalen Wizard ist unterbrochen. Lass das Startfenster geöffnet und versuche es erneut.',
     invalidReply:'Der lokale Wizard hat eine ungültige Antwort geliefert.', noToken:'Starte Quest-Builder.cmd, um die lokale Verbindung zu öffnen.',
     preparing:'Einrichtung wird vorbereitet …', phaseSteps:'{completed} / {total} Schritte', phasePercent:'{percent} %', working:'Arbeitsschritt läuft', waiting:'Wartet',
-    pending:'Wartet', running:'Läuft', complete:'Fertig', blocked:'Aktion erforderlich', failed:'Angehalten', cancelled:'Abgebrochen', skipped:'Nicht ausgewählt',interrupted:'Unterbrochen',
+    pending:'Wartet', running:'Läuft', complete:'Fertig', blocked:'Aktion erforderlich', failed:'Fehlgeschlagen', cancelled:'Abgebrochen', skipped:'Nicht ausgewählt',interrupted:'Unterbrochen',
     stage_tools:'Werkzeuge vorbereiten', stage_source:'Mod-Version bereitstellen', stage_unity:'Unity einrichten', stage_profile:'Profil & DLCs prüfen',
     stage_inspect:'Spielkopie prüfen', stage_build:'Quest-Version erstellen', stage_install:'Auf deiner Quest installieren',
     stoppedTitle:'Der Build ist angehalten.', stoppedCopy:'Bestätigte lokale Ergebnisse bleiben erhalten. Beim Fortsetzen prüft der Wizard, welche Schritte wiederverwendet werden können.',
@@ -139,6 +142,9 @@ export const strings = {
     ownershipUnknown:'DLC-Besitz wird geprüft', baseGame:'Basisspiel', cannotBrowse:'Der native Ordnerdialog ist auf diesem Rechner nicht verfügbar. Trage den vollständigen Pfad ein.'
   },
   en: {
+    failureCopy:'The build ended with an error. No further work is running.',failureCause:'Cause: {cause}',failureNext:'Existing results are retained. Save the diagnostic package and try again with the corrected builder.',failureRetry:'Try again',
+    activityRecent:'Last reported progress {duration} ago.',activityQuiet:'No further progress has been reported for {duration}. Whether the tool is still working has not been confirmed.',activityUnknown:'The tool has not provided a progress report yet.',logUnavailable:'Additional event logs are currently unavailable. The displayed build status was still updated.',
+    "phase_recovery-asset-references":"Collect game asset links",
     projectLinks:'Project links',githubLink:'GloomhavenVR on GitHub',coffeeLink:'Support McFredward on Buy Me a Coffee',
     recoveryNativeContext:'Asset index {index} / {total}',
     activeWorkCompleted:'{operation}: {done} / {total} subtasks completed',activeWorkUnknown:'The tool has not reported the number of subtasks in this section yet.',activeWorkCurrent:'Current section',
@@ -255,7 +261,7 @@ export const strings = {
     missingTerms:'Please accept the Unity terms before setup begins.', offline:'The connection to the local wizard was interrupted. Keep its launch window open and try again.',
     invalidReply:'The local wizard returned an invalid response.', noToken:'Launch Quest-Builder.cmd to open the local connection.',
     preparing:'Preparing setup …', phaseSteps:'{completed} / {total} steps', phasePercent:'{percent}%', working:'Stage in progress', waiting:'Waiting',
-    pending:'Waiting', running:'In progress', complete:'Done', blocked:'Action required', failed:'Stopped', cancelled:'Cancelled', skipped:'Not selected',interrupted:'Interrupted',
+    pending:'Waiting', running:'In progress', complete:'Done', blocked:'Action required', failed:'Failed', cancelled:'Cancelled', skipped:'Not selected',interrupted:'Interrupted',
     stage_tools:'Prepare tools', stage_source:'Prepare mod version', stage_unity:'Set up Unity', stage_profile:'Check profile & DLC',
     stage_inspect:'Check game copy', stage_build:'Build Quest version', stage_install:'Install on your Quest',
     stoppedTitle:'The build has stopped.', stoppedCopy:'Confirmed local results are retained. When you continue, the wizard checks which stages can be reused.',
