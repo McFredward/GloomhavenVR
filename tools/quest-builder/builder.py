@@ -1024,9 +1024,26 @@ def validate_apk(apk: Path, report: Path, inputs: dict, tools: dict, output: Pat
                         or not re.fullmatch(r"[0-9a-f]{64}", str(row.get("sha256", ""))) or type(row.get("size")) is not int):
                     raise BuildError("Campaign content bank identity is invalid.")
                 bank = apk.parent / row["file"]
-                if bank.is_symlink() or not bank.is_file() or bank.stat().st_size != row["size"] or digest(bank) != row["sha256"]:
+                if bank.is_symlink() or not bank.is_file() or bank.stat().st_size != row["size"]:
                     raise BuildError("Complete Campaign content bank changed or is missing.")
-                content_files.append(record_file(bank, bank.relative_to(output).as_posix()))
+                bank_before = bank.stat()
+                bank_record = record_file(bank, bank.relative_to(output).as_posix())
+                if bank_record["sha256"] != row["sha256"]:
+                    raise BuildError("Complete Campaign content bank changed or is missing.")
+                content_files.append(bank_record)
+                # The PC installer publishes completed file-backed content before
+                # launch. Verify its signed inventory without a second multi-GB
+                # Campaign entry sweep; the bank SHA was checked immediately above.
+                spec = importlib.util.spec_from_file_location("_ghvr_installation_manifest", Path(__file__).with_name("installation_manifest.py"))
+                installation = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(installation)
+                try:
+                    installation_contract = installation.validate(archive, inputs["inputKey"], bank, row)
+                except (ValueError, OSError, KeyError, TypeError, zipfile.BadZipFile) as error:
+                    raise BuildError("Signed PC installation contract failed: " + str(error)) from error
+                bank_after = bank.stat()
+                if (bank_before.st_size, bank_before.st_mtime_ns) != (bank_after.st_size, bank_after.st_mtime_ns):
+                    raise BuildError("Complete Campaign content bank changed during installation-contract verification.")
     verify_env = dict(os.environ)
     if tools.get("jdk"):
         verify_env["JAVA_HOME"] = tools["jdk"]
@@ -1052,6 +1069,8 @@ def validate_apk(apk: Path, report: Path, inputs: dict, tools: dict, output: Pat
             "isDummy": bool(inputs["profile"].get("isDummy")), "buildReport": metadata, "contentFiles": content_files}
     if "buildProvenance" in metadata:
         result["buildProvenance"] = metadata["buildProvenance"]
+    if inputs["target"] == "game":
+        result["installationContract"] = installation_contract
     return result
 
 

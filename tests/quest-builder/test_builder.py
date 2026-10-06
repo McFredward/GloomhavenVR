@@ -312,6 +312,8 @@ class ApkTests(Temporary):
 
     def campaign_fixture(self, omit=None, input_key=None):
         self.inputs["target"] = "game"
+        self.inputs["inputKey"] = "c" * 64
+        self.metadata["inputKey"] = self.inputs["inputKey"]
         self.metadata["target"] = "game"
         self.metadata["graphicsApi"] = "Vulkan"
         storage.write_json(self.evidence, self.metadata)
@@ -319,7 +321,24 @@ class ApkTests(Temporary):
         bank = self.apk.parent / "GloomhavenVR-Quest-content.zip"
         with zipfile.ZipFile(bank, "w") as archive:
             archive.writestr("StreamingAssets/Rulebase/fixture", b"owned fixture")
+        mod_bank = self.root / "mod-content.zip"
+        mod_paths = ("StreamingAssets/gloomhavenvr.bundle", "StreamingAssets/ghvr-town.bundle", "StreamingAssets/ghvr-town-voices.bundle")
+        with zipfile.ZipFile(mod_bank, "w") as archive:
+            for path in mod_paths:
+                archive.writestr(path, b"mod fixture")
+        import hashlib
+        contract = {"schema": 1, "inputKey": self.inputs["inputKey"],
+            "game": {"schema": 1, "inputKey": self.inputs["inputKey"], "archive": "quest-startup-content.zip",
+                     "archiveSha256": storage.digest(bank), "externalDelivery": True,
+                     "files": [{"path": "StreamingAssets/Rulebase/fixture", "size": len(b"owned fixture"),
+                                "sha256": hashlib.sha256(b"owned fixture").hexdigest()}]},
+            "mod": {"schema": 1, "inputKey": self.inputs["inputKey"], "archive": "quest-mod-content.zip",
+                    "archiveSha256": storage.digest(mod_bank), "externalDelivery": False,
+                    "files": [{"path": path, "size": len(b"mod fixture"), "sha256": hashlib.sha256(b"mod fixture").hexdigest()}
+                              for path in mod_paths]}}
         with zipfile.ZipFile(self.apk, "a") as archive:
+            archive.write(mod_bank, "assets/quest-mod-content.zip")
+            archive.writestr("assets/Quest/installation-manifest.json", json.dumps(contract))
             for name in ("libQuestApparance.so", "libquest_box64.so", "libquest_wineserver.so", "libopus_egpv.so"):
                 if name != omit: archive.writestr("lib/arm64-v8a/" + name, arm64_elf_header())
             archive.writestr("assets/Quest/content-delivery.json", json.dumps({"schema": 1, "package": builder.PACKAGE,
@@ -336,6 +355,32 @@ class ApkTests(Temporary):
         bank.write_bytes(b"changed")
         with self.assertRaisesRegex(storage.BuildError, "content bank changed"):
             builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+
+    def test_campaign_installation_contract_uses_one_bank_hash_pass(self):
+        bank = self.campaign_fixture()
+        actual_digest, observed = storage.digest, []
+        def hashed(path):
+            observed.append(Path(path))
+            return actual_digest(path)
+        with patch.object(storage, "digest", side_effect=hashed), patch.object(builder, "command", self.tool_output):
+            evidence = builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+        self.assertEqual(observed.count(bank), 1)
+        self.assertEqual(evidence["installationContract"]["gameFileCount"], 1)
+        self.assertEqual(evidence["installationContract"]["modFileCount"], 3)
+        self.assertTrue(evidence["installationContract"]["modEntryBytesVerified"])
+
+    def test_campaign_missing_signed_installation_inventory_fails_before_signature_receipt(self):
+        self.campaign_fixture()
+        with zipfile.ZipFile(self.apk) as archive:
+            records = [(entry, archive.read(entry)) for entry in archive.infolist()
+                       if entry.filename != "assets/Quest/installation-manifest.json"]
+        with zipfile.ZipFile(self.apk, "w") as archive:
+            for entry, data in records:
+                archive.writestr(entry, data)
+        with patch.object(builder, "command", side_effect=AssertionError("Signing tools reached before contract validation")):
+            with self.assertRaisesRegex(storage.BuildError, "Signed PC installation contract failed"):
+                builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+        self.assertFalse((self.output / "signing/certificate.json").exists())
 
     def test_campaign_requires_original_depth_compatible_graphics_backend(self):
         self.campaign_fixture()
