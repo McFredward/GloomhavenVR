@@ -11,6 +11,7 @@ import threading
 import time
 import uuid
 import stage_plan
+import timing
 
 STAGES = ("tools", "source", "unity", "profile", "inspect", "build", "install")
 PROGRESS_INTERVAL = 0.5
@@ -122,10 +123,11 @@ def file_lock(path):
 
 
 class Store:
-    def __init__(self, root):
+    def __init__(self, root, *, clock=None):
         self._lock = threading.RLock()
         self._live = {}
         self._progress_saved = {}
+        self._timing = timing.Timeline(clock)
         self.root = ordinary(root)
         marker = self.root / "wizard-owner.json"
         if self.root.exists() and not marker.is_file():
@@ -165,7 +167,8 @@ class Store:
         for row in value["stages"]:
             row.setdefault("progress", stage_progress("complete", 1, 1) if row["status"] == "complete" else stage_progress())
             stage_plan.advance(row, row["progress"])
-        return value
+        with self._lock:
+            return self._timing.snapshot(value, self._live.get(session))
 
     @contextmanager
     def active(self, state):
@@ -173,9 +176,11 @@ class Store:
         session = state["session"]
         with self._lock:
             self._live[session] = state
+            self._timing.activate(state)
         try: yield state
         finally:
             with self._lock:
+                self._timing.close(state)
                 self.save(state)
                 self._live.pop(session, None)
 
@@ -192,6 +197,7 @@ class Store:
             for row in state["stages"]:
                 row.setdefault("progress", stage_progress("complete", 1, 1) if row["status"] == "complete" else stage_progress())
                 stage_plan.advance(row, row["progress"])
+            self._timing.sync(state)
             atomic_json(self.session_dir(state["session"]) / "state.json", state)
 
     def amend(self, session, choices):
@@ -205,6 +211,7 @@ class Store:
                 row.update(status="pending", details={}, progress=stage_progress())
                 row.pop("progressPlan", None)
                 row.pop("waiting", None)
+                row.pop("timingState", None)
             self.event(state, "choices_updated")
             return state
 
@@ -222,6 +229,8 @@ class Store:
         with self._lock: return self._event(state, code, stage, **parameters)
 
     def _event(self, state, code, stage=None, **parameters):
+        self._timing.sync(state)
+        if stage: parameters["timing"] = dict(self._row(state, stage)["timing"])
         state["lastEvent"] += 1
         item = {"sequence": state["lastEvent"], "time": time.time(), "code": code, "parameters": parameters}
         if stage: item["stage"] = stage
@@ -252,6 +261,7 @@ class Store:
                 row.pop("progressPlan", None)
                 row["progress"] = stage_progress()
                 row["status"] = "pending"
+                row.pop("timingState", None)
             row["progressKey"] = key
             self.save(state)
 
@@ -272,6 +282,7 @@ class Store:
             state = self._state(session); row = self._row(state, stage)
             stage_plan.advance(row, value, operation, status)
             old = row.get("progress", {}); row["progress"] = value
+            self._timing.observe(state, row, value, status)
             clock = time.monotonic(); last = self._progress_saved.get((session, stage), 0)
             changed_phase = old.get("phase") != phase or old.get("total") != total
             completed = total is not None and done == total and old.get("done") != done
@@ -306,6 +317,13 @@ class Store:
     def cancel(self, session):
         self.load(session)
         atomic_json(self.session_dir(session) / "cancel.json", {"schema": 1, "session": session, "time": time.time()})
+        with self._lock:
+            state = self._live.get(session)
+            if state is not None:
+                # A CLI/second server can request cancellation, but must not
+                # overwrite the running owner's durable state snapshot.
+                self._timing.pause(state)
+                self.save(state)
 
     def check_cancel(self, session):
         if (self.session_dir(session) / "cancel.json").exists(): raise Cancelled()
