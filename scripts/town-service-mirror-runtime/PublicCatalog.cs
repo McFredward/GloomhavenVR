@@ -396,17 +396,38 @@ public static partial class MirrorProgram
         GloomhavenVR.WorldUI.TownServiceSync.Calls.Clear();
         GloomhavenVR.WorldUI.TownServiceSync.Tick(owner,null);
         var calls=GloomhavenVR.WorldUI.TownServiceSync.Calls;
-        Check(calls.Count==1024,"closed native shop publishes all 512 owned faces and original backings exactly once");
-        Check(calls.Count(c=>c.Source==offered.NativeItemCard!.transform)==1
-            && calls.Count(c=>c.Source==offered.InspectionBody)==1,
+        // Recorded calls include private visible originals and the independent,
+        // hidden preparation of those same sources for their terminal flights.
+        // A stock prewarm cannot prove that the current private offer was published.
+        var originalSources = new HashSet<Transform>();
+        foreach (var chip in GloomhavenVR.WorldUI.TownServiceMerchantHandoff.OwnedChips)
+        { originalSources.Add(chip.NativeItemCard!.transform); originalSources.Add(chip.InspectionBody!); }
+        object instance=typeof(GloomhavenVR.WorldUI.TownServiceSync).GetField("Private",PrivateStatic)!.GetValue(null)!;
+        var privateSources=(IDictionary)typeof(GloomhavenVR.WorldUI.TownServiceSync)
+            .GetField("Sources",BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(instance)!;
+        // This routing fixture allocates the original source/part identities but
+        // leaves full native artwork construction to the publisher622 scope.
+        Check(originalSources.Count == 1024
+            && calls.Where(c => originalSources.Contains(c.Source)).Select(c => c.Source).Distinct().Count() == 1024
+            && privateSources.Contains(offered.NativeItemCard!.transform) && privateSources.Contains(offered.InspectionBody!)
+            && GloomhavenVR.WorldUI.TownServiceSync.ModuleId(offered.NativeItemCard!.transform) != 0
+            && GloomhavenVR.WorldUI.TownServiceSync.ModuleId(offered.InspectionBody!) != 0,
+            "closed native shop publishes all 512 owned faces and original backings exactly once");
+        Check(calls.Count(c=>c.Source==offered.NativeItemCard!.transform)==2
+            && calls.Count(c=>c.Source==offered.InspectionBody)==2,
             "original offered face and body publish after leaving the wrist fan hierarchy");
         foreach(var chip in GloomhavenVR.WorldUI.TownServiceMerchantHandoff.OwnedChips)
         {
-            Check(calls.Count(c=>c.Source==chip.NativeItemCard!.transform)==1&&calls.Count(c=>c.Source==chip.InspectionBody)==1,
+            int expected = chip.TownOffering ? 2 : 1;
+            Check(calls.Count(c=>c.Source==chip.NativeItemCard!.transform)==expected
+                &&calls.Count(c=>c.Source==chip.InspectionBody)==expected,
                 "owned item publisher uses each actual original face and backing");
+            using (TownServiceMirror.UseStockLane())
+                Check(TownServiceMirror.HidePreparedCardReturn(chip.NativeItemCard!.transform)
+                    && TownServiceMirror.HidePreparedCardReturn(chip.InspectionBody!),
+                    "independent terminal preparation stays invisible before its authentic return clock");
             Check(!calls.Any(c=>c.Source==chip.transform),"owned item mount is not duplicated as a second physical card");
         }
-        object instance=typeof(GloomhavenVR.WorldUI.TownServiceSync).GetField("Private",PrivateStatic)!.GetValue(null)!;
         var generation=typeof(GloomhavenVR.WorldUI.TownServiceSync).GetField("_generation",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!;
         var priority = (List<Transform>)typeof(GloomhavenVR.WorldUI.TownServiceSync).GetField("PriorityRoots",BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(instance)!;
         Check(priority.Contains(offered.NativeItemCard!.transform), "floating owned offering has animation publication priority");
