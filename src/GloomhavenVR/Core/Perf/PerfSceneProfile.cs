@@ -1267,6 +1267,7 @@ internal static partial class PerfSceneProfile
           .Append(" floorChunks=").Append(PerfConfig.StaticScenarioBatchesOn)
           .Append(" simpleFloorShading=").Append(PerfConfig.SimpleEnvironmentShadingOn)
           .Append(" terrainCameraSourceLimit=").Append(PerfConfig.TerrainCameraSourceLimit)
+          .Append(" worldMaterialMode=").Append(PerfConfig.WorldMaterialQualityMode)
           .Append(" environmentEffects=").Append(PerfConfig.EnvironmentEffectsDensityPercent).Append('%')
           .Append(" reducedGenerationNextLoad=").Append(PerfConfig.ReducedScenarioGenerationOn)
           .Append(" sharedWallReadCache=").Append(PerfConfig.SharedWallReadCacheOn)

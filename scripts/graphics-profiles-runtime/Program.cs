@@ -36,6 +36,8 @@ internal static class Program
             Check(PerfConfig.ScenarioEnvironmentMeshBank.Value==(i<3), "mesh-copy option is a shared standalone/performance control");
             Check(PerfConfig.ScenarioExplicitEnvironmentInstancing.Value==(i<3), "explicit draw option is independent and disabled in original quality");
             Check(PerfConfig.ScenarioCheapWallShading.Value==(i<2), "wall shading compromise is explicit for low profiles");
+            Check(PerfConfig.WorldMaterialQualityModeCount.Value==(i==0?2:0),
+                "standalone requests radical audited world shading while ordinary PC profiles keep native materials");
             Check(PerfConfig.ScenarioTerrainDetailPercent.Value==(i==0?0:i==1?50:100), "3D terrain detail restores original at balanced/high quality");
             Check(PerfConfig.ScenarioDistantTerrainDetailPercent.Value==(i<2?0:i==2?50:100), "distant 3D geometry has an independent cap");
             Check(PerfConfig.ScenarioTerrainCameraSourceLimitCount.Value==(i==0?64:0),
@@ -60,9 +62,12 @@ internal static class Program
         Check(RenderQuality.EyeResolutionScale.Value==.95f,
             "individual resolution remains independent after Standalone until another profile is explicitly chosen");
         PerfConfig.ScenarioTerrainCameraSourceLimitCount.Value=32;
+        PerfConfig.WorldMaterialQualityModeCount.Value=1;
         PerfConfig.Bind();
         Check(PerfConfig.ScenarioTerrainCameraSourceLimitCount.Value==32,
             "terrain substitution source limit remains independently adjustable after Standalone");
+        Check(PerfConfig.WorldMaterialQualityModeCount.Value==1,
+            "material shading stage remains independently adjustable after Standalone");
         PerfConfig.ScenarioCheapWallShading.Value=false;
         PerfConfig.ScenarioExplicitEnvironmentInstancing.Value=false;
         PerfConfig.ScenarioTerrainDetailPercent.Value=75;
