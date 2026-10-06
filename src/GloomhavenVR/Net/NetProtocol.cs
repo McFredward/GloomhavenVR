@@ -586,7 +586,28 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 627;
+    public const ushort ModBuild = 628;
+
+    // ModBuild 628 — loaded three-room Frame coverage and independent idle clothing.
+    // The offline PC627 capture showed narrow terrain coverage, no submitted
+    // environment groups and no visible idle sampling after scenario loading.
+    // Admit ten exact original Crypt wall/pillar definitions, retaining native
+    // floors, foundations, doorways, collision and live source/material state.
+    // Permit authored probe defaults only when actual native lighting is compatible;
+    // revoke late-invalid environment/idle leases after all managed pre-cull
+    // callbacks but before native culling. Native writer/clone entry restores
+    // originals synchronously, and failed hook/ownership checks keep native output.
+    // Sample compatible authored-culling idle bodies through the same native LOD
+    // group, retaining automatic/forced LOD, action/hold/clone restoration and
+    // bounded bake work. Disabled-cloth skeletal approximation is independently
+    // adjustable: fresh PC false, fresh Frame true, explicit Fastest true; active
+    // cloth solvers remain native. Interval zero and live Off recover originals.
+    // Debug counters record actual reads/reuse, registry work and surviving camera
+    // submissions, including zeros, without a new normal-level diagnostic stream.
+    // Common PC/Frame code/assets, saved settings, eye resolution, wire format,
+    // network cadence and all NPC627 behavior remain unchanged. Loading hitches
+    // are outside this package's success criterion. Native fixture evidence does
+    // not establish Frame stereo correctness, headset FPS or multiplayer headroom.
 
     // ModBuild 627 — common PC/Frame reversible rendering handover after NPC626.
     // Merge the reviewed isolated Build625-based Frame candidate only after the
