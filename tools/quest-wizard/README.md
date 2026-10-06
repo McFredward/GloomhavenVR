@@ -129,13 +129,26 @@ Generated compile-time XR assemblies are derived from the user's game files and
 are inventoried separately from shipped source.
 
 Before downloads the backend checks Windows x64, a short workspace root and a
-4 GiB **setup-only** free-space floor. This is not a full-game space estimate:
+4 GiB **setup-only** free-space floor. Before starting, the UI also presents a
+bounded estimate of full-conversion disk demand: eight times the owned data size
+plus a 20 GiB tools/import reserve, reduced conservatively by matching retained
+snapshot/project/recovery candidates. The metadata-only scans have time/file
+bounds. Unrelated game caches are not credited. Reuse is provisional until normal
+content hash checks pass; native/package reserves remain even with large caches.
+An amber warning displays estimated additional space versus available space,
+and a provably insufficient fresh snapshot + setup stops before SDK downloads.
+This planning estimate is not a full-game guarantee:
 Unity imports and recovered content require substantially more free disk space,
 and the check records `fullBuildSpaceVerified:false`. Unity Hub setup/sign-in and
 activation of an eligible license remain guided manual steps. The backend never
 reads or exports license contents and does not infer license validity from the
 Editor version. Real Windows provisioning/conversion and headset outcomes still
 require user testing; a package audit establishes only its delivered inputs.
+
+Missing original-derived figure mesh banks keep the complete original actor
+meshes intact through the mod's documented fallback. The Quest pipeline does not
+yet generate Android derivative LOD banks; excluding desktop/game-derived banks
+from public source delivery does not establish Steam Frame geometry-budget parity.
 
 ## Shareable build diagnostic package
 

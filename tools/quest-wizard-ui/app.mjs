@@ -9,6 +9,7 @@ const api = preview ? new PreviewApi() : new LocalApi(location.origin,token);
 let language = (preview ? new URLSearchParams(location.search).get('lang') : null) ?? readStorage('quest-wizard-language') ?? (navigator.language.startsWith('de') ? 'de' : 'en');
 if (!['de','en'].includes(language)) language='de';
 let page=0,selected=null,discovery=null,state=null,busy=false,after=0,log=[],loadedLog=null,pollTimer=null,canConnect=preview||Boolean(token),artworkKey='',artworkGeneration=0;
+let qualification=null;
 const blobUrls=[];
 const galleryTemplate=[...$('gallery').children].map(node=>node.cloneNode(true));
 function readStorage(key) { try { return localStorage.getItem(key); } catch { return null; } }
@@ -66,6 +67,9 @@ function renderGames() {
   }
 }
 function updateView() {
+  const estimate=qualification?.spaceEstimate;
+  $('space-estimate').hidden=!estimate;
+  if(estimate){$('space-estimate').textContent=t(estimate.scanBounded?'spacePartial':qualification.spaceWarning?'spaceLow':'spaceEstimate',{required:Math.ceil(estimate.additionalEstimatedBytes/1073741824),free:Math.floor(qualification.freeBytes/1073741824)});$('space-estimate').classList.toggle('warning',qualification.spaceWarning===true);}
   $('game-page').hidden=page!==0;$('setup-page').hidden=page!==1;$('progress-page').hidden=page!==2;
   const step=page===2 ? macroStep(state) : page;
   document.querySelectorAll('[data-step]').forEach(node => {const index=Number(node.dataset.step);node.classList.toggle('active',index===step);node.classList.toggle('done',index<step);if(index===step)node.setAttribute('aria-current','step');else node.removeAttribute('aria-current');});
@@ -158,7 +162,9 @@ async function poll() {
 }
 async function primary() {
   clearError();
-  if(page===0){try{choicesFromForm(form(),language);page=1;updateView();const heading=document.querySelector('#setup-page h2');heading.setAttribute('tabindex','-1');heading.focus();}catch(value){error({code:value.message});}return;}
+  if(page===0){busy=true;updateView();try{const selectedChoices=choicesFromForm(form(),language);
+    if(discovery?.capabilities?.spaceEstimate===true){qualification=await api.qualify(selectedChoices.gameRoot);}
+    page=1;updateView();const heading=document.querySelector('#setup-page h2');heading.setAttribute('tabindex','-1');heading.focus();}catch(value){error(typeof value?.message==='string'?{code:value.message}:value);}finally{busy=false;updateView();}return;}
   busy=true;updateView();
   try {
     if(page===1){const choices=choicesFromForm(form(),language);if(!choices.acceptUnityTerms)throw {code:'missingTerms'};

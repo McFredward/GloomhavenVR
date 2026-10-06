@@ -250,6 +250,11 @@ class Handler(BaseHTTPRequestHandler):
                 selected_choices = choices(value["choices"])
                 state = self.server.store.amend(value["session"], selected_choices) if value.get("session") else self.server.store.create(selected_choices)
                 return {"schema": 1, "event": "planned", "session": state["session"], "state": state}
+            if parsed.path == "/api/qualify":
+                if set(value) != {"gameRoot"}: raise WizardError("request_body", "Expected only the owned game path.")
+                selected_choices = choices({"gameRoot": value["gameRoot"]})
+                from qualification import qualify
+                return qualify(self.server.store.root, game_root=selected_choices["gameRoot"], repo=REPO)
             if parsed.path == "/api/browse":
                 if set(value) != {"kind"}: raise WizardError("request_body", "Unsupported browse fields.")
                 with self.server.browse_lock: path = browse(value["kind"])

@@ -29,6 +29,7 @@ export class LocalApi {
   run(session) { return this.request('/api/run',{session}); }
   cancel(session) { return this.request('/api/cancel',{session}); }
   log(session,stage) { if(!sessionId(session)||!stageIds.includes(stage))throw {code:'invalidReply'};return this.request('/api/log?session='+encodeURIComponent(session)+'&stage='+stage); }
+  qualify(gameRoot) { return this.request('/api/qualify',{gameRoot}); }
   browse(kind) { return this.request('/api/browse',{kind}); }
   status(session) { if (!sessionId(session)) throw {code:'invalidReply'}; return this.request('/api/status?session='+encodeURIComponent(session)); }
   events(session, after) { if(!sessionId(session))throw {code:'invalidReply'};return this.request('/api/events?session='+encodeURIComponent(session)+'&after='+(Number.isInteger(after)&&after>=0?after:0)); }

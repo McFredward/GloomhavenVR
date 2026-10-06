@@ -83,6 +83,7 @@ class Engine:
                     self.store.check_cancel(session)
                     prior = self.store.valid(session, stage, key)
                     if prior:
+                        if stage == "tools" and not self.actions: self.qualify(state)
                         row.update(status="complete", details=prior["details"])
                         state.setdefault("completed", {})[stage] = {"key": prior["key"], "details": prior["details"]}
                         self.emit(self.store.event(state, "stage_reused", stage)); continue
@@ -109,9 +110,15 @@ class Engine:
     def details(self, state, stage): return state["completed"][stage]["details"]
     def log(self, state, stage): return self.store.session_dir(state["session"]) / "logs" / (stage + ".log")
 
-    def stage_tools(self, state, supervisor):
+    def qualify(self, state):
         from qualification import qualify
-        qualify(self.store.root)
+        qualification = qualify(self.store.root, game_root=state["choices"]["gameRoot"], repo=self.repo)
+        if qualification.get("spaceWarning"):
+            self.emit(self.store.event(state, "space_estimate_warning", "tools", freeBytes=qualification["freeBytes"], estimatedBytes=qualification["spaceEstimate"]["additionalEstimatedBytes"]))
+        return qualification
+
+    def stage_tools(self, state, supervisor):
+        self.qualify(state)
         return provision.tools(self.store, state["session"], supervisor)
     def stage_source(self, state, supervisor):
         return provision.source_checkout(self.store, state["session"], state["choices"], self.details(state, "tools"), supervisor, self.repo)

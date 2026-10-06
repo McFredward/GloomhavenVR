@@ -198,3 +198,5 @@ h2{font-size:23px}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}
 .progress-track.indeterminate>div{width:100%!important;opacity:.5}
 }
+
+.space-notice{padding:12px 16px;border:1px solid var(--line);border-radius:12px;color:var(--muted);font-size:.9rem;line-height:1.5}.space-notice.warning{border-color:#ba8545;background:#382718;color:#f4d3a8}

@@ -126,4 +126,4 @@ def discover(repo, store):
     if (store.root / "latest-session.json").is_file(): latest = read_json(store.root / "latest-session.json")["session"]
     return {"schema": 1, "event": "discovery", "games": games, "unityEditors": editors, "unityHubs": hubs,
             "recentSessions": recent[:8], "latestSession": latest,
-            "capabilities": {"browse": os.name == "nt", "artwork": False, "logs": True, "support": True, "capture": False, "cleanCache": False}}
+            "capabilities": {"browse": os.name == "nt", "artwork": False, "logs": True, "support": True, "spaceEstimate": True, "capture": False, "cleanCache": False}}

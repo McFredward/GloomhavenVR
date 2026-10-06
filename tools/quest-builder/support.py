@@ -105,6 +105,8 @@ def export_support(state_root, session, destination=None):
         if match: meta['modBuild'] = int(match[1])
     release = read_object(repo / 'quest-builder-release.json')
     if release: meta['release'] = {key: release[key] for key in ('sourceCommit', 'modBuild', 'schema') if key in release}
+    qualification = read_object(root / 'qualification.json')
+    if qualification: meta['qualification'] = safe_json(qualification, replacements)
     build_root = ordinary(root / 'build')
     # Include only the selected build's small identity fields, never copy complete
     # receipts (which contain profile data, full game inventories and file paths).
