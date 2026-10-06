@@ -1237,7 +1237,10 @@ public static partial class MirrorProgram
         for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
         { TownServiceMirror.TickRemote(_ => observer); yield return null; }
         TownServiceMirror.TickRemote(_ => observer);
-        for (int i = 0; i < 6; i++) Check(Remote(3, (ushort)(i + 1)) != null, "all six counter cards have observer modules");
+        // The real publisher intentionally defers completely invisible original
+        // branches. Opening the owner CanvasGroup must admit those same six
+        // originals, rather than requiring alpha-zero clones to exist already.
+        for (int i = 0; i < 6; i++) Check(Remote(3, (ushort)(i + 1)) == null, "closed counter defers all six invisible original cards");
         opening.alpha = .37f;
         yield return null;
         var packets = Capture();
@@ -1253,7 +1256,11 @@ public static partial class MirrorProgram
         for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
         { TownServiceMirror.TickRemote(_ => observer); yield return null; }
         TownServiceMirror.TickRemote(_ => observer);
-        for (int i = 0; i < 6; i++) ComparePixels(cards[i], Remote(3, (ushort)(i + 1))!.Root, "counter-partial-opening-" + i);
+        for (int i = 0; i < 6; i++)
+        {
+            Check(Remote(3, (ushort)(i + 1)) != null, "all six counter cards have observer modules");
+            ComparePixels(cards[i], Remote(3, (ushort)(i + 1))!.Root, "counter-partial-opening-" + i);
+        }
         for (ushort i = 2; i < 6; i++) { cards[i].gameObject.SetActive(false); TownServiceMirror.UnregisterModule((ushort)(i + 1)); }
         opening.alpha = 1f;
         yield return null;
