@@ -55,8 +55,14 @@ internal sealed class TownServiceSurface : IDisposable
             // deliberately detaches it from that HUD and preserves its own visibility rules.
             if (t.GetComponent<UnityEngine.UI.UIWindow>() != null) break;
         }
+        // The detached original enhancement-point heading floats above the physical book.
+        // Its native full-cover portrait backing is not part of that reading surface:
+        // quiet preparation can leave its Image without the sprite normally assigned
+        // by CardsDisplay.Display, producing the white strip in build633's screenshot.
+        // Reuse the converter's reversible full-cover filter only for this heading;
+        // smaller original icons/text and every other folio section stay intact.
         Panel = CanvasConversion.Convert(source, "TownService." + id, fitContent: false,
-            useModLayer: true, transparentBackground: false)
+            useModLayer: true, transparentBackground: id == 13)
             ?? throw new InvalidOperationException("Native town section could not be converted: " + id);
         // A printed physical card already has its own backing; never add a window plate.
         Panel.MrBackingSuppressed = counterAnchor != null;
