@@ -1565,10 +1565,11 @@ public static partial class MirrorProgram
             // changed-module packet, including the sampler's bounded retry clock;
             // unrelated manifest traffic cannot satisfy the presentation assertion.
             var change = new List<byte[]>(); bool changedModule = false;
-            int sampledFrame = Time.frameCount, exceptionBudget = 4;
+            int sampledFrame = Time.frameCount, exceptionBudget = 4, captureAttempts = 0;
+            float changedAt = Time.unscaledTime;
             EventHandler<System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs> captureException = (_, error) =>
             {
-                if (error.Exception is IndexOutOfRangeException && exceptionBudget-- > 0)
+                if (error.Exception is IndexOutOfRangeException or NullReferenceException && exceptionBudget-- > 0)
                     File.AppendAllText(Path.Combine(_output, "capture-exceptions.txt"), error.Exception + "\n");
             };
             AppDomain.CurrentDomain.FirstChanceException += captureException;
@@ -1579,6 +1580,7 @@ public static partial class MirrorProgram
                     yield return null;
                     if (sampledFrame == Time.frameCount) continue;
                     sampledFrame = Time.frameCount;
+                    captureAttempts++;
                     foreach (byte[] packet in Capture())
                     {
                         change.Add(packet);
@@ -1588,6 +1590,28 @@ public static partial class MirrorProgram
                 }
             }
             finally { AppDomain.CurrentDomain.FirstChanceException -= captureException; }
+            if (!changedModule)
+            {
+                // Preserve caught native API failures as distinct from a missing
+                // frame or retry deadline. Probe only after the existing failure;
+                // this cannot repair publication or relax the assertion below.
+                string read, retry = "unavailable";
+                try
+                {
+                    var local = (IDictionary)typeof(TownServiceMirror).GetProperty("Local", PrivateStatic)!.GetValue(null)!;
+                    object module = local[(ushort)10]!;
+                    var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+                    retry = module.GetType().GetField("RetryAfter", flags)!.GetValue(module)!.ToString()!;
+                    var binding = (TownServiceBinding)module.GetType().GetField("Binding", flags)!.GetValue(module)!;
+                    binding.Read(TownServiceMirror.Assets); read = "binding readable after failure";
+                }
+                catch (Exception error) { read = error.ToString(); }
+                File.WriteAllText(Path.Combine(_output, "capture-timeout.txt"),
+                    "attempts=" + captureAttempts + "; elapsed=" + (Time.unscaledTime - changedAt)
+                    + "; frame=" + sampledFrame + "; now=" + Time.unscaledTime
+                    + "; retryAfter=" + retry
+                    + "\n" + read + "\n");
+            }
             Check(changedModule, "native UI changes emit another packet");
             Receive(1, change); TownServiceMirror.TickRemote(_ => observer);
             for (float settle = Time.unscaledTime + .13f; Time.unscaledTime < settle;)
