@@ -8,6 +8,12 @@ using Object = UnityEngine.Object;
 namespace GloomhavenVR.WorldUI.MapRoom { }
 namespace GloomhavenVR.WorldUI
 {
+    // This is the explicit foreign-service boundary of the Temple fixture. The
+    // quiet merchant/mage fixture binds its actual controller independently.
+    internal static class TownServiceQuietController
+    {
+        internal static bool OriginalVisible(Transform source,UIWindow window,byte service)=>false;
+    }
     internal static class TownServiceTempleController
     {
         internal static void AnimateProxy(UITempleWindow temple,int previousLevel)=>BoundTempleController.AnimateProxy(temple,previousLevel);
