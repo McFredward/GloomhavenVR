@@ -1,9 +1,11 @@
-using System.Reflection;
-using System.Runtime.Loader;
+using System.Security.Cryptography;
+using System.Text.Json;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 using QuestWeaver;
 
+/// <summary>Guildmaster uses original admission, save loading and validation.
+/// Procedural execution/performance on the headset still requires hardware.</summary>
 internal static class StandaloneGuildmasterTests
 {
     internal static void Run(string projectRoot, Action<bool, string> check, bool requireOriginal = false)
@@ -12,181 +14,83 @@ internal static class StandaloneGuildmasterTests
         string gamePath = Path.Combine(managed, "GH.Runtime.dll");
         if (!File.Exists(gamePath))
         {
-            if (requireOriginal) throw new InvalidDataException("Original game input is required for the excluded-mode proof.");
-            Console.WriteLine("Original Guildmaster admission proof skipped: owned game input is absent.");
+            if (requireOriginal) throw new InvalidDataException("Original game input is required for the full-mode invariance proof.");
+            Console.WriteLine("Original Guildmaster invariance proof skipped: owned game input is absent.");
             return;
         }
-        using var resolver = new DefaultAssemblyResolver();
-        resolver.AddSearchDirectory(managed);
-        using var source = AssemblyDefinition.ReadAssembly(gamePath, new ReaderParameters { InMemory = true, AssemblyResolver = resolver });
-        using var actual = AssemblyDefinition.ReadAssembly(gamePath, new ReaderParameters { InMemory = true, AssemblyResolver = resolver });
-        var runtime = new AssemblyNameReference("QuestGame.Campaign", new Version(0, 0, 0, 0));
-        var report = new StandaloneReport();
-        string[] changed = StandaloneGuildmaster.Apply(actual, runtime, report).ToArray();
-        check(changed.SequenceEqual(new[] { "GHClientCallbacks", "SaveData", "GlobalData" }), "Only the three excluded-mode boundaries are changed.");
-        check(source.MainModule.Mvid == actual.MainModule.Mvid && report.Modifications.Count == 3, "Native identities and all three reported scope changes are retained.");
-        check(ProtectedTypes.Verify(ProtectedTypes.Snapshot(source), actual) > 0, "Original transport/rules protected types remain unchanged.");
-        foreach (string type in changed)
-            foreach (MethodDefinition method in actual.MainModule.GetType(type).Methods.Where(m => m.Name != (type == "SaveData" ? "LoadGuildmasterMode" : type == "GlobalData" ? "ValidateSaves" : "Connected")))
-                check(Body(method) == Body(source.MainModule.GetType(type).Methods.Single(m => m.FullName == method.FullName)), "An unrelated original save/client method changed: " + method.FullName);
-
-        MethodDefinition connected = actual.MainModule.GetType("GHClientCallbacks").Methods.Single(m => m.Name == "Connected");
-        MethodDefinition originalConnected = source.MainModule.GetType("GHClientCallbacks").Methods.Single(m => m.Name == "Connected");
-        Instruction admission = connected.Body.Instructions.Single(i => i.OpCode == OpCodes.Brtrue_S && i.Previous?.Operand is FieldReference f && f.Name == "gameData");
-        Instruction guardStart = (Instruction)admission.Operand;
-        int guardIndex = connected.Body.Instructions.IndexOf(guardStart);
-        Instruction[] guard = connected.Body.Instructions.Skip(guardIndex).Take(20).ToArray();
-        Instruction nativeContinuation = (Instruction)guard[4].Operand;
-        check(guard[3].Operand is int mode && mode == EnumValue(source, "EGameMode", "Guildmaster")
-            && guard[4].OpCode == OpCodes.Bne_Un && guard.Last().OpCode == OpCodes.Ret,
-            "Only the native Guildmaster enum takes rejection; all other modes resume original admission.");
-        check(guard[15].Operand is MethodReference shutdown && shutdown.Name == "Shutdown"
-            && guard[18].Operand is MethodReference notice && notice.Name == "NotifyGuildmasterUnavailable"
-            && ((AssemblyNameReference)notice.DeclaringType.Scope).Name == "QuestGame.Campaign",
-            "Native shutdown precedes a preserved, statically bound full-game notice.");
-        check(nativeContinuation.Next.Next.Next.Operand is MethodReference read && read.Name == "get_GameModeID",
-            "Non-Guildmaster enters the original closure capture before native privileges and save transfer.");
-
-        // Remove only the actual generated seam, then compare complete native IL,
-        // including missing-token errors, privilege closures, data and branches.
-        admission.Operand = nativeContinuation;
-        foreach (Instruction instruction in guard) connected.Body.Instructions.Remove(instruction);
-        check(Body(connected) == Body(originalConnected), "Removing the guard restores the exact original Connected body.");
-        foreach (Instruction instruction in guard) connected.Body.GetILProcessor().InsertBefore(nativeContinuation, instruction);
-        admission.Operand = guardStart;
-        MethodDefinition load = actual.MainModule.GetType("SaveData").Methods.Single(m => m.Name == "LoadGuildmasterMode");
-        Instruction[] loadGuard = load.Body.Instructions.Take(4).ToArray();
-        check(loadGuard[0].Operand == load.Parameters[2] && loadGuard[1].Operand == load.Parameters[4]
-            && loadGuard[2].Operand is MethodReference helper && helper.Name == "NotifyGuildmasterUnavailable" && loadGuard[3].OpCode == OpCodes.Ret,
-            "Local/imported loads restore the original caller without evaluating or rewriting party/save data.");
-        foreach (Instruction instruction in loadGuard) load.Body.Instructions.Remove(instruction);
-        check(Body(load) == Body(source.MainModule.GetType("SaveData").Methods.Single(m => m.Name == "LoadGuildmasterMode")),
-            "The complete original Guildmaster load body remains behind the capability seam.");
-        Instruction nativeLoad = load.Body.Instructions[0];
-        foreach (Instruction instruction in loadGuard) load.Body.GetILProcessor().InsertBefore(nativeLoad, instruction);
-
-        MethodDefinition validation = actual.MainModule.GetType("GlobalData").Methods.Single(m => m.Name == "ValidateSaves");
-        MethodDefinition originalValidation = source.MainModule.GetType("GlobalData").Methods.Single(m => m.Name == "ValidateSaves");
-        Instruction[] validationGuard = validation.Body.Instructions.Take(7).ToArray();
-        check(validationGuard[0].OpCode == OpCodes.Ldarg_1 && validationGuard[1].Operand is int validationMode
-            && validationMode == EnumValue(source, "EGameMode", "Guildmaster") && validationGuard[2].OpCode == OpCodes.Bne_Un
-            && validationGuard[3].OpCode == OpCodes.Ldc_I4_0 && validationGuard[4].OpCode == OpCodes.Newarr
-            && validationGuard[4].Operand is TypeReference arrayElement && arrayElement.FullName == "System.Object"
-            && validationGuard[5].Operand is MethodReference arrayEnumerator && arrayEnumerator.DeclaringType.FullName == "System.Array"
-            && arrayEnumerator.Name == "GetEnumerator" && validationGuard[6].OpCode == OpCodes.Ret,
-            "Excluded validation returns a real empty IEnumerator before native allocation/loading.");
-        check(ReferenceEquals(validationGuard[2].Operand, validation.Body.Instructions[7]), "Every included mode enters the exact original coroutine wrapper.");
-        foreach (Instruction instruction in validationGuard) validation.Body.Instructions.Remove(instruction);
-        check(Body(validation) == Body(originalValidation), "Original Campaign validation captures, yield wrapper and arguments remain byte-for-byte identical.");
-        foreach (TypeDefinition nested in actual.MainModule.GetType("GlobalData").NestedTypes)
-            check(ProtectedTypes.Fingerprint(nested) == ProtectedTypes.Fingerprint(source.MainModule.GetType("GlobalData").NestedTypes.Single(t => t.FullName == nested.FullName)),
-                "An original save/validation state-machine body changed: " + nested.FullName);
-        Instruction nativeValidation = validation.Body.Instructions[0];
-        foreach (Instruction instruction in validationGuard) validation.Body.GetILProcessor().InsertBefore(nativeValidation, instruction);
-        ExecuteValidationGuard(validationGuard, EnumValue(source, "EGameMode", "Guildmaster"), check);
-        foreach (bool invertedBranch in new[] { false, true })
-        {
-            OpCode branch = validationGuard[2].OpCode;
-            object originalModeOperand = validationGuard[1].Operand;
-            if (invertedBranch) validationGuard[2].OpCode = OpCodes.Beq;
-            else validationGuard[1].Operand = EnumValue(source, "EGameMode", "Campaign");
-            try
-            {
-                ExecuteValidationGuard(validationGuard, EnumValue(source, "EGameMode", "Guildmaster"), (ok, message) => { if (!ok) throw new InvalidOperationException(message); });
-                check(false, "Wrong validation-mode guard escaped the hosted CIL fixture.");
-            }
-            catch (InvalidOperationException) { check(true, "Wrong validation-mode/branch control rejected by hosted CIL."); }
-            finally { validationGuard[2].OpCode = branch; validationGuard[1].Operand = originalModeOperand; }
-        }
-
-        int originalNullCheck = connected.Body.Instructions.IndexOf(admission.Previous.Previous);
-        Instruction[] admissionAndGuard = connected.Body.Instructions.Skip(originalNullCheck)
-            .Take(connected.Body.Instructions.IndexOf(nativeContinuation) - originalNullCheck).ToArray();
-        ExecuteGuard(admissionAndGuard, guard, loadGuard, check);
-        guard[4].OpCode = OpCodes.Beq;
+        byte[] originalHash = SHA256.HashData(File.ReadAllBytes(gamePath));
+        string root = Path.Combine(Path.GetTempPath(), "quest-full-mode-tests-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
         try
         {
-            ExecuteGuard(admissionAndGuard, guard, loadGuard, (ok, message) => { if (!ok) throw new InvalidOperationException(message); });
-            check(false, "Inverted excluded-mode branch negative control escaped the executable fixture.");
+            string profile = Path.Combine(root, "profile.json"), output = Path.Combine(root, "game");
+            File.WriteAllText(profile, JsonSerializer.Serialize(new { schema = 1, provider = "steam", steamId = "0", accountId = 0,
+                displayName = "Quest complete game test (DUMMY)", isDummy = true }));
+            StandaloneReport report = Standalone.Write(managed, null, profile, output, target: "game");
+            using var source = AssemblyDefinition.ReadAssembly(gamePath);
+            using var actual = AssemblyDefinition.ReadAssembly(Path.Combine(output, "GH.Runtime.dll"));
+            check(source.MainModule.Mvid == actual.MainModule.Mvid && report.StartupAdapterComplete
+                && !report.FullGameReady, "Full original identity is retained without asserting headset engine/playability.");
+            check(report.Modifications.All(m => !m.Contains("Guildmaster", StringComparison.Ordinal)),
+                "Full-game conversion retains no excluded Guildmaster adapter.");
+            check(ProtectedTypes.Verify(ProtectedTypes.Snapshot(source), actual) > 0,
+                "Original transport/rules protected types remain unchanged.");
+            check(report.UnchangedTypesVerified > 4000, "Full conversion verifies all unrelated original types.");
+            CheckBodies(source, actual, check);
+            // This runs the complete conversion above, not the former isolated
+            // adapter. Intentional edits to each emitted admission/iterator seam
+            // must fail the same original-source fingerprint comparison.
+            foreach ((string type, string method) in new[] { ("GHClientCallbacks", "Connected"), ("SaveData", "LoadGuildmasterMode"),
+                ("GlobalData", "ValidateSaves"), ("SaveData", "LoadRulebase") })
+            {
+                MethodDefinition target = Method(actual, type, method);
+                Instruction mutation = Instruction.Create(OpCodes.Nop);
+                target.Body.GetILProcessor().InsertBefore(target.Body.Instructions[0], mutation);
+                try
+                {
+                    CheckBodies(source, actual, (ok, message) => { if (!ok) throw new InvalidOperationException(message); });
+                    check(false, "Altered original mode/lifecycle seam escaped: " + type + "." + method);
+                }
+                catch (InvalidOperationException) { check(true, "Altered original mode/lifecycle seam rejected: " + type + "." + method); }
+                finally { target.Body.Instructions.Remove(mutation); }
+            }
+            check(originalHash.SequenceEqual(SHA256.HashData(File.ReadAllBytes(gamePath))), "Read-only original full-game input remains unchanged.");
         }
-        catch (InvalidOperationException) { check(true, "Inverted actual generated branch is rejected by the executable fixture."); }
-        finally { guard[4].OpCode = OpCodes.Bne_Un; }
-        ExpectRejected(source, runtime, check, a => a.MainModule.GetType("GameToken").Methods.Single(m => m.Name == "get_GameModeID").Name = "ModeChanged", "Changed token mode accessor");
-        ExpectRejected(source, runtime, check, a => a.MainModule.GetType("GHClientCallbacks").Fields.Single(f => f.Name == "gameData").Name = "RenamedData", "Changed client token field");
-        ExpectRejected(source, runtime, check, a => a.MainModule.GetType("SaveData").Methods.Single(m => m.Name == "LoadGuildmasterMode").Parameters[4].ParameterType = a.MainModule.TypeSystem.Object, "Changed cancellation ABI");
-        ExpectRejected(source, runtime, check, a => a.MainModule.GetType("EGameMode").Fields.Single(f => f.Name == "Guildmaster").Name = "MissingMode", "Missing native Guildmaster enum");
-        ExpectRejected(source, runtime, check, a =>
-        {
-            MethodDefinition m = a.MainModule.GetType("GHClientCallbacks").Methods.Single(m => m.Name == "Connected");
-            m.Body.Instructions.Single(i => i.Operand is MethodReference reference && reference.Name == "get_OnConnectionFailed").Operand = new MethodReference("WrongFailureCallback", a.MainModule.TypeSystem.Void, a.MainModule.TypeSystem.Object);
-        }, "Changed original failure/shutdown ABI");
-        ExpectRejected(source, runtime, check, a => a.MainModule.GetType("GlobalData").Methods.Single(m => m.Name == "ValidateSaves").Parameters[0].ParameterType = a.MainModule.TypeSystem.Int32,
-            "Changed original save-validation mode ABI");
-        ExpectRejected(source, runtime, check, a => a.MainModule.GetType("GlobalData").Methods.Single(m => m.Name == "ValidateSaves").Parameters[1].ParameterType = a.MainModule.TypeSystem.Object,
-            "Changed original restored-save list ABI");
-        try { StandaloneGuildmaster.Apply(actual, runtime, new StandaloneReport()); check(false, "Repeated adaptation accepted."); }
-        catch (InvalidDataException) { check(true, "Repeated adaptation rejected."); }
-        actual.Write(new MemoryStream());
-        check(true, "Adapted original full assembly writes successfully with valid branch offsets.");
+        finally { Directory.Delete(root, recursive: true); }
     }
 
-    static void ExecuteValidationGuard(Instruction[] guard, int excludedGuildmaster, Action<bool, string> check)
+    static MethodDefinition Method(AssemblyDefinition assembly, string type, string name) =>
+        assembly.MainModule.GetType(type).Methods.Single(m => m.Name == name);
+
+    static void CheckBodies(AssemblyDefinition source, AssemblyDefinition actual, Action<bool, string> check)
     {
-        using var assembly = AssemblyDefinition.CreateAssembly(new AssemblyNameDefinition("QuestValidationGuardFixture", new Version(1, 0)), "QuestValidationGuardFixture", ModuleKind.Dll);
-        ModuleDefinition module = assembly.MainModule;
-        var holder = new TypeDefinition("", "ValidationExercise", Mono.Cecil.TypeAttributes.Public | Mono.Cecil.TypeAttributes.Class, module.TypeSystem.Object);
-        module.Types.Add(holder);
-        var entry = new MethodDefinition("Validate", Mono.Cecil.MethodAttributes.Public, module.ImportReference(typeof(System.Collections.IEnumerator)));
-        entry.Parameters.Add(new ParameterDefinition(module.TypeSystem.Int32));
-        entry.Parameters.Add(new ParameterDefinition(module.ImportReference(typeof(List<string>))));
-        holder.Methods.Add(entry);
-        ILProcessor il = entry.Body.GetILProcessor();
-        Instruction native = il.Create(OpCodes.Ldarg_1);
-        foreach (Instruction instruction in guard)
-        {
-            var copy = Instruction.Create(OpCodes.Nop); copy.OpCode = instruction.OpCode;
-            copy.Operand = instruction.Operand switch
-            {
-                Instruction => native,
-                TypeReference => module.TypeSystem.Object,
-                MethodReference => module.ImportReference(typeof(Array).GetMethod(nameof(Array.GetEnumerator))!),
-                _ => instruction.Operand
-            };
-            il.Append(copy);
-        }
-        il.Append(native); il.Emit(OpCodes.Ldarg_2);
-        il.Emit(OpCodes.Call, module.ImportReference(typeof(GuildmasterRuntimeFixture).GetMethod(nameof(GuildmasterRuntimeFixture.OriginalValidation))!));
-        il.Emit(OpCodes.Ret);
-        using var bytes = new MemoryStream(); assembly.Write(bytes); bytes.Position = 0;
-        var context = new AssemblyLoadContext("validation-generated-guard", isCollectible: true);
-        context.Resolving += (_, name) => name.Name == typeof(GuildmasterRuntimeFixture).Assembly.GetName().Name ? typeof(GuildmasterRuntimeFixture).Assembly : null;
-        try
-        {
-            Type fixture = context.LoadFromStream(bytes).GetType("ValidationExercise", true)!;
-            object instance = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(fixture);
-            // The native enum itself is checked separately; do not derive the
-            // expected excluded mode from the possibly mutated generated guard.
-            foreach (int mode in Enumerable.Range(0, 8).Concat(new[] { -999, 999 }))
-            {
-                GuildmasterRuntimeFixture.Reset(false);
-                var saves = new List<string> { "untouched original save" };
-                var iterator = (System.Collections.IEnumerator)fixture.GetMethod("Validate")!.Invoke(instance, new object[] { mode, saves })!;
-                if (mode == excludedGuildmaster)
-                {
-                    check(GuildmasterRuntimeFixture.ValidationCalls == 0 && !iterator.MoveNext()
-                        && saves.SequenceEqual(new[] { "untouched original save" }), "Excluded mode reached rule loading or touched preserved saves.");
-                }
-                else
-                {
-                    check(GuildmasterRuntimeFixture.ValidationCalls == 1 && GuildmasterRuntimeFixture.ValidationMode == mode
-                        && ReferenceEquals(GuildmasterRuntimeFixture.ValidationSaves, saves), "Campaign/other mode lost its exact native arguments.");
-                    check(iterator.MoveNext() && (int)iterator.Current == mode && !iterator.MoveNext()
-                        && GuildmasterRuntimeFixture.ValidationIterations == 1, "Included mode did not retain the native IEnumerator lifecycle.");
-                    check(saves.SequenceEqual(new[] { "untouched original save" }), "Included validation guard modified save data.");
-                }
-            }
-        }
-        finally { context.Unload(); }
+        foreach (string type in new[] { "GHClientCallbacks", "GlobalData" })
+            check(ProtectedTypes.Fingerprint(source.MainModule.GetType(type)) == ProtectedTypes.Fingerprint(actual.MainModule.GetType(type)),
+                "Original complete-mode type changed: " + type);
+        // Existing path adaptation replaces exactly one Unity dataPath read in
+        // YMLLoading. Normalize only that already-proven IO call; all original
+        // parser, mode selection, validation and unload code must remain exact.
+        TypeDefinition originalYml = source.MainModule.GetType("YMLLoading"), emittedYml = actual.MainModule.GetType("YMLLoading");
+        Instruction originalPath = originalYml.Methods.SelectMany(m => m.HasBody ? m.Body.Instructions : Enumerable.Empty<Instruction>())
+            .Single(i => i.Operand is MethodReference call && call.DeclaringType.FullName == "UnityEngine.Application" && call.Name == "get_dataPath");
+        Instruction emittedPath = emittedYml.Methods.SelectMany(m => m.HasBody ? m.Body.Instructions : Enumerable.Empty<Instruction>())
+            .Single(i => i.Operand is MethodReference call && call.DeclaringType.FullName == "QuestGame.Compatibility.Paths" && call.Name == "get_dataPath");
+        object adaptedPath = emittedPath.Operand;
+        check(originalPath.OpCode == emittedPath.OpCode, "Only the existing native path operand is normalized.");
+        emittedPath.Operand = originalPath.Operand;
+        try { check(ProtectedTypes.Fingerprint(originalYml) == ProtectedTypes.Fingerprint(emittedYml), "Original parser/rule-mode type changed beyond its existing owned-path seam."); }
+        finally { emittedPath.Operand = adaptedPath; }
+        foreach (string name in new[] { "LoadGuildmasterMode", "LoadCampaignMode", "LoadRulebase" })
+            check(Body(Method(source, "SaveData", name)) == Body(Method(actual, "SaveData", name)),
+                "Original included-mode save/lifecycle body changed: SaveData." + name);
+        foreach (string owner in new[] { "GHClientCallbacks", "GlobalData", "YMLLoading", "SaveData" })
+            foreach (TypeDefinition nested in source.MainModule.GetType(owner).NestedTypes)
+                check(ProtectedTypes.Fingerprint(nested) == ProtectedTypes.Fingerprint(actual.MainModule.GetType(owner).NestedTypes.Single(t => t.FullName == nested.FullName)),
+                    "Original included-mode coroutine/closure changed: " + nested.FullName);
+        var emittedCalls = Method(actual, "GHClientCallbacks", "Connected").Body.Instructions
+            .Select(i => i.Operand).OfType<MethodReference>();
+        check(!emittedCalls.Any(m => m.DeclaringType.FullName == "GloomhavenVR.Quest.QuestGameScope"),
+            "Original mode admission retains no Guildmaster-unavailable callback.");
     }
 
     static string Body(MethodDefinition method)
@@ -204,148 +108,4 @@ internal static class StandaloneGuildmasterTests
         };
         return string.Join("\n", instructions.Select(i => i.OpCode + " " + Operand(i.Operand)));
     }
-
-    static int EnumValue(AssemblyDefinition game, string type, string field) => Convert.ToInt32(game.MainModule.GetType(type).Fields.Single(f => f.Name == field).Constant);
-
-    static void ExpectRejected(AssemblyDefinition original, AssemblyNameReference runtime, Action<bool, string> check, Action<AssemblyDefinition> change, string name)
-    {
-        using var buffer = new MemoryStream(); original.Write(buffer); buffer.Position = 0;
-        using var input = AssemblyDefinition.ReadAssembly(buffer);
-        change(input);
-        try { StandaloneGuildmaster.Apply(input, runtime, new StandaloneReport()); check(false, name + " silently accepted."); }
-        catch (InvalidDataException) { check(true, name + " rejected."); }
-    }
-
-    static void ExecuteGuard(Instruction[] admissionAndGuard, Instruction[] guard, Instruction[] localGuard, Action<bool, string> check)
-    {
-        // Execute the actual Cecil-generated instructions, with just native
-        // external calls substituted by counter fixtures. This proves CLR stack,
-        // null-delegate, return and nonmatching-mode behavior; it does not claim
-        // a successful headset/PC session or emulate the native multiplayer body.
-        using var assembly = AssemblyDefinition.CreateAssembly(new AssemblyNameDefinition("QuestGuildmasterGuardFixture", new Version(1, 0)), "QuestGuildmasterGuardFixture", ModuleKind.Dll);
-        ModuleDefinition module = assembly.MainModule;
-        var holder = new TypeDefinition("", "GuardExercise", Mono.Cecil.TypeAttributes.Public | Mono.Cecil.TypeAttributes.Class, module.TypeSystem.Object);
-        module.Types.Add(holder);
-        var field = new FieldDefinition("gameData", Mono.Cecil.FieldAttributes.Public, module.ImportReference(typeof(GuildmasterRuntimeFixture.Token)));
-        holder.Fields.Add(field);
-        var enter = new MethodDefinition("Enter", Mono.Cecil.MethodAttributes.Public, module.TypeSystem.Void);
-        holder.Methods.Add(enter);
-        ILProcessor il = enter.Body.GetILProcessor();
-        Instruction allowed = il.Create(OpCodes.Call, module.ImportReference(typeof(GuildmasterRuntimeFixture).GetMethod(nameof(GuildmasterRuntimeFixture.OriginalAdmission))!));
-        Dictionary<string, MethodInfo> calls = new()
-        {
-            ["GameToken.get_GameModeID"] = typeof(GuildmasterRuntimeFixture.Token).GetProperty(nameof(GuildmasterRuntimeFixture.Token.GameModeID))!.GetMethod!,
-            ["FFSNetwork.get_Manager"] = typeof(GuildmasterRuntimeFixture).GetProperty(nameof(GuildmasterRuntimeFixture.Manager))!.GetMethod!,
-            ["FFSNet.NetworkManager.get_OnConnectionFailed"] = typeof(GuildmasterRuntimeFixture.ManagerData).GetProperty(nameof(GuildmasterRuntimeFixture.ManagerData.OnConnectionFailed))!.GetMethod!,
-            ["UnityEngine.Events.UnityAction`1<ConnectionErrorCode>.Invoke"] = typeof(GuildmasterRuntimeFixture.FailureAction).GetMethod("Invoke")!,
-            ["FFSNetwork.Shutdown"] = typeof(GuildmasterRuntimeFixture).GetMethod(nameof(GuildmasterRuntimeFixture.Shutdown))!,
-            ["FFSNet.Console.LogError"] = typeof(GuildmasterRuntimeFixture).GetMethod(nameof(GuildmasterRuntimeFixture.LogError))!,
-            ["GloomhavenVR.Quest.QuestGameScope.NotifyGuildmasterUnavailable"] = typeof(GuildmasterRuntimeFixture).GetMethod(nameof(GuildmasterRuntimeFixture.Notify))!
-        };
-        var translated = admissionAndGuard.ToDictionary(i => i, _ => Instruction.Create(OpCodes.Nop));
-        foreach (Instruction instruction in admissionAndGuard)
-        {
-            Instruction copy = translated[instruction]; copy.OpCode = instruction.OpCode;
-            copy.Operand = instruction.Operand switch
-            {
-                MethodReference method => module.ImportReference(calls[method.DeclaringType.FullName + "." + method.Name]),
-                FieldReference => field,
-                Instruction target => translated.GetValueOrDefault(target) ?? allowed,
-                _ => instruction.Operand
-            };
-            il.Append(copy);
-        }
-        il.Append(allowed); il.Emit(OpCodes.Ret);
-        var load = new MethodDefinition("Load", Mono.Cecil.MethodAttributes.Public, module.TypeSystem.Void);
-        holder.Methods.Add(load);
-        foreach (Type type in new[] { typeof(object), typeof(bool), typeof(bool), typeof(Action), typeof(Action), typeof(bool) })
-            load.Parameters.Add(new ParameterDefinition(module.ImportReference(type)));
-        ILProcessor loader = load.Body.GetILProcessor();
-        foreach (Instruction instruction in localGuard)
-        {
-            if (instruction.Operand is ParameterDefinition parameter) loader.Emit(instruction.OpCode, load.Parameters[parameter.Index]);
-            else if (instruction.Operand is MethodReference) loader.Emit(instruction.OpCode, module.ImportReference(typeof(GuildmasterRuntimeFixture).GetMethod(nameof(GuildmasterRuntimeFixture.Notify))!));
-            else loader.Emit(instruction.OpCode);
-        }
-        loader.Emit(OpCodes.Call, module.ImportReference(typeof(GuildmasterRuntimeFixture).GetMethod(nameof(GuildmasterRuntimeFixture.OriginalSaveLoad))!));
-        loader.Emit(OpCodes.Ret);
-        using var bytes = new MemoryStream(); assembly.Write(bytes); bytes.Position = 0;
-        var context = new AssemblyLoadContext("guildmaster-generated-guard", isCollectible: true);
-        context.Resolving += (_, name) => name.Name == typeof(GuildmasterRuntimeFixture).Assembly.GetName().Name ? typeof(GuildmasterRuntimeFixture).Assembly : null;
-        try
-        {
-            Type fixture = context.LoadFromStream(bytes).GetType("GuardExercise", true)!;
-            object instance = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(fixture);
-            int guildmaster = (int)guard[3].Operand, error = (int)guard[11].Operand;
-            foreach (int mode in Enumerable.Range(0, 8).Concat(new[] { -999, 999 }))
-            foreach (bool hasCallback in new[] { false, true })
-            {
-                GuildmasterRuntimeFixture.Reset(hasCallback);
-                fixture.GetField("gameData")!.SetValue(instance, new GuildmasterRuntimeFixture.Token { GameModeID = mode });
-                fixture.GetMethod("Enter")!.Invoke(instance, null);
-                if (mode == guildmaster)
-                {
-                    check(GuildmasterRuntimeFixture.OriginalAdmissions == 0 && GuildmasterRuntimeFixture.Shutdowns == 1 && GuildmasterRuntimeFixture.Notices == 1,
-                        "Guildmaster reached native admission or failed to shut down and explain.");
-                    check(GuildmasterRuntimeFixture.Failures == (hasCallback ? 1 : 0) && (!hasCallback || GuildmasterRuntimeFixture.LastError == error),
-                        "Original optional connection failure callback lost null safety/error identity.");
-                    check(string.Join(",", GuildmasterRuntimeFixture.Trace) == (hasCallback ? "failure,shutdown,notice" : "shutdown,notice"),
-                        "Native failure/shutdown order differs from the original flow.");
-                }
-                else check(GuildmasterRuntimeFixture.OriginalAdmissions == 1 && GuildmasterRuntimeFixture.Failures == 0
-                    && GuildmasterRuntimeFixture.Shutdowns == 0 && GuildmasterRuntimeFixture.Notices == 0, "Campaign/unknown mode was blocked or changed.");
-            }
-            foreach (bool hasCallback in new[] { false, true })
-            {
-                GuildmasterRuntimeFixture.Reset(hasCallback);
-                fixture.GetField("gameData")!.SetValue(instance, null);
-                fixture.GetMethod("Enter")!.Invoke(instance, null);
-                check(GuildmasterRuntimeFixture.OriginalAdmissions == 0 && GuildmasterRuntimeFixture.InvalidTokenLogs == 1
-                    && GuildmasterRuntimeFixture.Failures == (hasCallback ? 1 : 0) && GuildmasterRuntimeFixture.Shutdowns == 1
-                    && GuildmasterRuntimeFixture.Notices == 0, "Missing-token native error flow was bypassed or gained an excluded-mode notice.");
-            }
-            foreach (bool loadMenu in new[] { false, true }) foreach (bool hasCancel in new[] { false, true })
-            {
-                GuildmasterRuntimeFixture.Reset(false);
-                Action? callback = hasCancel ? () => GuildmasterRuntimeFixture.Trace.Add("cancel") : null;
-                fixture.GetMethod("Load")!.Invoke(instance, new object?[] { null, false, loadMenu, null, callback, false });
-                check(GuildmasterRuntimeFixture.Notices == 1 && GuildmasterRuntimeFixture.OriginalSaveLoads == 0
-                    && GuildmasterRuntimeFixture.LastLoadMenu == loadMenu && ReferenceEquals(GuildmasterRuntimeFixture.LastCancel, callback),
-                    "Imported/null party data reached native writes or lost the original cancellation arguments.");
-            }
-        }
-        finally { context.Unload(); }
-    }
-}
-
-public static class GuildmasterRuntimeFixture
-{
-    public sealed class Token { public int GameModeID { get; set; } }
-    public delegate void FailureAction(int error);
-    public sealed class ManagerData { public FailureAction? OnConnectionFailed { get; set; } }
-    public static ManagerData Manager { get; private set; } = new();
-    public static int OriginalAdmissions, OriginalSaveLoads, Failures, Shutdowns, Notices, LastError, InvalidTokenLogs;
-    public static int ValidationCalls, ValidationMode, ValidationIterations;
-    public static List<string>? ValidationSaves;
-    public static bool LastLoadMenu;
-    public static Action? LastCancel;
-    public static readonly List<string> Trace = new();
-    public static void Reset(bool callback)
-    {
-        OriginalAdmissions = OriginalSaveLoads = Failures = Shutdowns = Notices = LastError = InvalidTokenLogs = 0;
-        ValidationCalls = ValidationMode = ValidationIterations = 0; ValidationSaves = null;
-        LastLoadMenu = false; LastCancel = null; Trace.Clear(); Manager = new ManagerData();
-        if (callback) Manager.OnConnectionFailed = error => { Failures++; LastError = error; Trace.Add("failure"); };
-    }
-    public static System.Collections.IEnumerator OriginalValidation(int mode, List<string> saves)
-    {
-        ValidationCalls++; ValidationMode = mode; ValidationSaves = saves;
-        return Run();
-        System.Collections.IEnumerator Run() { ValidationIterations++; yield return mode; }
-    }
-    public static void OriginalAdmission() => OriginalAdmissions++;
-    public static void OriginalSaveLoad() => OriginalSaveLoads++;
-    public static void LogError(string error, string message, string stack, bool logToScreen) { InvalidTokenLogs++; }
-    public static void Shutdown(object? token, Action? completed) { Shutdowns++; Trace.Add("shutdown"); }
-    public static void Notify(bool loadMenu, Action? cancelled) { Notices++; LastLoadMenu = loadMenu; LastCancel = cancelled; Trace.Add("notice"); }
 }
