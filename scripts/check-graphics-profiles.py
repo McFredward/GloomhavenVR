@@ -74,4 +74,12 @@ for key in ['CacheTickDelegates','MapIconCache','FigureScanCache','LeanLogString
     perf=(source/'Core/Perf/PerfConfig.cs').read_text()
     if not re.search(key+r' = _file.Bind\("Optimize", "'+key+r'",[^,]+,\s*"INERT',perf): raise SystemExit('Unretired optimization: '+key)
 print('PASS: four unique UI actions and nine retained INERT work-removal keys')
+# Default selection is independent of the explicit profile action. Keep the real Bind's
+# platform conditional and PC constant source-bound; this is not a persisted-file fixture.
+quality=(source/'Rig/RenderQuality.cs').read_text()
+if not re.search(r'EyeResolutionScale = _file.Bind\("RenderQuality", "EyeResolutionScale", frame \? FrameDefaults.EyeResolutionScale : Defaults.EyeResolutionScale,',quality):
+    raise SystemExit('Resolution Bind lost fresh Frame versus PC default selection')
+if not re.search(r'internal const float EyeResolutionScale\s*=\s*1(?:\.0)?f;',constants):
+    raise SystemExit('Ordinary PC resolution default changed')
+print('PASS: fresh Frame/PC resolution selection remains source-bound; saved-file preservation uses existing BepInEx Bind contract')
 print('Evidence: '+str(run))

@@ -43,7 +43,7 @@ internal static class GraphicsProfiles
             int density = index == 0 ? 0 : index == 1 ? 25 : index == 2 ? 60 : 100;
             int body = index == 0 ? 0 : index == 1 ? 33 : index == 2 ? 66 : 100;
             Set(RenderQuality.MsaaLevel, standalone ? FrameDefaults.MsaaLevel : index == 1 ? 2 : index == 2 ? 4 : 8);
-            Set(RenderQuality.EyeResolutionScale, FrameDefaults.EyeResolutionScale);
+            Set(RenderQuality.EyeResolutionScale, standalone ? FrameDefaults.EyeResolutionScale : Defaults.EyeResolutionScale);
             Set(RenderQuality.ForceAnisotropic, FrameDefaults.ForceAnisotropic);
             Set(RenderQuality.ForceFullTextureResolution, FrameDefaults.ForceFullTextureResolution);
             Set(RenderQuality.ForceTextureStreamingOff, FrameDefaults.ForceTextureStreamingOff);

@@ -11,10 +11,11 @@ internal static class FrameDefaults
 {
     internal static bool Active => FrameLaunchOptIn.MarkerExists(Paths.BepInExRootPath);
 
-    // Build 592 standalone hardware run. 3408 pixels per eye was selected in SteamVR,
-    // outside the mod; the mod's scale remains 1.00 and does not hard-code that resolution.
+    // Build 634: the maintainer explicitly selects 0.80 for fresh Frame settings and the
+    // shared Standalone profile. Bind retains saved choices; ordinary PC defaults stay 1.00.
+    // The runtime still chooses the native eye extent (3408 per side in the supplied run).
     internal const int MsaaLevel = 0;
-    internal const float EyeResolutionScale = 1f;
+    internal const float EyeResolutionScale = .8f;
     internal const bool ForceAnisotropic = true;
     internal const bool ForceFullTextureResolution = true;
     internal const bool ForceTextureStreamingOff = false;

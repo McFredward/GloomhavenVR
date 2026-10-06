@@ -26,7 +26,8 @@ internal static class Program
             Check(QualitySettings.Selected==levels[i] && native.Calls==i+1 && native.Saves==i+1, "native callback and persistence selected once");
             Check(invalid.Calls==0 && cold.Calls==0, "prefabs/uninitialized graphics views are untouched");
             Check(RenderQuality.MsaaLevel!.Value==(i==0?0:i==1?2:i==2?4:8), "MSAA quality progresses across profiles");
-            Check(RenderQuality.EyeResolutionScale!.Value==1f && RenderQuality.PixelLightCount!.Value==0, "resolution and safe light cap preserve maintainer rulings");
+            Check(RenderQuality.EyeResolutionScale!.Value==(i==0?.8f:1f) && RenderQuality.PixelLightCount!.Value==0,
+                "standalone selects 0.8 while all PC quality profiles retain 1.0 and the safe light cap");
             Check(PerfConfig.ScenarioFigureEffectsDensityPercent.Value==(i==0?0:i==1?25:i==2?60:100), "figure FX budget spans disabled through original");
             Check(PerfConfig.ScenarioEnvironmentEffectsDensityPercent.Value==PerfConfig.ScenarioFigureEffectsDensityPercent.Value, "environment FX profile matches visible detail choice");
             Check(WorldUIConfig.ImmersiveTownServices.Value==(i!=0) && WindowMaterialise.Entry.Value==(i!=0), "standalone disables costly NPC/dust; PC restores original features");
@@ -52,6 +53,10 @@ internal static class Program
         Check(PerfConfig.ScenarioPlayerFigureDetailPercent.Value==0 && PerfConfig.ScenarioEnemyFigureDetailPercent.Value==0 && !WorldUIConfig.DesktopMirrorLeftEye.Value, "standalone figure and desktop defaults apply on PC too");
         RenderQuality.MsaaLevel!.Value=4;
         Check(RenderQuality.MsaaLevel.Value==4, "later individual edit is not overwritten by stored profile");
+        RenderQuality.EyeResolutionScale!.Value=.95f;
+        RenderQuality.Bind();
+        Check(RenderQuality.EyeResolutionScale.Value==.95f,
+            "individual resolution remains independent after Standalone until another profile is explicitly chosen");
         PerfConfig.ScenarioCheapWallShading.Value=false;
         PerfConfig.ScenarioExplicitEnvironmentInstancing.Value=false;
         PerfConfig.ScenarioTerrainDetailPercent.Value=75;
