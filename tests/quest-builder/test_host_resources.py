@@ -3,6 +3,7 @@ import ctypes
 import importlib.util
 import json
 import os
+import shlex
 from pathlib import Path
 import subprocess
 import sys
@@ -15,6 +16,8 @@ spec = importlib.util.spec_from_file_location("quest_host_resource_test", ROOT /
 resources = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(resources)
 GIB = resources.GIB
+UNITY_DATA = Path(os.environ.get("GHVR_QUEST_TEST_UNITY_DATA", "/home/claw/unity-2021.3.5/Editor/Data"))
+BEE = UNITY_DATA / ("bee_backend_real" if (UNITY_DATA / "bee_backend_real").is_file() else "bee_backend")
 DOTNET = Path(os.environ.get("GHVR_QUEST_TEST_DOTNET", "/home/claw/.dotnet/dotnet"))
 
 
@@ -143,6 +146,45 @@ class HostResources(unittest.TestCase):
 
 @unittest.skipUnless(DOTNET.is_file() and sys.platform == "linux", "Native apphost test requires the installed .NET8 Linux SDK")
 class NativeApphost(unittest.TestCase):
+    @unittest.skipUnless(BEE.is_file(), "Actual installed Unity Bee backend unavailable")
+    def test_actual_native_bee_threads_are_parsed_before_target_and_bound_execution(self):
+        with tempfile.TemporaryDirectory(prefix="quest-native-bee-") as folder:
+            root = Path(folder)
+            launcher = resources.prepare_bee_launcher(DOTNET, root)
+            for threads in (1, 2):
+                work = root / str(threads); work.mkdir()
+                script = work / "action.py"
+                script.write_text('import json,sys,time\nfrom pathlib import Path\n'
+                    'start=time.monotonic();time.sleep(0.2);end=time.monotonic()\n'
+                    'Path(sys.argv[1]+".done").write_text(json.dumps(dict(start=start,end=end)))\n')
+                nodes = [{"Annotation": "all", "Action": "", "Inputs": [], "Outputs": [],
+                          "ToBuildDependencies": [1, 2, 3, 4], "AllowUnexpectedOutput": True, "DebugActionIndex": 0}]
+                for index in range(1, 5):
+                    nodes.append({"Annotation": "tiny-action-" + str(index),
+                                  "Action": shlex.quote(sys.executable) + " " + shlex.quote(str(script)) + " " + str(index),
+                                  "Inputs": [str(script)], "Outputs": [str(index) + ".done"],
+                                  "ToBuildDependencies": [], "AllowUnexpectedOutput": False, "DebugActionIndex": index})
+                graph = {"Nodes": nodes, "FileSignatures": [], "StatSignatures": [], "GlobSignatures": [],
+                         "ContentDigestExtensions": [], "EmitDataForBeeWhy": 0, "NamedNodes": {"all": 0},
+                         "DefaultNodes": [0], "SharedResources": [], "Scanners": [],
+                         "Identifier": str(work / "graph.json"), "RelativePathToRoot": "."}
+                for field in ("StructuredLogFileName", "StateFileName", "StateFileNameTmp", "StateFileNameMapped",
+                              "ScanCacheFileName", "ScanCacheFileNameTmp", "DigestCacheFileName", "DigestCacheFileNameTmp"):
+                    graph[field] = str(work / field)
+                (work / "graph.json").write_text(json.dumps(graph))
+                environment = {**os.environ, "DOTNET_ROOT": str(DOTNET.parent), "GHVRQ_BEE_REAL_PATH": str(BEE),
+                               "GHVRQ_BEE_THREADS": str(threads)}
+                result = subprocess.run([str(launcher), "--dagfile=" + str(work / "graph.dag"),
+                                         "--dagfilejson=" + str(work / "graph.json"), "all"],
+                                        cwd=work, env=environment, capture_output=True, text=True, timeout=20)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                intervals = [json.loads(path.read_text()) for path in work.glob("*.done")]
+                self.assertEqual(len(intervals), 4)
+                events = sorted([(row["start"], 1) for row in intervals] + [(row["end"], -1) for row in intervals])
+                active, peak = 0, 0
+                for _, delta in events: active += delta; peak = max(peak, active)
+                self.assertEqual(peak, threads, "actual native backend ignored its thread cap")
+
     def test_real_apphost_forwards_literal_args_stdio_eof_and_exit_and_reuses_cache(self):
         with tempfile.TemporaryDirectory(prefix="Quest host & 100% ") as folder:
             root = Path(folder)
@@ -157,9 +199,12 @@ class NativeApphost(unittest.TestCase):
             args = ["--stdin-canary", "--dagfile=C:\\literal path & 100%\\a.dag", 'quote " and $(literal)']
             result = subprocess.run([str(launcher), *args], env=env, input="s\n", capture_output=True, text=True, timeout=20)
             self.assertEqual(result.returncode, 17, result.stdout + result.stderr)
-            self.assertEqual(json.loads(result.stdout.splitlines()[0]), [*args, "--threads=6"])
+            self.assertEqual(json.loads(result.stdout.splitlines()[0]), ["--threads=6", *args])
             self.assertIn("stdin=s", result.stdout)
             self.assertIn("native stderr", result.stderr)
+            conflicts = subprocess.run([str(launcher), "--threads=32"], env=env, capture_output=True, text=True, timeout=10)
+            self.assertEqual(conflicts.returncode, 126)
+            self.assertIn("Unexpected existing Bee thread override", conflicts.stderr)
             with patch.object(resources.subprocess, "run", side_effect=AssertionError("cache hit must not compile")), \
                  patch.dict(os.environ, {resources.JOBS_ENV: "1"}):
                 self.assertEqual(resources.prepare_bee_launcher(DOTNET, root), launcher)
