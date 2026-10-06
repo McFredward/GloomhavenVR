@@ -133,6 +133,7 @@ internal static partial class WallSegmentFade
 
         /// <summary>First applier phase — the sampled tier starts here.</summary>
         private const int TickApplierFirst = (int)TickPhase.ApplyFoliage;
+        private const int TickApplierLast = (int)TickPhase.ApplyWall;
 
         /// <summary>Short names for the TICK BUDGET line. Index IS the enum value.</summary>
         private static readonly string[] TickPhaseNames =
@@ -252,7 +253,7 @@ internal static partial class WallSegmentFade
                 // Total is deliberately NOT given a PerfMonitor scope: it is the same span
                 // WallFade.Late already ranks, and a second name for one span would put the
                 // subsystem's own cost on the STEPS line twice.
-                _measure = index > 0 && index < TickApplierFirst
+                _measure = index > 0 && (index < TickApplierFirst || index > TickApplierLast)
                     ? PerfMonitor.Scope(TickPhaseScopeNames[index])
                     : default;
                 _start = Stopwatch.GetTimestamp();
@@ -363,7 +364,7 @@ internal static partial class WallSegmentFade
             float named = 0f;
             for (int i = 1; i < TickPhaseCount; i++)
             {
-                if (i == (int)TickPhase.Decide || i >= TickApplierFirst)
+                if (i == (int)TickPhase.Decide || (i >= TickApplierFirst && i <= TickApplierLast))
                     continue; // Decide contains the appliers; counting both double-counts
                 named += (float)(_tickPhaseWindowTicks[i] * msPerTick);
             }
@@ -433,12 +434,10 @@ internal static partial class WallSegmentFade
                 : "the shipped default, both dials at 0";
             sb.Append(" DECISION CADENCE: ").Append(cadence.ToString("F3"))
               .Append("s between two fade decisions, from ").Append(cadenceSource)
-              .Append(". THIS IS THE DIVISOR FOR THE TWO BIGGEST PHASES ABOVE: SplitRuns and ")
-              .Append("Decide are entered only on a tick the gate opens, so their 'timed ")
-              .Append("frame(s)' count — not their ms/frame — is what moves when this number ")
-              .Append("changes, and a count equal to the tick count means the gate opened every ")
-              .Append("frame (a cadence at or below one display frame, or the walk-in ")
-              .Append("suspension holding, or a value somebody typed). Up to ModBuild 436 two ")
+              .Append(". SplitRuns and Decide bracket the decision/apply loop every tick, ")
+              .Append("including continuous fade application when evaluation is skipped. Their ")
+              .Append("timed-frame counts do not establish how often the decision gate opened. ")
+              .Append("Up to ModBuild 436 two ")
               .Append("zeros meant every frame; since 437 they mean the shipped 0.050s, which ")
               .Append("is a behaviour change no cfg file records because no cfg VALUE moved.");
 

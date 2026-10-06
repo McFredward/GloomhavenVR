@@ -67,3 +67,10 @@ No remote peer participates in this capture, so none of its counters certifies
 multiplayer capacity. The next paired run needs the same parked three-room view
 with native input and shared presentation active. Idle visual degradation is
 withdrawn by the maintainer and is not a fallback strategy.
+
+The WallFade report had two additional instrument errors: the residual excluded
+all phases after the first sampled applier, including independent FastReclaim,
+Corners and audits; and its cadence prose equated timing the apply loop with
+opening the decision gate. Build630 limits child-phase exclusion to the six
+actual appliers and corrects that prose. Later top-level phases enter the usual
+Perf ranking. Gameplay/fade cadence and native writes are unchanged.
