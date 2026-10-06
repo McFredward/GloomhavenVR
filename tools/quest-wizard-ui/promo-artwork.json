@@ -10,7 +10,12 @@
         1024,
         512
       ],
-      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements"
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements",
+      "localPath": "assets/promo/cragheart.png",
+      "caption": {
+        "en": "Cragheart",
+        "de": "Cragheart"
+      }
     },
     {
       "id": "spellweaver",
@@ -21,7 +26,12 @@
         1024,
         512
       ],
-      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements"
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements",
+      "localPath": "assets/promo/spellweaver.png",
+      "caption": {
+        "en": "Spellweaver",
+        "de": "Spellweaver"
+      }
     },
     {
       "id": "brute",
@@ -32,7 +42,12 @@
         1920,
         1080
       ],
-      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements"
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements",
+      "localPath": "assets/promo/brute.jpg",
+      "caption": {
+        "en": "Brute",
+        "de": "Brute"
+      }
     },
     {
       "id": "scoundrel",
@@ -43,7 +58,12 @@
         1024,
         512
       ],
-      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements"
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements",
+      "localPath": "assets/promo/scoundrel.png",
+      "caption": {
+        "en": "Scoundrel",
+        "de": "Scoundrel"
+      }
     },
     {
       "id": "bandit-guard",
@@ -54,7 +74,12 @@
         1767,
         982
       ],
-      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements"
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements",
+      "localPath": "assets/promo/bandit-guard.jpg",
+      "caption": {
+        "en": "Bandit Guard",
+        "de": "Bandit Guard"
+      }
     },
     {
       "id": "bandit-archer",
@@ -65,7 +90,12 @@
         1767,
         995
       ],
-      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements"
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements",
+      "localPath": "assets/promo/bandit-archer.jpg",
+      "caption": {
+        "en": "Bandit Archer",
+        "de": "Bandit Archer"
+      }
     }
   ]
 }
