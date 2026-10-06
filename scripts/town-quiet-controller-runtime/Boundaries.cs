@@ -53,7 +53,7 @@ namespace MapRuleLibrary.Party
 }
 namespace MapRuleLibrary.Adventure
 {
-    public sealed class MapParty {}
+    public sealed class MapParty { public bool SellAvailable=true; }
     public sealed class Headquarters { public int EnhancementSlots=5; }
     public sealed class MapState { public MapParty MapParty=new(); public Headquarters HeadquartersState=new(); }
     public static class AdventureState { public static MapState MapState=new(); }
@@ -68,6 +68,7 @@ namespace MapRuleLibrary.Adventure
     {
         private readonly MapParty party=AdventureState.MapState.MapParty;
         public MapParty Party=>party; public int Enters;
+        public bool IsSellAvailable=>party.SellAvailable;
         public void OnEnterShop(){Enters++;}
     }
 }
@@ -107,8 +108,8 @@ public class UIShopItemWindow : MonoBehaviour
     public ShopService? Service=>service;
     public UIShopItemInventory ItemInventory=null!;
     public Action<object>? OnUpdateNewPartyItemNotification;
-    public int Clears,Notifications,Bound,Gold,Equipped,Unbound,Unequipped;
-    private void ClearEvents(){Clears++;Singleton<MapChoreographer>.Instance.EventBuss.Remove(OnItemBound,OnGoldUpdate,OnItemEquipped,OnItemUnbound,OnItemUnequipped);}
+    public int Clears,Notifications,Bound,Gold,Equipped,Unbound,Unequipped;public bool ThrowClear;
+    private void ClearEvents(){Clears++;Singleton<MapChoreographer>.Instance.EventBuss.Remove(OnItemBound,OnGoldUpdate,OnItemEquipped,OnItemUnbound,OnItemUnequipped);if(ThrowClear)throw new Exception("native fixture teardown failed");}
     private void OnItemBound(){Bound++;} private void OnGoldUpdate(){Gold++;}
     private void OnItemEquipped(){Equipped++;} private void OnItemUnbound(){Unbound++;} private void OnItemUnequipped(){Unequipped++;}
 }
@@ -129,31 +130,36 @@ public class UIPartyCharacterEnhancementAbilityCardsDisplay : MonoBehaviour
     private AbilityCardUI? selectedCard;
     public List<UIEnhanceCardSlot> slotsPool=new();
     public NativeCardsPanel abilityCardsPanel=new();
-    public int PointsUpdates,Deselects,Adds,Removes,Callbacks;public bool ThrowRefresh;
+    public int PointsUpdates,Deselects,Adds,Removes,Callbacks,WarningsUpdates;public bool ThrowRefresh,WarningsVisible=true;
     public bool LastSelected;
     public CMapCharacter? Character=>characterData;
     public Dictionary<CAbilityCard,UIEnhanceCardSlot> Assigned=>assignedSlots;
     public void SetPrefab(UIEnhanceCardSlot prefab){slotPrefab=prefab;}
     private void OnSelectedCard(AbilityCardUI card){Callbacks++;selectedCard=card;onAbilityCardSelected?.Invoke(card);}
     public void UpdateEnhancementPoints(){PointsUpdates++;}
+    public void ShowWarningPoints(bool visible){WarningsUpdates++;WarningsVisible=visible;}
     public void Deselect(){Deselects++;selectedCard=null;}
     public void OnAddedEnhancement(CAbilityCard card,bool selected){if(ThrowRefresh)throw new Exception("native fixture presentation refresh failed");Adds++;LastSelected=selected;}
     public void OnRemovedEnhancement(CAbilityCard card,bool selected){Removes++;LastSelected=selected;}
 }
 public sealed class NativeEnhancementShop { public int Clears; public void Clear(){Clears++;} }
-public sealed class NativeBuyTab { public int Activations;public Action? Active; public void Activate(){Activations++;Active?.Invoke();} }
+public sealed class NativeBuyTab { public GameObject gameObject=null!;public bool interactable;public int Activations;public Action? Active; public void Activate(){Activations++;Active?.Invoke();} }
 public class UINewEnhancementWindow : MonoBehaviour
 {
     private MapPartyEnhancementShopService? shopService;
     private AbilityCardUI? previousSelectedCard;
+    private AbilityCardUI? lastShowedCard;
     private string audioItemBuyEnhancement="native-buy-enhancement",audioItemSellEnhancement="native-sell-enhancement";
     public MapPartyEnhancementShopService? Service=>shopService;
     public CMapCharacter character=null!;
     public UIPartyCharacterEnhancementAbilityCardsDisplay CardsDisplay=null!;
     public NativeEnhancementShop enhancementShop=new();
     public NativeBuyTab buyButton=new();
+    public NativeBuyTab sellButton=new();
     public AbilityCardUI? selectedCard;
     public int Selections,OwnershipChanges,Refreshes,Payments;public bool BuyMode;
+    public void SetOldShown(AbilityCardUI card){lastShowedCard=previousSelectedCard=selectedCard=card;}
+    public void ShowBuyOptions(){BuyMode=true;if(lastShowedCard!=null)OnSelectedCardToEnhance(lastShowedCard);}
     public void OnSelectedCardToEnhance(AbilityCardUI? card){Selections++;selectedCard=card;previousSelectedCard=card;}
     private void OnControllableOwnershipChanged(){OwnershipChanges++;}
     private void RefreshSelectionAfterEnhance(AbilityCardUI card){Refreshes++;}

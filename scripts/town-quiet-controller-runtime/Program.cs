@@ -80,6 +80,9 @@ public static class InteractionProgram
         try { TownServiceQuietController.Prepare(window,1); } catch(Exception){threw=true;}
         Check(threw&&record.Equal(source)&&bus.Count==0&&!TownServiceQuietController.OwnsWindow(window),"failed original preparation restores native source and subscriptions before fallback");
         shop.ItemInventory.ThrowInit=false;Check(TownServiceQuietController.Prepare(window,1),"failed original preparation never poisons later owner initialization");TownServiceQuietController.Release();
+        Check(TownServiceQuietController.Prepare(window,1),"merchant source is valid before native teardown fault");shop.ThrowClear=true;
+        TownServiceQuietController.Release();shop.ThrowClear=false;
+        Check(record.Equal(source)&&bus.Count==0&&!TownServiceQuietController.OwnsWindow(window),"native callback teardown fault still restores exact source frame and releases owner");
         var mismatched=new CMapCharacter{CharacterID="not-selected"};MapRoomHand.Owned=mismatched;
         Check(!TownServiceQuietController.Prepare(window,1)&&bus.Count==0,"mismatched selected character never receives original transaction callbacks");MapRoomHand.Owned=character;
         TownServicePresentation.Window=null;
@@ -97,14 +100,21 @@ public static class InteractionProgram
         shop.CardsDisplay=source.gameObject.AddComponent<UIPartyCharacterEnhancementAbilityCardsDisplay>();
         shop.CardsDisplay.abilityCardsPanel.content=Rect("OwnedOriginalSlotPool",source);
         shop.CardsDisplay.SetPrefab(Rect("Original native UIEnhanceCardSlot prefab",parent).gameObject.AddComponent<UIEnhanceCardSlot>());
-        shop.buyButton.Active=()=>shop.BuyMode=true;
+        shop.buyButton.gameObject=Rect("Original native buy tab",window.transform).gameObject;
+        shop.sellButton.gameObject=Rect("Original native sell tab",window.transform).gameObject;
+        shop.buyButton.Active=shop.ShowBuyOptions;shop.buyButton.interactable=false;shop.sellButton.gameObject.SetActive(false);
+        var previousFace=Rect("Previously shown native card",source).gameObject.AddComponent<AbilityCardUI>();previousFace.AbilityCard=new CAbilityCard(999);
+        shop.SetOldShown(previousFace);
         var record=new Frame(source);
         TownServicePresentation.Window=window;TownServicePresentation.Service=3;
         Check(TownServiceQuietController.Request(3)&&TownServiceQuietController.Prepare(window,3),"mage uses original native preparation without map destination change");
         Check(!window.IsOpen&&!window.IsVisible&&window.Shows==0&&MapRoomDriver.Presses==0&&selected.Clicks==0,"quiet mage preserves flat window and exact selected party slot");
         Check(shop.BuyMode&&shop.buyButton.Activations==1,"mage buy mode and original tab are activated without a flat open");
+        Check(shop.selectedCard==null,"mage entry clears stale native shown card before its original buy tab callback");
+        Check(shop.sellButton.gameObject.activeSelf&&shop.buyButton.interactable,"mage entry restores original selling and buy-tab availability from its current native service");
         Check(shop.enhancementShop.Clears==1&&shop.Service!.Enters==1&&ReferenceEquals(shop.Service.Party,AdventureState.MapState.MapParty),"mage original service owns entry and new-stock semantics");
         Check(shop.CardsDisplay.Assigned.Count==character.Cards.Count,"every owned ability keeps its original assigned slot callback");
+        Check(shop.CardsDisplay.WarningsUpdates==1&&!shop.CardsDisplay.WarningsVisible,"original new ability pool clears previous enhancement points warning");
         foreach(var card in character.Cards)
         {
             var slot=shop.CardsDisplay.Assigned[card];Check(ReferenceEquals(slot.Card,card)&&ReferenceEquals(slot.Character,character)&&slot.LastCanSelect&&slot.Inits==1,"mage slots initialize exact original card and character");
@@ -139,6 +149,8 @@ public static class InteractionProgram
         for(int i=0;i<5;i++){Check(TownServiceQuietController.Prepare(window,3),"repeat mage preparation remains usable");Check(ControllableRegistry.Listeners==1&&shop.CardsDisplay.Assigned.Count==2,"repeat mage preparation binds exactly one native owned-card pool");TownServiceQuietController.Release();Check(ControllableRegistry.Listeners==0&&record.Equal(source),"repeat mage release has no geometry or callback leak");}
         AdventureState.MapState.MapParty=new MapParty();Check(TownServiceQuietController.Prepare(window,3),"mage prepares after native adventure changes");
         Check(ReferenceEquals(shop.Service!.Party,AdventureState.MapState.MapParty),"mage entry uses the current adventure party after save switch");
+        TownServiceQuietController.Release();AdventureState.MapState.MapParty=new MapParty{SellAvailable=false};
+        Check(TownServiceQuietController.Prepare(window,3)&&!shop.sellButton.gameObject.activeSelf&&!shop.buyButton.interactable,"mage entry clears old selling availability in native rulesets where selling is unavailable");
         var other=Rect("Unowned mage proxy",parent).gameObject.AddComponent<UINewEnhancementWindow>();other.gameObject.AddComponent<UIWindow>();other.character=character;other.CardsDisplay=shop.CardsDisplay;
         action.SupplementaryDataToken=new EnhancementToken{CardID=14};TownServiceQuietController.RefreshProxyEnhancement(other,action,true,true);
         Check(shop.CardsDisplay.Adds==1,"another player's enhancement proxy cannot refresh this owner's quiet original");

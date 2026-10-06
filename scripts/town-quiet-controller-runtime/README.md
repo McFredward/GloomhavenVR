@@ -11,7 +11,7 @@ one original inventory/pool initialization per owner context, native callback an
 selection routing, current-party changes, repeated visit teardown, successful
 owned proxy audio and refresh, invalid/unowned/visible proxy guards, and bounded
 cosmetic failure handling. A separate source gate requires all five quiet Harmony
-callbacks to be installed once. Nine causal controls deliberately remove these
+callbacks to be installed once. Fourteen causal controls deliberately remove these
 guarantees and must fail at their named assertions.
 
 `Boundaries.cs` declares native models, payments, save callbacks, source widgets,
