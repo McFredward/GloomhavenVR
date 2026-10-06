@@ -90,7 +90,9 @@ internal static partial class WorldMaterialBudget
         private readonly Dictionary<Material, Material> _variants = new();
         private readonly Dictionary<Material, Material> _originalByVariant = new();
         private readonly Dictionary<Material, Material> _prepared = new();
-        private readonly MaterialPropertyBlock _block = new(), _slotBlock = new();
+        // Native MPB construction is forbidden in a MonoBehaviour field initializer.
+        // Awake runs on Unity's main thread after the component has been created.
+        private MaterialPropertyBlock _block = null!, _slotBlock = null!;
         private Shader? _shader;
         internal bool IsVariant(Material material) => material != null && _originalByVariant.ContainsKey(material);
         internal Material Canonical(Material material) => material != null

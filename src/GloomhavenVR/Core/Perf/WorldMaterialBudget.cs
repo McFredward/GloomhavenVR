@@ -101,6 +101,7 @@ internal static partial class WorldMaterialBudget
 
         private void Awake()
         {
+            _block = new MaterialPropertyBlock(); _slotBlock = new MaterialPropertyBlock();
             SceneManager.sceneLoaded += SceneLoaded;
             SceneManager.sceneUnloaded += SceneUnloaded;
         }

@@ -38,13 +38,19 @@ internal static partial class WorldMaterialBudget
                         or UnityGameEditorDoorProp or CInteractable or Animator or Animation or Rigidbody
                         or SkinnedMeshRenderer or ParticleSystem or ParticleSystemRenderer or VideoPlayer
                         or Light or Projector) allowed = false;
+                    // Real native tiles require ProceduralStyle/ApparanceEntity.
+                    // They generate geometry through the existing content/placement
+                    // boundaries; the experimental periodically animated style stays
+                    // entirely native. Never disable their generators or callbacks.
+                    if (component is ProceduralStyle style && style.AnimateStyle) allowed = false;
                     // Positive provenance does not permit arbitrary scripted animated
                     // descendants. Known native world/visibility generators are the
                     // explicit exception; their presentation and write hooks stay live.
                     if (component is Behaviour && component is not ProceduralBase
                         && component is not ProceduralScenario && component is not RoomVisibilityTracker
                         && component is not TilesOcclusionVolume && component is not MaterialLoader
-                        && component is not MapChoreographer) allowed = false;
+                        && component is not MapChoreographer && component is not ProceduralStyle
+                        && component is not ApparanceEntity) allowed = false;
                     scope.Scenario |= component is ProceduralScenario;
                 }
                 _components.Clear();
