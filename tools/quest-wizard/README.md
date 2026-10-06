@@ -40,7 +40,7 @@ HTTP uses GET `/api/discover`, `/api/status?session=ID`,
 `/api/action {session,action:unity-open|unity-check,nonce}`. The last route accepts
 only an action currently declared by the running Unity stage. Closing a Hub or
 installer window keeps the wait visible; reopening it does not complete the stage. Native browse is Windows
-only. GET `/api/gallery` exposes twelve hash-pinned public publisher character/enemy
+only. GET `/api/gallery` exposes twenty-one hash-pinned public publisher character/enemy
 images bundled with the source release. An optional repair uses the exact official
 announcement CDN pins anonymously in a private local cache. No account or platform
 service is used, and an unavailable picture does not block conversion. GET
@@ -234,8 +234,12 @@ concise percentage text uses up to two. Version-one saved progress plans keep
 their attained high-water mark when acquiring these nested scopes. Batch numbers
 appear in substep labels, while adopting retained exports and restoring an
 interrupted write have separate labels. Bee native
-compilation uses its emitted action counts. AssetRipper API calls or other tools
-without native counts remain visibly unknown; elapsed time never invents progress.
+compilation uses its emitted action counts. The unchanged pinned AssetRipper
+exporter's actual `ExportProgress` log counters now reach the Wizard while its
+request runs; loading without a native denominator remains unknown. Its count
+can include core collections skipped by bundle-only export, so accepting the
+request and committing the package remain separate success boundaries.
+Elapsed time never invents progress.
 The child `GHVRQ_PROGRESS` protocol is enabled only for Wizard runs. Ordinary CLI
 output stays quiet. State/event writes are rate limited and the final observed
 counter is persisted; a failed or interrupted step never receives a success receipt.
@@ -258,6 +262,41 @@ schedule reused for final ownership indexing, and the selected exporter tool
 inventory is read once per invocation that has unfinished batches. Source,
 identity, retained-output and genuinely changed-input failures remain explicit.
 These checks support reliable continuation; they are not repeated build tasks.
+
+The build stage reserves 40 percent for conversion and 18 percent for the later
+Unity import, with smaller spans for its other actual operations. These are work
+shares, not time predictions. The producer announces its catalog-derived package
+count before core export; each package occupies one conversion task, alongside
+the six other conversion sections. A sixteen-package schedule therefore shows
+22 current conversion tasks instead of the seven Wizard stages. An unknown
+schedule stays unknown. `progress.activeWork` exposes this operation's integer
+`done`/`total` and measured fractional percentage. Batch and native index numbers
+identify repeated labels. A changed work distribution anchors remaining measured
+work to an existing owner's saved high-water once, so the update neither moves
+the bar backwards nor waits several packages to catch up.
+
+`row.timing` and `state.timing` report observed active elapsed seconds independently
+of work percentages. Monotonic clocks run only in the owning process; waits,
+cancellation and offline gaps are excluded. Persisted totals and bounded completed
+fresh-package durations are bound to the stage input and actual inspect input key.
+Historical sessions without timing evidence say "since update". Status polls only
+project the live clock; they do not write state, rerun tasks or advance counters.
+
+ETA uses measured counter throughput after at least three observations spanning
+ten seconds, or at least two successfully completed fresh packages with the same
+schedule. Reused packages do not train fresh-export rates. The visible estimate
+is a range scoped to the current phase or remaining data packages, never a forecast
+for unobserved later Unity/Android work. Reset/stale counters, a user wait or
+unobserved work return learning/unknown/paused states. Time/estimate context joins
+the existing bounded progress log, without a new polling log stream.
+
+Native evidence indexes now retain only invocation-local parsed, qualified state.
+Journal preparation and merge reuse it while file identity/write stamps match;
+identical canonical indexes are not rewritten. Source inventory hashes feed the
+same bundle schedule instead of a second original-bundle hash pass. Changed
+bytes/links invalidate these caches; cold continuation still qualifies retained
+output. These optimizations do not change the exporter binary or its identity
+format, and exact known previous orchestration profiles remain eligible for resume.
 
 The UI shows required actions and failures above the stage list. Failure context
 names the affected builder substep and a concise next action; detailed original

@@ -58,6 +58,7 @@ REQUIRED |= PROMOTIONAL_ASSETS | {'tools/quest-wizard-ui/promo-artwork.json',
     'tools/quest-wizard-ui/assets/provenance.json',
     'tools/quest-builder/recovery_resume.py',
     'tools/quest-wizard/stage_plan.py',
+    'tools/quest-wizard/timing.py',
     'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestWizardProgress.cs'}
 
 
