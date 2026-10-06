@@ -2,7 +2,7 @@
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import shutil
 import struct
 import subprocess
@@ -20,6 +20,20 @@ import proton_audit
 
 
 class SelectionContracts(unittest.TestCase):
+    def test_windows_stage_path_keeps_full_owner_identity_below_normal_path_limit(self):
+        cache = PureWindowsPath(r"C:\Users\McFredward\.ghvrq\build\tool-cache\campaign-native")
+        native_key, engine_key = "a" * 64, "b" * 64
+        path = proton_runtime.stage_directory(cache, native_key, engine_key)
+        self.assertEqual(path.parent, cache / "proton-stage")
+        self.assertEqual(path.name, hashlib.sha256((native_key + engine_key).encode()).hexdigest())
+        self.assertEqual(path, proton_runtime.stage_directory(cache, native_key, engine_key))
+        self.assertNotEqual(path, proton_runtime.stage_directory(cache, "c" * 64, engine_key))
+        self.assertNotEqual(path, proton_runtime.stage_directory(cache, native_key, "c" * 64))
+        longest_member = "payload/wine/lib/wine/aarch64-windows/windows.security.credentials.ui.userconsentverifier.dll"
+        self.assertLess(len(str(path / longest_member)), 260)
+        old = cache / "procedural-runtime-proton" / native_key / "assembled" / path.name / longest_member
+        self.assertGreater(len(str(old)), 260)
+
     def test_backend_default_explicit_old_option_and_unknown_rejection(self):
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(runtime.backend_choice(), "proton-arm64ec-fex")

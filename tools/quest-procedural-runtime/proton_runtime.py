@@ -169,6 +169,14 @@ def _link_or_copy(source: Path, target: Path):
         shutil.copy2(source, target)
 
 
+def stage_directory(cache, native_key: str, original_engine_sha256: str):
+    # Keep the full source+owner identity without nesting two 64-character keys.
+    # The old native-output/assembled/key tree reached 319 characters under the
+    # ordinary Windows Wizard root, beyond unconfigured Win32 MAX_PATH.
+    key = hashlib.sha256((native_key + original_engine_sha256).encode()).hexdigest()
+    return cache / "proton-stage" / key
+
+
 def stage(output_cache: Path, ndk: Path, android_plugin_directory: Path,
           streaming_assets_directory: Path, owner_engine_dll: Path, *, helpers: dict) -> dict:
     digest = helpers["digest"]
@@ -178,8 +186,8 @@ def stage(output_cache: Path, ndk: Path, android_plugin_directory: Path,
     output, native = build(output_cache, ndk, helpers=helpers)
     print("[Quest procedural] Auditing actual Android imports and native/ARM64EC DLL bindings.", flush=True)
     # Distinct owner/binary inputs never mutate the qualified public native tree.
-    stage_key = hashlib.sha256((native["inputKey"] + digest(original)).encode()).hexdigest()
-    assembled = output / "assembled" / stage_key
+    assembled = stage_directory(Path(output_cache).resolve(), native["inputKey"], digest(original))
+    stage_key = assembled.name
     if assembled.exists():
         shutil.rmtree(assembled)
     assembled.mkdir(parents=True)

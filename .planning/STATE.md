@@ -14,12 +14,15 @@ support evidence and a distinct internal Proton engine log are retained.
 
 The integrated actual stage preserves the original DLL and qualifies 27
 procedural ARM64 ELFs / 1,156 native imports, plus 126 native/EC PE contexts /
-19,904 PE imports. Voice adds the 28th native program. All 76 native-runtime
+19,904 PE imports. Voice adds the 28th native program. All 77 native-runtime
 cases, 42 builder, five inventory, 14 release/support and 67 collector cases
 pass (one optional PowerShell skip). Actual Unity import of all 28 staged
 programs passes 174 assertions. Strict Release and actual separate Quest/mod
 assembly compilation have zero warnings/errors. No unrelated/full shader gate
 or Player/APK build runs.
+The actual Windows payload inventory is case-insensitively unique; shallow
+temporary staging reduces its longest normal Wizard path from 319 to 231
+characters without truncating source/owner cache identity.
 
 See [B627 backend and hardware evidence](QUEST3-HARDWARE-627.md). Delivery remains
 the game-free Windows builder, with no agent-host APK/Player. Campaign/Guildmaster

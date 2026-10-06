@@ -58,6 +58,10 @@ Backend choice participates in the immutable input key. Native runtime caches
 depend on their own source/pins/NDK, independently of ordinary mod edits.
 Existing original-game conversion caches remain available where their exact
 recipe and inputs still match; a different backend cannot reuse an old Player.
+The transient source/owner-qualified audit tree lives at a shallow cache path.
+All 1,183 actual payload paths are Windows-safe and unique ignoring case; the
+longest temporary path in the normal maintainer Wizard directory is 231
+characters, reduced from 319 without shortening the full source/owner identity.
 The small native inventory is hashed during staging and actual Unity import;
 the signed APK inventory and Player report must agree on backend and filenames.
 `stagedProceduralNativeFiles` records pre-Gradle hashes, not a claim that stripped
@@ -90,7 +94,7 @@ of the black menu; that rendering question remains separate.
 
 ## Focused validation
 
-The final integrated tree passes 76 native-runtime cases with the real NDK and
+The final integrated tree passes 77 native-runtime cases with the real NDK and
 pinned Wine/FEX artifacts, 42 builder cases, five native inventory cases, 14
 release/support cases and 67 collector cases (one optional PowerShell skip).
 Actual Unity import of all 28 staged native programs passes 174 assertions,
@@ -104,12 +108,13 @@ DLL byte-identical before and after staging. Independent qualification records
 native/EC PE contexts / 19,904 PE import occurrences. The signed small inventory
 declares those programs plus the original voice ABI: 28 actual ARM64 files.
 Wrong backends and a changed actual staged program are rejected. The integrated
-source-stage control takes 8.06 seconds on this build host with verified public
-runtime cache; this is neither whole-Windows-build timing nor headset startup.
+source-stage control takes 3.81 seconds on this build host with cached verified
+public downloads and voice artifacts; this is neither whole-Windows-build
+timing nor headset startup.
 
 Compact/full audit, native compiler and integration receipts remain under
 `/home/claw/quest3-local/build/evidence/B627-proton/`. Real Unity importer evidence
-is `.planning/debug/quest-native-plugins/run-_21nwhud/`; the separate assembly
+is `.planning/debug/quest-native-plugins/run-tn02td8r/`; the separate assembly
 boundary log is `.planning/debug/quest-proton-boundary/build.log`.
 No Player/APK, unrelated NPC/wire gate or exhaustive shader compilation runs
 for this builder/backend update. Source release identity is published in the
