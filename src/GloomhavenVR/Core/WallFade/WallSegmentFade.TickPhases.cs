@@ -434,7 +434,8 @@ internal static partial class WallSegmentFade
                 : "the shipped default, both dials at 0";
             sb.Append(" DECISION CADENCE: ").Append(cadence.ToString("F3"))
               .Append("s between two fade decisions, from ").Append(cadenceSource)
-              .Append(". SplitRuns and Decide bracket the decision/apply loop every tick, ")
+              .Append(". THIS IS THE DIVISOR FOR THE TWO BIGGEST PHASES ABOVE is a legacy label: ")
+              .Append("it describes evaluation scheduling only. SplitRuns and Decide bracket the loop every tick, ")
               .Append("including continuous fade application when evaluation is skipped. Their ")
               .Append("timed-frame counts do not establish how often the decision gate opened. ")
               .Append("Up to ModBuild 436 two ")
