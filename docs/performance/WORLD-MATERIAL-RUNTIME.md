@@ -113,3 +113,68 @@ results.json; strict build logs are world-material-final-release.log and
 world-material-final-debug.log. Actual delivery pixels ran on GL llvmpipe; production
 shader pixels, actual game scene/controller execution, Frame timing and multiplayer
 are deliberately separate acceptance domains.
+
+## Frame636 native coordinator repair
+
+The supplied Frame636 screenshots retain detailed stone/wood textures in the pale
+areas; this is not evidence of a missing texture. The fully loaded log has requested
+world mode2 but zero native-world owner candidates, while the earlier terrain factory
+can still use private variants for its first64 admitted sources per camera. Its
+frustum/priority selection changes with the view. That permits one original wall to
+alternate between native lighting and the lighter private shader despite unchanged
+material-quality settings. Shader ambient presentation and terrain preparation cost
+are separate integration changes owned by the primary/shader lanes.
+
+Read-only native evidence proves why global adoption failed. Every one of the15
+procedural and114 editor map roots has the exact six-component native tuple
+ApparanceEntity/ProceduralMapTile/ProceduralStyle/RoomVisibilityTracker/
+ProceduralMapConfig/ApparanceMap. The authored ProcGen Maps root is level8 pathID2:
+ProceduralScenario/ProceduralStyle/ProceduralPlacementNotifierHandler/
+LightShadowsModifierController. The latter two root coordinators and the data-only
+map/config components were unknown Behaviour vetoes. A generic surrogate scenario
+without these required components could not detect that production refusal.
+
+The repair admits only these four exact coordinator classes; subclasses and all other
+unknown behaviours remain excluded. Original code confirms data references, placement
+completion bookkeeping and registered-light shadow policy, with no renderer vertex
+animation. Native callbacks and light state remain authoritative. No global scene-name
+permission or arbitrary Behaviour exemption is added. The authored ProcGen Maps root
+already supplies native ProceduralScenario ancestry, including in the additive scene.
+Actor/interactive children, late unknown scripts, reparenting, animated styles, held
+props, source mesh/slot/pass changes and foreign source masks retain their fresh
+per-camera checks. All supported native sources can now retain their chosen shading
+independently of a geometry substitute's camera limit or frustum membership.
+
+ConfigureAmbientWeight supplies a live0..1 shader weight through
+_GHVRWorldAmbientWeight, with default1 and finite/clamped input. Native tint/texture
+data is not rewritten. The primary owns its adjustable percent setting and the shader
+lane owns native SH lighting; this runtime fixture verifies binding/lifecycle only.
+Renderer-wide MPBs are fetched once per source in the synchronous slot loop; each
+subslot remains separately read. A64-source/two-slot fixture proves64 wide-block reads
+and128 independent slot-block reads, replacing128 repeated wide reads. Original
+material copies remain2 and settled arrays remain unwritten. This is bounded operation
+evidence, not a headset timing claim. Debug FactoryVariantRefreshes additionally counts
+the actual factory refreshes that happen before the final owner pass resets its local
+coverage counters; it does not represent visible GPU draws.
+
+Focused validation is source-bound under .planning/debug/frame636-runtime. Native
+scope reparsing passes839 assertions and4 causal contract controls against all129
+map roots plus the addressed ProcGen root, exact object bytes, script references and
+reviewed original class/load source hashes. The stripped scene's MonoBehaviour header
+is decoded only for its script reference; custom trailing payload is retained by its
+complete raw hash. Controller execution remains an explicit surrogate boundary.
+
+Production Unity2021 passes559 assertions, including cold native-tuple discovery,
+actor/interactive/unknown child refusal, exact-type subclass refusal, late reparent,
+ambient changes, actual additive unload/reseed and the MPB operation counts. Strict
+Release passes with zero warnings/errors. The first focused38-variant attempt passed
+production557 assertions and32 causal controls, but five controls hit an unintended
+fixture assertion: one new earlier ambient check changed ordering and four mutations
+accidentally granted permission to the fixture's unknown script. Those harness issues
+were repaired without changing production bytes. Production and the five affected
+controls passed again. The37-control coverage combines those32 inherited passes with
+five affected reruns; it is not a fresh complete38-variant or149-suite run. All failed
+attempt outputs/manifests/assemblies are preserved. The integrated binding checker
+adds an ambient config contract/control only when the primary's new CoreModule binding
+is present; this worker cannot certify a config it does not own. Actual Frame pixels,
+room-wide timing and multiplayer remain hardware acceptance.
