@@ -177,10 +177,13 @@ def main():
             ('structural-bound', 'LazyNativeTemplates.cs',
              'i >= 0 && remaining > 32;', 'i >= 0 && remaining > 128;',
              'An original town widget partition exceeds the bounded presentation packet.'),
+            # The atomic original-value bundle retains its manifest before delivery.
+            # Losing the census now correctly fails the real first-picture proof
+            # before the later direct retained-array lifetime assertion is reached.
             ('retained-visible-census', 'TownServiceDelta.cs',
              'RequiredVisibleModules = f.RequiredVisibleModules == null ? null : (ushort[])f.RequiredVisibleModules.Clone()',
              'RequiredVisibleModules = null',
-             'retained manifest owns its exact visible dependency census'),
+             'complete visible native picture arrives without a hidden-module repair wait'),
         ]
     if args.negative_control:
         variants = [case for case in variants if case[0] == 'production' or case[0] in args.negative_control]
