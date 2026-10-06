@@ -1,10 +1,10 @@
 # Original procedural runtime bridge
 
-The full Quest target preserves the owner's original `ApparanceEngine.dll`. A small Windows x64 worker loads its twelve C ABI exports. Pinned ARM64 Android Box64 executes that worker through portable Wine 9.0. Unity, original managed placement decoding, rendering, gameplay and networking remain native Quest code.
+The full Quest target preserves the owner's original `ApparanceEngine.dll`. A small Windows x64 worker loads its twelve C ABI exports. The default backend uses pinned native Bionic ARM64EC Proton Wine and the official FEX CPU translator. The previous pinned Box64/Wine9 backend remains an explicit diagnostic option. Unity, original managed placement decoding, rendering, gameplay and networking remain native Quest code.
 
 The runtime copies each input parameter buffer, resource descriptor, 15-float resource frame and output task buffer across a local socketpair. Guest pointers and Windows callback addresses never cross processes. Original synthesis threads, procedure evaluation, operator implementations, seeds, task completion and engine entity handles remain owned by the original engine. The runtime forwards original task bytes unchanged.
 
-`runtime.stage(output_cache, ndk, android_plugin_directory, streaming_assets_directory, owner_engine_dll)` builds the three Android artifacts and stages the interpreted payload under `StreamingAssets/ProceduralRuntime`. The normal full-target owned-content archive can therefore install this directory with the existing receipt and overall progress flow. Builder requirements are in `requirements.txt`; the wireless installer needs none of them.
+`runtime.stage(output_cache, ndk, android_plugin_directory, streaming_assets_directory, owner_engine_dll, *, backend=None)` preserves the original five-path call boundary and stages interpreted data under `StreamingAssets/ProceduralRuntime`. `backend="proton-arm64ec-fex"` is the default; `backend="box64-wine9"` must be explicit. Direct calls may select `GHVRQ_PROCEDURAL_BACKEND`. An unknown choice or failed Proton qualification stops delivery; there is no automatic fallback. The normal owned-content archive installs the payload with its existing receipt/progress flow. Builder requirements are in `requirements.txt`; the wireless installer needs none of them.
 
 The native contract is:
 
@@ -15,7 +15,84 @@ The native contract is:
 - The framing protocol is little endian, version 1, with a 20-byte header and a 128 MiB payload limit. Invalid frame sizes, sequence mismatches, malformed resource frames and disconnections stop the worker with useful failure context.
 - `ApparanceShutdown` invokes the original shutdown and bounds child termination. Original engine `log.txt` stays in the private Wine prefix's `drive_c`; stderr goes to `writableDirectory/procedural-worker.log`.
 
-For a diagnostic APK, collect the internal `quest-procedural-state/procedural-worker.log` and `quest-procedural-state/wine-prefix/drive_c/log.txt` using `adb shell run-as PACKAGE` alongside the ordinary Unity log capture. They are not in external `Android/data` storage.
+For a diagnostic APK, collect internal `quest-procedural-state/procedural-worker.log` and the optional original engine log: `quest-procedural-state/proton-prefix/drive_c/log.txt` for Proton, or `quest-procedural-state/wine-prefix/drive_c/log.txt` for Box64. Use `adb shell run-as PACKAGE` alongside ordinary Unity capture. These logs are not in external `Android/data` storage.
+
+## Default native Bionic Proton / ARM64EC FEX backend
+
+`proton.lock.json` pins GameNative's public September28 Wine11 ARM64EC WCP
+(`fffa4672…`,98,079,159 bytes) and official FEX2609.1 Ubuntu PPA package
+(`c62210a5…`,1,693,160 bytes). Only the latter's ARM64EC Windows DLL is selected;
+its Linux UnixLib companions and WOW64 translator are excluded. The Wine package
+and official FEX DLL pass actual native/ARM64EC import checks together. Wine's
+ARM64X native and EC export tables differ; the audit applies actual dynamic
+fixups and uses the correct caller view, rather than assuming a COFF machine
+field alone qualifies a hybrid library. Original worker and owner DLL stay plain
+x64 PE. There is no x64 Unix/glibc Wine tree in this backend.
+
+The package keeps the consistent complete 64-bit Wine PE/data tree, the 24 native
+Unix modules without external desktop link-time dependencies, native server and two own-source helpers
+(27 ARM64 ELF files). Optional X11/audio/media/Steam driver modules and 32-bit Wine
+are excluded and their inventory is explicit. The minimum import proof also
+includes native Wineboot/services/winedevice initialization, not just the owner's
+direct DLL list. Runtime `dlopen` features beyond this closure remain unproven.
+
+`proton_launcher.c` is an independently implemented narrow loader, with no
+proprietary GameNative `libredirect` or other launcher/GPU helper. It exports the
+Wine loader's reservation markers, loads APK-native `ntdll` and invokes its
+original `__wine_main`. Only fixed Wine logical paths are adapted through
+`dladdr`, `dlopen`, `execv` and `posix_spawn`. An inert installed-data marker
+preserves Wine's canonical dirname for PE/data discovery. Actual executable
+loads/re-execution always target `nativeLibraryDir`. ELF relocation changes only
+bounded dynamic SONAME/DT_NEEDED/RUNPATH strings, preserving file offsets and
+instruction sections. The independent audit checks actual relocated bindings,
+not the source filename map alone.
+
+The private `proton-prefix` is separate from the Wine9 prefix. Its Z: drive maps
+to `/`, retaining original absolute-input conversion. A private real `system32`
+directory contains individual links to installed builtin PE files. New Wineboot
+outputs/subdirectories stay private; it is never a directory link into immutable
+content. The pinned `setupapi/fakedll.c` recognizes existing reparse-point files
+as installed Proton builtins and registers them without copying. Only the private
+prefix receives those links, so Windows builders need no symlink privilege.
+Native Wine's original initialization still runs; no fake ready prefix is used.
+The registry selects `libarm64ecfex.dll`, the headless null graphics driver and no
+Wine audio driver. Server synchronization is explicit; ntsync/fsync/esync and
+desktop driver paths are disabled. No CPU feature or relaxed ordering/precision
+gaming preset is forced. Sandbox, JIT and first-prefix latency need headset tests.
+
+Native source/cache keys cover this backend's code, mapping, public runtime pins
+and selected NDK, rather than the entire evolving mod. Cached artifacts are
+SHA/size/source/inventory checked and the actual stage is audited before delivery.
+Both success and failure retain `proton-stage-audit.json` plus bounded
+`proton-stage-summary.json` with input identity/counts/error context for support.
+Preparation logs identify package validation, layout, small compilation and
+binding audit. These checks run on the builder, not at headset startup. Transient
+owner/duplicate audit files are removed; verified public runtime cache remains
+resumable. Returned `androidNativeFiles` is the exact flat-name/SHA/size inventory
+for Unity importer and signed-APK validation; the Proton manifest uses schema2.
+
+Actual source-stage evidence: 27 ARM64 ELF files, 1,156 native import occurrences,
+126 native/EC PE contexts and 19,904 PE import occurrences qualify against the
+selected NDK API29 and the owner's unchanged DLL. A separate actual host dynamic
+loader/process fixture exercises the own launcher through native production
+symbols, nested loader/server spawning, strict stdout framing and private prefix
+links. These are static/host/native-compile witnesses. No Android app-context
+Wine/FEX execution, campaign/Guildmaster synthesis equivalence, headset loading
+time, JIT permission, performance or usable gameplay is established by them.
+
+Wine LGPL2.1, FEX MIT and the Wine artifact's static ntsync LGPL3 notices accompany
+the payload. Provenance distinguishes downloaded artifact hashes, upstream release
+references, PPA source-package hashes and build recipes; it does not invent an
+exact Git-to-binary attestation. Corresponding public source/build dependencies
+remain linked in the lock and notice manifest. No proprietary game payload is
+distributed by the builder source release.
+
+Primary sources: [pinned Proton Wine](https://github.com/GameNative/proton-wine/tree/555aa70febb7d36e82d96697b554ff8f4fe0bb1a),
+[official FEX ARM64EC acquisition](https://wiki.fex-emu.com/index.php/Development:ARM64EC),
+[pinned FEX release source](https://github.com/FEX-Emu/FEX/tree/9fbdc00bd6401aff3b32d79e78ff98b8a13e4dcf),
+and [Wine builtin installation](https://github.com/GameNative/proton-wine/blob/555aa70febb7d36e82d96697b554ff8f4fe0bb1a/dlls/setupapi/fakedll.c).
+
+## Explicit Box64 / Wine9 fallback and historical proofs
 
 Package `libQuestApparance.so` as an Android ARM64 plugin. Package `libquest_box64.so` and `libquest_wineserver.so` as Android-only **executables**, with native preload disabled and `extractNativeLibs=true`. Their interpreter is `/system/bin/linker64`. Every OS executable launch starts in `nativeLibraryDir`. Wine, the Windows worker and the owner's DLL are readable interpreted data; none is executed from writable app storage. A narrowly audited Android-only Box64 change accepts readable x64 ELF inputs without an executable file bit. Native ARM files retain the ordinary executable requirement.
 

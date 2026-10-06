@@ -116,6 +116,13 @@ static char *environment(const char *key, const char *value) { size_t size = str
 #ifndef GHPR_NATIVE_INPUT_KEY
 #define GHPR_NATIVE_INPUT_KEY "unbound-host-fixture"
 #endif
+#ifdef GHPR_HOST_PROOF
+#define GHPR_BACKEND_NAME "host-wine-proof"
+#elif defined(GHPR_PROTON_BACKEND)
+#define GHPR_BACKEND_NAME "proton-arm64ec-fex"
+#else
+#define GHPR_BACKEND_NAME "box64-wine9"
+#endif
 static int begin_worker_log(const char *path) {
     /* Every attempt starts a fresh, attributed log. Retain only the previous
        attempt's bounded tail; the existing collector reads the current file. */
@@ -151,8 +158,8 @@ static int begin_worker_log(const char *path) {
     if (current >= 0) {
         time_t now = time(0); struct tm utc; char timestamp[32] = "UTC-unavailable";
         if (gmtime_r(&now, &utc)) strftime(timestamp, sizeof timestamp, "%Y-%m-%dT%H:%M:%SZ", &utc);
-        dprintf(current, "[GHPR] launch UTC=%s parentPID=%ld nativeInput=%s locale=C.UTF-8\n",
-                timestamp, (long)getpid(), GHPR_NATIVE_INPUT_KEY);
+        dprintf(current, "[GHPR] launch UTC=%s parentPID=%ld nativeInput=%s locale=C.UTF-8 backend=%s\n",
+                timestamp, (long)getpid(), GHPR_NATIVE_INPUT_KEY, GHPR_BACKEND_NAME);
     }
     return current;
 }
@@ -174,11 +181,30 @@ static int launch(void) {
     char fonts[8192], cache[8192];
     snprintf(fonts, sizeof fonts, "%s/fontconfig", payload_dir);
     snprintf(cache, sizeof cache, "%s/cache", writable_dir);
+#if defined(GHPR_PROTON_BACKEND) && !defined(GHPR_HOST_PROOF)
+    char wine_root[8192], temporary[8192], child_home[8192];
+    snprintf(box, sizeof box, "%s/libquest_proton.so", executable_dir);
+    snprintf(server, sizeof server, "%s/libquest_proton_server.so", executable_dir);
+    snprintf(prefix, sizeof prefix, "%s/proton-prefix", writable_dir);
+    snprintf(wine_root, sizeof wine_root, "%s/wine", payload_dir);
+    snprintf(library_path, sizeof library_path, "%s/wine/lib/wine", payload_dir);
+    snprintf(temporary, sizeof temporary, "%s/tmp", writable_dir);
+    snprintf(child_home, sizeof child_home, "%s/home", writable_dir);
+    const char *keys[] = {"WINEPREFIX", "WINEDEBUG", "WINESERVER", "WINELOADER", "WINEDLLPATH", "WINEARCH",
+        "GHPR_NATIVE_DIR", "GHPR_WINE_ROOT", "GHPR_STATE_DIR", "WINEDLLOVERRIDES", "LD_LIBRARY_PATH",
+        "LD_PRELOAD", "PROTON_NO_NTSYNC", "WINEFSYNC", "WINEESYNC", "TMPDIR", "HOME", "XDG_CACHE_HOME",
+        "DISPLAY", "WAYLAND_DISPLAY", "LC_ALL", "LANG"};
+    const char *values[] = {prefix, "-all", server, box, library_path, "win64",
+        executable_dir, wine_root, writable_dir,
+        "mscoree,mshtml,winegstreamer,winebus,winevulkan,winemenubuilder,winex11,winealsa,winepulse,winedmo,lsteamclient=",
+        executable_dir, "", "1", "0", "0", temporary, child_home, cache, "", "", "C.UTF-8", "C.UTF-8"};
+#else
     const char *keys[] = {"WINEPREFIX", "WINEDEBUG", "WINESERVER", "WINELOADER", "BOX64_LD_LIBRARY_PATH", "BOX64_DYNACACHE", "GHPR_BOX64", "GHPR_WINESERVER", "WINEDLLOVERRIDES", "BOX64_NOBANNER", "BOX64_LOG", "BOX64_EMULATED_LIBS", "FONTCONFIG_PATH", "FONTCONFIG_FILE", "XDG_CACHE_HOME", "LC_ALL", "LANG"};
     const char *values[] = {prefix, "-all", server, wine, library_path, "0", box, server_guest,
         "mscoree,mshtml,winegstreamer,winebus,winevulkan,winemenubuilder=", "1", "0",
         "libfontconfig.so.1:libfreetype.so.6:libexpat.so.1:libpng16.so.16:libz.so.1:libbrotlidec.so.1:libbrotlicommon.so.1:libbz2.so.1.0",
         fonts, "fonts.conf", cache, "C.UTF-8", "C.UTF-8"};
+#endif
     const size_t key_count = sizeof keys / sizeof keys[0];
     size_t existing = 0; while (environ[existing]) existing++;
     char **env = calloc(existing + key_count + 1, sizeof *env);
@@ -213,6 +239,9 @@ static int launch(void) {
     /* The Linux proof uses installed x64 Wine; Android always uses the APK executable. */
     for (size_t index = allocated; index < count; index++) if (environment_key(env[index], "WINESERVER")) { free(env[index]); env[index] = environment("WINESERVER", "/usr/lib/wine/wineserver64"); }
     int status = posix_spawn(&worker, host_wine, &actions, 0, arguments, env);
+#elif defined(GHPR_PROTON_BACKEND)
+    char *arguments[] = {box, worker_path, 0};
+    int status = posix_spawn(&worker, box, &actions, 0, arguments, env);
 #else
     char *arguments[] = {box, wine, worker_path, 0};
     int status = posix_spawn(&worker, box, &actions, 0, arguments, env);

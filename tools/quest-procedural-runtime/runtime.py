@@ -1,9 +1,10 @@
 """Pinned build/staging of the isolated original Apparance runtime.
 
-Only the owner's original Windows DLL is copied. Portable Wine is a CPU-side
-Win32 ABI provider; Box64 translates this single engine worker, never the game.
+Only the owner's original Windows DLL is copied. Default Android Bionic Proton
+Wine supplies the ARM64EC Win32 ABI; official FEX translates the x64 CPU worker.
+The older Box64/Wine9 backend remains an explicit option, never a silent fallback.
 All executable ARM64 files are packaged in Android nativeLibraryDir. The guest
-DLL/Wine files are interpreted data in the ordinary owned-content archive.
+DLL/Wine PE files are interpreted data in the ordinary owned-content archive.
 """
 from __future__ import annotations
 import hashlib
@@ -125,7 +126,7 @@ def _elf(path: Path, *, executable=False):
         raise RuntimeError(f"Packaged procedural executable does not use Android linker64: {path.name}")
 
 
-def build(output_cache: Path, ndk: Path) -> tuple[Path, dict]:
+def _build_box64(output_cache: Path, ndk: Path) -> tuple[Path, dict]:
     ndk = Path(ndk).resolve()
     key = hashlib.sha256((digest(ndk / "source.properties") + "".join(digest(path) for path in
                          (HERE / "runtime.py", HERE / "upstream.lock.json", HERE / "protocol.h", HERE / "worker.c",
@@ -263,10 +264,10 @@ def ar_member(path: Path, wanted: str) -> bytes:
     raise RuntimeError(f"Debian dependency lacks {wanted}.")
 
 
-def stage(output_cache: Path, ndk: Path, android_plugin_directory: Path,
+def _stage_box64(output_cache: Path, ndk: Path, android_plugin_directory: Path,
           streaming_assets_directory: Path, owner_engine_dll: Path) -> dict:
     """Stage verified Android code and original interpreted data into the full target."""
-    output, native = build(output_cache, ndk)
+    output, native = _build_box64(output_cache, ndk)
     native_dir = Path(android_plugin_directory) / "arm64-v8a"
     native_dir.mkdir(parents=True, exist_ok=True)
     payload = Path(streaming_assets_directory) / "ProceduralRuntime"
@@ -360,12 +361,47 @@ def stage(output_cache: Path, ndk: Path, android_plugin_directory: Path,
     (payload / "guest-abi-audit.json").write_text(json.dumps(audit, indent=2) + "\n")
     # The guest ELF files are interpreted bytes. Box64's Android-specific recipe
     # permits readable guest input without requiring writable executable files.
-    receipt = {"schema": 1, "native": native, "wine": wine, "winePathEdits": wine_path_edits, "guestPackages": LOCK["guestPackages"],
+    android_files = [dict(path=item["path"], sha256=item["sha256"], size=item["size"],
+                          executable=item["path"] != "libQuestApparance.so")
+                     for item in native["artifacts"] if item["path"].endswith(".so")]
+    receipt = {"schema": 1, "backend": "box64-wine9", "androidNativeFiles": android_files,
+               "native": native, "wine": wine, "winePathEdits": wine_path_edits, "guestPackages": LOCK["guestPackages"],
                "guestAbiAuditSha256": digest(payload / "guest-abi-audit.json"),
                "guestLibraries": guest_records, "originalEngineSha256": digest(original),
                "originalEngineSource": "owner-provided-PC-game", "androidExecutionVerified": False,
                "files": [dict(path=path.relative_to(payload).as_posix(), sha256=digest(path), size=path.stat().st_size)
                          for path in sorted(payload.rglob("*")) if path.is_file() and path.name != "runtime-manifest.json"]}
     (payload / "runtime-manifest.json").write_text(json.dumps(receipt, indent=2) + "\n")
-    return {"payload": str(payload), "nativeDirectory": str(native_dir), "manifest": str(payload / "runtime-manifest.json"),
+    return {"backend": "box64-wine9", "androidNativeFiles": android_files,
+            "payload": str(payload), "nativeDirectory": str(native_dir), "manifest": str(payload / "runtime-manifest.json"),
             "manifestSha256": digest(payload / "runtime-manifest.json"), "files": len(receipt["files"])}
+
+
+def backend_choice(backend=None):
+    selected = backend if backend is not None else os.environ.get("GHVRQ_PROCEDURAL_BACKEND", "proton-arm64ec-fex")
+    if selected not in ("proton-arm64ec-fex", "box64-wine9"):
+        raise RuntimeError("Procedural backend must be proton-arm64ec-fex or explicit box64-wine9; no automatic fallback is allowed.")
+    return selected
+
+
+def build(output_cache: Path, ndk: Path, *, backend=None) -> tuple[Path, dict]:
+    if backend_choice(backend) == "box64-wine9":
+        return _build_box64(output_cache, ndk)
+    return _abi_tools("proton_runtime").build(output_cache, ndk, helpers=globals())
+
+
+def stage(output_cache: Path, ndk: Path, android_plugin_directory: Path,
+          streaming_assets_directory: Path, owner_engine_dll: Path, *, backend=None) -> dict:
+    """Stable five-path call boundary; backend selection is explicit and keyed.
+
+    Bionic ARM64EC Wine/FEX is the requested default. The qualified old Box64
+    recipe remains an intentional diagnostic option, never a silent fallback.
+    """
+    if backend_choice(backend) == "box64-wine9":
+        native_dir = Path(android_plugin_directory) / "arm64-v8a"
+        layout = _abi_tools("proton_layout")
+        for name in ("libquest_proton.so", "libquest_proton_server.so", *layout.NATIVE_MAP.values()):
+            (native_dir / name).unlink(missing_ok=True)
+        return _stage_box64(output_cache, ndk, android_plugin_directory, streaming_assets_directory, owner_engine_dll)
+    return _abi_tools("proton_runtime").stage(output_cache, ndk, android_plugin_directory,
+                                             streaming_assets_directory, owner_engine_dll, helpers=globals())
