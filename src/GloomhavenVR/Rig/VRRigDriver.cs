@@ -549,7 +549,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
             // which reads the camera state the earlier steps wrote. It writes only
             // depthTextureMode, which no later step reads.
             ("Rig.DepthPrepass", TickDepthTextureMode),
-            ("Rig.RenderQuality", RenderQuality.Tick),
+            ("Rig.RenderQuality", RenderQuality.TickFromUpdate),
             ("Rig.CameraPolicy", () => TickCameraPolicy(_tickSceneLoaded)),
             ("Rig.MixedReality", MixedReality.Tick),
         };

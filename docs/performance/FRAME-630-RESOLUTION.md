@@ -53,6 +53,14 @@ capacity is read back before later viewport ratios are selected. Engine getter a
 rendered-pixel proof. Delayed diagnostics also query each native
 `XRRenderParameter.viewport` while retaining native projection.
 
+The Build631 PC follow-up corrects that original camera guard. `Camera.current`
+can remain stale during the rig's actual MonoBehaviour Update, already documented
+in the pre-existing `VRRigDriver.Update` frame marker. The guarded tail now calls
+`TickFromUpdate`; that explicit frame entry can commit coalesced MSAA/viewport
+edits despite the stale pointer. Unmarked `Tick` callers keep the camera guard.
+The native initialized-display boundary, debounce, resource spacing, deferred
+restriction and refusal without a live allocation fallback remain in force.
+
 MSAA remains configurable and live. It inherently changes multisample resources,
 so its intermediate cycles are coalesced after 0.35s, with at least 1s between
 committed resource changes. Native graphics-profile swaps still get corrected

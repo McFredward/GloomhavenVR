@@ -12,6 +12,7 @@ internal static class Program
     { _assertions++; if(!value) throw new InvalidOperationException(why); }
     private static void Near(float actual,float expected,string why) => Check(MathF.Abs(actual-expected)<0.0005f,why);
     private static void Tick(float time) { Time.unscaledTime=time; RenderQuality.Tick(); }
+    private static void FrameTick(float time) { Time.unscaledTime=time; RenderQuality.TickFromUpdate(); }
     private static XRDisplaySubsystem Start(float saved, int samples=0, bool rejectStartup=false)
     {
         RenderQuality.EndSession(); XRSettings.Reset(); SubsystemManager.Displays.Clear(); VRLog.Lines.Clear();
@@ -75,6 +76,27 @@ internal static class Program
         Check(display.Samples==1,"rendering camera blocks MSAA writes"); Camera.current=null; Tick(.51f);
         Near(XRSettings.renderViewportScale,.7f,"camera boundary release applies waiting viewport");
         Check(display.Samples==4,"camera boundary release applies waiting MSAA");
+
+        display=Start(1); Camera.current=new();
+        RenderQuality.EyeResolutionScale!.Value=.8f; RenderQuality.MsaaLevel!.Value=4;
+        FrameTick(.1f); FrameTick(.5f);
+        Near(XRSettings.renderViewportScale,.8f,"known Update phase commits viewport despite stale Camera.current");
+        Check(display.Samples==4,"known Update phase commits MSAA despite stale Camera.current");
+        Check(XRSettings.LiveAllocationWrites==0 && display.AllocationWrites==1,
+            "known Update phase never recreates live XR allocation");
+        QualitySettings.antiAliasing=0; FrameTick(.6f);
+        Check(QualitySettings.antiAliasing==4,"known Update restores committed MSAA after native profile swap");
+        writes=XRSettings.ViewportWrites; int msaaWrites=display.MsaaWrites;
+        for(int i=0;i<100;i++) FrameTick(.7f+i*.02f);
+        Check(XRSettings.ViewportWrites==writes && display.MsaaWrites==msaaWrites,
+            "known Update phase has no repeated stable resource writes");
+
+        // The stale-camera exception applies to the known Update entry only. Actual unmarked
+        // rendering remains blocked after the entry returns; permission belongs to one call.
+        RenderQuality.EyeResolutionScale.Value=.7f; RenderQuality.MsaaLevel.Value=8;
+        Tick(3); Tick(3.4f);
+        Near(XRSettings.renderViewportScale,.8f,"unmarked render call remains guarded after known Update");
+        Check(display.Samples==4,"unmarked render call cannot inherit Update MSAA permission");
         display=Start(1); VRRigDriver.HeadCamera!.actualRenderingPath=RenderingPath.DeferredShading;
         RenderQuality.EyeResolutionScale!.Value=.8f; Tick(.1f); Tick(.5f);
         Near(XRSettings.renderViewportScale,1,"deferred camera cannot take unsupported viewport path");

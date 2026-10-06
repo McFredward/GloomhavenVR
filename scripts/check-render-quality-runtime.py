@@ -23,6 +23,7 @@ args = parser.parse_args()
 source = args.source_root/'src/GloomhavenVR'
 original = (source/'Rig/RenderQuality.cs').read_text()
 bootstrap = (source/'Core/Startup/OpenXRBootstrap.cs').read_text()
+rig = (source/'Rig/VRRigDriver.cs').read_text()
 def validate_startup_boundary(text):
     prepare = text.index('            RenderQuality.PrepareSession();')
     assert prepare > text.index('            _generalSettings!.InitXRSDK();'), 'quality before loader initialization'
@@ -52,7 +53,11 @@ reuse = bootstrap[bootstrap.index('        if (DisplayExists())'):bootstrap.inde
 assert 'RenderQuality.AdoptRunningSession();' in reuse
 stop = bootstrap[bootstrap.index('    internal static void Stop()'):]
 assert stop.index('StopAndDeinitQuiet();') < stop.index('RenderQuality.EndSession();')
-assert 'if (!_sessionPrepared) AdoptRunningSession();\n        ApplyMsaa();' in original
+assert 'if (!_sessionPrepared) AdoptRunningSession();' in original
+assert '("Rig.RenderQuality", RenderQuality.TickFromUpdate),' in rig
+assert rig.index('CanvasConversion.BeginFramePhase("Rig.Update");') < rig.index('                UpdateBody();')
+assert 'internal static void Tick() => TickCore(fromFrameUpdate: false);' in original
+assert 'internal static void TickFromUpdate() => TickCore(fromFrameUpdate: true);' in original
 assert 'Camera.rect =' not in original and '.projectionMatrix =' not in original
 args.output_dir.mkdir(parents=True,exist_ok=True)
 run = Path(tempfile.mkdtemp(prefix='run-',dir=args.output_dir.resolve()))
@@ -93,9 +98,10 @@ mutations = [
  ('capacity-wrong-ratio','float viewport = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);','float viewport = Mathf.Clamp(wanted, 0.01f, 1f);','viewport uses requested scale divided by startup capacity'),
  ('erase-larger-request','float wanted = WantedEyeScale();\n        if (_baseEyeWidth','EyeResolutionScale!.Value = Mathf.Min(EyeResolutionScale.Value, _sessionAllocationScale);\n        float wanted = WantedEyeScale();\n        if (_baseEyeWidth','above-capacity request persists for next VR start'),
  ('msaa-no-quiet','Time.unscaledTime - _pendingMsaaSince >= SliderQuietSeconds','true','MSAA intermediate cycles do not recreate surfaces'),
- ('msaa-no-spacing','&& Time.unscaledTime >= _nextMsaaApplyTime && Camera.current == null','&& Camera.current == null','consecutive MSAA resource changes have minimum spacing'),
- ('native-msaa-no-restore','if (current != wanted && Camera.current == null)','if (current != wanted && Camera.current == null && QualitySettings.antiAliasing < 0)','native quality swap restores committed MSAA while request waits'),
- ('camera-boundary-ignored','if (Time.unscaledTime - _pendingEyeScaleSince < SliderQuietSeconds || Camera.current != null) return;','if (Time.unscaledTime - _pendingEyeScaleSince < SliderQuietSeconds) return;','rendering camera blocks resolution writes'),
+ ('msaa-no-spacing','&& Time.unscaledTime >= _nextMsaaApplyTime && canWriteRenderResources','&& canWriteRenderResources','consecutive MSAA resource changes have minimum spacing'),
+ ('native-msaa-no-restore','if (current != wanted && canWriteRenderResources)','if (current != wanted && canWriteRenderResources && QualitySettings.antiAliasing < 0)','native quality swap restores committed MSAA while request waits'),
+ ('camera-boundary-ignored','bool canWriteRenderResources = fromFrameUpdate || Camera.current == null;','bool canWriteRenderResources = true;','rendering camera blocks resolution writes'),
+ ('stale-camera-blocks-update','bool canWriteRenderResources = fromFrameUpdate || Camera.current == null;','bool canWriteRenderResources = Camera.current == null;','known Update phase commits viewport despite stale Camera.current'),
  ('deferred-ignored','if (deferred)\n','if (deferred && head == null)\n','deferred camera cannot take unsupported viewport path'),
  ('provider-realloc-fallback','bool stuck = Mathf.Abs(XRSettings.renderViewportScale - wanted) < 0.005f;','bool stuck = Mathf.Abs(XRSettings.renderViewportScale - wanted) < 0.005f;\n        if (!stuck) XRSettings.eyeTextureResolutionScale = wanted;','provider refusal never uses hazardous allocation fallback'),
  ('hot-reload-allocation','float allocation = XRSettings.eyeTextureResolutionScale;','float allocation = XRSettings.eyeTextureResolutionScale;\n        XRSettings.eyeTextureResolutionScale = allocation;','hot reload adopts live allocation without setter'),
@@ -118,10 +124,11 @@ for name, before, after, expected in mutations:
 final = execute('production-final')
 if final.returncode or 'assertions passed' not in final.stdout:
     raise SystemExit('Final original-source restoration failed\n'+final.stdout+final.stderr)
-report={'result':'PASS','sourceBindings':10,'productionAssertions':int(re.search(r'(\d+) assertions passed',production.stdout).group(1)),
+report={'result':'PASS','sourceBindings':14,'productionAssertions':int(re.search(r'(\d+) assertions passed',production.stdout).group(1)),
         'causalControls':results,'startupBoundaryControls':startup_controls,
         'sourceSha256':hashlib.sha256(original.encode()).hexdigest(),
         'bootstrapSha256':hashlib.sha256(bootstrap.encode()).hexdigest(),
+        'rigUpdateSha256':hashlib.sha256(rig.encode()).hexdigest(),
         'fixtureProgramSha256':hashlib.sha256((fixture/'Program.cs').read_bytes()).hexdigest(),
         'fixtureBoundarySha256':hashlib.sha256((fixture/'Boundary.cs').read_bytes()).hexdigest(),
         'productionExecutableSha256':hashlib.sha256((run/'bin/GloomhavenVR.RenderQualityTests.dll').read_bytes()).hexdigest(),

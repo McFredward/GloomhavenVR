@@ -520,15 +520,29 @@ internal static class RenderQuality
         LightStabiliser.BindConfig(_file);
     }
 
-    /// <summary>Per-frame enforcement (VRRigDriver guarded tail step "Rig.RenderQuality").</summary>
-    internal static void Tick()
+    /// <summary>Conservative entry for callers without a known MonoBehaviour frame phase.</summary>
+    internal static void Tick() => TickCore(fromFrameUpdate: false);
+
+    /// <summary>
+    /// VRRigDriver's guarded MonoBehaviour Update tail. Camera.current can retain the last
+    /// rendered camera here (already documented by VRRigDriver.Update and CanvasConversion).
+    /// Build631 PC evidence: five profile edits, Rig.RenderQuality keeps ticking, but no live
+    /// MSAA commit. Build630's Camera.current-null guard could therefore block every edit.
+    /// Trust this actual Update call boundary, not that stale camera value. Unmarked calls
+    /// retain the conservative camera guard; deferred viewport refusal remains independent.
+    /// Never call this entry from rendering callbacks or manual Camera.Render callbacks.
+    /// </summary>
+    internal static void TickFromUpdate() => TickCore(fromFrameUpdate: true);
+
+    private static void TickCore(bool fromFrameUpdate)
     {
         if (!VRSession.IsRunning)
             return;
         Bind();
         if (!_sessionPrepared) AdoptRunningSession();
-        ApplyMsaa();
-        ApplyEyeScale();
+        bool canWriteRenderResources = fromFrameUpdate || Camera.current == null;
+        ApplyMsaa(canWriteRenderResources);
+        ApplyEyeScale(canWriteRenderResources);
         ApplyAniso();
         ApplyTextureLimit();
         // IMMEDIATELY after the mip-drop force, because the two are one subject: masterTextureLimit
@@ -934,7 +948,7 @@ internal static class RenderQuality
     private static float WantedEyeScale() => ValidScale(EyeResolutionScale!.Value)
         ? Mathf.Clamp(EyeResolutionScale.Value, MinEyeScale, MaxEyeScale) : 1f;
 
-    private static void ApplyMsaa()
+    private static void ApplyMsaa(bool canWriteRenderResources)
     {
         int request = Sanitize(MsaaLevel!.Value);
         if (request != _pendingMsaa)
@@ -947,7 +961,7 @@ internal static class RenderQuality
         // request. Resource-changing commits are separated even after a slow frame/slider burst.
         if (_committedMsaa < 0) _committedMsaa = request;
         if (Time.unscaledTime - _pendingMsaaSince >= SliderQuietSeconds
-            && Time.unscaledTime >= _nextMsaaApplyTime && Camera.current == null)
+            && Time.unscaledTime >= _nextMsaaApplyTime && canWriteRenderResources)
         {
             if (_committedMsaa != request)
             {
@@ -957,14 +971,14 @@ internal static class RenderQuality
         }
         int wanted = _committedMsaa;
         int current = QualitySettings.antiAliasing;
-        if (current != wanted && Camera.current == null)
+        if (current != wanted && canWriteRenderResources)
         {
             QualitySettings.antiAliasing = wanted;
             string quality = QualitySettings.names[QualitySettings.GetQualityLevel()];
             VRLog.Info("Rig", $"MSAA (re)asserted {current}x → {wanted}x (quality level '{quality}'; " +
                               "native quality swaps are corrected toward the committed level).");
         }
-        if (wanted == _lastPushedDisplayMsaa || Camera.current != null) return;
+        if (wanted == _lastPushedDisplayMsaa || !canWriteRenderResources) return;
         SubsystemManager.GetInstances(Displays);
         if (Displays.Count == 0) return;
         foreach (XRDisplaySubsystem display in Displays) display.SetMSAALevel(Mathf.Max(wanted, 1));
@@ -980,7 +994,7 @@ internal static class RenderQuality
     /// rendered sub-rect within its stable allocation. Camera/FOV/rect stay native. Returning to
     /// 1 means native effective resolution, including when startup allocated a larger target.
     /// </summary>
-    private static void ApplyEyeScale()
+    private static void ApplyEyeScale(bool canWriteRenderResources)
     {
         if (!_sessionPrepared) AdoptRunningSession();
         float wanted = WantedEyeScale();
@@ -1001,7 +1015,7 @@ internal static class RenderQuality
             _pendingEyeScale = wanted;
             _pendingEyeScaleSince = Time.unscaledTime;
         }
-        if (Time.unscaledTime - _pendingEyeScaleSince < SliderQuietSeconds || Camera.current != null) return;
+        if (Time.unscaledTime - _pendingEyeScaleSince < SliderQuietSeconds || !canWriteRenderResources) return;
         Camera? head = VRRigDriver.HeadCamera;
         bool deferred = head != null && (head.actualRenderingPath == RenderingPath.DeferredShading
             || head.actualRenderingPath == RenderingPath.DeferredLighting);
