@@ -26,11 +26,14 @@ internal sealed class TownServiceRitual : IDisposable
         private readonly Transform _root;
         private readonly RemoteWidgetMirror _mirror = null!;
         private readonly TownServiceBookInk _ink;
-        internal Transform? Content => Source != null && Source.gameObject.activeInHierarchy ? _mirror.CloneOf(Source) : null;
+        private readonly Func<bool> _sourceVisible;
+        internal Transform? Content => _sourceVisible() ? _mirror.CloneOf(Source) : null;
         internal Transform? CloneOf(Transform source) => _mirror.CloneOf(source);
-        internal Inscription(string key, Component source, Transform parent, Vector3 position, float width, float height)
+        internal Inscription(string key, Component source, Transform parent, Vector3 position, float width, float height,
+            Func<bool>? sourceVisible = null)
         {
             Key = key; Source = source.transform;
+            _sourceVisible = sourceVisible ?? (() => Source != null && Source.gameObject.activeInHierarchy);
             _ink = new TownServiceBookInk(key, parent);
             _root = new GameObject("Town ledger inscription").transform;
             _root.SetParent(parent, false); _root.localPosition = position;
@@ -45,7 +48,7 @@ internal sealed class TownServiceRitual : IDisposable
         }
         internal void Tick()
         {
-            _mirror.SetShown(Source != null && Source.gameObject.activeInHierarchy);
+            _mirror.SetShown(_sourceVisible());
             _mirror.TickLive();
             _ink.Apply(Content);
         }
@@ -95,7 +98,7 @@ internal sealed class TownServiceRitual : IDisposable
         internal string DetailKey => Source is UITempleShopSlot ? "temple.tooltip" : "enchant.tooltip";
         internal Transform? DetailContent => _hovering && DetailSource != null ? _details?.CloneOf(DetailSource) : null;
         internal Transform? DetailCloneOf(Transform source) => _hovering ? _details?.CloneOf(source) : null;
-        internal bool Current => Source != null && Source.gameObject.activeInHierarchy
+        internal bool Current => _owner.OriginalVisible(Source)
             && ReferenceEquals(_createdIdentity, _identity());
         internal bool NativeVisible => Current && _visible();
         internal bool NativeAvailable => Current && _available();
@@ -380,14 +383,14 @@ internal sealed class TownServiceRitual : IDisposable
                 {
                     UITempleWindow temple = window.GetComponent<UITempleWindow>();
                     _inscriptions.Add(new Inscription("temple.level", temple.devotionLevel, Root,
-                        new Vector3(-.33f, .022f, .025f), .26f, .025f));
+                        new Vector3(-.33f, .022f, .025f), .26f, .025f, () => OriginalVisible(temple.devotionLevel)));
                     _inscriptions.Add(new Inscription("temple.gold", temple.totalDonatedGold.text, Root,
-                        new Vector3(-.40f, .022f, -.015f), .10f, .025f));
+                        new Vector3(-.40f, .022f, -.015f), .10f, .025f, () => OriginalVisible(temple.totalDonatedGold.text)));
                     if (temple.devotionProgress.AmountTexts.Count > 0)
                         _inscriptions.Add(new Inscription("temple.progress", temple.devotionProgress.AmountTexts[0], Root,
-                            new Vector3(-.26f, .022f, -.015f), .12f, .025f));
+                            new Vector3(-.26f, .022f, -.015f), .12f, .025f, () => OriginalVisible(temple.devotionProgress.AmountTexts[0])));
                     _inscriptions.Add(new Inscription("temple.description", temple.helpBox.tipText, Root,
-                        new Vector3(-.33f, .022f, -.09f), .26f, .12f));
+                        new Vector3(-.33f, .022f, -.09f), .26f, .12f, () => OriginalVisible(temple.helpBox.tipText)));
                 }
             }
             if (service == 3)
@@ -563,10 +566,10 @@ internal sealed class TownServiceRitual : IDisposable
             UITempleWindow temple = _window.GetComponent<UITempleWindow>();
             int index = 0, count = 0;
             foreach (UITempleShopSlot slot in temple.Shop.slots)
-                if (slot != null && slot.gameObject.activeInHierarchy && slot.Blessing != null) count++;
+                if (slot != null && OriginalVisible(slot) && slot.Blessing != null) count++;
             foreach (UITempleShopSlot slot in temple.Shop.slots)
             {
-                if (slot == null || !slot.gameObject.activeInHierarchy || slot.Blessing == null) continue;
+                if (slot == null || !OriginalVisible(slot) || slot.Blessing == null) continue;
                 var placement = TownServiceRitualLayout.Offering(index++, count);
                 if (ArrangeExisting(slot, placement)) continue;
                 Add(slot, "temple.row", slot.button, () => slot.Blessing,
@@ -623,6 +626,10 @@ internal sealed class TownServiceRitual : IDisposable
         piece.Arrange(placement);
         return true;
     }
+
+    private bool OriginalVisible(Component source) => source != null
+        && (source.gameObject.activeInHierarchy || _service == 2
+            && TownServiceTempleController.OriginalVisible(source.transform, _window));
 
     private bool OfferingEligible(UITempleWindow temple, UITempleShopSlot slot) => _templeOffering?.Available == true
         && TownServiceMirror.CanLocalBeginTransaction(2)
@@ -720,7 +727,8 @@ internal sealed class TownServiceRitual : IDisposable
 
     private static bool TempleEligible(UITempleWindow temple, UITempleShopSlot slot) => temple.character != null
         && MapRoomHand.OwnedMerchantCharacter()?.CharacterID == temple.character.CharacterID
-        && temple.Shop.slotsCanvasGroup.interactable && slot.IsAvailable && slot.button.IsInteractable()
+        && slot.IsAvailable && (TownServicePresentation.IsQuietTemple(temple.GetComponent<UIWindow>())
+            || temple.Shop.slotsCanvasGroup.interactable && slot.button.IsInteractable())
         // CanBuy opens native warnings on failure. Quiet live reads must precede its
         // multiplayer permission check so a held unaffordable offering cannot spam UI.
         && temple.service.IsAvailable(temple.character.CharacterID, slot.Blessing)
@@ -741,14 +749,20 @@ internal sealed class TownServiceRitual : IDisposable
         Func<bool> eligible, Func<bool> pendingEligible, Action<bool>? completed = null)
     {
         UIEnhancementConfirmationBox? box = Singleton<UIEnhancementConfirmationBox>.Instance;
-        if (!_alive() || box == null || box.GetComponent<UIWindow>().IsOpen || !button.IsInteractable() || !eligible()) return false;
+        bool quietTemple = controller is UITempleWindow originalTemple
+            && TownServicePresentation.IsQuietTemple(originalTemple.GetComponent<UIWindow>());
+        if (!_alive() || box == null || box.GetComponent<UIWindow>().IsOpen
+            || !quietTemple && !button.IsInteractable() || !eligible()) return false;
         object? context = _context(), selected = identity();
         Action? previous = box._onConfirmCallback;
         using var confirmation = TownServiceRitualConfirmationGuard.Begin(box,
             () => _sessionAlive() && TownServiceMirror.LocalTransactionSettled(2)
                 && pendingEligible() && button != null
                 && ReferenceEquals(context, _context()) && ReferenceEquals(selected, identity()), completed);
-        if (!Click(button)) return false;
+        bool clicked = quietTemple
+            ? TownServiceTempleController.SelectOriginal((UITempleWindow)controller, button.GetComponentInParent<UITempleShopSlot>())
+            : Click(button);
+        if (!clicked) return false;
         // The native selection synchronously installs its callback. Refusal or an unrelated
         // pre-existing prompt cannot become an implicit purchase. The callback still owns
         // server validation, currency, devotion, enhancement limits and transition completion.

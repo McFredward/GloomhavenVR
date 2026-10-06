@@ -81,7 +81,16 @@ internal sealed partial class MapRoomHand
     internal static void SetTempleInspection(bool active)
     {
         MapRoomHand? hand = s_live;
-        if (hand == null || hand._templeInspection == active) return;
+        if (hand == null) return;
+        if (hand._templeInspection == active)
+        {
+            // Native selection/confirmation callbacks can rebuild the ordinary
+            // source after a purse already owns this wrist. Match the accepted
+            // merchant repair so this same-frame refresh never publishes two fans.
+            if (active && CardsDriver.OffScenarioFanCards != null)
+                hand.ReleaseFan("temple donation pouch inspection remains active");
+            return;
+        }
         bool wasInspecting = hand.TownInspection;
         hand._templeInspection = active;
         hand.SetTownInspectionFan(active, wasInspecting, "temple donation pouch");

@@ -36,6 +36,7 @@ internal static class TownServicePresentation
     private static uint _session;
     private static object? _selectionOwner, _selectionCard, _selectionKey;
     private static int _selectionMode;
+    private static byte _quietService;
     internal static byte Service { get; private set; }
     internal static uint Session => _session;
     internal static ulong RelocationRevision => _workspace?.RelocationRevision ?? 0;
@@ -55,12 +56,15 @@ internal static class TownServicePresentation
     internal static Transform? StationRoot => _station?.Root;
     internal static bool UsesImmersiveEnhancement => MapRoomDriver.Active && Service == 3 && Active
         && _enhancementListVeil != null
-        && GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Enchantress;
+        && (_quietService == 3 || GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Enchantress);
     internal static bool Active => WorldUIConfig.ImmersiveTownServices.Value
         && TownServiceGrantSync.CanUseImmersive
         && TownServiceAvailability.NativeUnlocked(Service)
         && ((Service != 1 && Service != 3) || TownServiceEnhancementHandoff.Enabled)
-        && _window != null && _window.IsOpen && _station != null;
+        && _window != null && (_quietService != 0 || _window.IsOpen) && _station != null;
+    internal static bool IsQuietController(UIWindow window, byte service) => _quietService == service
+        && Service == service && ReferenceEquals(window, _window) && Active;
+    internal static bool IsQuietTemple(UIWindow window) => IsQuietController(window, 2);
     internal static bool OwnsInteraction => Active
         && TownServiceSync.LocalOwnsInteraction(Service, _session);
     internal static bool NativeFallbackFor(byte service)
@@ -153,13 +157,22 @@ internal static class TownServicePresentation
                 ModalFallback.RestoreClassicTownService(restore);
             return;
         }
-        TownServiceEnhancementHandoff.TickApproach();
-        // The temple needs its own approach tick to open the native offering and purse.
+        // A local wrist belongs to the nearest resident (or its actually held offering),
+        // independently of the global flat destination. Merely walking to the priestess must
+        // not open an invisible window, enable party selection or reset the native character.
+        bool quietTemple = MapRoomDriver.Active && TownServiceTempleOffering.WantsPurseFocus
+            && MapRoomHand.OwnedMerchantCharacter() != null;
         TownServiceTempleOffering.TickApproach();
-        EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
+        if (!quietTemple) TownServiceEnhancementHandoff.TickApproach();
+        EGuildmasterMode mode = quietTemple ? EGuildmasterMode.Temple : GuildmasterDestinations.CurrentDestinationMode();
         byte service = mode == EGuildmasterMode.Merchant ? (byte)1 : mode == EGuildmasterMode.Temple ? (byte)2
             : mode == EGuildmasterMode.Enchantress ? (byte)3 : (byte)0;
         UIWindow? window = service != 0 ? GuildmasterDestinations.ModeWindow(mode) : null;
+        if (quietTemple && (window == null || !TownServiceTempleController.Prepare(window)))
+        {
+            MapRoomHand.SetTempleInspection(false);
+            return;
+        }
         if (service != 0 && !TownServiceAvailability.NativeUnlocked(service))
         {
             // An old modal may still be retiring when a save or FTUE step changes. Do not
@@ -179,13 +192,18 @@ internal static class TownServicePresentation
             if (restore != null && restore.IsOpen) ModalFallback.RestoreClassicTownService(restore);
             return;
         }
-        if (!MapRoomDriver.Active || window == null || !window.IsOpen)
+        if (!MapRoomDriver.Active || window == null || !quietTemple && !window.IsOpen)
         {
             Reset();
             if (_failedWindow != null) _failedWindow.onHidden.RemoveListener(OnFallbackHidden);
             _failedWindow = null; return;
         }
-        if (_window != null && !ReferenceEquals(_window, window)) Reset();
+        if (_window != null && (!ReferenceEquals(_window, window) || _quietService != (quietTemple ? (byte)2 : (byte)0)))
+        {
+            Reset();
+            if (quietTemple && !TownServiceTempleController.Prepare(window)) return;
+        }
+        _quietService = quietTemple ? (byte)2 : (byte)0;
         if (_failedWindow == window) return;
         if (_window == null)
         {
@@ -501,7 +519,9 @@ internal static class TownServicePresentation
     private static void OnNativeHidden()
     {
         // A close/reopen within one frame must still retire the old gesture/session.
-        Reset();
+        // The logical purse/book never acquired this flat window's opening lifecycle.
+        // A native mode transition cannot retire its independent wrist presentation.
+        if (_quietService == 0) Reset();
         _failedWindow = null;
     }
 
@@ -527,7 +547,8 @@ internal static class TownServicePresentation
 
     internal static void Reset()
     {
-        if (_window == null && Surfaces.Count == 0 && Tokens.Count == 0 && _mat == null) return;
+        if (_window == null && Surfaces.Count == 0 && Tokens.Count == 0 && _mat == null)
+        { TownServiceTempleController.Reset(); return; }
         CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: true);
         CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: false);
         TownServicePalmConfirmation.Clear();
@@ -541,6 +562,7 @@ internal static class TownServicePresentation
             ModalFallback.ReleaseForComposite(_window);
         _catalog?.Dispose(); _catalog = null;
         _ritual?.Dispose(); _ritual = null;
+        TownServiceTempleController.Reset();
         for (int i = Surfaces.Count - 1; i >= 0; i--) Surfaces[i].Dispose();
         Surfaces.Clear();
         _enhancementListVeil?.Dispose(); _enhancementListVeil = null;
@@ -553,7 +575,7 @@ internal static class TownServicePresentation
         _tray?.Dispose(); _tray = null; _mat = null;
         _workspace?.Dispose(); _workspace = null;
         _station = null; // Population retains a station while another visitor still uses it.
-        _window = null; _context = null; Service = 0;
+        _window = null; _context = null; Service = 0; _quietService = 0;
         _selectionOwner = null; _selectionCard = null; _selectionKey = null;
     }
 }

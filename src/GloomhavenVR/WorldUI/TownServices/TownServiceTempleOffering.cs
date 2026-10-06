@@ -15,7 +15,6 @@ internal sealed class TownServiceTempleOffering : IDisposable
 {
     private static bool _approachInside;
     private static bool _purseFocus;
-    private static float _approachAt;
     private readonly TownServiceRitual _ritual;
     private readonly UITempleWindow _temple;
     private readonly UIWindow _window;
@@ -27,12 +26,12 @@ internal sealed class TownServiceTempleOffering : IDisposable
     internal Transform DropFrame { get; }
     internal bool InBowl(Vector3 world) => Available && TownServiceTempleBowl.Contains(DropFrame, world);
     internal bool Available { get; private set; }
-    internal bool VisitorPresent => !_disposed && TownServiceOfferingPose.VisitorWithin(_station, 1.65f);
+    internal bool VisitorPresent => !_disposed && TownServiceOfferingPose.VisitorWithin(_station, 2.6f);
 
     /// <summary>Map-hand focus for the local purse. Head-volume overlap by itself never
-    /// takes the item fan away from a visitor at another resident. Once the original
-    /// Temple service is actually open, retain its purse through the larger visit radius;
-    /// a deliberate revealed hand at the bowl can request that service from elsewhere.</summary>
+    /// takes the item fan away from a visitor at another resident. The nearest physical
+    /// resident and the revealed palm elect this local hand, independently of another
+    /// native window's transient destination. Shared NPC gaze does not elect a wrist.</summary>
     internal static bool WantsPurseFocus
     {
         get
@@ -49,14 +48,17 @@ internal sealed class TownServiceTempleOffering : IDisposable
             if (TownServicePresentation.Ritual is TownServiceRitual ritual
                 && (ritual.HasTemplePurseInHand || ritual.HasParkedTempleOffer))
             { _purseFocus = true; return true; }
+            if (VRHands.Left?.Grabber.Held is VRCard || VRHands.Right?.Grabber.Held is VRCard
+                || VRHands.Left?.Grabber.Held is ItemsPile.ItemChip || VRHands.Right?.Grabber.Held is ItemsPile.ItemChip)
+            { _purseFocus = false; return false; }
             bool deliberate = WantsPurseAtBowl(station.Root);
-            bool templeOpen = GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Temple
-                && station.IsLocalVisitorNear(_purseFocus)
-                && TownServiceOfferingPose.VisitorWithin(station.Root, _purseFocus ? 1.65f : 1.4f);
+            bool templeNear = station.IsLocalVisitorNear(_purseFocus)
+                && TownServiceOfferingPose.VisitorWithin(station.Root, _purseFocus ? 2.6f : 2.4f);
             // A parked transaction at another resident is not a reason to hide the
             // priestess's local hand. The actual destination and palm position elect
             // this fan; each resident's transaction ownership is independent.
-            _purseFocus = deliberate || templeOpen && !WantsMerchantFanAtCounter(station.Root);
+            _purseFocus = deliberate || templeNear && NearestTempleForHead(station.Root)
+                && !WantsMerchantFanAtCounter(station.Root);
             return _purseFocus;
         }
     }
@@ -71,59 +73,10 @@ internal sealed class TownServiceTempleOffering : IDisposable
 
     internal static void TickApproach()
     {
-        if (!MapRoomDriver.Active || !WorldUIConfig.ImmersiveTownServices.Value
-            || !TownServiceGrantSync.CanUseImmersive || !TownServiceEnhancementHandoff.Enabled
-            || StoryComposite.PointOfNoReturn
-            || MapRoomHand.OwnedMerchantCharacter() == null || !TownServicePopulation.Available(2))
-        { _approachInside = _purseFocus = false; return; }
-        TownServiceStation? station = TownServicePopulation.Acquire(2);
-        bool near = station != null && station.IsLocalVisitorNear(_approachInside)
-            && TownServiceOfferingPose.VisitorWithin(station.Root, 1.4f);
-        if (!near) { _approachInside = false; return; }
-        EGuildmasterMode destination = GuildmasterDestinations.CurrentDestinationMode();
-        if (destination == EGuildmasterMode.Temple) return;
-        // The prior native service can remain selected after its private fan has reset on
-        // walking away. Requiring the offhand to reach this bowl before changing that
-        // destination stranded the priestess after a merchant visit: no temple controller,
-        // hence no purse to take to the bowl. Prefer the physically nearest resident once
-        // the visitor reaches this narrower approach volume. A deliberate revealed hand
-        // at the bowl still works in an overlap. Neither choice interrupts a parked deal.
-        bool foreign = destination != EGuildmasterMode.None;
-        bool nearestTemple = (destination is EGuildmasterMode.Merchant or EGuildmasterMode.Enchantress)
-            && NearestTempleForHead(station!.Root);
-        if (foreign && !WantsPurseAtBowl(station!.Root) && !nearestTemple)
-        { _approachInside = false; return; }
-        if (foreign) _approachInside = false;
-        // The latch describes the small physical APPROACH volume, not the resident's larger
-        // attention/exit hysteresis. Build 561 kept it armed through 1.65 m. The three stands are
-        // close enough that walking from the priestess to another resident can remain inside that
-        // larger radius; after the native temple closed the priestess still reacted, but a later
-        // return never generated another approach edge and the ordinary ability fan remained.
-        // Rearm as soon as the head leaves the same 1.4 m volume that opens the service. A deliberate
-        // close while still standing at the bowl stays closed, while moving to another stand and
-        // returning creates one fresh edge. A foreign destination clears the latch separately.
-        if (_approachInside || Time.unscaledTime < _approachAt
-            || VRHands.Left?.Grabber.Held is VRCard || VRHands.Right?.Grabber.Held is VRCard) return;
-        if (foreign && (TownServiceMerchantHandoff.WantsOffering
-            || TownServiceEnhancementHandoff.HasCurrentOffering)) return;
-        if (Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI
-            || !MapRoomDriver.CanVisitTownService(EGuildmasterMode.Temple)) return;
-        _approachInside = true;
-        _approachAt = Time.unscaledTime + .5f;
-        // EnterTemple enables native selection mode. If the preceding service cleared its tab,
-        // the flat UI immediately selects the first assigned slot. Preserve the exact character
-        // the player was looking at across that native mode transition.
-        NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
-        NewPartyCharacterUI? selectedSlot = display?.SelectedUISlot;
-        MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Temple, "approached priestess",
-            suppressNativeSound: true);
-        if (selectedSlot != null && selectedSlot.State == PartySlotState.Assigned
-            && display != null && !ReferenceEquals(display.SelectedUISlot, selectedSlot))
-        {
-            // Use the original native slot, not a character-id lookup: campaigns can contain
-            // equivalent character records and the slot is the identity the player selected.
-            selectedSlot.OnClick();
-        }
+        // Focus is local and physical. Presentation prepares the exact native model without
+        // EnterTemple/Window.Show; a foreign flat destination cannot suppress this wrist.
+        _approachInside = WantsPurseFocus && MapRoomHand.OwnedMerchantCharacter() != null;
+        MapRoomHand.SetTempleInspection(_approachInside);
     }
 
     private static bool WantsPurseAtBowl(Transform station)
@@ -153,7 +106,8 @@ internal sealed class TownServiceTempleOffering : IDisposable
             if (other == null) continue;
             Vector3 otherDelta = head.transform.position - other.Root.position;
             otherDelta.y = 0f;
-            if (templeDistance + tie >= otherDelta.magnitude) return false;
+            if (_purseFocus ? otherDelta.magnitude + tie < templeDistance
+                : templeDistance + tie >= otherDelta.magnitude) return false;
         }
         return true;
     }
@@ -181,7 +135,7 @@ internal sealed class TownServiceTempleOffering : IDisposable
     {
         _ritual = ritual; _temple = temple; _station = station;
         _window = temple.GetComponent<UIWindow>();
-        _visited = TownServiceOfferingPose.VisitorWithin(station, 1.65f);
+        _visited = TownServiceOfferingPose.VisitorWithin(station, 2.6f);
         DropFrame = TownServiceTempleBowl.Create(station);
         Root = new GameObject("GloomhavenVR.Temple.OfferingPurses").transform;
         Root.SetParent(ritual.Root, false);
@@ -197,7 +151,7 @@ internal sealed class TownServiceTempleOffering : IDisposable
         bool holdingCard = VRHands.Left?.Grabber.Held is VRCard || VRHands.Right?.Grabber.Held is VRCard;
         _inspectionNear = selected != null && priest != null
             && priest.IsLocalVisitorNear(_inspectionNear)
-            && TownServiceOfferingPose.VisitorWithin(_station, _inspectionNear ? 1.65f : 1.4f)
+            && TownServiceOfferingPose.VisitorWithin(_station, _inspectionNear ? 2.6f : 2.4f)
             && WantsPurseFocus;
         // Native modal focus temporarily disables ritual input. That must not rebuild
         // the ordinary ability-card fan over the physical purse and shared bowl.
@@ -251,8 +205,9 @@ internal sealed class TownServiceTempleOffering : IDisposable
 
     private bool ExitIfAway()
     {
+        if (TownServicePresentation.IsQuietTemple(_window)) return false;
         if (!_visited || _window == null || !_window.IsOpen || VRRigDriver.HeadCamera == null
-            || TownServiceOfferingPose.VisitorWithin(_station, 1.65f)) return false;
+            || TownServiceOfferingPose.VisitorWithin(_station, 2.6f)) return false;
         // Physical departure, not temporary input disablement, is the native destination
         // exit. Cancel before the close callback can dispose this ritual reentrantly.
         Available = _near = _inspectionNear = false;
