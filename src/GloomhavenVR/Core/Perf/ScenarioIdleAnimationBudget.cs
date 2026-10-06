@@ -31,7 +31,7 @@ internal static class ScenarioIdleAnimationBudget
         _driver.HeadCamera = headCamera ?? (() => null);
         _driver.NativeCameraConsumers = nativeCameraConsumers ?? (camera => camera.commandBufferCount > 0);
         PerfMonitor.Register("Figure.IdleTransformCull"); PerfMonitor.Register("Figure.IdleTracked");
-        PerfMonitor.Register("Figure.IdleOriginalAlways"); PerfMonitor.Register("Figure.IdleAuthoredCull");
+        PerfMonitor.RegisterDebug("Figure.IdleOriginalAlways"); PerfMonitor.RegisterDebug("Figure.IdleAuthoredCull");
         PerfMonitor.Register("Figure.VisibleIdleBakes");
         PerfMonitor.Register("Figure.VisibleIdleSampling");
         PerfMonitor.Register("Figure.VisibleIdleSources");
