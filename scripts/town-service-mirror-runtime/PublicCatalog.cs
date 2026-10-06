@@ -60,7 +60,13 @@ public static partial class MirrorProgram
         Check(Remote(2,10)==null&&Remote(-2,10)!=null,
             "closing private native window leaves public cabinet continuously visible");
         Transform prompt=Go("merchant purchase decision",owner).transform;
+        // A native confirmation has visible Canvas ink; an empty Button does not.
+        prompt.gameObject.AddComponent<Canvas>().renderMode = RenderMode.WorldSpace;
+        var confirmInk=Image("purchase confirmation ink",prompt,Vector2.zero,
+            new Vector2(160,50),Color.white);
         var confirm=prompt.gameObject.AddComponent<UnityEngine.UI.Button>();
+        confirm.targetGraphic=confirmInk;
+        Canvas.ForceUpdateCanvases();
         int purchases=0;confirm.onClick.AddListener(()=>purchases++);
         TownServiceMirror.RegisterTemplate(1,2,prompt,address:"item.confirm.part.2|");
         TownServiceMirror.BeginSession(1,902,owner,prompt);

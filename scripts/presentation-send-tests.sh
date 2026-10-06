@@ -31,7 +31,7 @@ if ! dotnet build "$project" -c Release --nologo > "$mutation_dir/build.log" 2>&
     echo "send reuse negative control did not compile" >&2
     exit 1
 fi
-if "$mutation_dir/bin/Release/net8.0/GloomhavenVR.WireTests" "$repo_root" > "$mutation_dir/run.log" 2>&1; then
+if dotnet "$mutation_dir/bin/Release/net8.0/GloomhavenVR.WireTests.dll" "$repo_root" > "$mutation_dir/run.log" 2>&1; then
     echo "send reuse negative control unexpectedly passed" >&2
     exit 1
 fi
@@ -63,7 +63,7 @@ if ! dotnet build "$project" -c Release --nologo > "$mutation_dir/build.log" 2>&
     echo "node copy negative control did not compile" >&2
     exit 1
 fi
-if "$mutation_dir/bin/Release/net8.0/GloomhavenVR.WireTests" "$repo_root" > "$mutation_dir/run.log" 2>&1; then
+if dotnet "$mutation_dir/bin/Release/net8.0/GloomhavenVR.WireTests.dll" "$repo_root" > "$mutation_dir/run.log" 2>&1; then
     echo "node copy negative control unexpectedly passed" >&2
     exit 1
 fi
