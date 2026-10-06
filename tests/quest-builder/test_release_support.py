@@ -58,6 +58,16 @@ class ReleaseTests(unittest.TestCase):
         path = self.root / 'tools/quest-builder/builder.py'; data = path.read_bytes(); path.unlink()
         target = self.root.parent / 'private'; target.write_bytes(data); path.symlink_to(target)
         with self.assertRaises(BuildError): release.verified_source_inventory(self.root)
+    @unittest.skipIf(os.name == 'nt', 'symlink privilege varies')
+    def test_exact_authored_link_is_materialized_and_other_targets_rejected(self):
+        name, target_name = next(iter(release.AUTHORED_LINKS.items()))
+        target = self.root / target_name; target.parent.mkdir(parents=True, exist_ok=True); target.write_text('one authored source')
+        link = self.root / name; link.parent.mkdir(parents=True, exist_ok=True); link.symlink_to(target)
+        self.assertEqual(release.authored_input(self.root, name), target)
+        other = self.root / 'src/other.cs'; other.write_text('different source')
+        link.unlink(); link.symlink_to(other)
+        with self.assertRaises(BuildError): release.authored_input(self.root, name)
+
     def test_actual_assembled_archive_excludes_even_tracked_private_payloads(self):
         for name in ('libs/RefAsm/Assembly-CSharp.dll', 'prebuilt/ghvr-figure-meshes-mobile-1.bundle', 'ressources/Game/secret.txt', '.env'):
             path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text('DO NOT SHIP')

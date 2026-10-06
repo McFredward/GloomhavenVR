@@ -110,6 +110,8 @@ figure meshes, reference/game DLLs, decompiled game code, credentials, local
 Unity licenses, caches, APKs and savegames are excluded. The release manifest
 contains exact relative paths, sizes, hashes and the actual source commit/build;
 assembly independently extracts and verifies the ZIP before publishing its audit.
+The two declared Unity authoring source links are verified against their exact
+in-repository mod targets and materialized as ordinary files; no links ship.
 Future tracked mod files inside declared source roots enter the next release.
 New root families or binary dependencies require an explicit inventory review.
 

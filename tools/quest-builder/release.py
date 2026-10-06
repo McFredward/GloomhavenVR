@@ -11,6 +11,10 @@ import zipfile
 from storage import BuildError, canonical, digest, record_file, write_json
 
 MANIFEST = 'quest-builder-release.json'
+AUTHORED_LINKS = {
+    'unity/GloomhavenVR.Assets/Assets/Editor/CardGripPoseLink.cs': 'src/GloomhavenVR/Cards/CardGripPose.cs',
+    'unity/GloomhavenVR.Assets/Assets/Editor/GrabBarMeshLink.cs': 'src/GloomhavenVR/Core/GrabBar.cs',
+}
 PUBLIC_PACKAGES = {'prebuilt/quest-converters-win64-v1.zip': '61f7d664384b12663fb4fb799ffb8566bf11e99e15ce72c7afb00d5b62199f2d'}
 ROOT_FILES = {'Quest-Builder.cmd', 'QUEST-BUILDER-START.txt', 'LICENSE', 'Directory.Build.props', 'GloomhavenVR.sln', 'global.json', 'nuget.config', '.editorconfig'}
 TOOL_ROOTS = {'QuestCampaignInventory', 'QuestProceduralExport', 'QuestWeaver', 'RuntimeDepsBuild',
@@ -69,6 +73,20 @@ def ordinary(path):
     return path
 
 
+def authored_input(repo, name):
+    """Materialize only the two declared authoring links into ordinary ZIP files."""
+    path = repo / name
+    if path.is_symlink():
+        target_name = AUTHORED_LINKS.get(name)
+        if not target_name: raise BuildError('Undeclared source symlink cannot enter a release.')
+        target = ordinary(repo / target_name)
+        ordinary(path.parent)
+        if path.resolve() != target or not selected(target_name) or not target.is_file():
+            raise BuildError('Authored source link no longer targets its declared mod source.')
+        return target
+    return ordinary(path)
+
+
 def verified_source_inventory(repo):
     """Validate all delivered bytes, reject unlisted source; never infer Git state."""
     repo = ordinary(repo); path = ordinary(repo / MANIFEST)
@@ -124,7 +142,10 @@ def assemble(repo, destination):
     commit = subprocess.run(['git', '-C', str(repo), 'rev-parse', 'HEAD'], check=True, capture_output=True, text=True).stdout.strip()
     dirty = subprocess.run(['git', '-C', str(repo), 'diff', '--quiet', 'HEAD', '--', *names]).returncode
     if dirty: raise BuildError('Commit the release source files before packaging.')
-    records = [record_file(ordinary(repo / name), name) for name in names]
+    originals = {name: authored_input(repo, name) for name in names}
+    if any(AUTHORED_LINKS[name] not in names for name in names if name in AUTHORED_LINKS):
+        raise BuildError('Authored link target is missing from the release source inventory.')
+    records = [record_file(originals[name], name) for name in names]
     protocol = (repo / 'src/GloomhavenVR/Net/NetProtocol.cs').read_text(encoding='utf-8')
     match = re.search(r'const (?:int|ushort) ModBuild\s*=\s*(\d+)', protocol)
     if not match: raise BuildError('Cannot identify the released mod build.')
@@ -137,7 +158,7 @@ def assemble(repo, destination):
     try:
         with zipfile.ZipFile(temp, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
             for row in records:
-                raw = (repo / row['path']).read_bytes()
+                raw = originals[row['path']].read_bytes()
                 import hashlib
                 if len(raw) != row['size'] or hashlib.sha256(raw).hexdigest() != row['sha256']: raise BuildError('Source changed during release assembly.')
                 archive.writestr('GloomhavenVR-Quest-Builder/' + row['path'], raw)
@@ -152,7 +173,8 @@ def assemble(repo, destination):
     report = {'schema': 1, 'sourceCommit': commit, 'modBuild': manifest['modBuild'], 'fileCount': len(records),
               'sourceBytes': sum(row['size'] for row in records), 'archiveSha256': digest(destination),
               'excluded': ['owned game/decompiled code', 'reference DLLs', 'original-derived figure mesh banks',
-                           'generated APKs/caches', 'credentials/licenses/savegames'], 'windowsEndToEndVerified': False}
+                           'generated APKs/caches', 'credentials/licenses/savegames'], 'materializedAuthoredLinks': [name for name in names if (repo / name).is_symlink()],
+              'windowsEndToEndVerified': False}
     write_json(Path(str(destination) + '.audit.json'), report)
     return report
 
