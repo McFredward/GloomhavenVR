@@ -22,8 +22,13 @@ original partial/cancelled report is retained.
 The 2026-10-06 maintainer clarification permits focused testing for small scoped
 changes and prohibits needless repetition of passing unrelated suites; AGENTS.md
 now records this policy. Both multiplayer peers should use633 for the next test.
-Frame startup recovery, live headset presentation and actual remote latency remain
-hardware-unverified. See [the startup review](../docs/performance/FRAME-631-STARTUP-REVIEW.md)
+The maintainer subsequently confirms that a full headset restart restored VR on
+633/902fa3a3b. The preceding633 capture still failed before all mod quality writes;
+the reboot supports persistent native OpenXR/SteamVR state but does not establish
+its cause. No successful startup log or additional code fix accompanies that
+report. Recovery evidence is retained under
+`.planning/debug/frame-still-flat-20261006T181914Z/`. Live quality changes and actual
+remote latency remain hardware-unverified. See [the startup review](../docs/performance/FRAME-631-STARTUP-REVIEW.md)
 and `.planning/debug/frame633/validation-ledger.json`. No new release is established.
 
 ---

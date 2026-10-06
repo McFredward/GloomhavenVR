@@ -110,3 +110,17 @@ cancelled accordingly; its partial/cancelled report remains in
 `.planning/debug/frame633/final-local/`. The bounded follow-up ledger is
 `.planning/debug/frame633/validation-ledger.json`. These automated results do
 not establish recovery of the native Frame loader or headset-visible quality.
+
+The maintainer subsequently reports that a full headset restart restored VR on
+633/902fa3a3b. The preceding633 failure still occurred before all mod quality
+writes. Seven startup/runtime-selection, dependency, preloader, launcher and
+installer comparisons against the working628 baseline are byte-identical. The
+immutable failed capture and comparison manifest are retained in
+`.planning/debug/frame-still-flat-20261006T181914Z/`, alongside
+`restart-recovery.json` and `RESTART-RECOVERY.md`.
+
+This is reported hardware recovery after reboot, without a supplied successful
+startup log or a new code fix. It supports persistent native OpenXR/SteamVR bridge
+state but establishes neither the failed component nor causation by the previous
+graphics crash. Loaded-scenario performance and effective live quality settings
+remain the next hardware checks.
