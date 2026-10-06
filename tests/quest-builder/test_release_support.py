@@ -105,12 +105,14 @@ class SupportTests(unittest.TestCase):
         log.write_text('Source SecretName 76561198000000001 C:\\PrivateOwnedGame\nAuthorization: Bearer super-secret\naccess_token="another secret"\nMY_SECRET=private-env-value\nCookie: private-cookie\nclientSecret: private-client-secret\nError: missing native entrypoint\n')
         for name in ('build/logs/profile.json', 'build/signing/local-key.json', 'build/game/texture.png', 'build/saves/save.dat', '.env'):
             path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text('MUST NEVER SHIP')
+        write_json(self.root / 'build/last-failure.json', {'schema': 1, 'stage': 'build', 'error': 'BuildError', 'message': 'Shader identity mismatch', 'environment': {'token': 'NEVER EXPORT'}})
         evidence = self.root / 'build/evidence'; evidence.mkdir()
         write_json(evidence / 'resource-policy.json', {'schema': 1, 'physicalMemoryBytes': 32000000000, 'jobs': 2, 'accessToken': 'secret'})
         before = (self.directory / 'state.json').read_bytes(); result, rows = self.export()
         all_text = '\n'.join(rows.values())
         for forbidden in ('MUST NEVER SHIP', 'SecretName', '76561198000000001', 'super-secret', 'another secret', 'C:\\PrivateOwnedGame', 'must not ship', 'private-env-value', 'private-cookie', 'private-client-secret'):
             self.assertNotIn(forbidden, all_text)
+        self.assertIn('Shader identity mismatch', all_text); self.assertNotIn('NEVER EXPORT', all_text)
         self.assertIn('missing native entrypoint', all_text); self.assertIn('32000000000', all_text)
         self.assertIn('d' * 64, all_text); self.assertEqual((self.directory / 'state.json').read_bytes(), before)
         self.assertEqual(result['fileCount'], 3)

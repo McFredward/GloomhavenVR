@@ -108,6 +108,9 @@ def export_support(state_root, session, destination=None):
     qualification = read_object(root / 'qualification.json')
     if qualification: meta['qualification'] = safe_json(qualification, replacements)
     build_root = ordinary(root / 'build')
+    failure = read_object(build_root / 'last-failure.json')
+    if isinstance(failure, dict):
+        meta['buildFailure'] = {key: safe_json(failure[key], replacements) for key in ('stage', 'error', 'message') if key in failure}
     # Include only the selected build's small identity fields, never copy complete
     # receipts (which contain profile data, full game inventories and file paths).
     for name in ('latest-input.json', 'latest-build.json'):
