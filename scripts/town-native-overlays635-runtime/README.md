@@ -50,3 +50,12 @@ coplanar and at least 1.2013 times the physical card's height. Owner and observe
 renders at steps 6 and 13 were inspected and match. This result is bound to that
 source and the declared fixture boundaries above; it does not establish headset
 latency or validate future source changes.
+
+The final effects commit `2f1e162fe` changes only saved/restored full-card frame
+depth from `anchoredPosition` to `anchoredPosition3D`; the active geometry above
+is unchanged. Mask SHA256
+`4ddc3fbe719698613e932a9669ed0dcecce8cda3a36bf4a7f164564545debef2`
+inherits this observer geometry evidence and the effects lane's 328-assertion
+native check, including two new exact frame-depth restoration assertions. The
+unaffected 1,081-assertion observer run was not repeated for that restore-only
+repair.
