@@ -42,7 +42,8 @@ retained-export qualification have separate bilingual labels. Active substeps
 include their actual batch index/total; aggregate batch closure never displays
 the next batch as already started. Existing reviewed exporter/orchestration
 profiles remain eligible for raw workspace continuation; all other source/tool/
-instrumentation witnesses must match. No proprietary inputs/caches are removed.
+instrumentation witnesses must match. No original game-file or owner-workspace
+cleanup is introduced.
 
 Qualification uses real small multi-batch identity/merge/journal fixtures,
 isolated HTTP startup serving all publisher/logo bytes, direct Chrome workflows
@@ -51,6 +52,14 @@ exhaustive shader validation or unrelated runtime/wire gate is required by this
 tooling-only change. Full Windows throughput and the uncaptured sequence still
 require the maintainer's build. The latest compact receipts are recorded under
 `/home/claw/quest3-local/build/evidence/B627-wizard-minimal-*`.
+
+Final focused gate at `4afd37dfef346924760020b27394227722053aa8` runs 435
+cases: 143 wizard, 42 builder, 25 builder-startup, 18 release/support, 30
+raw-resume, 15 builder-progress, 139 recovery, four artwork and 19 Node/UI.
+433 pass and the two pre-existing optional recovery binding cases are skipped.
+All eight direct Chrome/loopback workflows run, including twelve offline images,
+both logos and `70 → 70.0001 → 70.01` bar updates with distinct batch labels.
+The release notes added afterward do not change the qualified tooling sources.
 
 ## Windows receipt limit and automatic restart continuation
 

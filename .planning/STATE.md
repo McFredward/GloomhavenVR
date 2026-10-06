@@ -24,6 +24,8 @@ extracted-release checks. The exact uncaptured Windows sequence and full build
 performance remain unverified. No game runtime, host APK, fresh Editor import,
 exhaustive shader or unrelated wire gate. Publish the source Builder ZIP on the
 Quest feature branch; retain the owner's `%USERPROFILE%\.ghvrq` workspace.
+The integrated focused gate runs 435 cases: 433 pass, with two existing optional
+recovery binding skips; all 19 UI cases run, including eight Chrome workflows.
 
 **Quest B627 large receipt and automatic wizard continuation, 2026-10-06 (tooling only).**
 
