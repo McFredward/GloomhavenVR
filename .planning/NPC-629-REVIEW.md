@@ -56,3 +56,25 @@ Implementation results, exact transport measurements, independent controls and
 the final integrated gate are recorded here after review. Automated evidence
 establishes its tested runtime boundaries; it does not establish a new headset
 picture or real internet latency.
+
+## Flight destinations under review
+
+| Native outcome or visitor action | Original object and destination |
+| --- | --- |
+| Successful sale | The sold owned copy moves into the merchant's palm and retires there. |
+| Successful purchase | The newly owned copy leaves the merchant's palm for the buyer's item fan. The cabinet sample is restored without a second return flight. |
+| Cancel, refusal, replacement or leaving with an uncommitted owned item | That owned copy returns to its original character's item fan. |
+| Cancel, replacement or dropping a borrowed cabinet sample elsewhere | The borrowed sample returns to its original cabinet holder. |
+| Native purchase/sale still completing when the visitor changes character or leaves | Retain that exact original character, model and presentation until the native ownership result selects the destination. |
+| Reclaim into a tracked hand | Adopt the original in the hand; never fly it out of the new holder. |
+| Enhancement cancelled, replaced or visitor walks away | The same ability card returns to its owner's ability fan. |
+| Enhancement succeeds | The updated original stays in the enchantress's hand for another enhancement; explicit withdrawal later returns it. |
+| Purse released outside an accepted donation | The purse returns to its wrist preview using the existing shared return clock. |
+| Accepted donation | Keep the accepted bowl sink and shared blessing sequence; this is not a return to the purse preview. |
+
+The independent cosmetic lane keeps an already returning original alive when the
+private interaction changes to another NPC. It carries no shop action, ownership
+mutation or extra interaction lock. Prepared copies remain hidden until the
+owner's genuine return sample reveals them. A prepared observer is not sufficient
+evidence: the focused proofs also start a return before its originals have crossed
+the bounded fragmented send queue.

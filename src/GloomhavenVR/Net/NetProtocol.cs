@@ -589,7 +589,37 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 628;
+    public const ushort ModBuild = 629;
+
+    // ModBuild 629 — paired Build627 offered originals, shared card planes and
+    // outcome-specific immersive flights; integrates on Frame628 without asset changes.
+    // The host admitted the remote mage picture after 24.975 s while waiting for
+    // invisible tooltip/inventory originals. Additive TLV108 declares the exact
+    // currently visible subset and its native mount dependencies; every visible
+    // original remains atomic. Prepared membership is separate, visitor-local
+    // pre-drop guides never become observer dependencies, and hidden unseen
+    // inventory is not serialized merely to present a card. Original partitions
+    // use deterministic 32-node structure, independent of localization. A baseline
+    // becomes a delta dependency only after successful encoding and queue admission;
+    // a >60 KB failure can no longer poison all following deltas. Current visible
+    // revisions borrow bounded existing town turns with debt repayment, without
+    // changing global bandwidth, cadence or continuous rig/hand motion.
+    // Offered-root interpolation has its own clock: hover/material updates cannot
+    // restart it independently of the physical card. Additive TLV109 binds the
+    // actual source native holder/canvas to the exact original print and preserves
+    // native local scale inside stretched/rotated canvases. Per-render composition
+    // retains original child pulses; identity/claim/session checks reject stale
+    // relations and singular temporary scales preserve the last valid frame.
+    // Native inventory outcomes select flights: sold originals retire at the
+    // merchant, acquired originals fly to the buyer, cancelled owned copies return
+    // to their fan and borrowed samples return to the cabinet. Prepare a hidden
+    // canonical purchase original while offered, adopt only the actual acquired
+    // model after success, and retain exact returning originals across NPC/character
+    // changes in the existing cosmetic lane. No gameplay state is manufactured.
+    // Temple TLV106 and accepted blessing behavior, public map card disclosure,
+    // scenario concealment and Frame628 controls remain unchanged. Representative
+    // original-widget transport, source-bound curves, continuous native geometry
+    // and independent wire/control tests are evidence, not a headset acceptance.
 
     // ModBuild 628 — loaded three-room Frame coverage and independent idle clothing.
     // The offline PC627 capture showed narrow terrain coverage, no submitted
