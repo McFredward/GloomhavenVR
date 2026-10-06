@@ -11,4 +11,5 @@ internal static partial class Defaults
     internal const bool SharedEnvironmentMaterialReads = true; // => [Optimize] SharedEnvironmentMaterialReads
     internal const bool SharedUiWindowReads = true; // => [Optimize] SharedUiWindowReads
     internal const float VisibleIdleAnimationIntervalSeconds = 0f; // => [Optimize] VisibleIdleAnimationIntervalSeconds
+    internal const bool VisibleIdleDisabledClothApproximation = false; // => [Optimize] VisibleIdleDisabledClothApproximation
 }
