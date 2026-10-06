@@ -1,5 +1,34 @@
 # State — where the project stands
 
+**Build636 integration, 2026-10-06: 1.1.0 development candidate.**
+
+The audited whole-game material lane is integrated after NPC635. Live world
+material stages0/1/2 retain original3D geometry, color textures and native
+visibility, with configurable lighting compromises. Fresh Frame/Standalone
+defaults select2; PC defaults0 and saved choices persist. Unsupported/interactive
+sources, actors, cards and UI retain their originals. Native material ownership
+coordinates with existing terrain/chunk/instance consumers. Review also removes
+settled Off-path work and restores discovery after additive scene unload.
+
+Worker combined149/149 evidence reuses147 passing original receipts plus2
+affected reruns; this is not a repeated single green full run. Final source15/15,
+golden296633 and docs5 pairs pass; bounded lifecycle proof543 plus4 controls
+uses real Unity scene events. Original shader318/25 and runtime466/26 evidence
+remains retained. See [the Frame636 integration](../docs/performance/FRAME-636-INTEGRATION.md)
+for scope and hardware limits. Native NPC635 overlay/input/remote fixes remain
+unchanged and source-bound; no headset acceptance is implied.
+Final Release/Debug have zero warnings/errors; compiled scope adds one material
+owner and changes only13 intended behavior types plus8 build constants. The
+four NPC635 repair types are byte-identical in compiled comparison.
+An additional legacy offered-image comparison passes602 assertions after a
+fixture-only timing repair, with one forward120ms causal control. It retains all
+prior intermediate geometry checks; no production latency change is claimed.
+
+Install the updated environment bundle with the assembly. Both peers must
+install636; Frame FPS, native HMD pictures and multiplayer gains remain open.
+
+---
+
 **Build635 integration, 2026-10-06: 1.1.0 development candidate.**
 
 The Build634 enchantress screenshot is reproduced with original native pooling

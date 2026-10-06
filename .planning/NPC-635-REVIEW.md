@@ -100,3 +100,18 @@ headset pixels, network latency or hardware acceptance.
 Both peers must install635. Test card offers with several eligible areas,
 laser hover/selection, cancel/reoffer, and head-relative rotation; verify a
 complete continuously spinning circle and exact areas locally and remotely.
+
+## Subsequent636 integration check
+
+The four production repair types remain unchanged after the independent material
+lane. A targeted legacy offered-orientation fixture exposed a scheduling error
+in its final still-image comparison: it rendered120ms after a synthetic sample,
+while that sample's pure rotation used143ms of interpolation. The exact received
+target already matched the owner. At the interpolation endpoint the unchanged
+pixel threshold passes, with ring-corner error at most0.241µm. The fixture-only
+repair adds settled-ring checks and an omitted-settle causal control; previous
+intermediate geometry checks and the original635140-subframe proof remain.
+The affected fixture passes602 assertions; the final control uses the original
+forward120ms boundary. Its first backwards-clock variant is preserved and is not
+used as the final causal evidence.
+This does not claim lower hardware latency or replace a paired headset test.

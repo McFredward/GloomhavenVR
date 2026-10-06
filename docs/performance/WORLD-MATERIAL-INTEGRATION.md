@@ -1,9 +1,10 @@
-# Whole-game material simplification candidate
+# Whole-game material simplification
 
 This lane follows the user's October 6 request to implement configurable material
-compromises across the complete base game and DLC corpus. It is based on pushed
-`dev` build634 (`af78bf231`), separate from the NPC repair already delivered.
-The integration agent assigns the next hardware build after accepting this lane.
+compromises across the complete base game and DLC corpus. The audited lane is
+integrated in `dev` build636 after the original enchantress overlay repair in635.
+See [the integration review](FRAME-636-INTEGRATION.md) for final scope, focused
+follow-up checks and hardware limits.
 
 ## Player-visible behavior
 

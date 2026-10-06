@@ -592,7 +592,25 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 635;
+    public const ushort ModBuild = 636;
+
+    // ModBuild 636 — integrate the separately audited whole-game material lane
+    // after the native enchantress635 repair. Optional live world shading stages
+    // 0/1/2 retain native renderer geometry, UV/color textures and visibility;
+    // unsupported or interactive/animated sources retain original materials.
+    // Fresh Frame/Standalone profiles select2; ordinary PC and existing values
+    // retain their original choice. Original floor/wall switches apply at0.
+    // World material variants coordinate with terrain/chunk/instance ownership
+    // and restore before native writes or variant destruction. Settled Off skips
+    // discovery, pass allocation and unowned slot reads; additive unload reseeds
+    // surviving native scenery. No NPC/Net/input behavior changes; all635
+    // original overlay fixes remain. Complete material
+    // inventory covers base game and DLCs. Source-bound149-suite worker coverage
+    // combines147 original passes with2 affected reruns, not a repeated full run.
+    // Main integration validation and boundaries: docs/performance/FRAME-636-INTEGRATION.md.
+    // Install the updated ghvr-environment.bundle with this assembly. Both peers
+    // must install636. Frame FPS and headset appearance remain hardware-open.
+    //
 
     // ModBuild 635 — Build634 local enchantress overlay follow-up. Quiet visits
     // now start/stop the shipped UIEnchantressEffect only while the original
