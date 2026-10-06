@@ -138,6 +138,7 @@ def _login_guard(log):
 def prepare(store, state, supervisor):
     session = state['session']; log_root = store.session_dir(session) / 'logs'
     log_root.mkdir(exist_ok=True); setup = None; login_confirmed = False
+    store.operation(session, 'unity', 'hub', detail='Checking Unity Hub or an already complete local Editor installation')
     store.progress(session, 'unity', 'unity-prerequisites', 0, 4, 'checks', 'Editor, Android tools, version and licence')
     while True:
         store.check_cancel(session)
@@ -158,12 +159,14 @@ def prepare(store, state, supervisor):
                       'Complete Unity Hub setup. If its window was closed, open it again. Then check prerequisites.',
                       'Unity Hub installieren. Falls das Fenster geschlossen wurde, erneut öffnen. Danach Voraussetzungen prüfen.', window)
                 continue
+            store.operation(session, 'unity', 'hub', complete=True, detail='Unity Hub installation found; licence remains independently checked')
             if not login_confirmed:
                 _wait(store, session, 'unity_login_required',
                       'Sign in to Unity Hub and activate an eligible licence. Then select Check prerequisites. Closing Hub leaves this action pending.',
                       'In Unity Hub anmelden und eine passende Lizenz aktivieren. Danach „Voraussetzungen prüfen“ wählen. Beim Schließen des Hubs bleibt dieser Schritt offen.',
                       lambda: (hub, False))
                 login_confirmed = True
+            store.operation(session, 'unity', 'editor', detail='Installing Unity Editor and its Android SDK, NDK and OpenJDK modules')
             store.progress(session, 'unity', 'unity-editor-install', None, None, None, 'Unity Hub installs the Editor and Android modules')
             try:
                 help_log = log_root / 'unity-hub-help.log'
@@ -184,6 +187,10 @@ def prepare(store, state, supervisor):
                       'Unity ist noch nicht vollständig eingerichtet. In Hub Unity 2021.3.5f1 mit Android Build Support, SDK/NDK und OpenJDK installieren oder Anmeldung prüfen. Das lokale Unity-Log enthält das Werkzeugergebnis. Danach Voraussetzungen prüfen.',
                       lambda: (hub, False))
                 login_confirmed = False; continue
+        # This boundary is reached only after _android_complete checks actual
+        # module files. Closing Hub or acknowledging sign-in cannot advance it.
+        store.operation(session, 'unity', 'editor', complete=True, detail='Editor and actual Android SDK, NDK and OpenJDK files found')
+        store.operation(session, 'unity', 'prerequisites', detail='Confirming exact Editor version and a fresh successful licence probe')
         store.progress(session, 'unity', 'unity-prerequisites', 2, 4, 'checks', 'Editor and Android tools found')
         version_log = log_root / 'unity-version.log'
         supervisor.run([selected, '-version'], version_log, timeout=30)

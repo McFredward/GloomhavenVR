@@ -32,7 +32,10 @@ def phase_operation(stage, phase, value):
         if phase == "unity-hub-download": return "hub", False
         if phase.startswith("unity-hub-") and phase != "unity-hub-help": return "hub", True
         if phase.startswith("unity-editor-"): return "editor", False
-        if phase == "unity-prerequisites" and (value.get("done") or 0) >= 2: return "prerequisites", True
+        # The setup engine opens this operation only after witnessing actual
+        # Editor/Android module files; an incidental check counter cannot skip
+        # pending Hub/login/installation work by itself.
+        if phase == "unity-prerequisites": return None, True
     if stage in ("inspect", "build"):
         mapping = {"game-hash": "game-inputs", "source-hash": "mod-inputs", "source-snapshot": "source-snapshot",
                    "source-snapshot-verify": "source-snapshot", "game-snapshot": "game-snapshot",
@@ -62,6 +65,8 @@ def initialize(row):
 def advance(row, value, operation=None, status=None):
     plan = initialize(row); operations = PLANS[row["id"]]
     inferred, measured = phase_operation(row["id"], value["phase"], value)
+    if row["id"] == "unity" and value["phase"] == "unity-prerequisites" and plan.get("current") != "prerequisites":
+        measured = False
     operation = operation or inferred
     if operation in operations:
         index = operations.index(operation)

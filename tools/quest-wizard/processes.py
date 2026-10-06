@@ -11,6 +11,7 @@ import subprocess
 import time
 
 from state import Cancelled, STAGES, WizardError, atomic_json, ordinary, stage_progress
+from stage_plan import PLANS
 
 
 def diagnostic_command(argv):
@@ -61,7 +62,8 @@ class ProgressParser:
             return {"phase": "install-content", "done": int(match[1]), "total": int(match[2]), "unit": "files", "detail": line}
         if re.fullmatch(r"Confirmed installed build: B\d+ \(input [0-9a-f]{12}\)", line):
             return {"phase": "operation:apk", "done": 1, "total": 1, "unit": "operations", "detail": line, "operation": "apk", "status": "complete"}
-        if line.startswith(("Installing complete Campaign content:", "Preparing ")) or line == "Reusing the verified Campaign content already on this Quest.":
+        preparing_content = re.fullmatch(r"Preparing \d+ changed files on the PC; \d+ files remain installed\.", line)
+        if line.startswith("Installing complete Campaign content:") or preparing_content or line == "Reusing the verified Campaign content already on this Quest.":
             return {"phase": "operation:content", "done": None, "total": None, "unit": None, "detail": line[:1024], "operation": "content", "status": "start"}
         # The Editor writes real import counters and lifecycle milestones even
         # before our source has compiled. No total is invented for a single asset.
@@ -236,6 +238,11 @@ class Supervisor:
             for line in tail.read(final=final):
                 fields = parser.parse(line, tail.path.name)
                 if fields and self.stage:
+                    # Observation is additive. A newer selected source or a
+                    # nested tool can emit another workflow's operation code;
+                    # retain its raw task detail without letting it skip this
+                    # stage's plan or turn logging into a build failure.
+                    if fields.get("operation") not in PLANS[self.stage]: fields.pop("operation", None)
                     self.store.progress(self.session, self.stage, **fields)
 
     def run(self, argv, log, *, cwd=None, env=None, timeout=None, on_started=None, on_poll=None, acceptable_codes=(0,)):

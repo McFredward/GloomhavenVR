@@ -169,5 +169,29 @@ class UnityObservationTests(unittest.TestCase):
             self.assertGreater(progress['stagePercent'], 0)
             self.assertLess(progress['stagePercent'], 100)
 
+    def test_other_stage_and_future_tool_observations_cannot_abort_real_children(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = state.Store(Path(folder) / 'owned'); saved = store.create(wizard.choices({'gameRoot': folder}))
+            for stage in ('source', 'build', 'unity', 'tools'):
+                with self.subTest(stage=stage):
+                    supervisor = Supervisor(store, saved['session'], poll=.01); supervisor.set_stage(stage)
+                    lines = ['Preparing original asset template',
+                             'Preparing 12 changed files on the PC; 4 files remain installed.',
+                             'GHVRQ_PROGRESS ' + json.dumps({'schema': 1, 'phase': 'future-tool', 'operation': 'future-operation', 'status': 'complete',
+                                                           'done': 3, 'total': 3, 'unit': 'files', 'detail': 'Future source operation finished'})]
+                    code = 'import sys,time;[print(x,flush=True) for x in sys.argv[1:]];time.sleep(.1)'
+                    with store.active(saved):
+                        self.assertEqual(supervisor.run([sys.executable, '-I', '-c', code, *lines], store.session_dir(saved['session']) / ('logs/' + stage + '.log')), 0)
+                    row = next(row for row in store.load(saved['session'])['stages'] if row['id'] == stage)
+                    self.assertEqual(row['progress']['detail'], 'Future source operation finished')
+                    self.assertEqual(row['progress']['stagePercent'], 0)
+                    self.assertFalse(store.receipt(saved['session'], stage).exists())
+
+    def test_only_exact_installer_preparation_line_is_classified_as_content(self):
+        parser = ProgressParser()
+        self.assertIsNone(parser.parse('Preparing original asset template'))
+        value = parser.parse('Preparing 12 changed files on the PC; 4 files remain installed.')
+        self.assertEqual(value['operation'], 'content')
+
 
 if __name__ == '__main__': unittest.main()

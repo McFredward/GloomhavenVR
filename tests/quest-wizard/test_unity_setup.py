@@ -26,6 +26,70 @@ class UnitySetupTests(unittest.TestCase):
     def running(self):
         self.saved['status'] = 'running'; self.saved['stages'][2]['status'] = 'running'; self.store.save(self.saved)
 
+    def test_pending_login_cannot_complete_missing_editor_or_android_modules(self):
+        root = Path(self.temp.name) / 'Editor'; root.mkdir()
+        editor = root / 'Unity.exe'; editor.write_text('fixture Editor')
+        hub = Path(self.temp.name) / 'UnityHub.exe'; hub.write_text('fixture Hub')
+        entered = threading.Event(); release = threading.Event(); completed = threading.Event(); failures = []
+        installed = []
+        owner = self
+        class FixtureSupervisor:
+            store, session = owner.store, owner.session
+            def run(self, argv, log, **kwargs):
+                log = Path(log); log.parent.mkdir(exist_ok=True)
+                if '--headless' in argv and 'help' in argv:
+                    log.write_text('editors install install-modules\n')
+                elif '--headless' in argv:
+                    installed.append(list(argv))
+                    support = root / 'Data/PlaybackEngines/AndroidPlayer'
+                    for name in ('NDK/source.properties', 'SDK/platform-tools/adb', 'OpenJDK/bin/java'):
+                        target = support / name; target.parent.mkdir(parents=True, exist_ok=True); target.write_text('observed module')
+                    log.write_text('installation complete\n')
+                elif '-version' in argv:
+                    log.write_text(unity_setup.VERSION + '\n')
+                else:
+                    marker = Path(argv[argv.index('-logFile') + 1])
+                    marker.write_text(unity_setup.PROBE_MARKER + '\n'); log.write_text('probe returned\n')
+                return 0
+        original_wait = unity_setup._wait
+        def pending(*args, **kwargs):
+            entered.set(); release.wait(3)
+            return original_wait(*args, **kwargs, opener=lambda *a, **k: None, poll=.005)
+        def work():
+            try:
+                unity_setup.prepare(self.store, self.saved, FixtureSupervisor()); completed.set()
+            except BaseException as error: failures.append(error)
+        # Only the external discovery/process boundary is substituted. Actual
+        # module checks, prerequisite orchestration, wait nonce and probe witness
+        # validation run against on-disk fixture outputs.
+        editors = [{'path': str(editor), 'version': unity_setup.VERSION, 'androidSupport': False}]
+        with state.file_lock(self.store.root / 'run.lock'), self.store.active(self.saved), \
+             mock.patch('unity_setup.discovery.unity_paths', return_value=(editors, [str(hub)])), \
+             mock.patch('unity_setup._wait', side_effect=pending):
+            self.running()
+            thread = threading.Thread(target=work); thread.start()
+            try:
+                self.assertTrue(entered.wait(2)); self.assertEqual(installed, [])
+                row = self.store.load(self.session)['stages'][2]
+                self.assertEqual(row['progress']['stagePercent'], 25)
+                self.assertNotIn('editor', row['progressPlan']['completed'])
+                release.set()
+                deadline = time.monotonic() + 2
+                while not self.store.load(self.session)['stages'][2].get('waiting') and time.monotonic() < deadline:
+                    time.sleep(.005)
+                waiting = self.store.load(self.session)['stages'][2]['waiting']
+                self.assertEqual(waiting['code'], 'unity_login_required')
+                self.assertEqual(self.store.load(self.session)['stages'][2]['progress']['stagePercent'], 25)
+                unity_setup.request_action(self.store, self.session, 'unity-check', waiting['nonce'])
+                thread.join(3); self.assertFalse(thread.is_alive())
+                self.assertTrue(completed.is_set()); self.assertEqual(failures, [])
+                self.assertEqual(len(installed), 1)
+                row = self.store.load(self.session)['stages'][2]
+                self.assertIn('editor', row['progressPlan']['completed'])
+                self.assertLess(row['progress']['stagePercent'], 100, 'Wizard must still verify/publish stage outputs')
+            finally:
+                release.set(); self.store.cancel(self.session); thread.join(3)
+
     def test_closed_window_stays_pending_reopens_and_rechecks_without_new_run(self):
         opened = []; failures = []; completed = threading.Event()
         with state.file_lock(self.store.root / 'run.lock'):
