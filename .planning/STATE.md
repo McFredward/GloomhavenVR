@@ -1,20 +1,34 @@
 # State — where the project stands
 
-**Build631 integrated validation pending, 2026-10-06: 1.1.0.**
+**Build631 integration validated, 2026-10-06: 1.1.0.**
 
 Native merchant distance filtering now uses economical exact sprite regions and
 the common base/override art path on both owning cards and inert town observers.
-The384 MiB byte ceiling, original print resolution/geometry, original asset
-identities and wire format remain. The2048 metadata guard covers the895-member
-native UI atlas without the former512-region count refusal. Supplied paired logs
+The 384 MiB byte ceiling, original print resolution/geometry, original asset
+identities and wire format remain. The 2048 metadata guard covers the 895-member
+native UI atlas without the former 512-region count refusal. Supplied paired logs
 remain Build627; source/Unity filtering evidence is not headset acceptance.
 
-Focused565 Unity assertions, five causal controls and790 existing packed-sprite
+Focused 565 Unity assertions, five causal controls and 790 existing packed-sprite
 preparation assertions pass. Original item far/tilted render comparisons roughly
-halve sampling error and retain the close view. The complete final integrated
-gate is pending; [CARD-631-FILTERING.md](CARD-631-FILTERING.md) records evidence,
-scope, parity and hardware limits. All completed Frame630 changes and documentation
-are integrated as ancestors; the final combined tree will be pushed to dev.
+halve sampling error and retain the close view. The complete 144-suite attempt
+preserves 141 direct passes and three failures; each affected suite then passes
+in full without repeating unrelated successful scopes. Test-only corrections
+update a counterfactual sprite anchor, preserve bounded mirror failure context,
+and separate scenery queue work from its independently controlled test clock.
+Original assertions remain; the scenery test gains two precondition/completion
+assertions. The historical native mirror crash remains unexplained and preserved.
+
+All 14 source gates, strict Release with zero warnings/errors, 310,454 golden
+wire assertions, native bundles, mesh-bank packaging and bilingual docs pass.
+The current card suite passes 557 assertions and five causal controls; original
+item render evidence adds the separate 565-assertion proof above. Actual compiled
+630-to631 scope is exactly three implementation types and eight inlined build
+constants, with no unexplained difference. Final source-bound results and original
+failures live in `.planning/debug/card631/validation-ledger.json`;
+[CARD-631-FILTERING.md](CARD-631-FILTERING.md) records parity and hardware limits.
+All completed Frame630 changes and documentation are integrated as ancestors of
+this combined dev tree. No new release or headset acceptance is established.
 
 ---
 
