@@ -12,6 +12,7 @@ namespace GloomhavenVR.Core
     internal static partial class QuestStandalonePlatform
     {
         internal static bool Enabled = true;
+        internal static bool SharedStereoEyeRouting => Enabled;
         // Production material selection/binding methods are compiled by the runner.
         internal static bool IsFlatScreenVideoTarget(Camera camera) => Enabled && FlatScreen.OwnsVideoCapture(camera);
         internal static bool DebugLogging => false;
@@ -184,10 +185,67 @@ public static class InteractionProgram
         UnityEngine.Object.DestroyImmediate(eyes); UnityEngine.Object.DestroyImmediate(planar);
         UnityEngine.Object.DestroyImmediate(screen); UnityEngine.Object.DestroyImmediate(camera.gameObject);
     }
+    static int VulkanCameraPlanePixels()
+    {
+        // A real Vulkan camera/RT checks the different clip-space convention.
+        // Synthetic desktop XR constant buffers are intentionally not involved.
+        Check(SystemInfo.graphicsDeviceType == GraphicsDeviceType.Vulkan, "requested real Vulkan fixture is active");
+        var camera = new GameObject("vulkan-original-video-camera").AddComponent<Camera>();
+        camera.orthographic = true; camera.orthographicSize = 1; camera.cullingMask = 0;
+        camera.clearFlags = CameraClearFlags.SolidColor; camera.backgroundColor = Color.blue;
+        camera.nearClipPlane = .1f; camera.farClipPlane = 20;
+        var texture = Decoded();
+        int mipErrors = 0;
+        Application.LogCallback watch = (message, stack, type) =>
+        { if (message.Contains("RenderTexture.GenerateMips failed")) mipErrors++; };
+        Application.logMessageReceived += watch;
+        try
+        {
+            foreach (bool automatic in new[] { true, false })
+            {
+                var target = new RenderTexture(64, 64, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear)
+                    { useMipMap = true, autoGenerateMips = automatic, filterMode = FilterMode.Trilinear };
+                Check(target.Create(), "actual Vulkan mipmapped movie target created");
+                camera.targetTexture = target; FlatScreen.Capture(camera, target);
+                using (var output = new QuestCameraVideoOutput(null!, "Vulkan-orientation"))
+                foreach (var mode in new[] { VideoRenderMode.CameraNearPlane, VideoRenderMode.CameraFarPlane })
+                {
+                    output.Apply(camera, texture, mode, VideoAspectRatio.Stretch, 1, 1, 1);
+                    camera.Render(); output.CompleteCapture();
+                    Close(Pixel(target, 8, 8).g, 1, "camera-plane samples retain Vulkan camera orientation");
+                    Close(Pixel(target, 56, 56).g, 0, "camera-plane samples retain Vulkan top orientation");
+                    Close(Pixel(target, 8, 8).r, 1, "Vulkan correction preserves horizontal movie orientation");
+                    Close(Pixel(target, 56, 56).r, 0, "Vulkan correction preserves opposite horizontal orientation");
+                    output.Apply(camera, texture, mode, VideoAspectRatio.FitInside, 1, 1, 1);
+                    camera.Render(); output.CompleteCapture();
+                    Close(Pixel(target, 32, 4).b, 0, "projection correction preserves native letterbox bars");
+                    Close(Pixel(target, 8, 24).g, 1, "aspect and projection corrections compose around image centre");
+                    // Actual completed mip pixels, not a descriptor assertion.
+                    var mip = new RenderTexture(16, 16, 0, target.format, RenderTextureReadWrite.Linear); mip.Create();
+                    Graphics.CopyTexture(target, 0, 2, mip, 0, 0);
+                    Close(Pixel(mip, 2, 6).g, 1, "completed movie mip pixels remain current for world consumers");
+                    UnityEngine.Object.DestroyImmediate(mip);
+                }
+                camera.targetTexture = null;
+                UnityEngine.Object.DestroyImmediate(target);
+            }
+            Check(mipErrors == 0, "automatic mip chains never invoke rejected explicit generation");
+        }
+        finally
+        {
+            Application.logMessageReceived -= watch;
+            UnityEngine.Object.DestroyImmediate(texture); UnityEngine.Object.DestroyImmediate(camera.gameObject);
+            FlatScreen.ClearFixture();
+        }
+        return checks;
+    }
     public static int Run()
     {
         checks = 0;
+        if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Vulkan) return VulkanCameraPlanePixels();
         ScreenStereoPixels();
+        Debug.Log("Video fixture actual API=" + SystemInfo.graphicsDeviceType
+            + " graphicsUVStartsAtTop=" + SystemInfo.graphicsUVStartsAtTop);
         var go = new GameObject("native-captured-camera");
         var camera = go.AddComponent<Camera>(); camera.enabled = true; camera.clearFlags = CameraClearFlags.SolidColor;
         camera.backgroundColor = Color.blue; camera.cullingMask = 0; camera.orthographic = true;

@@ -51,7 +51,15 @@ def main():
         ("b620-camera-event-only", "", "", "completed near output follows native stack without changing alpha"),
         ("stereo-copy-before-composition", "", "", "current completed video reaches left shifted eye"),
         ("unrendered-snapshot-shown", "if (farOutput && snapshotGeneration < 0) return;", "if (farOutput && snapshotGeneration < -1) return;", "head before producer never samples an unrendered retained target"),
+        ("render-target-projection-ignored", "if (gpuProjection.m11 * projection.m11 < 0f)", "if (gpuProjection.m11 * projection.m11 < -100000f)", "camera-plane samples retain Vulkan camera orientation"),
+        ("automatic-mips-generated-explicitly", "if (captured.useMipMap && !captured.autoGenerateMips) captured.GenerateMips();", "if (captured.useMipMap) captured.GenerateMips();", "automatic mip chains never invoke rejected explicit generation"),
     ]
+    graphics = os.environ.get("QUEST_VIDEO_TEST_GRAPHICS_API", "glcore")
+    if graphics not in ("glcore", "vulkan"):
+        raise RuntimeError("Unknown real Unity graphics API fixture selection.")
+    vulkan_controls = {"render-target-projection-ignored", "automatic-mips-generated-explicitly"}
+    variants = [entry for entry in variants if entry[0] == "production"
+        or (entry[0] in vulkan_controls) == (graphics == "vulkan")]
     selected = os.environ.get("QUEST_VIDEO_TEST_CASES")
     if selected:
         requested = set(selected.split(",")) | {"production"}
@@ -161,8 +169,9 @@ def main():
         "sharedEyeBinding": hashlib.sha256(eye_binding.encode()).hexdigest(),
         "sharedDeactivateBinding": hashlib.sha256(reset_binding.encode()).hexdigest(),
         "fixture": hashlib.sha256((fixture / "Program.cs").read_bytes()).hexdigest(),
+        "graphicsApi": graphics,
         "boundary": "Production completed-capture and camera-depth snapshot, actual shared eye-copy body, real head/world shader/mip/foreground pixels and bounded sync readback; controlled late write reproduces B620 but does not prove Android native ordering"}, indent=2))
-    command = [str(unity), "-batchmode", "-force-glcore", "-projectPath", str(project),
+    command = [str(unity), "-batchmode", "-force-" + graphics, "-projectPath", str(project),
         "-executeMethod", "InteractionRunner.Start", "-interactionManifest", str(manifest_path), "-logFile", str(run / "unity.log")]
     if not os.environ.get("DISPLAY"):
         command = ["xvfb-run", "-a"] + command

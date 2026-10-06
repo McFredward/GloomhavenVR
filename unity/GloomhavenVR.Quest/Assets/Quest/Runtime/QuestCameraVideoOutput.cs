@@ -145,9 +145,20 @@ namespace GloomhavenVR.Quest
             Rect rect = destination.rect;
             Rect viewport = new Rect(rect.x * target.width, rect.y * target.height,
                 rect.width * target.width, rect.height * target.height);
-            material.SetVector("_UvTransform", UvTransform(aspect, decoded.width, decoded.height,
+            Vector4 sampling = UvTransform(aspect, decoded.width, decoded.height,
                 Mathf.Max(1, Mathf.RoundToInt(viewport.width)), Mathf.Max(1, Mathf.RoundToInt(viewport.height)),
-                pixelNumerator, pixelDenominator));
+                pixelNumerator, pixelDenominator);
+            // B624's first Intro is a decoded camera-plane movie; the later
+            // logos are ordinary Canvas sprites. The adapter draws raw clip
+            // coordinates, bypassing the camera's RT projection adjustment.
+            // On Vulkan this reverses the movie relative to those native UI
+            // pixels. Derive the correction from this actual camera's GPU RT
+            // projection, rather than flipping the screen or named clips.
+            Matrix4x4 projection = destination.projectionMatrix;
+            Matrix4x4 gpuProjection = GL.GetGPUProjectionMatrix(projection, true);
+            if (gpuProjection.m11 * projection.m11 < 0f)
+            { sampling.y = -sampling.y; sampling.w = 1f - sampling.w; }
+            material.SetVector("_UvTransform", sampling);
             material.SetFloat("_Alpha", Mathf.Clamp01(alpha));
             bool far = mode == VideoRenderMode.CameraFarPlane;
             Camera finalCamera = far
@@ -171,7 +182,7 @@ namespace GloomhavenVR.Quest
                     target, RenderBufferLoadAction.Load, RenderBufferStoreAction.Store);
                 completion.SetViewport(viewport);
                 completion.DrawMesh(quad, Matrix4x4.identity, material, 0, 0);
-                if (target.useMipMap) completion.GenerateMips(target);
+                if (target.useMipMap && !target.autoGenerateMips) completion.GenerateMips(target);
                 if (far)
                 {
                     if (cameraPixels != null) { cameraPixels.Release(); UnityEngine.Object.Destroy(cameraPixels); }
@@ -255,7 +266,10 @@ namespace GloomhavenVR.Quest
                 if (farOutput)
                 {
                     Graphics.Blit(cameraPixels, captured);
-                    if (captured.useMipMap) captured.GenerateMips();
+                    // Unity already generates automatic mip chains on this
+                    // blit's target. Its explicit GenerateMips API rejects
+                    // autoGenerateMips targets (B624 logged this every frame).
+                    if (captured.useMipMap && !captured.autoGenerateMips) captured.GenerateMips();
                 }
                 else Graphics.ExecuteCommandBuffer(completion);
             }
