@@ -3,15 +3,25 @@
   "editor": "2021.3.5f1",
   "target": "StandaloneWindows64",
   "file": "ghvr-environment.bundle",
-  "sha256": "1912a73029e6d05878fec56a2354bcd71866bcdac371411fd1e7bdfcf417492a",
-  "bytes": 56781291,
+  "sha256": "f64bd5813d4c587ae848d6291d6de4d0a3b66ce15babab0953cfbf45119895f9",
+  "bytes": 56858683,
   "textAssets": 3171,
   "shaderAssets": 2,
   "builder": "unity/GloomhavenVR.Assets/Assets/Editor/BuildEnvironmentBank.cs",
   "sourceSha256": {
-    "unity/GloomhavenVR.Assets/Assets/Editor/BuildEnvironmentBank.cs": "a2f5523788b9a4840452b69bf757402f3dd339b65ac61310ac854ef555c9aa04",
+    "unity/GloomhavenVR.Assets/Assets/Editor/BuildEnvironmentBank.cs": "76619c8aa5d520c5e697eae715b9c283022af057d3b61b6d4f054f2ecf1f144a",
     "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/ScenarioCheapTerrain.shader": "bb54a6164dcfcfd66b6ef954ca864ecb375a8031a97a2b626cc91a017b7cdabe",
     "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/WorldSimpleMaterial.shader": "969d7f841e4188c28fe68887fcb23911b9fc825e7a0dec89ca2a15984d22fafe"
   },
-  "colorSpace": "Gamma"
+  "colorSpace": "Gamma",
+  "variantRetention": {
+    "instancing": "Keep All",
+    "fog": [
+      "Off",
+      "Linear",
+      "Exp",
+      "Exp2"
+    ],
+    "stereo": "MultiPass"
+  }
 }

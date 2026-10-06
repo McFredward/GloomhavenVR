@@ -16,6 +16,33 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def check_shader_variants(parsed):
+    """Declarations/HasInstancingVariant do not prove runtime programs survived stripping."""
+    name = parsed['m_Name']
+    keywords = parsed['m_KeywordNames']
+    passes = parsed['m_SubShaders'][0]['m_Passes']
+    fog_keywords = {'FOG_LINEAR', 'FOG_EXP', 'FOG_EXP2'}
+    reports = []
+    for pass_index, shader_pass in enumerate(passes):
+        if pass_index and name == 'GloomhavenVR/ScenarioCheapTerrain':
+            continue  # Its original fallback has no serialized custom caster programs.
+        for stage in ('progVertex', 'progFragment'):
+            programs = shader_pass[stage]['m_SubPrograms']
+            signatures = [frozenset(keywords[index] for index in program['m_KeywordIndices']) for program in programs]
+            assert signatures, f'{name} pass {pass_index}/{stage}: missing actual shader programs'
+            for instanced in (False, True):
+                matching = [signature for signature in signatures if ('INSTANCING_ON' in signature) == instanced]
+                assert matching, f'{name} pass {pass_index}/{stage}: missing compiled INSTANCING_ON={instanced}'
+                if pass_index == 0:
+                    for fog_mode in (None, 'FOG_LINEAR', 'FOG_EXP', 'FOG_EXP2'):
+                        expected = frozenset() if fog_mode is None else frozenset((fog_mode,))
+                        assert any(signature & fog_keywords == expected for signature in matching), \
+                            f'{name} pass {pass_index}/{stage}: missing compiled fog {fog_mode} with INSTANCING_ON={instanced}'
+            reports.append(f'{name} pass {pass_index}/{stage}: {len(programs)} programs, '
+                           f'{sum("INSTANCING_ON" in signature for signature in signatures)} instanced')
+    return reports
+
+
 def geometry(data):
     """Validate the complete bounded decoder format, not just its magic/hash."""
     assert data[:5] == b'GHEM1', 'stream decoder version mismatch'
@@ -136,6 +163,8 @@ def main():
         assert len(native) == len(native_receipt['meshes']) == len(manifest['entries']), 'complete independent original census'
     receipt = json.loads((root / 'tools/environment-mesh/bank.json').read_text())
     assert receipt['colorSpace'] == 'Gamma', 'independent shader bank must use the shipped game color space'
+    assert receipt['variantRetention'] == {'instancing': 'Keep All', 'fog': ['Off', 'Linear', 'Exp', 'Exp2'], 'stereo': 'MultiPass'}, \
+        'independent shader bank must retain supported runtime instancing and fog'
     for path, expected in receipt['sourceSha256'].items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == expected, 'bank source binding drift: ' + path
     bank = root / 'prebuilt' / receipt['file']
@@ -144,6 +173,7 @@ def main():
     env = UnityPy.load(str(bank))
     texts = {}
     shaders = []
+    shader_reports = []
     for obj in env.objects:
         if obj.type.name == 'TextAsset':
             asset = obj.read()
@@ -151,7 +181,10 @@ def main():
             if isinstance(data, str): data = data.encode('utf-8', errors='surrogateescape')
             assert asset.m_Name not in texts, 'duplicate packed stream identity'
             texts[asset.m_Name] = data
-        elif obj.type.name == 'Shader': shaders.append(obj.read().m_ParsedForm.m_Name)
+        elif obj.type.name == 'Shader':
+            parsed = obj.read_typetree()['m_ParsedForm']
+            shaders.append(parsed['m_Name'])
+            shader_reports.extend(check_shader_variants(parsed))
     assert shaders.count('GloomhavenVR/ScenarioCheapTerrain') == 1, 'optional shader packed into independent bank'
     assert shaders.count('GloomhavenVR/WorldSimpleMaterial') == 1, 'whole-game world shader packed into independent bank'
     assert len(shaders) == receipt['shaderAssets'] == 2, 'exact independent shader inventory'
@@ -191,6 +224,7 @@ def main():
     assert checked + 1 == receipt['textAssets'], 'packaged asset count drift'
     print(f'PASS environment bank: {len(manifest["entries"])} exact originals, {checked} immutable streams, both shaders and package hashes verified')
     print('PASS bounded geometry: same-index 3D detail, original attribute channels/submeshes; triangles ' + str(detail_triangles))
+    for report in shader_reports: print('PASS compiled environment shader variants: ' + report)
     if args.native_sources: print('PASS independent native source census: every tier100 byte and original bundle/path identity matches')
     if args.unity_load: unity_load(root, args.output_dir)
 
