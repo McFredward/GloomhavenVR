@@ -54,12 +54,14 @@ public static class WorldMaterialProgram
         camera.clearFlags=CameraClearFlags.SolidColor;camera.backgroundColor=Color.black;camera.allowHDR=false;
         camera.targetTexture=new RenderTexture(64,64,24,RenderTextureFormat.ARGBFloat);camera.targetTexture.Create();
         int notifications=0;WorldMaterialBudget.ConfigureSourceChanged(renderer=>{notifications++;WorldMaterialBudget.MaterialReady(renderer);});
+        float ambient=.65f;WorldMaterialBudget.ConfigureAmbientWeight(()=>ambient);
         WorldMaterialBudget.Install(host);Tick(host,16);WorldMaterialBudget.MaterialReady(source);
         Color shown=Center(camera);Material variant=source.sharedMaterial;
         Check(WorldMaterialBudget.IsOwnedVariant(variant)&&variant!=first,"requested world stage produces a private variant on actual native renderer");
         Check(source.GetComponent<MeshFilter>().sharedMesh==originalMesh&&source.enabled&&!source.forceRenderingOff,"world stage preserves original geometry and visible room renderer");
         Check(first.shader.name=="Amp_Basic_N_MRAO"&&WorldMaterialBudget.CanonicalMaterial(variant)==first,"private world shader never mutates original native material ownership");
         Check(variant.GetFloat("_GHVRWorldMaterialMode")==2&&variant.GetFloat("_GHVRWorldNativeRoute")==1,"actual private material binds independently requested mode and audited HIGH route");
+        Check(Mathf.Approximately(variant.GetFloat("_GHVRWorldAmbientWeight"),.65f),"actual private material binds independently requested ambient weight");
         Check(variant.GetTag("RenderType",false,"")==first.GetTag("RenderType",false,"")&&variant.renderQueue==first.renderQueue,"native replacement-camera render type and queue survive private shader selection");
         Check(shown.r>.7f&&shown.g<.1f,"actual camera renders selected private world slot with original native tint");
         NativeWriteObserver.ArrayWrites=0;int previousNotifications=notifications;Center(camera);
@@ -67,6 +69,13 @@ public static class WorldMaterialProgram
         // Current property state and local keyword identity refresh in a genuine later camera.
         first.SetColor("_Tint",Color.green);first.EnableKeyword("_WALLFADE_ON_ON");shown=Center(camera);
         Check(shown.g>.7f&&variant.IsKeywordEnabled("_WALLFADE_ON_ON"),"between-eye native in-place material edits and exact keywords reach current variant pixels");
+        ambient=.2f;Center(camera);
+        Check(Mathf.Approximately(variant.GetFloat("_GHVRWorldAmbientWeight"),.2f),"between-eye ambient weight changes reach the current private variant");
+        ambient=float.NaN;Center(camera);
+        Check(variant.GetFloat("_GHVRWorldAmbientWeight")==1f,"invalid ambient input falls back to native ambient contribution");
+        ambient=-1f;Center(camera);Check(variant.GetFloat("_GHVRWorldAmbientWeight")==0f,"ambient contribution clamps a negative external input");
+        ambient=2f;Center(camera);Check(variant.GetFloat("_GHVRWorldAmbientWeight")==1f,"ambient contribution clamps an excessive external input");
+        WorldMaterialBudget.ConfigureAmbientWeight(()=>1f);
         first.DisableKeyword("_WALLFADE_ON_ON");
         var block=new MaterialPropertyBlock();block.SetColor("_Tint",Color.blue);source.SetPropertyBlock(block);
         shown=Center(camera);Check(shown.b>.7f&&shown.g<.1f,"native renderer-wide MPB overrides remain attached to actual original renderer");
@@ -138,6 +147,7 @@ public static class WorldMaterialProgram
         var unknown=source.gameObject.AddComponent<UnknownNativeAnimation>();Center(camera);
         Check(source.sharedMaterial==first,"unknown scripted animation remains native despite positive world ancestry");Object.DestroyImmediate(unknown);
         Families(source,first,second,camera);
+        NativeScenarioScopes(host,room,source,first,second,camera);
         MapScopes(host,originalMesh,first,camera);
         Scale(host,room,source,first,second,camera);
         LateChanges(host,source,first,second,camera);
@@ -171,6 +181,8 @@ public static class WorldMaterialProgram
         var scenario=new GameObject("Retained native scenario");SceneManager.MoveGameObjectToScene(scenario,retained);
         scenario.AddComponent<ProceduralScenario>();
         var generated=new GameObject("Generated Content");generated.transform.SetParent(scenario.transform,false);
+        scenario.AddComponent<ProceduralPlacementNotifierHandler>();scenario.AddComponent<LightShadowsModifierController>();
+        scenario.AddComponent<ApparanceMap>();scenario.AddComponent<ProceduralMapConfig>();
         var cube=GameObject.CreatePrimitive(PrimitiveType.Cube);Mesh mesh=cube.GetComponent<MeshFilter>().sharedMesh;Object.DestroyImmediate(cube);
         var original=Native("Retained original");var source=Source("Retained masonry",generated.transform,mesh,original);
         var cameraGo=new GameObject("Retained camera");var camera=cameraGo.AddComponent<Camera>();camera.transform.position=new Vector3(0,0,-3);camera.transform.LookAt(Vector3.zero);
@@ -271,6 +283,43 @@ public static class WorldMaterialProgram
         Check(WorldMaterialBudget.IsOwnedVariant(town.sharedMaterial),"explicit actual producer root registration extends positive world scope without name allowlists");
         Object.DestroyImmediate(root);Object.DestroyImmediate(map.gameObject);Object.DestroyImmediate(extra);
     }
+    private static void NativeScenarioScopes(GameObject host,GameObject room,MeshRenderer source,Material first,Material second,Camera camera)
+    {
+        GameObject scenario=room.transform.parent.parent.gameObject;
+        // Exact authored ProcGen Maps root and all 129 shipped/editor map roots.
+        // Original callbacks are explicit boundaries; native source-object hashes
+        // and complete MonoBehaviour tuples live in native-world-scope.json.
+        var placement=scenario.AddComponent<ProceduralPlacementNotifierHandler>();
+        var shadows=scenario.AddComponent<LightShadowsModifierController>();
+        var config=room.AddComponent<ProceduralMapConfig>();var map=room.AddComponent<ApparanceMap>();
+        Center(camera);
+        Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterial),"exact original ProcGen root and native map coordinator tuple admits world shading independently of geometry substitutes");
+        var actor=source.gameObject.AddComponent<ActorBehaviour>();Center(camera);
+        Check(source.sharedMaterials.SequenceEqual(new[]{first,second}),"actor inside exact native coordinator tuple never inherits scenery shading");
+        Object.DestroyImmediate(actor);var interaction=source.gameObject.AddComponent<CInteractable>();Center(camera);
+        Check(source.sharedMaterials.SequenceEqual(new[]{first,second}),"interactive child inside exact native coordinator tuple never inherits scenery shading");
+        Object.DestroyImmediate(interaction);Center(camera);
+        var stranger=room.AddComponent<UnknownNativeAnimation>();Center(camera);
+        Check(source.sharedMaterials.SequenceEqual(new[]{first,second}),"late unknown behaviour inside exact original native map tuple remains original between eyes");
+        Object.DestroyImmediate(stranger);Center(camera);
+        Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterial),"removal of unknown map behaviour restores safe source shading synchronously");
+        Object.DestroyImmediate(map);var subclass=room.AddComponent<UnreviewedMapSubclass>();Center(camera);
+        Check(source.sharedMaterials.SequenceEqual(new[]{first,second}),"unreviewed subclass never inherits permission from data-only native ApparanceMap");
+        Object.DestroyImmediate(subclass);map=room.AddComponent<ApparanceMap>();Center(camera);
+        var foreign=new GameObject("Foreign scripted room");foreign.AddComponent<UnknownNativeAnimation>();source.transform.SetParent(foreign.transform,false);Center(camera);
+        Check(source.sharedMaterials.SequenceEqual(new[]{first,second}),"late reparent away from original native map producer retains native materials");
+        source.transform.SetParent(room.transform,false);Center(camera);
+        Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterial),"original map ancestry regained after foreign reparent is checked freshly");
+        Object.DestroyImmediate(foreign);Object.DestroyImmediate(map);Object.DestroyImmediate(config);Object.DestroyImmediate(placement);Object.DestroyImmediate(shadows);
+        // A full original room tuple must work from cold discovery, not only from
+        // a Surface accepted before the coordinator components were added.
+        placement=scenario.AddComponent<ProceduralPlacementNotifierHandler>();shadows=scenario.AddComponent<LightShadowsModifierController>();
+        config=room.AddComponent<ProceduralMapConfig>();map=room.AddComponent<ApparanceMap>();
+        PerfConfig.WorldMaterialQualityMode=0;Tick(host);PerfConfig.WorldMaterialQualityMode=2;Tick(host,16);Center(camera);
+        Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterial)&&PerfMonitor.Counts["WorldMaterial.Candidates"]>0,
+            "cold bounded discovery accepts authored native ProcGen ancestry without capped terrain factory admission");
+        Object.DestroyImmediate(map);Object.DestroyImmediate(config);Object.DestroyImmediate(placement);Object.DestroyImmediate(shadows);
+    }
     private static void Scale(GameObject host,GameObject room,MeshRenderer source,Material first,Material second,Camera camera)
     {
         var copies=new List<MeshRenderer>();for(int i=0;i<63;i++){var clone=Object.Instantiate(source.gameObject);clone.transform.SetParent(room.transform,false);copies.Add(clone.GetComponent<MeshRenderer>());WorldMaterialBudget.MaterialReady(copies[copies.Count-1]);}
@@ -278,6 +327,15 @@ public static class WorldMaterialProgram
         Check(NativeWriteObserver.MaterialCopies==2&&PerfMonitor.Counts["WorldMaterial.VariantSlots"]==128,"world material refresh scales with two unique originals instead of 128 native slots");
         NativeWriteObserver.MaterialCopies=0;NativeWriteObserver.ArrayWrites=0;Center(camera);
         Check(NativeWriteObserver.MaterialCopies==2&&NativeWriteObserver.ArrayWrites==0,"settled 64-source world stage copies unique materials without per-eye native array writes");
+        var block=new MaterialPropertyBlock();block.SetColor("_Tint",Color.white);source.SetPropertyBlock(block);
+        foreach(var clone in copies)clone.SetPropertyBlock(block);
+        NativeWriteObserver.RendererBlockReads=0;NativeWriteObserver.SlotBlockReads=0;Center(camera);
+        Check(NativeWriteObserver.RendererBlockReads==64&&NativeWriteObserver.SlotBlockReads==128,
+            "settled 64-source two-slot MPBs read renderer-wide blocks once per source and keep each slot independent");
+        block.SetFloat("_AddVertexAnim",1f);source.SetPropertyBlock(block,1);Center(camera);
+        Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterials[0])&&source.sharedMaterials[1]==second,
+            "live per-slot effect remains authoritative with shared renderer-wide block reads");
+        source.SetPropertyBlock(null);source.SetPropertyBlock(null,1);foreach(var clone in copies)clone.SetPropertyBlock(null);
         Debug.Log("World material scaling: 64 sources /128slots; copies="+NativeWriteObserver.MaterialCopies+"; arrayWrites="+NativeWriteObserver.ArrayWrites);
         foreach(var clone in copies)Object.DestroyImmediate(clone.gameObject);
     }

@@ -1,6 +1,6 @@
 Shader "Fixture/WorldMaterialBridge"
 {
-    Properties { _MainTex("Texture",2D)="white" {} _Tint("Tint",Color)=(1,1,1,1) _GHVRWorldMaterialMode("Mode",Float)=0 _GHVRWorldNativeRoute("Route",Float)=0 }
+    Properties { _MainTex("Texture",2D)="white" {} _Tint("Tint",Color)=(1,1,1,1) _GHVRWorldMaterialMode("Mode",Float)=0 _GHVRWorldNativeRoute("Route",Float)=0 _GHVRWorldAmbientWeight("Ambient weight",Float)=1 }
     SubShader { Tags { "RenderType"="Opaque" } Pass { CGPROGRAM
         #pragma vertex vert
         #pragma fragment frag

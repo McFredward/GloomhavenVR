@@ -69,6 +69,13 @@ def main():
         ('off-renderer-material-read',[('WorldMaterialBudget.cs','if (_originalByVariant.Count == 0) return false;','/* injected unused native Off slot read */',1)],'settled Off performs no native renderer slot reads'),
         ('off-scene-inventory',[('WorldMaterialBudget.cs','private void SceneLoaded(Scene scene, LoadSceneMode mode) { if (Requested) Seed(); }','private void SceneLoaded(Scene scene, LoadSceneMode mode) { if (VRSession.IsRunning) Seed(); }',1)],'settled Off additive scene loading performs no scene material inventory'),
         ('retained-scene-not-reseeded',[('WorldMaterialBudget.cs','if (Requested) Seed();\n        }\n        internal IDisposable BeginPass()', '/* injected missing retained scene rediscovery */\n        }\n        internal IDisposable BeginPass()',1)],'unrelated additive unload reseeds retained scenery'),
+        ('native-map-coordinator-vetoed',[('WorldMaterialBudget.Scope.cs','type == typeof(ApparanceMap)','false',1)],'exact original ProcGen root and native map coordinator tuple'),
+        ('native-map-config-vetoed',[('WorldMaterialBudget.Scope.cs','type == typeof(ProceduralMapConfig)','false',1)],'exact original ProcGen root and native map coordinator tuple'),
+        ('native-placement-coordinator-vetoed',[('WorldMaterialBudget.Scope.cs','type == typeof(ProceduralPlacementNotifierHandler)','false',1)],'exact original ProcGen root and native map coordinator tuple'),
+        ('native-shadow-coordinator-vetoed',[('WorldMaterialBudget.Scope.cs','type == typeof(LightShadowsModifierController)','false',1)],'exact original ProcGen root and native map coordinator tuple'),
+        ('native-coordinator-subclass-admitted',[('WorldMaterialBudget.Scope.cs','type == typeof(ApparanceMap)','component is ApparanceMap',1)],'unreviewed subclass never inherits permission'),
+        ('ambient-weight-ignored',[('WorldMaterialBudget.Materials.cs','_ambientWeight?.Invoke() ?? 1f','1f',1)],'actual private material binds independently requested ambient weight'),
+        ('renderer-mpb-read-per-slot',[('WorldMaterialBudget.Materials.cs','renderer.GetPropertyBlock(_slotBlock, slot);','renderer.GetPropertyBlock(_block);\n            renderer.GetPropertyBlock(_slotBlock, slot);',1)],'settled 64-source two-slot MPBs read renderer-wide blocks once per source'),
     ]
     variants=[('production',sources,'')]
     if not args.production_only:
@@ -84,6 +91,8 @@ def main():
         variants=[v for v in variants if v[0]=='production' or v[0] in args.case]
     args.output_dir.mkdir(parents=True,exist_ok=True);run=Path(tempfile.mkdtemp(prefix='run-',dir=args.output_dir.resolve()))
     sys.path.insert(0,str(fixture))
+    from native_scope_proof import verify as verify_native_scope
+    (run/'native-scope-bindings.json').write_text(json.dumps(verify_native_scope(),indent=2)+'\n')
     from integration_bindings import verify
     bridge_paths,bridge_report=verify((args.integration_root or root).resolve())
     (run/'integration-bindings.json').write_text(json.dumps(bridge_report,indent=2)+'\n')
@@ -100,6 +109,8 @@ def main():
         for filename,text in texts.items():
             if filename=='WorldMaterialBudget.Materials.cs':
                 text=text.replace('variant.CopyPropertiesFromMaterial(original);','NativeWriteObserver.Copy(variant, original);')
+            text=text.replace('renderer.GetPropertyBlock(_block);','NativeWriteObserver.RendererBlock(renderer, _block);')
+            text=text.replace('renderer.GetPropertyBlock(_slotBlock, slot);','NativeWriteObserver.SlotBlock(renderer, _slotBlock, slot);')
             if filename=='WorldMaterialBudget.cs':
                 text=text.replace('renderer.sharedMaterials = _slots.ToArray();','NativeWriteObserver.Slots(renderer, _slots.ToArray());')
                 text=text.replace('renderer.GetSharedMaterials(_slots);','NativeWriteObserver.Read(renderer, _slots);')

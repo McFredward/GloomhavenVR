@@ -10,6 +10,21 @@ namespace GloomhavenVR.Core;
 internal static partial class WorldMaterialBudget
 {
     private struct WorldScope { internal bool Valid, Generated, Scenario, Registered; }
+    private static bool NativeWorldCoordinator(Component component)
+    {
+        // All 15 shipped procedural maps and 114 editor maps carry the exact
+        // ApparanceMap/ProceduralMapConfig tuple. The native ProcGen Maps root
+        // carries the other two coordinators (level8 pathID2). They retain native
+        // metadata, placement completion or light-shadow bookkeeping; none moves
+        // renderer vertices or turns a world renderer into an interactive actor.
+        // Excluding them vetoed every real room while the 64-source terrain factory
+        // still drew private variants: camera priority switched walls between dark
+        // native lighting and pale raw albedo. Keep exact types, not subclasses or
+        // an arbitrary Behaviour exemption. Their native callbacks remain running.
+        Type type = component.GetType();
+        return type == typeof(ApparanceMap) || type == typeof(ProceduralMapConfig)
+            || type == typeof(ProceduralPlacementNotifierHandler) || type == typeof(LightShadowsModifierController);
+    }
     private sealed partial class Driver
     {
         private readonly Dictionary<Transform, WorldScope> _scopes = new();
@@ -50,7 +65,7 @@ internal static partial class WorldMaterialBudget
                         && component is not ProceduralScenario && component is not RoomVisibilityTracker
                         && component is not TilesOcclusionVolume && component is not MaterialLoader
                         && component is not MapChoreographer && component is not ProceduralStyle
-                        && component is not ApparanceEntity) allowed = false;
+                        && component is not ApparanceEntity && !NativeWorldCoordinator(component)) allowed = false;
                     scope.Scenario |= component is ProceduralScenario;
                 }
                 _components.Clear();
