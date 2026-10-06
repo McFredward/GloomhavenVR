@@ -48,6 +48,8 @@ namespace GloomhavenVR.Core
     internal static class ScenarioFigureDetailBudget
     {
         internal static ScenarioFigureMeshBank.Record? OriginalRecordFor(Renderer renderer) => null;
+        internal static readonly System.Collections.Generic.HashSet<Renderer> OwnedMasks = new();
+        internal static bool OwnsLodMask(Renderer renderer) => OwnedMasks.Contains(renderer) && renderer.forceRenderingOff;
     }
     internal static class ScenarioFigureMeshBank
     {
