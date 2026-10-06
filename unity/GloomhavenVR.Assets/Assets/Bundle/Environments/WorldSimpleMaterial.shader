@@ -119,6 +119,7 @@ Shader "GloomhavenVR/WorldSimpleMaterial"
     }
     float4 OriginalAlbedo(v2f i)
     {
+        float4 albedo = float4(0.,0.,0.,0.);
         #if defined(_WORLDSPACE_ON)
         if (_GHVRWorldNativeRoute < 9.)
         {
@@ -130,12 +131,16 @@ Shader "GloomhavenVR/WorldSimpleMaterial"
             float scale = LowRoute() ? _MainTex_ST.x : _WorldSpace_tiling;
             float3 p = i.world * scale;
             float3 direction = sign(n);
-            return tex2D(_MainTex, float2(p.z * direction.x, p.y)) * blend.x
+            albedo = tex2D(_MainTex, float2(p.z * direction.x, p.y)) * blend.x
                 + tex2D(_MainTex, float2(p.x * direction.y, p.z)) * blend.y
                 + tex2D(_MainTex, float2(-p.x * direction.z, p.y)) * blend.z;
         }
+        else
         #endif
-        return tex2D(_MainTex, i.uv);
+        {
+            albedo = tex2D(_MainTex, i.uv);
+        }
+        return albedo;
     }
     float NativeWallAmount(v2f i)
     {
