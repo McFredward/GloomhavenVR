@@ -127,6 +127,13 @@ installation, including interrupted source-copy resumption and all 27 evaluated
 MSBuild references. This is not a completed Windows conversion, fresh XR build,
 Windows paging benchmark or headset gameplay qualification.
 
+The delivered `GloomhavenVR-Quest-Builder.zip` is 371,202,321 bytes, with 3049 inventoried source files. SHA256 is
+`1826c0872309627c0abe78a1ff36f210993cbd430120926646757b1c5f9a4d2a`; source commit is
+`cf8af1f8b7b7788f7369a51daa4a55c705a7bc2f`. Independent checks of this exact ZIP resume an interrupted source copy,
+resolve all 27 evaluated references and inspect all 5,227 owned original
+files twice with stable input identity. They do not invoke Unity or build
+another APK. The temporary verification output is removed afterward.
+
 ## Focused verification completed before the build
 
 Release mod compilation passes with zero warnings/errors. Focused checks pass:
@@ -167,6 +174,17 @@ types across 24 assemblies and excludes the VR mod/player assembly. Current
 reprepare preserves `Library` but can regenerate Addressables group identities;
 that is a future invalidation hazard, not a proved cause of this build's misses.
 This optimization has been reviewed, not implemented in the frozen B625 build.
+
+## Owned cleanup after verification
+
+After accepted delivery, three completed clean Quest worker worktrees, three
+verified historical source snapshots, B623/B624 outputs and the failed B625
+native attempt are retired. Small audit receipts, branch refs and unique
+ignored dependencies remain. The observed shared-filesystem free increase
+during this cleanup is 54,144,888,832 bytes; the separately removed
+owned temporary swap files total 34,359,738,368 bytes. Current B625
+hardware files/symbols, warm imports, original game inputs, captures and other
+agents' worktrees are retained. No tracked `dev` files are changed.
 
 ## Next hardware run
 

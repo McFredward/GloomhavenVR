@@ -21,6 +21,15 @@ Git-free inventory/resume/reference checks pass; the first full Windows build,
 fresh XR dependency compilation and guided Unity licensing remain user tests.
 No further APK build on this host is authorized by the current instruction.
 
+After accepted delivery, three completed clean Quest worker worktrees, three
+verified historical source snapshots, B623/B624 outputs and the failed B625
+native attempt are retired. Small audit receipts, branch refs and unique
+ignored dependencies remain. The observed shared-filesystem free increase
+during this cleanup is 54,144,888,832 bytes; the separately removed
+owned temporary swap files total 34,359,738,368 bytes. Current B625
+hardware files/symbols, warm imports, original game inputs, captures and other
+agents' worktrees are retained. No tracked `dev` files are changed.
+
 **Quest build host decision, 2026-10-06: B625 is the final agent-host APK build.**
 
 Finish and deliver this Windows hardware package first. Future APK builds run on
