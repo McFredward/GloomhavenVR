@@ -212,12 +212,32 @@ internal static partial class NativeTemplates
     {
         var part = new Part { Path = path, Original = root }; parts.Add(part);
         int remaining = Count(root);
-        if (remaining <= 128) return;
-        for (int i = root.childCount - 1; i >= 0 && remaining > 128; i--)
+        // Partition identity is structural and identical across localized peers.
+        // Actual caption bytes/font warm-up must never choose different subtrees.
+        for (int i = root.childCount - 1; i >= 0 && remaining > 32; i--)
         {
             Transform child = root.GetChild(i); part.Excluded.Add(child); remaining -= Count(child);
             Partition(child, Append(path, child), parts);
         }
+        if (!FitsOriginalPacket(part))
+            throw new InvalidDataException("An original town widget partition exceeds the bounded presentation packet.");
+    }
+    private static bool FitsOriginalPacket(Part part)
+    {
+        using var binding = new TownServiceBinding(part.Original, part.Excluded.Contains);
+        var frame = new TownServiceFrame { Service = 3, Session = 1, Sequence = 1,
+            Module = 1, Template = 1, Structure = binding.Structure, Visible = true,
+            Nodes = binding.Read(TownServiceMirror.Assets, includeInactiveGraphics: true),
+            Pose = new[] { 0f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f } };
+        try
+        {
+            // Verify complete original shader/text/texture descriptors after the
+            // deterministic split. This safety check never alters partition identity.
+            // Leave room for live owner text and converted canvas headers.
+            return TownServiceCodec.Write(frame).Length <= 48000;
+        }
+        catch (InvalidDataException error) when (error.Message == "Town-service module exceeds the bounded snapshot size.")
+        { return false; }
     }
     internal static string Append(string path, Transform child)
     {

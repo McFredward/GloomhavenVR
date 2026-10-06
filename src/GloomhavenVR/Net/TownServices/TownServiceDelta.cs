@@ -91,6 +91,7 @@ internal static class TownServiceDelta
         SampleTime = f.SampleTime, SessionAge = f.SessionAge, ParentModule = f.ParentModule, ParentBinding = f.ParentBinding,
         ParentAlpha = f.ParentAlpha, HasCanvasFrame = f.HasCanvasFrame, CanvasPose = (float[])f.CanvasPose.Clone(),
         CanvasRect = (float[])f.CanvasRect.Clone(), CanvasSettings = (float[])f.CanvasSettings.Clone(),
-        CanvasSortingOrder = f.CanvasSortingOrder, CanvasSortingLayer = f.CanvasSortingLayer, Pose = (float[])f.Pose.Clone(), Modules = (ushort[])f.Modules.Clone()
+        CanvasSortingOrder = f.CanvasSortingOrder, CanvasSortingLayer = f.CanvasSortingLayer, Pose = (float[])f.Pose.Clone(), Modules = (ushort[])f.Modules.Clone(),
+        RequiredVisibleModules = f.RequiredVisibleModules == null ? null : (ushort[])f.RequiredVisibleModules.Clone()
     };
 }

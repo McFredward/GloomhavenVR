@@ -30,12 +30,20 @@ internal sealed partial class NetAvatarDriver
         // sends, especially for the complete public cabinet. Keep the final-writer seam
         // and one current sample per transport interval; never run catch-up work.
         float now = UnityEngine.Time.unscaledTime;
-        if (now >= _nextTownCapture && _townCaptureFrame != UnityEngine.Time.frameCount)
+        if (_transport.IsOnline && now >= _nextTownCapture && _townCaptureFrame != UnityEngine.Time.frameCount)
         {
             _townCaptureFrame = UnityEngine.Time.frameCount;
             _nextTownCapture = now + 1f / 15f;
             using var capture = PerfMonitor.Scope("Net.Town.Capture");
-            try { TownServiceMirror.Capture((bytes, length, identity) => _transport.Send(bytes, length, identity)); }
+            try { TownServiceMirror.Capture((bytes, length, identity) =>
+            {
+                if (_transport is FfsNetTransport ffs && identity is TownServiceFrame original)
+                {
+                    if (!ffs.TrySendTownPresentation(bytes, length, original))
+                        throw new System.IO.IOException("Native town presentation queue declined the immutable original.");
+                }
+                else _transport.Send(bytes, length, identity);
+            }); }
             catch (Exception error) { LogPhaseError("Sample native town services", error); }
         }
         // Native widget capture is independent of resident facial motion.

@@ -25,6 +25,7 @@ internal sealed class TownServiceSessionInfo
     internal Vector3 Position, Scale;
     internal Quaternion Rotation;
     internal ushort[] Modules = Array.Empty<ushort>();
+    internal ushort[]? RequiredVisibleModules;
 }
 
 internal readonly struct TownTempleDonationState
@@ -592,6 +593,9 @@ internal static partial class TownServiceMirror
         internal bool ParentLinksDirty = true;
         internal readonly List<LocalModule> CaptureOrder = new();
         internal bool Active; internal float NextManifest, ClosedUntil, Started; internal ushort Heartbeat;
+        internal ushort[]? RequiredVisibleModules;
+        internal readonly List<ushort> VisibleCensus = new();
+        internal readonly HashSet<ushort> RequiredMounts = new();
         internal bool TempleDonationKnown, TempleDonationAvailable;
         internal uint TempleDonationRevision;
         internal float TempleDonationChangedTime;
@@ -823,9 +827,15 @@ internal static partial class TownServiceMirror
                 foreach (LocalModule source in Local.Values) if (LocalRacks.ContainsKey(source.Id)) _local.CaptureOrder.Add(source);
                 _local.ParentLinksDirty = false;
             }
+            RefreshVisibleCensus();
             foreach (LocalModule module in _local.CaptureOrder)
             {
                 if (now < module.RetryAfter || module.CatalogDormant && !module.CatalogDirty && module.Last != null) continue;
+                // The frozen local originals are already prepared. Never serialize an
+                // unseen enhancement inventory merely to unblock a visible offer.
+                if ((_service == 1 || _service == 3) && ReferenceEquals(_local, PrivateLane)
+                    && module.Last == null && !CurrentModuleVisible(module)
+                    && !_local.RequiredMounts.Contains(module.Id)) continue;
                 try
                 {
                     Transform source = module.Binding.Root;
@@ -854,6 +864,7 @@ internal static partial class TownServiceMirror
                     frame.ParentModule = TownServiceFrame.ManifestModule; frame.ParentBinding = 0;
                     ResetCanvasFrame(frame);
                     ReadParent(module, frame); ReadCanvasFrame(source, frame);
+                    if (frame.VisitorStock && HidePreparedCardReturn(source)) frame.Visible = false;
                     if (frame.RackMember != null)
                     {
                         float alpha = ReadRackAlpha(module);
@@ -889,15 +900,27 @@ internal static partial class TownServiceMirror
                     // scroll and highlight revision, congesting first-offer delivery.
                     // Reuse the existing cumulative owner delta after that first original;
                     // periodic complete repair and topology/identity changes still win.
-                    if (frame.CatalogBank != null || module.Baseline == null || now >= module.NextBaseline || !TownServiceDelta.Compatible(module.Baseline, frame))
-                    { emitted = TownServiceDelta.Retain(frame); module.Baseline = emitted; module.NextBaseline = float.PositiveInfinity; }
-                    else emitted = TownServiceDelta.Create(module.Baseline, frame);
-                    emitted.HighPriority = module.HighPriority || module.WasPriority || NeedsHeartbeat(module);
-                    module.WasPriority = module.HighPriority;
+                    bool completeOriginal = frame.CatalogBank != null || module.Baseline == null || now >= module.NextBaseline || !TownServiceDelta.Compatible(module.Baseline, frame);
+                    if (completeOriginal)
+                        emitted = TownServiceDelta.Retain(frame);
+                    else emitted = TownServiceDelta.Create(module.Baseline!, frame);
+                    // Prepared hidden inventories/tooltips are background dependencies,
+                    // not part of the currently visible offered card and controls.
+                    emitted.HighPriority = _local.RequiredMounts.Contains(module.Id)
+                        || CurrentModuleVisible(module) && (module.HighPriority || module.WasPriority || NeedsHeartbeat(module));
                     if (module.CatalogResident && module.CatalogDormant)
                     { module.Last = TownServiceDelta.Retain(frame); module.LastSent = frame.Sequence; continue; }
                     byte[] packet = WriteCatalogPacket(emitted, send);
-                    send(packet, packet.Length, emitted); module.Last = TownServiceDelta.Retain(frame);
+                    send(packet, packet.Length, emitted);
+                    // Only an encoded, accepted immutable original may become a delta
+                    // dependency. A failed oversized capture must not invent a baseline
+                    // which the observer can never receive, or disable its next repair.
+                    if (completeOriginal)
+                    { module.Baseline = emitted; module.NextBaseline = module.LastSent >= emitted.Sequence
+                        ? now + 5f + module.Id % 13 * .07f : float.PositiveInfinity; }
+                    module.WasPriority = module.HighPriority;
+                    TraceNativePublication(module, emitted, packet.Length);
+                    module.Last = TownServiceDelta.Retain(frame);
                     module.NextRefresh = now + .75f + module.Id % 7 * .03f;
                 }
                 catch (Exception e) { module.RetryAfter = now + 1; Report("capture module " + module.Id, e); }
@@ -913,6 +936,8 @@ internal static partial class TownServiceMirror
                 ids.Sort();
                 var manifest = new TownServiceFrame { VisitorStock = ReferenceEquals(_local, StockLane), PublicCatalog = ReferenceEquals(_local, PublicLane), PublicClaim = ReferenceEquals(_local, PublicLane) ? _publicClaim : 0, Service = _service, Session = _session,
                     Module = TownServiceFrame.ManifestModule, Sequence = NextSequence(), SampleTime = now,
+                    RequiredVisibleModules = _service == 3 && ReferenceEquals(_local, PrivateLane)
+                        ? (_active ? _local.RequiredVisibleModules : System.Array.Empty<ushort>()) : null,
                     SessionAge = now - _sessionStarted,
                     Visible = _active, Modules = ids.ToArray(), Pose = _station != null ? ReadPose(_station, _sharedFrame) : IdentityPose() };
                 if (ReferenceEquals(_local, PrivateLane) && _service == 2 && _active && _local.TempleDonationKnown)
@@ -974,7 +999,7 @@ internal static partial class TownServiceMirror
                     ? Time.unscaledTime - frame.TempleDonationCommitAge
                     : donationAdvanced ? Time.unscaledTime : previous?.TempleDonationChangedTime ?? 0f,
                 TransactionActive = frame.TransactionActive,
-                Modules = frame.Modules, Position = Position(frame.Pose), Rotation = Rotation(frame.Pose), Scale = Scale(frame.Pose) };
+                Modules = frame.Modules, RequiredVisibleModules = frame.RequiredVisibleModules, Position = Position(frame.Pose), Rotation = Rotation(frame.Pose), Scale = Scale(frame.Pose) };
             if (peer > 0) VisitorSessions[peer] = Sessions[peer];
             if (peer > 0 && frame.Service == 2 && frame.TempleDonationKnown
                 && frame.HasTempleDonationCommitAge && frame.TempleDonationRevision != 0)
@@ -1102,7 +1127,7 @@ internal static partial class TownServiceMirror
                 if (frame.Session != session.Session || frame.Service != session.Service || Array.BinarySearch(session.Modules, frame.Module) < 0) continue;
                 try
                 {
-                    if (!frame.Visible)
+                    if (!frame.Visible && !PrepareHiddenCardReturnOriginal(frame))
                     { if (module != null) { module.Host.SetActive(false); module.Motion.Reset(); module.Sequence = frame.Sequence; module.LastFrame = frame; } continue; }
                     Transform mount = parent;
                     if (frame.ParentModule != TownServiceFrame.ManifestModule)
@@ -1168,7 +1193,7 @@ internal static partial class TownServiceMirror
                     RemoteRetry.Remove(retryKey); module.Sequence = frame.Sequence; module.LastFrame = frame;
                     if (frame.PublicCatalog && frame.RackMember != null) module.CatalogContentKey = IncomingCatalogContentKey(entry.Key, frame);
                     reorder = true;
-                    module.Host.SetActive(true); root.gameObject.SetActive(true);
+                    module.Host.SetActive(frame.Visible); root.gameObject.SetActive(true);
                     FinishInertPresentation?.Invoke(frame.TemplateAddress, root, parent);
                     TownServiceDepthOrder.Refresh(module.Host.transform);
                     HideDormantCatalogOriginal(entry.Key, frame, module);
@@ -1490,7 +1515,9 @@ internal static partial class TownServiceMirror
         ReportReset();
     }
     private static void ClearLocalModules()
-    { _local.ParentLinksDirty = true; _local.CaptureOrder.Clear(); ClearLocalCatalogBanks(); SourceParents.Clear(); LocalRacks.Clear(); LocalRackMembers.Clear(); LocalRackGates.Clear(); foreach (LocalModule module in Local.Values)
+    { _local.ParentLinksDirty = true; _local.CaptureOrder.Clear();
+      _local.RequiredVisibleModules = null; _local.VisibleCensus.Clear(); _local.RequiredMounts.Clear();
+      ClearLocalCatalogBanks(); SourceParents.Clear(); LocalRacks.Clear(); LocalRackMembers.Clear(); LocalRackGates.Clear(); foreach (LocalModule module in Local.Values)
         { TownServiceDelivery.Retire(ReferenceEquals(_local, PublicLane), ReferenceEquals(_local, StockLane), _service, _session, module.Id); module.Binding.Dispose(); } Local.Clear(); }
     private static void ResetInteractionLeases()
     {
@@ -1561,12 +1588,54 @@ internal static partial class TownServiceMirror
         frame.CanvasRect[0]=frame.CanvasRect[1]=100f; frame.CanvasRect[2]=frame.CanvasRect[3]=.5f;
         frame.CanvasSettings[0]=100f;frame.CanvasSettings[1]=frame.CanvasSettings[2]=frame.CanvasSettings[4]=0f;frame.CanvasSettings[3]=1f;
     }
+    private static void RefreshVisibleCensus()
+    {
+        if ((_service != 1 && _service != 3) || !ReferenceEquals(_local, PrivateLane)) return;
+        _local.VisibleCensus.Clear(); _local.RequiredMounts.Clear();
+        if (_active) foreach (LocalModule module in Local.Values)
+        {
+            if (IsLocalMapGuide(module.Address) || !CurrentModuleVisible(module)) continue;
+            _local.RequiredMounts.Add(module.Id);
+            // An original child with ignoreParentGroups can be visible inside an
+            // alpha-zero original parent. Its exact native mount still has to exist.
+            for (Transform? parent = module.Binding.Root.parent; parent != null; parent = parent.parent)
+                if (SourceParents.TryGetValue(parent, out ParentLink link)
+                    && Local.TryGetValue(link.Module, out LocalModule? mount) && !IsLocalMapGuide(mount.Address))
+                    _local.RequiredMounts.Add(link.Module);
+        }
+        foreach (ushort id in _local.RequiredMounts) _local.VisibleCensus.Add(id);
+        _local.VisibleCensus.Sort();
+        if (_service != 3) return;
+        bool changed = _local.RequiredVisibleModules == null
+            || _local.RequiredVisibleModules.Length != _local.VisibleCensus.Count;
+        if (!changed) for (int i = 0; i < _local.VisibleCensus.Count; i++)
+            if (_local.RequiredVisibleModules![i] != _local.VisibleCensus[i]) { changed = true; break; }
+        if (changed) { _local.RequiredVisibleModules = _local.VisibleCensus.ToArray(); _nextManifest = 0; }
+    }
+
+    private static bool CurrentModuleVisible(LocalModule module)
+    {
+        Transform? source = module.Binding.Root;
+        if (source == null || !source.gameObject.activeInHierarchy) return false;
+        float alpha = 1f;
+        for (Transform? parent = source; parent != null; parent = parent.parent)
+        {
+            bool stop = false; parent.GetComponents(ParentGroups);
+            foreach (CanvasGroup group in ParentGroups)
+                if (group.enabled) { alpha *= group.alpha; if (group.ignoreParentGroups) stop = true; }
+            if (alpha <= 0f) return false;
+            if (stop) break;
+        }
+        return true;
+    }
+
     private static void ReadParent(LocalModule module, TownServiceFrame frame)
     {
         float alpha = 1;
         for (Transform? parent = module.Binding.Root.parent; parent != null; parent = parent.parent)
         {
-            if (SourceParents.TryGetValue(parent, out ParentLink link) && link.Module != module.Id)
+            if (SourceParents.TryGetValue(parent, out ParentLink link) && link.Module != module.Id
+                && Local.TryGetValue(link.Module, out LocalModule? mount) && !IsLocalMapGuide(mount.Address))
             {
                 frame.ParentModule = link.Module; frame.ParentBinding = link.Binding;
                 frame.ParentAlpha = alpha; frame.Pose = ReadPose(module.Binding.Root, parent, frame.Pose); return;

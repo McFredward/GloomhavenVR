@@ -18,6 +18,7 @@ internal static class TownServiceCodec
     internal const byte CatalogBankRecordId = NetProtocol.ExtIdTownCatalogBank;
     internal const byte CatalogHeadersRecordId = NetProtocol.ExtIdTownCatalogHeaders;
     internal const byte NativeTemplateStateRecordId = NetProtocol.ExtIdTownNativeTemplateState;
+    internal const byte VisibleCensusRecordId = NetProtocol.ExtIdTownVisibleCensus;
     private static readonly UTF8Encoding Utf8 = new(false, true);
 
     internal static byte[] Write(TownServiceFrame frame)
@@ -66,6 +67,15 @@ internal static class TownServiceCodec
                 }
             }
         }
+        byte[] visibleCensus = Array.Empty<byte>();
+        if (frame.RequiredVisibleModules != null)
+        {
+            using var census = new MemoryStream();
+            using (var w = new BinaryWriter(census, Utf8, true))
+            { w.Write((byte)1); w.Write((ushort)frame.RequiredVisibleModules.Length);
+              foreach (ushort id in frame.RequiredVisibleModules) w.Write(id); }
+            visibleCensus = census.ToArray();
+        }
         byte[] raw = body.ToArray();
         byte[] rack = frame.Rack != null ? frame.Rack.Write(frame.Module) : frame.RackMember?.Write(frame.Module) ?? Array.Empty<byte>();
         int mechanismBytes = frame.Rack?.Cassette == true || frame.PublicCatalog ? 8 : 0;
@@ -82,6 +92,7 @@ internal static class TownServiceCodec
         size += bank.Length + 2 * ((bank.Length + 254) / 255);
         size += headers.Length + 2 * ((headers.Length + 254) / 255);
         size += frame.NativeTemplateBasisKey == 0 ? 0 : 11;
+        size += visibleCensus.Length + 2 * ((visibleCensus.Length + 254) / 255);
         if (size > TownServiceFrame.MaxBytes) throw new InvalidDataException("Town-service module exceeds the bounded snapshot size.");
         var packet = new byte[size];
         // NetProtocol.Magic (0x47565231) is written little endian by every existing lane.
@@ -168,7 +179,13 @@ internal static class TownServiceCodec
         if (frame.NativeTemplateBasisKey != 0)
         {
             packet[tail++] = NativeTemplateStateRecordId; packet[tail++] = 9; packet[tail++] = 1;
-            for (int i = 0; i < 8; i++) packet[tail + i] = (byte)(frame.NativeTemplateBasisKey >> (i * 8));
+            for (int i = 0; i < 8; i++) packet[tail++] = (byte)(frame.NativeTemplateBasisKey >> (i * 8));
+        }
+        for (int offset = 0; offset < visibleCensus.Length;)
+        {
+            int count = Math.Min(255, visibleCensus.Length - offset);
+            packet[tail++] = VisibleCensusRecordId; packet[tail++] = (byte)count;
+            Buffer.BlockCopy(visibleCensus, offset, packet, tail, count); tail += count; offset += count;
         }
         return packet;
     }
@@ -190,6 +207,7 @@ internal static class TownServiceCodec
             using var layout = new MemoryStream();
             using var bank = new MemoryStream();
             using var headers = new MemoryStream();
+            using var visibleCensus = new MemoryStream();
             bool visitorStock = false; ulong nativeTemplateBasisKey = 0;
             byte[]? workspaceCloth = null;
             bool templeDonationKnown = false, templeDonationAvailable = false; uint templeDonationRevision = 0;
@@ -219,6 +237,11 @@ internal static class TownServiceCodec
                 {
                     if (!allowBank || count == 0 || headers.Length + count > TownCatalogBank.MaxHeaderPayloadBytes) return false;
                     headers.Write(packet, at, count);
+                }
+                if (record == VisibleCensusRecordId)
+                {
+                    if (count == 0 || visibleCensus.Length + count > 3 + 2 * TownServiceFrame.MaxModules) return false;
+                    visibleCensus.Write(packet, at, count);
                 }
                 if (record == NativeTemplateStateRecordId)
                 {
@@ -364,6 +387,16 @@ internal static class TownServiceCodec
             {
                 if (result.CatalogBank == null) return false;
                 result.CatalogBank.ReadHeaders(headers.ToArray(), result);
+            }
+            if (visibleCensus.Length != 0)
+            {
+                visibleCensus.Position = 0;
+                using var census = new BinaryReader(visibleCensus, Utf8, true);
+                if (census.ReadByte() != 1) return false;
+                int count = census.ReadUInt16();
+                if (count > TownServiceFrame.MaxModules || visibleCensus.Length != 3 + 2 * count) return false;
+                result.RequiredVisibleModules = new ushort[count];
+                for (int i = 0; i < count; i++) result.RequiredVisibleModules[i] = census.ReadUInt16();
             }
             Validate(result); frame = result; return true;
         }
@@ -547,6 +580,17 @@ internal static class TownServiceCodec
         for (int i = 0; i < frame.Modules.Length; i++)
             if (frame.Modules[i] >= TownServiceFrame.VoiceModule || (i > 0 && frame.Modules[i] <= frame.Modules[i - 1]))
                 throw new InvalidDataException("Invalid town-service manifest.");
+        if (frame.RequiredVisibleModules != null)
+        {
+            if (frame.Module != TownServiceFrame.ManifestModule || frame.PublicCatalog || frame.VisitorStock
+                || frame.Service != 3 || frame.RequiredVisibleModules.Length > TownServiceFrame.MaxModules
+                || (!frame.Visible && frame.RequiredVisibleModules.Length != 0))
+                throw new InvalidDataException("Visible original census belongs to an enhancement manifest.");
+            for (int i = 0; i < frame.RequiredVisibleModules.Length; i++)
+                if ((i > 0 && frame.RequiredVisibleModules[i] <= frame.RequiredVisibleModules[i - 1])
+                    || Array.BinarySearch(frame.Modules, frame.RequiredVisibleModules[i]) < 0)
+                    throw new InvalidDataException("Visible original census must be a sorted manifest subset.");
+        }
         foreach (float value in frame.Pose) Finite(value);
         double norm = 0;
         for (int i = 3; i < 7; i++) norm += frame.Pose[i] * (double)frame.Pose[i];

@@ -55,15 +55,16 @@ internal static partial class TownServiceMirror
         // exact native asset validation. No hierarchy scan/formatting runs for users.
         if (!VRLog.WantsDebug) return;
         if (!session.TransactionActive) { TraceMageAdmissionReset(peer); return; }
+        ushort[] required = session.RequiredVisibleModules ?? session.Modules;
         bool same = MageAdmissionTraces.TryGetValue(peer, out MageAdmissionTrace? trace)
-            && trace.Session == session.Session && trace.Modules.Length == session.Modules.Length;
-        for (int i = 0; same && i < session.Modules.Length; i++)
-            same = trace!.Modules[i] == session.Modules[i];
+            && trace.Session == session.Session && trace.Modules.Length == required.Length;
+        for (int i = 0; same && i < required.Length; i++)
+            same = trace!.Modules[i] == required[i];
         if (!same)
         {
             if (MageAdmissionTraces.Count >= 24) TraceMageAdmissionReset();
             trace = new MageAdmissionTrace { Session = session.Session,
-                Modules = (ushort[])session.Modules.Clone(), Started = Time.unscaledTime };
+                Modules = (ushort[])required.Clone(), Started = Time.unscaledTime };
             MageAdmissionTraces[peer] = trace;
         }
         float now = Time.unscaledTime;
@@ -71,18 +72,18 @@ internal static partial class TownServiceMirror
         {
             if (!trace!.Ready)
                 VRLog.Debug("TownServices", "Native enhancement picture admitted: peer=" + peer
-                    + " session=" + session.Session + " required=" + session.Modules.Length
+                    + " session=" + session.Session + " required=" + required.Length + " prepared=" + session.Modules.Length
                     + " age=" + (now - trace.Started).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "s.");
             trace!.Ready = true; return;
         }
         if (now < trace!.ReportAt || trace.Reports >= 8) return;
         trace.ReportAt = now + 1f; trace.Reports++;
         int received = 0;
-        foreach (ushort id in session.Modules)
+        foreach (ushort id in required)
             if (pending.TryGetValue(id, out TownServiceFrame? frame)
                 && frame.Session == session.Session && frame.Service == 3) received++;
         VRLog.Debug("TownServices", "Native enhancement picture waiting: peer=" + peer
-            + " session=" + session.Session + " required=" + session.Modules.Length
+            + " session=" + session.Session + " required=" + required.Length + " prepared=" + session.Modules.Length
             + " received=" + received + " blocker=" + blocker + " module=" + module
             + " address=" + address + " age="
             + (now - trace.Started).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "s.");
@@ -293,6 +294,9 @@ internal static partial class TownServiceMirror
         // the existing lossless transport compression and cumulative deltas own
         // bandwidth. The prepared public cabinet retains sparse native metadata.
         if (complete.Service == 3 && Local.ContainsKey(complete.Module)) return false;
+        if (complete.Service == 1 && !complete.PublicCatalog && !complete.VisitorStock
+            && complete.TemplateAddress.StartsWith("item.confirm.part.", StringComparison.Ordinal)
+            && Local.ContainsKey(complete.Module)) return false;
         try
         {
             NativeTemplateBasis? basis = NativeBasis(complete);
@@ -389,11 +393,15 @@ internal static partial class TownServiceMirror
         Dictionary<ushort, TownServiceFrame> pending)
     {
         if (peer <= 0 || session.Service != 3 || session.Modules.Length == 0) return true;
-        foreach (ushort id in session.Modules)
+        foreach (ushort id in session.RequiredVisibleModules ?? session.Modules)
         {
             if (!pending.TryGetValue(id, out TownServiceFrame? received)
                 || received.Session != session.Session || received.Service != 3)
             { TraceMageAdmission(peer, session, pending, "module-not-received", id); return false; }
+            // Delta headers carry the current owner's visibility independently of
+            // their original dependency. A hidden prepared inventory or tooltip
+            // cannot delay the complete *visible* card/options picture.
+            if (session.RequiredVisibleModules == null && (!received.Visible || received.ParentAlpha <= 0f)) continue;
             TownServiceFrame? baseline = null;
             if (ReceivedBaselines.TryGetValue(peer, out var baselines)) baselines.TryGetValue(id, out baseline);
             TownServiceFrame? frame = TownServiceDelta.Expand(baseline, received);

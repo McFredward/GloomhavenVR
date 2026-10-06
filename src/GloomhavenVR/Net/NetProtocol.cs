@@ -150,6 +150,7 @@ internal static class NetProtocol
     public const byte ExtIdTownPurseReturn = 106;
     /// <summary>Original town card return endpoints, easing and common age, independent of artwork.</summary>
     public const byte ExtIdTownCardReturn = 107;
+    public const byte ExtIdTownVisibleCensus = 108;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>

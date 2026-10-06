@@ -257,6 +257,16 @@ internal sealed class FfsNetTransport : INetTransport
 
     // ---- send ---------------------------------------------------------------------------
 
+    internal bool TrySendTownPresentation(byte[] payload, int length, TownServices.TownServiceFrame identity)
+    {
+        if (_degraded || !_installed || _sendSideAction == null || _customDataCtor == null || !IsOnline)
+            return false;
+        if (payload == null || length < 6 || length > payload.Length
+            || NetPacket.PeekType(payload, length) != TownServices.TownServiceCodec.MessageType) return false;
+        try { _extrasQueue.Enqueue(payload, length, identity: identity); return true; }
+        catch { return false; } // The caller retains its baseline and reports one bounded capture failure.
+    }
+
     public void Send(byte[] payload, int length, object? presentationIdentity = null)
     {
         if (_degraded || !_installed || _sendSideAction == null || _customDataCtor == null || !IsOnline)

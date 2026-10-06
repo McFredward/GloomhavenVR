@@ -60,6 +60,9 @@ internal sealed class TownServiceFrame
     internal float SessionAge;
     internal float ParentAlpha = 1f;
     internal ushort[] Modules = Array.Empty<ushort>();
+    // TLV108: null preserves historical all-module admission; an explicit empty
+    // census means the owner currently shows no original modules.
+    internal ushort[]? RequiredVisibleModules;
     // Position, quaternion and scale in the shared map frame; never observer-local layout.
     internal float[] Pose = new float[10];
     // A converted/held root can sit inside an original external canvas whose pixel frame

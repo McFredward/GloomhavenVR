@@ -149,11 +149,12 @@ internal sealed class TownServiceLaneSendQueue
     }
     internal byte[]? NextUrgent(double now)
     {
-        // Only a first immutable original may borrow an early global turn.
-        // Continuous pose/hover deltas already have the independent numeric lane;
-        // letting them borrow forever would steal the cold cabinet's fair share.
-        bool waiting = _catalogRepairs.Count > 0 || _coldPriority.Count > 0 && (_urgentBundle.HasInFlight || _urgentBundle.HasPending);
-        foreach (ushort id in _coldPriority)
+        // Both a first original and its current visible text/confirmation revision
+        // may borrow a bounded early turn. Numeric pose/hover already has its own
+        // lane. The global debt cap and this lane's background arbitration still
+        // repay every borrowed page, so a sustained visit cannot starve the cabinet.
+        bool waiting = _catalogRepairs.Count > 0 || _priority.Count > 0 && (_urgentBundle.HasInFlight || _urgentBundle.HasPending);
+        foreach (ushort id in _priority)
             if (_queues.TryGetValue(id, out var queue) && (queue.HasPending || queue.HasInFlight)) { waiting = true; break; }
         if (!waiting) return null;
         // Early turns borrow the existing town share rather than add bandwidth.
@@ -352,6 +353,11 @@ internal sealed class TownServiceLaneSendQueue
     {
         if (a.VisitorStock != b.VisitorStock || a.PublicCatalog != b.PublicCatalog || a.PublicClaim != b.PublicClaim || a.Session != b.Session || a.Service != b.Service || a.Visible != b.Visible || a.Modules.Length != b.Modules.Length) return false;
         for (int i = 0; i < a.Modules.Length; i++) if (a.Modules[i] != b.Modules[i]) return false;
+        if ((a.RequiredVisibleModules == null) != (b.RequiredVisibleModules == null)) return false;
+        if (a.RequiredVisibleModules != null)
+        { if (a.RequiredVisibleModules.Length != b.RequiredVisibleModules!.Length) return false;
+          for (int i = 0; i < a.RequiredVisibleModules.Length; i++)
+              if (a.RequiredVisibleModules[i] != b.RequiredVisibleModules[i]) return false; }
         return true;
     }
     internal void Clear()
