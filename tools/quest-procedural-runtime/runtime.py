@@ -30,6 +30,16 @@ KERNEL_IMPORTS = ("LoadLibraryA", "GetProcAddress", "GetLastError", "GetStdHandl
                   "ReleaseMutex", "SetCurrentDirectoryA")
 
 
+def _resource_tools():
+    # Also works when this native module is loaded directly from an arbitrary cwd.
+    import importlib.util
+    location = Path(__file__).resolve().parents[1] / "quest-builder/host_resources.py"
+    spec = importlib.util.spec_from_file_location("quest_native_host_resources", location)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -169,11 +179,13 @@ def build(output_cache: Path, ndk: Path) -> tuple[Path, dict]:
     for name in ("protocol.h", "bridge.c", "worker.c", "server_launcher.c"):
         shutil.copy2(HERE / name, snapshot / name)
     clang, linker = tool(root, "clang"), tool(root, "ld.lld")
-    with (output / "native-build.log").open("w") as log:
+    resources = _resource_tools()
+    policy = resources.phase_budget("box64", output)
+    with resources.timed_phase("box64", log=output / "native-build.log"), (output / "native-build.log").open("w") as log:
         def run(arguments):
             subprocess.run(arguments, check=True, stdout=log, stderr=subprocess.STDOUT)
         run(command)
-        run([cmake, "--build", str(output / "box64-build"), "--parallel", "4"])
+        run([cmake, "--build", str(output / "box64-build"), "--parallel", str(policy["jobs"])])
         box = output / "box64-build" / "box64"
         shutil.copy2(box, output / "libquest_box64.so")
         run([clang, "--target=aarch64-linux-android29", "--sysroot=" + str(root.parent / "sysroot"),
@@ -310,7 +322,7 @@ def stage(output_cache: Path, ndk: Path, android_plugin_directory: Path,
                         raise RuntimeError("Pinned guest runtime dependency is not x64 ELF.")
                     destination = guest / PurePosixPath(relative).name
                     destination.write_bytes(data)
-                    guest_records.append(dict(path=str(destination.relative_to(payload)), sha256=hashlib.sha256(data).hexdigest(), package=name))
+                    guest_records.append(dict(path=destination.relative_to(payload).as_posix(), sha256=hashlib.sha256(data).hexdigest(), package=name))
                 elif relative.endswith("/copyright"):
                     data = contents(member)
                     if data is not None:
@@ -323,7 +335,7 @@ def stage(output_cache: Path, ndk: Path, android_plugin_directory: Path,
     receipt = {"schema": 1, "native": native, "wine": wine, "winePathEdits": wine_path_edits, "guestPackages": LOCK["guestPackages"],
                "guestLibraries": guest_records, "originalEngineSha256": digest(original),
                "originalEngineSource": "owner-provided-PC-game", "androidExecutionVerified": False,
-               "files": [dict(path=str(path.relative_to(payload)), sha256=digest(path), size=path.stat().st_size)
+               "files": [dict(path=path.relative_to(payload).as_posix(), sha256=digest(path), size=path.stat().st_size)
                          for path in sorted(payload.rglob("*")) if path.is_file() and path.name != "runtime-manifest.json"]}
     (payload / "runtime-manifest.json").write_text(json.dumps(receipt, indent=2) + "\n")
     return {"payload": str(payload), "nativeDirectory": str(native_dir), "manifest": str(payload / "runtime-manifest.json"),

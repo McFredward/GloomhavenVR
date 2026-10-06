@@ -41,6 +41,20 @@ from storage import (BuildError, Stages, canonical, digest, ensure_output, inven
                      project_content_valid, publish_project_content, CONTENT_PATHS, _ordinary_owned)
 
 
+def _local_helper(name):
+    # Installer/API loaders temporarily register builder dependencies without
+    # placing this directory on sys.path. Retain each exact local helper object.
+    path = Path(__file__).with_name(name + ".py")
+    spec = importlib.util.spec_from_file_location("quest_builder_" + name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+host_resources = _local_helper("host_resources")
+_release = _local_helper("release") if Path(__file__).with_name("release.py").is_file() else None
+
+
 RECIPE = 1
 BUILDER_RESUME_CONTRACT = 1
 PACKAGE = "dev.gloomhavenvr.quest"
@@ -55,17 +69,26 @@ ORIGINAL_UGUI_SHA256 = "267daefe946bbed18d13c7c572043bee15cd265ef1b443934b3dcbcd
 def command(argv: list[str], log: Path, *, cwd: Path | None = None,
             env: dict | None = None) -> str:
     """No shell interpolation, no environment dump and no passwords in argv."""
+    argv = list(argv)
+    unity = any(Path(arg).name.casefold() in ("unity", "unity.exe") for arg in argv)
+    if unity and "-version" not in argv:
+        policy = host_resources.phase_budget("unity", log.parent)
+        if "-job-worker-count" in argv:
+            index = argv.index("-job-worker-count")
+            argv[index + 1] = str(min(int(argv[index + 1]), policy["jobs"]))
+        else:
+            argv += ["-job-worker-count", str(policy["jobs"])]
     log.parent.mkdir(parents=True, exist_ok=True)
-    with log.open("w", encoding="utf-8") as stream:
+    with host_resources.timed_phase("unity" if unity else "command", log=log), log.open("w", encoding="utf-8") as stream:
         try:
             result = subprocess.run(argv, cwd=cwd, env=env, stdout=stream,
                                     stderr=subprocess.STDOUT, check=False)
         except OSError as exc:
             raise BuildError("Cannot execute " + Path(argv[0]).name + "; verify the selected tool path.") from exc
+        if result.returncode:
+            raise BuildError(Path(argv[0]).name + " exited with " + str(result.returncode) +
+                             "; inspect " + str(log))
     output = log.read_text(encoding="utf-8", errors="replace")
-    if result.returncode:
-        raise BuildError(Path(argv[0]).name + " exited with " + str(result.returncode) +
-                         "; inspect " + str(log))
     return output
 
 
@@ -113,6 +136,18 @@ def game_data(root: Path) -> Path:
 
 def source_inventory(repo: Path) -> tuple[list[dict], str, bool]:
     selected = []
+    if not (repo / ".git").exists():
+        if _release is None or not (repo / "quest-builder-release.json").is_file():
+            raise BuildError("The builder requires a Git checkout or a verified Quest builder release.")
+        records, commit, dirty = _release.verified_source_inventory(repo)
+        local = [p.relative_to(repo).as_posix() for name in ("libs/RuntimeDeps", "libs/Natives")
+                 for p in (repo / name).glob("*") if p.is_file() and p.suffix.lower() in (".dll", ".json")]
+        for relative in local:
+            _ordinary_owned(repo / relative)
+        combined = [*records, *inventory(repo, local)]
+        if len({row["path"].casefold() for row in combined}) != len(combined):
+            raise BuildError("Release/local dependency inventories overlap or collide.")
+        return sorted(combined, key=lambda row: row["path"]), commit, dirty
     for raw in git_output(repo, "ls-files", "--cached", "--others", "--exclude-standard", "-z").split(b"\0"):
         if not raw:
             continue
@@ -1154,8 +1189,15 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
             # Unity 2021.3's Android toolchain otherwise selects old NDK r21 BFD.
             # Keep the supported linker selection local to this Android build process.
             env["UNITY_IL2CPP_ANDROID_USE_LLD_LINKER"] = "1"
+        policy = host_resources.phase_budget("il2cpp" if args.target in ("startup", "game") else "unity", output)
+        if policy["memoryInsufficient"]:
+            raise BuildError("Insufficient available RAM/commit for the large native game compiler; close other programs and retry. "
+                             "Completed stages are retained; --jobs cannot bypass the memory reserve.")
+        dotnet = tool_path(args.dotnet, "dotnet")
+        launcher = host_resources.prepare_bee_launcher(dotnet, output)
+        env = host_resources.unity_native_environment(tools["editor"], launcher, policy["jobs"], dotnet, env)
         command(unity_launcher(tools["editor"], graphics=args.target == "game") + ["-quit", "-projectPath", str(project),
-                 "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuild.Build",
+                 "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuildConcurrency.Build",
                  "-logFile", str(output / "logs" / ("unity-build-" + key[:12] + ".log"))],
                 output / "logs" / ("unity-launch-" + key[:12] + ".log"), env=env)
         if build_provenance.capture(inputs, project, source, Path(__file__).resolve().parent, tools) != provenance:
@@ -1457,6 +1499,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--probe-assets", type=Path, help="Pure native recovered asset slice, only for the diagnostic probe.")
     result.add_argument("--startup-project", type=Path, help="Validated original-scene closure, only for the startup diagnostic.")
     result.add_argument("--campaign-project", type=Path, help="Optional completed local Campaign recovery; its original input and every file are verified before reuse.")
+    result.add_argument("--jobs", type=host_resources.parse_jobs, help="Maximum concurrent build jobs; automatic CPU/RAM limits still apply. Also GHVRQ_BUILD_JOBS.")
     result.add_argument("--unity-editor")
     result.add_argument("--android-sdk")
     result.add_argument("--android-ndk")
@@ -1481,7 +1524,7 @@ def main(argv: list[str] | None = None) -> int:
             raise BuildError("--startup-project belongs only to the explicitly diagnostic --target startup.")
         data = game_data(args.game_root) if args.game_root else None
         output = ensure_output(args.output_root or repo / ".planning/quest3-local", repo, data)
-        with output_lock(output):
+        with output_lock(output), host_resources.resource_context(output, args.jobs):
             failure = output / "last-failure.json"
             if args.command != "report":
                 failure.unlink(missing_ok=True)
@@ -1497,6 +1540,7 @@ def main(argv: list[str] | None = None) -> int:
                     print("package: " + str(archive), flush=True)
                 else:
                     inputs = inspect_inputs(args, repo, output, data)
+                    os.environ[host_resources.INPUT_ENV] = inputs["inputKey"]
                     if args.command != "inspect":
                         source, game = snapshot_inputs(inputs, output, repo, data, args.probe_assets, args.startup_project)
                         project = prepare(args, inputs, output, source, game)

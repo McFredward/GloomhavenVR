@@ -26,6 +26,16 @@ ORIGINAL_EXPORTS = ("opus_encoder_get_size", "opus_encoder_init", "opus_get_vers
                     "opus_packet_get_nb_channels", "opus_strerror")
 
 
+def _resource_tools():
+    # Also works when this native module is loaded directly from an arbitrary cwd.
+    import importlib.util
+    location = Path(__file__).resolve().parents[1] / "quest-builder/host_resources.py"
+    spec = importlib.util.spec_from_file_location("quest_native_host_resources", location)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -142,9 +152,11 @@ def build_network_native(output_cache: Path, ndk: Path | None, *, host_test: boo
             raise RuntimeError("Windows voice builds require the Quest build requirements in its venv.") from error
         command[command.index("Unix Makefiles")] = "Ninja"
         command += [f"-DCMAKE_MAKE_PROGRAM={ninja}"]
-    with (output / "native-build.log").open("w", encoding="utf-8") as log:
+    resources = _resource_tools()
+    policy = resources.phase_budget("opus", output)
+    with resources.timed_phase("opus", log=output / "native-build.log"), (output / "native-build.log").open("w", encoding="utf-8") as log:
         subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT)
-        subprocess.run([cmake_command(), "--build", str(build), "--parallel", "4"],
+        subprocess.run([cmake_command(), "--build", str(build), "--parallel", str(policy["jobs"])],
                        check=True, stdout=log, stderr=subprocess.STDOUT)
         archive = build / "libopus.a"
         if not archive.is_file():
