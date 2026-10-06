@@ -61,6 +61,17 @@ class FailureTests(unittest.TestCase):
         self.assertNotIn("old private", error.parameters["cause"])
         self.assertEqual(error.parameters["logs"], [str(self.log)])
 
+    def test_saved_export_reader_failure_names_evidence_and_keeps_exact_size_context(self):
+        cause = 'Recovery resume evidence is oversized: core-recovery.json (19000000 bytes; limit 16777216 bytes)'
+        self.log.write_text('Quest builder: ' + cause)
+        atomic_json(self.root / 'build/last-failure.json', {
+            'schema': 1, 'stage': 'recovery', 'key': 'b' * 64, 'message': cause})
+        error = tool_failure(self.root, 'build', self.log, time.time() - 1, 'python.exe', 1)
+        self.assertIn('Nachweis', error.message['de'])
+        self.assertIn('Arbeitsordner behalten', error.message['de'])
+        self.assertEqual(error.parameters['builderError'], cause)
+        self.assertIn('19000000 bytes', error.parameters['cause'])
+
     def test_unexpected_stage_exception_retains_type_and_traceback(self):
         def fail(*_): raise ValueError("Invalid owned asset index")
         result = wizard.Engine(self.store, actions={"tools": fail}).run(self.session)

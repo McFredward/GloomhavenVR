@@ -40,15 +40,20 @@ HTTP uses GET `/api/discover`, `/api/status?session=ID`,
 `/api/action {session,action:unity-open|unity-check,nonce}`. The last route accepts
 only an action currently declared by the running Unity stage. Closing a Hub or
 installer window keeps the wait visible; reopening it does not complete the stage. Native browse is Windows
-only. GET `/api/gallery` exposes optional hash-pinned public publisher character/enemy
-artwork, downloaded anonymously from the official announcement CDN into a private
-local cache. No account or platform service is used; no artwork bytes ship in the
-source release, and an unavailable picture does not block conversion. GET
+only. GET `/api/gallery` exposes six hash-pinned public publisher character/enemy
+images bundled with the source release. An optional repair uses the exact official
+announcement CDN pins anonymously in a private local cache. No account or platform
+service is used, and an unavailable picture does not block conversion. GET
 `/api/promo-artwork?id=OPAQUE` revalidates the exact bytes and PNG/JPEG header.
 After a matching inspect/recovery witness, local game portraits can also become
 available. GET `/api/artwork?session=ID&id=OPAQUE` checks the token/origin and image SHA again; status exposes only opaque IDs/URLs, never a filesystem path. Capture and cache cleanup capabilities remain false.
-Discovery lists recent opaque session IDs because browser storage belongs to the
-random port's origin. Reopening a session does not start any work automatically.
+Discovery lists readable recent opaque session IDs because browser storage belongs
+to the random port's origin. The browser automatically opens the last selected
+session with its saved choices and progress, without starting any work. **Continue**
+uses that same ID; **Set up a new build** explicitly opens a fresh selection without
+removing previous sessions or verified caches. A missing/corrupt latest pointer
+falls back to a readable recent session. Failure to load the selected session stays
+visible and blocks accidental fresh planning until retry or an explicit new selection.
 
 ## Resume and prerequisites
 
@@ -194,6 +199,13 @@ outcomes when present. Only direct known stage/build logs, the three named resou
 explicit `core-export.log` / `BundleRecovery/batch-NNN/export.log` paths from at
 most two current recovery workspaces are eligible. At most eight recent batch
 logs per workspace are retained; no recursive project/cache/game traversal occurs.
+When an owner-labelled raw-export binding points the current recipe at an earlier
+export folder, that folder's logs are included. A failure before binding publication
+can instead expose at most two recent folders, explicitly labelled as candidates.
+Diagnostic metadata records only existence and byte sizes for five named receipt /
+identity / journal files. Their contents and full proprietary asset inventories are
+never read or exported by this diagnostic scan. These observations do not qualify
+cached content or bypass the recovery process's hash checks.
 Profile and DLC JSON, environment files, license files, signing credentials,
 game assets and saves are excluded. Known profile/path values, authorization,
 token/password/serial fields, signed URL queries, JWTs and key blocks are
@@ -208,9 +220,11 @@ that its APK was installed or that the headset picture is correct.
 ## Observed progress and failure visibility
 
 Each stage carries its named current substep, real done/total/unit counters,
-percentage and update time. A percentage describes that substep, not a synthetic
-weighted estimate of the entire APK build. Switching substeps can change the
-denominator. Downloads use bytes, snapshots/hash checks use actual file/byte
+percentage and update time. `stagePercent` is a persistent total of observed
+scheduled stage operations and remains below 100 until verified output publication.
+`percent` retains the secondary substep counter; switching substeps can change its
+denominator without resetting the stage total. Neither percentage estimates elapsed
+time or time remaining. Downloads use bytes, snapshots/hash checks use actual file/byte
 inventories, bounded recovery uses committed catalog batch counts, and Bee native
 compilation uses its emitted action counts. AssetRipper API calls or other tools
 without native counts remain visibly unknown; elapsed time never invents progress.
@@ -231,3 +245,11 @@ A changed conversion recipe gets a separate recovery key. Existing source/tool
 caches and old checkpoints remain preserved, but an exporter correction can
 require a new coherent export. This is not a promise that incompatible native
 export checkpoints can be reused across recipe changes.
+
+The raw-export eligibility reader permits the full `core-recovery.json` file
+inventory up to 256 MiB; smaller control/input manifests remain capped at 16 MiB.
+The read itself stays bounded if a file grows after its size check. Missing,
+non-regular, oversized and unreadable evidence have distinct diagnostics with
+observed bytes and the applicable limit. Reading this larger inventory does not
+hash all game assets in the eligibility helper: the child still independently
+verifies the retained core/batches and restores the actual pending merge journal.

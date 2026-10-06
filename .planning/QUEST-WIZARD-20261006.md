@@ -1,5 +1,53 @@
 # Quest wizard stage progress and offline presentation
 
+## Windows receipt limit and automatic restart continuation
+
+The later support capture `quest-build-support-20261006T175224Z-14c642bc.zip`
+identifies the expected new release `964aa706a2573886860fe2677ee1ff227c791282`
+and fails before launching its recovery child. The precise builder error is
+`Recovery resume evidence is missing or oversized: core-recovery.json`.
+Migration candidate selection already checked that this receipt existed; the
+following generic reader capped it at 16 MiB. The capture does not include the
+actual receipt size, so that number is not claimed as measured hardware evidence.
+Only the large core-export inventory now receives a bounded 256 MiB reader.
+Small ownership/input/binding metadata retains 16 MiB bounds. Error diagnostics
+distinguish absent, non-regular, oversized and unreadable evidence and expose
+observed byte counts and the relevant bound. Eligibility validation and the
+child's independent core/batch/journal hash checks remain mandatory.
+
+The capture also uses a fresh wizard session ID and all prerequisite stages have
+one attempt. The former game-selection screen's ordinary Continue route planned
+a new session unless the separate View previous build button was chosen. Browser
+startup now opens the last readable owned session automatically, restoring its
+choices and whole-stage progress without starting tools. Continue runs that same
+ID. An explicit Set up a new build action opens fresh choices and preserves owner
+state, caches and signing material. A failed status load cannot silently create a
+new session. The restart preference is stored outside the release directory and
+works across a changed loopback port or replacing the Builder source folder.
+Missing/corrupt latest pointers fall back to a valid recent session; IDs must match
+their owner directory and unusable metadata is not offered.
+
+A default-source update is identified separately from the previous saved source.
+It legitimately revalidates affected source/dependent stages, while compatible raw
+exports remain eligible for reuse. Explicit advanced source selection is preserved.
+Same-input stage progress remains durable; changed-input progress does not inherit
+an unverified percentage from another recipe. The generic progress gate and
+Unity observer are unchanged; no extra import or shader validation is introduced.
+
+The support scan now follows the observed owner binding to the retained raw
+folder. Before that binding exists, at most two recent folders are clearly labelled
+as candidates. Five fixed receipt/identity/journal filenames have existence/size
+observations only, without reading or exporting their proprietary inventories.
+These diagnostics do not establish content integrity. Reader failures have a
+specific bilingual explanation while the exact exception stays in bounded logs.
+
+Focused large-inventory tests use a real 130,000-record receipt over 16 MiB, a
+separate semantically valid large receipt through actual child hash verification
+and journal replay, and rejection of unwitnessed/corrupt exported bytes. They do
+not rerun either exporter. Restart selection tests establish readable pointer
+fallback, fresh-store persistence, no startup state mutation and explicit older
+session continuation. Actual Windows full-game success still requires a retest.
+
 The maintainer's 2026-10-06 report requires a total percentage for every main
 stage: finishing a substep must not finish the stage or reset its total. A later
 clarification explicitly permits a second resetting substep bar alongside the
