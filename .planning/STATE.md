@@ -1,5 +1,29 @@
 # State — where the project stands
 
+**Quest B627 completed Windows export and visible failure repair, 2026-10-06 (tooling only).**
+
+Final capture 213551 proves all 16 raw packages, the reference audit, final
+204 MB checkpoint and CAB index succeeded. The following official-TMP helper
+import failed with `No module named 'recover'`; the shared loader and an early
+cold-import preflight fix that concrete failure. Completed raw exports and their
+reference audit remain eligible for continuation, including the exact shipped
+d4cc profile. No whole Windows APK or headset success is claimed.
+
+The reference audit's silent 933-second phase gains actual file/large-file-byte
+counters and removes duplicate reads/full YAML node graphs. Its equivalent
+2,040-file Linux fixture falls 5.430→2.955 seconds. Project staging now has an
+explicit remaining section and fourteen actual operations, extending this
+installation's conversion task count from 22 to 23. Build failures show a top
+alert with actual cause, retry and diagnostic export. Status updates survive
+optional-log failures; stale waits and animation cannot obscure failed state.
+Long tasks show the last actual progress age and only measured scoped estimates.
+All seven Wizard stages and 21 build operations are reviewed in the new performance
+note. Fresh staging copies/report proofs avoid redundant reads, direct callers
+retain their closure gate, full staging omits its duplicate intermediate audit,
+and audio/texture container hashes and current public-source qualifications reuse
+actual invocation-owned hashes with mutation guards. Larger immutable handoff,
+derivative caching and bounded parallelism remain measured next-run priorities.
+
 **Quest B627 observed export work, scoped timing and native merge speed, 2026-10-06 (tooling only).**
 
 The new support capture identifies shipped Builder source 5dce and advances

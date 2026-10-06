@@ -43,6 +43,28 @@ def digest(path: Path, progress=None) -> str:
     return result.hexdigest()
 
 
+class ImmutableFileHashes:
+    """Reuse actual reads only within this invocation of an immutable input."""
+    def __init__(self):
+        self.records = {}
+
+    def digest(self, path):
+        path = _ordinary_owned(Path(path))
+        observed = path.stat()
+        stamp = (observed.st_dev, observed.st_ino, observed.st_size, observed.st_mtime_ns, observed.st_ctime_ns)
+        previous = self.records.get(path)
+        if previous is not None:
+            if stamp != previous[0]:
+                raise BuildError("Original source changed during conversion: " + path.name)
+            return previous[1]
+        hashed = digest(path)
+        after = path.stat()
+        if stamp != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+            raise BuildError("Original source changed while read: " + path.name)
+        self.records[path] = (stamp, hashed)
+        return hashed
+
+
 def canonical(value) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 

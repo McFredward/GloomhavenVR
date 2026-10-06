@@ -193,7 +193,9 @@ class StagingTests(unittest.TestCase):
         proof={'schema':1,'proofs':[],'mappings':{},'rejected':[],'mappedOriginalObjectCount':0}
         before={row['path']:(project/row['path']).read_bytes() for row in records}
         def native(*args,**kwargs):
-            (output/scene_paths[0]).write_text((output/scene_paths[0]).read_text().replace('Original','NativeRestored'))
+            self.assertIs(kwargs['audit_references'], False)
+            target_output = Path(args[0])
+            (target_output/scene_paths[0]).write_text((target_output/scene_paths[0]).read_text().replace('Original','NativeRestored'))
             return list(rows), {'nativeFixtureRestoration':True}
         with contextlib.redirect_stdout(self.stream), \
              mock.patch.object(catalogs,'associate',return_value=catalog_manifest), \
@@ -204,7 +206,22 @@ class StagingTests(unittest.TestCase):
             report=full_assets.stage(project,game,output,self.root/'unused-tmp.zip',managed_types=project/'QuestRecovery/managed-types.json',cab_bundles=owners,unitypy=types.SimpleNamespace())
         boundaries=[row for row in events(self.stream) if row['phase'].startswith('staging-section:')]
         self.assertEqual([(row['phase'].split(':')[1],row['status']) for row in boundaries],[(name,status) for name in full_assets.STAGING_SECTIONS for status in ('start','complete')])
-        self.assertTrue(all(row['operation']=='recovery' for row in boundaries))
+        self.assertTrue(all('operation' not in row for row in boundaries))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('actual_staging_plan', ROOT / 'tools/quest-wizard/stage_plan.py')
+        plan = importlib.util.module_from_spec(spec); spec.loader.exec_module(plan)
+        row = {'id': 'build', 'status': 'running'}
+        for phase, done, total in [('operation:recovery', None, None), ('recovery-plan', 0, 16), ('recovery-section:staging', None, None)]:
+            value = {'phase': phase, 'done': done, 'total': total, 'percent': None if done is None else 100 * done / total}
+            plan.advance(row, value, 'recovery' if phase == 'operation:recovery' else None)
+        values = []
+        for value in events(self.stream):
+            value['percent'] = None if value['done'] is None or value['total'] is None else (100 if value['total'] == 0 else 100 * value['done'] / value['total'])
+            measured = plan.advance(row, value, value.get('operation'), value.get('status'))
+            self.assertNotIn('recovery', row['progressPlan']['completed'])
+            values.append(measured['stagePercent'])
+        self.assertEqual(values, sorted(values))
+        self.assertGreater(len(set(values)), 14)
         copied=[row for row in events(self.stream) if row['phase']=='staging-copy'][-1]
         self.assertEqual((copied['done'],copied['total']), (len(records)-1,len(records)-1))
         self.assertEqual(len(report['selectedScenes']),13)
@@ -216,6 +233,22 @@ class StagingTests(unittest.TestCase):
         self.assertFalse((output/'Assets/Resources/srdebugger/unused.txt').exists())
         final={row['path']:row for row in report['files']}
         self.assertEqual(final[scene_paths[0]]['sha256'],digest((output/scene_paths[0]).read_bytes()))
+        # Deferring the intermediate native audit must never remove the last
+        # closure gate. Simulate a later font edit introducing a duplicate GUID.
+        broken = self.root / 'broken-font-stage'
+        def bad_font(*args):
+            path = broken / 'Assets/BrokenFont.asset.meta'
+            path.write_text('fileFormatVersion: 2\nguid: ' + rows[0]['guid'] + '\n')
+            return []
+        with contextlib.redirect_stdout(self.stream), \
+             mock.patch.object(catalogs,'associate',return_value=catalog_manifest), \
+             mock.patch.object(canonical_contracts,'witness',return_value=proof), \
+             mock.patch.object(layouts,'restore',return_value={'repairedObjectCount':0}), \
+             mock.patch.object(native_stage,'restore',side_effect=native), \
+             mock.patch.object(tmp,'restore',side_effect=bad_font):
+            with self.assertRaisesRegex(BuildError, 'source closure remains unresolved'):
+                full_assets.stage(project,game,broken,self.root/'unused-tmp.zip',managed_types=project/'QuestRecovery/managed-types.json',cab_bundles=owners,unitypy=types.SimpleNamespace())
+        self.assertFalse((broken / 'quest-campaign-report.json').exists())
 
 
 if __name__=='__main__':

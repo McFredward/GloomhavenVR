@@ -217,9 +217,10 @@ def release_source(store, session, choices, details, supervisor, source):
     for index, row in enumerate(records, 1):
         store.check_cancel(session)
         target = ordinary(checkout / row["path"]); target.parent.mkdir(parents=True, exist_ok=True)
-        if not target.is_file() or target.stat().st_size != row["size"] or digest(target) != row["sha256"]:
+        retained = target.is_file() and target.stat().st_size == row["size"] and digest(target) == row["sha256"]
+        if not retained:
             shutil.copyfile(source / row["path"], target)
-        if digest(target) != row["sha256"]: raise WizardError("source_changed", "A release input changed while copied.")
+            if digest(target) != row["sha256"]: raise WizardError("source_changed", "A release input changed while copied.")
         store.progress(session, 'source', 'source-copy', index, len(records), 'files', Path(row['path']).name)
     derived = derive_runtime_dependencies(checkout, choices["gameRoot"], details, supervisor,
                                           store.session_dir(session) / "logs", lambda: store.check_cancel(session))

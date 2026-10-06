@@ -5,7 +5,7 @@ from pathlib import Path
 import struct
 import sys
 
-from storage import BuildError, write_json
+from storage import BuildError, write_json, ImmutableFileHashes
 
 
 def ogg_packets(data):
@@ -87,6 +87,7 @@ def stage(project, game_data, *, dotnet, tool_cache, cab_bundles):
     wanted = [obj for obj in objects.values() if obj["classId"] == 83 and obj["collection"].startswith("cab-")]
     command = portable_decoder.build(tool_cache, dotnet)
     assets, environments = [], {}
+    source_hashes = ImmutableFileHashes()
     temporary = Path(tool_cache) / "original-audio-payloads"
     temporary.mkdir(exist_ok=True)
     for target in wanted:
@@ -118,7 +119,7 @@ def stage(project, game_data, *, dotnet, tool_cache, cab_bundles):
         path.write_bytes(corrected)
         assets.append({"assetPath": target["path"], "guid": target["guid"], "fileId": target["fileId"],
               "originalCollection": target["collection"], "originalPathId": target["pathId"],
-              "sourceContainer": container, "sourceContainerSha256": sha256(game_data / container),
+              "sourceContainer": container, "sourceContainerSha256": source_hashes.digest(game_data / container),
               "originalFsbSha256": hashlib.sha256(raw).hexdigest(), "beforeSha256": before, "sha256": sha256(path),
               "channels": channels, "frequency": rate, "samples": frames,
               "compressedAudioPacketsPreserved": True, "originalCompressedPacketCount": len(original_packets),

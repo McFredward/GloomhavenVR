@@ -259,6 +259,23 @@ class StageProgressTests(unittest.TestCase):
         self.assertEqual(self.progress()['activeWork']['total'], 23)
         self.assertLess(self.progress()['stagePercent'], 100)
 
+    def test_staging_runtime_and_report_file_bytes_supplement_known_parent_work(self):
+        self.store.operation(self.session, 'build', 'recovery')
+        self.store.progress(self.session, 'build', 'recovery-plan', 0, 16, 'batches')
+        self.store.progress(self.session, 'build', 'recovery-section:staging')
+        for step, parent, child in [('runtime', 'staging-runtime-copy', 'staging-runtime-file'),
+                                    ('report', 'staging-report-files', 'staging-report-file')]:
+            self.store.progress(self.session, 'build', 'staging-section:' + step, 0, 1, 'steps')
+            self.store.progress(self.session, 'build', parent, 0, 100, 'files')
+            before = self.progress()['stagePercent']
+            self.store.progress(self.session, 'build', child, 500, 1000, 'bytes')
+            self.assertGreater(self.progress()['stagePercent'], before)
+            self.store.progress(self.session, 'build', parent, 99, 100, 'files')
+            self.store.progress(self.session, 'build', 'staging-section:' + step, 1, 1, 'steps')
+        self.assertEqual(self.progress()['activeWork']['done'], 22)
+        # The final staging section still awaits its recovery receipt boundary.
+        self.assertLess(self.progress()['stagePercent'], 100)
+
     def test_unknown_schedule_never_counts_clock_time_as_conversion_progress(self):
         self.store.operation(self.session, 'build', 'recovery')
         self.store.progress(self.session, 'build', 'recovery-section:source')

@@ -31,6 +31,8 @@ RECOVERY_PHASES = {
 FILE_CHILDREN = {
     "recovery-asset-reference-file": ("recovery-asset-references",),
     "staging-copy-file": ("staging-copy",),
+    "staging-runtime-file": ("staging-runtime-copy",),
+    "staging-report-file": ("staging-report-files",),
     "recovery-source-file-hash": ("recovery-source-hash",),
     "recovery-core-file-hash": ("recovery-core-receipt-verify", "recovery-core-output-hash"),
     "recovery-export-file-hash": ("recovery-export-receipt-hash",),
@@ -100,7 +102,7 @@ def initialize(row):
     # without interpreting a previously reset substep 100% as global completion.
     plan["version"] = 2
     plan["completed"] = [name for name in plan.get("completed", []) if name in operations]
-    plan["fractions"] = {name: min(0.99, max(0., number)) for name, number in plan.get("fractions", {}).items()
+    plan["fractions"] = {name: min(.999999 if name == "recovery" and row["id"] == "build" else .99, max(0., number)) for name, number in plan.get("fractions", {}).items()
                          if name in operations and type(number) in (int, float) and math.isfinite(number)}
     number = plan.get("percent", 0.)
     plan["percent"] = min(99.9, max(0., number)) if type(number) in (int, float) and math.isfinite(number) else 0.
@@ -113,7 +115,7 @@ def initialize(row):
             plan["fractions"].pop("recovery", None)
             if plan.get("current") == "recovery" and isinstance(row.get("progress"), dict):
                 nested = _recovery_fraction(plan, row["progress"])
-                if nested is not None: plan["fractions"]["recovery"] = min(.99, nested)
+                if nested is not None: plan["fractions"]["recovery"] = min(.999999, nested)
             # Base the mapping on the saved event, before accepting a new
             # producer counter. Status reads do not publish state; otherwise
             # that first new counter could become the anchor and be lost.
@@ -238,7 +240,8 @@ def _recovery_fraction(plan, value):
                     work["completed"] = list(dict.fromkeys([*work["completed"], step]))
         else:
             effective, measured = _counter_fraction(work, value)
-            step = {"staging-copy": "copy", "staging-report-hash": "report"}.get(effective)
+            step = {"staging-copy": "copy", "staging-managed-assemblies": "runtime", "staging-runtime-copy": "runtime",
+                    "staging-report-files": "report", "staging-report-hash": "report", "recovery-asset-references": "audit"}.get(effective)
             _advance_work(work, STAGING_STEPS, step, measured)
         ratio = _work_fraction(work, STAGING_STEPS)
     elif section == "core":
@@ -313,7 +316,7 @@ def advance(row, value, operation=None, status=None):
     if row["id"] == "build" and current == "recovery":
         nested = _recovery_fraction(plan, value)
         if nested is not None:
-            plan["fractions"][current] = max(plan["fractions"].get(current, 0.), min(.99, nested))
+            plan["fractions"][current] = max(plan["fractions"].get(current, 0.), min(.999999, nested))
         recovery = plan.get("recovery", {})
         section = recovery.get("work", {}).get("current")
         if section in RECOVERY_SECTIONS:

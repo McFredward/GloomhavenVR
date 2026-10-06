@@ -3,8 +3,8 @@
 This is a source review of every scheduled Wizard stage and build operation,
 not an end-to-end Windows qualification. It reviews feature checkpoint
 `8cfbcfc77d775db2b1d6e7745a9a1492260974aa` and identifies this round's
-separately implemented reference-audit work (`dffe401eb`). New staging work in
-the integrator's checkout is distinguished from recommendations below.
+separately implemented reference-audit work (`dffe401eb`). The final integrator implements the three immediate opportunities below and
+qualifies them together with the staging changes; larger changes remain proposals.
 
 ## Actual Windows witness and limits
 
@@ -36,7 +36,7 @@ this review. Later Windows stages remain unmeasured.
 | Stage | Necessary work and source owner | Observed evidence | Avoidable work / safe change |
 | --- | --- | --- | --- |
 | `tools` | `provision.tools`: pinned Git/.NET8/.NET10 downloads, member extraction, executable/support-file qualification; host memory/disk admission. | 29.207 s on this retained run. | Range continuation and file-level extraction resume already exist. Reuse a verified target hash within one invocation; two bounded independent downloads may overlap, but avoid concurrent `Supervisor.run` calls until its ownership model supports them. Do not repeatedly redownload matching archives. |
-| `source` | `provision.release_source`/`source_checkout`: selected current source, authored art, declared XR dependencies, exact source manifest. | 34.581 s; three attempts. | Matching release targets currently hash twice in the copy loop. Preserve its first accepted digest. `release.verified_source_inventory` hashes the pinned public converter archive at entrance and again in its inventory; reuse the first actual result while still validating the mandatory exact manifest row. Git/source selection and derived dependency identities must remain explicit. |
+| `source` | `provision.release_source`/`source_checkout`: selected current source, authored art, declared XR dependencies, exact source manifest. | 34.581 s; three attempts. | Implemented: matching release targets keep their first accepted digest. The exact pinned converter digest is reused for its mandatory manifest row, with an invocation-local source-change guard. Git/source selection and derived dependency identities must remain explicit. |
 | `unity` | `unity_setup.setup`: exact Editor/Android modules, Hub interaction, real license/prerequisite probe. | 11.280 s on an installed Editor. | Keep the small existing probe and installed Editor/modules. Account interaction is a visible wait, not build progress. Reuse confirmed prerequisites for the same actual Editor/tool identities; never automate an unapproved license/account choice. No recovered game import belongs in this stage. |
 | `profile` | `wizard.stage_profile`: static logo, selected local identity, owned DLC evidence. | 0.128 s. | Already small; local files and pinned logo should remain reusable. Changing display name/ID must invalidate generated profile/Player outputs, not original asset export. No Horizon/store/cloud round trip is required. |
 | `inspect` | `builder.inspect_inputs`: hash selected owned game/source once, resolve ownership, publish immutable input manifest. | 30.391 s for 5,228 original files/17.755 GB on this installation. | Build immediately repeats `inspect_inputs`. A future explicit inspect-to-build manifest handoff can reuse hashes only after retaining source mutation guards/known ownership. Do not silently substitute a stale manifest or rely on size alone. |
@@ -61,8 +61,8 @@ current implementation scans too much.
 | `recovery` | All original scenes/catalog objects, original native identities, retained resumable batches and derived staging; `full_recovery.prepare`, `bundle_recovery.run_recovery`, `full_assets.stage`. | Raw batches already retained; repeated growing-output sweeps/native index rewrites reduced. This round makes reference audit measurable and avoids a second metadata read/node graph. Staging worker adds measured copies and writer proofs. More detail below. | 16 groups complete; raw audit 933.023 s; final CAB index only 0.316 s. P0/P1. |
 | `project-files` | Quest overlays and current profile/scene/package contracts without losing original assets; `prepare.generate_files`, `import_workspace`. | Preserve stable game/import-keyed Unity `Library`. Copy only changed generated overlays on mod updates and narrow native-content derivative keys; avoid rebuilding an identical original asset tree because a source-only mod file changed. | Windows run never reached this operation. Existing stable Library key is source-proven. P1. |
 | `native-runtime` | Android Proton/FEX launchers, unchanged owner's engine DLL, multiplayer voice/native bridge; `campaign_native.stage`, `proton_runtime.build`. | Proton artifacts already use a source/backend/NDK key, separate from general gameplay source. Keep pinned packages and compiled small launchers. Do not rebuild upstream Wine/FEX from source when qualified packages already supply them. | Not reached on Windows. No wholesale new native runtime build recommended. P2. |
-| `audio` | Preserve original compressed Vorbis packets/channels/rate; `full_audio.stage`. | Container SHA currently repeated per clip. Cache one actual container digest per immutable invocation. Later group objects by container and release decompressed environments instead of retaining every loaded container. | Hash repetition source-proven; decoding time not measured. P0 digest; P1 grouping. |
-| `textures` | Correct cubes, ordinary images, original float/HDR/mips/sampler state and packed sprite geometry; `full_textures`, `full_texture2d`, `full_sprites`, `native_stage`. | Cache repeated cube/platform-image container hashes. `full_sprites` and ordinary texture auditing already hash/group per container and release closures. Keep only formats that actually require Android reconstruction; avoid re-decoding already portable outputs. | Not reached on Windows; format fidelity remains required. P0 digest; P1 derivative reuse. |
+| `audio` | Preserve original compressed Vorbis packets/channels/rate; `full_audio.stage`. | Implemented: one actual container digest per immutable invocation, rejecting source changes. Later group objects by container and release decompressed environments instead of retaining every loaded container. | Hash repetition source-proven; decoding time not measured. P0 digest; P1 grouping. |
+| `textures` | Correct cubes, ordinary images, original float/HDR/mips/sampler state and packed sprite geometry; `full_textures`, `full_texture2d`, `full_sprites`, `native_stage`. | Implemented: shared invocation-local cube/platform-image container hashes and platform-image environment reuse. `full_sprites` and ordinary texture auditing already hash/group per container and release closures. Keep only formats that actually require Android reconstruction; avoid re-decoding already portable outputs. | Not reached on Windows; format fidelity remains required. P0 digest; P1 derivative reuse. |
 | `graphics` | Original compute kernels and portable shader instructions; `campaign_compute.stage`, `campaign_shaders.stage`. | Shader cache path is game-keyed, but overlays are deleted/reproduced; compute cache uses broad `inputKey`. Use exact original instruction/recipe/converter keys and retain verified overlay outputs. Reuse the recovered physical CAB map instead of indexing all owned containers again. | Not reached. Ordinary builds already exclude exhaustive compiler validation; actual Android compilation remains required. P1. |
 | `mod-banks` | Current authored VR resources; `package_mod_content`. | Existing key selects authored asset files plus Editor/full-game mode, independent of gameplay code. Preserve its Editor `Library` when art recipe changes; hash and pack in one pass, reuse an invocation's accepted bundle receipt. A changed art input must still rebuild its bank. | Not reached; independent current cache scope already source-proven. P1/P2. |
 | `weave` | Compile current mod and statically adapt original managed assemblies; `weave`. | Reuse the compiled weaver executable across `weave`, `standalone` and `package-api` instead of repeating `dotnet run` build checks. Future narrow key separates current mod compilation from generated profile adaptation; do not reuse old mod code. | Not reached. Necessary adaptation is not optional. P1/P2. |
@@ -86,10 +86,10 @@ current implementation scans too much.
 | Source recheck | Current full input recheck took 45.883 s. Future eliminate its second scan only after introducing a stable owned-source proof covering the entire conversion interval. | Owner input updates must never produce a mixed-version catalog. |
 | Final checkpoint/CAB map | Writer already streams/hash-publishes 204 MB in 2.204 s; CAB indexing takes 0.316 s. Reuse its exact physical map in later audio/graphics stages. | These measured small phases do not justify another large refactor this turn. |
 | Derived copy/layout/native stage | Staging worker supplies explicit substeps, stream copy/hash and invocation-local copied-file proofs. Existing whole-stage keys/failed-stage fresh output otherwise repeat this work. | Checkpoint original inputs remain immutable. Canonical GUID/layout/pointer restoration genuinely changes assets. |
-| Derived closure | `native_stage.restore` performs a whole reference audit and `full_assets.stage` performs another after TMP source/JSON writes. Add an opt-out of the intermediate audit only for the caller that guarantees the final mandatory closure audit. | Default direct/native-stage callers must keep closure qualification. TMP writes must remain limited to ShaderLab/includes with unchanged metas; requalify if future adaptations add serialized pointers. |
+| Derived closure | Implemented: full staging defers the intermediate native reference audit and retains its mandatory final closure gate; direct native-stage callers still audit immediately. | Default direct/native-stage callers must keep closure qualification. TMP writes must remain limited to ShaderLab/includes with unchanged metas; requalify if future adaptations add serialized pointers. |
 | Report/stage receipt | `full_assets.stage` hashes all final report files and `Stages.run` hashes them again. Reuse accepted writer proofs for unchanged files; hash changed/generated outputs once after their final mutation. | Cross-process/cold reuse requires actual qualification rather than trusting old size/mtime indefinitely. |
 
-## Immediate implementation candidates
+## Immediate changes implemented in this round
 
 1. Preserve one SHA-256 per immutable original container in `full_audio.stage`
    and cube/platform-image code in `full_textures`; expected reduction is
@@ -105,8 +105,13 @@ current implementation scans too much.
    for its manifest row. These remove duplicate reads without changing key,
    manifest, ownership or package qualification rules.
 
-These are small source-proven opportunities. They are recommendations until
-their commits and focused qualification are recorded by the integrator.
+These three changes are implemented. The container cache reuses only a hash
+actually read in the current process and rejects changed file identity/size/times.
+Focused controls cover cold reads, repeated objects, mutation during/before reads,
+mandatory pinned manifest rows, corrupted retained copies and native-stage direct
+versus deferred audits. A later font edit introducing a duplicate GUID still fails
+full staging before a success report. Exact completed raw exports stay eligible
+because native_stage is a derived-only helper, never part of the raw export action.
 
 ## Next measured priorities and progress requirements
 

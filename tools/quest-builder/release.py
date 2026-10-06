@@ -8,7 +8,7 @@ import re
 import subprocess
 import tempfile
 import zipfile
-from storage import BuildError, canonical, digest, record_file, write_json
+from storage import BuildError, canonical, digest, record_file, write_json, ImmutableFileHashes
 
 MANIFEST = 'quest-builder-release.json'
 AUTHORED_LINKS = {
@@ -118,8 +118,9 @@ def verified_source_inventory(repo):
     if not re.fullmatch('[0-9a-f]{40}', str(value['sourceCommit'])) or type(value['modBuild']) is not int:
         raise BuildError('Invalid builder release source identity.')
     if value['localDependencyRoots'] != list(LOCAL_DEPENDENCIES): raise BuildError('Invalid local dependency exception.')
+    pinned_hashes = ImmutableFileHashes()
     for name, expected in PUBLIC_PACKAGES.items():
-        if digest(ordinary(repo / name)) != expected: raise BuildError('Public converter package differs from its pinned release.')
+        if pinned_hashes.digest(ordinary(repo / name)) != expected: raise BuildError('Public converter package differs from its pinned release.')
     rows = value['files']
     if not isinstance(rows, list) or not 1 <= len(rows) <= 20000: raise BuildError('Invalid release inventory.')
     seen = set(); names = set()
@@ -131,7 +132,7 @@ def verified_source_inventory(repo):
         item = ordinary(repo / name)
         if type(row['size']) is not int or row['size'] < 0 or not re.fullmatch('[0-9a-f]{64}', str(row['sha256'])):
             raise BuildError('Invalid release byte identity.')
-        if not item.is_file() or item.stat().st_size != row['size'] or digest(item) != row['sha256']:
+        if not item.is_file() or item.stat().st_size != row['size'] or (pinned_hashes.digest(item) if name in PUBLIC_PACKAGES else digest(item)) != row['sha256']:
             raise BuildError('Builder release file changed: ' + name)
     if not REQUIRED <= names: raise BuildError('Builder release is incomplete.')
     # Traverse without following junctions; ignore only declared per-user generated

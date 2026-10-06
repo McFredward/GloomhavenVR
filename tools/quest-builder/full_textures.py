@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 import sys
 
-from storage import BuildError, write_json
+from storage import BuildError, write_json, ImmutableFileHashes
 
 
 def mip_sizes(width, count, bytes_per_pixel):
@@ -158,6 +158,7 @@ def stage(project, game_data, *, dotnet, tool_cache, cab_bundles):
     command = portable_decoder.build(tool_cache, dotnet)
     temporary = Path(tool_cache)/'original-cubemap-payloads'; temporary.mkdir(exist_ok=True)
     environments, assets, path_map = {}, [], {}
+    source_hashes = ImmutableFileHashes()
     for target in targets:
         container = owners[target['collection']] if target['collection'].startswith('cab-') else target['collection']
         if container not in environments: environments[container] = load_native(UnityPy, game_data/container)
@@ -191,7 +192,7 @@ def stage(project, game_data, *, dotnet, tool_cache, cab_bundles):
                 mip_receipts.append({'face':face,'mip':mip,'size':size,'sha256':hashlib.sha256(data).hexdigest()})
         assets.append({'assetPath':new_path,'originalRecoveredPath':target['path'],'guid':target['guid'],'fileId':target['fileId'],
               'originalCollection':target['collection'],'originalPathId':target['pathId'],'sourceContainer':container,
-              'sourceContainerSha256':sha256(game_data/container),'originalImageSha256':hashlib.sha256(raw).hexdigest(),
+              'sourceContainerSha256':source_hashes.digest(game_data/container),'originalImageSha256':hashlib.sha256(raw).hexdigest(),
               'beforeSha256':before,'sha256':sha256(replacement),'sourceFormat':source_format,'textureFormat':destination_format,
               'width':width,'mipCount':count,'faceCount':6,'isReadable':fields['m_IsReadable'],'pixelByteCount':len(pixels),
               'pixelSha256':hashlib.sha256(pixels).hexdigest(),'mips':mip_receipts,'sourceMipChainPreserved':True})
@@ -200,12 +201,12 @@ def stage(project, game_data, *, dotnet, tool_cache, cab_bundles):
              'source':'original-native-CAB-pathID-all-six-faces-all-original-mip-levels',
              'unityImportVerified':False,'originalGpuParityVerified':False,'headsetGpuVerified':False}
     write_json(project/'Assets/QuestOriginalCampaign/native-cubemaps.json',receipt)
-    receipt['platformImageAudit'] = audit_platform_images(project,game_data,objects,owners)
+    receipt['platformImageAudit'] = audit_platform_images(project,game_data,objects,owners, source_hashes=source_hashes)
     receipt['nativeTextureReferences']=restore_native_texture_pointer_types(project)
     return receipt
 
 
-def audit_platform_images(project,game_data,objects,owners):
+def audit_platform_images(project,game_data,objects,owners, *, source_hashes=None):
     """Audit other native image containers rather than guessing from extensions."""
     from pointer_recovery import load_native
     from recover import sha256
@@ -216,15 +217,18 @@ def audit_platform_images(project,game_data,objects,owners):
     targets=[row for row in objects.values() if row['classId']==84 or
              row['classId']==28 and Path(row['path']).suffix.casefold()=='.texture2d']
     assets=[]
+    source_hashes = source_hashes if source_hashes is not None else ImmutableFileHashes()
+    environments = {}
     for target in targets:
         container=owners.get(target['collection'],target['collection'])
-        env=load_native(UnityPy,game_data/container)
+        if container not in environments: environments[container] = load_native(UnityPy,game_data/container)
+        env = environments[container]
         matches=[obj for obj in env.objects if (obj.assets_file.name.casefold(),int(obj.path_id))==(target['collection'],target['pathId'])]
         if len(matches)!=1:raise BuildError('Native platform-sensitive image identity is unresolved.')
         fields=matches[0].read_typetree()
         row={'assetPath':target['path'],'guid':target['guid'],'fileId':target['fileId'],'classId':target['classId'],
              'originalCollection':target['collection'],'originalPathId':target['pathId'],
-             'sourceContainer':container,'sourceContainerSha256':sha256(game_data/container),
+             'sourceContainer':container,'sourceContainerSha256':source_hashes.digest(game_data/container),
              'sha256':sha256(project/target['path']),'width':fields['m_Width'],'height':fields['m_Height']}
         if target['classId']==28:
             if fields['m_TextureFormat']!=1 or fields.get('m_PlatformBlob') or fields['m_MipCount']!=1:

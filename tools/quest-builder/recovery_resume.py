@@ -58,7 +58,10 @@ TIMED_RECOVERY_FILES = {
     'tools/quest-recovery/recover.py': 'ff0e086e45e8ed1978f69bd0fea5d738aabe7ea59d260c28dbf69b08ef914b7f',
 }
 ORCHESTRATION_FILES = set(LEGACY_MERGE_FILES) | {OBSERVER_FILE}
-DERIVED_FILES = {"tools/quest-builder/full_assets.py", "tools/quest-builder/full_shaders.py"}
+# native_stage runs only on the fresh derived project, after all raw export
+# checkpoints. Its deferred duplicate audit cannot alter an original export.
+DERIVED_FILES = {"tools/quest-builder/full_assets.py", "tools/quest-builder/full_shaders.py",
+                 "tools/quest-recovery/native_stage.py"}
 MAX_MANIFESTS = 128
 MAX_JSON_BYTES = 16 * 1024 * 1024
 # Full core exports list every asset and .meta file. The 2026-10-06 Windows

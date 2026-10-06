@@ -1,5 +1,62 @@
 # Quest wizard stage progress and offline presentation
 
+## Completed export followed by cold staging-helper failure
+
+The consecutive captures `quest-build-support-20261006T212710Z-ca831866.zip`
+and `quest-build-support-20261006T213551Z-be492738.zip` identify the same shipped
+Builder source `5dce06841`, ModBuild 627. The first still records an active
+reference audit; the second proves that all 16 packages, the reference audit,
+source guard, 204,339,293-byte final checkpoint and CAB index completed. The
+reference audit alone lasted 933.023 seconds without a measured counter.
+The failure was afterwards in `builder.owned_tmp_source_archive`: dynamically
+executing `tmp_shaders.py` did not provide its sibling `recover` import on a
+fresh Windows child process. No asset-export or Unity failure is established by
+this capture.
+
+The builder now uses the existing shared recovery-module loader for official
+TMP sources and imports the staging helpers before starting original conversion.
+A fresh isolated CLI regression intercepts only the network acquisition and
+proves that the real helper imports reach the exact pinned archive request. A
+missing helper fails before an export child can start. Existing completed raw
+exports keep their absolute workspace, including the retained reference audit;
+the exact shipped d4cc whole orchestration profile is also recognized. Unknown
+profiles and changed raw bytes remain explicit failures.
+
+The reference audit enumerates and opens assets once, reports actual file counts,
+and emits large-file byte counters. Streaming YAML events replace full node
+graphs for ordinary PPtr mappings; uncommon structures retain the previous
+parser. Exact token spans, traversal order, GUID definitions and exclusions of
+scalar text are retained. The fresh caller does not overwrite the auditor's
+real total with a one-audit counter. The audit fixture has 2,040 files and equal
+old/new output; its Linux median falls from 5.430 to 2.955 seconds. This is not a
+full Windows timing prediction.
+
+Project staging is a separately measured eighth conversion section, after the
+seven raw-recovery sections. The 16-package schedule therefore has 23 tasks.
+Fourteen actual staging operations have explicit boundaries; copying and final
+output inventory contribute their measured file/byte counts to the whole build
+bar. Progress migration preserves saved high-water. Estimates remain scoped to
+observed throughput, never invented for unobserved future native work.
+
+Staging copy/report writer proofs remove redundant fresh-byte reads; mutated
+outputs are hashed after their last edit. An intermediate native reference audit
+is deferred only when full staging owns the mandatory final audit. Direct
+native-stage callers retain their original check, and a later duplicate GUID
+still blocks a full-stage success report. Audio/Cubemap/platform-image receipts
+reuse one actual hash per immutable container within an invocation; source
+changes still fail. Retained source targets and pinned public package inventory
+no longer repeat an already accepted digest. The complete seven-stage/21-operation
+review is in `QUEST-BUILD-PERFORMANCE-20261006.md`, with measured versus unobserved
+work and further cache/parallelism proposals identified explicitly.
+
+A terminal build failure now has a prominent top-of-page alert with its stage,
+bounded concrete cause, retry and diagnostic-export actions. Valid status is
+rendered before fetching optional events, so a log request failure cannot retain
+an obsolete running display. Stale Unity waits, animation and cancel controls
+cannot conceal a confirmed failure. Active builds display the age of the last
+actual progress report; silence explicitly means activity is unconfirmed rather
+than falsely promising a running tool or advancing percentages with time.
+
 ## Actual conversion counts, scoped estimates and repeated native work
 
 The supplied `quest-build-support-20261006T201048Z-1ddc1ec1.zip` identifies the

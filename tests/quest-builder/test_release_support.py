@@ -46,6 +46,22 @@ class ReleaseTests(unittest.TestCase):
             path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text('unlisted')
             with self.assertRaises(BuildError): release.verified_source_inventory(self.root)
             path.unlink()
+    def test_pinned_public_package_is_read_once_but_manifest_identity_remains_required(self):
+        package = self.root / next(iter(release.PUBLIC_PACKAGES))
+        original_open = Path.open; reads = []
+        def observe(path, *args, **kwargs):
+            if path == package and args and args[0] == 'rb': reads.append(path)
+            return original_open(path, *args, **kwargs)
+        with mock.patch.object(Path, 'open', observe):
+            rows, _, _ = release.verified_source_inventory(self.root)
+        self.assertEqual(len(reads), 1)
+        self.assertIn(package.relative_to(self.root).as_posix(), {row['path'] for row in rows})
+        value = self.manifest()
+        next(row for row in value['files'] if row['path'] in release.PUBLIC_PACKAGES)['sha256'] = 'f' * 64
+        write_json(self.root / release.MANIFEST, value)
+        with self.assertRaisesRegex(BuildError, 'release file changed'):
+            release.verified_source_inventory(self.root)
+
     def test_manifest_traversal_duplicate_and_case_alias(self):
         for name in ('../outside.py', 'C:/outside.py', 'tools\\extra.py', 'src/NUL.cs'):
             value = self.manifest(); value['files'][0]['path'] = name; write_json(self.root / release.MANIFEST, value)

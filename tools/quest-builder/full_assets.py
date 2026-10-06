@@ -32,13 +32,13 @@ def _section(name):
     if name not in STAGING_SECTIONS:
         raise ValueError("Unknown full asset staging section.")
     phase = "staging-section:" + name
-    build_progress.event(phase, 0, 1, "steps", status="start", operation="recovery")
+    build_progress.event(phase, 0, 1, "steps", status="start")
     try:
         yield
     except BaseException as error:
-        build_progress.event(phase, detail="Failed: " + type(error).__name__, status="failed", operation="recovery")
+        build_progress.event(phase, detail="Failed: " + type(error).__name__, status="failed")
         raise
-    build_progress.event(phase, 1, 1, "steps", status="complete", operation="recovery")
+    build_progress.event(phase, 1, 1, "steps", status="complete")
 
 
 def _stamp(value):
@@ -388,7 +388,7 @@ def stage(source, game_data, output, tmp_archive, *, canonical_project=None,
         layout_report = layouts.restore(game_data, output, original_objects, unitypy)
     with _section("native"):
         import native_stage
-        rows, native_report = native_stage.restore(output, game_data, rows, owners, unitypy=unitypy)
+        rows, native_report = native_stage.restore(output, game_data, rows, owners, unitypy=unitypy, audit_references=False)
     with _section("catalog-final"):
         manifest = catalogs.associate(catalog_path, output, rows, owners, types)
         folder = output / "Assets/QuestOriginalCampaign"
@@ -410,6 +410,8 @@ def stage(source, game_data, output, tmp_archive, *, canonical_project=None,
             script_origins = script_origins.get("identities", [])
         script_audit = recover.audit_script_bindings(output, types, script_origins)
         references = recover.audit_asset_references(output)
+        if references["missingGuidCount"] or references["duplicateGuidCount"]:
+            raise BuildError("Full original native source closure remains unresolved after exact repair.")
     with _section("scenes"):
         scene_settings = (output / "ProjectSettings/EditorBuildSettings.asset").read_text()
         scenes = re.findall(r"^\s+path: (Assets/.+\.unity)\s*$", scene_settings, re.M)

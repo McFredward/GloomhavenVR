@@ -10,7 +10,7 @@ import pointer_recovery
 from recover import RecoveryError, audit_asset_references, sha256, write_json
 
 
-def restore(project, game_data, rows, owners, *, unitypy=None):
+def restore(project, game_data, rows, owners, *, unitypy=None, audit_references=True):
     """Repair native fields and bake exact atlas drawing state in a fresh stage.
 
     All inputs come from the pinned source exporter and the user's original
@@ -71,9 +71,12 @@ def restore(project, game_data, rows, owners, *, unitypy=None):
     packed_manifest = project / "Assets/QuestOriginalCampaign/packed-sprites.json"
     write_json(packed_manifest, {"schema": 1, "spriteCount": len(packed), "atlases": atlas_rows, "sprites": packed,
                               "unityImportVerified": False, "headsetPictureVerified": False})
-    references = audit_asset_references(project)
-    if references["missingGuidCount"] or references["duplicateGuidCount"]:
-        raise RecoveryError("Full original native source closure remains unresolved after exact repair.")
+    # Full-project staging performs the mandatory final audit after its last
+    # shader/font edits. Standalone callers keep the original immediate gate.
+    if audit_references:
+        references = audit_asset_references(project)
+        if references["missingGuidCount"] or references["duplicateGuidCount"]:
+            raise RecoveryError("Full original native source closure remains unresolved after exact repair.")
     result = {"nativePointerRestoration": {"manifest": pointer_manifest.relative_to(project).as_posix(),
                    "sha256": sha256(pointer_manifest), "nativePointerCount": repair["nativePointerCount"],
                    "restoredPointerCount": repair["restoredPointerCount"],
