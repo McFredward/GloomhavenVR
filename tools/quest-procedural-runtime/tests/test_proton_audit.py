@@ -20,7 +20,7 @@ SPEC.loader.exec_module(AUDIT)
 
 
 def pe_bytes(*, machine=0xaa64, hybrid=True, exports=None, imports=None,
-             api_sets=None, alternate_exports=None, delayed=None):
+             api_sets=None, alternate_exports=None, delayed=None, extra_fixups=b""):
     """Construct PE tables independently; these bytes are never executable tests."""
     raw = bytearray(0xb400)
     raw[:2] = b"MZ"
@@ -108,6 +108,7 @@ def pe_bytes(*, machine=0xaa64, hybrid=True, exports=None, imports=None,
         header_rva = optional + 112
         data = struct.pack("<HII", 0xd000 | header_rva, export_rva, size)
         data += struct.pack("<HH", 0x5000 | 0x84, 0x8664)
+        data += extra_fixups
         if (8 + len(data)) % 4:
             data += b"\0\0"
         block = struct.pack("<II", 0, 8 + len(data)) + data
@@ -451,6 +452,31 @@ class ProtonBinaryAuditTests(unittest.TestCase):
             self.assertEqual("failed", report["status"], report)
         path.write_bytes(raw[:-1])
         self.reject("section is outside")
+
+    def test_arm64x_zero_and_signed_scaled_delta_layout(self):
+        path = self.fixture.pe / "ntdll.dll"
+        # Header checksum is zeroed; independent reserved header words exercise
+        # positive x4, negative x4 and positive x8 delta encodings.
+        extra = struct.pack("<H", 0x8000 | (0x98 + 64))
+        extra += struct.pack("<HH", 0x2000 | (0x98 + 76), 3)
+        extra += struct.pack("<HH", 0x6000 | (0x98 + 84), 3)
+        extra += struct.pack("<HH", 0xa000 | (0x98 + 92), 3)
+        raw = bytearray(pe_bytes(exports={"NativeOnly": None}, alternate_exports={"NtFixture": None}, extra_fixups=extra))
+        struct.pack_into("<I", raw, 0x98 + 64, 0xffffffff)
+        path.write_bytes(raw)
+        value = AUDIT.inspect_pe(path)
+        rows = {r["rva"]: r for r in value["arm64xFixups"]}
+        self.assertEqual("00000000", rows[0x98 + 64]["value"])
+        self.assertEqual("0c000000", rows[0x98 + 76]["value"])
+        self.assertEqual("f4ffffff", rows[0x98 + 84]["value"])
+        self.assertEqual("18000000", rows[0x98 + 92]["value"])
+        AUDIT.require_passed(self.fixture.audit())
+
+    def test_overlapping_arm64x_extents_rejected(self):
+        path = self.fixture.pe / "ntdll.dll"
+        repeated = struct.pack("<H", 0x8000 | (0x98 + 112))
+        path.write_bytes(pe_bytes(exports={"NativeOnly": None}, alternate_exports={"NtFixture": None}, extra_fixups=repeated))
+        self.reject("Overlapping ARM64X")
 
     def test_chpe_pointer_version_and_code_extent_controls(self):
         path = self.fixture.pe / "libarm64ecfex.dll"

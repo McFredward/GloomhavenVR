@@ -146,6 +146,7 @@ def inspect_pe(path: Path, *, view: str = "arm64ec") -> dict:
     # Wire layout follows IMAGE_DYNAMIC_RELOCATION{64,TABLE} and ARM64X fixup
     # definitions (LLVM COFF.h / COFFObjectFile.cpp, llvmorg-20.1.0).
     arm64x_fixups = []
+    fixup_extents = []
     config_rva, config_size = directory(10)
     if config_rva and config_size >= 232:
         config_declared = rva_unpack("<I", config_rva)[0]
@@ -207,6 +208,9 @@ def inspect_pe(path: Path, *, view: str = "arm64ec") -> dict:
                             if kind > 2 or (kind == 1 and not argument) or target % size:
                                 raise AuditError("Invalid ARM64X fixup: " + str(path))
                             target_offset = file_offset(target, size)
+                            if any(target_offset < end and start < target_offset + size for start, end in fixup_extents):
+                                raise AuditError("Overlapping ARM64X fixup extents: " + str(path))
+                            fixup_extents.append((target_offset, target_offset + size))
                             if kind == 0:
                                 replacement = bytes(size)
                             elif kind == 1:
