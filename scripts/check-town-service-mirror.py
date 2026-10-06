@@ -172,7 +172,7 @@ def main():
     parser.add_argument("--fixture-dir", type=Path, default=repo / "scripts/town-service-mirror-runtime",
                         help="Runtime fixture to bind when resuming an integrated checkout's control")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
-    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock", "catalog-lifetime", "public-catalog", "voice-relay", "shared-interaction", "item-transfer", "motion-fast", "card-return"), default="full")
+    parser.add_argument("--suite", choices=("basic", "full", "lifecycle", "counter-final", "relocation", "asset-identity", "rack-clock", "catalog-lifetime", "public-catalog", "voice-relay", "shared-interaction", "item-transfer", "motion-fast", "card-return", "offered-orientation"), default="full")
     parser.add_argument("--bank-controls", action="store_true", help="Run only production plus prepared cabinet bank counterfactuals")
     parser.add_argument("--no-negative-controls", action="store_true")
     parser.add_argument("--only-mutation", help="Run production plus one selected negative control after a focused fixture fix")
@@ -320,6 +320,8 @@ def main():
                 ("cassette-skip-motion", "TownServiceMirror.Racks.cs", "TownCassetteMotion.Apply(rack.Binding.Root, replaying ? clock.Elapsed / TownRackState.TurnDuration : 1f, state.ScrollDirection);", "TownCassetteMotion.Apply(rack.Binding.Root, 1f, 0);", "actual peer category callback preserves the same intermediate authored cassette motion remotely"),
                 ("secondary-item-erasure", "TownServiceMirror.cs", "(session.Service == 1 || session.Service == 2 || session.Service == 3);", "(session.Service == 2 || session.Service == 3);", "non-elected visitor's original held item face and backing remain visible to third player"),
             ]
+    if args.suite == "offered-orientation":
+        variants = [("production", None, None, None, "")]
     if args.suite == "card-return":
         variants = [("production", None, None, None, "")]
         if not args.no_negative_controls:
