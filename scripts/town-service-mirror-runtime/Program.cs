@@ -562,6 +562,26 @@ public static partial class MirrorProgram
             Check(!group.interactable && !group.blocksRaycasts, "clone group input is disabled");
     }
 
+    private static void OriginalNodeMotionClock(object motion, Transform renderedRoot, out float began, out float duration)
+    {
+        // Build632 gives independent original nodes independent sample clocks.
+        // Locate the actually displayed root; the host/group clock can be unchanged
+        // while that original animates. Keep deterministic midpoint/end pixel checks
+        // attached to the source node, rather than an obsolete shared private timer.
+        Type type = motion.GetType();
+        var nodes = (Array)type.GetField("_nodes", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
+        var starts = (float[])type.GetField("_nodeStarted", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
+        var durations = (float[])type.GetField("_nodeDuration", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
+        for (int i = 0; i < nodes.Length; i++)
+        {
+            object node = nodes.GetValue(i)!;
+            var transform = (Transform)node.GetType().GetField("Transform", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(node)!;
+            if (transform != renderedRoot) continue;
+            began = starts[i]; duration = durations[i]; return;
+        }
+        throw new InvalidOperationException("The actual displayed original root has no independent motion sample clock.");
+    }
+
     private static IEnumerator Motion(Transform source, Transform shared, Transform observer, TownServiceBinding copy)
     {
         Vector3 start = source.localPosition, startScale = source.localScale;
@@ -584,8 +604,7 @@ public static partial class MirrorProgram
         object module = ((IDictionary)owners[1]!)[(ushort)10]!;
         object motion = module.GetType().GetField("Motion", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(module)!;
         Type type = motion.GetType();
-        float began = (float)type.GetField("_started", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
-        float duration = (float)type.GetField("_duration", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
+        OriginalNodeMotionClock(motion, copy.Root, out float began, out float duration);
         Check(duration > 0 && duration <= .1f, "motion uses bounded native sample interval");
         var tick = type.GetMethod("Tick", BindingFlags.Instance | BindingFlags.NonPublic)!;
         foreach (float t in new[] { .5f, 1f })
@@ -625,8 +644,7 @@ public static partial class MirrorProgram
             object module = ((IDictionary)owners[1]!)[(ushort)10]!;
             object motion = module.GetType().GetField("Motion", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(module)!;
             Type type = motion.GetType();
-            float began = (float)type.GetField("_started", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
-            float duration = (float)type.GetField("_duration", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
+            OriginalNodeMotionClock(motion, copy.Root, out float began, out float duration);
             type.GetMethod("Tick", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(motion, new object[] { began + duration + .002f });
             Check(Vector3.Distance(copy.Root.position, observer.TransformPoint(shared.InverseTransformPoint(source.position))) < .00003f,
                 "remote reparented offering preserves owner floating position");
@@ -661,8 +679,7 @@ public static partial class MirrorProgram
         object module = ((IDictionary)owners[1]!)[(ushort)10]!;
         object motion = module.GetType().GetField("Motion", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(module)!;
         Type type = motion.GetType();
-        float began = (float)type.GetField("_started", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
-        float duration = (float)type.GetField("_duration", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
+        OriginalNodeMotionClock(motion, copy.Root, out float began, out float duration);
         Check(Mathf.Abs(duration - .1f) < .00001f, "lifecycle probe starts a real 100ms interpolation");
         for (float quarter = began + duration * .25f; Time.unscaledTime < quarter;)
         { TownServiceMirror.TickRemote(_ => observer); yield return null; }
