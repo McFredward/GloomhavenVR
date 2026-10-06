@@ -94,6 +94,19 @@ public static partial class MirrorProgram
         Transform visual = Go("Visual", card).transform;
         Transform body = Image("Backing", visual, Vector2.zero, new Vector2(.15f, .23f), Color.black).transform;
         Transform face = Image("Actual offered front", visual, Vector2.zero, new Vector2(.14f, .22f), Color.yellow).transform;
+        using (var unpainted = new TownServiceBinding(face))
+            Check(!unpainted.HasVisibleOutput(),
+                "an unmounted physical Image is not original visible card artwork");
+        // Physical card graphics require their real active canvas. The previous fixture
+        // withheld an Image below no canvas, so the correct visible census could admit
+        // the options without waiting for a face which never submitted owner pixels.
+        Canvas offeredCanvas = card.gameObject.AddComponent<Canvas>();
+        offeredCanvas.renderMode = RenderMode.WorldSpace; offeredCanvas.worldCamera = _camera;
+        Canvas.ForceUpdateCanvases();
+        using (var painted = new TownServiceBinding(face))
+            Check(painted.HasVisibleOutput(), "the delayed offered face submits visible original artwork");
+        using (var painted = new TownServiceBinding(body))
+            Check(painted.HasVisibleOutput(), "the offered backing submits visible original artwork");
         var handoff = new TownServiceEnhancementHandoff { OfferedCardId = 62201, Card = card, Face = face,
             NativeSource = null, Zone = Go("Visitor local pre-drop guide", author).transform };
         ritual.Handoff = handoff;
@@ -131,6 +144,20 @@ public static partial class MirrorProgram
         FastCapture first = CaptureFast();
         Check(first.Artwork.Count > rows.Count && first.Motion.Count > 0,
             "native publisher produces actual original artwork and independent motion packets");
+        TownServiceFrame? firstManifest = null;
+        foreach (byte[] bytes in first.Artwork)
+        {
+            TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame);
+            if (frame!.Module == TownServiceFrame.ManifestModule && frame.Service == 3
+                && !frame.PublicCatalog && !frame.VisitorStock) firstManifest = frame;
+        }
+        Check(firstManifest?.RequiredVisibleModules != null
+            && Array.IndexOf(firstManifest.RequiredVisibleModules, faceId) >= 0
+            && Array.IndexOf(firstManifest.RequiredVisibleModules, bodyId) >= 0,
+            "the actual visible census requires both delayed face and original backing");
+        Check(Array.IndexOf(firstManifest!.RequiredVisibleModules!, TownServiceSync.ModuleId(holder)) < 0
+            && Array.IndexOf(firstManifest.RequiredVisibleModules!, TownServiceSync.ModuleId(tooltip)) < 0,
+            "empty original holder and tooltip mounts cannot delay a visible offered picture");
         // Suspend only the local fixture endpoint before replay. Otherwise this
         // single process can elect its own older visitor lease over the remote
         // endpoint during a slow first TMP capture. The real peers are separate.
