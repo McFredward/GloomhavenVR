@@ -106,6 +106,12 @@ def exclusion_reasons(material, shader):
         reasons.append("transparent-or-overlay-queue")
     floats = dict(material["properties"].get("m_Floats", []))
     floats.update(dict(material["properties"].get("m_Ints", [])))
+    keywords = set(material["validKeywords"])
+    for keyword in ("_ENABLE_ANIM", "_ADDVERTEXANIM_ON", "_USE_TEXTURE_EMISSION",
+                    "_USEEMISSIVEMAP_ON", "_DIFFUSE_EMISSIVE_ON_ON", "_FRESNEL_ON_ON",
+                    "_ADVANCED_EMISSION", "_MOSSTEXTURE_ON_ON", "_MOSSTEXTURE_NOISE_ON_ON"):
+        if keyword in keywords:
+            reasons.append("active-keyword-" + keyword)
     for key in ("_AddVertexAnim", "_UseEmissiveMap", "_Diffuse_Emissive_On",
                 "_EmissionMap", "_UseTextureEmission", "_Fresnel_On", "_AdvancedEmission",
                 "_MossTexture_ON", "_MossTexture_Noise_ON"):
@@ -121,10 +127,9 @@ def exclusion_reasons(material, shader):
         defaults = {"_Mode": 0, "_SrcBlend": 1, "_DstBlend": 0, "_ZWrite": 1}
         for key, default in defaults.items():
             value = floats.get(key, default)
-            if (key == "_Mode" and value not in (0, 1)) or (key != "_Mode" and value != default):
+            if (key == "_Mode" and value != 0) or (key != "_Mode" and value != default):
                 reasons.append("unsupported-standard-" + key)
-        keywords = set(material["validKeywords"])
-        for keyword in ("_EMISSION", "_DETAIL_MULX2", "_PARALLAXMAP", "_ALPHABLEND_ON", "_ALPHAPREMULTIPLY_ON"):
+        for keyword in ("_EMISSION", "_DETAIL_MULX2", "_PARALLAXMAP", "_ALPHATEST_ON", "_ALPHABLEND_ON", "_ALPHAPREMULTIPLY_ON"):
             if keyword in keywords:
                 reasons.append("active-keyword-" + keyword)
         emission = dict(material["properties"].get("m_Colors", [])).get("_EmissionColor", {})

@@ -19,6 +19,8 @@ def compact(source, output):
     if not shader_path.exists(): shader_path = source / "shaders.json"
     shaders = json.loads(shader_path.read_text())
     by_id = {s["id"]: s for s in shaders}
+    identities = sorted(by_id)
+    shader_indices = {identity: index for index, identity in enumerate(identities)}
     output.mkdir(parents=True, exist_ok=True)
     counts, gates, signatures = Counter(), defaultdict(Counter), defaultdict(Counter)
     distributions = defaultdict(lambda: defaultdict(Counter))
@@ -48,10 +50,13 @@ def compact(source, output):
                         distributions[family][key][value] += 1
             for key, value in m["properties"].get("m_TexEnvs", []):
                 st = tuple(value[field][axis] for field in ("m_Scale", "m_Offset") for axis in ("x", "y"))
-                tex_st[family][key][st] += 1
+                if all(isinstance(v, (int, float)) for v in st):
+                    tex_st[family][key][st] += 1
+            compact_resolution = {"status": resolved["status"],
+                                  "targets": [shader_indices[target] for target in resolved["targets"]]}
             out.write(json.dumps({"id": m["id"], "name": m["name"], "rawSha256": m["rawSha256"],
                                   "shader": family, "shaderPPtr": m["shaderPPtr"],
-                                  "shaderResolution": resolved, "exclusions": reasons},
+                                  "shaderResolution": compact_resolution, "exclusions": reasons},
                                  sort_keys=True, separators=(",", ":")) + "\n")
     for name, f in summary["families"].items():
         f["exclusions"] = dict(gates[name])
@@ -80,6 +85,11 @@ def compact(source, output):
                                  "properties": rows[0]["properties"], "subShaders": rows[0]["subShaders"]}
                                 for raw_hash, rows in sorted(variants.items())]
     summary.pop("sourceRoot", None)
+    summary["shaderIdentityTable"] = [{"id": identity, "name": by_id[identity]["name"],
+                                       "rawSha256": by_id[identity]["rawSha256"],
+                                       "programBlobSha256": by_id[identity].get("programBlobSha256"),
+                                       "programBlobBytes": by_id[identity].get("programBlobBytes")}
+                                      for identity in identities]
     summary["objectScanComplete"] = summary["errorCount"] == 0
     summary["shaderResolutionComplete"] = set(summary["shaderResolution"]) <= {"resolved"}
     summary["privateEvidenceSha256"] = {name: AUDIT.sha256(source / name) for name in
@@ -95,7 +105,7 @@ def compact(source, output):
     summary["compactMaterialIndexSha256"] = AUDIT.sha256(index_path)
     summary["classificationSourceSha256"] = AUDIT.sha256(Path(__file__).with_name("audit.py"))
     summary["candidateMeaning"] = "Native family/serialized feature candidate only. Not permission to replace a runtime renderer; unsupported active MPB/global features, world provenance, gameplay/dynamic state and source ownership remain independent vetoes."
-    AUDIT.write_json(output / "catalog.json", summary)
+    (output / "catalog.json").write_text(json.dumps(summary, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n")
     print("compact material index", sum(counts.values()), "families", len(counts), "native candidates", sum(candidates.values()))
 
 

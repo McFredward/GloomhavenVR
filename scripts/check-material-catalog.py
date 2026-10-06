@@ -23,6 +23,8 @@ def check(directory, native_output=None, game_data=None):
             raise AssertionError(description)
     d = json.loads((directory / "catalog.json").read_text())
     require(d["schema"] == 1, "catalog schema")
+    require(AUDIT.sha256(ROOT / "tools/material-audit/audit.py") == d["classificationSourceSha256"],
+            "catalog classifications are bound to the checked gate implementation")
     sources = {s["path"]: s for s in d["sources"]}
     require(len(sources) == d["sourceCount"], "all source identities unique and counted")
     require(sum(s["bytes"] for s in sources.values()) == d["sourceBytes"], "all source bytes accounted")
@@ -47,6 +49,9 @@ def check(directory, native_output=None, game_data=None):
             require(source in sources, "material source present in immutable manifest")
             counts[m["shader"]] += 1
             status[m["shaderResolution"]["status"]] += 1
+            for target in m["shaderResolution"]["targets"]:
+                require(0 <= target < len(d["shaderIdentityTable"]), "shader target identity index valid")
+                require(d["shaderIdentityTable"][target]["name"] == m["shader"], "exact target shader family agrees")
             if m["shaderResolution"]["status"] != "resolved":
                 require(bool(m["exclusions"]), "unresolved materials excluded")
     require(dict(status) == d["shaderResolution"], "every shader-resolution status counted")
@@ -75,9 +80,23 @@ def main():
     p.add_argument("--catalog-dir", type=Path, default=ROOT / "tools/material-audit")
     p.add_argument("--native-output", type=Path)
     p.add_argument("--game-data", type=Path)
+    p.add_argument("--report", type=Path)
     args = p.parse_args()
     subprocess.run([sys.executable, str(ROOT / "tools/material-audit/test_audit.py")], check=True)
-    check(args.catalog_dir, args.native_output, args.game_data)
+    assertions = check(args.catalog_dir, args.native_output, args.game_data)
+    if args.report:
+        inputs = {str(path.relative_to(ROOT)): AUDIT.sha256(path) for path in
+                  sorted((ROOT / "tools/material-audit").glob("*.py"))}
+        inputs["scripts/check-material-catalog.py"] = AUDIT.sha256(Path(__file__))
+        for name in ("catalog.json", "material-index.jsonl", "runtime-contracts.json"):
+            inputs["tools/material-audit/" + name] = AUDIT.sha256(args.catalog_dir / name)
+        d = json.loads((args.catalog_dir / "catalog.json").read_text())
+        AUDIT.write_json(args.report, {"result": "PASS", "assertions": assertions,
+            "sourceInputSha256": inputs, "gameSourcesVerified": d["sourceCount"] if args.game_data else 0,
+            "privateEvidenceVerified": args.native_output is not None,
+            "nativeSourceManifestSha256": __import__("hashlib").sha256(json.dumps(
+                [(s["path"], s["sha256"]) for s in d["sources"]], separators=(",", ":")).encode()).hexdigest(),
+            "limits": "All-source hashes verify the audited native bytes; runtime/compiled equation/pixel/FPS outcomes are outside this catalog checker."})
 
 
 if __name__ == "__main__":

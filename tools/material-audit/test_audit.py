@@ -71,7 +71,7 @@ class ReferenceTests(unittest.TestCase):
 class MaterialGateTests(unittest.TestCase):
     def setUp(self):
         self.material = {"customRenderQueue": -1, "shaderResolution": {"status": "resolved"},
-                         "properties": {"m_Floats": []}, "disabledShaderPasses": []}
+                         "properties": {"m_Floats": []}, "disabledShaderPasses": [], "validKeywords": []}
         self.shader = {"name": "Amp_Basic_N_MRAO", "subShaders": [{"tags": {"QUEUE": "AlphaTest+0"}}]}
 
     def test_native_default_queue(self):
@@ -102,6 +102,13 @@ class MaterialGateTests(unittest.TestCase):
         self.assertEqual(set(AUDIT.exclusion_reasons(self.material, self.shader)),
                          {"active-_ToggleDissolve", "active-_Cutout_VertexPos_Influence"})
 
+    def test_keyword_enablement_is_independent_of_saved_scalar(self):
+        self.shader["name"] = "Amp_Low/Amp_Basic_N_MRAO_Low"
+        self.material["properties"]["m_Floats"] = [["_UseTextureEmission", 0], ["_AddVertexAnim", 0]]
+        self.material["validKeywords"] = ["_USE_TEXTURE_EMISSION", "_ENABLE_ANIM"]
+        self.assertEqual(set(AUDIT.exclusion_reasons(self.material, self.shader)),
+                         {"active-keyword-_USE_TEXTURE_EMISSION", "active-keyword-_ENABLE_ANIM"})
+
     def test_standard_fade_emission_details_stay_native(self):
         self.shader["name"] = "Standard"
         self.material["properties"]["m_Floats"] = [["_Mode", 2], ["_SrcBlend", 5], ["_ZWrite", 0]]
@@ -110,6 +117,13 @@ class MaterialGateTests(unittest.TestCase):
         self.assertEqual(set(AUDIT.exclusion_reasons(self.material, self.shader)),
                          {"unsupported-standard-_Mode", "unsupported-standard-_SrcBlend", "unsupported-standard-_ZWrite",
                           "active-keyword-_DETAIL_MULX2", "nonzero-emission-color"})
+
+    def test_standard_uncompiled_alpha_variant_stays_native(self):
+        self.shader["name"] = "Standard"
+        self.material["properties"]["m_Floats"] = [["_Mode", 1]]
+        self.material["validKeywords"] = ["_ALPHATEST_ON"]
+        self.assertEqual(set(AUDIT.exclusion_reasons(self.material, self.shader)),
+                         {"unsupported-standard-_Mode", "active-keyword-_ALPHATEST_ON"})
 
 
 if __name__ == "__main__":
