@@ -130,7 +130,7 @@ def sources(root):
     bound["NativeDynamicBoundary.cs"] = "using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class NativeTemplates {\n" + expression(templates, "internal static bool IsDynamic(Transform node)") + "\n}\n"
     definitions = templates[templates.index("    internal sealed class Part"):templates.index("    private static readonly Dictionary<string, Entry>")]
     template_methods = ("private static Transform? OriginalMapBacking()", "private static void EnsureNativeProp(string key)", "private static void Freeze(string key, Entry entry)",
-        "private static void Prune(Transform source, Transform copy)", "private static void Partition(Transform root, string path, List<Part> parts)",
+        "private static void Prune(Transform source, Transform copy)", "private static void Partition(Transform root, string path, List<Part> parts)", "private static bool FitsOriginalPacket(Part part)",
         "internal static string Append(string path, Transform child)", "internal static IReadOnlyList<Part> Parts(string key)",
         "internal static bool Resolve(byte service, ushort template, string address)")
     count = templates[templates.index("    private static int Count("):templates.index("    private static void Partition(")]

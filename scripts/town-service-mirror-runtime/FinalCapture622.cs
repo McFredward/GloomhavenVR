@@ -117,6 +117,8 @@ namespace GloomhavenVR.Net
         }
         // The real 50 ms transport budget has its wire suite. This adapter records
         // drain placement only; it does not claim Photon/network timing evidence.
+        internal bool TrySendTownPresentation(byte[] bytes, int length, TownServiceFrame identity)
+        { Send(bytes, length, identity); return true; }
         internal void TickFragments(float now) { Drains++; FinalCaptureState.Trace.Add("Transport.Drain"); }
     }
     internal sealed class NativeUseBarState { }

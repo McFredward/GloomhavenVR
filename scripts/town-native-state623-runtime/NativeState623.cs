@@ -241,6 +241,7 @@ public static partial class MirrorProgram
         IEnumerator deltaProof = NativeQueuedDelta626(author, observer);
         while (deltaProof.MoveNext()) yield return deltaProof.Current;
         IEnumerator bankProof = NativeBankSplit623(); while (bankProof.MoveNext()) yield return bankProof.Current;
+        IEnumerator deliveryProof = NativeDelivery629(); while (deliveryProof.MoveNext()) yield return deliveryProof.Current;
         yield return null;
     }
 
