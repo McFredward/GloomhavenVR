@@ -19,10 +19,14 @@ internal static partial class WorldMaterialBudget
     private static Func<Material, Material>? _canonicalSource;
     private static Action<Renderer>? _sourceChanged;
     private static Func<Renderer, bool>? _substituteOwnership;
+    private static Func<bool>? _ensureAssets;
+    private static Action? _beforeVariantDisposal;
 
     internal static void ConfigureCanonicalSource(Func<Material, Material> source) => _canonicalSource = source;
     internal static void ConfigureSourceChanged(Action<Renderer> changed) => _sourceChanged = changed;
     internal static void ConfigureRenderSubstituteOwnership(Func<Renderer, bool> owns) => _substituteOwnership = owns;
+    internal static void ConfigureAssetPreparation(Func<bool> ensureLoaded) => _ensureAssets = ensureLoaded;
+    internal static void ConfigureBeforeVariantDisposal(Action restoreConsumers) => _beforeVariantDisposal = restoreConsumers;
     internal static void Install(GameObject host)
     {
         if (_driver != null) return;
@@ -74,7 +78,7 @@ internal static partial class WorldMaterialBudget
     private sealed class Surface
     {
         internal readonly MeshRenderer Renderer;
-        internal readonly MeshFilter Filter;
+        internal MeshFilter? Filter;
         internal bool Refused;
         internal Surface(MeshRenderer renderer, MeshFilter filter) { Renderer = renderer; Filter = filter; }
     }
@@ -109,7 +113,8 @@ internal static partial class WorldMaterialBudget
             RestoreAll(true);
         }
         private void SceneLoaded(Scene scene, LoadSceneMode mode) { if (VRSession.IsRunning) Seed(); }
-        private void SceneUnloaded(Scene scene) => RestoreAll(true);
+        private void SceneUnloaded(Scene scene)
+        { RestoreAll(true); _worldRoots.RemoveWhere(root => root == null || root.gameObject.scene == scene); }
         internal IDisposable BeginPass()
         {
             if (_passDepth++ == 0) { _prepared.Clear(); _scopes.Clear(); _sceneScopes.Clear(); _refreshes = 0; }
@@ -131,6 +136,7 @@ internal static partial class WorldMaterialBudget
         { _worldRoots.Add(root.transform); QueueRoot(root); }
         private void Seed()
         {
+            _worldRoots.RemoveWhere(root => root == null);
             // One scene/settings-entry inventory. Subsequent native placement and
             // material-ready callbacks enqueue bounded subtrees, never a frame sweep.
             foreach (MapChoreographer map in UnityEngine.Object.FindObjectsOfType<MapChoreographer>(true))
@@ -195,15 +201,19 @@ internal static partial class WorldMaterialBudget
                 foreach (KeyValuePair<int, Surface> pair in _surfaces)
                 {
                     Surface surface = pair.Value;
-                    if (surface.Renderer == null || surface.Filter == null) { _dead.Add(pair.Key); continue; }
+                    if (surface.Renderer == null) { _dead.Add(pair.Key); continue; }
                     MeshRenderer renderer = surface.Renderer;
+                    MeshFilter filter = renderer.GetComponent<MeshFilter>();
+                    bool geometryChanged = surface.Filter != filter;
+                    surface.Filter = filter;
+                    if (geometryChanged) RestoreRenderer(renderer);
                     candidates++;
                     if (!renderer.enabled || !renderer.gameObject.activeInHierarchy
                         || renderer.forceRenderingOff && _substituteOwnership?.Invoke(renderer) != true
-                        || surface.Filter.sharedMesh == null || !InWorld(renderer))
+                        || filter == null || filter.sharedMesh == null || !InWorld(renderer))
                     {
                         bool restored = RestoreRenderer(renderer);
-                        if (restored || !surface.Refused) _changedSources.Add(renderer);
+                        if (restored || geometryChanged || !surface.Refused) _changedSources.Add(renderer);
                         surface.Refused = true; scopeRefusals++; continue;
                     }
                     renderer.GetSharedMaterials(_slots);
@@ -212,7 +222,7 @@ internal static partial class WorldMaterialBudget
                     {
                         Material current = _slots[slot], original = Source(current);
                         Material next = original;
-                        bool effect = RendererEffect(renderer, slot);
+                        bool effect = RendererEffect(renderer, slot, original);
                         if (original != null && !effect) next = VariantFor(original);
                         else effectRefusals++;
                         if (IsVariant(next)) changed++;
@@ -222,7 +232,7 @@ internal static partial class WorldMaterialBudget
                     // Keep slot count/order exactly, including unsupported/foreign
                     // slots. Never assign an empty array to a native room template.
                     if (write) renderer.sharedMaterials = _slots.ToArray();
-                    if (write || refused && !surface.Refused) _changedSources.Add(renderer);
+                    if (write || geometryChanged || refused && !surface.Refused) _changedSources.Add(renderer);
                     surface.Refused = refused;
                     _slots.Clear();
                 }
@@ -273,6 +283,18 @@ internal static partial class WorldMaterialBudget
         }
         internal void RestoreAll(bool inherited)
         {
+            // Arrays are not the only consumers: earlier terrain proxies and queued
+            // chunks/instance command buffers can own a factory-only variant. Release
+            // ALL external consumers before destroying their referenced materials.
+            bool destroy = true;
+            if (_variants.Count > 0)
+                try { _beforeVariantDisposal?.Invoke(); }
+                catch (Exception error)
+                {
+                    destroy = false; _failed = true;
+                    VRLog.Note("Perf", "World material consumer disposal failed; live private materials retained ("
+                        + error.GetType().Name + ": " + error.Message + ").");
+                }
             RestoreBindings();
             if (inherited && _originalByVariant.Count > 0)
             {
@@ -292,8 +314,13 @@ internal static partial class WorldMaterialBudget
                     _roots.Clear();
                 }
             }
-            foreach (Material material in _variants.Values) if (material != null) UnityEngine.Object.Destroy(material);
-            _variants.Clear(); _originalByVariant.Clear(); _prepared.Clear(); _scopes.Clear(); _sceneScopes.Clear();
+            if (destroy)
+            {
+                foreach (Material material in _variants.Values) if (material != null) UnityEngine.Object.Destroy(material);
+                _variants.Clear(); _originalByVariant.Clear();
+            }
+            _prepared.Clear(); _scopes.Clear(); _sceneScopes.Clear();
+            _shader = null;
             _changedSources.Clear();
             _surfaces.Clear(); _pending.Clear(); _queued.Clear();
         }

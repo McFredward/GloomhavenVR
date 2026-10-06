@@ -14,9 +14,60 @@ internal static partial class WorldMaterialBudget
     private static readonly string[] EffectKeywords = { "_ADDVERTEXANIM_ON", "_ENABLE_ANIM",
         "_USEEMISSIVEMAP_ON", "_DIFFUSE_EMISSIVE_ON_ON", "_USE_TEXTURE_EMISSION", "_FRESNEL_ON_ON",
         "_MOSSTEXTURE_ON_ON", "_MOSSTEXTURE_NOISE_ON_ON", "_EMISSION", "_DETAIL_MULX2", "_PARALLAXMAP" };
+    private static readonly string[] StandardStateProperties = { "_Mode", "_SrcBlend", "_DstBlend", "_ZWrite" };
+    private static bool ProvenProgram(Material material, int route)
+    {
+        // Intersection, not union: native objects with the SAME shader name have
+        // stripped program tables despite identical properties/pass/keyword schemas.
+        // Material keywords therefore need one jointly proven albedo/clip branch.
+        int features = 0;
+        foreach (string keyword in material.shaderKeywords)
+        {
+            int bit = keyword switch
+            {
+                "_WORLDSPACE_ON" => 1, "_WALLFADE_ON_ON" => 2, "_DIFUSE_ALPHA_ON_ON" => 4,
+                "_DESATURATION_ON" => 8, "_TOGGLEWALLFADE_ON" => 16, "_TOGGLEWALLFADEOFF_ON" => 32,
+                // These channels are the explicitly selected lighting compromise;
+                // they cannot alter the retained native UV/albedo/clip equation.
+                "DIRECTIONAL" or "LIGHTPROBE_SH" or "INSTANCING_ON" or "LIGHTMAP_ON"
+                    or "DYNAMICLIGHTMAP_ON" or "SHADOWS_SCREEN" or "SHADOWS_DEPTH"
+                    or "FOG_LINEAR" or "FOG_EXP" or "FOG_EXP2" or "_NORMALMAP"
+                    or "_DETAIL_NORM_ON_ON" or "_METALLICGLOSSMAP" or "_SPECGLOSSMAP"
+                    or "_SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A" or "_SPECULARHIGHLIGHTS_OFF"
+                    or "_GLOSSYREFLECTIONS_OFF" => 0,
+                _ => -1,
+            };
+            if (bit < 0) return false;
+            features |= bit;
+        }
+        return route switch
+        {
+            1 => features is 0 or 2 or 6,
+            2 => features is 0 or 24,
+            3 => features is 0 or 32 or 1,
+            4 => features is 0 or 8 or 32 or 40 or 1,
+            5 => features is 0 or 1,
+            6 => features is 0 or 8 or 1,
+            9 or 10 => features == 0,
+            _ => false,
+        };
+    }
+    private static int ShaderRoute(Material original) => original == null || original.shader == null ? -1 : original.shader.name switch
+    {
+        "Amp_Basic_N_MRAO" => 1,
+        "Amp_Low/Amp_Basic_N_MRAO_Low" => 2,
+        "Amp_Basic_WallFade" => 3,
+        "Amp_Low/Amp_Basic_WallFade_Low" => 4,
+        "Amp_Basic" => 5,
+        "Amp_Low/Amp_Basic_Low" => 6,
+        "Standard" => 9,
+        "Legacy Shaders/Diffuse" => 10,
+        _ => -1,
+    };
     private static int Route(Material original)
     {
-        if (original == null || original.shader == null || original.renderQueue > 2500) return -1;
+        int route = ShaderRoute(original);
+        if (route < 0 || original.renderQueue > 2500) return -1;
         string shader = original.shader.name;
         foreach (string property in EffectProperties)
         {
@@ -29,25 +80,10 @@ internal static partial class WorldMaterialBudget
         bool basic = shader == "Standard" || shader == "Legacy Shaders/Diffuse";
         if (!original.HasProperty("_MainTex") || !original.HasProperty(basic ? "_Color" : "_Tint")
             || original.GetTexture("_MainTex") is RenderTexture) return -1;
-        if (shader == "Standard" && (original.GetFloat("_Mode") != 0f && original.GetFloat("_Mode") != 1f
+        if (shader == "Standard" && (original.GetFloat("_Mode") != 0f
             || original.GetFloat("_SrcBlend") != 1f || original.GetFloat("_DstBlend") != 0f
             || original.GetFloat("_ZWrite") != 1f || original.GetColor("_EmissionColor").maxColorComponent > 0f)) return -1;
-        // No combined native WORLD+ALPHA MRAO program was present in the audited
-        // bytecode table. Do not invent an equation for this unsupported combination.
-        if ((shader == "Amp_Basic_N_MRAO" || shader == "Amp_Low/Amp_Basic_N_MRAO_Low")
-            && original.IsKeywordEnabled("_WORLDSPACE_ON") && original.IsKeywordEnabled("_DIFUSE_ALPHA_ON_ON")) return -1;
-        return shader switch
-        {
-            "Amp_Basic_N_MRAO" => 1,
-            "Amp_Low/Amp_Basic_N_MRAO_Low" => 2,
-            "Amp_Basic_WallFade" => 3,
-            "Amp_Low/Amp_Basic_WallFade_Low" => 4,
-            "Amp_Basic" => 5,
-            "Amp_Low/Amp_Basic_Low" => 6,
-            "Standard" => 9,
-            "Legacy Shaders/Diffuse" => 10,
-            _ => -1,
-        };
+        return ProvenProgram(original, route) ? route : -1;
     }
     private sealed partial class Driver
     {
@@ -72,6 +108,7 @@ internal static partial class WorldMaterialBudget
             if (_prepared.TryGetValue(original, out Material prepared)) return prepared;
             int route = Route(original);
             if (route < 0) { _prepared[original] = original; return original; }
+            if (_ensureAssets?.Invoke() == false) { _prepared[original] = original; return original; }
             _shader ??= BundleShaders.Resolve(ShaderName, "Perf", "World material shader available.",
                 "World material shader unavailable; original world materials retained.");
             if (_shader == null) { _prepared[original] = original; return original; }
@@ -88,6 +125,7 @@ internal static partial class WorldMaterialBudget
             variant.shader = _shader;
             variant.shaderKeywords = original.shaderKeywords;
             variant.renderQueue = original.renderQueue;
+            variant.SetOverrideTag("RenderType", original.GetTag("RenderType", false, ""));
             variant.enableInstancing = original.enableInstancing;
             variant.SetFloat("_GHVRWorldMaterialMode", _mode);
             variant.SetFloat("_GHVRWorldNativeRoute", route);
@@ -95,13 +133,26 @@ internal static partial class WorldMaterialBudget
             _prepared.Add(original, variant);
             return variant;
         }
-        private bool RendererEffect(MeshRenderer renderer, int slot)
+        private bool RendererEffect(MeshRenderer renderer, int slot, Material original)
         {
+            int route = ShaderRoute(original);
+            if (route < 0) return false;
             if (!renderer.HasPropertyBlock()) return false;
             renderer.GetPropertyBlock(_block);
             renderer.GetPropertyBlock(_slotBlock, slot);
             foreach (string property in EffectProperties)
-                if (_block.GetFloat(property) != 0f || _slotBlock.GetFloat(property) != 0f) return true;
+            {
+                // A native spelling can have a different type in another family.
+                // In particular Standard's _EmissionMap is a texture, not AMP's
+                // float switch. Typed MPB presence also avoids absent-value reads.
+                if (route == 9 && property == "_EmissionMap") continue;
+                if (_block.HasFloat(property) && _block.GetFloat(property) != 0f
+                    || _slotBlock.HasFloat(property) && _slotBlock.GetFloat(property) != 0f) return true;
+            }
+            if (route == 9)
+                foreach (string property in StandardStateProperties)
+                    if (_block.HasFloat(property) && _block.GetFloat(property) != original.GetFloat(property)
+                        || _slotBlock.HasFloat(property) && _slotBlock.GetFloat(property) != original.GetFloat(property)) return true;
             return false;
         }
     }
