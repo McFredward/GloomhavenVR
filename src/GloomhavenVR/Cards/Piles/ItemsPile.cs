@@ -4937,6 +4937,11 @@ internal sealed partial class ItemsPile
         // broken/missing addressable; it prevents one failed art request from leaving an invisible,
         // ungrabbable inventory entry forever.
         private bool _inspectionArtPending;
+        private bool _inspectionPurchasePending;
+        private bool _inspectionPurchaseCollapse;
+        private Vector3 _inspectionPurchasePosition;
+        private Quaternion _inspectionPurchaseRotation;
+        private float _inspectionPurchaseScale;
         private Vector3 _inspectionArtConverge;
         private float _inspectionArtSpinSign;
         private float _inspectionArtDeadline;
@@ -5833,6 +5838,20 @@ internal sealed partial class ItemsPile
                                     + $"'{name}' — revealing the original hosted card fail-open.");
             _inspectionArtPending = false;
             if (_box != null) _box.enabled = true;
+            if (_inspectionPurchasePending)
+            {
+                _inspectionPurchasePending = false;
+                transform.SetPositionAndRotation(_inspectionPurchasePosition, _inspectionPurchaseRotation);
+                transform.localScale = Vector3.one * _inspectionPurchaseScale;
+                if (_inspectionPurchaseCollapse && transform.parent != null)
+                {
+                    _inspectionPurchaseCollapse = false;
+                    BeginCollapse(transform.parent.position, spinSign: 0f);
+                    return true; // the newly started collapse owns this rendered frame
+                }
+                ResumeInspectionGlide();
+                return false;
+            }
             BeginEmerge(_inspectionArtConverge, 0f, _inspectionArtSpinSign);
             return false;
         }
@@ -5841,6 +5860,8 @@ internal sealed partial class ItemsPile
         internal void PrepareInspectionReturn(Transform fanRoot)
         {
             if (Holder != null || fanRoot == null) return;
+            _inspectionPurchasePending = false;
+            _inspectionPurchaseCollapse = false;
             transform.SetParent(fanRoot, true);
             RestoreHostedFaceFrame();
             // The merchant palm can outlive the flat confirmation that supplied this pooled
@@ -6208,9 +6229,31 @@ internal sealed partial class ItemsPile
         private uint _townReturnRevision;
         internal void ResumeInspectionGlide()
         {
+            _emerging = false; // a fast grab/drop can complete before the held Update branch
             _releaseGlide = ReleaseGlideSeconds;
             if (++_townReturnRevision == 0) _townReturnRevision = 1;
         }
+
+        internal void BeginMerchantPurchase(Transform fan, Vector3 position, Quaternion rotation, float width)
+        {
+            PrepareInspectionReturn(fan);
+            _emerging = false;
+            transform.SetPositionAndRotation(position, rotation);
+            if (width > 0f)
+                transform.localScale = Vector3.one * (width / Mathf.Max(.0001f, FaceWidth * Mathf.Abs(fan.lossyScale.x)));
+            if (!_inspectionArtPending) ResumeInspectionGlide();
+            else
+            {
+                _inspectionPurchasePending = true;
+                _inspectionPurchasePosition = position;
+                _inspectionPurchaseRotation = rotation;
+                _inspectionPurchaseScale = transform.localScale.x;
+                transform.localScale = Vector3.zero;
+            }
+        }
+
+        internal bool TownReturnActive => _collapsing || _releaseGlide > 0f || _inspectionArtPending;
+        internal void CollapseMerchantPurchaseWhenReady() => _inspectionPurchaseCollapse = true;
 
         internal bool TryTownReturnMotion(Transform source, Transform shared, VRHand? hand,
             out uint revision, out float[] numbers)

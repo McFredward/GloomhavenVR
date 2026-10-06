@@ -42,6 +42,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     private Vector3 _homePosition, _homeScale, _returnPosition;
     private Transform? _homeParent;
     private TownServiceOfferingCard? _offering;
+    private bool _retainedOffering;
     private Action? _offeringReclaimed;
     private Quaternion _homeRotation, _returnRotation;
     internal const float ReturnSeconds = .35f;
@@ -60,7 +61,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     internal bool HasReturnMotion => !_disposed && _hand == null && !_settling && _offering == null
         && _returnRevision != 0 && Time.unscaledTime - _returnStarted >= 0f
         && Time.unscaledTime - _returnStarted <= ReturnSeconds + .25f;
-    internal bool IsMoving => _hand != null || _returning || _offering != null || _settling && PhysicalVisibility > 0f;
+    internal bool IsMoving => _hand != null || _returning || _offering != null || _retainedOffering || _settling && PhysicalVisibility > 0f;
     private readonly GameObject _pick;
     private readonly BoxCollider _shape;
     private readonly Vector3[] _corners = new Vector3[4];
@@ -91,6 +92,13 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     private readonly Func<VRHand, bool>? _handAllowed;
 
     internal Transform Source => _source;
+    internal Transform? PhysicalRoot => _physical;
+    internal void RetainOffering(Transform parent)
+    {
+        if (_offering == null || _physical == null || _hand != null) return;
+        _physical.SetParent(parent, true);
+        _offering = null; _offeringReclaimed = null; _retainedOffering = true;
+    }
     internal Transform? HeldRoot => _held != null ? _held.transform : null;
     internal VRHand? HoldingHand => _hand;
     internal Vector3 OfferingPoint => IsHeld ? PhysicalDropPoint : Vector3.zero;
@@ -106,7 +114,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     public bool AllowsHand(VRHand hand) => !_disposed && _sessionAlive()
         && (_handAllowed?.Invoke(hand) ?? true)
         && (!ReferenceEquals(hand.Grabber.Held, this) || _hand == hand);
-    public bool CanGrab => !_disposed && _hand == null && !_returning && !_settling && _sessionAlive()
+    public bool CanGrab => !_disposed && _hand == null && !_returning && !_settling && !_retainedOffering && _sessionAlive()
         && ((_offering != null && TownServiceMerchantHandoff.CanReclaim(this)) || (_inspect?.Invoke() ?? true)) && _source != null && _source.gameObject.activeInHierarchy
         && (IsPhysical || (_button != null && _button.IsActive() && _button.IsInteractable())) && _shape.enabled;
 
@@ -482,6 +490,7 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
     internal void ParkOffering(Transform seat, Action reclaimed)
     {
         if (_physical == null || _disposed || _hand != null) return;
+        _retainedOffering = false;
         _returnStarted = float.NegativeInfinity;
         _returning = false; _offeringReclaimed = reclaimed;
         float nativeScale = _homeParent != null ? Mathf.Abs(_homeParent.lossyScale.x) : 1f;
@@ -492,11 +501,25 @@ internal sealed class TownServiceToken : IGrabbable, ITriggerOnlyGrabbable, IGra
 
     internal void ReturnOffering()
     {
+        _retainedOffering = false;
         _offering = null; _offeringReclaimed = null;
         if (_disposed || _physical == null || _hand != null) return;
         _physical.SetParent(_homeParent, true);
         _returnPosition = _physical.localPosition; _returnRotation = _physical.localRotation;
         _returnScale = _physical.localScale; BeginReturn();
+    }
+
+    /// <summary>The purchased original now belongs to the owned-item fan. Restore only
+    /// the cabinet's non-authoritative sample, without a second return-to-stock flight.</summary>
+    internal void RestoreMerchantStock()
+    {
+        _retainedOffering = false;
+        _offering = null; _offeringReclaimed = null;
+        if (_disposed || _physical == null || _hand != null) return;
+        _returnStarted = float.NegativeInfinity; _returning = false;
+        _physical.SetParent(_homeParent, false);
+        _physical.localPosition = _homePosition; _physical.localRotation = _homeRotation;
+        _physical.localScale = _homeScale;
     }
 
     private void BeginReturn()

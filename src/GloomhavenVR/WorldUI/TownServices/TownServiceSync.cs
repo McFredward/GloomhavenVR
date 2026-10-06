@@ -91,18 +91,16 @@ internal sealed partial class TownServiceSync
         TownServiceMirror.SharedFrameForRemote = ResolveFrame;
         TickStock(sharedFrame);
         PrepareCore();
-        IReadOnlyList<TownServiceEnhancementHandoff.ReturnPresentation> returns = TownServiceEnhancementHandoff.Returning;
         bool active = TownServicePresentation.Active && stationRoot != null;
         bool inspection = TownServiceMerchantHandoff.Active;
-        if (!active && !inspection && returns.Count == 0) { ResetCore(); return; }
+        if (!active && !inspection) { ResetCore(); return; }
         if (!NativeTemplates.Ready) return;
         bool inspectionIdentity = inspection && (!active || TownServicePresentation.Service == 1);
-        byte service = active ? TownServicePresentation.Service : inspection ? (byte)1 : (byte)3;
+        byte service = active ? TownServicePresentation.Service : (byte)1;
         uint session = inspectionIdentity ? TownServiceMerchantHandoff.Session
-            : active ? TownServicePresentation.Session : returns[0].Session;
+            : TownServicePresentation.Session;
         ulong relocation = active ? TownServicePresentation.RelocationRevision : _relocationRevision;
-        if (!active) stationRoot = inspection ? TownServiceMerchantHandoff.StationRoot ?? sharedFrame
-            : returns[0].StationRoot != null ? returns[0].StationRoot : sharedFrame;
+        if (!active) stationRoot = TownServiceMerchantHandoff.StationRoot ?? sharedFrame;
         if (_generationExhausted) return;
         if (_session != session || _service != service || _relocationRevision != relocation)
         {
@@ -121,25 +119,13 @@ internal sealed partial class TownServiceSync
         // transport coalescing drops every invisible relocation sample. Ordinary native fades
         // and hand movement retain this generation and therefore their normal interpolation.
         TownServiceMirror.BeginSession(service, _generation, sharedFrame, stationRoot!,
-            inspectionIdentity ? TownServiceMerchantHandoff.SessionAge : active ? TownServicePresentation.SessionAge : returns[0].SessionAge);
+            inspectionIdentity ? TownServiceMerchantHandoff.SessionAge : TownServicePresentation.SessionAge);
         // Do not establish invisible module baselines at the relocation boundary: losing those
         // samples must not make the first visible state depend on a discarded zero-alpha packet.
         if (active && TownServicePresentation.RelocationVisibility <= 0f) return;
         foreach (Published module in Modules.Values) module.Seen = false;
         foreach (SourceEntry source in Sources.Values) source.Seen = false;
         Visited.Clear(); Dynamic.Clear(); PriorityRoots.Clear();
-        foreach (TownServiceEnhancementHandoff.ReturnPresentation returning in returns)
-        {
-            Transform? face = returning.Face, body = returning.Body;
-            if (face != null) TownServiceMirror.RegisterCardReturn(face, returning.Card.TryTownReturnMotion);
-            if (body != null) TownServiceMirror.RegisterCardReturn(body, returning.Card.TryTownReturnMotion);
-            if (face != null) PriorityRoots.Add(face);
-            if (body != null) PriorityRoots.Add(body);
-            // The window's pooled selected-card widget may already be recycled. The actual
-            // flying face and captured identity are the only lifetime-safe provenance here.
-            Publish("face." + returning.CardId.ToString(System.Globalization.CultureInfo.InvariantCulture), face, prewarm: true);
-            Publish("map.cardbody", body);
-        }
         if (inspection)
         {
             if (TownServiceMerchantHandoff.Zone != null) PriorityRoots.Add(TownServiceMerchantHandoff.Zone);
@@ -150,7 +136,7 @@ internal sealed partial class TownServiceSync
             foreach (ItemsPile.ItemChip chip in TownServiceMerchantHandoff.OwnedChips)
             {
                 if (chip == null || chip.NativeItemCard == null || chip.Item == null
-                    || ItemsPile.InspectionUsesAvatarTransport(chip)) continue;
+                    || ItemsPile.InspectionUsesAvatarTransport(chip) || !chip.TownOffering) continue;
                 Transform mount = chip.InspectionMount;
                 Transform face = chip.NativeItemCard.transform;
                 Transform? body = chip.InspectionBody;

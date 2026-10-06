@@ -44,9 +44,19 @@ internal static partial class TownServiceMirror
     { StockKeys.Clear(); StockPeers.Clear(); StockHeldIds.Clear(); StockMountIds.Clear(); DuplicatePublicMounts.Clear(); }
 
     private static bool StockModule(string address) => address == "merchant.heldstock|"
+        || address.StartsWith("inspectionbody.", StringComparison.Ordinal)
+        || address.StartsWith("map.cardbody|", StringComparison.Ordinal)
+        || CosmeticAbilityFace(address)
         || address.StartsWith("merchant.heldstock.body|", StringComparison.Ordinal)
         || address.StartsWith("merchant.heldstock.row|", StringComparison.Ordinal)
         || TryStockItemId(address, out _);
+    private static bool CosmeticAbilityFace(string address)
+    {
+        if (!address.StartsWith("face.", StringComparison.Ordinal)) return false;
+        int end = address.IndexOf('|');
+        return end > 5 && int.TryParse(address.Substring(5, end - 5), NumberStyles.None,
+            CultureInfo.InvariantCulture, out int id) && id > 0;
+    }
     private static bool TryStockItemId(string address, out int id)
     {
         id = 0;

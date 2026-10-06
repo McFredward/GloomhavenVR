@@ -35,6 +35,7 @@ internal static class TownServiceMerchantHandoff
     private static CItem? _tradeItem;
     private static bool _tradeSelling;
     private static int _tradeBaseline;
+    private static readonly HashSet<CItem> TradeOwnedBefore = new();
     private static float _tradeUntil;
     private static bool _tradePressed;
     private static bool _decisionConfirmed, _decisionCancelled;
@@ -64,7 +65,8 @@ internal static class TownServiceMerchantHandoff
         || _pending != null;
     internal static bool CanReclaim(TownServiceToken token) => Active && _near && ReferenceEquals(token, _offeredStock)
         && OwnsPendingDecision;
-    internal static bool IsParkedStock(TownServiceToken token) => ReferenceEquals(token, _offeredStock);
+    internal static bool IsParkedStock(TownServiceToken token) => ReferenceEquals(token, _offeredStock)
+        || TownServiceCardFlights.IsPendingStock(token);
     internal static bool CanReclaim(ItemsPile.ItemChip chip) => Active && _near && ReferenceEquals(chip, _offeredChip)
         && OwnsPendingDecision;
     private static bool OwnsPendingDecision => _pending != null || _ourConfirmation != null
@@ -81,6 +83,7 @@ internal static class TownServiceMerchantHandoff
     internal static void Tick()
     {
         if (_resetting) return;
+        TownServiceCardFlights.Tick();
         FlushStockInspectionReaction();
         TownServiceCatalog.CanOffer = CanOffer;
         TownServiceCatalog.Offer = Offer;
@@ -396,6 +399,9 @@ internal static class TownServiceMerchantHandoff
             if (box != null && _seat != null) TownServicePalmConfirmation.Begin(box, _seat);
             _tradeItem = item; _tradeSelling = _selling;
             _tradeBaseline = ItemCount(_character, item);
+            TradeOwnedBefore.Clear();
+            if (_character != null)
+                foreach (CItem owned in _character.AllCharacterItems) TradeOwnedBefore.Add(owned);
             _tradeUntil = 0f;
             _tradePressed = false;
             if (Core.VRLog.WantsDebug)
@@ -486,7 +492,7 @@ internal static class TownServiceMerchantHandoff
     private static void TickConfirmation()
     {
         if (_pending != null || _ourConfirmation == null) return;
-        if (!TownServiceMirror.LocalTransactionSettled(1)) { Reclaim(); return; }
+        if (!_decisionConfirmed && !TownServiceMirror.LocalTransactionSettled(1)) { Reclaim(); return; }
         UIItemConfirmationBox? confirmation = Singleton<UIItemConfirmationBox>.Instance;
         UIWindow? nativeWindow = confirmation?.GetComponent<UIWindow>();
         if (confirmation != null && confirmation.IsActive
@@ -533,6 +539,10 @@ internal static class TownServiceMerchantHandoff
         _ourConfirmation = null;
         if (!_decisionConfirmed) _tradeItem = null;
         DetachTradeListener();
+        // A confirm press is a request. Keep the exact parked original until the
+        // native inventory confirms which ownership boundary actually completed.
+        // Returning it here made a sold item fly to its former owner's wrist.
+        if (_decisionConfirmed && _tradeItem != null) return;
         ReleaseOffering();
     }
 
@@ -562,13 +572,36 @@ internal static class TownServiceMerchantHandoff
         // not the lifetime of an unconfirmed card in the merchant's palm. Expiring the
         // latter left the physical card parked but severed its swap/cancel ownership.
         if (_decisionConfirmed && Time.unscaledTime > _tradeUntil)
-        { _tradeItem = null; DetachTradeListener(); return; }
+        {
+            TownServiceCardFlights.WarnUnresolvedOutcome();
+            _tradeItem = null; DetachTradeListener(); ReleaseOffering(); return;
+        }
         int count = ItemCount(_character, item);
         if (!_tradePressed || (_tradeSelling ? count >= _tradeBaseline : count <= _tradeBaseline)) return;
+        bool sold = _tradeSelling;
+        CItem? purchased = null;
+        if (!sold && _character != null)
+            foreach (CItem owned in _character.AllCharacterItems)
+                if (owned.ID == item.ID && !TradeOwnedBefore.Contains(owned)) { purchased = owned; break; }
+        // Use native ownership, never the confirmation button's visual state.
+        // Cancel, swap, refusal and timeout still follow ReleaseOffering below.
+        CompleteTradePresentation(sold, purchased);
         _tradeItem = null;
+        TradeOwnedBefore.Clear();
         DetachTradeListener();
         // The contextual line ran when the confirmation opened. Repeating the same family after
         // its inventory mutation sounds like a duplicated response, so completion stays silent.
+    }
+
+    private static void CompleteTradePresentation(bool sold, CItem? purchased)
+    {
+        ItemsPile.ItemChip? chip = _offeredChip; _offeredChip = null;
+        TownServiceToken? stock = _offeredStock; _offeredStock = null;
+        _offering = null;
+        TownServiceMirror.SetLocalTransactionActive(1, false);
+        if (_fan != null) TownServiceCardFlights.Complete(_fan, chip, stock, sold, purchased,
+            _palm != null ? _palm.position : chip != null ? chip.transform.position : Vector3.zero);
+        else stock?.ReturnOffering();
     }
 
     private static void Reclaim()
@@ -648,7 +681,16 @@ internal static class TownServiceMerchantHandoff
         // Withdraw ownership before native callbacks. OnCancel may synchronously raise onHidden,
         // which can reenter teardown; it must not cancel twice or destroy the same fan again.
         Action? ownedConfirmation = _ourConfirmation; _ourConfirmation = null;
-        ReleaseOffering();
+        bool committed = _decisionConfirmed && _tradeItem != null && _character != null && _fan != null;
+        if (committed)
+        {
+            TownServiceCardFlights.RetainCommitted(_fan!, _offeredChip, _offeredStock,
+                _character!, _tradeItem!, _tradeSelling, _tradeBaseline, TradeOwnedBefore,
+                _palm != null ? _palm.position : Vector3.zero, StationRoot);
+            _offeredChip = null; _offeredStock = null; _offering = null;
+            TownServiceMirror.SetLocalTransactionActive(1, false);
+        }
+        else ReleaseOffering();
         ItemsPile? fan = _fan; _fan = null;
         Transform? seat = _seat; _seat = _zone = null; _zoneGate = null; _caption = null; _feedback = null;
         _pending = null; _tradeItem = null; _decisionConfirmed = _decisionCancelled = false;
@@ -658,14 +700,15 @@ internal static class TownServiceMerchantHandoff
         try
         {
             UIItemConfirmationBox? confirmation = Singleton<UIItemConfirmationBox>.Instance;
-            if (ownedConfirmation != null && confirmation != null && confirmation.IsActive
+            if (!committed && ownedConfirmation != null && confirmation != null && confirmation.IsActive
                 && ReferenceEquals(confirmation._onConfirmedCallback, ownedConfirmation)) confirmation.OnCancel();
         }
         finally
         {
-            try { fan?.DestroyInspection(); }
+            try { if (!committed && fan != null) TownServiceCardFlights.Retain(fan); }
             finally
             {
+                TradeOwnedBefore.Clear();
                 if (seat != null) UnityEngine.Object.Destroy(seat.gameObject);
                 try { if (restoreFan) MapRoomHand.SetMerchantInspection(false); }
                 finally { _resetting = false; }
