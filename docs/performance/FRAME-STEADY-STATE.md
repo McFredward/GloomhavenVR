@@ -26,10 +26,11 @@ settings remain live and reversible. Frame detection seeds only fresh defaults.
 No resolution default or gameplay/network cadence is changed.
 
 `Optimize.VisibleIdleDisabledClothApproximation` is a separate shape compromise.
-Unity's native clothing surface can retain physical deformation after its solver
-is disabled, while BakeMesh reads the skeletal surface instead. Native simulation
-followed by disabling the solver demonstrates that difference; immediately
-disabled fresh clothing did not prove equivalence. With this option Off, any
+Unity's native clothing surface can retain physical deformation in the immediate
+solver-disable frame, while BakeMesh reads the skeletal surface instead. Native
+simulation followed by disabling the solver demonstrates that difference; the
+tested Drake returns to skeletal form after a native warm frame. This does not
+prove equivalence for every garment. With this option Off, any
 captured clothing keeps the complete body native. On allows the skeletal shape
 only for disabled cloth during eligible sampled idle poses; active physics,
 actions and held figures retain native rendering. It also requires a nonzero

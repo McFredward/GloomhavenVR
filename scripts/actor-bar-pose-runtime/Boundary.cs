@@ -74,9 +74,15 @@ namespace GloomhavenVR.Core
     internal static class PerfConfig
     {
         internal static float ActorBarPoseCheckInterval = 0;
+        internal static bool VisibleIdleClothApproximation => false;
     }
     internal static partial class ScenarioFigureDetailBudget
     {
+        // This fixture proves the native bar envelope, not idle replacement or
+        // detail camera masks. Those owners have independent native runtime suites.
+        internal readonly struct IdleMaskRead : IDisposable { public void Dispose() { } }
+        internal static IdleMaskRead BeginLodMaskRead() => new();
+        internal static bool OwnsLodMask(Renderer renderer) => false;
         internal static readonly Driver Instance = new();
         private static readonly Driver _driver = Instance;
         internal sealed class ActorRecord
