@@ -404,6 +404,7 @@ internal static partial class PerfMonitor
         RegisterDebug("Environment.InstanceSources");
         RegisterDebug("Environment.InstanceGroups");
         RegisterDebug("Environment.LightingFallback");
+        RegisterDebug("Environment.CameraPathFallback");
         RegisterDebug("Mirror.NativeSourceReads");
         RegisterDebug("Mirror.NativeSourceReadsReused");
         RegisterDebug("Mirror.ReadReuseOnNodes");
