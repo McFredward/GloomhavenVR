@@ -238,15 +238,38 @@ internal static class TownServiceTransportVectors
         var missing = new HashSet<ushort>();
         var ids = new ushort[count];
         int initialPages = 0, initialWireBytes = 0;
+        var budgetQueue = new TownServiceSendQueue(65536);
         for (ushort id = 1; id <= count; id++)
         {
             ids[id - 1] = id; missing.Add(id);
             var sample = Frame(id, 1, id <= 8 ? 128 : 16);
             byte[] bytes = TownServiceCodec.Write(sample); sender.Enqueue(bytes, bytes.Length, identity: sample);
+            budgetQueue.Enqueue(bytes, bytes.Length, sample);
             byte[][] encoded=ExtrasFragments.Encode(bytes,bytes.Length,65536UL+id,TownServiceCodec.MessageType,
                 TownServiceCodec.FragmentType,TownServiceFrame.MaxBytes,compress:true);
             initialPages+=encoded.Length;foreach(byte[] page in encoded)initialWireBytes+=page.Length;
         }
+        // Count the actual production bundles/fragments for this immutable census.
+        // A saturated global round retains three town turns per21; this lane gives
+        // one of every three non-census turns to cold originals. Census costs its
+        // actual compressed pages at the unchanged five-second renewal cadence.
+        int coldBundlePages = 0;
+        while (budgetQueue.Next(coldBundlePages * .051) != null) coldBundlePages++;
+        var budgetManifest = Frame(TownServiceFrame.ManifestModule, 1, 0);
+        budgetManifest.Modules = ids; budgetManifest.Template = 0; budgetManifest.Structure = 0;
+        byte[] budgetCensus = TownServiceCodec.Write(budgetManifest);
+        int censusPages = ExtrasFragments.Encode(budgetCensus, budgetCensus.Length,
+            65536UL + TownServiceFrame.ManifestModule, TownServiceCodec.MessageType,
+            TownServiceCodec.FragmentType, TownServiceFrame.MaxBytes, compress: true).Length;
+        const double slowSenderFrames = 18, townTurns = 3, globalTurns = 21;
+        double availableTownPagesPerSecond = slowSenderFrames * townTurns / globalTurns - censusPages / 5d;
+        t.True(coldBundlePages > 0 && availableTownPagesPerSecond > 0,
+            "cold catalog has a finite production-encoded fair budget");
+        // Six outstanding borrowed turns, the initial census and one arbitration
+        // round cover start/end phase. This derives a deadline without changing
+        // transport bandwidth or borrowing extra turns from the original streams.
+        double fairColdSeconds = (coldBundlePages * 3d + 6 + censusPages + townTurns)
+            / availableTownPagesPerSecond;
         var backgrounds = new List<byte[]>();
         if(contention)foreach (byte kind in new[] { NetProtocol.MsgExtras, NetProtocol.MsgUseBarAnimation, NetProtocol.MsgNativeBoard,
             NetProtocol.MsgCardAppearance, NetProtocol.MsgItemAppearance, NetProtocol.MsgNativeDecisionPrompt })
@@ -315,10 +338,10 @@ internal static class TownServiceTransportVectors
         t.True(firstOrdinary>=0&&firstOrdinary<15,"manifest heartbeats cannot starve native catalog modules");
         t.True(heldCompletions>10,"continuous held motion remains live while cold catalog fills");
         t.True(receivedManifest,"large manifest completes");
-        t.True(completeAt>=0&&completeAt<(contention?400:count<1000?10:30),"cold catalog remains within measured compression budget");
+        t.True(completeAt>=0&&completeAt<(contention?fairColdSeconds:count<1000?10:30),"cold catalog remains within measured compression budget");
         t.True(warmHeld>5&&warmMaxDelay<(contention?5:.5),"held motion stays live after cold catalog completes");
         t.Equal(0,missing.Count,"every late-game original face/body/quantity module completes");
-        Console.WriteLine("TOWN_LATE modules="+count+" contention="+contention+" initialPages="+initialPages+" individualBytes="+initialWireBytes+" deliveredBytes="+deliveredBytes+" firstHeld="+firstHeld.ToString("F3")+" firstStock="+firstOrdinary.ToString("F3")+" complete="+completeAt.ToString("F3")+" warmHeldMaxDelay="+warmMaxDelay.ToString("F3"));
+        Console.WriteLine("TOWN_LATE modules="+count+" contention="+contention+" initialPages="+initialPages+" individualBytes="+initialWireBytes+" deliveredBytes="+deliveredBytes+" firstHeld="+firstHeld.ToString("F3")+" firstStock="+firstOrdinary.ToString("F3")+" complete="+completeAt.ToString("F3")+" warmHeldMaxDelay="+warmMaxDelay.ToString("F3")+" coldBundlePages="+coldBundlePages+" censusPages="+censusPages+" fairColdSeconds="+fairColdSeconds.ToString("F3"));
     }
     private static void DelayedFragmentCensus(Harness t)
     {
