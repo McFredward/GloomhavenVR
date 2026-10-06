@@ -78,7 +78,7 @@ internal sealed partial class ItemsPile
         foreach (ItemChip chip in _inspectionReturnKeys)
         {
             float left = _inspectionTownReturns[chip] - Mathf.Min(Time.unscaledDeltaTime, .05f);
-            if (chip == null || chip.Holder != null || left <= 0f) _inspectionTownReturns.Remove(chip!);
+            if (chip == null || chip.Holder != null || left <= 0f && !chip.TownReturnActive) _inspectionTownReturns.Remove(chip!);
             else _inspectionTownReturns[chip] = left;
         }
         bool changed = false;
@@ -181,6 +181,45 @@ internal sealed partial class ItemsPile
         else if (!chip.InspectionArtPending) { chip.ResumeInspectionGlide(); Relayout(); }
     }
 
+    /// <summary>A natively sold copy ends at the merchant, never in the seller's fan.</summary>
+    internal void CompleteMerchantSale(ItemChip chip, Vector3 merchantPalm)
+    {
+        if (chip == null || chip.Holder != null || !ReferenceEquals(chip.Owner, this)) return;
+        _chips.Remove(chip); _inspectionNew.Remove(chip);
+        if (!_inspectionRetiring.Contains(chip)) _inspectionRetiring.Add(chip);
+        _inspectionTownReturns[chip] = Mathf.Max(.01f, CardsConfig.ItemFanCloseDuration.Value) + .25f;
+        chip.CancelReleaseGlide();
+        chip.BeginCollapse(merchantPalm, spinSign: 0f);
+        _inspectionCensusDirty = true;
+        RefreshInspectionPublished();
+    }
+
+    /// <summary>Fly the actual newly owned copy from the purchased sample to its canonical wrist seat.</summary>
+    internal void BeginMerchantPurchase(CItem purchased, Vector3 position, Quaternion rotation, float width)
+    {
+        if (_root == null || purchased == null) return;
+        ItemChip? chip = _chips.Find(candidate => candidate != null && ReferenceEquals(candidate.Item, purchased));
+        if (chip == null) { chip = ItemChip.Create(this, _root, purchased); _chips.Add(chip); }
+        _inspectionNew.Remove(chip);
+        Relayout();
+        chip.BeginMerchantPurchase(_root, position, rotation, width);
+        _inspectionTownReturns[chip] = .35f;
+        if (!IsOpen)
+        {
+            if (chip.InspectionArtPending) chip.CollapseMerchantPurchaseWhenReady();
+            else chip.BeginCollapse(_root.position, spinSign: 0f);
+        }
+        _inspectionCensusDirty = true;
+        RefreshInspectionPublished();
+    }
+
+    private void RefreshInspectionPublished()
+    {
+        _inspectionPublished.Clear();
+        _inspectionPublished.AddRange(_chips);
+        _inspectionPublished.AddRange(_inspectionRetiring);
+    }
+
     /// <summary>Restore the fan frame before the base grabber records a parked card's return parent.</summary>
     internal void PrepareInspectionReclaim(ItemChip chip)
     {
@@ -198,6 +237,64 @@ internal sealed partial class ItemsPile
         if (chip == null) return;
         if (!chip.IsCollapsing) chip.BeginCollapse(_root!.position);
         _inspectionRetiring.Add(chip);
+    }
+
+    /// <summary>Retain only originals already returning, or awaiting their committed native result.
+    /// No inventory controller, open fan or interaction remains owned by this retired session.</summary>
+    internal bool RetainInspectionReturns(ItemChip? pending = null)
+    {
+        if (ReferenceEquals(InspectionCurrent, this)) InspectionCurrent = null;
+        if (ReferenceEquals(InspectionOwner, this)) InspectionOwner = null;
+        IsOpen = false; ClearHandSweep();
+        if (pending != null && _root != null) pending.transform.SetParent(_root, true);
+        for (int i = _chips.Count - 1; i >= 0; i--)
+        {
+            ItemChip chip = _chips[i];
+            if (chip != null && (ReferenceEquals(chip, pending) || _inspectionTownReturns.ContainsKey(chip))) continue;
+            if (chip != null && chip.Holder != null) chip.Holder.Grabber.CancelAll();
+            if (chip != null) UnityEngine.Object.DestroyImmediate(chip.gameObject);
+            _chips.RemoveAt(i);
+        }
+        for (int i = _inspectionRetiring.Count - 1; i >= 0; i--)
+        {
+            ItemChip chip = _inspectionRetiring[i];
+            if (chip != null && _inspectionTownReturns.ContainsKey(chip)) continue;
+            if (chip != null) UnityEngine.Object.DestroyImmediate(chip.gameObject);
+            _inspectionRetiring.RemoveAt(i);
+        }
+        _inspectionNew.Clear(); _inspectionDesired.Clear(); _inspectionPresent.Clear();
+        RefreshInspectionPublished();
+        return _inspectionPublished.Count != 0;
+    }
+
+    internal bool TickRetainedInspection(ItemChip? pending = null)
+    {
+        if (_root == null) return false;
+        VRHand? gate = _inspectionGateHand;
+        if (gate != null && gate.HasPose)
+        {
+            _root.position = gate.Rig.PalmCenter.position
+                + gate.Rig.PalmCenter.up * (CardsConfig.FanPalmOffset.Value * gate.WorldScale);
+            float parentScale = _root.parent != null ? _root.parent.lossyScale.x : 1f;
+            _root.localScale = Vector3.one * (gate.WorldScale / Mathf.Max(.0001f, parentScale));
+            PileFanShape.FaceHead(_root);
+        }
+        for (int i = _chips.Count - 1; i >= 0; i--)
+        {
+            ItemChip chip = _chips[i];
+            if (chip != null && (ReferenceEquals(chip, pending) || chip.TownReturnActive)) continue;
+            if (chip != null) UnityEngine.Object.DestroyImmediate(chip.gameObject);
+            _inspectionTownReturns.Remove(chip!); _chips.RemoveAt(i);
+        }
+        for (int i = _inspectionRetiring.Count - 1; i >= 0; i--)
+        {
+            ItemChip chip = _inspectionRetiring[i];
+            if (chip != null && chip.TownReturnActive) continue;
+            if (chip != null) UnityEngine.Object.DestroyImmediate(chip.gameObject);
+            _inspectionTownReturns.Remove(chip!); _inspectionRetiring.RemoveAt(i);
+        }
+        RefreshInspectionPublished();
+        return _inspectionPublished.Count != 0;
     }
     internal void DestroyInspection()
     {

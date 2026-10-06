@@ -1,5 +1,7 @@
 using System;
 using System.Globalization;
+using GloomhavenVR.Cards;
+using GloomhavenVR.Hands;
 using GloomhavenVR.Net.TownServices;
 using UnityEngine;
 
@@ -27,11 +29,24 @@ internal sealed partial class TownServiceSync
         Transform? station = TownServicePublicMerchant.StationRoot;
         uint session = TownServicePublicMerchant.Session;
         bool moving = false;
+        var abilityReturns = TownServiceEnhancementHandoff.Returning;
+        var offeredAbility = TownServicePresentation.Service == 3 ? TownServicePresentation.Ritual?.Handoff : null;
+        bool preparing = TownServiceMerchantHandoff.HasParkedOffer || offeredAbility?.Card != null;
+        foreach (ItemsPile.ItemChip chip in TownServiceMerchantHandoff.OwnedChips)
+            if (chip != null && (chip.Holder != null || !ItemsPile.InspectionUsesAvatarTransport(chip)))
+            { preparing = true; break; }
+        bool returning = TownServiceCardFlights.HasRetained || abilityReturns.Count != 0;
         if (catalog != null && station != null)
             foreach (TownServiceCatalog.Entry entry in catalog.Entries)
                 if (entry.Current && (entry.Sample.IsMoving || entry.Sample.HasReturnMotion)) { moving = true; break; }
-        if (!moving || catalog == null || station == null || session == 0)
+        if (!moving && !returning && !preparing)
         { ResetCore(); return; }
+        // Ability returns must not depend on having unlocked a merchant/cabinet.
+        // This lane owns cosmetic originals only; its generation remains distinct
+        // from every private service generation and has no gameplay continuation.
+        if (station == null) station = abilityReturns.Count != 0 && abilityReturns[0].StationRoot != null
+            ? abilityReturns[0].StationRoot : sharedFrame;
+        if (session == 0) session = 1;
         _sharedFrame = sharedFrame;
         PrepareCore();
         if (!NativeTemplates.Ready || _generationExhausted) return;
@@ -51,12 +66,77 @@ internal sealed partial class TownServiceSync
         foreach (Published module in Modules.Values) module.Seen = false;
         foreach (SourceEntry source in Sources.Values) source.Seen = false;
         Visited.Clear(); Dynamic.Clear(); PriorityRoots.Clear();
-        PublishStockEntries(catalog);
+        if (catalog != null) PublishStockEntries(catalog);
+        PublishMerchantReturns();
+        foreach (ItemsPile.ItemChip chip in TownServiceMerchantHandoff.OwnedChips)
+            if (chip != null && (chip.Holder != null || !ItemsPile.InspectionUsesAvatarTransport(chip))) PublishPreparedMerchantReturn(chip);
+        if (offeredAbility?.Card != null && offeredAbility.OfferedCardId > 0 && offeredAbility.Face != null)
+        {
+            TownServiceMirror.PrepareCardReturn(offeredAbility.Face, offeredAbility.Card.TryTownReturnMotion);
+            Publish("face." + offeredAbility.OfferedCardId.ToString(CultureInfo.InvariantCulture), offeredAbility.Face, prewarm: true);
+            Transform? backing = offeredAbility.Card.transform.Find("Visual/Backing");
+            if (backing != null)
+            { TownServiceMirror.PrepareCardReturn(backing, offeredAbility.Card.TryTownReturnMotion); Publish("map.cardbody", backing); }
+        }
+        foreach (TownServiceEnhancementHandoff.ReturnPresentation returningCard in abilityReturns)
+        {
+            Transform? face = returningCard.Face, body = returningCard.Body;
+            if (face != null)
+            {
+                TownServiceMirror.RegisterCardReturn(face, returningCard.Card.TryTownReturnMotion);
+                PriorityRoots.Add(face);
+                Publish("face." + returningCard.CardId.ToString(CultureInfo.InvariantCulture), face, prewarm: true);
+            }
+            if (body != null)
+            {
+                TownServiceMirror.RegisterCardReturn(body, returningCard.Card.TryTownReturnMotion);
+                PriorityRoots.Add(body); Publish("map.cardbody", body);
+            }
+        }
         Removed.Clear();
         foreach (var pair in Modules) if (!pair.Value.Seen) Removed.Add(pair.Key);
         foreach (string key in Removed)
         { TownServiceMirror.UnregisterModule(Modules[key].Id); Modules.Remove(key); }
         PruneSources();
+    }
+
+    private void PublishPreparedMerchantReturn(ItemsPile.ItemChip chip)
+    {
+        if (chip.NativeItemCard == null || chip.Item == null) return;
+        Transform face = chip.NativeItemCard.transform;
+        VRHand? hand = !chip.TownOffering && !chip.IsCollapsing
+            ? VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left : null;
+        TownServiceMirror.PrepareCardReturn(face, chip.TryTownReturnMotion, hand);
+        Publish("item." + chip.Item.ID.ToString(CultureInfo.InvariantCulture), face, prewarm: true);
+        if (chip.InspectionBody == null) return;
+        TownServiceMirror.PrepareCardReturn(chip.InspectionBody, chip.TryTownReturnMotion, hand);
+        Publish(TownServiceInspectionBody.Key(chip), chip.InspectionBody, prewarm: true);
+    }
+
+    private void PublishMerchantReturns()
+    {
+        // The visitor's private lane can already belong to another NPC. Keep only
+        // these exact terminal originals in the existing independent cosmetic lane,
+        // with their native clocks; no retired fan or transaction controller is mirrored.
+        foreach (ItemsPile.ItemChip chip in TownServiceCardFlights.Returning)
+        {
+            if (chip == null || chip.NativeItemCard == null || chip.Item == null) continue;
+            Transform face = chip.NativeItemCard.transform;
+            Transform? body = chip.InspectionBody;
+            VRHand? hand = !chip.TownOffering && !chip.IsCollapsing
+                ? VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left : null;
+            TownServiceMirror.RegisterCardReturn(face, chip.TryTownReturnMotion, hand);
+            if (chip.TownOffering) TownServiceMirror.ExposeCommittedCardOriginal(face);
+            TownServiceMirror.RegisterMotionOffering(face, chip.TownOffering);
+            PriorityRoots.Add(face);
+            Publish("item." + chip.Item.ID.ToString(CultureInfo.InvariantCulture), face, prewarm: true);
+            if (body == null) continue;
+            TownServiceMirror.RegisterCardReturn(body, chip.TryTownReturnMotion, hand);
+            if (chip.TownOffering) TownServiceMirror.ExposeCommittedCardOriginal(body);
+            TownServiceMirror.RegisterMotionOffering(body, chip.TownOffering);
+            PriorityRoots.Add(body);
+            Publish(TownServiceInspectionBody.Key(chip), body, prewarm: true);
+        }
     }
 
     private void PublishStockEntries(TownServiceCatalog catalog)
