@@ -38,6 +38,8 @@ internal static class Program
             Check(PerfConfig.ScenarioCheapWallShading.Value==(i<2), "wall shading compromise is explicit for low profiles");
             Check(PerfConfig.ScenarioTerrainDetailPercent.Value==(i==0?0:i==1?50:100), "3D terrain detail restores original at balanced/high quality");
             Check(PerfConfig.ScenarioDistantTerrainDetailPercent.Value==(i<2?0:i==2?50:100), "distant 3D geometry has an independent cap");
+            Check(PerfConfig.ScenarioTerrainCameraSourceLimitCount.Value==(i==0?64:0),
+                "standalone bounds terrain substitution work while PC quality profiles retain unlimited originals-compatible substitution");
             Check(PerfConfig.ScenarioTerrainDistanceMeters.Value==GloomhavenVR.FrameDefaults.ScenarioTerrainDistanceMeters, "VR distance threshold is platform-independent");
             Check(PerfConfig.SharedEnvironmentMaterialReads.Value && PerfConfig.SharedUiWindowReads.Value, "exact work removal is selectable on every platform");
             foreach (var file in ModuleConfig.Snapshot())
@@ -57,6 +59,10 @@ internal static class Program
         RenderQuality.Bind();
         Check(RenderQuality.EyeResolutionScale.Value==.95f,
             "individual resolution remains independent after Standalone until another profile is explicitly chosen");
+        PerfConfig.ScenarioTerrainCameraSourceLimitCount.Value=32;
+        PerfConfig.Bind();
+        Check(PerfConfig.ScenarioTerrainCameraSourceLimitCount.Value==32,
+            "terrain substitution source limit remains independently adjustable after Standalone");
         PerfConfig.ScenarioCheapWallShading.Value=false;
         PerfConfig.ScenarioExplicitEnvironmentInstancing.Value=false;
         PerfConfig.ScenarioTerrainDetailPercent.Value=75;

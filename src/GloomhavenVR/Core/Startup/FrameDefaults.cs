@@ -70,6 +70,9 @@ internal static class FrameDefaults
     internal const bool ScenarioCheapWallShading = true;
     internal const int ScenarioTerrainDetailPercent = 0;
     internal const int ScenarioDistantTerrainDetailPercent = 0;
+    // Limit substitution maintenance per eye; overflow retains native original surfaces.
+    // This CPU/GPU trade is independently adjustable and still needs hardware comparison.
+    internal const int ScenarioTerrainCameraSourceLimitCount = 64; // => [Optimize] ScenarioTerrainCameraSourceLimitCount
     internal const float ScenarioTerrainDistanceMeters = .75f;
     internal const bool SharedEnvironmentMaterialReads = true;
     internal const bool SharedUiWindowReads = true;
