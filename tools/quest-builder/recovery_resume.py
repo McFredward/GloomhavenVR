@@ -11,6 +11,7 @@ import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import re
+import stat
 
 from storage import BuildError, _ordinary_owned, digest, value_hash, write_json
 
@@ -23,6 +24,12 @@ LEGACY_MERGE_FILES = {
 DERIVED_FILES = {"tools/quest-builder/full_assets.py", "tools/quest-builder/full_shaders.py"}
 MAX_MANIFESTS = 128
 MAX_JSON_BYTES = 16 * 1024 * 1024
+# Full core exports list every asset and .meta file. The 2026-10-06 Windows
+# capture failed before child recovery because this inventory inherited the
+# small control-manifest cap. Only this receipt receives the larger bound;
+# eligibility still checks all records and the child independently hashes the
+# retained exports. No asset copying/re-export is required to read the receipt.
+MAX_CORE_RECEIPT_BYTES = 256 * 1024 * 1024
 HEX = re.compile(r"[0-9a-f]{64}\Z")
 
 
@@ -35,14 +42,30 @@ def recipe_key(inputs, recipe):
     return value_hash({"game": inputs["game"]["key"], "recoveryRecipe": recipe_files(inputs), "recipe": recipe})
 
 
-def _read(path):
+def _read(path, *, max_bytes=MAX_JSON_BYTES):
     path = _ordinary_owned(path)
-    if not path.is_file() or path.stat().st_size > MAX_JSON_BYTES:
-        raise BuildError("Recovery resume evidence is missing or oversized: " + path.name)
+    label = path.name + " (limit " + str(max_bytes) + " bytes)"
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        observed = path.stat()
+    except FileNotFoundError as exc:
+        raise BuildError("Recovery resume evidence is missing: " + label) from exc
+    except OSError as exc:
+        raise BuildError("Recovery resume evidence is unreadable: " + label + "; " + type(exc).__name__) from exc
+    label = path.name + " (" + str(observed.st_size) + " bytes; limit " + str(max_bytes) + " bytes)"
+    if not stat.S_ISREG(observed.st_mode):
+        raise BuildError("Recovery resume evidence is not a regular file: " + label)
+    if observed.st_size > max_bytes:
+        raise BuildError("Recovery resume evidence is oversized: " + label)
+    try:
+        # Keep the actual read bounded too, even if a file grows after stat.
+        with path.open("rb") as stream:
+            raw = stream.read(max_bytes + 1)
+        if len(raw) > max_bytes:
+            raise BuildError("Recovery resume evidence grew beyond its read limit: " + label
+                             + "; observed at least " + str(len(raw)) + " bytes")
+        value = json.loads(raw.decode("utf-8"))
     except (OSError, ValueError) as exc:
-        raise BuildError("Recovery resume evidence is unreadable: " + path.name) from exc
+        raise BuildError("Recovery resume evidence is unreadable: " + label + "; " + type(exc).__name__) from exc
     if not isinstance(value, dict):
         raise BuildError("Recovery resume evidence is not an object: " + path.name)
     return value
@@ -112,7 +135,7 @@ def _qualification(workspace, inputs, game):
                                             separators=(",", ":")).encode()).hexdigest()
     if actual != expected or original.get("schema") != 1 or original.get("sourceFingerprint") != fingerprint:
         raise BuildError("Retained raw recovery source differs from the selected original game.")
-    core = _read(workspace / "core-recovery.json")
+    core = _read(workspace / "core-recovery.json", max_bytes=MAX_CORE_RECEIPT_BYTES)
     instrumentation = next(row["sha256"] for row in recipe_files(inputs)
                            if row["path"] == "tools/quest-recovery/QuestExportIdentity.cs")
     source_proof = core.get("exporterSource")

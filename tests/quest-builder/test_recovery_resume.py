@@ -1,6 +1,7 @@
 """Audited recipe migration replays real retained exports and merge journals."""
 import copy
 import argparse
+import io
 import json
 import os
 from pathlib import Path
@@ -150,6 +151,43 @@ class ResumeFixture(unittest.TestCase):
 
 
 class CompatibleMigrationTests(ResumeFixture):
+    def test_large_core_inventory_migrates_and_bound_retry_does_not_hash_assets(self):
+        receipt = self.workspace / "core-recovery.json"
+        value = json.loads(receipt.read_text())
+        # A full export contains an entry per asset/.meta, unlike its small
+        # source/binding metadata. This real JSON inventory exceeds the old cap;
+        # eligibility validates the records without claiming their bytes are
+        # verified (the actual child remains responsible for that hash gate).
+        value["files"].extend({"path": "Assets/Textures/fixture-character-" + str(number).zfill(6) + ".png",
+                              "bytes": 0, "sha256": "e" * 64} for number in range(130000))
+        storage.write_json(receipt, value)
+        self.assertGreater(receipt.stat().st_size, recovery_resume.MAX_JSON_BYTES)
+        self.assertLess(receipt.stat().st_size, recovery_resume.MAX_CORE_RECEIPT_BYTES)
+        current = self.updated()
+        with patch.object(recovery_resume, "digest", wraps=storage.digest) as hashed:
+            self.assertEqual(self.select(current), self.workspace)
+            self.assertEqual(self.select(current), self.workspace)
+        self.assertTrue(hashed.call_count)
+        self.assertFalse(any(self.core in call.args[0].parents for call in hashed.call_args_list))
+        self.assertEqual(receipt.stat().st_size, len(storage.canonical(value)) + 1)
+        with self.assertRaisesRegex(recover.RecoveryError, "Core recovery output changed"):
+            self.finish(self.workspace)
+        self.assertEqual(self.export_calls, 0)
+
+    def test_large_valid_receipt_reaches_real_child_and_replays_without_export(self):
+        self.interrupted_batch()
+        receipt = self.workspace / "core-recovery.json"
+        # JSON whitespace does not alter the actual already-exported file
+        # inventory. Use it to exercise >16 MiB through real child verification
+        # and journal replay without a huge proprietary/filesystem fixture.
+        with receipt.open("ab") as stream:
+            stream.write(b" " * recovery_resume.MAX_JSON_BYTES)
+        self.assertGreater(receipt.stat().st_size, recovery_resume.MAX_JSON_BYTES)
+        result = self.finish(self.select(self.updated()))
+        self.assertTrue(result["fullOriginalCatalogRecovered"])
+        self.assertEqual(self.export_calls, 1)
+        self.assertFalse((self.batches / "merge-pending.json").exists())
+
     def test_real_completed_export_and_journal_resume_under_new_derived_key(self):
         self.interrupted_batch()
         export_receipt = self.batches / "batch-000/export-complete.json"
@@ -347,6 +385,74 @@ class CorruptionControls(ResumeFixture):
         self.workspace.symlink_to(foreign, target_is_directory=True)
         with self.assertRaises(storage.BuildError): self.select(current)
         self.assertTrue((foreign / "core-recovery.json").exists())
+
+
+class ReceiptReadControls(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_missing_receipt_is_distinct_and_reports_the_limit(self):
+        with self.assertRaisesRegex(storage.BuildError, r"evidence is missing: core-recovery.json \(limit 16777216 bytes\)"):
+            recovery_resume._read(self.root / "core-recovery.json")
+
+    def test_large_control_manifest_retains_small_cap_and_reports_actual_size(self):
+        path = self.root / "original-source.json"
+        with path.open("wb") as stream:
+            stream.truncate(recovery_resume.MAX_JSON_BYTES + 1)
+        with patch.object(recovery_resume.json, "loads", side_effect=AssertionError("Oversized control must not parse")):
+            with self.assertRaisesRegex(storage.BuildError, r"oversized: original-source.json \(16777217 bytes; limit 16777216 bytes\)"):
+                recovery_resume._read(path)
+        self.assertTrue(path.is_file())
+
+    def test_core_receipt_retains_a_larger_finite_cap(self):
+        path = self.root / "core-recovery.json"
+        with path.open("wb") as stream:
+            stream.truncate(recovery_resume.MAX_CORE_RECEIPT_BYTES + 1)
+        with patch.object(recovery_resume.json, "loads", side_effect=AssertionError("Oversized core must not parse")):
+            with self.assertRaisesRegex(storage.BuildError, r"oversized: core-recovery.json \(268435457 bytes; limit 268435456 bytes\)"):
+                recovery_resume._read(path, max_bytes=recovery_resume.MAX_CORE_RECEIPT_BYTES)
+        self.assertTrue(path.is_file())
+
+    def test_malformed_json_and_encoding_remain_unreadable_with_size_and_cause(self):
+        path = self.root / "core-recovery.json"
+        for raw, cause in ((b'{"files":', "JSONDecodeError"), (b"\xff", "UnicodeDecodeError")):
+            with self.subTest(cause=cause):
+                path.write_bytes(raw)
+                with self.assertRaisesRegex(storage.BuildError, "unreadable: core-recovery.json.*"
+                                            + str(len(raw)) + " bytes; limit .*" + cause):
+                    recovery_resume._read(path)
+                self.assertEqual(path.read_bytes(), raw)
+
+    def test_io_failure_reports_type_without_leaking_exception_contents(self):
+        path = self.root / "core-recovery.json"
+        path.write_bytes(b"{}")
+        with patch.object(Path, "open", side_effect=PermissionError("private account/token path")):
+            with self.assertRaisesRegex(storage.BuildError, "unreadable: core-recovery.json.*2 bytes.*PermissionError") as error:
+                recovery_resume._read(path)
+        self.assertNotIn("private account/token", str(error.exception))
+
+    def test_nonfile_and_nonobject_are_not_accepted_as_receipts(self):
+        path = self.root / "core-recovery.json"
+        path.mkdir()
+        with self.assertRaisesRegex(storage.BuildError, "not a regular file: core-recovery.json"):
+            recovery_resume._read(path)
+        path.rmdir()
+        path.write_text("[]")
+        with self.assertRaisesRegex(storage.BuildError, "not an object: core-recovery.json"):
+            recovery_resume._read(path)
+
+    def test_actual_read_is_bounded_if_receipt_grows_after_stat(self):
+        path = self.root / "core-recovery.json"
+        path.write_bytes(b"{}")
+        stream = io.BytesIO(b" " * 100)
+        with patch.object(Path, "open", return_value=stream):
+            with self.assertRaisesRegex(storage.BuildError, "grew beyond its read limit:.*limit 8 bytes.*at least 9 bytes"):
+                recovery_resume._read(path, max_bytes=8)
+        self.assertEqual(path.read_bytes(), b"{}")
 
 
 if __name__ == "__main__":
