@@ -33,6 +33,11 @@ PREVIOUS_PROGRESS_BYTES = {
     "tools/quest-recovery/full_recovery.py": 13022,
     "tools/quest-recovery/native_evidence.py": 8634,
 }
+NESTED_PROGRESS_BYTES = {
+    "tools/quest-recovery/bundle_recovery.py": 27522,
+    "tools/quest-recovery/full_recovery.py": 13647,
+    "tools/quest-recovery/native_evidence.py": 9023,
+}
 
 
 class ResumeFixture(unittest.TestCase):
@@ -89,7 +94,7 @@ class ResumeFixture(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def inputs(self, game_files, *, legacy=False, prior_progress=False):
+    def inputs(self, game_files, *, legacy=False, prior_progress=False, nested_progress=False):
         files = storage.inventory(self.source)
         if legacy:
             for row in files:
@@ -101,6 +106,11 @@ class ResumeFixture(unittest.TestCase):
                 if row["path"] in recovery_resume.PREVIOUS_PROGRESS_FILES:
                     row["sha256"] = recovery_resume.PREVIOUS_PROGRESS_FILES[row["path"]]
                     row["size"] = PREVIOUS_PROGRESS_BYTES[row["path"]]
+        if nested_progress:
+            for row in files:
+                if row["path"] in recovery_resume.NESTED_PROGRESS_FILES:
+                    row["sha256"] = recovery_resume.NESTED_PROGRESS_FILES[row["path"]]
+                    row["size"] = NESTED_PROGRESS_BYTES[row["path"]]
         value = {"schema": 1, "recipe": 1, "target": "game", "game": {"key": self.game_key, "unityVersion": "2021.3.5f1", "files": game_files},
                  "mod": {"key": storage.value_hash({"files": files}), "files": files}}
         value["inputKey"] = storage.value_hash(value)
@@ -135,7 +145,7 @@ class ResumeFixture(unittest.TestCase):
         return project, [], []
 
     def interrupted_batch(self):
-        def interrupt(*args):
+        def interrupt(*args, **kwargs):
             index = args[0] / "QuestRecovery/native-redirect-identities.jsonl"
             index.write_text("interrupted native merge")
             raise KeyboardInterrupt()
@@ -163,9 +173,9 @@ class ResumeFixture(unittest.TestCase):
 
 
 class CompatibleMigrationTests(ResumeFixture):
-    def test_preceding_builder_progress_sources_resume_real_export_and_journal(self):
+    def _check_shipped_progress_profile(self, *, prior_progress=False, nested_progress=False):
         old = self.workspace
-        self.previous = self.inputs(self.previous["game"]["files"], prior_progress=True)
+        self.previous = self.inputs(self.previous["game"]["files"], prior_progress=prior_progress, nested_progress=nested_progress)
         self.old_key = recovery_resume.recipe_key(self.previous, 1)
         self.workspace = old.with_name(self.old_key)
         old.rename(self.workspace)
@@ -213,6 +223,12 @@ class CompatibleMigrationTests(ResumeFixture):
         self.assertEqual(observed, sorted(observed))
         self.assertGreater(len(set(observed)), 20)
         self.assertLess(max(observed), 100)
+
+    def test_preceding_builder_progress_sources_resume_real_export_and_journal(self):
+        self._check_shipped_progress_profile(prior_progress=True)
+
+    def test_nested_progress_builder_sources_resume_real_export_and_journal(self):
+        self._check_shipped_progress_profile(nested_progress=True)
 
     def test_mixed_reviewed_source_profiles_do_not_claim_a_whole_shipped_recipe(self):
         previous = copy.deepcopy(self.previous)
@@ -374,15 +390,31 @@ class CorruptionControls(ResumeFixture):
         self.assertEqual(self.records(self.workspace), before)
         self.assertFalse((self.output / "cache/raw-recovery-resume").exists())
 
-    def test_changed_core_asset_is_rejected_by_actual_child_before_export_or_rollback(self):
+    def test_changed_unused_core_is_not_read_after_matching_merged_checkpoint_exists(self):
         self.interrupted_batch()
         current = self.updated()
         (self.core / "Assets/core.mat").write_bytes(b"corrupt retained core")
-        before = self.records(self.workspace)
-        with self.assertRaisesRegex(recover.RecoveryError, "Core recovery output changed"):
+        with patch.object(full_recovery, "_hash_file", side_effect=AssertionError("Unused core assets must not be rehashed")):
+            result = self.finish(self.select(current))
+        self.assertTrue(result["fullOriginalCatalogRecovered"])
+        self.assertEqual((self.core / "Assets/core.mat").read_bytes(), b"corrupt retained core")
+        self.assertFalse((self.batches / "merge-pending.json").exists())
+
+    def test_changed_actual_merged_core_is_rejected_before_export_or_rollback(self):
+        self.interrupted_batch(); current = self.updated()
+        (self.raw / "Assets/core.mat").write_bytes(b"corrupt actual retained core output")
+        before = (self.batches / "merge-pending.json").read_bytes()
+        with self.assertRaisesRegex(recover.RecoveryError, "checkpoint file changed"):
             self.finish(self.select(current))
-        self.assertEqual(self.records(self.workspace), before)
-        self.assertTrue((self.batches / "merge-pending.json").exists())
+        self.assertEqual((self.batches / "merge-pending.json").read_bytes(), before)
+        self.assertEqual(self.export_calls, 1)
+
+    def test_core_without_merged_checkpoint_is_still_qualified_before_use(self):
+        (self.core / "Assets/core.mat").write_bytes(b"corrupt core that would need copying")
+        with self.assertRaisesRegex(recover.RecoveryError, "Core recovery output changed"):
+            self.finish(self.select(self.updated()))
+        self.assertFalse((self.raw / "quest-full-recovery-progress.json").exists())
+        self.assertEqual(self.export_calls, 0)
 
     def test_changed_exporter_binary_is_rejected_by_real_batch_ownership(self):
         self.interrupted_batch()

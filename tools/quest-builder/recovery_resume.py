@@ -29,6 +29,14 @@ PREVIOUS_PROGRESS_FILES = {
     "tools/quest-recovery/full_recovery.py": "e2c9ccc1c170126c3204a1f0ea69db84d1fd35c01118a4b076e083f065e6b5a3",
     "tools/quest-recovery/native_evidence.py": "ec675fd7506f42c0af3877c63f4f31eeb81fddd48dfc9e9a6e4636f75fbdf076",
 }
+# Reviewed nested-progress Builder (70ca45264), immediately preceding the
+# invocation-owned verification repair. Keep this whole shipped orchestration
+# profile eligible; its exporter/config/instrumentation contract is unchanged.
+NESTED_PROGRESS_FILES = {
+    "tools/quest-recovery/bundle_recovery.py": "41a1507d7c973593419c40745beed0bfff61f3b6a41f118730a60a786674ae9a",
+    "tools/quest-recovery/full_recovery.py": "793f13e432a860febc4754a6b0c07ce0ca5e3eedc0e32ed857ff3131b024435a",
+    "tools/quest-recovery/native_evidence.py": "d774d94dc0333b5f1c1c68d4498fe15c95f4e23436565ef05930c0eeeafc7abe",
+}
 DERIVED_FILES = {"tools/quest-builder/full_assets.py", "tools/quest-builder/full_shaders.py"}
 MAX_MANIFESTS = 128
 MAX_JSON_BYTES = 16 * 1024 * 1024
@@ -110,7 +118,7 @@ def _compatible(previous, current):
     # Every exporter/config/capture source outside these exact three is still
     # identical. The child retains the full input/core/batch/journal hash gates.
     return any(all(old[name]["sha256"] == profile[name] for name in profile)
-               for profile in (LEGACY_MERGE_FILES, PREVIOUS_PROGRESS_FILES))
+               for profile in (LEGACY_MERGE_FILES, PREVIOUS_PROGRESS_FILES, NESTED_PROGRESS_FILES))
 
 
 def _manifest(path):

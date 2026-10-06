@@ -42,6 +42,24 @@ class Fixture(unittest.TestCase):
 
 
 class NativeMergeTests(Fixture):
+    def test_invocation_recipe_proof_is_reused_then_invalidated_by_real_modification(self):
+        copied, _ = self.recipe(self.output); self.recipe(self.evidence)
+        proofs = native.FileProofs()
+        with patch.object(native, "_hash_recipe", wraps=native._hash_recipe) as hashes:
+            native.merge(self.output, self.evidence, proofs=proofs)
+            native.merge(self.output, self.evidence, proofs=proofs)
+        self.assertEqual(sum(call.args[0] == copied for call in hashes.call_args_list), 1)
+        copied.write_bytes(b"changed native fields!\n")
+        with self.assertRaisesRegex(recover.RecoveryError, "Original native recipe changed"):
+            native.merge(self.output, self.evidence, proofs=proofs)
+
+    def test_fresh_invocation_never_adopts_a_previous_stat_only_recipe_proof(self):
+        copied, _ = self.recipe(self.output); self.recipe(self.evidence)
+        native.merge(self.output, self.evidence, proofs=native.FileProofs())
+        with patch.object(native, "_hash_recipe", wraps=native._hash_recipe) as hashes:
+            native.merge(self.output, self.evidence, proofs=native.FileProofs())
+        self.assertEqual(sum(call.args[0] == copied for call in hashes.call_args_list), 1)
+
     def test_matching_retained_and_incoming_recipe_are_hashed_once_each_without_recopy(self):
         copied, _ = self.recipe(self.output); source, _ = self.recipe(self.evidence)
         # Duplicate index rows do not multiply file work.
@@ -147,6 +165,40 @@ class JournalNativeRestartTests(Fixture):
         self.assertTrue((self.workspace / "merge-pending.json").exists())
         self.assertTrue((self.workspace / "merge-index-1.backup").exists())
 
+    def test_completed_writer_checkpoint_cleans_journal_without_cold_output_scan(self):
+        proofs = native.FileProofs(); self.begin()
+        records = native.merge(self.output, self.evidence, proofs=proofs)
+        self.progress.update(completedGroups=[0], files=records)
+        bundles.write_checkpoint(self.checkpoint, self.progress, proofs=proofs)
+        with patch.object(bundles, "verified_records", side_effect=AssertionError("Already qualified writer output must not be rescanned")):
+            bundles.commit_merge(self.output, self.workspace, 0, self.progress, proofs)
+        self.assertFalse((self.workspace / "merge-pending.json").exists())
+        bundles.verified_records(self.output, records)
+
+    def test_modified_writer_checkpoint_refuses_cleanup_without_silently_readopting_it(self):
+        proofs = native.FileProofs(); self.begin()
+        self.progress["completedGroups"] = [0]
+        bundles.write_checkpoint(self.checkpoint, self.progress, proofs=proofs)
+        with self.checkpoint.open("ab") as stream: stream.write(b" ")
+        with self.assertRaisesRegex(recover.RecoveryError, "checkpoint changed before journal cleanup"):
+            bundles.commit_merge(self.output, self.workspace, 0, self.progress, proofs)
+        self.assertTrue((self.workspace / "merge-pending.json").exists())
+
+    def test_second_merge_cannot_silently_replace_unfinished_journal(self):
+        self.begin(); journal = self.workspace / "merge-pending.json"; before = journal.read_bytes()
+        with self.assertRaisesRegex(recover.RecoveryError, "previous recovery merge is unfinished"):
+            self.begin()
+        self.assertEqual(journal.read_bytes(), before)
+
+    def test_rollback_reads_unchanged_files_once_and_restores_only_mutable_indexes(self):
+        self.begin(); native.merge(self.output, self.evidence)
+        with patch.object(bundles, "_hash_file", wraps=bundles._hash_file) as hashes:
+            result = bundles.recover_merge(self.output, self.workspace)
+        self.assertEqual(result, self.progress)
+        self.assertEqual(sum(call.args[0] == self.old for call in hashes.call_args_list), 1)
+        self.assertFalse((self.old.parent / self.new.name).exists())
+
+
 
 class CheckpointActivityTests(Fixture):
     def test_streamed_checkpoint_has_same_data_and_real_record_total(self):
@@ -154,8 +206,12 @@ class CheckpointActivityTests(Fixture):
         value = {"schema": 1, "files": [{"path": "Assets/" + str(index), "sha256": "b" * 64} for index in range(1000)],
                  "identities": [{"collection": "é", "objects": [{"pathId": 17}]}], "completedGroups": [0, 1]}
         stream = io.StringIO()
-        with patch.dict(os.environ, {recover.build_progress.ENV: "1"}), contextlib.redirect_stdout(stream): bundles.write_checkpoint(path, value)
+        proofs = native.FileProofs()
+        with patch.dict(os.environ, {recover.build_progress.ENV: "1"}), contextlib.redirect_stdout(stream):
+            published = bundles.write_checkpoint(path, value, proofs=proofs)
         self.assertEqual(json.loads(path.read_text()), value)
+        self.assertEqual(published, recover.sha256(path))
+        self.assertEqual(proofs.published_digest(path), published)
         complete = [json.loads(line.removeprefix(recover.build_progress.PREFIX)) for line in stream.getvalue().splitlines() if line.startswith(recover.build_progress.PREFIX)][-1]
         self.assertEqual((complete["phase"], complete["done"], complete["total"]), ("recovery-checkpoint-write", 1004, 1004))
         self.assertLess(path.stat().st_size, len(json.dumps(value, indent=2)))

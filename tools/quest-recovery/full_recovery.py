@@ -56,20 +56,27 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
         existing = json.loads((output / "quest-full-recovery-progress.json").read_text())
         if existing["coreIdentitySha256"] != sha256(core_identities):
             raise RecoveryError("Existing core does not match full recovery's native object identity receipt.")
-        read_identities(core_identities, core)
     elif core_receipt.exists():
         receipt = json.loads(core_receipt.read_text())
         if receipt["sourceFingerprint"] != fingerprint or receipt["exporterSource"] != tool_proof["source"]:
             raise RecoveryError("Core recovery inputs/exporter changed.")
         if sha256(core_identities) != receipt["identitiesSha256"]:
             raise RecoveryError("Core native object identity evidence changed.")
-        counter = build_progress.Counter("recovery-core-receipt-verify", len(receipt["files"]), "files")
-        for row in receipt["files"]:
-            path = core / row["path"]
-            if not path.is_file() or _hash_file(path, "recovery-core-file-hash") != row["sha256"]:
-                raise RecoveryError("Core recovery output changed: " + row["path"])
-            counter.add(1, path.name)
-        counter.finish()
+        if ordinary_path(output / "quest-full-recovery-progress.json").is_file():
+            # run_recovery uses the merged checkpoint's identities and actual
+            # output, and independently qualifies those retained bytes once.
+            # The old core export is unused on this path; rereading its entire
+            # inventory only duplicated the later merged-output verification.
+            build_progress.event("recovery-core-receipt-verify", 1, 1, "receipts",
+                                 "Retaining core identity receipt; merged output qualification follows", status="reuse")
+        else:
+            counter = build_progress.Counter("recovery-core-receipt-verify", len(receipt["files"]), "files")
+            for row in receipt["files"]:
+                path = ordinary_path(core / row["path"])
+                if not path.is_file() or _hash_file(path, "recovery-core-file-hash") != row["sha256"]:
+                    raise RecoveryError("Core recovery output changed: " + row["path"])
+                counter.add(1, path.name)
+            counter.finish()
     else:
         owner = workspace / "core-attempt.json"
         expected = {"schema": 1, "owner": "Quest original core export", "sourceFingerprint": fingerprint,
@@ -115,8 +122,13 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
                    "identitiesSha256": sha256(core_identities), "files": records}
         write_json(core_receipt, receipt)
         counter.finish()
+    # The actual catalog plan hashes required original bundles once. Final CAB
+    # ownership indexing uses this same plan instead of rereading every bundle
+    # merely to recreate an unchanged schedule; the final source guard remains.
+    plan = catalog_bundle_plan(source)
     progress = run_recovery(source, core, core_identities, output,
-                            Path(bundle_workspace).resolve() if bundle_workspace else workspace / "BundleRecovery", tool)
+                            Path(bundle_workspace).resolve() if bundle_workspace else workspace / "BundleRecovery", tool,
+                            bundle_plan=plan)
     if metadata_project is not None:
         metadata = Path(metadata_project).resolve() / "QuestRecovery"
         if not metadata.is_dir():
@@ -135,6 +147,8 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
             previous = known_files.get(relative)
             if previous is not None and previous["sha256"] != digest:
                 raise RecoveryError("Existing metadata would overwrite different witnessed recovery evidence: " + relative)
+            if previous is not None:
+                continue  # Qualified output already owns these exact metadata bytes.
             target = output / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(path, target)
@@ -148,7 +162,6 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
     build_progress.event("recovery-section:checkpoint", detail="Publishing the qualified full recovery checkpoint", status="start")
     write_checkpoint(output / "quest-full-recovery-progress.json", progress)
     owners = {}
-    plan = catalog_bundle_plan(source)
     total = sum(len(group["bundles"]) for group in plan["groups"])
     build_progress.event("recovery-section:cab-index", detail="Indexing original physical bundle ownership", status="start")
     counter = build_progress.Counter("recovery-cab-bundle-index", total, "bundles")

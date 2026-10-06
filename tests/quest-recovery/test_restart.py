@@ -89,6 +89,60 @@ class MergeRestartTests(Fixture):
 
 
 class FullBatchRestartTests(Fixture):
+    def test_three_real_batches_never_repeat_growing_output_hash_sweeps(self):
+        source = self.root / 'GH_Data'; source.mkdir(); (source / 'core-input').write_bytes(b'original core input')
+        core = self.root / 'core'; base = self.asset(core, 'a' * 32, 'native-core', 1)
+        native_dir = core / 'QuestRecovery/NativeRecipes'; native_dir.mkdir(parents=True)
+        recipe = native_dir / 'original.yaml'; recipe.write_bytes(b'original native recipe\n')
+        native_row = {'collection': 'native-core', 'pathId': 1, 'yamlPath': recipe.name, 'yamlSha256': recover.sha256(recipe)}
+        (native_dir / 'index.jsonl').write_text(json.dumps(native_row) + '\n')
+        identity_path = self.root / 'core-identities.jsonl'; identity_path.write_text(json.dumps(base) + '\n')
+        groups = []
+        for index in range(3):
+            path = source / (str(index) + '.bundle'); path.write_bytes(b'UnityFS\0' + str(index).encode())
+            groups.append({'bundles': [{'path': path.name, 'bytes': path.stat().st_size, 'sha256': recover.sha256(path)}]})
+        plan = {'catalogSha256': 'c' * 64, 'groups': groups}
+        output, workspace = self.root / 'merged', self.root / 'batches'; exports = []
+        def export(command, stage, target, log, evidence, settings, **_):
+            index = len(exports); exports.append(index)
+            project = target / 'ExportedProject'
+            row = self.asset(project, str(index + 1) * 32, 'native-bundle-' + str(index), index + 2)
+            Path(os.environ['QUEST_EXPORT_IDENTITIES']).write_text(json.dumps(row) + '\n')
+            directory = evidence / 'QuestRecovery/NativeRecipes'; directory.mkdir(parents=True)
+            (directory / recipe.name).write_bytes(recipe.read_bytes())
+            (directory / 'index.jsonl').write_text(json.dumps(native_row) + '\n')
+            log.write_text('original export succeeded\n')
+            return project, [], []
+        with patch.object(bundles, 'catalog_bundle_plan', return_value=plan), \
+             patch.object(bundles, 'repair_managed_plugins'), \
+             patch.object(bundles, 'audit_asset_references', return_value={'unexpectedUnresolvedCount': 0}) as references, \
+             patch.object(bundles, 'run_export', side_effect=export), \
+             patch.object(bundles, 'verified_records', wraps=bundles.verified_records) as verify, \
+             patch.object(bundles, '_hash_file', wraps=bundles._hash_file) as hashes:
+            result = bundles.run_recovery(source, core, identity_path, output, workspace, [])
+        self.assertEqual(exports, [0, 1, 2]); self.assertEqual(result['completedGroups'], [0, 1, 2])
+        self.assertEqual(verify.call_count, 0)
+        self.assertEqual(sum(call.args[0] == output / 'QuestRecovery/NativeRecipes/original.yaml' for call in hashes.call_args_list), 1)
+        self.assertEqual(sum(call.args[0] == output / 'Assets/native-core.mat' for call in hashes.call_args_list), 1)
+        for row in result['files']:
+            if row['path'].startswith('Assets/QuestRecoveredBundles/'):
+                self.assertEqual(sum(call.args[0] == output / row['path'] for call in hashes.call_args_list), 1)
+        self.assertEqual(references.call_count, 1)
+        # A new child hashes the completed output once, skips exporter staging,
+        # and retains the completed reference audit. No loop or re-export occurs.
+        with patch.object(bundles, 'catalog_bundle_plan', return_value=plan), \
+             patch.object(bundles, 'run_export', side_effect=AssertionError('Completed exports must not restart')), \
+             patch.object(bundles, 'stage_input', side_effect=AssertionError('No exporter needs staged inputs')), \
+             patch.object(bundles, 'audit_asset_references', side_effect=AssertionError('Completed reference audit is retained')), \
+             patch.object(bundles, 'verified_records', wraps=bundles.verified_records) as verify, \
+             patch.object(bundles, '_hash_file', wraps=bundles._hash_file) as hashes:
+            resumed = bundles.run_recovery(source, core, identity_path, output, workspace, [])
+        self.assertEqual(resumed, result); self.assertEqual(verify.call_count, 1)
+        self.assertEqual(verify.call_args.kwargs['phase'], 'recovery-resume-verify')
+        for row in result['files']:
+            self.assertEqual(sum(call.args[0] == output / row['path'] for call in hashes.call_args_list), 1)
+        self.assertFalse((workspace / 'merge-pending.json').exists())
+
     def test_two_real_identity_batches_reuse_completed_export_after_interrupted_merge(self):
         source = self.root / 'GH_Data'; source.mkdir(); (source / 'core-input').write_bytes(b'core original')
         core = self.root / 'core'; base = self.asset(core, 'a'*32, 'native-core', 1)
@@ -110,7 +164,9 @@ class FullBatchRestartTests(Fixture):
         with patch.object(bundles,'catalog_bundle_plan',return_value=plan),patch.object(bundles,'repair_managed_plugins'),patch.object(bundles,'audit_asset_references',return_value={'unexpectedUnresolvedCount':0}),patch.object(bundles,'run_export',side_effect=export):
             with patch.object(bundles,'merge_export',side_effect=interrupt),self.assertRaises(KeyboardInterrupt):bundles.run_recovery(source,core,identity_path,output,workspace,[])
             self.assertEqual(json.loads((output/'quest-full-recovery-progress.json').read_text())['completedGroups'],[0])
-            result=bundles.run_recovery(source,core,identity_path,output,workspace,[])
+            with patch.object(bundles, 'stage_input', side_effect=AssertionError('Retained export does not need staging')), \
+                 patch.object(bundles.shutil, 'copy2', side_effect=AssertionError('Retained batch must not recopy bundles')):
+                result=bundles.run_recovery(source,core,identity_path,output,workspace,[])
         self.assertEqual(exports,[0,1]);self.assertEqual(result['completedGroups'],[0,1]);self.assertTrue(result['assetsRecovered'])
         self.assertEqual(len(export_identity.object_index(result['identities'])),3)
 
@@ -150,7 +206,7 @@ class CoreExportRestartTests(Fixture):
             calls.append('export');project=target/'ExportedProject';row=self.asset(project,'a'*32,'native-core',1)
             if len(calls)==1:raise KeyboardInterrupt()
             Path(os.environ['QUEST_EXPORT_IDENTITIES']).write_text(json.dumps(row)+'\n');return project,[],[]
-        def merged(game,core,identities,output,where,command):
+        def merged(game,core,identities,output,where,command,**_):
             import shutil
             shutil.copytree(core,output)
             return {'schema':1,'files':self.records(output),'completedGroups':[],'assetsRecovered':True}

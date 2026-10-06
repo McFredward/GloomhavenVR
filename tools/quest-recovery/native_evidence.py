@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import stat
 import time
 import uuid
 
@@ -10,6 +11,54 @@ from recover import RecoveryError, sha256, ordinary_path, build_progress
 
 
 LARGE_FILE = 8 * 1048576
+
+
+class FileProofs:
+    """Reuse witnessed hashes only inside one recovery invocation.
+
+    The maintainer's repeated checkpoint report exposed growing full-output
+    reads before and after every batch. A fresh process still hashes retained
+    bytes; within that process, unchanged files keep the hash actually read or
+    produced by its own writer. These proofs are never serialized. File identity,
+    size, modification and change stamps invalidate a proof after a local write.
+    """
+    def __init__(self):
+        self._files = {}
+
+    @staticmethod
+    def _stamp(path):
+        value = ordinary_path(path).stat()
+        if not stat.S_ISREG(value.st_mode):
+            raise RecoveryError("Qualified recovery evidence is not a regular file: " + str(path))
+        return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+    def digest(self, path, hasher=sha256):
+        path = ordinary_path(path)
+        before = self._stamp(path)
+        previous = self._files.get(path)
+        if previous is not None and previous[0] == before:
+            return previous[1]
+        digest = hasher(path)
+        if self._stamp(path) != before:
+            raise RecoveryError("Recovery evidence changed while being read: " + str(path))
+        self._files[path] = before, digest
+        return digest
+
+    def remember(self, path, digest, size):
+        """Record bytes just published by an invocation-owned streaming writer."""
+        path = ordinary_path(path)
+        stamp = self._stamp(path)
+        if stamp[2] != size:
+            raise RecoveryError("Published recovery evidence changed size: " + str(path))
+        self._files[path] = stamp, digest
+
+    def published_digest(self, path):
+        """Require an unchanged writer/read proof, rather than adopting new bytes."""
+        path = ordinary_path(path)
+        previous = self._files.get(path)
+        if previous is None or self._stamp(path) != previous[0]:
+            raise RecoveryError("Published recovery checkpoint changed before journal cleanup: " + str(path))
+        return previous[1]
 
 
 def environment(directory):
@@ -67,6 +116,7 @@ def _copy_recipe(original, copied, expected):
         if counter: counter.finish()
     finally:
         temporary.unlink(missing_ok=True)
+    return copied.stat().st_size
 
 
 def _write_index(destination, values):
@@ -87,7 +137,7 @@ def _write_index(destination, values):
     return digest.hexdigest(), size
 
 
-def merge(project, evidence):
+def merge(project, evidence, *, proofs=None):
     """Preserve exact native recipes, never the random exported GUID graph.
 
     The 2026-10-06 Windows report ends after collection 2761/2761. Native
@@ -98,6 +148,7 @@ def merge(project, evidence):
     Mutable indexes remain atomically replaced under the caller's merge journal.
     """
     project, evidence = ordinary_path(project), ordinary_path(evidence)
+    proofs = proofs if proofs is not None else FileProofs()
     target = ordinary_path(project / "QuestRecovery")
     target.mkdir(exist_ok=True)
     records = {}
@@ -138,23 +189,25 @@ def merge(project, evidence):
                 raise RecoveryError("Native recipe filenames collide case-insensitively.")
             copied_now = not copied.exists()
             if not copied_now:
-                if _hash_recipe(copied) != expected:
+                if proofs.digest(copied, _hash_recipe) != expected:
                     raise RecoveryError("Original native recipe changed across bounded exports.")
             else:
-                _copy_recipe(first, copied, expected)
+                size = _copy_recipe(first, copied, expected)
+                proofs.remember(copied, expected, size)
             for original in candidates:
                 if original == copied:
                     continue
                 # The freshly copied first source was hashed while copying.
                 if original == first and copied_now:
                     continue
-                if _hash_recipe(original) != expected:
+                if proofs.digest(original, _hash_recipe) != expected:
                     raise RecoveryError("Captured original native recipe changed.")
             records[copied.relative_to(project).as_posix()] = {"path": copied.relative_to(project).as_posix(),
                                                              "sha256": expected, "bytes": copied.stat().st_size}
             counter.add(1, copied.name)
         counter.finish()
         digest, size = _write_index(destination, values)
+        proofs.remember(destination, digest, size)
         relative = destination.relative_to(project).as_posix()
         records[relative] = {"path": relative, "sha256": digest, "bytes": size}
         build_progress.event("recovery-native-index-set", slot + 1, len(indices), "indexes", filename, status="complete")
