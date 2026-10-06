@@ -35,6 +35,10 @@ internal static partial class TownServiceMirror
         internal TownServiceFrame? Merged;
         internal int Owner;
         internal ulong HandSequence;
+        internal ulong OfferedRootSequence;
+        internal float OfferedSampleTime = -1f, OfferedStarted, OfferedDuration;
+        internal Vector3 OfferedFrom, OfferedTarget, OfferedScaleFrom, OfferedScaleTarget;
+        internal Quaternion OfferedRotationFrom, OfferedRotationTarget;
         internal float LastSampleTime = -1f, HandStarted, HandDuration;
         internal Vector3 HandFrom, CanvasFrom, HandTarget, CanvasTarget;
         internal readonly List<MotionSlot> Slots = new();
@@ -489,6 +493,7 @@ internal static partial class TownServiceMirror
                         ? frame.SampleTime - composed.LastSampleTime : TownServiceMotionCodec.SendInterval;
                     module.Motion.Tick(now);
                     PrepareHandMotion(module, composed, root, now, sampleInterval);
+                    PrepareOfferedRootMotion(module, composed, root, now);
                     module.Motion.BeforeApply(now);
                     module.Binding.Apply(frame, Assets);
                     if (root != null) ApplyMotionRoot(module, root.Entry, composed, frame, now);
@@ -509,6 +514,11 @@ internal static partial class TownServiceMirror
                 if (flight != null && flight.Entry.Kind == 7 && flight.Entry.Hand == root.Entry.Hand)
                     ApplyReturnMotion(module, flight, composed, composed.Merged, now);
             }
+            // Native hover/selection and ring pulses are independent child samples.
+            // They must never restart the physical offered card's facing tween.
+            if (root != null && composed.Merged != null && composed.OfferedRootSequence != 0
+                && root.Entry.Visible && root.Entry.ParentAlpha > 0f && module.Host.activeInHierarchy)
+                ApplyOfferedRootMotion(module, composed, composed.Merged, now);
             // Card returns use the same actual local easing, endpoint and original child
             // geometry every render frame. They cannot depend on a held-hand root branch:
             // cabinet and ability returns are explicitly shared-map anchored.
@@ -590,6 +600,52 @@ internal static partial class TownServiceMirror
         motion.HandTarget = target; motion.CanvasTarget = canvasTarget;
         motion.HandDuration = motion.HandSequence == 0 ? 0f : Mathf.Clamp(interval * 1.1f, 1f / 90f, 1.5f);
         motion.HandSequence = root.ReceivedSequence; motion.HandStarted = now;
+    }
+
+    private static void PrepareOfferedRootMotion(RemoteModule module, RemoteMotion motion, MotionSlot? sample, float now)
+    {
+        if (sample == null || sample.Entry.Hand != 0
+            || sample.Entry.ParentModule != TownServiceFrame.ManifestModule
+            || module.LastFrame!.Service != 3
+            || !(module.Address.StartsWith("face.", StringComparison.Ordinal)
+                || module.Address.StartsWith("enchant.holder", StringComparison.Ordinal)))
+        { motion.OfferedRootSequence = 0; return; }
+        if (motion.OfferedRootSequence == sample.ReceivedSequence) return;
+        Transform? shared = SharedFrameForRemote?.Invoke(motion.Owner); if (shared == null) return;
+        Transform target = module.AddedCanvas != null && !module.LastFrame.HasCanvasFrame
+            ? module.Host.transform : module.Binding.Root;
+        float blend = motion.OfferedDuration > 0f
+            ? Mathf.Clamp01((now - motion.OfferedStarted) / motion.OfferedDuration) : 1f;
+        motion.OfferedFrom = motion.OfferedRootSequence == 0 ? shared.InverseTransformPoint(target.position)
+            : Vector3.LerpUnclamped(motion.OfferedFrom, motion.OfferedTarget, blend);
+        motion.OfferedRotationFrom = motion.OfferedRootSequence == 0 ? Quaternion.Inverse(shared.rotation) * target.rotation
+            : Quaternion.SlerpUnclamped(motion.OfferedRotationFrom, motion.OfferedRotationTarget, blend);
+        motion.OfferedScaleFrom = motion.OfferedRootSequence == 0
+            ? DivideMotionScale(target.lossyScale, shared.lossyScale)
+            : Vector3.LerpUnclamped(motion.OfferedScaleFrom, motion.OfferedScaleTarget, blend);
+        motion.OfferedTarget = Position(sample.Entry.Pose);
+        motion.OfferedRotationTarget = Rotation(sample.Entry.Pose);
+        motion.OfferedScaleTarget = Scale(sample.Entry.Pose);
+        float interval = motion.OfferedSampleTime >= 0f && sample.SampleTime > motion.OfferedSampleTime
+            ? sample.SampleTime - motion.OfferedSampleTime : TownServiceMotionCodec.SendInterval;
+        motion.OfferedDuration = Mathf.Clamp(interval * 1.1f, 1f / 90f, .25f);
+        motion.OfferedStarted = now; motion.OfferedSampleTime = sample.SampleTime;
+        motion.OfferedRootSequence = sample.ReceivedSequence;
+    }
+
+    private static Vector3 DivideMotionScale(Vector3 value, Vector3 divisor) => new(
+        value.x / divisor.x, value.y / divisor.y, value.z / divisor.z);
+
+    private static void ApplyOfferedRootMotion(RemoteModule module, RemoteMotion motion, TownServiceFrame authored, float now)
+    {
+        Transform? shared = SharedFrameForRemote?.Invoke(motion.Owner); if (shared == null) return;
+        Transform root = module.AddedCanvas != null && !authored.HasCanvasFrame ? module.Host.transform : module.Binding.Root;
+        float blend = Mathf.Clamp01((now - motion.OfferedStarted) / motion.OfferedDuration);
+        root.position = shared.TransformPoint(Vector3.LerpUnclamped(motion.OfferedFrom, motion.OfferedTarget, blend));
+        root.rotation = shared.rotation * Quaternion.SlerpUnclamped(motion.OfferedRotationFrom, motion.OfferedRotationTarget, blend);
+        root.localScale = DivideMotionScale(Vector3.Scale(shared.lossyScale,
+            Vector3.LerpUnclamped(motion.OfferedScaleFrom, motion.OfferedScaleTarget, blend)), root.parent.lossyScale);
+        if (module.AddedCanvas != null && !authored.HasCanvasFrame) NormalizeDetachedRoot(module);
     }
 
     private static void ApplyMotionRoot(RemoteModule module, TownServiceMotionEntry entry, RemoteMotion motion,

@@ -1428,6 +1428,11 @@ public static partial class MirrorProgram
             _camera.clearFlags = CameraClearFlags.SolidColor; _camera.backgroundColor = new Color(.025f, .03f, .04f, 1);
             GloomhavenVR.Rig.VRRigDriver.HeadCamera = _camera;
             if (variant == "production") PublisherNoCloth();
+            if (suite == "offered-orientation")
+            {
+                IEnumerator geometry = OfferedOrientation629(); while (geometry.MoveNext()) yield return geometry.Current;
+                File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\n"); yield break;
+            }
             if (suite == "card-return")
             {
                 IEnumerator returns = CardReturns626(); while (returns.MoveNext()) yield return returns.Current;
