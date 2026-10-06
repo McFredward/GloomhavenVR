@@ -533,7 +533,7 @@ internal static partial class PerfConfig
             "Simpler shading for compatible static floor surfaces: retains original color textures, "
             + "tint and geometry but omits normal, metallic, fine surface detail and received realtime shadows. Wall dissolution, "
             + "water, foliage, figures, items and UI retain their original shaders. Works live on PC and "
-            + "Frame. Fresh Frame defaults On, PC Off; saved choices are retained.");
+            + "Frame. Used when WorldMaterialQualityModeCount is 0. Fresh Frame defaults On, PC Off; saved choices are retained.");
 
         ScenarioEnvironmentEffectsDensityPercent = _file.Bind("Optimize", "ScenarioEnvironmentEffectsDensityPercent",
             FrameDefaults.Active ? FrameDefaults.ScenarioEnvironmentEffectsDensityPercent : Defaults.ScenarioEnvironmentEffectsDensityPercent,

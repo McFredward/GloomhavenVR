@@ -126,6 +126,10 @@ def main():
     variants = [('production',source,'')]
     if not args.production_only:
         changes = [
+            ('world-canonical-map-missing', 'return _worldCanonical?.Invoke(original) ?? original;', 'return original;', 'composed canonical material maps private world references to exact native original', 1),
+            ('world-notification-recurses-owner', '_terrainBeforeWrite?.Invoke(renderer);\n            if (_failed) return;', '_worldBeforeWrite?.Invoke(renderer); _terrainBeforeWrite?.Invoke(renderer);\n            if (_failed) return;', 'world reference notification retains new bindings without recursively restoring its owner', 1),
+            ('world-disposal-consumers-retained', '_driver?.WorldMaterialsDisposing();', '/* injected retained world material consumers */', 'world variant disposal synchronously releases current and queued material consumers', 1),
+
             ('inactive-host-acquires-render-lease', '!isActiveAndEnabled || !_active', '!_active', 'inactive environment host uses original camera pixels without private chunk leases', 1),
             ('material-read-toggle-stuck', 'bool share = PerfConfig.SharedEnvironmentMaterialReadsOn;', 'bool share = true;', 'shared material read option Off repeats every original per-surface validation', 1),
             ('private-bank-toggle-ignored', 'surface.ReadableMesh == null && _meshBankOn && ScenarioEnvironmentMeshBank.TryGetExact', 'surface.ReadableMesh == null && ScenarioEnvironmentMeshBank.TryGetExact', 'private mesh bank option Off restores unreadable original rendering immediately', 1),
@@ -181,7 +185,7 @@ def main():
             ('shared-original-verdict-recomputed','if (!share || !_preCullMaterialVerdicts.TryGetValue(original, out materialCompatible))','_preCullMaterialVerdicts.Clear();\n                    if (!share || !_preCullMaterialVerdicts.TryGetValue(original, out materialCompatible))','one camera validates each shared original material once',1),
             ('shared-original-cross-camera-cache','_preCullMaterialVerdicts.Clear();','/* injected: stale material verdict survives cameras */','native keyword edit between camera invocations restores every sharing surface before culling',3),
             ('shared-original-renderer-veto-missing','!surface.Renderer.HasPropertyBlock() && (surface.Floor || surface.Structural)','surface.Floor || surface.Structural','shared original verdict never bypasses an individual native property-block veto',1),
-            ('native-continuation-fault-guard-removed','try { _terrainReady?.Invoke(renderer); if (!_failed) _driver?.MaterialReady(renderer); }\n        catch (Exception error) { StopAfterFailure(error); }','_driver?.MaterialReady(renderer);','generated shader resolver fault',1),
+            ('native-continuation-fault-guard-removed','try { _worldReady?.Invoke(renderer); _terrainReady?.Invoke(renderer); if (!_failed) _driver?.MaterialReady(renderer); }\n        catch (Exception error) { StopAfterFailure(error); }','_driver?.MaterialReady(renderer);','generated shader resolver fault',1),
             ('failed-environment-stops-terrain', '_terrainBeforeWrite?.Invoke(renderer); if (!_failed) _driver?.BeforeNativeRendererWrite(renderer);',
              'if (!_failed) { _terrainBeforeWrite?.Invoke(renderer); _driver?.BeforeNativeRendererWrite(renderer); }',
              'terrain native write and placement bridges survive an independent environment failure', 1),

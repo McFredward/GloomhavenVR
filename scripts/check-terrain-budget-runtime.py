@@ -35,6 +35,8 @@ def main():
     assert 'StaticBatchingUtility' not in source+geometry and 'SetStaticBatchInfo' not in source+geometry
     assert not re.search(r'(?<![\w])(?:Filter\.sharedMesh|Renderer\.sharedMaterials)\s*=(?!=)', source+geometry), 'native cloning sources must stay unchanged'
     controls=[
+        ('world-refusal-falls-through', 'supported &= !world || _worldOwns?.Invoke(next) == true;', 'supported &= true;', 'world shader refusal retains whole native source without falling through to legacy cheap shader', source, 1),
+        ('world-variant-owner-bypassed', 'world ? _worldVariant?.Invoke(original) ?? original', 'world ? CheapMaterial(original)', 'terrain world bridge submits the global owner variant on private geometry', source, 1),
         ('floorhex-veto-missing','AuthoredName(mesh.name).IndexOf("Floor", StringComparison.OrdinalIgnoreCase) >= 0','false','complete floor identity veto recognizes FloorHex',source,1),
         ('bank-identity-veto-missing','!StructuralIdentity(filter.sharedMesh) ? 2','false ? 2','eligible non-floor terrain has private proxies while floors remain native',source,1),
         ('wall-owner-veto-missing','if (component is ProceduralWall) role |= ComponentRole.Structural;','if (component is ProceduralWall or ProceduralMapTile) role |= ComponentRole.Structural;','eligible non-floor terrain has private proxies while floors remain native',admission,1),
