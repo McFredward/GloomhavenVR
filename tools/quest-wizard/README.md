@@ -19,8 +19,8 @@ The browser API is loopback only with a random request token. Mutations require
 an exact Origin. GETs require the same token and either exact Origin or the
 browser's same-origin Fetch Metadata, always with the exact bound Host. UI assets
 are served from the declared ordinary directory; no arbitrary file endpoint,
-commands, CORS or credentials are accepted. Local logs are limited to the final
-64 KiB of an explicitly named stage. The token is in the browser fragment, never
+commands, CORS or credentials are accepted. Local log responses are limited to 64 KiB for an explicitly named stage,
+including its named Unity prerequisite or bounded asset-export logs when present. The token is in the browser fragment, never
 HTTP request URLs or request logs. Closing the backend requests cancellation and
 waits for owned child shutdown before exiting.
 
@@ -36,8 +36,17 @@ server prints one `schema:1,event:server,url` object. Progress has stage IDs
 HTTP uses GET `/api/discover`, `/api/status?session=ID`,
 `/api/events?session=ID&after=N`, `/api/log?session=ID&stage=STAGE`; POST
 `/api/plan {choices,session?}`, `/api/run {session}`,
-`/api/cancel {session}`, `/api/browse {kind:game|unity}`. Native browse is Windows
-only. Artwork becomes available only after an inspect receipt and server-owned recovery cache witness matching original PNGs. GET `/api/artwork?session=ID&id=OPAQUE` checks the token/origin and image SHA again; status exposes only opaque IDs/URLs, never a filesystem path. Capture and cache cleanup capabilities remain false.
+`/api/cancel {session}`, `/api/browse {kind:game|unity}`,
+`/api/action {session,action:unity-open|unity-check,nonce}`. The last route accepts
+only an action currently declared by the running Unity stage. Closing a Hub or
+installer window keeps the wait visible; reopening it does not complete the stage. Native browse is Windows
+only. GET `/api/gallery` exposes optional hash-pinned public publisher character/enemy
+artwork, downloaded anonymously from the official announcement CDN into a private
+local cache. No account or platform service is used; no artwork bytes ship in the
+source release, and an unavailable picture does not block conversion. GET
+`/api/promo-artwork?id=OPAQUE` revalidates the exact bytes and PNG/JPEG header.
+After a matching inspect/recovery witness, local game portraits can also become
+available. GET `/api/artwork?session=ID&id=OPAQUE` checks the token/origin and image SHA again; status exposes only opaque IDs/URLs, never a filesystem path. Capture and cache cleanup capabilities remain false.
 Discovery lists recent opaque session IDs because browser storage belongs to the
 random port's origin. Reopening a session does not start any work automatically.
 
@@ -60,8 +69,14 @@ require them. The installed Hub's archived-version CLI is checked at runtime bef
 Editor/module automation; the existing Editor receives only its missing Android
 modules. Unity documents this Hub CLI as deprecated with minimal support from
 3.18; an absent command produces a specific actionable fallback, never a pretend
-installation. A version check does **not** prove license activation. `licenseVerified:false` is explicit. This backend does not
-promise unattended Unity licensing. Unity failure logs remain local.
+installation. A version check does **not** prove license activation. The Editor must also
+complete a bounded, owned empty-project probe with the exact success marker. Only
+then is `licenseVerified:true` recorded. The probe proves that the Editor can run;
+it does not decide account/license eligibility or read/export license contents.
+Old unverified prerequisite receipts are invalidated by prerequisite policy 2.
+Sign-in remains an explicit repeatable user action; supported headless tools have
+timeouts, and their authentication failures return to the visible wait. Unity
+failure logs remain local.
 
 After hard process death, a saved running session is marked interrupted only
 when the kernel workspace lock has no active owner; a live external run remains
@@ -175,8 +190,10 @@ there is no arbitrary filesystem-path download endpoint.
 The ZIP contains bounded stage/error context, mod/source/input/build identities,
 host CPU/architecture, and the resource policy/events/metrics produced under
 `build/evidence/`. These records supply memory, chosen jobs, stage timings and
-outcomes when present. Only direct known stage/build logs and the three named
-resource records are eligible: no recursive project/cache/game traversal occurs.
+outcomes when present. Only direct known stage/build logs, the three named resource records, and
+explicit `core-export.log` / `BundleRecovery/batch-NNN/export.log` paths from at
+most two current recovery workspaces are eligible. At most eight recent batch
+logs per workspace are retained; no recursive project/cache/game traversal occurs.
 Profile and DLC JSON, environment files, license files, signing credentials,
 game assets and saves are excluded. Known profile/path values, authorization,
 token/password/serial fields, signed URL queries, JWTs and key blocks are
@@ -187,3 +204,30 @@ Each log retains bounded beginning/end context (2 MiB/file, 24 MiB total,
 The export reads saved state directly and leaves running/interrupted workflow
 status and receipts unchanged. An export is a diagnostic snapshot, not proof
 that its APK was installed or that the headset picture is correct.
+
+## Observed progress and failure visibility
+
+Each stage carries its named current substep, real done/total/unit counters,
+percentage and update time. A percentage describes that substep, not a synthetic
+weighted estimate of the entire APK build. Switching substeps can change the
+denominator. Downloads use bytes, snapshots/hash checks use actual file/byte
+inventories, bounded recovery uses committed catalog batch counts, and Bee native
+compilation uses its emitted action counts. AssetRipper API calls or other tools
+without native counts remain visibly unknown; elapsed time never invents progress.
+The child `GHVRQ_PROGRESS` protocol is enabled only for Wizard runs. Ordinary CLI
+output stays quiet. State/event writes are rate limited and the final observed
+counter is persisted; a failed or interrupted step never receives a success receipt.
+
+The UI shows required actions and failures above the stage list. Failure context
+names the affected builder substep and a concise next action; detailed original
+error text, exception type/traceback, process exit, bounded invocation arguments
+and log locations remain in `logs/progress.log` and the support ZIP. Credential
+flags and environment contents are not logged. The log selector follows the
+active/failed stage until the user chooses another one. Live viewing includes
+known nested exporter logs instead of only the wrapper's generic exit message.
+An old `last-failure.json` from another attempt cannot replace the current cause.
+
+A changed conversion recipe gets a separate recovery key. Existing source/tool
+caches and old checkpoints remain preserved, but an exporter correction can
+require a new coherent export. This is not a promise that incompatible native
+export checkpoints can be reused across recipe changes.

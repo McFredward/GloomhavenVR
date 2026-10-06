@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {strings,translate} from '../i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,artworkUrl,sessionId} from '../model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId} from '../model.mjs';
 import {LocalApi,PreviewApi} from '../transport.mjs';
 
 test('German and English expose the same strings and parameter ABI',()=>{
@@ -46,6 +46,19 @@ test('browser artwork URLs and session IDs remain local and bounded',()=>{
   for(const value of ['https://other.invalid/api/artwork','file:///original.png','data:image/png,test','/Assets/Texture.png','//other.invalid/api/artwork'])assert.equal(artworkUrl(value,origin),null);
   assert.equal(sessionId('session-123'),'session-123');
   for(const value of ['../secret','short','x'.repeat(129),null])assert.equal(sessionId(value),null);
+});
+
+test('measured substeps and prerequisite actions survive without invented percentages',async()=>{
+  const stage={id:'unity',status:'running',progress:{phase:'unity-prerequisites',done:3,total:4,percent:75,unit:'checks'},waiting:{nonce:'a'.repeat(32)}};
+  assert.equal(progressView({status:'running',stages:[stage],progress:{percent:null}}).percent,75);
+  assert.equal(stageProgress(stage).percent,75);assert.equal(stageProgress(stage).waiting.nonce,'a'.repeat(32));
+  assert.equal(stageProgress({...stage,progress:{phase:'unity-install',percent:null}}).percent,null);
+  assert.equal(stageProgress({status:'complete'}).percent,100);assert.equal(stageProgress({status:'pending'}).percent,0);
+  const calls=[],api=new LocalApi('http://127.0.0.1:1234','token',async(url,options)=>{calls.push({url:String(url),options});return {ok:true,json:async()=>({schema:1,event:'action_requested'})};});
+  await api.action('session-123','unity-open','a'.repeat(32));assert.deepEqual(JSON.parse(calls[0].options.body),{session:'session-123',action:'unity-open',nonce:'a'.repeat(32)});
+  assert.throws(()=>api.action('session-123','cmd.exe','a'.repeat(32)));assert.throws(()=>api.action('session-123','unity-check','old-nonce'));
+  assert.equal(artworkUrl('/api/promo-artwork?id=brute','http://127.0.0.1:1234'),'http://127.0.0.1:1234/api/promo-artwork?id=brute');
+  assert.ok(!strings.de.progressEyebrow.includes('ABENTEUER'));assert.ok(!strings.en.progressEyebrow.includes('ADVENTURE'));
 });
 
 test('real transport sends token, structured choices and explicit optional session',async()=>{

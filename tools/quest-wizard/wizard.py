@@ -110,21 +110,22 @@ class Engine:
                 self.emit(self.store.event(state, "stage_complete", stage, durationSeconds=row["durationSeconds"], outputCount=len(receipt["outputs"])))
             except (Cancelled, WizardError) as error:
                 row["durationSeconds"] = round(time.monotonic() - started, 3)
-                row["status"] = "cancelled" if isinstance(error, Cancelled) else "blocked"
+                row["status"] = "cancelled" if isinstance(error, Cancelled) else "failed" if error.code in ("build_tool_failed", "child_failed") else "blocked"
                 state["status"] = row["status"]
                 # Preserve an existing explicit wait and its retry action. A
                 # process update/error must never hide a required user action.
                 if isinstance(error, Cancelled):
                     self.store.clear_waiting(session, stage); state["needsActions"] = []
                 elif not row.get("waiting"):
-                    state["needsActions"] = [{"code": error.code, "message": error.message, "parameters": error.parameters}]
-                self.emit(self.store.event(state, error.code, stage, **{**error.parameters, "durationSeconds": row["durationSeconds"]})); return state
+                    state["needsActions"] = [{"code": error.code, "stage": stage, "message": error.message, "parameters": error.parameters}]
+                self.emit(self.store.event(state, error.code, stage, **{**error.parameters, "message": error.message, "durationSeconds": row["durationSeconds"]})); return state
             except (OSError, ValueError, RuntimeError) as error:
                 row["durationSeconds"] = round(time.monotonic() - started, 3)
                 row["status"] = state["status"] = "failed"
                 if not row.get("waiting"):
-                    state["needsActions"] = [{"code": "stage_failed", "message": {"en": str(error), "de": str(error)}}]
-                self.emit(self.store.event(state, "stage_failed", stage, durationSeconds=row["durationSeconds"])); return state
+                    state["needsActions"] = [{"code": "stage_failed", "stage": stage, "message": {"en": str(error), "de": str(error)}}]
+                import traceback
+                self.emit(self.store.event(state, "stage_failed", stage, error=type(error).__name__, message=str(error), traceback=traceback.format_exc()[-16384:], durationSeconds=row["durationSeconds"])); return state
         state["status"] = "complete"; self.emit(self.store.event(state, "run_complete")); return state
 
     def details(self, state, stage): return state["completed"][stage]["details"]

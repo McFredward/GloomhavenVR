@@ -13,6 +13,19 @@ import time
 from state import Cancelled, STAGES, WizardError, atomic_json, ordinary, stage_progress
 
 
+def diagnostic_command(argv):
+    """Record tool invocation without credential flags or environment values."""
+    result = []; hide_next = False
+    for raw in argv:
+        value = str(raw)
+        if hide_next: result.append('[redacted]'); hide_next = False; continue
+        if value.startswith('-') and re.search(r'(?i)(password|token|secret|serial|credential)', value):
+            result.append(value.split('=')[0] + ('=[redacted]' if '=' in value else ''))
+            hide_next = '=' not in value
+        else: result.append(value[:4096])
+    return result[:128]
+
+
 class ProgressParser:
     """Recognize measured counters, never infer a percentage from elapsed time."""
     def __init__(self):
@@ -215,7 +228,7 @@ class Supervisor:
                 identity = process_identity(process)
                 atomic_json(self.store.session_dir(self.session) / "child.json", {"schema": 1, **identity, "session": self.session})
                 if job: job.attach_resume(process)
-                self.store.record(self.session, "process_started", self.stage, executable=Path(argv[0]).name, log=log.name)
+                self.store.record(self.session, "process_started", self.stage, executable=Path(argv[0]).name, command=diagnostic_command(argv), log=log.name)
                 if on_started: on_started(process)
                 while process.poll() is None:
                     try: self.store.check_cancel(self.session)
@@ -233,9 +246,8 @@ class Supervisor:
                 code = process.wait()
                 self._tail_progress(tails, parser, started_wall, final=True)
                 if code not in acceptable_codes and not controlled_stop:
-                    raise WizardError("child_failed", "A required tool failed; its local log was retained.",
-                                      "Ein benötigtes Werkzeug ist fehlgeschlagen; sein lokales Log bleibt erhalten.",
-                                      executable=Path(argv[0]).name, exitCode=code, log=str(log))
+                    from failures import tool_failure
+                    raise tool_failure(self.store.root, self.stage, log, started_wall, Path(argv[0]).name, code)
                 return 0 if controlled_stop else code
         finally:
             if process is not None:

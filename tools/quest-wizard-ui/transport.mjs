@@ -29,6 +29,8 @@ export class LocalApi {
   run(session) { return this.request('/api/run',{session}); }
   cancel(session) { return this.request('/api/cancel',{session}); }
   log(session,stage) { if(!sessionId(session)||!stageIds.includes(stage))throw {code:'invalidReply'};return this.request('/api/log?session='+encodeURIComponent(session)+'&stage='+stage); }
+  gallery() {return this.request('/api/gallery');}
+  action(session,action,nonce) {if(!sessionId(session)||!['unity-open','unity-check'].includes(action)||typeof nonce!=='string'||!/^[a-f0-9]{32}$/.test(nonce))throw {code:'invalidReply'};return this.request('/api/action',{session,action,nonce});}
   qualify(gameRoot) { return this.request('/api/qualify',{gameRoot}); }
   browse(kind) { return this.request('/api/browse',{kind}); }
   status(session) { if (!sessionId(session)) throw {code:'invalidReply'}; return this.request('/api/status?session='+encodeURIComponent(session)); }
@@ -37,6 +39,8 @@ export class LocalApi {
 
 // Deliberate, visibly labelled design preview; never falls through to real tools.
 export class PreviewApi {
+  async gallery() {return {schema:1,event:'gallery',artwork:[]};}
+  async action() {throw {code:'preview'};}
   constructor() { this.sequence=0; this.state=null; this.eventsList=[]; this.tick=0; }
   async discover() { return {schema:1,event:'discovery',capabilities:{browse:false,artwork:false},games:[
     {id:'preview-owned-game',provider:'steam',gameRoot:'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Gloomhaven',

@@ -19,7 +19,7 @@ export function progressView(state) {
   const completed = Number.isInteger(state?.progress?.completed) ? state.progress.completed : stages.filter(row => row.status === 'complete').length;
   const total = Number.isInteger(state?.progress?.total) && state.progress.total > 0 ? state.progress.total : stages.length;
   const current = stages.find(row => row.status === 'running') ?? stages.find(row => ['blocked','failed','interrupted'].includes(row.status)) ?? stages.find(row=>row.status==='pending');
-  const raw = state?.progress?.percent;
+  const raw = current?.progress?.percent ?? state?.progress?.percent;
   const percent = typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 && raw <= 100 ? raw : null;
   return {completed, total, phase:state?.progress?.phase ?? current?.id ?? '', percent,
     width:percent ?? (total > 0 ? Math.max(0,Math.min(100,100*completed/total)) : 0),
@@ -36,7 +36,13 @@ export function stageStatus(state,stage) {
   return stage.id==='install'&&stage.status==='complete'&&(stage.details?.requested===false||state?.choices?.install===false)?'skipped':stage.status;
 }
 export function artworkUrl(value, origin) {
-  try { const url = new URL(value, origin); return url.origin === origin && url.pathname === '/api/artwork' ? url.href : null; }
+  try { const url = new URL(value, origin); return url.origin === origin && ['/api/artwork','/api/promo-artwork'].includes(url.pathname) ? url.href : null; }
   catch { return null; }
+}
+export function stageProgress(stage) {
+  const value=stage?.progress??{},raw=value.percent;
+  const percent=stage?.status==='complete'?100:stage?.status==='pending'?0:
+    typeof raw==='number'&&Number.isFinite(raw)&&raw>=0&&raw<=100?raw:null;
+  return {...value,percent,waiting:stage?.waiting??null};
 }
 export function sessionId(value) { return typeof value === 'string' && /^[a-zA-Z0-9_-]{8,128}$/.test(value) ? value : null; }

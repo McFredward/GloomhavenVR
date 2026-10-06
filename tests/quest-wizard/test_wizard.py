@@ -234,6 +234,16 @@ class HttpTests(Fixture):
     def test_bounded_log_tail(self):
         saved=self.plan();path=self.store.session_dir(saved['session'])/'logs/build.log';path.parent.mkdir();path.write_text('x'*70000)
         code,value=self.request('/api/log?session='+saved['session']+'&stage=build');self.assertEqual(code,200);self.assertTrue(value['truncated']);self.assertEqual(len(value['text']),65536)
+    def test_build_log_includes_actual_nested_failure_without_arbitrary_cache_reads(self):
+        saved=self.plan();session=saved['session'];key='e'*64
+        failure=self.store.root/'build/last-failure.json'
+        state.atomic_json(failure,{'schema':1,'stage':'recovery','key':key,'message':'export failed'})
+        folder=self.store.root/'build/cache/full-original-recovery'/key
+        for relative,text in (('core-export.log','loading original core'),('BundleRecovery/batch-000/export.log','FAILED: original object key'),('BundleRecovery/batch-000/private.json','must not appear')):
+            path=folder/relative;path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
+        code,value=self.request('/api/log?session='+session+'&stage=build')
+        self.assertEqual(code,200);self.assertIn('FAILED: original object key',value['text'])
+        self.assertIn('loading original core',value['text']);self.assertNotIn('must not appear',value['text'])
     def test_api_cannot_dump_arbitrary_file_or_command(self):
         code,value=self.request('/api/browse',{'kind':'game','command':'malicious'});self.assertEqual(code,400)
         code,value=self.request('/api/artwork?session='+self.plan()['session']+'&id=../secret');self.assertEqual(code,400)
@@ -331,41 +341,48 @@ class UiModuleIntegrationTests(Fixture):
         self.assertIn(b'export const value',response.read());connection.close()
 
 class UnityProvisionTests(Fixture):
-    def test_missing_hub_is_downloaded_verified_and_setup_started(self):
-        import types
+    def test_missing_hub_download_stops_at_explicit_setup_action(self):
+        import unity_setup
         saved=self.plan(acceptUnityTerms=True);setup=self.store.root/'setup.exe';setup.write_bytes(b'fixture verified setup')
-        supervisor=mock.Mock()
-        with mock.patch.object(wizard.discovery,'unity_paths',side_effect=[([],[]),([],['installed-hub.exe'])]),mock.patch.object(wizard.provision,'download',return_value=setup) as download,mock.patch.object(wizard,'os',types.SimpleNamespace(name='nt')):
-            with self.assertRaises(state.WizardError) as error:wizard.Engine(self.store).stage_unity(saved,supervisor)
-        self.assertEqual(error.exception.code,'unity_login_required');download.assert_called_once();supervisor.run.assert_called_once()
-        self.assertEqual(supervisor.run.call_args.args[0],[setup])
+        with mock.patch.object(unity_setup.discovery,'unity_paths',return_value=([],[])),mock.patch.object(provision,'download',return_value=setup) as download,mock.patch.object(unity_setup,'_wait',side_effect=state.Cancelled()) as wait:
+            with self.assertRaises(state.Cancelled):wizard.Engine(self.store).stage_unity(saved,mock.Mock())
+        download.assert_called_once();self.assertEqual(wait.call_args.args[2],'unity_hub_setup')
         self.assertEqual(download.call_args.args[0]['algorithm'],'sha512')
+        self.assertFalse((self.store.session_dir(saved['session'])/'unity.json').exists())
     def test_terms_gate_precedes_every_download_or_install(self):
+        import unity_setup
         saved=self.plan();supervisor=mock.Mock()
-        with mock.patch.object(wizard.discovery,'unity_paths',return_value=([],[])),mock.patch.object(wizard.provision,'download') as download:
+        with mock.patch.object(unity_setup.discovery,'unity_paths',return_value=([],[])),mock.patch.object(provision,'download') as download:
             with self.assertRaises(state.WizardError) as error:wizard.Engine(self.store).stage_unity(saved,supervisor)
         self.assertEqual(error.exception.code,'unity_terms_required');download.assert_not_called();supervisor.run.assert_not_called()
-    def test_current_hub_help_is_checked_before_archived_install(self):
-        saved=self.plan(acceptUnityTerms=True,unityHub=str(self.root/'Hub.exe'));supervisor=mock.Mock()
-        def help_output(argv,log,**_):log.parent.mkdir(parents=True,exist_ok=True);log.write_text('CLI unsupported')
-        supervisor.run.side_effect=help_output
-        with mock.patch.object(wizard.discovery,'unity_paths',return_value=([],[])):
-            with self.assertRaises(state.WizardError) as error:wizard.Engine(self.store).stage_unity(saved,supervisor)
-        self.assertEqual(error.exception.code,'unity_cli_unavailable');self.assertEqual(supervisor.run.call_count,1)
-    def test_existing_editor_gets_android_modules_and_preserves_license_unknown(self):
-        saved=self.plan(acceptUnityTerms=True,unityHub=str(self.root/'Hub.exe'));editor=self.root/'Unity/2021.3.5f1/Editor/Unity.exe';editor.parent.mkdir(parents=True);editor.write_bytes(b'editor fixture')
-        calls=[]
+    def test_unsupported_hub_enters_repeatable_manual_install_action(self):
+        import unity_setup
+        saved=self.plan(acceptUnityTerms=True,unityHub=str(self.root/'Hub.exe'));supervisor=mock.Mock();codes=[]
+        def wait(_store,_session,code,*_args,**_kwargs):
+            codes.append(code)
+            if code=='unity_install_incomplete':raise state.Cancelled()
+        def process(argv,log,**_):log.parent.mkdir(parents=True,exist_ok=True);log.write_text('CLI unsupported')
+        supervisor.run.side_effect=process
+        with mock.patch.object(unity_setup.discovery,'unity_paths',return_value=([],[])),mock.patch.object(unity_setup,'_wait',side_effect=wait):
+            with self.assertRaises(state.Cancelled):wizard.Engine(self.store).stage_unity(saved,supervisor)
+        self.assertEqual(codes,['unity_login_required','unity_install_incomplete']);self.assertEqual(supervisor.run.call_count,1)
+    def test_existing_editor_gets_modules_then_requires_actual_probe(self):
+        import unity_setup
+        saved=self.plan(acceptUnityTerms=True,unityHub=str(self.root/'Hub.exe'));editor=self.root/'Unity/Editor/Unity.exe';editor.parent.mkdir(parents=True);editor.write_bytes(b'editor fixture');calls=[]
         def process(argv,log,**_):
             calls.append(list(map(str,argv)));log.parent.mkdir(parents=True,exist_ok=True)
             if 'help' in argv:log.write_text('install editors install-modules')
             elif 'install-modules' in argv:
-                ndk=editor.parent/'Data/PlaybackEngines/AndroidPlayer/NDK/source.properties';ndk.parent.mkdir(parents=True);ndk.write_text('revision=21');log.write_text('installed')
+                for relative in ['NDK/source.properties','SDK/platform-tools/adb','OpenJDK/bin/java']:
+                    f=editor.parent/'Data/PlaybackEngines/AndroidPlayer'/relative;f.parent.mkdir(parents=True,exist_ok=True);f.write_text('fixture')
+                log.write_text('installed')
             else:log.write_text('2021.3.5f1')
         supervisor=mock.Mock();supervisor.run.side_effect=process
-        before=[{'path':str(editor),'version':'2021.3.5f1','androidSupport':False}];after=[{**before[0],'androidSupport':True}]
-        with mock.patch.object(wizard.discovery,'unity_paths',side_effect=[(before,[]),(after,[])]):
+        rows=[{'path':str(editor),'version':'2021.3.5f1','androidSupport':False}]
+        probe=self.store.session_dir(saved['session'])/'probe.log';probe.write_text(unity_setup.PROBE_MARKER)
+        with mock.patch.object(unity_setup.discovery,'unity_paths',return_value=(rows,[])),mock.patch.object(unity_setup,'_wait'),mock.patch.object(unity_setup,'_probe',return_value=probe) as checked:
             outputs,details=wizard.Engine(self.store).stage_unity(saved,supervisor)
-        self.assertIn('install-modules',calls[1]);self.assertNotIn('install',calls[1]);self.assertFalse(details['licenseVerified']);self.assertTrue(outputs[0].is_file())
+        self.assertIn('install-modules',calls[1]);self.assertNotIn('install',calls[1]);self.assertTrue(details['licenseVerified']);checked.assert_called_once();self.assertTrue(outputs[0].is_file())
 
 class HardDeathStateTests(Fixture):
     def test_running_state_without_kernel_owner_becomes_retryable(self):

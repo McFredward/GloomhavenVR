@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "images": [
+    {
+      "id": "cragheart",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/aaecd1506f113c0201f649ebd5edfc102487a296.png",
+      "sha256": "7d0047de8ae0de2427265eca5d91c97f0440aef22995d9851a741ecf3f0603a7",
+      "size": 834094,
+      "dimensions": [
+        1024,
+        512
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements"
+    },
+    {
+      "id": "spellweaver",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/da3142c891b8f9db1fc519d0f1e614841d5f62c5.png",
+      "sha256": "bd9b309cc60b2694eadcad4515d8afe150b6299752c0ab7ffc6004acac1146ef",
+      "size": 984081,
+      "dimensions": [
+        1024,
+        512
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements"
+    },
+    {
+      "id": "brute",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/f93c359b56f45e2a784a2d9ba4a4d2fc72a1013f.jpg",
+      "sha256": "c32b2b7bebfee084b0fa8e469279608e14f3cd61b852802180e97fab9e859a7b",
+      "size": 415123,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements"
+    },
+    {
+      "id": "scoundrel",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/c95b9a1eb26a78ab9667f1f5b07d7fda78d98c65.png",
+      "sha256": "5d7e8b7db4eab09b11481be93feb425a0a7ed01a9daf1971732ed2835337bba9",
+      "size": 899792,
+      "dimensions": [
+        1024,
+        512
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements"
+    },
+    {
+      "id": "bandit-guard",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/a750722541b8307487ad4b200ed238b39440f7aa.jpg",
+      "sha256": "b1bdce0149fdff98edb45d7e9e2d425acae77a8751fd04cd6dc7930f1e14095c",
+      "size": 704007,
+      "dimensions": [
+        1767,
+        982
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements"
+    },
+    {
+      "id": "bandit-archer",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/d5c4696fbc7c9c8baab084e5fa9fa02b05934072.jpg",
+      "sha256": "1d3d522f3b4be449ef3f3b2fb4f1c687f07bada487db5b0fc52b9e4b27041ac1",
+      "size": 732660,
+      "dimensions": [
+        1767,
+        995
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements"
+    }
+  ]
+}

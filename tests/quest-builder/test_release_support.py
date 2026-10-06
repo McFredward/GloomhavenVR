@@ -140,6 +140,25 @@ class SupportTests(unittest.TestCase):
         (logs / 'nested').mkdir(); (logs / 'nested/unity-build.log').write_text('private')
         _, rows = self.export(); self.assertIn('build/unity-build-abc.log', rows)
         self.assertFalse(any('account-export' in name or 'nested' in name for name in rows))
+
+    def test_failed_recovery_exports_only_exact_known_core_and_batch_logs_with_redaction(self):
+        key = 'c' * 64
+        folder = self.root / 'build/cache/full-original-recovery' / key
+        for name, text in (('core-export.log', 'core identities\nAuthorization: Bearer hidden\n'),
+                           ('BundleRecovery/batch-000/export.log', 'FAILED object collection class pathId\n'),
+                           ('BundleRecovery/batch-000/profile.json', 'MUST NEVER SHIP'),
+                           ('Assets/Texture.log', 'MUST NEVER SHIP')):
+            path = folder / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(text)
+        write_json(self.root / 'build/last-failure.json', {'schema': 1, 'stage': 'recovery', 'key': key, 'message': 'identity mismatch'})
+        self.state['events'][0]['parameters'].update(phase='recovery-batches', done=0, total=29, unit='batches', cause='identity mismatch')
+        write_json(self.directory / 'state.json', self.state)
+        _, rows = self.export()
+        self.assertIn('recovery/' + key + '/core-export.log', rows)
+        self.assertIn('recovery/' + key + '/batch-000/export.log', rows)
+        text = '\n'.join(rows.values())
+        self.assertNotIn('MUST NEVER SHIP', text); self.assertNotIn('Bearer hidden', text)
+        self.assertNotIn('must not ship', text)
+        self.assertEqual(json.loads(rows['diagnostic.json'])['events'][0]['parameters']['total'], 29)
     @unittest.skipIf(os.name == 'nt', 'symlink privilege varies')
     def test_symlink_logs_are_rejected(self):
         target = self.root / 'private'; target.write_text('secret')

@@ -55,7 +55,7 @@ def browse(kind):
 class LocalServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, store, ui_root, *, port=0, engine_factory=Engine, discover=discovery.discover):
+    def __init__(self, store, ui_root, *, port=0, engine_factory=Engine, discover=discovery.discover, promotional=False):
         self.store, self.ui_root = store, ordinary(ui_root)
         if not self.ui_root.is_dir() or not (self.ui_root / "index.html").is_file():
             raise WizardError("ui_missing", "Wizard UI files are missing.", "Die Wizard-Oberfläche fehlt.")
@@ -65,6 +65,12 @@ class LocalServer(ThreadingHTTPServer):
         self.jobs, self.jobs_lock, self.browse_lock = {}, threading.Lock(), threading.Lock()
         self.job_errors = {}
         self.artwork_cache, self.artwork_lock = {}, threading.Lock()
+        self.action_lock = threading.Lock()
+        self.promo = None
+        if promotional:
+            from promotional import Gallery
+            self.promo = Gallery(self.ui_root, self.store.root / 'artwork/publisher')
+            self.promo.start()
         super().__init__(("127.0.0.1", port), Handler)
         self.origin = "http://127.0.0.1:" + str(self.server_address[1])
         self.url = self.origin + "/#" + self.token
@@ -95,7 +101,7 @@ class LocalServer(ThreadingHTTPServer):
             adapter = importlib.util.module_from_spec(spec); spec.loader.exec_module(adapter)
             rows = []
             for _, project, _ in candidates:
-                rows = adapter.verified_project_artwork(project, game_key, limit=3)
+                rows = adapter.verified_project_artwork(project, game_key, limit=12)
                 if rows: break
             result = [(row, adapter.read_artwork) for row in rows]
             self.artwork_cache[session] = (signature, result)
@@ -106,6 +112,7 @@ class LocalServer(ThreadingHTTPServer):
         except (OSError, ValueError, WizardError, ImportError, AttributeError): rows = []
         value = dict(state)
         value["artwork"] = [{"id": row["id"], "url": "/api/artwork?session=" + session + "&id=" + row["id"], "altCode": row["altCode"]} for row, _ in rows]
+        if not rows and self.promo: value['artwork'] = self.promo.visible()
         value["capabilities"] = {"artwork": bool(rows)}
         if session in self.job_errors: value["requestError"] = self.job_errors[session]
         return value
@@ -138,11 +145,16 @@ class LocalServer(ThreadingHTTPServer):
         with self.jobs_lock: running = [(session, job) for session, job in self.jobs.items() if job.is_alive()]
         for session, _ in running: self.store.cancel(session)
         for _, job in running: job.join()
+        if self.promo: self.promo.stop.set()
         self.server_close()
 
 
 class Download:
     def __init__(self, path): self.path = ordinary(path)
+
+
+class Raster:
+    def __init__(self, raw, content_type): self.raw, self.content_type = raw, content_type
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -154,8 +166,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status); self.common_headers(); self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(raw))); self.end_headers(); self.wfile.write(raw)
 
-    def send_raster(self, raw):
-        self.send_response(200); self.common_headers(); self.send_header("Content-Type", "image/png")
+    def send_raster(self, raw, content_type='image/png'):
+        self.send_response(200); self.common_headers(); self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(raw))); self.end_headers(); self.wfile.write(raw)
 
     def send_download(self, download):
@@ -200,6 +212,7 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path.startswith("/api/"):
                 self.authorize(); value = self.api(parsed)
                 if isinstance(value, Download): self.send_download(value)
+                elif isinstance(value, Raster): self.send_raster(value.raw, value.content_type)
                 elif isinstance(value, bytes): self.send_raster(value)
                 else: self.send_json(value)
                 return
@@ -221,6 +234,18 @@ class Handler(BaseHTTPRequestHandler):
             return values[0]
         if self.command == "GET":
             if parsed.path == "/api/discover": return self.server.discover(REPO, self.server.store)
+            if parsed.path == '/api/gallery':
+                return {'schema': 1, 'event': 'gallery', 'artwork': self.server.promo.visible() if self.server.promo else []}
+            if parsed.path == '/api/promo-artwork':
+                identity = selected('id')
+                if self.server.promo:
+                    from promotional import image_type
+                    with self.server.promo.lock: rows = list(self.server.promo.rows)
+                    for row in rows:
+                        if row['id'] == identity:
+                            raw = self.server.promo.read(row)
+                            if raw: return Raster(raw, image_type(raw))
+                raise WizardError('artwork_unavailable', 'Promotional artwork is unavailable.')
             session = selected("session"); state = self.server.store.load(session)
             if parsed.path == "/api/status": return {"schema": 1, "event": "status", "session": session, "state": self.server.visible_state(session, state)}
             if parsed.path == "/api/artwork":
@@ -238,11 +263,25 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/log":
                 stage = selected("stage")
                 if stage not in STAGES: raise WizardError("invalid_stage", "Invalid wizard stage.")
-                path = ordinary(self.server.store.session_dir(session) / "logs" / (stage + ".log"))
-                if not path.is_file(): return {"schema": 1, "event": "log", "session": session, "stage": stage, "text": "", "truncated": False}
-                with path.open("rb") as stream:
-                    size = path.stat().st_size; stream.seek(max(0, size - 65536)); raw = stream.read(65536)
-                return {"schema": 1, "event": "log", "session": session, "stage": stage, "text": raw.decode("utf-8", errors="replace"), "truncated": size > len(raw)}
+                from failures import tail
+                folder = ordinary(self.server.store.session_dir(session) / "logs")
+                paths = [(stage + ".log", ordinary(folder / (stage + ".log")))]
+                if stage == "unity":
+                    for name in ("unity-install.log", "unity-license-probe.log", "unity-license-process.log", "unity-version.log"):
+                        paths.append((name, ordinary(folder / name)))
+                elif stage == "build":
+                    module = discovery.local_support_module(REPO, "support")
+                    failure = module.read_object(self.server.store.root / "build/last-failure.json")
+                    paths.extend(module.recovery_logs(self.server.store.root / "build", failure)[:3])
+                    if isinstance(failure, dict) and failure.get("stage") == "recovery" and re.fullmatch(r"[0-9a-f]{64}", str(failure.get("key", ""))):
+                        name = "recovery-" + failure["key"][:12] + ".log"
+                        paths.append((name, ordinary(self.server.store.root / "build/logs" / name)))
+                existing = [(name, path) for name, path in paths if path.is_file()]
+                limit = 65536 if len(existing) <= 1 else max(1024, (65536 - sum(len(name) + 16 for name, _ in existing)) // len(existing))
+                chunks = [tail(path, limit) for _, path in existing]
+                text = "".join(("\n--- " + name + " ---\n" if len(existing) > 1 else "") + chunk for (name, _), chunk in zip(existing, chunks))[:65536]
+                return {"schema": 1, "event": "log", "session": session, "stage": stage, "text": text,
+                        "truncated": any(path.stat().st_size > limit for _, path in existing)}
         else:
             value = self.body()
             if parsed.path == "/api/plan":
@@ -259,6 +298,11 @@ class Handler(BaseHTTPRequestHandler):
                 if set(value) != {"kind"}: raise WizardError("request_body", "Unsupported browse fields.")
                 with self.server.browse_lock: path = browse(value["kind"])
                 return {"schema": 1, "event": "browse", "path": path}
+            if parsed.path == '/api/action':
+                if set(value) != {'session', 'action', 'nonce'}: raise WizardError('request_body', 'Expected a current declared action.')
+                from unity_setup import request_action
+                with self.server.action_lock:
+                    return request_action(self.server.store, value['session'], value['action'], value['nonce'])
             if set(value) != {"session"}: raise WizardError("request_body", "Expected only the session ID.")
             session = value["session"]
             if parsed.path == "/api/support":
@@ -291,7 +335,7 @@ def serve(store, ui_root, *, port=0, open_browser=False):
     qualify(store.root)
     if (REPO / "quest-builder-release.json").is_file() and not (REPO / ".git").exists():
         discovery.local_support_module(REPO, "release").verified_source_inventory(REPO)
-    server = LocalServer(store, ui_root, port=port)
+    server = LocalServer(store, ui_root, port=port, promotional=True)
     print(json.dumps({"schema": 1, "event": "server", "url": server.url}), flush=True)
     if open_browser: webbrowser.open(server.url, new=2)
     try: server.serve_forever(poll_interval=0.2)

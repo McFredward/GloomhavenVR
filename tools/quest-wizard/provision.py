@@ -22,13 +22,14 @@ def download(spec, destination, check_cancel=lambda: None, progress=lambda done,
     if destination.exists():
         if digest(destination, spec["algorithm"]) != spec["hash"]:
             raise WizardError("tool_checksum", "A cached tool differs from its pinned checksum.", "Ein zwischengespeichertes Werkzeug stimmt nicht mit der Prüfsumme überein.")
-        return destination
+        progress(destination.stat().st_size, destination.stat().st_size); return destination
     partial = ordinary(destination.with_name(destination.name + ".partial"))
     offset = partial.stat().st_size if partial.exists() else 0
     # A process can die after the final byte and before atomic publication.
     # Complete verified bytes need no second HTTP request (often answered 416).
     if offset and (spec.get("size") is None or offset == spec["size"]) and digest(partial, spec["algorithm"]) == spec["hash"]:
-        check_cancel(); os.replace(partial, destination); return destination
+        check_cancel(); os.replace(partial, destination)
+        progress(destination.stat().st_size, destination.stat().st_size); return destination
     headers = {"User-Agent": "GloomhavenVR-Quest-Wizard", "Accept-Encoding": "identity"}
     if offset: headers["Range"] = "bytes=" + str(offset) + "-"
     request = urllib.request.Request(spec["url"], headers=headers)
@@ -44,6 +45,7 @@ def download(spec, destination, check_cancel=lambda: None, progress=lambda done,
             offset = 0
             total = int(response.headers.get("Content-Length", "0")) or spec.get("size")
         else: raise WizardError("download_response", "The tool server returned an unsupported download response.")
+        progress(offset, total)
         with partial.open("ab" if offset else "wb") as stream:
             done = offset
             while True:
@@ -61,7 +63,7 @@ def download(spec, destination, check_cancel=lambda: None, progress=lambda done,
     return destination
 
 
-def extract_owned(archive, destination, spec, check_cancel=lambda: None):
+def extract_owned(archive, destination, spec, check_cancel=lambda: None, progress=lambda done, total: None):
     """Resume the same pinned extraction file by file; no unowned directory deletion."""
     destination = ordinary(destination); key = value_hash(spec)
     marker = destination / "wizard-tool.json"
@@ -76,6 +78,7 @@ def extract_owned(archive, destination, spec, check_cancel=lambda: None):
         if len(members) > 100000 or sum(row.file_size for row in members) > 8 * 1024**3:
             raise WizardError("tool_archive", "Tool archive exceeds its supported bounds.")
         seen = set()
+        total = sum(not row.is_dir() for row in members); done = 0; progress(done, total)
         for row in members:
             name = row.filename.rstrip("/")
             parts = PurePosixPath(name).parts
@@ -94,7 +97,8 @@ def extract_owned(archive, destination, spec, check_cancel=lambda: None):
                 crc = 0
                 with target.open("rb") as stream:
                     for block in iter(lambda: stream.read(1048576), b""): crc = zlib.crc32(block, crc)
-                if crc & 0xFFFFFFFF == row.CRC: continue
+                if crc & 0xFFFFFFFF == row.CRC:
+                    done += 1; progress(done, total); continue
             temp = target.with_name(target.name + ".extracting")
             ordinary(temp)
             with package.open(row) as source, temp.open("wb") as output:
@@ -104,6 +108,7 @@ def extract_owned(archive, destination, spec, check_cancel=lambda: None):
                     output.write(block)
                 output.flush(); os.fsync(output.fileno())
             os.replace(temp, target)
+            done += 1; progress(done, total)
     executable = destination / spec["executable"]
     if not executable.is_file(): raise WizardError("missing_tool", "Pinned tool archive lacks its executable.")
     atomic_json(marker, {"schema": 1, "key": key, "complete": True, "executableSha256": digest(executable)})
@@ -117,11 +122,14 @@ def tools(store, session, supervisor):
     for name in ("git", "dotnet8", "dotnet10"):
         spec = LOCK[name]
         archive = download(spec, store.root / "tools/downloads" / (name + "-" + spec["version"] + ".zip"),
-                           lambda: store.check_cancel(session))
+                           lambda: store.check_cancel(session),
+                           lambda done, total: store.progress(session, 'tools', 'tool-download-' + name, done, total, 'bytes'))
         executable = extract_owned(archive, store.root / "tools" / (name + "-" + spec["version"]), spec,
-                                   lambda: store.check_cancel(session))
+                                   lambda: store.check_cancel(session),
+                                   lambda done, total: store.progress(session, 'tools', 'tool-extract-' + name, done, total, 'files'))
         log = store.session_dir(session) / "logs" / (name + "-version.log")
         supervisor.run([executable, "--version"], log)
+        store.record(session, 'tool_verified', 'tools', tool=name, version=spec['version'])
         expected = "git version " + spec["version"] if name == "git" else spec["version"]
         if log.read_text(encoding="utf-8").strip() != expected:
             raise WizardError("tool_version", "A provisioned tool reported an unexpected version.")
@@ -140,7 +148,7 @@ def environment(details):
     env = dict(os.environ)
     env["PATH"] = os.pathsep.join([str(Path(details["git"]).parent), str(Path(details["dotnet8"]).parent), env.get("PATH", "")])
     env.update(DOTNET_ROOT=str(Path(details["dotnet8"]).parent), DOTNET_CLI_TELEMETRY_OPTOUT="1",
-               DOTNET_SKIP_FIRST_TIME_EXPERIENCE="1", PYTHONUTF8="1")
+               DOTNET_SKIP_FIRST_TIME_EXPERIENCE="1", PYTHONUTF8="1", GHVRQ_WIZARD_PROGRESS="1")
     return env
 
 
@@ -198,12 +206,14 @@ def release_source(store, session, choices, details, supervisor, source):
     elif checkout.exists(): raise WizardError("unowned_source", "Release workspace has no ownership record.")
     else: atomic_json(owner, expected)
     checkout.mkdir(parents=True, exist_ok=True)
-    for row in records:
+    store.progress(session, 'source', 'source-copy', 0, len(records), 'files')
+    for index, row in enumerate(records, 1):
         store.check_cancel(session)
         target = ordinary(checkout / row["path"]); target.parent.mkdir(parents=True, exist_ok=True)
         if not target.is_file() or target.stat().st_size != row["size"] or digest(target) != row["sha256"]:
             shutil.copyfile(source / row["path"], target)
         if digest(target) != row["sha256"]: raise WizardError("source_changed", "A release input changed while copied.")
+        store.progress(session, 'source', 'source-copy', index, len(records), 'files', Path(row['path']).name)
     derived = derive_runtime_dependencies(checkout, choices["gameRoot"], details, supervisor,
                                           store.session_dir(session) / "logs", lambda: store.check_cancel(session))
     # The builder validates shipped sources and adds local derived references

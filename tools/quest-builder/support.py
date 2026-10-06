@@ -18,8 +18,12 @@ MAX_TOTAL_BYTES = 24 * 1048576
 MAX_FILES = 64
 SAFE_DETAIL_KEYS = {'schema', 'inputKey', 'gameKey', 'sourceHash', 'commit', 'modBuild', 'apkSha256',
                     'requested', 'hardwareVerified', 'status', 'version', 'backend', 'outcome'}
+SAFE_EVENT_KEYS = {'phase', 'done', 'total', 'unit', 'percent', 'detail', 'updatedAt', 'executable',
+                   'exitCode', 'durationSeconds', 'log', 'logs', 'cause', 'builderError', 'failureStage',
+                   'error', 'message', 'traceback', 'outputCount', 'controlledStop', 'tool', 'version',
+                   'freeBytes', 'estimatedBytes', 'command'}
 RESOURCE_FILES = ('resource-policy.json', 'resource-events.jsonl', 'build-metrics.json')
-WIZARD_LOG = re.compile(r'^(?:(?:tools|source|unity|profile|inspect|build|install)|(?:git|dotnet8|dotnet10)-version|unity-hub-help|source-(?:clone(?:-complete)?|commit|checkout|selected-(?:present|commit)|(?:local|owned)-inventory\.json)|com\.unity\.xr\.(?:management|core-utils|openxr)-(?:init|fetch|checkout|build))\.log$')
+WIZARD_LOG = re.compile(r'^(?:(?:tools|source|unity|profile|inspect|build|install)|progress(?:\.previous)?|(?:git|dotnet8|dotnet10)-version|unity-(?:hub-help|install|version|license-probe|license-process)|source-(?:clone(?:-complete)?|commit|checkout|selected-(?:present|commit)|(?:local|owned)-inventory\.json)|com\.unity\.xr\.(?:management|core-utils|openxr)-(?:init|fetch|checkout|build))\.log$')
 BUILD_LOG = re.compile(r'^(unity-(build|launch)|native|weave|mod|package-(import|api)|recovery|recover|dotnet|apk-(signature|badging)|adb-[a-z-]+|campaign-[a-z-]+|build)[a-zA-Z0-9_.-]*\.log$')
 SENSITIVE_KEY = re.compile(r'(?i)(token|password|passwd|secret|credential|authorization|license|entitlement|steamid|providerid|accountid|displayname|persona)')
 
@@ -68,6 +72,30 @@ def read_object(path, limit=4 * 1048576):
     return json.loads(path.read_text(encoding='utf-8'))
 
 
+def recovery_logs(build_root, failure=None):
+    """Known export logs only; never enumerate assets or recurse through caches."""
+    root = ordinary(build_root / 'cache/full-original-recovery')
+    if not root.is_dir(): return []
+    key = failure.get('key') if isinstance(failure, dict) and failure.get('stage') == 'recovery' else None
+    if isinstance(key, str) and re.fullmatch(r'[0-9a-f]{64}', key):
+        folders = [ordinary(root / key)]
+    else:
+        folders = sorted((ordinary(row) for row in root.iterdir() if re.fullmatch(r'[0-9a-f]{64}', row.name)
+                          and not row.is_symlink() and row.is_dir()), key=lambda row: row.stat().st_mtime, reverse=True)[:2]
+    result = []
+    for folder in folders:
+        core = ordinary(folder / 'core-export.log')
+        if core.is_file(): result.append(('recovery/' + folder.name + '/core-export.log', core))
+        batches = ordinary(folder / 'BundleRecovery')
+        if not batches.is_dir(): continue
+        # At most the newest eight batch logs, including the failing export.
+        rows = sorted((ordinary(row / 'export.log') for row in batches.iterdir()
+                       if re.fullmatch(r'batch-\d{3,6}', row.name) and not row.is_symlink() and row.is_dir()),
+                      key=lambda row: row.stat().st_mtime if row.is_file() else 0, reverse=True)[:8]
+        result.extend(('recovery/' + folder.name + '/' + row.parent.name + '/export.log', row) for row in rows if row.is_file())
+    return result
+
+
 def export_support(state_root, session, destination=None):
     """Snapshot even a running/failed build without altering stage receipts."""
     root = ordinary(state_root)
@@ -89,13 +117,15 @@ def export_support(state_root, session, destination=None):
     if choices.get('steamId'): replacements.append((str(choices['steamId']), '<profile>'))
     stages = []
     for stage in state.get('stages', [])[:16]:
-        stages.append({key: safe_json(stage[key], replacements) for key in ('id', 'status', 'attempts') if key in stage} |
+        stages.append({key: safe_json(stage[key], replacements) for key in ('id', 'status', 'attempts', 'progress', 'waiting', 'durationSeconds') if key in stage} |
                       {'details': {key: safe_json(value, replacements) for key, value in stage.get('details', {}).items() if key in SAFE_DETAIL_KEYS}})
     meta = {'schema': 1, 'kind': 'GloomhavenVR Quest build support', 'createdUtc': datetime.now(timezone.utc).isoformat(),
             'session': session, 'status': state.get('status'), 'created': state.get('created'), 'updated': state.get('updated'),
             'host': {'system': platform.system(), 'machine': platform.machine(), 'python': platform.python_version(), 'logicalCpuCount': os.cpu_count()},
             'stages': stages, 'needsActions': safe_json(state.get('needsActions', []), replacements),
-            'events': [{key: safe_json(event[key], replacements) for key in ('sequence', 'time', 'code', 'stage') if key in event} for event in state.get('events', [])[-128:]],
+            'events': [{key: safe_json(event[key], replacements) for key in ('sequence', 'time', 'code', 'stage') if key in event} |
+                       {'parameters': {key: safe_json(value, replacements) for key, value in event.get('parameters', {}).items() if key in SAFE_EVENT_KEYS}}
+                       for event in state.get('events', [])[-128:]],
             'limits': {'fileBytes': MAX_FILE_BYTES, 'totalBytes': MAX_TOTAL_BYTES, 'files': MAX_FILES},
             'files': [], 'omitted': [], 'hardwareVerified': False}
     repo = Path(__file__).resolve().parents[2]
@@ -131,6 +161,8 @@ def export_support(state_root, session, destination=None):
     for name in RESOURCE_FILES:
         path = ordinary(build_root / 'evidence' / name)
         if path.is_file(): candidates.append((path.stat().st_mtime_ns, 'resources/' + name, path, True))
+    for name, path in recovery_logs(build_root, failure):
+        candidates.append((path.stat().st_mtime_ns, name, path, False))
     # Resource records first, then newest logs. Older logs beyond bounds are listed.
     candidates.sort(key=lambda row: (row[3], row[0]), reverse=True)
     archive_rows = []; used = 0

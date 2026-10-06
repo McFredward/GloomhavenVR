@@ -1,5 +1,5 @@
 import {translate} from './i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,artworkUrl,sessionId} from './model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId} from './model.mjs';
 import {LocalApi,PreviewApi} from './transport.mjs';
 
 const $ = id => document.getElementById(id);
@@ -10,6 +10,7 @@ let language = (preview ? new URLSearchParams(location.search).get('lang') : nul
 if (!['de','en'].includes(language)) language='de';
 let page=0,selected=null,discovery=null,state=null,busy=false,after=0,log=[],loadedLog=null,pollTimer=null,canConnect=preview||Boolean(token),artworkKey='',artworkGeneration=0;
 let qualification=null;
+let slides=[],slideIndex=0,slideTimer=null,slidePaused=matchMedia('(prefers-reduced-motion:reduce)').matches,artPollTimer=null,actionBusy=false,logBusy=false,logSelectionManual=false;
 const blobUrls=[];
 const galleryTemplate=[...$('gallery').children].map(node=>node.cloneNode(true));
 function readStorage(key) { try { return localStorage.getItem(key); } catch { return null; } }
@@ -18,14 +19,15 @@ function t(key,parameters) { return translate(language,key,parameters); }
 function message(value,fallback='unknownAction') { return typeof value==='string' ? value : value?.[language] ?? value?.en ?? value?.de ?? t(fallback); }
 function error(value) { $('error-banner').textContent=value?.message ? message(value.message) : t(value?.code ?? 'offline');$('error-banner').hidden=false; }
 function clearError() { $('error-banner').hidden=true; }
-function clearLoadedLog() {loadedLog=null;$('stage-log').textContent='';$('stage-log').hidden=true;$('log-truncated').hidden=true;}
+function clearLoadedLog() {loadedLog=null;logSelectionManual=false;$('stage-log').textContent='';$('stage-log').hidden=true;$('log-truncated').hidden=true;}
 function setLanguage(value) {
   language=value;writeStorage('quest-wizard-language',value);document.documentElement.lang=value;
   document.querySelectorAll('[data-i18n]').forEach(node => node.textContent=t(node.dataset.i18n));
   document.querySelectorAll('[data-i18n-aria]').forEach(node=>node.setAttribute('aria-label',t(node.dataset.i18nAria)));
   document.querySelectorAll('[data-language]').forEach(node => node.setAttribute('aria-pressed',String(node.dataset.language===value)));
-  $('gallery-note').textContent=t($('gallery').querySelector('img')?'ownedArtwork':preview?'artPlaceholder':'artReady');
-  $('gallery').querySelectorAll('img').forEach(node=>node.alt=t('ownedArtwork'));
+  $('gallery-note').textContent=t(slides.length?slides[0].altCode??'ownedArtwork':'artReady');
+  $('gallery').querySelectorAll('.art-card img').forEach(node=>node.alt=t(slides[slideIndex]?.altCode??'ownedArtwork'));
+  $('gallery-pause').textContent=t(slidePaused?'galleryPlay':'galleryPause');
   if(discovery) renderGames();updateView();
 }
 function form() { return {gameRoot:$('game-root').value,provider:$('provider').value,unityEditor:$('unity-editor').value,
@@ -42,6 +44,28 @@ function resetArtwork() {
   $('gallery').replaceChildren(...galleryTemplate.map(node=>node.cloneNode(true)));
   $('gallery').querySelectorAll('[data-i18n]').forEach(node=>node.textContent=t(node.dataset.i18n));
   $('gallery-note').textContent=t(preview?'artPlaceholder':'artReady');
+  slides=[];slideIndex=0;clearTimeout(slideTimer);$('gallery-controls').hidden=true;
+}
+function showSlide(index) {
+  if(!slides.length)return;slideIndex=(index+slides.length)%slides.length;
+  [...$('gallery').children].forEach((node,i)=>{node.hidden=i!==slideIndex;});
+  $('gallery-count').textContent=(slideIndex+1)+' / '+slides.length;
+  clearTimeout(slideTimer);if(!slidePaused&&!document.hidden)slideTimer=setTimeout(()=>showSlide(slideIndex+1),6500);
+}
+function phaseLabel(phase='') {
+  const exact={'pending':'pending','starting':'starting','complete':'complete','receipt-verify':'receiptVerify','output-verify':'outputVerify','source-copy':'sourceCopy','unity-prerequisites':'unityPrerequisites','unity-hub-download':'unityDownload','unity-editor-install':'unityInstall','unity-window-open':'unityWindow','unity-editor-version':'unityVersion','unity-license-probe':'unityLicense'};
+  const key=exact[phase]??(phase.startsWith('tool-download-')?'download':phase.startsWith('tool-extract-')?'extract':phase.startsWith('bee-actions:')?'native':phase.startsWith('stage:')?null:phase.includes('hash')?(phase.includes('game')?'gameHash':'sourceHash'):phase.includes('snapshot')?'snapshot':phase.includes('recover')||phase.includes('export')?'recovery':phase.includes('dependenc')||phase.includes('python')?'dependencies':null);
+  if(phase.startsWith('stage:'))return t('phase_stage_'+phase.slice(6));
+  if(phase.startsWith('stage-')&&phase.includes('verify:'))return t('phase_outputVerify')+' · '+t('phase_stage_'+phase.split(':').pop());
+  if(phase.startsWith('tool:'))return t('phase_tool')+' · '+phase.slice(5);
+  return key?t('phase_'+key):phase;
+}
+function counters(value) {
+  if(!Number.isFinite(value.done)||!Number.isFinite(value.total)||value.total<=0)return '';
+  const number=n=>new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(n);
+  if(value.unit==='bytes')return t('counterBytes',{done:number(value.done/1048576)+' MiB',total:number(value.total/1048576)+' MiB'});
+  const key={files:'counterFiles',actions:'counterActions',checks:'counterChecks'}[value.unit]??'counterActions';
+  return t(key,{done:number(value.done),total:number(value.total)});
 }
 function renderGames() {
   $('game-list').replaceChildren();
@@ -87,26 +111,36 @@ function renderProgress() {
   if(!state)return;
   const active=isActive(state),stopped=['failed','cancelled','interrupted'].includes(state.status),blocked=state.status==='blocked',done=state.status==='complete';
   if(state.requestError)error(state.requestError);
-  $('progress-title').textContent=t(done?'completeTitle':blocked?'blockedTitle':stopped?'stoppedTitle':state.status==='ready'?'readyTitle':'progressTitle');
+  const waiting=state.stages?.find(row=>row.waiting)?.waiting;
+  $('action-needed-title').textContent=t(waiting||blocked?'actionNeeded':'failureTitle');
+  $('progress-title').textContent=t(waiting?'actionNeeded':done?'completeTitle':blocked?'blockedTitle':stopped?'stoppedTitle':state.status==='ready'?'readyTitle':'progressTitle');
   $('progress-copy').textContent=t(done?'completeCopy':blocked?'blockedCopy':stopped?'stoppedCopy':state.status==='ready'?'readyCopy':'progressCopy');
   const progress=progressView(state);
+  if(!logSelectionManual&&progress.current?.id)$('log-stage').value=progress.current.id;
   $('phase-label').textContent=t(done?'done':t('stage_'+progress.phase)==='stage_'+progress.phase?'waiting':'stage_'+progress.phase);
   $('progress-count').textContent=t(progress.percent===null?'phaseSteps':'phasePercent',progress);
   const track=$('progress-track');track.classList.toggle('indeterminate',progress.indeterminate);
   track.setAttribute('aria-valuemin','0');track.setAttribute('aria-valuemax','100');
   if(progress.percent!==null)track.setAttribute('aria-valuenow',String(progress.percent));else track.removeAttribute('aria-valuenow');
   track.setAttribute('aria-valuetext',$('progress-count').textContent);$('progress-fill').style.width=progress.width+'%';
-  $('progress-detail').textContent=state.progress?.message ? message(state.progress.message) : active?t('firstBuild'):t(stopped?'stoppedCopy':'footerNote');
+  const sub=stageProgress(progress.current);
+  $('progress-detail').textContent=[sub.phase?t('substep',{phase:phaseLabel(sub.phase)}):'',counters(sub),sub.detail??'',waiting?t('waitingSince',{seconds:Math.max(0,Math.floor(Date.now()/1000-waiting.since))}):'',sub.percent===null?t('phaseUnknown'):''].filter(Boolean).join(' · ');
   $('stage-list').replaceChildren();
   for(const stage of state.stages??[]) {
     const displayed=stageStatus(state,stage),li=document.createElement('li');li.className=displayed;
     const marker=document.createElement('span');marker.className='stage-marker';marker.textContent=displayed==='complete'?'✓':displayed==='running'?'·':['blocked','failed'].includes(displayed)?'!':'';
-    const label=document.createElement('span');label.textContent=t('stage_'+stage.id);
-    const status=document.createElement('span');status.className='stage-state';status.textContent=t(displayed);li.append(marker,label,status);$('stage-list').append(li);
+    const label=document.createElement('span');label.className='stage-content';const title=document.createElement('strong');title.textContent=t('stage_'+stage.id);label.append(title);
+    const measured=stageProgress(stage),detail=document.createElement('small');detail.textContent=[measured.phase?t('substep',{phase:phaseLabel(measured.phase)}):'',['pending','complete'].includes(stage.status)?'':counters(measured),measured.waiting?t('actionNeeded'):['pending','complete'].includes(stage.status)?'':measured.detail??''].filter(Boolean).join(' · ');label.append(detail);
+    const bar=document.createElement('progress');bar.max=100;bar.setAttribute('aria-label',t('stage_'+stage.id));if(measured.percent!==null)bar.value=measured.percent;label.append(bar);
+    const status=document.createElement('span');status.className='stage-state';status.textContent=(measured.percent===null?'—':t('measuredPercent',{percent:Math.round(measured.percent*10)/10}))+' · '+t(measured.waiting?'blocked':displayed);li.append(marker,label,status);$('stage-list').append(li);
   }
   const action=state.needsActions?.[0];$('action-needed').hidden=!action&&!blocked&&!stopped;
   if(action||blocked||stopped){const blockedStage=state.stages?.find(stage=>stage.status==='blocked');const code=typeof action==='string'?action:action?.code??blockedStage?.details?.needsAction;
-    $('action-needed-copy').textContent=action?.message?message(action.message):blockedStage?.details?.message?message(blockedStage.details.message):t('action_'+code)!=='action_'+code?t('action_'+code):t('unknownAction');}
+    const hint=action?.message?message(action.message):blockedStage?.details?.message?message(blockedStage.details.message):t('action_'+code)!=='action_'+code?t('action_'+code):t('unknownAction');
+    const phase=action?.parameters?.failureStage;const stageName=phase?t('phase_stage_'+phase):action?.stage?t('stage_'+action.stage):progress.current?t('stage_'+progress.current.id):'';
+    $('action-needed-copy').textContent=(stageName?stageName+': ':'')+hint;}
+  $('unity-actions').hidden=!waiting;$('edit-choices').hidden=active;
+  for(const id of ['unity-open','unity-check'])$(id).disabled=actionBusy;
   $('result-card').hidden=!done;
   const result=state.result??state.stages?.find(stage=>stage.id==='build')?.details??{};
   $('result-path').textContent=[result.apk,result.handoff,result.outputRoot].filter(value=>typeof value==='string').join('\n')||t('footerNote');
@@ -117,23 +151,23 @@ function renderProgress() {
 }
 async function loadArtwork(artwork) {
   if(!Array.isArray(artwork)||!artwork.length)return;
-  const selected=artwork.slice(0,3),key=selected.map(row=>row.id+':'+(row.sha256??'')).join('|');if(key===artworkKey)return;
+  const selected=artwork.slice(0,12),key=selected.map(row=>row.id+':'+(row.sha256??'')).join('|');if(key===artworkKey)return;
   artworkKey=key;const generation=++artworkGeneration;
-  const cards=[],newUrls=[];
+  const cards=[],newUrls=[],loadedRows=[];
   for(const row of selected) {
     const url=artworkUrl(row.url,location.origin);if(!url)continue;
     try {
       const response=await fetch(url,{headers:{'X-Quest-Token':token},cache:'no-store'});
-      if(!response.ok||Number(response.headers.get('Content-Length'))>8*1024*1024||response.headers.get('Content-Type')!=='image/png')continue;
+      if(!response.ok||Number(response.headers.get('Content-Length'))>8*1024*1024||!['image/png','image/jpeg'].includes(response.headers.get('Content-Type')))continue;
       const blob=await response.blob();if(blob.size>8*1024*1024)continue;
       const blobUrl=URL.createObjectURL(blob);newUrls.push(blobUrl);
-      const card=document.createElement('div');card.className='art-card';const image=document.createElement('img');image.alt=t('ownedArtwork');
+      const card=document.createElement('div');card.className='art-card';const image=document.createElement('img');image.alt=t(row.altCode??'ownedArtwork');
       image.addEventListener('load',()=>card.classList.toggle('landscape',image.naturalWidth/image.naturalHeight>=1.45),{once:true});
-      image.src=blobUrl;card.append(image);cards.push(card);
+      image.src=blobUrl;card.append(image);cards.push(card);loadedRows.push(row);
     }catch{ /* Optional artwork never blocks a genuine build state. */ }
   }
   if(generation!==artworkGeneration){newUrls.forEach(url=>URL.revokeObjectURL(url));return;}
-  if(cards.length){blobUrls.splice(0).forEach(url=>URL.revokeObjectURL(url));blobUrls.push(...newUrls);$('gallery').replaceChildren(...cards);$('gallery-note').textContent=t('ownedArtwork');}
+  if(cards.length){blobUrls.splice(0).forEach(url=>URL.revokeObjectURL(url));blobUrls.push(...newUrls);$('gallery').replaceChildren(...cards);slides=loadedRows;$('gallery-controls').hidden=cards.length<2;$('gallery-note').textContent=t(slides[0].altCode??'ownedArtwork');showSlide(0);}
   else{newUrls.forEach(url=>URL.revokeObjectURL(url));artworkKey='';}
 }
 function restoreChoices(choices) {
@@ -155,11 +189,27 @@ async function poll() {
   try {
     const result=await api.status(state.session);state=result.state;
     const events=await api.events(state.session,after);
-    for(const event of events.events??[])if(Number(event.sequence)>after) {log.push([event.time,event.stage,event.code,event.message?message(event.message):''].filter(Boolean).join(' · '));after=Math.max(after,Number(event.sequence));}
+    for(const event of events.events??[])if(Number(event.sequence)>after) {log.push([event.time,event.stage,event.code,event.message?message(event.message):event.parameters?.message?message(event.parameters.message):event.parameters?.cause??event.parameters?.detail??''].filter(Boolean).join(' · '));after=Math.max(after,Number(event.sequence));}
     log=log.slice(-50);clearError();updateView();
+    if($('live-log').checked&&document.querySelector('#progress-page details').open)await refreshLog();
   }catch(value){error(value);}
   if(isActive(state))schedulePoll();
 }
+async function refreshLog() {
+  if(logBusy||!state?.session)return;logBusy=true;
+  try{const result=await api.log(state.session,$('log-stage').value);if(typeof result.text!=='string'||result.text.length>65536)throw {code:'invalidReply'};loadedLog=result;$('stage-log').textContent=result.text;$('stage-log').hidden=false;$('log-truncated').hidden=!result.truncated;}
+  catch(value){error(value);}finally{logBusy=false;}
+}
+async function unityAction(action) {
+  const waiting=state?.stages?.find(row=>row.waiting)?.waiting;if(!waiting||actionBusy)return;
+  actionBusy=true;clearError();updateView();
+  try{await api.action(state.session,action,waiting.nonce);await poll();}catch(value){error(value);}finally{actionBusy=false;updateView();schedulePoll();}
+}
+for(const id of ['unity-open','unity-check'])$(id).addEventListener('click',()=>unityAction(id));
+$('gallery-previous').addEventListener('click',()=>showSlide(slideIndex-1));$('gallery-next').addEventListener('click',()=>showSlide(slideIndex+1));
+$('gallery-pause').addEventListener('click',()=>{slidePaused=!slidePaused;$('gallery-pause').textContent=t(slidePaused?'galleryPlay':'galleryPause');showSlide(slideIndex);});
+document.addEventListener('visibilitychange',()=>showSlide(slideIndex));
+async function pollGallery(){try{const result=await api.gallery();if(!state?.artwork?.some(row=>row.altCode==='ownedArtwork'))await loadArtwork(result.artwork);}catch{}if(!preview)artPollTimer=setTimeout(pollGallery,5000);}
 async function primary() {
   clearError();
   if(page===0){busy=true;updateView();try{const selectedChoices=choicesFromForm(form(),language);
@@ -185,14 +235,17 @@ $('save-support').addEventListener('click',async()=>{
     const link=document.createElement('a');link.href=url;link.download=result.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }catch(value){error(value);}finally{$('save-support').disabled=false;}
 });
+$('log-stage').addEventListener('change',()=>{logSelectionManual=true;if($('live-log').checked)refreshLog();});
+document.querySelector('#progress-page details').addEventListener('toggle',()=>{if(document.querySelector('#progress-page details').open&&$('live-log').checked)refreshLog();});
 $('load-log').addEventListener('click',async()=>{const button=$('load-log');button.disabled=true;try{const result=await api.log(state.session,$('log-stage').value);if(typeof result.text!=='string'||result.text.length>65536)throw {code:'invalidReply'};loadedLog={stage:result.stage,text:result.text,truncated:result.truncated===true};$('stage-log').textContent=result.text;$('stage-log').hidden=false;$('log-truncated').hidden=!result.truncated;}catch(value){error(value);}finally{button.disabled=false;}});
 document.querySelector('.skip').addEventListener('click',event=>{event.preventDefault();$('workspace').focus();});
 $('browse-game').addEventListener('click',()=>browse('game'));$('browse-unity').addEventListener('click',()=>browse('unity'));
 $('cancel').addEventListener('click',async()=>{busy=true;updateView();try{await api.cancel(state.session);const result=await api.status(state.session);state=result.state;schedulePoll();}catch(value){error(value);}finally{busy=false;updateView();}});
 $('game-root').addEventListener('input',()=>{selected=null;resetArtwork();updateView();});$('provider').addEventListener('change',()=>{selected=null;resetArtwork();updateView();});$('profile-name').addEventListener('input',updateView);
 $('declare-dlc').addEventListener('change',()=>{$('dlc-declaration').hidden=!$('declare-dlc').checked;});
-window.addEventListener('beforeunload',()=>{clearTimeout(pollTimer);blobUrls.forEach(url=>URL.revokeObjectURL(url));});
+window.addEventListener('beforeunload',()=>{clearTimeout(pollTimer);clearTimeout(slideTimer);clearTimeout(artPollTimer);blobUrls.forEach(url=>URL.revokeObjectURL(url));});
 $('preview-notice').hidden=!preview;setLanguage(language);
 try{discovery=await api.discover();renderGames();if(discovery.games?.length===1)selectGame(discovery.games[0]);
   const editor=discovery.unityEditors?.find(row=>row.version==='2021.3.5f1'&&row.androidSupport);if(editor)$('unity-editor').value=editor.path;
 }catch(value){$('discovery-status').textContent=t('notFound');error(value);}updateView();
+if(canConnect)pollGallery();

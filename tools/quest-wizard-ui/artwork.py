@@ -14,8 +14,11 @@ MAX_MANIFEST = 64 * 1024 * 1024
 MAX_IMAGE = 8 * 1024 * 1024
 # Optional display ranking, not asset identity or DLC ownership. These original
 # decorative files are considered only after exact source report/hash validation.
-PREFERRED_ART = {name: 20 - index for index, name in enumerate((
-    "HeroPortrait_Brute.png", "DLC_Promo_JawsOfTheLion.png", "DLC_Promo_SoloScenarios.png"))}
+PREFERRED_ART = {name: 40 - index for index, name in enumerate((
+    "HeroPortrait_Brute.png", "Portrait_BanditGuard.png", "HeroPortrait_Scoundrel.png",
+    "Portrait_BanditArcher.png", "HeroPortrait_Cragheart.png", "Portrait_LivingBones.png",
+    "HeroPortrait_Spellweaver.png", "Portrait_LivingCorpse.png", "HeroPortrait_Tinkerer.png",
+    "Portrait_VermlingScout.png", "HeroPortrait_Mindthief.png", "Portrait_Cultist.png"))}
 
 
 def _owned_file(project, relative):
@@ -35,8 +38,8 @@ def _owned_file(project, relative):
     return path if path.is_file() else None
 
 
-def verified_project_artwork(project_root, expected_game_key, limit=3):
-    """Return at most three verified local PNGs, or [] when evidence is absent.
+def verified_project_artwork(project_root, expected_game_key, limit=12):
+    """Return at most twelve verified local PNGs, or [] when evidence is absent.
 
     Descriptors are server-private. Expose only id/altCode and a guarded opaque
     /api/artwork URL to the browser. The backend must call read_artwork for every
@@ -47,7 +50,7 @@ def verified_project_artwork(project_root, expected_game_key, limit=3):
     if not isinstance(project_root, (str, Path)):
         return []
     try:
-        count = max(0, min(3, int(limit)))
+        count = max(0, min(12, int(limit)))
     except (ValueError, TypeError):
         return []
     if not count:
