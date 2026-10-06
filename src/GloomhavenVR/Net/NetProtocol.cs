@@ -553,7 +553,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 626;
+    public const ushort ModBuild = 627;
+
+    // ModBuild 627 — switch the full Quest procedural worker to pinned native
+    // Bionic ARM64EC Proton Wine and official FEX. Only the original x64 worker
+    // and owner's unchanged engine DLL are translated; Unity/gameplay/VR stay
+    // native. Keep the twelve exports and GHPR framing/callback/task leases.
+    // Source-owned loader/path adaptation keeps executable ELF files in the
+    // APK nativeLibraryDir and prefix writes in private internal app storage.
+    // Qualify actual Android ELF and caller-specific ARM64X/EC PE bindings on
+    // the builder; no full runtime integrity scan runs at headset startup.
+    // Capture backend identity in input/cache/Player contracts and native logs;
+    // package exactly the declared native programs with preload disabled.
+    // Preserve Box64/Wine9 only as an explicit comparison, never a silent fallback.
+    // Retain B626 ordinary texture copies and bounded menu/right-target probes.
+    // Deliver the game-free Windows builder, not an agent-host APK. Headset
+    // engine execution, menu visibility and synthesis/performance remain open.
 
     // ModBuild 626 — verified B625 capture reaches immediate, correctly oriented
     // intros but retains a black interactive menu and a thin rotating spinner.

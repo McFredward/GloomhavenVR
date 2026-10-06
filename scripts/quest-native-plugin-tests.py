@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise the actual Unity native importer contract; no Player/APK is built."""
+import argparse
 import hashlib
 import json
 import os
@@ -12,6 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--staged-project", type=Path,
+                        help="Import the actual staged native programs instead of tiny importer fixtures.")
+    args = parser.parse_args()
     output = ROOT / ".planning/debug/quest-native-plugins"
     output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=output))
@@ -36,10 +41,22 @@ def main():
     names = ["libQuestApparance.so", "libopus_egpv.so", "libquest_proton.so", "libquest_proton_server.so", "libqn.so", "libqw.so", "libqs.so"]
     data = native.read_bytes()
     rows = []
-    for name in names:
-        path = plugins / name
-        path.write_bytes(data)
-        rows.append({"path": path.relative_to(project).as_posix(), "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+    if args.staged_project:
+        staged = args.staged_project.resolve()
+        document = json.loads((staged / "Assets/Quest/Resources/quest-procedural-native.json").read_text())
+        if document.get("schema") != 1 or document.get("backend") != "proton-arm64ec-fex":
+            raise SystemExit("Actual importer fixture requires a staged Proton native contract.")
+        for row in document["files"]:
+            source_file = staged / row["path"]
+            if source_file.parent != staged / "Assets/Quest/Plugins/Android/arm64-v8a":
+                raise SystemExit("Actual staged importer input is outside its native directory.")
+            shutil.copyfile(source_file, plugins / source_file.name)
+            rows.append(row)
+    else:
+        for name in names:
+            path = plugins / name
+            path.write_bytes(data)
+            rows.append({"path": path.relative_to(project).as_posix(), "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
     (resources / "quest-procedural-native.json").write_text(json.dumps({"schema": 1, "backend": "proton-arm64ec-fex", "files": rows}))
     (editor / "QuestNativePluginFixture.cs").write_text(r'''
 using System;
@@ -66,7 +83,7 @@ public static class QuestNativePluginFixture
         {
             string original = File.ReadAllText(QuestNativePluginContract.ResourcePath);
             var good = QuestNativePluginContract.Configure("proton-arm64ec-fex");
-            Check(good.files.Length == 7, "actual contract count");
+            Check(good.files.Length == int.Parse(Environment.GetEnvironmentVariable("QUEST_NATIVE_PLUGIN_COUNT")), "actual contract count");
             foreach (var file in good.files)
             {
                 var importer = AssetImporter.GetAtPath(file.path) as PluginImporter;
@@ -101,7 +118,7 @@ public static class QuestNativePluginFixture
     (project / "Packages/manifest.json").write_text('{"dependencies":{}}\n')
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
     result_path = run / "results.txt"
-    environment = dict(os.environ, QUEST_NATIVE_PLUGIN_RESULT=str(result_path))
+    environment = dict(os.environ, QUEST_NATIVE_PLUGIN_RESULT=str(result_path), QUEST_NATIVE_PLUGIN_COUNT=str(len(rows)))
     command = [str(unity), "-batchmode", "-nographics", "-projectPath", str(project),
         "-executeMethod", "QuestNativePluginFixture.Run", "-logFile", str(run / "unity.log")]
     print("Quest native plugin evidence: " + str(run), flush=True)
@@ -112,7 +129,8 @@ public static class QuestNativePluginFixture
     finally:
         for cache in ("Library", "Temp"): shutil.rmtree(project / cache, ignore_errors=True)
     (run / "source-hashes.json").write_text(json.dumps({"production": hashlib.sha256(production.read_bytes()).hexdigest(),
-        "fixtureNative": hashlib.sha256(data).hexdigest(), "apkBuilt": False, "androidExecutionVerified": False}, indent=2))
+        "actualStagedPrograms": bool(args.staged_project), "files": rows,
+        "apkBuilt": False, "androidExecutionVerified": False}, indent=2))
 
 
 if __name__ == "__main__": main()

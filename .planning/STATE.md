@@ -1,5 +1,32 @@
 # State — where the project stands
 
+**Quest B627 prepared, 2026-10-06: Android Proton/FEX Windows-builder update.**
+
+The maintainer authorized immediate implementation after B626. The full-game
+builder now selects Android/Bionic ARM64EC Proton Wine and official FEX behind
+the unchanged original x64 engine/worker ABI. Backend identity controls immutable
+input/cache keys, exact native plugin imports and signed Player/APK inventories.
+The old Box64/Wine9 backend remains explicit comparison only. Source-owned Wine
+layout and private prefix keep executable code in APK nativeLibraryDir and new
+initialization outputs in internal storage. Actual native/ARM64X caller-view
+qualification runs on the builder, not every headset launch. Native build/audit
+support evidence and a distinct internal Proton engine log are retained.
+
+The integrated actual stage preserves the original DLL and qualifies 27
+procedural ARM64 ELFs / 1,156 native imports, plus 126 native/EC PE contexts /
+19,904 PE imports. Voice adds the 28th native program. All 76 native-runtime
+cases, 42 builder, five inventory, 14 release/support and 67 collector cases
+pass (one optional PowerShell skip). Actual Unity import of all 28 staged
+programs passes 174 assertions. Strict Release and actual separate Quest/mod
+assembly compilation have zero warnings/errors. No unrelated/full shader gate
+or Player/APK build runs.
+
+See [B627 backend and hardware evidence](QUEST3-HARDWARE-627.md). Delivery remains
+the game-free Windows builder, with no agent-host APK/Player. Campaign/Guildmaster
+and owned DLC stay included; Android execution, generation, mobile performance
+and the independent black-menu picture remain unverified hardware questions.
+Changes and publication stay only on the Quest feature branch.
+
 **Quest B626 prepared, 2026-10-06: Windows-builder source update.**
 
 Verified B625 capture `quest-capture-20261006T142146Z-7d6d0267.zip` and its screenshot
