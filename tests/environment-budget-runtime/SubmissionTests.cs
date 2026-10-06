@@ -130,8 +130,8 @@ public static partial class EnvironmentProgram
             ScenarioEnvironmentBudget.BeforeLoadingComplete();
             Check(VRSession.Harmony.Patched.Contains(typeof(MaterialLoaderData_Load_EnvironmentBudgetPatch)),
                 "production install registers native material-load start interruption");
-            bool began = false, restored = false; int otherLeaseReleases = 0;
-            ScenarioEnvironmentBudget.ConfigureBeforeNativeContentChange(() => otherLeaseReleases++);
+            bool began = false, restored = false; int terrainLeaseReleases = 0;
+            ScenarioEnvironmentBudget.ConfigureTerrainIntegration(_=>{}, _=>{}, _=>{}, () => terrainLeaseReleases++, _=>false);
             room.ObserveRender = () =>
             {
                 began = first.forceRenderingOff && second.forceRenderingOff;
@@ -145,11 +145,11 @@ public static partial class EnvironmentProgram
             };
             room.Render(); room.ObserveRender = null;
             Check(began && restored, "native material-load start revokes queued geometry before its original hide");
-            Check(otherLeaseReleases == 1, "native material-load start dispatches the shared idle lease recovery before hiding");
+            Check(terrainLeaseReleases == 1, "native material-load start dispatches the terrain lease recovery before hiding");
             typeof(MaterialLoaderData_Ready_EnvironmentBudgetPatch).GetMethod("Prefix", BindingFlags.NonPublic | BindingFlags.Static)!
                 .Invoke(null, new object[] { new MaterialLoaderData { Renderer = first } });
-            Check(otherLeaseReleases == 2, "native material completion dispatches shared idle lease recovery before writing");
-            ScenarioEnvironmentBudget.ConfigureBeforeNativeContentChange(() => { });
+            Check(terrainLeaseReleases == 2, "native material completion dispatches terrain lease recovery before writing");
+            ScenarioEnvironmentBudget.ConfigureTerrainIntegration(_=>{}, _=>{}, _=>{}, ()=>{}, _=>false);
             first.enabled = true; ScenarioEnvironmentBudget.MaterialReady(first); ScenarioEnvironmentBudget.BeforeLoadingComplete();
             Check(instanced ? Members("_instances") == 1 : room.Chunks().Length == 1,
                 "native material completion readmits exact sources after interrupted loading");
