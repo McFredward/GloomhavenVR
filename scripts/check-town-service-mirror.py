@@ -70,6 +70,8 @@ def sources(root):
     if stock.exists(): bound[stock.name] = stock.read_text()
     merchant_control = base / "Net/TownServices/TownServiceMirror.MerchantControl.cs"
     if merchant_control.exists(): bound[merchant_control.name] = merchant_control.read_text()
+    original_pool = base / "Net/TownServices/TownServiceCodec.OriginalValuePool.cs"
+    if original_pool.exists(): bound[original_pool.name] = original_pool.read_text()
     native_publication = base / "Net/TownServices/TownServiceMirror.NativePublication.cs"
     if native_publication.exists(): bound[native_publication.name] = native_publication.read_text()
     for fast in ("TownServiceFastNumbers", "TownServiceMotionCodec", "TownServiceMotionCodec.OfferedFrame", "TownServiceMotionBudget", "TownServiceReturnMotion", "TownCardReturnMotion", "TownServiceMirror.Motion", "TownServiceMirror.PreparedCardReturns"):
@@ -325,10 +327,14 @@ def main():
         if not args.no_negative_controls:
             variants += [
                 ("offered-old-root-clock", "TownServiceMirror.Motion.cs", "PrepareOfferedRootMotion(module, composed, root, now);", "/* old all-node native hover tween */", "physical offered print facing remains invariant under unrelated native artwork hover"),
-                ("offered-no-print-relation", "TownServiceMirror.Motion.cs", "        ApplyOfferedFrames();", "        /* independent overlay and physical root clocks */", "native area stays in the same owner-authored print frame during a hover turn"),
+                ("offered-no-print-relation", "TownServiceMirror.Motion.cs", "        ApplyOfferedFrames(now);", "        /* independent overlay and physical root clocks */", "native area stays in the same owner-authored print frame during a hover turn"),
                 ("offered-wrong-print-binding", "TownServiceMirror.Offerings.cs", "int printIndex = Array.IndexOf(physical.Binding.Bindings, relation.OfferedBinding);", "int printIndex = -1;", "native area stays in the same owner-authored print frame during a hover turn"),
-                ("offered-observer-facing", "TownServiceMirror.Offerings.cs", "target.rotation = print.rotation * Rotation(pose);", "target.rotation = GloomhavenVR.Rig.VRRigDriver.HeadCamera.transform.rotation * Rotation(pose);", "independent offered print and native overlays share the same intermediate owner rotation"),
+                ("offered-observer-facing", "TownServiceMirror.Offerings.cs", "target.rotation = print.rotation * rotation;", "target.rotation = GloomhavenVR.Rig.VRRigDriver.HeadCamera.transform.rotation * rotation;", "independent offered print and native overlays share the same intermediate owner rotation"),
                 ("offered-lossy-parent-scale", "TownServiceMirror.Offerings.cs", "entry.OfferedLocalScale = true;", "entry.OfferedLocalScale = false;", "native area stays in the same owner-authored print frame during a hover turn"),
+                ("offered-only-holder-partition", "TownServiceMirror.Offerings.cs", "|| !(original == pair.Key || original.IsChildOf(pair.Key))", "|| original != pair.Key", "partitioned native area follows the physical print despite an independently delayed ninety-degree holder header"),
+                ("offered-drop-affinity-on-art-header", "TownServiceMirror.Motion.cs", "|| entry.Kind != 9 && slot.SampleTime < module.LastFrame.SampleTime)", "|| slot.SampleTime < module.LastFrame.SampleTime)", "same-original artwork heartbeat cannot withdraw the current independent offered print affinity"),
+                ("offered-shared-child-clock", "TownServiceMotion.cs", "if (!_hasTarget || !_to[i].Same(target))", "if (true)", "unrelated owner root headers preserve the native child's independent continuous spin clock"),
+
             ]
     if args.suite == "card-return":
         variants = [("production", None, None, None, "")]

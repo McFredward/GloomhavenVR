@@ -461,7 +461,10 @@ internal static partial class TownServiceMirror
                     || !Remote.TryGetValue(key, out Dictionary<ushort, RemoteModule>? modules)
                     || !modules.TryGetValue(entry.Module, out RemoteModule? module) || !module.Alive
                     || module.LastFrame == null || module.LastFrame.Structure != entry.Structure
-                    || slot.SampleTime < module.LastFrame.SampleTime) continue;
+                    // The exact print affinity is not present in an artwork
+                    // header. A newer identical-original heartbeat cannot erase
+                    // this still-current independent geometric registration.
+                    || entry.Kind != 9 && slot.SampleTime < module.LastFrame.SampleTime) continue;
                 if (!MotionRemoteFrames.TryGetValue(module, out RemoteMotion? composed))
                 { composed = new RemoteMotion(); MotionRemoteFrames.Add(module, composed); }
                 composed.Owner = RealPeer(key);
@@ -500,7 +503,7 @@ internal static partial class TownServiceMirror
                     module.Motion.BeforeApply(now);
                     module.Binding.Apply(frame, Assets);
                     if (root != null) ApplyMotionRoot(module, root.Entry, composed, frame, now);
-                    module.Motion.AfterApply(now, sampleInterval, sparseFan: root != null && root.Entry.Hand > 2);
+                    module.Motion.AfterApply(now, sampleInterval, sparseFan: root != null && root.Entry.Hand > 2, sourceSampleTime: frame.SampleTime);
                     TownServiceDepthOrder.Refresh(module.Host.transform);
                     composed.LastSampleTime = frame.SampleTime;
                     composed.Author = module.LastFrame; composed.Merged = frame;
@@ -533,7 +536,7 @@ internal static partial class TownServiceMirror
             // furniture anchor already measures those live transforms in its own
             // distance tick; reassert native sorting only after binding above.
         }
-        ApplyOfferedFrames();
+        ApplyOfferedFrames(now);
         foreach (RemoteModule removed in MotionFrameRemoval) MotionRemoteFrames.Remove(removed);
         MotionDiagnostics(now);
     }
@@ -745,7 +748,7 @@ internal static partial class TownServiceMirror
 
     internal static void ForgetRemoteMotion(int peer) { MotionPeers.Remove(peer); TownServiceSharedCue.Forget(peer); }
     internal static void ResetMotionNetwork()
-    { MotionSources.Clear(); MotionPeers.Clear(); MotionHands.Clear(); MotionOfferings.Clear(); OfferedFrames.Clear(); ActiveOfferedFrames.Clear(); DeadOfferedFrames.Clear(); MotionReturns.Clear(); CardReturns.Clear(); MotionWaiting.Clear(); MotionLive.Clear(); MotionVisibleFan.Clear(); MotionRemoteFrames.Clear(); TownServiceSharedCue.Reset();
+    { MotionSources.Clear(); MotionPeers.Clear(); MotionHands.Clear(); MotionOfferings.Clear(); OfferedFrames.Clear(); ActiveOfferedFrames.Clear(); DeadOfferedFrames.Clear(); OfferedRemoteMotion.Clear(); DeadOfferedRemoteMotion.Clear(); OfferedApplyOrder.Clear(); _offeredDiagnosticAt = 0f; MotionReturns.Clear(); CardReturns.Clear(); MotionWaiting.Clear(); MotionLive.Clear(); MotionVisibleFan.Clear(); MotionRemoteFrames.Clear(); TownServiceSharedCue.Reset();
       MotionSourceRemoval.Clear(); MotionRemoval.Clear(); _nextMotionSend = 0f; _motionCursor = _motionLiveCursor = _motionVisibleCursor = 0;
       _motionCommitSession = _motionCommitRevision = 0; _nextMotionCommit = 0f;
       _motionCue = null; _nextMotionCue = 0f;

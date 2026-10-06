@@ -29,13 +29,15 @@ internal sealed class TownServiceMotion
             && Pivot == other.Pivot && Size == other.Size && Alpha == other.Alpha && Color == other.Color && Rendered == other.Rendered;
     }
     private readonly Node[] _nodes;
-    private readonly State[] _from, _to;
+    private readonly State[] _from, _to, _before;
+    private readonly float[] _nodeStarted, _nodeDuration, _nodeSampleTime;
+    private readonly bool _continuousNativeEffects;
     private readonly bool _continuousDecisionFacing;
     private readonly bool _continuousVisitorMotion;
     private bool _active, _hasTarget;
-    private float _started, _duration;
     internal TownServiceMotion(Transform host, Transform[] originalNodes, string address = "")
     {
+        _continuousNativeEffects = address.StartsWith("enchant.holder", StringComparison.Ordinal);
         _continuousDecisionFacing = address.StartsWith("item.confirm.part.", StringComparison.Ordinal)
             || address.StartsWith("enhance.confirm.part.", StringComparison.Ordinal);
         // A held temple purse and a merchant visitor's original item fan are
@@ -50,6 +52,8 @@ internal sealed class TownServiceMotion
             || address.StartsWith("inspectionbody.", StringComparison.Ordinal)
             || IsVisitorItem(address);
         _nodes = new Node[originalNodes.Length + 1]; _from = new State[_nodes.Length]; _to = new State[_nodes.Length];
+        _before = new State[_nodes.Length]; _nodeStarted = new float[_nodes.Length];
+        _nodeDuration = new float[_nodes.Length]; _nodeSampleTime = new float[_nodes.Length];
         for (int i = 0; i < _nodes.Length; i++)
         {
             Transform source = i == 0 ? host : originalNodes[i - 1];
@@ -67,37 +71,44 @@ internal sealed class TownServiceMotion
     internal void BeforeApply(float now)
     {
         Tick(now);
-        for (int i = 0; i < _nodes.Length; i++) _from[i] = Read(_nodes[i]);
+        for (int i = 0; i < _nodes.Length; i++) _before[i] = Read(_nodes[i]);
         // Binding skips unchanged target properties. Restore the previous complete target before
         // those writes, then blend from the currently displayed intermediate state afterwards.
         if (_hasTarget) for (int i = 0; i < _nodes.Length; i++)
-            if (!_from[i].Same(_to[i])) Write(_nodes[i], _from[i], _to[i], 1f);
+            if (!_before[i].Same(_to[i])) Write(_nodes[i], _before[i], _to[i], 1f);
     }
-    internal void AfterApply(float now, float sampleInterval, bool sparseFan = false)
+    internal void AfterApply(float now, float sampleInterval, bool sparseFan = false, float sourceSampleTime = -1f)
     {
-        _active = false; _hasTarget = true;
-        for (int i = 0; i < _nodes.Length; i++)
-        {
-            _to[i] = Read(_nodes[i]);
-            // Reopening/new parentage starts at its first actual owner state, never at an old
-            // invisible pose. Subsequent sampled native appearance/movement is interpolated.
-            if (!_from[i].Active || !_to[i].Active || _from[i].Parent != _to[i].Parent) _from[i] = _to[i];
-            if (!_from[i].Same(_to[i])) _active = true;
-        }
-        // Shared decisions and personal held props cover the actual owner
-        // interval, bounded at 250 ms. Keep the existing 100 ms response for
-        // rack/crank and other discrete controls. This class remains the only
-        // author for sampled native child animation. A verified held root and its
-        // enclosing canvas consume the approved rig holder after this tween ticks.
-        _started = now; _duration = _continuousDecisionFacing || _continuousVisitorMotion
+        float duration = _continuousDecisionFacing || _continuousVisitorMotion
             ? Mathf.Clamp(sampleInterval * 1.1f, 1f / 90f, .25f)
             : Mathf.Clamp(sampleInterval, 1f / 90f, .1f);
-        // A dense upright fan has individual original offsets but rides the rig
-        // each frame. A bounded fair turn can exceed the held-card interval;
-        // covering that measured turn avoids a stationary gap between samples.
         if (sparseFan && _continuousVisitorMotion)
-            _duration = Mathf.Clamp(sampleInterval * 1.1f, 1f / 90f, 1.5f);
-        if (_active) Tick(now);
+            duration = Mathf.Clamp(sampleInterval * 1.1f, 1f / 90f, 1.5f);
+        _active = false;
+        for (int i = 0; i < _nodes.Length; i++)
+        {
+            State target = Read(_nodes[i]);
+            if (!_hasTarget || !_to[i].Same(target))
+            {
+                _from[i] = _before[i]; _to[i] = target;
+                if (!_from[i].Active || !target.Active || _from[i].Parent != target.Parent) _from[i] = target;
+                float nodeInterval = _hasTarget && sourceSampleTime > _nodeSampleTime[i]
+                    ? sourceSampleTime - _nodeSampleTime[i] : sampleInterval;
+                State withoutRotation = _from[i]; withoutRotation.Rotation = target.Rotation;
+                bool continuousSpin = _continuousNativeEffects && _from[i].Rotation != target.Rotation
+                    && withoutRotation.Same(target);
+                _nodeDuration[i] = continuousSpin
+                    ? Mathf.Clamp(nodeInterval * 1.1f, 1f / 90f, 1.5f) : duration;
+                _nodeStarted[i] = now; _nodeSampleTime[i] = sourceSampleTime;
+            }
+            // Root facing, color and independent property/header updates must
+            // not restart an unchanged native ring's current interpolation.
+            // BeforeApply restored target values solely for the binding pass;
+            // resume each child from its own retained original sample clock.
+            if (!_from[i].Same(_to[i]) && now - _nodeStarted[i] < _nodeDuration[i]) _active = true;
+        }
+        _hasTarget = true;
+        Tick(now);
     }
     private static bool IsVisitorItem(string address)
     {
@@ -110,10 +121,15 @@ internal sealed class TownServiceMotion
     internal void Tick(float now)
     {
         if (!_active) return;
-        float t = Mathf.Clamp01((now - _started) / _duration);
+        bool pending = false;
         for (int i = 0; i < _nodes.Length; i++)
-            if (!_from[i].Same(_to[i])) Write(_nodes[i], _from[i], _to[i], t);
-        if (t >= 1f) _active = false;
+        {
+            if (_from[i].Same(_to[i])) continue;
+            float t = Mathf.Clamp01((now - _nodeStarted[i]) / _nodeDuration[i]);
+            Write(_nodes[i], _from[i], _to[i], t);
+            if (t < 1f) pending = true;
+        }
+        _active = pending;
     }
     private static State Read(Node node)
     {

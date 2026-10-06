@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using GloomhavenVR.Core;
 
 namespace GloomhavenVR.Net.TownServices;
 
@@ -15,6 +16,18 @@ internal static partial class TownServiceMirror
     private static readonly Dictionary<Transform, Transform> OfferedFrames = new();
     private static readonly HashSet<MotionSlot> ActiveOfferedFrames = new();
     private static readonly List<Transform> DeadOfferedFrames = new();
+    private sealed class OfferedFrameMotion
+    {
+        internal TownServiceMotionEntry Target = null!;
+        internal ulong Sequence;
+        internal float SampleTime, Started, Duration;
+        internal float[] From = Array.Empty<float>();
+    }
+    private static readonly Dictionary<RemoteModule, OfferedFrameMotion> OfferedRemoteMotion = new();
+    private static readonly List<RemoteModule> DeadOfferedRemoteMotion = new();
+    private static readonly List<RemoteModule> OfferedApplyOrder = new();
+    private static float _offeredDiagnosticAt;
+
 
     // The real native fitter supplies both originals. Addresses and a viewer's
     // head are insufficient to identify a print while old cards return to a fan.
@@ -47,37 +60,51 @@ internal static partial class TownServiceMirror
         if (lane.Active && lane.Service == 3) foreach (var pair in OfferedFrames)
         {
             if (pair.Key == null || pair.Value == null || !ValidMotionScale(pair.Value.lossyScale)
-                || !ValidMotionScale(pair.Key.lossyScale)
-                || !FindOfferedOriginal(lane, pair.Key, out LocalModule? holder, out uint holderBinding)
-                || !FindOfferedOriginal(lane, pair.Value, out LocalModule? print, out uint printBinding)
-                || holder == print || !MotionSources.TryGetValue(holder!, out SourceMotion? motion)) continue;
-            var entry = MotionHeader(holder!.Last!, 0, 9);
-            entry.Visible = true; entry.Binding = holderBinding; entry.OfferedModule = print!.Id;
-            entry.OfferedStructure = print.Last!.Structure; entry.OfferedBinding = printBinding;
-            // Capture the fitted SOURCE pose, including the native pivot/inset and
-            // depth bias. An observer neither refits an approximation nor faces
-            // the copied widget towards its own head.
-            entry.Numbers = ReadPose(pair.Key, pair.Value);
-            Canvas? canvas = pair.Key.GetComponentInParent<Canvas>(true);
-            if (holder!.Last!.HasCanvasFrame && canvas != null && canvas.transform != pair.Key)
+                || !FindOfferedOriginal(lane, pair.Value, out LocalModule? print, out uint printBinding)) continue;
+            // The real native holder is partitioned: Aura branches and selectable
+            // ability rows can each have their own detached observer canvas/root.
+            // Build629 only tied the module containing CardHilight to the print;
+            // fitting that ancestor cannot move a separately mounted descendant.
+            // Retain each actual source descendant's relation, including native
+            // partition pivots and its own enclosing converted canvas.
+            foreach (LocalModule holder in lane.Modules.Values)
             {
-                if (!ValidMotionScale(canvas.transform.lossyScale)) continue;
-                entry.HasCanvasFrame = true; entry.CanvasPose = ReadPose(canvas.transform, pair.Value);
-                if (ReferenceEquals(pair.Key, holder.Binding.Root) && ReferenceEquals(pair.Key.parent, canvas.transform))
+                Transform original = holder.Binding.Root;
+                if (holder == print || holder.Last == null || holder.Baseline == null || original == null
+                    || !(original == pair.Key || original.IsChildOf(pair.Key))
+                    || !ValidMotionScale(original.lossyScale)
+                    || !MotionSources.TryGetValue(holder, out SourceMotion? motion)) continue;
+                var entry = MotionHeader(holder.Last, 0, 9);
+                entry.Visible = true; entry.Binding = holder.Binding.Bindings[0]; entry.OfferedModule = print!.Id;
+                entry.OfferedStructure = print.Last!.Structure; entry.OfferedBinding = printBinding;
+                entry.Numbers = ReadPose(original, pair.Value);
+                Canvas? canvas = original.GetComponentInParent<Canvas>(true);
+                if (holder.Last.HasCanvasFrame && canvas != null && canvas.transform != original)
                 {
-                    // A rotated child of a stretched canvas cannot recover its
-                    // exact local scale by dividing two lossy world scales. The
-                    // receiver has this exact copied parent: retain source TRS.
-                    entry.OfferedLocalScale = true;
-                    Vector3 scale = pair.Key.localScale;
-                    entry.Numbers[7] = scale.x; entry.Numbers[8] = scale.y; entry.Numbers[9] = scale.z;
+                    if (!ValidMotionScale(canvas.transform.lossyScale)) continue;
+                    entry.HasCanvasFrame = true; entry.CanvasPose = ReadPose(canvas.transform, pair.Value);
+                    if (ReferenceEquals(original.parent, canvas.transform))
+                    {
+                        // A rotated child of a stretched canvas requires its exact
+                        // source local TRS, not division of two lossy world scales.
+                        entry.OfferedLocalScale = true;
+                        Vector3 scale = original.localScale;
+                        entry.Numbers[7] = scale.x; entry.Numbers[8] = scale.y; entry.Numbers[9] = scale.z;
+                    }
                 }
+                UpdateMotionSlot(motion, entry);
+                MotionSlot slot = motion.Slots[entry.Key];
+                ActiveOfferedFrames.Add(slot);
+                if ((slot.Dirty || now - slot.SentAt >= TownServiceMotionCodec.Heartbeat)
+                    && !MotionLive.Contains(slot)) MotionLive.Add(slot);
             }
-            UpdateMotionSlot(motion, entry);
-            MotionSlot slot = motion.Slots[entry.Key];
-            ActiveOfferedFrames.Add(slot);
-            if ((slot.Dirty || now - slot.SentAt >= TownServiceMotionCodec.Heartbeat)
-                && !MotionLive.Contains(slot)) MotionLive.Add(slot);
+        }
+        if (lane.Active && lane.Service == 3 && OfferedFrames.Count != 0
+            && VRLog.WantsDebug && now >= _offeredDiagnosticAt)
+        {
+            _offeredDiagnosticAt = now + 5f;
+            VRLog.Info("TownMotion", "TOWN OFFERED FRAME registered=" + OfferedFrames.Count
+                + " linkedOriginalModules=" + ActiveOfferedFrames.Count + " session=" + lane.Session + ".");
         }
         foreach (var pair in MotionSources)
         {
@@ -96,20 +123,27 @@ internal static partial class TownServiceMirror
         }
     }
 
-    private static void ApplyOfferedFrames()
+    private static void ApplyOfferedFrames(float now)
     {
         // Run once AFTER all independently authored native child/root tweens.
         // A hover-only update cannot put the ring and the physical card in
         // separate planes, even when the numeric budget delivers them separately.
-        foreach (var pair in MotionRemoteFrames)
+        DeadOfferedRemoteMotion.Clear();
+        foreach (RemoteModule old in OfferedRemoteMotion.Keys) if (!old.Alive) DeadOfferedRemoteMotion.Add(old);
+        foreach (RemoteModule old in DeadOfferedRemoteMotion) OfferedRemoteMotion.Remove(old);
+        OfferedApplyOrder.Clear();
+        foreach (RemoteModule candidate in MotionRemoteFrames.Keys)
+            if (candidate.Alive && candidate.Host.activeInHierarchy) OfferedApplyOrder.Add(candidate);
+        OfferedApplyOrder.Sort(CompareOfferedParentage);
+        foreach (RemoteModule module in OfferedApplyOrder)
         {
-            RemoteModule module = pair.Key;
+            RemoteMotion composed = MotionRemoteFrames[module];
             if (!module.Alive || !module.Host.activeInHierarchy) continue;
-            foreach (MotionSlot slot in pair.Value.Slots)
+            foreach (MotionSlot slot in composed.Slots)
             {
                 TownServiceMotionEntry relation = slot.Entry;
                 if (relation.Kind != 9 || relation.Lane != 0 || !relation.Visible
-                    || !Remote.TryGetValue(pair.Value.Owner, out Dictionary<ushort, RemoteModule>? modules)
+                    || !Remote.TryGetValue(composed.Owner, out Dictionary<ushort, RemoteModule>? modules)
                     || !modules.TryGetValue(relation.OfferedModule, out RemoteModule? physical)
                     || !physical.Alive || !physical.Host.activeInHierarchy || physical.LastFrame == null
                     || physical.Session != relation.Session || physical.LastFrame.Structure != relation.OfferedStructure
@@ -123,6 +157,8 @@ internal static partial class TownServiceMirror
                 // The source's converted canvas belongs to this same print. Its
                 // native masks cannot stay in an independently interpolated world
                 // frame while only the child ink follows the offered card.
+                OfferedFrameMotion motion = PrepareOfferedFrameMotion(module, slot, now);
+                float blend = motion.Duration > 0f ? Mathf.Clamp01((now - motion.Started) / motion.Duration) : 1f;
                 if (relation.HasCanvasFrame)
                 {
                     if (module.AddedCanvas == null || module.Host.transform.parent == null
@@ -130,18 +166,81 @@ internal static partial class TownServiceMirror
                     ApplyOfferedPose(module.Host.transform, print, relation.CanvasPose);
                 }
                 if (relation.OfferedLocalScale && !ReferenceEquals(holder.parent, module.Host.transform)) continue;
-                ApplyOfferedPose(holder, print, relation.Numbers, relation.OfferedLocalScale);
+                ApplyOfferedPose(holder, print, relation.Numbers, relation.OfferedLocalScale, motion.From, blend);
                 slot.Dirty = false;
             }
         }
     }
 
-    private static void ApplyOfferedPose(Transform target, Transform print, float[] pose, bool originalLocalScale = false)
+    private static int CompareOfferedParentage(RemoteModule first, RemoteModule second)
     {
-        target.position = print.TransformPoint(Position(pose));
-        target.rotation = print.rotation * Rotation(pose);
-        target.localScale = originalLocalScale ? Scale(pose)
-            : DivideMotionScale(Vector3.Scale(print.lossyScale, Scale(pose)), target.parent.lossyScale);
+        // Detached canvases can still mount beneath another native partition.
+        // Preserve parent-before-child writes even when packets/builds admitted
+        // those modules in a different order; otherwise the ancestor rotates an
+        // already fitted child's frame a second time.
+        int a = 0, b = 0;
+        for (Transform? node = first.Host.transform.parent; node != null; node = node.parent) a++;
+        for (Transform? node = second.Host.transform.parent; node != null; node = node.parent) b++;
+        int order = a.CompareTo(b);
+        return order != 0 ? order : first.LastFrame!.Module.CompareTo(second.LastFrame!.Module);
+    }
+
+    private static OfferedFrameMotion PrepareOfferedFrameMotion(RemoteModule module, MotionSlot slot, float now)
+    {
+        TownServiceMotionEntry target = slot.Entry;
+        if (!OfferedRemoteMotion.TryGetValue(module, out OfferedFrameMotion? motion))
+            OfferedRemoteMotion.Add(module, motion = new OfferedFrameMotion());
+        if (motion.Sequence == slot.ReceivedSequence) return motion;
+        TownServiceMotionEntry? old = motion.Target;
+        bool samePrint = old != null && old.Session == target.Session && old.Structure == target.Structure
+            && old.Binding == target.Binding && old.OfferedModule == target.OfferedModule
+            && old.OfferedStructure == target.OfferedStructure && old.OfferedBinding == target.OfferedBinding
+            && old.HasCanvasFrame == target.HasCanvasFrame && old.OfferedLocalScale == target.OfferedLocalScale;
+        float blend = motion.Duration > 0f ? Mathf.Clamp01((now - motion.Started) / motion.Duration) : 1f;
+        if (samePrint && Quaternion.Angle(Rotation(old!.Numbers), Rotation(target.Numbers)) < .001f)
+        {
+            // Moving the enclosing source canvas is geometric registration, not
+            // a new native spin sample. Preserve the ring's existing clock.
+            motion.Target = target; motion.Sequence = slot.ReceivedSequence; return motion;
+        }
+        motion.From = samePrint ? BlendOfferedPose(motion.From, old!.Numbers, blend) : target.Numbers;
+        // Each native partition owns its original rotation clock. An unrelated
+        // hover/header cannot restart its ring tween, and an admitted descendant
+        // relation must not snap over the normal per-render child interpolation.
+        float interval = slot.SampleTime > motion.SampleTime ? slot.SampleTime - motion.SampleTime : TownServiceMotionCodec.SendInterval;
+        Quaternion delta = samePrint ? Rotation(target.Numbers) * Quaternion.Inverse(Rotation(motion.From)) : Quaternion.identity;
+        delta.ToAngleAxis(out float angle, out Vector3 axis);
+        // Preserve only the native planar spin. Canvas registration and fitted
+        // nonuniform scale must use one exact same target basis as the print;
+        // tweening those mount matrices independently shears the selected rows.
+        motion.Duration = samePrint && angle > .001f && Mathf.Abs(axis.z) > .999f
+            ? Mathf.Clamp(interval * 1.1f, 1f / 90f, 1.5f) : 0f;
+        motion.Target = target; motion.Sequence = slot.ReceivedSequence; motion.SampleTime = slot.SampleTime; motion.Started = now;
+        return motion;
+    }
+
+    private static float[] BlendOfferedPose(float[] from, float[] to, float blend)
+    {
+        if (blend >= 1f) return to;
+        Vector3 p = Vector3.LerpUnclamped(Position(from), Position(to), blend);
+        Quaternion q = Quaternion.SlerpUnclamped(Rotation(from), Rotation(to), blend);
+        Vector3 s = Vector3.LerpUnclamped(Scale(from), Scale(to), blend);
+        return new[] { p.x, p.y, p.z, q.x, q.y, q.z, q.w, s.x, s.y, s.z };
+    }
+
+    private static void ApplyOfferedPose(Transform target, Transform print, float[] pose, bool originalLocalScale = false,
+        float[]? from = null, float blend = 1f)
+    {
+        Vector3 position = Position(pose), scale = Scale(pose);
+        Quaternion rotation = Rotation(pose);
+        if (from != null && blend < 1f)
+        {
+            rotation = Quaternion.SlerpUnclamped(Rotation(from), rotation, blend);
+        }
+        target.position = print.TransformPoint(position);
+        target.rotation = print.rotation * rotation;
+        target.localScale = originalLocalScale ? scale
+            : DivideMotionScale(Vector3.Scale(print.lossyScale, scale), target.parent.lossyScale);
     }
 
     internal static bool RemoteMerchantOffering

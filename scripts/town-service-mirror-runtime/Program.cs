@@ -1438,6 +1438,7 @@ public static partial class MirrorProgram
             if (suite == "offered-orientation")
             {
                 IEnumerator geometry = OfferedOrientation629(); while (geometry.MoveNext()) yield return geometry.Current;
+                geometry = PartitionedOfferedGeometry632(); while (geometry.MoveNext()) yield return geometry.Current;
                 File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\n"); yield break;
             }
             if (suite == "card-return")
