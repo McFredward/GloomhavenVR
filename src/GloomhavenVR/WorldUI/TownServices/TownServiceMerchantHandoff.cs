@@ -91,7 +91,7 @@ internal static class TownServiceMerchantHandoff
         TownServiceCatalog.InOfferingZone = InOfferingZone;
         TownServiceCatalog.RetainOffer = RetainStock;
         CMapCharacter? selected = MapRoomHand.OwnedMerchantCharacter();
-        EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
+        EGuildmasterMode mode = TownServiceQuietController.InteractionMode;
         bool context = MapRoomDriver.Active && WorldUIConfig.ImmersiveTownServices.Value
             && TownServiceGrantSync.CanUseImmersive
             && TownServiceEnhancementHandoff.Enabled && !StoryComposite.PointOfNoReturn
@@ -145,7 +145,7 @@ internal static class TownServiceMerchantHandoff
         if (!Active || _station == null) return;
         // Another station can commit its native hand mode after this owner's Tick.
         // Retire the old item fan before final publication on that same frame.
-        if (GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Enchantress
+        if (TownServiceQuietController.InteractionMode == EGuildmasterMode.Enchantress
             || TownServiceEnhancementHandoff.WantsAbilityFan || TownServiceTempleOffering.WantsPurseFocus)
         { Reset(); return; }
         MapRoomHand.SetMerchantInspection(true); // A native buy/sell refresh never restores the ordinary ability fan here.
@@ -258,7 +258,7 @@ internal static class TownServiceMerchantHandoff
     }
     private static bool Eligible(CItem item, bool selling, bool cached)
     {
-        EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
+        EGuildmasterMode mode = TownServiceQuietController.InteractionMode;
         if (!Active || item == null || !item.Tradeable
             || !ReferenceEquals(MapRoomHand.OwnedMerchantCharacter(), _character)
             || !TownServiceMirror.CanLocalBeginTransaction(1)) return false;
@@ -314,7 +314,7 @@ internal static class TownServiceMerchantHandoff
     {
         if (!Eligible(item, selling, cached: false) || !InOfferingZone(world)) return false;
         uint session = Session;
-        EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
+        EGuildmasterMode mode = TownServiceQuietController.InteractionMode;
         if (mode != EGuildmasterMode.Merchant)
         {
             if (mode != EGuildmasterMode.None && mode != EGuildmasterMode.Temple
@@ -327,9 +327,8 @@ internal static class TownServiceMerchantHandoff
                 && TownServicePresentation.Ritual?.HasParkedTempleOffer == true) return false;
             NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
             NewPartyCharacterUI? selectedSlot = display?.SelectedUISlot;
-            if (!MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Merchant,
-                "item offered to merchant", suppressNativeSound: true)) return false;
-            if (GuildmasterDestinations.CurrentDestinationMode() != EGuildmasterMode.Merchant)
+            if (!TownServiceQuietController.Request(1)) return false;
+            if (TownServiceQuietController.InteractionMode != EGuildmasterMode.Merchant)
                 return false;
             // Native destination changes can select the first character. A physical
             // offering belongs to the exact original slot the visitor was inspecting.
@@ -387,7 +386,7 @@ internal static class TownServiceMerchantHandoff
         // card and original item stay pending; cancellation/timeout returns it.
         if (!TownServiceMirror.LocalTransactionSettled(1)) return;
         UIShopItemWindow? window = Singleton<UIGuildmasterHUD>.Instance?.shopWindow;
-        if (window == null || !window.GetComponent<UIWindow>().IsOpen) return;
+        if (window == null || !TownServiceQuietController.IsOpen(window.GetComponent<UIWindow>(), 1)) return;
         UIShopItemInventory inventory = window.ItemInventory;
         if (inventory == null || inventory.service == null || !ReferenceEquals(inventory.character, _character)) return;
         CItem item = _pending;
@@ -672,7 +671,7 @@ internal static class TownServiceMerchantHandoff
 
     private static bool PendingCurrent() => Active && Session == _pendingSession
         && ReferenceEquals(MapRoomHand.OwnedMerchantCharacter(), _character)
-        && GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Merchant;
+        && TownServiceQuietController.InteractionMode == EGuildmasterMode.Merchant;
 
     private static Transform? Find(Transform root, string name)
     {

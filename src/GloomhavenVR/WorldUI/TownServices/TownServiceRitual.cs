@@ -629,7 +629,8 @@ internal sealed class TownServiceRitual : IDisposable
 
     private bool OriginalVisible(Component source) => source != null
         && (source.gameObject.activeInHierarchy || _service == 2
-            && TownServiceTempleController.OriginalVisible(source.transform, _window));
+            && TownServiceTempleController.OriginalVisible(source.transform, _window)
+            || _service == 3 && TownServiceQuietController.OriginalVisible(source.transform, _window, 3));
 
     private bool OfferingEligible(UITempleWindow temple, UITempleShopSlot slot) => _templeOffering?.Available == true
         && TownServiceMirror.CanLocalBeginTransaction(2)

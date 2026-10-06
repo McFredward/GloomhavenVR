@@ -35,6 +35,11 @@ internal sealed class TownServiceSurface : IDisposable
         bool inheritGroups = ownGroup == null || !ownGroup.ignoreParentGroups;
         for (Transform? t = source.parent; t != null; t = t.parent)
         {
+            // An inactive flat service window or our source-only mask is not an owner-visible
+            // gate in a quiet visit. Preserve real groups below that exact boundary.
+            if (TownServiceQuietController.IsSourceBoundary(t)
+                || t.GetComponent<UnityEngine.UI.UIWindow>() is UnityEngine.UI.UIWindow quietWindow
+                    && TownServicePresentation.IsQuietTemple(quietWindow)) break;
             _nativeAncestors.Add(t);
             CanvasGroup? group = t.GetComponent<CanvasGroup>();
             // The enhancement-point heading is detached into its own physical folio.

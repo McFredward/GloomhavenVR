@@ -164,11 +164,22 @@ internal static class TownServicePresentation
             && MapRoomHand.OwnedMerchantCharacter() != null;
         TownServiceTempleOffering.TickApproach();
         if (!quietTemple) TownServiceEnhancementHandoff.TickApproach();
-        EGuildmasterMode mode = quietTemple ? EGuildmasterMode.Temple : GuildmasterDestinations.CurrentDestinationMode();
+        byte quietService = TownServiceQuietController.RequestedService;
+        // A real parked offer keeps its resident until withdrawn. Otherwise wrist focus may
+        // elect the quiet temple independently of the game's map/window destination.
+        if (quietTemple && !TownServiceMerchantHandoff.HasParkedOffer
+            && !TownServiceEnhancementHandoff.HasCurrentOffering) quietService = 2;
+        EGuildmasterMode mode = quietService switch
+        {
+            1 => EGuildmasterMode.Merchant,
+            2 => EGuildmasterMode.Temple,
+            3 => EGuildmasterMode.Enchantress,
+            _ => GuildmasterDestinations.CurrentDestinationMode()
+        };
         byte service = mode == EGuildmasterMode.Merchant ? (byte)1 : mode == EGuildmasterMode.Temple ? (byte)2
             : mode == EGuildmasterMode.Enchantress ? (byte)3 : (byte)0;
         UIWindow? window = service != 0 ? GuildmasterDestinations.ModeWindow(mode) : null;
-        if (quietTemple && (window == null || !TownServiceTempleController.Prepare(window)))
+        if (quietService == 2 && (window == null || !TownServiceTempleController.Prepare(window)))
         {
             MapRoomHand.SetTempleInspection(false);
             return;
@@ -192,18 +203,20 @@ internal static class TownServicePresentation
             if (restore != null && restore.IsOpen) ModalFallback.RestoreClassicTownService(restore);
             return;
         }
-        if (!MapRoomDriver.Active || window == null || !quietTemple && !window.IsOpen)
+        if (!MapRoomDriver.Active || window == null || quietService == 0 && !window.IsOpen)
         {
             Reset();
             if (_failedWindow != null) _failedWindow.onHidden.RemoveListener(OnFallbackHidden);
             _failedWindow = null; return;
         }
-        if (_window != null && (!ReferenceEquals(_window, window) || _quietService != (quietTemple ? (byte)2 : (byte)0)))
+        if (_window != null && (!ReferenceEquals(_window, window) || _quietService != quietService))
         {
             Reset();
-            if (quietTemple && !TownServiceTempleController.Prepare(window)) return;
+            if (quietService == 2 && !TownServiceTempleController.Prepare(window)) return;
         }
-        _quietService = quietTemple ? (byte)2 : (byte)0;
+        if ((quietService == 1 || quietService == 3)
+            && !TownServiceQuietController.Prepare(window, quietService)) return;
+        _quietService = quietService;
         if (_failedWindow == window) return;
         if (_window == null)
         {
@@ -567,6 +580,7 @@ internal static class TownServicePresentation
         Surfaces.Clear();
         _enhancementListVeil?.Dispose(); _enhancementListVeil = null;
         _contextMask?.Dispose(); _contextMask = null;
+        TownServiceQuietController.Release();
         if (_counter != null) UnityEngine.Object.Destroy(_counter.gameObject);
         _counter = null;
         foreach (Graphic portrait in Portraits) if (portrait != null) portrait.enabled = true;

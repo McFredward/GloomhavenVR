@@ -20,7 +20,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
 {
     private static TownServiceEnhancementHandoff? _current;
     internal static bool HasCurrentOffering => _current != null && !_current._disposed
-        && _current.Card != null && _current._window != null && _current._window.IsOpen
+        && _current.Card != null && _current._window != null && TownServiceQuietController.IsOpen(_current._window, 3)
         && TownServicePresentation.Active && TownServicePresentation.Service == 3;
     internal static Action GuardNativeConfirmation(Action original)
     {
@@ -97,7 +97,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     /// The resident's hand extension follows independent proximity attention;
     /// this property describes only the local native handoff presentation.</summary>
     internal static bool HasVisibleCue => _current != null && !_current._disposed
-        && _current._window != null && _current._window.IsOpen
+        && _current._window != null && TownServiceQuietController.IsOpen(_current._window, 3)
         && (_current._zoneGate.alpha > 0f || _current.Card != null)
         && TownServicePresentation.Active
         && TownServicePresentation.Service == 3;
@@ -243,10 +243,10 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         BeginReturn(presentation);
         return true;
     }
-    private bool ReclaimReady => !_disposed && _shop != null && _window != null && _window.IsOpen && _alive()
+    private bool ReclaimReady => !_disposed && _shop != null && _window != null && TownServiceQuietController.IsOpen(_window, 3) && _alive()
         && (!_shop._isConfirmationBoxOpened || TownServicePalmConfirmation.OwnsCurrent(
             Singleton<UIEnhancementConfirmationBox>.Instance?.GetComponent<UIWindow>()));
-    private bool Ready => !_disposed && _shop != null && _window != null && _window.IsOpen
+    private bool Ready => !_disposed && _shop != null && _window != null && TownServiceQuietController.IsOpen(_window, 3)
         && TownServiceGrantSync.CanUseImmersive
         && !_shop._isConfirmationBoxOpened && _alive() && _input()
         && (Card == null ? TownServiceMirror.CanLocalBeginTransaction(3)
@@ -285,11 +285,13 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         bool abilityFanFocused = RefreshAbilityFanFocus();
         // Leaving is the same native destination exit as its former X, including selection
         // and confirmation cleanup. Returning a card alone left an empty service open forever.
-        if (_current != null && _current._window.IsOpen && head != null && !NearVisitor(approachRoot, head.transform.position, 2.6f))
+        if (_current != null && TownServiceQuietController.IsOpen(_current._window, 3) && head != null && !NearVisitor(approachRoot, head.transform.position, 2.6f))
         {
             TownServiceEnhancementHandoff current = _current;
             current.Return();
-            ModalFallback.CloseFloatedWindow(current._window);
+            if (TownServicePresentation.IsQuietController(current._window, 3))
+                TownServiceQuietController.EndRequest(3);
+            else ModalFallback.CloseFloatedWindow(current._window);
         }
         if (head == null || !NearVisitor(approachRoot, head.transform.position, 2.6f))
         {
@@ -317,11 +319,11 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         {
             if (!_pendingApproach && VRLog.WantsDebug)
                 VRLog.Debug("WorldUI", "TOWN ENHANCEMENT approach pending: destination="
-                    + GuildmasterDestinations.CurrentDestinationMode()
+                    + TownServiceQuietController.InteractionMode
                     + " heldCard=" + cardEntered + " head=" + headEntered + ".");
             _pendingApproach = true;
         }
-        EGuildmasterMode destination = GuildmasterDestinations.CurrentDestinationMode();
+        EGuildmasterMode destination = TownServiceQuietController.InteractionMode;
         // The elected face author extends the enchantress's hand whenever a visitor
         // passes her face-attention test. The local native service used to require a
         // second, nearest-resident test; in the merchant overlap the hand could be
@@ -392,9 +394,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         // includes both this native press and the subsequent original folio
         // conversion; keep their costs separate before attributing a residual hitch.
         using (PerfMonitor.Scope("TownEnhancement.NativeOpen"))
-            opened = MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Enchantress,
-                cardEntered ? "owned card offered to enchantress" : "approached enchantress",
-                suppressNativeSound: true);
+            opened = TownServiceQuietController.Request(3);
         if (opened)
         {
             if (destination == EGuildmasterMode.Merchant) MapRoomHand.SetMerchantInspection(false);
@@ -418,7 +418,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         _approachBlockReports++;
         _approachBlockReportAt = Time.unscaledTime + 2f;
         VRLog.Debug("WorldUI", "TOWN ENHANCEMENT native visit pending: " + reason
-            + " destination=" + GuildmasterDestinations.CurrentDestinationMode() + ".");
+            + " destination=" + TownServiceQuietController.InteractionMode + ".");
     }
 
     private static bool HasOwnedMapCard()
@@ -552,7 +552,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             holder = (leftHeld!.transform.position - _seat.position).sqrMagnitude
                 <= (rightHeld!.transform.position - _seat.position).sqrMagnitude ? VRHands.Left : VRHands.Right;
         VRCard? held = holder?.Grabber.Held as VRCard;
-        bool nativeOpen = _window != null && _window.IsOpen;
+        bool nativeOpen = _window != null && TownServiceQuietController.IsOpen(_window, 3);
         bool availableCard = hasPalm && nativeOpen
             && !_shop._isConfirmationBoxOpened && (held != null || HasAvailableOwnedCard());
         // When the hand carries a card, the preview must describe THAT card. A different
@@ -603,7 +603,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         {
             _cueRecorded = true; _lastCueShown = showCue;
             VRLog.Debug("WorldUI", "TOWN ENHANCEMENT cue " + (showCue ? "shown" : "hidden")
-                + ": nativeOpen=" + (_window != null && _window.IsOpen)
+                + ": nativeOpen=" + (_window != null && TownServiceQuietController.IsOpen(_window, 3))
                 + " input=" + _input() + " palm=" + hasPalm
                 + " eligibleOwnedCard=" + availableCard + " replacement=" + replacement
                 + " offered=" + (Card != null) + " preview=" + preview + ".");
@@ -623,7 +623,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             // original card parked and reclaimable while waiting, then return it if
             // the claim never becomes ours. No gameplay callback runs on timeout.
             if (!ValidOwner(Card) || !_alive() || _palm == null || _shop == null
-                || _window == null || !_window.IsOpen || TownServiceMirror.LocalTransactionDenied(3)
+                || _window == null || !TownServiceQuietController.IsOpen(_window, 3) || TownServiceMirror.LocalTransactionDenied(3)
                 || Time.unscaledTime >= _claimDeadline)
             { Return(); return; }
             if (!TownServiceMirror.LocalTransactionSettled(3)) return;
@@ -653,7 +653,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
         if (TownServiceMirror.LocalTransactionDenied(3)
             || !TownServiceMirror.LocalTransactionSettled(3))
         { Return(); return; }
-        if (!ValidOwner(Card) || !_alive() || _palm == null || _station == null || _shop == null || _window == null || !_window.IsOpen
+        if (!ValidOwner(Card) || !_alive() || _palm == null || _station == null || _shop == null || _window == null || !TownServiceQuietController.IsOpen(_window, 3)
             || _shop.selectedCard == null || !SameCard(_shop.selectedCard.AbilityCard, _model)
             || VRRigDriver.HeadCamera != null && !NearVisitor(_station, VRRigDriver.HeadCamera.transform.position, 2.6f))
             Return();
@@ -910,7 +910,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
 
     private void ClearNativeSelection()
     {
-        if (_shop == null || _window == null || !_window.IsOpen) return;
+        if (_shop == null || _window == null || !TownServiceQuietController.IsOpen(_window, 3)) return;
         _shop.DeselectCurrentCard();
         _shop.OnSelectedCardToEnhance(null);
     }
