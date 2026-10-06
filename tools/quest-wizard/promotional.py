@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 from state import ordinary
 
 MAX_IMAGE = 8 * 1048576
+MAX_IMAGES = 32
 HOSTS = {'steamcdn-a.akamaihd.net', 'shared.akamai.steamstatic.com', 'shared.fastly.steamstatic.com'}
 LOG = logging.getLogger(__name__)
 
@@ -75,7 +76,7 @@ class Gallery:
         if not isinstance(value, dict) or value.get('schema') != 1 or not isinstance(value.get('images'), list):
             self.report('manifest', 'invalid_manifest'); return
         seen = set()
-        for row in value['images'][:12]:
+        for row in value['images'][:MAX_IMAGES]:
             if (isinstance(row, dict) and isinstance(row.get('id'), str) and re.fullmatch('[a-z0-9-]{1,48}', row['id'])
                     and trusted_url(row.get('url', '')) and isinstance(row.get('sha256'), str)
                     and re.fullmatch('[a-f0-9]{64}', row['sha256'])

@@ -46,6 +46,14 @@ PLANS = {
     "install": ("connect", "apk", "content", "launch", "output-verify"),
 }
 
+# Reserved work spans, not time estimates. The October 6 Windows witness spent
+# minutes exporting each of sixteen data packages, while seven short input
+# operations had already consumed 28.6% of the equally weighted old bar. Give
+# conversion/import their own useful spans and count each scheduled package
+# inside conversion. Only actual counters and successful boundaries advance it.
+BUILD_SHARES = dict(zip(PLANS["build"], (1, 1, 1, 1, 2, 1, 40, 1, 2, 2, 6, 2, 3, 2, 1, 18, 1, 4, 8, 2, 1)))
+WORK_REVISION = 3
+
 
 def phase_operation(stage, phase, value):
     """Recognize only counters with a known parent; arbitrary nested work stays local."""
@@ -83,7 +91,7 @@ def initialize(row):
     plan = row.get("progressPlan")
     operations = PLANS[row["id"]]
     if not isinstance(plan, dict) or plan.get("version") not in (1, 2):
-        plan = row["progressPlan"] = {"version": 2, "current": None, "completed": [], "fractions": {}, "percent": 0.0}
+        plan = row["progressPlan"] = {"version": 2, "workRevision": WORK_REVISION, "current": None, "completed": [], "fractions": {}, "percent": 0.0}
     # A replaced Builder preserves its saved operation/high-water evidence.
     # Older plans lack child scopes, so those are learned from the live producer
     # without interpreting a previously reset substep 100% as global completion.
@@ -93,6 +101,22 @@ def initialize(row):
                          if name in operations and type(number) in (int, float) and math.isfinite(number)}
     number = plan.get("percent", 0.)
     plan["percent"] = min(99.9, max(0., number)) if type(number) in (int, float) and math.isfinite(number) else 0.
+    if plan.get("workRevision") != WORK_REVISION:
+        # A new work distribution must not move an existing owner's bar back,
+        # or freeze it until the new curve catches up. Anchor the remaining
+        # measured work to the previous high-water once, then keep that mapping.
+        plan["workRevision"] = WORK_REVISION
+        if row["id"] == "build":
+            plan["fractions"].pop("recovery", None)
+            if plan.get("current") == "recovery" and isinstance(row.get("progress"), dict):
+                nested = _recovery_fraction(plan, row["progress"])
+                if nested is not None: plan["fractions"]["recovery"] = min(.99, nested)
+            # Base the mapping on the saved event, before accepting a new
+            # producer counter. Status reads do not publish state; otherwise
+            # that first new counter could become the anchor and be lost.
+            origin = _build_percent(plan)
+            if plan["percent"] > origin:
+                plan["progressScale"] = {"origin": origin, "floor": plan["percent"]}
     return plan
 
 
@@ -165,6 +189,8 @@ def _recovery_fraction(plan, value):
     """Measured child work contributes continuously inside its bounded owner."""
     recovery = plan.setdefault("recovery", {"work": _work(), "sections": {}, "batch": {}})
     phase = value["phase"]
+    if phase == "recovery-plan" and type(value.get("total")) is int:
+        recovery["plannedBatches"] = value["total"]
     if phase.startswith("recovery-section:"):
         section = phase.split(":", 1)[1]
         _advance_work(recovery["work"], RECOVERY_SECTIONS, section)
@@ -182,6 +208,7 @@ def _recovery_fraction(plan, value):
         if phase in ("recovery-batches", "recovery-batch"):
             done, total = value.get("done"), value.get("total")
             if type(done) is int and type(total) is int and 0 <= done <= total:
+                recovery["plannedBatches"] = total
                 if batch.get("done") != done or batch.get("total") != total:
                     batch.update(done=done, total=total, work=_work())
                 ratio = 1. if total == 0 else done / total
@@ -211,11 +238,46 @@ def _recovery_fraction(plan, value):
                     "cab-index": "recovery-cab-bundle-index"}[section]
         if effective == expected: ratio = measured
     _advance_work(recovery["work"], RECOVERY_SECTIONS, section, ratio)
-    return _work_fraction(recovery["work"], RECOVERY_SECTIONS)
+    _, _, fraction = _recovery_work(recovery)
+    return fraction
+
+
+def _recovery_work(recovery):
+    """Count one actual task per section or package, without inventing a plan."""
+    count = recovery.get("plannedBatches", recovery.get("batch", {}).get("total"))
+    if type(count) is not int or count < 0: return None, None, None
+    work = recovery.get("work", {})
+    completed, fractions = work.get("completed", []), work.get("fractions", {})
+    done = sum(1 for section in RECOVERY_SECTIONS if section != "batches" and section in completed)
+    fraction = sum(1. if section in completed else fractions.get(section, 0.)
+                   for section in RECOVERY_SECTIONS if section != "batches")
+    if "batches" in completed:
+        done += count; fraction += count
+    else:
+        done += recovery.get("batch", {}).get("done", 0)
+        fraction += count * fractions.get("batches", 0.)
+    total = len(RECOVERY_SECTIONS) - 1 + count
+    return done, total, min(1., fraction / total)
+
+
+def _active_work(plan, current):
+    if current == "recovery":
+        done, total, fraction = _recovery_work(plan.get("recovery", {}))
+    else:
+        done, total = (int(current in plan["completed"]), 1)
+        fraction = 1. if done else plan["fractions"].get(current, 0.)
+    return {"operation": current, "done": done, "total": total, "unit": "steps",
+            "percent": None if fraction is None else round(100 * fraction, 6)}
+
+
+def _build_percent(plan):
+    weighted = sum(weight * (1. if name in plan["completed"] else plan["fractions"].get(name, 0.))
+                   for name, weight in BUILD_SHARES.items())
+    return 100 * weighted / sum(BUILD_SHARES.values())
 
 
 def advance(row, value, operation=None, status=None):
-    for key in ("recoverySection", "recoveryBatchIndex", "recoveryBatchTotal"):
+    for key in ("recoverySection", "recoveryBatchIndex", "recoveryBatchTotal", "recoveryNativeIndex", "recoveryNativeTotal", "activeWork"):
         value.pop(key, None)
     plan = initialize(row); operations = PLANS[row["id"]]
     inferred, measured = phase_operation(row["id"], value["phase"], value)
@@ -246,6 +308,10 @@ def advance(row, value, operation=None, status=None):
         if (section == "batches" and value["phase"] != "recovery-batches"
                 and type(done) is int and type(total) is int and 0 <= done < total):
             value.update(recoveryBatchIndex=done + 1, recoveryBatchTotal=total)
+            native = batch.get("work", {}).get("native", {})
+            index, native_total = native.get("index"), native.get("total")
+            if type(index) is int and type(native_total) is int and 0 <= index < native_total:
+                value.update(recoveryNativeIndex=index + 1, recoveryNativeTotal=native_total)
     # Ignore nested one-file hashes and incidental version commands. Only a
     # known aggregate counter or Unity's own task counter contributes a fraction.
     if current in operations and measured and (operation is None or operation == current) and value["percent"] is not None:
@@ -258,8 +324,16 @@ def advance(row, value, operation=None, status=None):
     done = sum(1. if name in plan["completed"] else plan["fractions"].get(name, 0.) for name in operations)
     # Keep small measured byte/file contributions for the bar, even when its
     # concise percentage label rounds them to two decimal places.
-    number = min(99.9, round(100 * done / len(operations), 6))
+    if row["id"] == "build":
+        number = _build_percent(plan)
+        scale = plan.get("progressScale")
+        if scale and number >= scale["origin"] and scale["origin"] < 100:
+            number = scale["floor"] + (100 - scale["floor"]) * (number - scale["origin"]) / (100 - scale["origin"])
+    else:
+        number = 100 * done / len(operations)
+    number = min(99.9, round(number, 6))
     plan["percent"] = max(plan["percent"], number)
     value.update(stagePercent=100. if row["status"] == "complete" else plan["percent"],
                  stageOperation=current, stageDone=round(done, 3), stageTotal=len(operations))
+    if current is not None: value["activeWork"] = _active_work(plan, current)
     return value

@@ -133,6 +133,7 @@ class StageProgressTests(unittest.TestCase):
     def test_large_file_bytes_are_fraction_of_one_parent_file(self):
         self.store.operation(self.session, 'build', 'recovery')
         self.store.progress(self.session, 'build', 'recovery-section:source')
+        self.store.progress(self.session, 'build', 'recovery-plan', 0, 4, 'batches')
         self.store.progress(self.session, 'build', 'recovery-source-hash', 2, 4, 'files')
         initial = self.progress()['stagePercent']
         self.store.progress(self.session, 'build', 'recovery-source-file-hash', 1, 10, 'bytes')
@@ -160,7 +161,10 @@ class StageProgressTests(unittest.TestCase):
         small = self.progress()['stagePercent']
         self.store.progress(self.session, 'build', 'recovery-native-index-read', 8, 10, 'bytes')
         self.assertGreater(self.progress()['stagePercent'], small)
-        self.assertLess(self.progress()['stagePercent'] - small, .01)
+        # The index stays within one read of one index of one package, even
+        # though conversion now has a useful share of the whole-stage bar.
+        self.assertLess(self.progress()['stagePercent'] - small,
+                        stage_plan.BUILD_SHARES['recovery'] / (8 * len(stage_plan.BATCH_STEPS) * 2 * 3))
         reopened = state.Store(self.store.root)
         self.assertEqual(reopened.load(self.session)['stages'][5]['progress']['stagePercent'], self.progress()['stagePercent'])
         self.store.progress(self.session, 'build', 'recovery-native-recipe-merge', 2, 4, 'files')
@@ -194,6 +198,58 @@ class StageProgressTests(unittest.TestCase):
         self.assertGreater(self.progress()['stagePercent'], before)
         self.store.begin_stage(self.session, 'build', 'new')
         self.assertEqual(self.progress()['stagePercent'], 0)
+
+    def test_conversion_counts_actual_packages_and_each_package_moves_whole_stage(self):
+        self.store.operation(self.session, 'build', 'recovery')
+        self.store.progress(self.session, 'build', 'recovery-section:source')
+        self.assertIsNone(self.progress()['activeWork']['total'])
+        self.store.progress(self.session, 'build', 'recovery-plan', 0, 16, 'batches')
+        self.assertEqual(self.progress()['activeWork']['total'], 22)
+        self.recovery_batch(done=4, total=16)
+        self.assertEqual(self.progress()['activeWork']['done'], 6)
+        self.assertEqual(self.progress()['activeWork']['operation'], 'recovery')
+        previous = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'recovery-asset-export', 1000, 11000, 'collections')
+        small = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'recovery-asset-export', 9000, 11000, 'collections')
+        self.assertGreater(self.progress()['stagePercent'], small)
+        self.assertEqual(self.progress()['activeWork']['done'], 6)
+        self.store.progress(self.session, 'build', 'recovery-batches', 5, 16, 'batches')
+        self.assertEqual(self.progress()['activeWork']['done'], 7)
+        self.assertGreater(self.progress()['stagePercent'], previous + 1)
+        self.store.operation(self.session, 'build', 'project-files')
+        self.assertEqual(self.progress()['activeWork']['operation'], 'project-files')
+        self.assertEqual(self.progress()['activeWork']['total'], 1)
+        self.assertNotIn('recoveryBatchIndex', self.progress())
+
+    def test_previous_distribution_keeps_its_percent_and_moves_on_first_measured_work(self):
+        self.recovery_batch(done=4, total=16)
+        self.store.progress(self.session, 'build', 'recovery-native-index-set', 1, 2, 'indexes')
+        self.store.progress(self.session, 'build', 'recovery-native-recipe-merge', 100, 62880, 'files')
+        saved = self.store.load(self.session)
+        row = saved['stages'][5]
+        row['progressPlan'].pop('workRevision')
+        row['progressPlan']['percent'] = 29.97
+        state.atomic_json(self.store.session_dir(self.session) / 'state.json', saved)
+        reopened = state.Store(self.store.root)
+        migrated = reopened.load(self.session)['stages'][5]['progress']
+        self.assertEqual(migrated['stagePercent'], 29.97)
+        reopened.progress(self.session, 'build', 'recovery-native-recipe-merge', 5000, 62880, 'files')
+        self.assertGreater(self.progress()['stagePercent'], 29.97)
+        self.assertLess(self.progress()['stagePercent'], 100)
+        self.assertEqual(self.progress()['activeWork']['done'], 6)
+        self.assertEqual(self.progress()['activeWork']['total'], 22)
+        self.assertEqual((self.progress()['recoveryNativeIndex'], self.progress()['recoveryNativeTotal']), (2, 2))
+
+    def test_unknown_schedule_never_counts_clock_time_as_conversion_progress(self):
+        self.store.operation(self.session, 'build', 'recovery')
+        self.store.progress(self.session, 'build', 'recovery-section:source')
+        before = self.progress()['stagePercent']
+        with mock.patch('state.time.time', return_value=9999999999):
+            self.store.progress(self.session, 'build', 'recovery-native-index-input', detail='Retained index')
+        self.assertEqual(self.progress()['stagePercent'], before)
+        self.assertIsNone(self.progress()['activeWork']['done'])
+        self.assertIsNone(self.progress()['activeWork']['total'])
 
     def test_previous_saved_plan_migrates_without_resetting_observed_total(self):
         saved = self.store.load(self.session)
