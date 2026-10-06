@@ -1,5 +1,48 @@
 # State — where the project stands
 
+**Quest Windows builder/installer corrections, 2026-10-06: source-only update.**
+
+The first Windows support archive `quest-build-support-20261006T132558Z-aaa7aca6.zip`
+proves a recovery merge failure in catalog batch 000 after tools/Unity/inspect
+completed. Its wrapper reports an unknown skipped core object; original detailed
+export logs were missing from the old support allowlist. Source inspection and an
+executed C# regression identify the exporter guard-order defect: non-exportable
+engine redirects were incorrectly recorded as skipped core assets. Capture their
+native pointers, then reject non-exportable collections before recording assets.
+Legacy redirect rows require exact original/native identity witnesses; genuinely
+unknown assets still fail with bounded collection/pathId/class samples. The
+archive itself does not identify the missing object's class.
+
+The Wizard now uses factual EN/DE text, a six-image character/enemy slideshow
+from hash-pinned public publisher images cached locally (no artwork bytes ship),
+observed substep percentages/counters, and explicit unknown progress for tools
+without counts. Unity sign-in/activation stays visible with reopen/check buttons,
+and closed windows never publish success. A bounded empty-project Editor probe
+is required for the new prerequisite receipt; no license contents are read.
+Failures appear above the stage list, name the affected conversion substep,
+and retain original cause, exit, invocation and exception context. Live logs
+follow the active/failed step; bounded support exports include known nested
+core/batch exporter and console logs plus progress history/counters.
+
+The maintainer's B625 installation output confirms installed APK/input/hash,
+then WinError 206 during file-backed content setup. Actual B625 metadata alone
+reproduces overlong old commands: 6,367 files / 50 batches, first 78,741 and max
+104,652 UTF-16 characters; all exceed the Windows 32,767 limit. Generated device
+scripts now use short `adb shell -T sh -s` argv with binary UTF-8/LF stdin.
+Transaction, checksum, link/containment guards and save preservation remain.
+A small `GloomhavenVR-Quest-Installer-Update.zip` fixes the existing hardware test
+folder; no new APK/content build is required. Completed mod receipts are reused.
+
+Final focused source gate passes: 442 builder, 89 Wizard, 118 recovery (one
+optional skip), 187 installer/collector/bootstrap (23 platform/tool skips), four
+artwork and 12 UI/browser cases. Real browser actions, visible error context,
+slideshow, live logs, actual large stdin shell execution and a compiled C# guard
+negative control are covered. No unrelated NPC/wire/full shader validation and no
+Unity/APK build run. Windows full conversion and Quest installation completion
+still require user testing. New conversion recipes retain old workspaces but
+require a new coherent export; cross-recipe reuse is not claimed. Work remains
+only on `feature/quest3-standalone`, with McFredward commit attribution.
+
 **Quest B625 delivered, 2026-10-06: final agent-host APK and Windows builder.**
 
 The signed Campaign/Guildmaster/purchased-DLC hardware archive has passed actual
