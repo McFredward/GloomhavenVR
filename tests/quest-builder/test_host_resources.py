@@ -1,6 +1,7 @@
 """Real host API contracts, pressure controls, literal subprocesses and evidence."""
 import ctypes
 import importlib.util
+import io
 import json
 import os
 import shlex
@@ -38,15 +39,58 @@ class HostResources(unittest.TestCase):
         low = resources.choose_jobs(host(32, 29), "il2cpp", 32)
         medium = resources.choose_jobs(host(64, 56), "il2cpp", 32)
         large = resources.choose_jobs(host(128, 112), "il2cpp", 32)
-        self.assertEqual((low["jobs"], medium["jobs"], large["jobs"]), (1, 3, 7))
-        self.assertFalse(low["memoryInsufficient"])
-        self.assertGreaterEqual(low["largestWorkerReserveBytes"], 16 * GIB)
-        self.assertGreaterEqual(low["additionalWorkerReserveBytes"], 12 * GIB)
-        self.assertGreater(large["jobs"], 4)
+        self.assertEqual((low["jobs"], medium["jobs"], large["jobs"]), (1, 1, 3))
+        # One remains the minimum dispatch count, but does not imply sufficient
+        # physical RAM. Paging/low-memory handling must consume this warning.
+        self.assertTrue(low["memoryInsufficient"])
+        self.assertFalse(medium["memoryInsufficient"])
+        self.assertFalse(large["memoryInsufficient"])
+        self.assertGreaterEqual(low["largestWorkerReserveBytes"], 32 * GIB)
+        self.assertGreaterEqual(low["additionalWorkerReserveBytes"], 28 * GIB)
+        self.assertGreater(resources.choose_jobs(host(256, 236), "il2cpp")["jobs"], 4)
         pressure = resources.choose_jobs(host(128, 15), "il2cpp", 32)
         self.assertEqual(pressure["jobs"], 1)
         self.assertTrue(pressure["memoryInsufficient"])
         self.assertEqual(resources.choose_jobs(host(128, 112), "il2cpp", 2)["jobs"], 2)
+        self.assertEqual(resources.choose_jobs(host(32, 29, commit=96), "il2cpp", 32)["jobs"], 1)
+        self.assertTrue(resources.choose_jobs(host(32, 29, commit=96), "il2cpp", 32)["memoryInsufficient"])
+
+    def test_windows_single_job_paging_requires_known_sufficient_commit(self):
+        constrained = host(32, 29, commit=96)
+        policy = resources.choose_jobs(constrained, "il2cpp", 32)
+        self.assertEqual(policy["jobs"], 1)
+        self.assertTrue(policy["memoryInsufficient"])
+        self.assertTrue(policy["pagingRequired"])
+        self.assertTrue(policy["nativeLaunchAllowed"])
+        self.assertEqual(policy["requiredCommitHeadroomBytes"], 42 * GIB)
+        self.assertFalse(policy["pagingExecutionVerified"])
+        for commit in (None, 41):
+            rejected = resources.choose_jobs(host(32, 29, commit=commit), "il2cpp", 32)
+            self.assertFalse(rejected["nativeLaunchAllowed"])
+            self.assertFalse(rejected["pagingRequired"])
+            self.assertEqual(rejected["jobs"], 1)
+        threshold = resources.choose_jobs(host(32, 29, commit=42), "il2cpp", 32)
+        self.assertTrue(threshold["pagingRequired"])
+        self.assertTrue(threshold["nativeLaunchAllowed"])
+        linux = resources.choose_jobs({**constrained, "platform": "linux"}, "il2cpp", 32)
+        self.assertFalse(linux["pagingRequired"])
+        self.assertFalse(linux["nativeLaunchAllowed"])
+        unknown = resources.choose_jobs({**constrained, "availableMemoryBytes": None}, "il2cpp", 32)
+        self.assertFalse(unknown["nativeLaunchAllowed"])
+        unknown_commit = resources.choose_jobs(host(128, 112), "il2cpp", 32)
+        self.assertFalse(unknown_commit["nativeLaunchAllowed"])
+        physical = resources.choose_jobs(host(128, 112, commit=200), "il2cpp", 32)
+        self.assertEqual(physical["jobs"], 3)
+        self.assertTrue(physical["nativeLaunchAllowed"])
+        self.assertFalse(physical["pagingRequired"])
+        with tempfile.TemporaryDirectory() as folder, resources.resource_context(folder, 32), \
+             patch.object(resources, "detect_host", return_value=constrained), patch("sys.stdout", new_callable=io.StringIO) as console:
+            resources.phase_budget("il2cpp", folder)
+            metrics = json.loads((Path(folder) / "build-metrics.json").read_text())
+            self.assertEqual(metrics["policies"]["il2cpp"]["jobs"], 1)
+            self.assertTrue(metrics["policies"]["il2cpp"]["pagingRequired"])
+            self.assertIn("may be significantly slower", console.getvalue())
+            self.assertIn("not yet qualified", console.getvalue())
 
     def test_commit_affinity_and_unknown_memory_are_conservative(self):
         constrained = host(128, 112, cores=4, commit=28)

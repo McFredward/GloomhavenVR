@@ -1154,6 +1154,11 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
 
     def compile_player_files():
         recover_delivery_pending(output, key, provenance)
+        policy = host_resources.phase_budget("il2cpp" if args.target in ("startup", "game") else "unity", output)
+        if not policy["nativeLaunchAllowed"]:
+            raise BuildError("Available RAM/commit is insufficient or unknown for the large native game compiler; "
+                             "close other programs or provide sufficient Windows pagefile commit headroom and retry. "
+                             "Completed stages are retained; --jobs cannot bypass the memory reserve.")
         apk.parent.mkdir(parents=True, exist_ok=True)
         apk.unlink(missing_ok=True)
         report.unlink(missing_ok=True)
@@ -1189,10 +1194,6 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
             # Unity 2021.3's Android toolchain otherwise selects old NDK r21 BFD.
             # Keep the supported linker selection local to this Android build process.
             env["UNITY_IL2CPP_ANDROID_USE_LLD_LINKER"] = "1"
-        policy = host_resources.phase_budget("il2cpp" if args.target in ("startup", "game") else "unity", output)
-        if policy["memoryInsufficient"]:
-            raise BuildError("Insufficient available RAM/commit for the large native game compiler; close other programs and retry. "
-                             "Completed stages are retained; --jobs cannot bypass the memory reserve.")
         dotnet = tool_path(args.dotnet, "dotnet")
         launcher = host_resources.prepare_bee_launcher(dotnet, output)
         env = host_resources.unity_native_environment(tools["editor"], launcher, policy["jobs"], dotnet, env)

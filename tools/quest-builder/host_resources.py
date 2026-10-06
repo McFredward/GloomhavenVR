@@ -1,10 +1,14 @@
 """Host-only scheduling and bounded support evidence; never a content-cache input.
 
-B625 measured a single native frontend above 12 GiB and four frontends around
-26 GiB RSS plus swap. Native IL2CPP admission therefore reserves a large first
-translation unit, additional large workers, Unity and OS headroom. It must not
+The B625 native retry measured one frontend with VmHWM24,172,988 KiB plus
+VmSwap3,093,152 KiB (approximately 26 GiB combined). Native IL2CPP admission
+therefore reserves 32 GiB for the first translation unit and 28 GiB for each
+additional worker, separately from Unity and OS headroom. It must not
 reuse the much smaller CMake codec budget. Overrides are upper limits, not an
-instruction to exceed measured host capacity.
+instruction to exceed measured host capacity. On Windows, a physically constrained
+host may admit exactly one native job only with known sufficient commit headroom.
+That explicitly requires paging and may be substantially slower; Windows paging
+performance and end-to-end execution remain unverified.
 """
 from __future__ import annotations
 
@@ -28,7 +32,7 @@ EVIDENCE_ENV = "GHVRQ_RESOURCE_EVIDENCE_ROOT"
 INPUT_ENV = "GHVRQ_RESOURCE_INPUT_KEY"
 RUN_ENV = "GHVRQ_RESOURCE_RUN_ID"
 # (largest first worker, each additional worker, parent/Unity headroom, CPU cap)
-PROFILES = {"il2cpp": (16 * GIB, 12 * GIB, 6 * GIB, 32),
+PROFILES = {"il2cpp": (32 * GIB, 28 * GIB, 6 * GIB, 32),
             "unity": (3 * GIB, 2 * GIB, 4 * GIB, 16),
             "box64": (4 * GIB, 2 * GIB, 0, 32),
             "opus": (2 * GIB, GIB, 0, 32)}
@@ -170,11 +174,21 @@ def choose_jobs(host, phase, override=None):
     budget = max(0, available - os_reserve - parent) if available is not None else None
     memory_limit = 1 if budget is None else max(1, 1 + (budget - first) // extra)
     jobs = min(cpu_limit, memory_limit, requested or cpu_limit)
+    insufficient = budget is not None and budget < first
+    required_commit = first + parent + os_reserve
+    paging = (phase == "il2cpp" and host.get("platform") == "win32" and insufficient
+              and host.get("availableMemoryBytes") is not None and commit is not None and commit >= required_commit)
+    if paging:
+        jobs = 1
+    launch_allowed = (phase != "il2cpp" or ((budget is not None and not insufficient) or paging)
+                      and (host.get("platform") != "win32" or commit is not None))
     return {"schema": 1, "phase": phase, "requestedJobs": requested, "jobs": jobs,
             "cpuLimit": cpu_limit, "memoryLimit": memory_limit, "memoryBudgetBytes": budget,
             "osReserveBytes": os_reserve, "parentReserveBytes": parent,
             "largestWorkerReserveBytes": first, "additionalWorkerReserveBytes": extra,
-            "memoryKnown": budget is not None, "memoryInsufficient": budget is not None and budget < first,
+            "memoryKnown": budget is not None, "memoryInsufficient": insufficient,
+            "nativeLaunchAllowed": launch_allowed, "pagingRequired": paging,
+            "requiredCommitHeadroomBytes": required_commit, "pagingExecutionVerified": False,
             "windowsExecutionVerified": False}
 
 
@@ -237,7 +251,12 @@ def phase_budget(phase, path):
         emit_resource_evidence(root, event)
     print("resources: " + json.dumps({"phase": phase, "jobs": policy["jobs"], "requestedJobs": policy["requestedJobs"],
           "effectiveCpus": host["effectiveCpus"], "availableMemoryBytes": host["availableMemoryBytes"],
-          "diskFreeBytes": host["diskFreeBytes"], "memoryInsufficient": policy["memoryInsufficient"]}), flush=True)
+          "diskFreeBytes": host["diskFreeBytes"], "memoryInsufficient": policy["memoryInsufficient"],
+          "pagingRequired": policy["pagingRequired"], "nativeLaunchAllowed": policy["nativeLaunchAllowed"],
+          "requiredCommitHeadroomBytes": policy["requiredCommitHeadroomBytes"]}), flush=True)
+    if policy["pagingRequired"]:
+        print("resources: native compilation requires Windows paging; admitting exactly one job within the reported commit headroom. "
+              "This may be significantly slower; Windows paging execution/performance is not yet qualified.", flush=True)
     return policy
 
 

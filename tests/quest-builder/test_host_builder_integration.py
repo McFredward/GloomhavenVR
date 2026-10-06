@@ -1,4 +1,5 @@
 """Builder identity delegation, argument routing and real command failure metrics."""
+from contextlib import ExitStack, nullcontext
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,55 @@ import storage
 
 
 class BuilderHostIntegration(unittest.TestCase):
+    def test_native_admission_precedes_player_commands_and_preserves_previous_files(self):
+        class NativeCommandReached(Exception): pass
+        gib = builder.host_resources.GIB
+        for commit, cached in ((None, False), (41, False), (42, False), (None, True)):
+            with self.subTest(commit=commit, cached=cached), tempfile.TemporaryDirectory() as folder, ExitStack() as scope:
+                root = Path(folder); source = root / "source"; project = root / "project"
+                (source / "scripts").mkdir(parents=True)
+                (source / "scripts/build-quest-native.py").write_text("# command is intercepted")
+                args = SimpleNamespace(target="game", validate_campaign_shaders=False, dotnet="unused")
+                inputs = {"inputKey": "a" * 64, "profile": {"isDummy": True}}
+                tools = {"key": "b" * 64, "androidNdk": "unused"}
+                provenance = {"schema": 1, "fixture": "unchanged inputs"}
+                key = builder.value_hash({"input": inputs["inputKey"], "toolchain": tools["key"], "recipe": builder.RECIPE,
+                                          "buildProvenance": builder.value_hash(provenance), "validateCampaignShaders": False})
+                apk = root / "builds" / key / "GloomhavenVR-Quest.apk"
+                apk.parent.mkdir(parents=True); apk.write_bytes(b"previous player")
+                report = Path(str(apk) + ".build.json"); report.write_bytes(b"previous report")
+                host = {"platform": "win32", "effectiveCpus": 32, "totalMemoryBytes": 32 * gib,
+                        "availableMemoryBytes": 29 * gib, "commitHeadroomBytes": commit * gib if commit else None}
+                policy = builder.host_resources.choose_jobs(host, "il2cpp", 32)
+                class Stages:
+                    def __init__(self, output): self.output = output
+                    def run(self, stage, identity, action):
+                        return {"details": {}} if cached else action()
+                    def path(self, stage, identity): return self.output / "cache/verified-build.json"
+                for name, result in (("toolchain", tools), ("weave", None), ("signing", (root / "key", {})),
+                                     ("recover_delivery_pending", None), ("project_content_transaction", nullcontext())):
+                    scope.enter_context(patch.object(builder, name, return_value=result))
+                scope.enter_context(patch.object(builder, "Stages", Stages))
+                scope.enter_context(patch.object(builder.build_provenance, "capture", return_value=provenance))
+                budgets = scope.enter_context(patch.object(builder.host_resources, "phase_budget", return_value=policy))
+                commands = scope.enter_context(patch.object(builder, "command", side_effect=NativeCommandReached))
+                if cached:
+                    self.assertEqual(builder.build(args, inputs, root, source, root / "game", project), apk)
+                    budgets.assert_not_called(); commands.assert_not_called()
+                elif commit == 42:
+                    with self.assertRaises(NativeCommandReached):
+                        builder.build(args, inputs, root, source, root / "game", project)
+                    self.assertEqual(commands.call_count, 1)
+                    self.assertEqual(commands.call_args.args[0][1], str(source / "scripts/build-quest-native.py"))
+                    self.assertTrue(policy["pagingRequired"]); self.assertEqual(policy["jobs"], 1)
+                else:
+                    with self.assertRaisesRegex(storage.BuildError, "Available RAM/commit is insufficient or unknown"):
+                        builder.build(args, inputs, root, source, root / "game", project)
+                    commands.assert_not_called()
+                if cached or commit != 42:
+                    self.assertEqual(apk.read_bytes(), b"previous player")
+                    self.assertEqual(report.read_bytes(), b"previous report")
+
     def test_cli_and_env_override_are_bounded_and_not_content_options(self):
         args = builder.parser().parse_args(["build", "--jobs", "12"])
         self.assertEqual(args.jobs, 12)
