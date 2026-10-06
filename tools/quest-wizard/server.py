@@ -76,6 +76,7 @@ class LocalServer(ThreadingHTTPServer):
         self.request_log_lock = threading.Lock()
         self.job_errors = {}
         self.artwork_cache, self.artwork_lock = {}, threading.Lock()
+        self.mod_source_cache = {}
         self.action_lock = threading.Lock()
         self.promo = None
         if promotional:
@@ -136,6 +137,15 @@ class LocalServer(ThreadingHTTPServer):
         try: rows = self.artwork(session, state)
         except (OSError, ValueError, WizardError, ImportError, AttributeError): rows = []
         value = dict(state)
+        source = state.get("completed", {}).get("source", {}).get("details", {})
+        source_root = source.get("sourceRoot") or state.get("choices", {}).get("sourceRoot") or str(REPO)
+        signature = (source_root, source.get("commit"))
+        if signature not in self.mod_source_cache:
+            # A session pins its resolved checkout. Keep status polling cheap;
+            # discovery independently describes a newly unpacked launch release.
+            if len(self.mod_source_cache) >= 16: self.mod_source_cache.clear()
+            self.mod_source_cache[signature] = discovery.mod_source(source_root, source.get("commit"))
+        value["modSource"] = self.mod_source_cache[signature]
         value["artwork"] = [{"id": row["id"], "url": "/api/artwork?session=" + session + "&id=" + row["id"], "altCode": row["altCode"]} for row, _ in rows]
         if not rows and self.promo: value['artwork'] = self.promo.visible()
         value["capabilities"] = {"artwork": bool(rows)}

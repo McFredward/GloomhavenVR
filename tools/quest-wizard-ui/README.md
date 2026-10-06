@@ -1,6 +1,7 @@
 # Local Quest Wizard UI (developer notes)
 
-`scripts/Build-Quest-Wizard.cmd` launches the loopback browser wizard on Windows.
+`Quest-Builder.cmd` launches the loopback browser wizard on Windows through
+`scripts/quest-builder-wizard.cmd`.
 The PowerShell entry point reuses the installer's pinned, script-local CPython and
 virtual environment through `tools/quest-installer/bootstrap.ps1`. It passes a
 native argument array to Python; paths containing spaces are not assembled into
@@ -15,8 +16,10 @@ The pinned Python installation and virtual environment remain script-local.
 The backend's ownership marker and kernel guard also protect this shared user
 workspace against two launchers attempting to build simultaneously.
 
-The UI has no external fonts, remote artwork, analytics, CDN or hosted service.
-The Unity terms link is an explicit external link. German and English strings are
+The UI has no external fonts, analytics or hosted frontend. Six pinned public
+publisher images are included for immediate offline display; the backend may
+repair missing images from their exact approved public CDN URLs. The Unity
+terms and publisher attribution are explicit external links. German and English strings are
 kept in `i18n.mjs`. Further technical settings and bounded logs are collapsed.
 
 ## Backend boundary
@@ -37,8 +40,18 @@ and optionally `session` only after explicitly reviewing an existing session's
 choices. Backend receipts decide safe reuse. A cancelled or interrupted process
 is never presented as an automatically resumable verified build. Polling stops
 for inactive sessions; cancellation remains pending until backend confirmation.
-Unknown build percentages stay indeterminate. Stage counters and actual per-stage
-percentages have distinct captions; there are no elapsed-time estimates.
+Each stage has one persistent total percentage (`progress.stagePercent`). Its
+scheduled operations advance that total using observed completion/counters;
+substep changes never reset the total. Only verified stage completion publishes
+100%. A separately labelled substep bar may use raw `progress.percent` and reset
+between tasks. Unknown substep totals remain indeterminate while the stage's
+last observed total and concrete current task stay visible. These percentages
+describe scheduled work, not time remaining; elapsed time never invents progress.
+
+Unity reporting combines observed editor task counters, content-bank boundaries,
+Player build callbacks and known log/Bee counters. The editor does not expose a
+reliable percentage for every internal operation. Tasks without a measured total
+retain their latest activity text rather than claiming false numerical progress.
 
 Discovery selects a sole detected copy and its provider. Availability of a local
 account does not establish a copied profile: the UI says it will be checked.
@@ -48,8 +61,14 @@ declaration. An explicit empty declaration means base game only.
 ## Artwork ownership
 
 `assets/gloomhavenvr-logo.png` is an unchanged copy of the project's tracked
-`docs/img/logo.png`. The shipped decorative cards are CSS and Unicode symbols.
-No original game art or game files are included in this directory.
+`docs/img/logo.png`. `assets/promo/` contains six exact publicly published
+character/enemy promotional images, with source attribution in that directory
+and SHA/size/dimensions pins in `promo-artwork.json`. They are not extracted from
+the owner's game or recovered game banks. The default `Gallery` validates these
+bundled files synchronously and serves opaque IDs through authenticated
+`/api/promo-artwork`. Selecting a game without owned artwork does not erase the
+publisher slideshow. The image area, captions and manual slideshow controls
+remain available during setup and build progress.
 
 The optional stdlib `artwork.py` adapter consumes a locally recovered Campaign
 project and an independently verified game fingerprint. It requires the original
@@ -59,9 +78,24 @@ IDs through its authenticated `/api/artwork` endpoint. `read_artwork` revalidate
 every response. Images never become Git, release or cloud content.
 
 This adapter does not decode untouched Unity game containers. Until a verified
-recovery cache is available, the production interface shows its authored decorative
-cards. The explicit design preview labels those cards as placeholders. Supporting
+recovery cache is available, the production interface shows the bundled publisher
+slideshow. The explicit design preview is labelled as a preview. Supporting
 the adapter does not imply that a backend with `artwork:false` serves an image.
+
+## Selected mod source
+
+The ordinary release builds the mod source shipped inside the Builder ZIP,
+identified by its manifest commit, project version and `NetProtocol.ModBuild`.
+It does not adopt the `GloomhavenVR.dll` installed in the PC game's BepInEx folder
+or silently fetch the latest `dev` branch. Advanced CLI source selection remains
+explicit. Discovery describes the launch release; saved-session status describes
+that session's resolved source, even when the launch ZIP has subsequently changed.
+The visible mod badge uses this metadata rather than guessing from game files.
+
+"Check mod files" hashes the selected source/tools/art inputs for a consistent
+snapshot and safe cached-stage reuse. It does not run the exhaustive shader gate.
+Receipt/source changes invalidate the affected work; retaining the owner workspace
+preserves completed setup and reusable original exports between source releases.
 
 ## Focused verification
 

@@ -4,7 +4,9 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import sys
+import subprocess
 import threading
 
 from state import WizardError, read_json, value_hash
@@ -46,6 +48,38 @@ def local_support_module(repo, name):
             for item, value in previous.items():
                 if value is missing: sys.modules.pop(item, None)
                 else: sys.modules[item] = value
+
+
+def mod_source(repo, commit=None):
+    """Describe selected source without opening the installed game's mod DLL.
+
+    This is a small presentation read, not a second full input inventory. The
+    source stage still owns hash qualification and the immutable build snapshot.
+    """
+    root = Path(repo)
+    manifest = root / "quest-builder-release.json"
+    result = {"kind": "bundled-release" if manifest.is_file() else "checkout",
+              "modVersion": None, "modBuild": None, "sourceCommit": None}
+    for path, pattern, field in (
+            (root / "src/GloomhavenVR/GloomhavenVR.csproj", r"<Version>\s*([0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?)\s*</Version>", "modVersion"),
+            (root / "src/GloomhavenVR/Net/NetProtocol.cs", r"public\s+const\s+ushort\s+ModBuild\s*=\s*([0-9]+)\s*;", "modBuild")):
+        try:
+            if path.is_file() and path.stat().st_size <= 1048576:
+                match = re.search(pattern, path.read_text(encoding="utf-8"))
+                if match: result[field] = int(match[1]) if field == "modBuild" else match[1]
+        except (OSError, UnicodeError): pass
+    if commit is None:
+        if manifest.is_file():
+            try: commit = read_json(manifest).get("sourceCommit")
+            except (WizardError, OSError, ValueError): pass
+        elif (root / ".git").exists():
+            try:
+                completed = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                                           capture_output=True, text=True, timeout=3)
+                if completed.returncode == 0: commit = completed.stdout.strip()
+            except (OSError, subprocess.TimeoutExpired): pass
+    if re.fullmatch(r"[0-9a-f]{40}", str(commit)): result["sourceCommit"] = commit
+    return result
 
 
 def unity_paths():
@@ -124,6 +158,6 @@ def discover(repo, store):
     recent.sort(key=lambda row: row["updated"], reverse=True)
     latest = None
     if (store.root / "latest-session.json").is_file(): latest = read_json(store.root / "latest-session.json")["session"]
-    return {"schema": 1, "event": "discovery", "games": games, "unityEditors": editors, "unityHubs": hubs,
+    return {"schema": 1, "event": "discovery", "modSource": mod_source(repo), "games": games, "unityEditors": editors, "unityHubs": hubs,
             "recentSessions": recent[:8], "latestSession": latest,
             "capabilities": {"browse": os.name == "nt", "artwork": False, "logs": True, "support": True, "spaceEstimate": True, "capture": False, "cleanCache": False}}

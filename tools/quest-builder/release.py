@@ -33,6 +33,8 @@ GENERATED_PARTS = {'bin', 'obj', 'Library', 'Temp', 'Logs', 'Builds', '__pycache
 # they are not release inputs and the builder inventories declared DLLs separately.
 LOCAL_DEPENDENCIES = ('libs/RuntimeDeps/', 'libs/Natives/', 'tools/RuntimeDepsBuild/sources/',
                       'scripts/.quest-venv/', 'scripts/.quest-python/')
+PROMOTIONAL_ASSETS = {'tools/quest-wizard-ui/assets/promo/' + name for name in (
+    'cragheart.png', 'spellweaver.png', 'brute.jpg', 'scoundrel.png', 'bandit-guard.jpg', 'bandit-archer.jpg')}
 REQUIRED = set(PUBLIC_PACKAGES) | {'Quest-Builder.cmd', 'QUEST-BUILDER-START.txt', 'scripts/quest-builder-wizard.cmd', 'scripts/quest-builder-wizard.ps1', 'scripts/build-quest.py',
             'tools/quest-wizard/wizard.py', 'tools/quest-wizard-ui/index.html', 'tools/quest-installer/bootstrap.ps1',
             'tools/quest-builder/builder.py', 'tools/quest-builder/release.py',
@@ -44,6 +46,7 @@ REQUIRED = set(PUBLIC_PACKAGES) | {'Quest-Builder.cmd', 'QUEST-BUILDER-START.txt
             'src/GloomhavenVR/GloomhavenVR.csproj',
             'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs',
             'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestNativePluginContract.cs'}
+REQUIRED |= PROMOTIONAL_ASSETS | {'tools/quest-wizard-ui/promo-artwork.json'}
 
 
 def safe_name(name):
@@ -177,6 +180,7 @@ def assemble(repo, destination):
     finally: temp.unlink(missing_ok=True)
     report = {'schema': 1, 'sourceCommit': commit, 'modBuild': manifest['modBuild'], 'fileCount': len(records),
               'sourceBytes': sum(row['size'] for row in records), 'archiveSha256': digest(destination),
+              'promotionalArtworkFiles': sorted(PROMOTIONAL_ASSETS),
               'excluded': ['owned game/decompiled code', 'reference DLLs', 'original-derived figure mesh banks',
                            'generated APKs/caches', 'credentials/licenses/savegames'], 'materializedAuthoredLinks': [name for name in names if (repo / name).is_symlink()],
               'windowsEndToEndVerified': False}
