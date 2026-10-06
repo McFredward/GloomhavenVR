@@ -16,7 +16,7 @@ The pinned Python installation and virtual environment remain script-local.
 The backend's ownership marker and kernel guard also protect this shared user
 workspace against two launchers attempting to build simultaneously.
 
-The UI has no external fonts, analytics or hosted frontend. Six pinned public
+The UI has no external fonts, analytics or hosted frontend. Twelve pinned public
 publisher images are included for immediate offline display; the backend may
 repair missing images from their exact approved public CDN URLs. The Unity
 terms and publisher attribution are explicit external links. German and English strings are
@@ -51,7 +51,10 @@ cancelled/interrupted work is verified complete. Polling stops
 for inactive sessions; cancellation remains pending until backend confirmation.
 Each stage has one persistent total percentage (`progress.stagePercent`). Its
 scheduled operations advance that total using observed completion/counters;
-substep changes never reset the total. Only verified stage completion publishes
+measured child work contributes to its scheduled operation immediately, rather
+than only advancing when that operation ends. Substep changes never reset the
+total. Labels keep up to two localized decimal places so small measured updates
+remain visible. Only verified stage completion publishes
 100%. A separately labelled substep bar may use raw `progress.percent` and reset
 between tasks. Unknown substep totals remain indeterminate while the stage's
 last observed total and concrete current task stay visible. These percentages
@@ -69,15 +72,17 @@ declaration. An explicit empty declaration means base game only.
 
 ## Artwork ownership
 
-`assets/gloomhavenvr-logo.png` is an unchanged copy of the project's tracked
-`docs/img/logo.png`. `assets/promo/` contains six exact publicly published
+The hero heading combines `assets/gloomhavenvr-logo.png`, an unchanged copy of
+the project's tracked `docs/img/logo.png`, with a localized connector and the
+Meta Quest logo. Logo origins are recorded in `assets/provenance.json`. `assets/promo/` contains twelve exact publicly published
 character/enemy promotional images, with source attribution in that directory
 and SHA/size/dimensions pins in `promo-artwork.json`. They are not extracted from
 the owner's game or recovered game banks. The default `Gallery` validates these
 bundled files synchronously and serves opaque IDs through authenticated
 `/api/promo-artwork`. Selecting a game without owned artwork does not erase the
 publisher slideshow. The image area, captions and manual slideshow controls
-remain available during setup and build progress.
+remain available during setup and build progress. The attribution link follows
+the active publisher picture; only the official Steam news origin is accepted.
 
 The optional stdlib `artwork.py` adapter consumes a locally recovered Campaign
 project and an independently verified game fingerprint. It requires the original

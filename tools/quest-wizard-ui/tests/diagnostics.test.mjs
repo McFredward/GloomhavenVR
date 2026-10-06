@@ -3,13 +3,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {existsSync} from 'node:fs';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdtemp,rm,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {browser,chrome,delay} from './browser-harness.mjs';
 
 const backend=process.env.QUEST_WIZARD_BACKEND;
+const promoPins=JSON.parse(await readFile(new URL('../promo-artwork.json',import.meta.url),'utf8')).images;
 test('actual browser: measured progress, reopen/check Unity action, specific failure and live log',
   {skip:!backend||!existsSync(backend)||!existsSync(chrome),timeout:30000},async()=>{
   const stateRoot=await mkdtemp(join(tmpdir(),'quest-wizard-actions-'));
@@ -25,10 +26,10 @@ test('actual browser: measured progress, reopen/check Unity action, specific fai
     await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
     await client.evaluate("document.querySelector('[data-language=de]').click()");
     if(process.env.QUEST_WIZARD_PROMO_CACHE){
-      await client.wait("document.querySelectorAll('#gallery img').length===6&&[...document.querySelectorAll('#gallery img')].every(image=>image.naturalWidth>0)");
+      await client.wait(`document.querySelectorAll('#gallery img').length===${promoPins.length}&&[...document.querySelectorAll('#gallery img')].every(image=>image.naturalWidth>0)`);
       assert.equal(await client.evaluate("[...document.querySelectorAll('#gallery > *')].filter(node=>!node.hidden).length"),1);
       await client.evaluate("document.getElementById('gallery-next').click()");
-      assert.equal(await client.evaluate("document.getElementById('gallery-count').textContent"),'2 / 6');
+      assert.equal(await client.evaluate("document.getElementById('gallery-count').textContent"),'2 / '+promoPins.length);
       await client.evaluate("document.getElementById('gallery-pause').click()");
       assert.equal(await client.evaluate("document.getElementById('gallery-pause').textContent"),'Diashow fortsetzen');
     }
@@ -56,7 +57,7 @@ test('actual browser: measured progress, reopen/check Unity action, specific fai
     await client.wait("document.getElementById('stage-log').textContent.includes('FAILED: original object identity missing')");
     assert.match(await client.evaluate("document.getElementById('event-log').textContent"),/Spielassets|original object/);
     assert.equal(await client.evaluate("document.getElementById('result-card').hidden"),true);
-    assert.match(await client.evaluate("document.getElementById('substep-count').textContent"),/24.1 %/);
+    assert.match(await client.evaluate("document.getElementById('substep-count').textContent"),/24,1 %/);
     await client.picture('specific-failure-live-log-de');
     const paths=client.events.filter(row=>row.method==='Network.requestWillBeSent').map(row=>new URL(row.params.request.url).pathname);
     assert.equal(paths.filter(path=>path==='/api/action').length,2);

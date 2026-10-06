@@ -1,5 +1,5 @@
 import {translate} from './i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,savedSession} from './model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,publisherSourceUrl,sessionId,savedSession} from './model.mjs';
 import {LocalApi,PreviewApi} from './transport.mjs';
 
 const $ = id => document.getElementById(id);
@@ -15,9 +15,11 @@ const reducedMotion=matchMedia('(prefers-reduced-motion:reduce)');
 let slides=[],slideIndex=0,slideTimer=null,slidePaused=reducedMotion.matches,artPollTimer=null,actionBusy=false,logBusy=false,logSelectionManual=false;
 const blobUrls=[];
 const galleryTemplate=[...$('gallery').children].map(node=>node.cloneNode(true));
+const defaultGallerySource=$('gallery-source').href;
 function readStorage(key) { try { return localStorage.getItem(key); } catch { return null; } }
 function writeStorage(key,value) { try { localStorage.setItem(key,value); } catch { } }
 function t(key,parameters) { return translate(language,key,parameters); }
+function percentText(value) { return new Intl.NumberFormat(language,{maximumFractionDigits:2}).format(value); }
 function message(value,fallback='unknownAction') { return typeof value==='string' ? value : value?.[language] ?? value?.en ?? value?.de ?? t(fallback); }
 function error(value) { $('error-banner').textContent=value?.message ? message(value.message) : t(value?.code ?? 'offline');$('error-banner').hidden=false; }
 function clearError() { $('error-banner').hidden=true; }
@@ -61,6 +63,7 @@ function showSlide(index) {
   const row=slides[slideIndex],caption=row.caption?.[language]??row.caption?.en;
   $('gallery-note').textContent=[caption,t(row.altCode??'ownedArtwork')].filter(Boolean).join(' · ');
   $('gallery-source').hidden=row.altCode!=='promoArtwork';
+  $('gallery-source').href=publisherSourceUrl(row.source)??defaultGallerySource;
   clearTimeout(slideTimer);if(!slidePaused&&!document.hidden)slideTimer=setTimeout(()=>showSlide(slideIndex+1),6500);
 }
 function phaseLabel(phase='') {
@@ -153,7 +156,7 @@ function renderProgress() {
   const progress=progressView(state);
   if(!logSelectionManual&&progress.current?.id)$('log-stage').value=progress.current.id;
   $('phase-label').textContent=t(done?'done':t('stage_'+progress.phase)==='stage_'+progress.phase?'waiting':'stage_'+progress.phase);
-  $('progress-count').textContent=t('phasePercent',{percent:Math.round(progress.percent*10)/10});
+  $('progress-count').textContent=t('phasePercent',{percent:percentText(progress.percent)});
   const track=$('progress-track');track.classList.toggle('indeterminate',progress.indeterminate);
   track.setAttribute('aria-valuemin','0');track.setAttribute('aria-valuemax','100');
   track.setAttribute('aria-valuenow',String(progress.percent));
@@ -164,7 +167,7 @@ function renderProgress() {
   $('progress-completed').textContent=t('completedStages',progress);
   $('substep-progress').hidden=!hasSubstep;
   $('substep-label').textContent=t('substep',{phase:phaseLabel(sub.phase)});
-  $('substep-count').textContent=sub.phasePercent===null?t('phaseUnknown'):t('phasePercent',{percent:Math.round(sub.phasePercent*10)/10});
+  $('substep-count').textContent=sub.phasePercent===null?t('phaseUnknown'):t('phasePercent',{percent:percentText(sub.phasePercent)});
   const subtrack=$('substep-track');subtrack.classList.toggle('indeterminate',sub.phasePercent===null&&active&&!waiting);
   subtrack.setAttribute('aria-valuemin','0');subtrack.setAttribute('aria-valuemax','100');
   if(sub.phasePercent===null)subtrack.removeAttribute('aria-valuenow');else subtrack.setAttribute('aria-valuenow',String(sub.phasePercent));
@@ -176,7 +179,7 @@ function renderProgress() {
     const label=document.createElement('span');label.className='stage-content';const title=document.createElement('strong');title.textContent=t('stage_'+stage.id);label.append(title);
     const measured=stageProgress(stage),detail=document.createElement('small');detail.textContent=[measured.phase?t('substep',{phase:phaseLabel(measured.phase)}):'',['pending','complete'].includes(stage.status)?'':counters(measured),measured.waiting?t('actionNeeded'):['pending','complete'].includes(stage.status)?'':measured.detail??''].filter(Boolean).join(' · ');label.append(detail);
     const bar=document.createElement('progress');bar.max=100;bar.setAttribute('aria-label',t('stage_'+stage.id)+' · '+t('stageTotal'));bar.value=measured.percent;label.append(bar);
-    const status=document.createElement('span');status.className='stage-state';status.textContent=t('measuredPercent',{percent:Math.round(measured.percent*10)/10})+' · '+t(measured.waiting?'blocked':displayed);li.append(marker,label,status);$('stage-list').append(li);
+    const status=document.createElement('span');status.className='stage-state';status.textContent=t('measuredPercent',{percent:percentText(measured.percent)})+' · '+t(measured.waiting?'blocked':displayed);li.append(marker,label,status);$('stage-list').append(li);
   }
   const action=state.needsActions?.[0];$('action-needed').hidden=!action&&!blocked&&!stopped;
   if(action||blocked||stopped){const blockedStage=state.stages?.find(stage=>stage.status==='blocked');const code=typeof action==='string'?action:action?.code??blockedStage?.details?.needsAction;

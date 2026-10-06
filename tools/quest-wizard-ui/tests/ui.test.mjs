@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {strings,translate} from '../i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,savedSession} from '../model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,publisherSourceUrl,sessionId,savedSession} from '../model.mjs';
 import {LocalApi,PreviewApi} from '../transport.mjs';
 
 test('German and English expose the same strings and parameter ABI',()=>{
@@ -44,6 +44,8 @@ test('browser artwork URLs and session IDs remain local and bounded',()=>{
   const origin='http://127.0.0.1:1234';
   assert.equal(artworkUrl('/api/artwork?session=session-123&id=image',origin),origin+'/api/artwork?session=session-123&id=image');
   for(const value of ['https://other.invalid/api/artwork','file:///original.png','data:image/png,test','/Assets/Texture.png','//other.invalid/api/artwork'])assert.equal(artworkUrl(value,origin),null);
+  assert.equal(publisherSourceUrl('https://store.steampowered.com/news/posts/?appids=780290'),'https://store.steampowered.com/news/posts/?appids=780290');
+  for(const value of ['https://store.steampowered.com/account/','http://store.steampowered.com/news/','https://store.steampowered.com:123/news/','https://other.invalid/news/','javascript:alert(1)','https://user@store.steampowered.com/news/',undefined])assert.equal(publisherSourceUrl(value),null);
   assert.equal(sessionId('session-123'),'session-123');
   for(const value of ['../secret','short','x'.repeat(129),null])assert.equal(sessionId(value),null);
 });

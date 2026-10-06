@@ -39,6 +39,12 @@ export function artworkUrl(value, origin) {
   try { const url = new URL(value, origin); return url.origin === origin && ['/api/artwork','/api/promo-artwork'].includes(url.pathname) ? url.href : null; }
   catch { return null; }
 }
+export function publisherSourceUrl(value) {
+  // Attribution links are an explicit public-publisher action, never a
+  // browser-supplied image route or arbitrary external destination.
+  try { const url=new URL(value);return url.origin==='https://store.steampowered.com'&&url.pathname.startsWith('/news/')&&!url.username&&!url.password?url.href:null; }
+  catch { return null; }
+}
 export function stageProgress(stage) {
   const value=stage?.progress??{},raw=value.stagePercent;
   const percent=stage?.status==='complete'?100:stage?.status==='pending'?0:

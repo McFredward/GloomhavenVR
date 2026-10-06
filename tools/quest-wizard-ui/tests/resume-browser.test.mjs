@@ -50,8 +50,8 @@ async function fixture() {
           response.writeHead(200,{'Content-Type':'application/json'});response.end(JSON.stringify(value));return;
         }
         const filename=resolve(root,'.'+(url.pathname==='/'?'/index.html':url.pathname));
-        if(!filename.startsWith(root)||!['.html','.mjs','.css','.png'].includes(extname(filename)))throw Error('not static');
-        response.writeHead(200,{'Content-Type':{'.html':'text/html','.mjs':'text/javascript','.css':'text/css','.png':'image/png'}[extname(filename)]});
+        if(!filename.startsWith(root)||!['.html','.mjs','.css','.png','.svg'].includes(extname(filename)))throw Error('not static');
+        response.writeHead(200,{'Content-Type':{'.html':'text/html','.mjs':'text/javascript','.css':'text/css','.png':'image/png','.svg':'image/svg+xml'}[extname(filename)]});
         response.end(await readFile(filename));
       }catch(error){response.writeHead(500);response.end(String(error));}
     });
@@ -131,8 +131,12 @@ test('choice editing keeps session ID; only explicit new-build selection creates
       await client.evaluate("document.getElementById('primary').click()");
       await client.wait("!document.getElementById('cancel').hidden");
       assert.equal(writes(server.setup).find(row=>row.path==='/api/plan').body.session,retainedId);
-      server.setup.state.status='failed';await client.command('Page.reload');
-      await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
+      server.setup.state.status='failed';
+      await client.evaluate("window.__resumeWitnessOldDocument=true");await client.command('Page.reload');
+      // Page.reload acknowledges the command before the replacement document
+      // necessarily exists. Wait for its restoration, rather than clicking
+      // a still-visible control in the previous running document.
+      await client.wait("!window.__resumeWitnessOldDocument&&document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden&&document.getElementById('progress-title').textContent==='The build has stopped.'");
       const before=JSON.parse(JSON.stringify(server.setup.state));
       await client.evaluate("document.getElementById('new-build').click()");
       await client.wait("!document.getElementById('game-page').hidden");

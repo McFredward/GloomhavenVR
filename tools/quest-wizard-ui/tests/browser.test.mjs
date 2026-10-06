@@ -20,9 +20,9 @@ test('native browser: bilingual setup, consent, cancellation, choice edits and r
     try {
       const pathname=decodeURIComponent(new URL(request.url,'http://localhost').pathname);
       const filename=resolve(root,'.'+(pathname==='/'?'/index.html':pathname));
-      if(!filename.startsWith(root)||!['.html','.mjs','.css','.png'].includes(extname(filename)))throw Error('not static');
+      if(!filename.startsWith(root)||!['.html','.mjs','.css','.png','.svg'].includes(extname(filename)))throw Error('not static');
       const body=await readFile(filename);
-      response.writeHead(200,{'Content-Type':{'.html':'text/html','.mjs':'text/javascript','.css':'text/css','.png':'image/png'}[extname(filename)]});response.end(body);
+      response.writeHead(200,{'Content-Type':{'.html':'text/html','.mjs':'text/javascript','.css':'text/css','.png':'image/png','.svg':'image/svg+xml'}[extname(filename)]});response.end(body);
     }catch{response.writeHead(404);response.end();}
   });
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));

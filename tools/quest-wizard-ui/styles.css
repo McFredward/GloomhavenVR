@@ -20,17 +20,19 @@ button,input,select{border-radius:8px}
 .language{padding:4px;display:flex;border:1px solid var(--line);border-radius:8px;background:#16191d}
 .language button{padding:6px 10px;background:transparent;color:#9fa3aa;font-size:11px;font-weight:700;letter-spacing:.07em}
 .language button[aria-pressed=true]{background:#30343a;color:var(--text)}
-.layout{display:grid;grid-template-columns:minmax(360px,1fr) minmax(560px,1.16fr);gap:40px;padding:32px 0 38px;align-items:start}
+.layout{display:grid;grid-template-columns:minmax(360px,1.08fr) minmax(560px,1.12fr);gap:32px;padding:32px 0 38px;align-items:start}
 .layout:focus{outline:none}
 .adventure{padding:12px 0 0;position:sticky;top:24px;min-width:0}
 .edition,.eyebrow{font-size:10px;letter-spacing:.2em;font-weight:700;color:var(--gold)}
 .edition{display:flex;align-items:center;gap:12px}
 .diamond{font-size:21px;font-weight:400;line-height:1}
 h1{font-family:Georgia,"Times New Roman",serif;font-size:clamp(32px,2.65vw,42px);font-weight:400;line-height:1.13;letter-spacing:-.025em;margin:22px 0 20px;white-space:pre-line}
-h1 br{display:block}
+.hero-brand{display:flex;flex-direction:column;align-items:flex-start;gap:16px;margin:22px 0 25px;line-height:1}
+.hero-game-logo{display:block;width:min(100%,460px);height:auto}
+.hero-platform{display:flex;align-items:center;gap:16px;max-width:100%}
+.hero-for{font-family:Inter,"Segoe UI",system-ui,sans-serif;font-size:18px;font-weight:400;letter-spacing:0;color:var(--muted)}
+.hero-quest-logo{display:block;width:235px;max-width:calc(100% - 48px);height:auto;filter:brightness(0) invert(1)}
 .hero-copy{font-size:15px;line-height:1.75;color:var(--muted);max-width:520px;margin:20px 0 0}
-.feature-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:25px}
-.feature-list span{font-size:10px;letter-spacing:.04em;color:#bfb6a3;border:1px solid #b69a6238;background:#b69a6207;border-radius:5px;padding:7px 9px}
 .gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:44px}
 .art-card{height:150px;border:1px solid #c3a77525;border-radius:9px;position:relative;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 20%,#92704624,transparent 80%),linear-gradient(145deg,#292820,#181c1e);box-shadow:0 8px 30px #0002}
 .art-card:nth-child(2){background:radial-gradient(ellipse at 50% 20%,#49646733,transparent 80%),linear-gradient(145deg,#202b2c,#181c1e)}
@@ -163,9 +165,11 @@ input::placeholder{color:#777e86}
 .adventure{padding-top:0;position:static}
 .edition{font-size:9px}
 h1{font-size:34px;white-space:normal;margin:17px 0}
-h1 br{display:none}
+.hero-brand{margin:17px 0 23px;gap:13px}
+.hero-game-logo{width:min(100%,440px)}
+.hero-quest-logo{width:215px}
+.hero-for{font-size:16px}
 .hero-copy{max-width:none;font-size:13px}
-.feature-list{margin-top:15px}
 .gallery-note{min-height:0;margin-top:10px}
 .wizard{margin-top:28px}
 .panel-body{min-height:0}
@@ -196,7 +200,7 @@ h2{font-size:23px}
 
 .space-notice{padding:12px 16px;border:1px solid var(--line);border-radius:12px;color:var(--muted);font-size:.9rem;line-height:1.5}.space-notice.warning{border-color:#ba8545;background:#382718;color:#f4d3a8}
 
-.gallery.slideshow{display:block;position:relative;aspect-ratio:3/2;margin-top:20px;border:1px solid #77664a80;border-radius:12px;overflow:hidden;background:#0b0d0f;box-shadow:0 16px 55px #0004}
+.gallery.slideshow{display:block;position:relative;aspect-ratio:16/10;margin-top:20px;border:1px solid #77664a80;border-radius:12px;overflow:hidden;background:#0b0d0f;box-shadow:0 16px 55px #0004}
 .slideshow .art-card{width:100%;height:100%;border:0;border-radius:0;aspect-ratio:auto;background:#0b0d0f}
 .slideshow .art-card img{width:100%;height:100%;object-fit:contain;padding:0}
 .slideshow .gallery-placeholder{display:grid;place-items:center;height:100%;margin:0;padding:25px;text-align:center;color:var(--muted);font-size:12px}
