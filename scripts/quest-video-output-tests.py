@@ -74,6 +74,26 @@ def main():
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     unity = Path("/home/claw/unity-2021.3.5/Editor/Unity")
     fixture = ROOT / "tests/QuestVideoOutput.Tests"
+    # The Player compiles this adapter in QuestGame.Campaign, separately from
+    # GloomhavenVR.dll. A single-assembly pixel fixture cannot detect an internal
+    # helper that becomes inaccessible only in that real compilation boundary.
+    boundary = run / "assembly-boundary"
+    boundary.mkdir()
+    mod_project = ROOT / "src/GloomhavenVR/GloomhavenVR.csproj"
+    mod_build = subprocess.run([dotnet, "build", str(mod_project), "-c", "Release", "--no-restore",
+        "--nologo", "--verbosity", "quiet"], capture_output=True, text=True)
+    (boundary / "mod-build.log").write_text(mod_build.stdout + mod_build.stderr)
+    if mod_build.returncode:
+        raise SystemExit("Current mod compilation failed: " + str(boundary / "mod-build.log"))
+    boundary_project = boundary / "Boundary.csproj"
+    shutil.copyfile(fixture / "AssemblyBoundary.csproj", boundary_project)
+    boundary_build = subprocess.run([dotnet, "build", str(boundary_project), "-c", "Release", "--nologo",
+        "--verbosity", "quiet", "-p:QuestRuntime=" + str(runtime.parent),
+        "-p:ModAssembly=" + str(mod_project.parent / "bin/Release/net472/GloomhavenVR.dll"),
+        "-p:UnityManaged=" + str(unity.parent / "Data/Managed")], capture_output=True, text=True)
+    (boundary / "build.log").write_text(boundary_build.stdout + boundary_build.stderr)
+    if boundary_build.returncode:
+        raise SystemExit("Actual Quest/mod assembly boundary failed: " + str(boundary / "build.log"))
     manifest = {"result": str(run / "results.txt"), "cases": []}
     print("Quest camera video output evidence: " + str(run), flush=True)
     for name, before, after, expected in variants:
@@ -91,6 +111,7 @@ def main():
                 raise RuntimeError("Mutation binding drift: " + name)
             source = source.replace(before, after)
         (production / "QuestCameraVideoOutput.cs").write_text(source)
+        shutil.copyfile(ROOT / "src/GloomhavenVR/Core/QuestTextureCopy.cs", production / "QuestTextureCopy.cs")
         screen_source = world_original
         if name == "world-screen-array-sampler":
             screen_source = screen_source.replace("sampler2D _MainTex, _RightTex;", "UNITY_DECLARE_SCREENSPACE_TEXTURE(_MainTex); UNITY_DECLARE_SCREENSPACE_TEXTURE(_RightTex);")
@@ -158,6 +179,7 @@ def main():
     editor = project / "Assets/Editor"
     resources = project / "Assets/Resources"
     editor.mkdir(parents=True); resources.mkdir()
+    shutil.copyfile(ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestTextureCopy.shader", resources / "QuestTextureCopy.shader")
     for case in manifest["cases"]:
         imported = editor / Path(case["dll"]).name
         shutil.copyfile(case["dll"], imported)

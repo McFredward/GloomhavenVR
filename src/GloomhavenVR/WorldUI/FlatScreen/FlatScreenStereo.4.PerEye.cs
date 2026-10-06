@@ -259,8 +259,8 @@ internal sealed partial class FlatScreenStereo
             float shift = _videoShiftUv;
             var scale = new Vector2(zoom, zoom);
             RenderTexture? previous = RenderTexture.active;
-            Graphics.Blit(_leftRt, _rtLeftShifted, scale, new Vector2(margin + shift, margin));
-            Graphics.Blit(_leftRt, _rtRight, scale, new Vector2(margin - shift, margin));
+            QuestTextureCopy.Copy(_leftRt, _rtLeftShifted, scale, new Vector2(margin + shift, margin));
+            QuestTextureCopy.Copy(_leftRt, _rtRight, scale, new Vector2(margin - shift, margin));
             RenderTexture.active = previous;
         }
 

@@ -1,14 +1,18 @@
 """Collect private, bounded Quest diagnostics without installing or restarting an app."""
 import argparse
+import base64
+import binascii
 import json
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
+import struct
 import sys
 import tempfile
 import time
 import uuid
 import zipfile
+import zlib
 
 import installer
 
@@ -16,9 +20,10 @@ PROBE_APP_FILES = ("quest-hardware.log", "quest-hardware.log.previous", "quest-h
 STARTUP_APP_FILES = ("quest-startup.log", "quest-startup.previous.log", "quest-startup-state.json")
 APP_FILES = PROBE_APP_FILES + STARTUP_APP_FILES
 # Internal state uses a real Linux filesystem, outside Android/data. Capture
-# these two logs only; never enumerate Wine's prefix or transfer DLLs/saves.
+# these fixed logs only; never enumerate Wine's prefix or transfer DLLs/saves.
 PROCEDURAL_APP_FILES = {
     "quest-procedural-worker.log": "files/quest-procedural-state/procedural-worker.log",
+    "quest-procedural-worker.previous.log": "files/quest-procedural-state/procedural-worker.previous.log",
     "quest-procedural-engine.log": "files/quest-procedural-state/wine-prefix/drive_c/log.txt",
 }
 # Each diagnostic target emits its own files; absence is an explicit availability
@@ -38,6 +43,51 @@ HISTORY_TAGS = ("Unity:V", "AndroidRuntime:E", "ActivityManager:I")
 DELIVERY_FILES = ("quest-mod-content.zip.download", "quest-mod-resources/StreamingAssets/gloomhavenvr.bundle")
 THREADTIME = re.compile(r"^\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+(\d+)\s+\d+\s+[VDIWEF]\s+([^:]+):\s?(.*)$")
 APP_LOG_PREFIXES = ("[Quest startup]", "[GloomhavenVR Quest]", "[GloomhavenVR]")
+
+
+def menu_thumbnail_png(pixels):
+    """Retain the bounded producer sample; PNG rows run from top to bottom."""
+    if len(pixels) != 32 * 16 * 4:
+        raise ValueError("Menu sample is not the fixed 32x16 RGBA8 layout.")
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    rows = b"".join(b"\0" + pixels[row * 128:(row + 1) * 128] for row in range(15, -1, -1))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 32, 16, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+def retain_menu_thumbnails(capture):
+    """Decode only the current startup log; no additional headset/ADB queries."""
+    log = capture.directory / "quest-startup.log"
+    if not log.is_file() or log.stat().st_size > MAX_FILE: return
+    text = log.read_text(encoding="utf-8", errors="replace")
+    banner = re.search(r"\[Quest startup\]\s+ModBuild=(\d+)\s+input=([0-9a-f]{64})\b", text)
+    if not banner: return
+    installed = capture.manifest.get("app", {})
+    if installed.get("modBuild") and (int(banner[1]) != installed["modBuild"]
+            or not banner[2].startswith(installed.get("inputKeyPrefix", "unavailable"))):
+        capture.manifest["presentationThumbnailNote"] = "Current log differs from installed build; its images were not decoded."
+        return
+    pattern = (r"\[Quest startup\] presentation menu-thumbnail scene=(MainMenu(?:_gamepad)?) sample=2"
+               r" role=(glass|background-left|background-right) target=[^\r\n ]+"
+               r" width=32 height=16 format=RGBA8-linear bottomRowFirst=true base64=([A-Za-z0-9+/=]{1,3000})(?:\r?\n|$)")
+    decoded = set()
+    for match in re.finditer(pattern, text):
+        scene, role, encoded = match.groups()
+        if role in decoded: continue
+        try:
+            pixels = base64.b64decode(encoded, validate=True)
+            png = menu_thumbnail_png(pixels)
+        except (ValueError, binascii.Error):
+            capture.manifest.setdefault("presentationThumbnailsUnavailable", []).append({"role": role, "reason": "Invalid bounded RGBA8 record."})
+            continue
+        name = "quest-menu-" + role + ".png"
+        path = capture.directory / name; path.write_bytes(png)
+        capture.manifest["files"].append({"path": name, "kind": "decoded-menu-thumbnail", "bytes": len(png),
+            "sha256": installer.digest(path), "sourceFile": log.name, "scene": scene,
+            "modBuild": int(banner[1]), "inputKey": banner[2], "width": 32, "height": 16,
+            "note": "Downsampled native capture pixels; not an eye image or final color/readability proof."})
+        decoded.add(role)
 
 
 def app_history(output, current_pids):
@@ -375,6 +425,7 @@ def collect(capture, config_path):
         capture.app_file(name)
     for name in PROCEDURAL_APP_FILES:
         capture.procedural_file(name)
+    retain_menu_thumbnails(capture)
     # Stat only these two fixed delivery paths. No archive, bundle, save or
     # profile content is transferred, and absence remains optional for old apps.
     manifest["startupDelivery"] = []

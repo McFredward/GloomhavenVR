@@ -23,6 +23,59 @@ public static class InteractionProgram
         if (!value) throw new Exception(message);
     }
     private static void Close(float left, float right, string message) => Check(Math.Abs(left - right) < 0.00003f, message);
+    private static void AtlasCopy()
+    {
+        var texture = new Texture2D(16, 16, TextureFormat.RGBA32, false, true) { filterMode = FilterMode.Point };
+        var pixels = new Color[256];
+        for (int y = 0; y < 16; y++) for (int x = 0; x < 16; x++)
+            pixels[y * 16 + x] = x >= 8 && y >= 8
+                ? new Color(x < 12 ? 1 : .5f, y < 12 ? .25f : .75f, .5f, x < 12 ? .25f : .75f) : Color.blue;
+        texture.SetPixels(pixels); texture.Apply(false);
+        var target = new RenderTexture(8, 8, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        target.Create();
+        var roundtrip = new RenderTexture(8, 8, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        roundtrip.Create();
+        RenderTexture previousTarget = RenderTexture.active;
+        bool previousColor = GL.sRGBWrite;
+        try
+        {
+            QuestStandalonePlatform.Enabled = false;
+            Check(QuestTextureCopy.AcceptCache(null) && QuestTextureCopy.AcceptCache("desktop-v2"), "desktop cache compatibility preserved");
+            QuestStandalonePlatform.Enabled = true;
+            Check(!QuestTextureCopy.AcceptCache(null) && !QuestTextureCopy.AcceptCache("old-builtin-copy"), "Quest rejects previous builtin-copy cache");
+            Check(QuestTextureCopy.AcceptCache(QuestTextureCopy.Recipe), "Quest accepts its exact copy recipe");
+            // Copies execute with XR keywords present but consume an ordinary atlas.
+            Shader.EnableKeyword("STEREO_INSTANCING_ON");
+            GL.sRGBWrite = !target.sRGB;
+            QuestTextureCopy.Copy(texture, target, new Vector2(.5f, .5f), new Vector2(.5f, .5f));
+            Check(GL.sRGBWrite == !target.sRGB && RenderTexture.active == previousTarget, "Quest copy restores render state");
+            Color[] copied = Pixels(target);
+            Debug.Log("Quest ordinary atlas copy: api=" + SystemInfo.graphicsDeviceType + " first=" + copied[0]
+                + " last=" + copied[copied.Length - 1] + " srgb=" + target.sRGB + " activeColor=" + QualitySettings.activeColorSpace);
+            for (int index = 0; index < copied.Length; index++)
+            {
+                Color pixel = copied[index]; int x = index % 8, y = index / 8;
+                Check(Math.Abs(pixel.r - (x < 4 ? 1 : .5f)) < .02f && Math.Abs(pixel.g - (y < 4 ? .25f : .75f)) < .02f
+                    && Math.Abs(pixel.b - .5f) < .02f && Math.Abs(pixel.a - (x < 4 ? .25f : .75f)) < .02f,
+                    "Quest atlas copy retains crop pixels and alpha");
+            }
+            // The owned sprite copy is itself an ordinary RT. Diagnostics and
+            // subsequent copies must sample it without assuming an eye array.
+            QuestTextureCopy.Copy(target, roundtrip, Vector2.one, Vector2.zero);
+            Color[] retained = Pixels(roundtrip);
+            for (int index = 0; index < retained.Length; index++)
+                Check(Math.Abs(retained[index].r - copied[index].r) < .02f && Math.Abs(retained[index].g - copied[index].g) < .02f
+                    && Math.Abs(retained[index].a - copied[index].a) < .02f, "Quest RT copy retains actual source pixels and alpha");
+            try { QuestTextureCopy.Copy(target, target, Vector2.one, Vector2.zero); throw new Exception("self copy accepted"); }
+            catch (ArgumentException) { checks++; }
+        }
+        finally
+        {
+            Shader.DisableKeyword("STEREO_INSTANCING_ON"); GL.sRGBWrite = previousColor; RenderTexture.active = previousTarget;
+            target.Release(); UnityEngine.Object.DestroyImmediate(target); UnityEngine.Object.DestroyImmediate(texture);
+            roundtrip.Release(); UnityEngine.Object.DestroyImmediate(roundtrip);
+        }
+    }
     private static Color[] Pixels(RenderTexture source)
     {
         RenderTexture previous = RenderTexture.active;
@@ -147,6 +200,7 @@ public static class InteractionProgram
     public static int Run()
     {
         checks = 0;
+        AtlasCopy();
         RenderTexture desktop = Target(false, 512), quest = Target(true, 512);
         Check(!desktop.useMipMap && desktop.filterMode == FilterMode.Bilinear, "desktop capture defaults preserved");
         Check(quest.useMipMap && quest.mipmapCount > 1, "Quest capture has a mip chain");

@@ -85,7 +85,7 @@ internal sealed partial class FlatScreenStereo
         }
 
         // Bilinear downsample to NxN, then read those few texels back off-thread.
-        Graphics.Blit(_leftRt, _probeRt);
+        QuestTextureCopy.Copy(_leftRt, _probeRt);
         _probePending = true;
         _probeReqGen = _probeGen;
         AsyncGPUReadback.Request(_probeRt, 0, TextureFormat.RGBA32, OnBlackProbe);
@@ -2420,7 +2420,7 @@ internal sealed partial class FlatScreenStereo
         float offset = (1f - AlbedoProbeRegion) * 0.5f;
         // Probe what the quad actually shows in map mode: the private map RT (our forward render).
         RenderTexture probeSrc = (_mapBaseCapture && _mapRt != null) ? _mapRt : _leftRt;
-        Graphics.Blit(probeSrc, _albedoProbeRt, new Vector2(scale, scale), new Vector2(offset, offset));
+        QuestTextureCopy.Copy(probeSrc, _albedoProbeRt, new Vector2(scale, scale), new Vector2(offset, offset));
         _albedoProbePending = true;
         _albedoProbeReqGen = _probeGen;
         AsyncGPUReadback.Request(_albedoProbeRt, 0, TextureFormat.RGBA32, OnAlbedoProbe);

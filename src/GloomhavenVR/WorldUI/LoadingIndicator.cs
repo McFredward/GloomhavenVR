@@ -299,6 +299,7 @@ internal sealed class LoadingIndicator
     /// <summary>One cache-write attempt per session — success or failure, we never retry in the
     /// same run (a read-only config directory would otherwise cost a readback on every load).</summary>
     private bool _cacheWriteAttempted;
+    private int _questPresentationSamples;
 
     // AnimateIcon replica state.
     private float _accum;
@@ -421,6 +422,12 @@ internal sealed class LoadingIndicator
         if (!_shownLogged)
         {
             _shownLogged = true;
+            if (QuestStandalonePlatform.Enabled && _questPresentationSamples++ < 2)
+                UnityEngine.Debug.Log("[Quest startup] presentation spinner source="
+                    + (_artIsProvisional ? "boot-copy" : "native-loading-screen") + " copyRecipe=" + QuestTextureCopy.Recipe
+                    + " head=" + head.name + " localPosition=" + _root.transform.localPosition
+                    + " scale=" + _root.transform.lossyScale + " base=" + QuestSpinnerFacts(_baseQuad, _baseArt, _baseMaterial)
+                    + " overlay=" + QuestSpinnerFacts(_overlayQuad, _overlayArt, _overlayMaterial));
             VRLog.Info("WorldUI", $"Loading indicator shown: {(_boot == BootCoverage.Covering ? "BOOT window (intro over, " +
                                       "Gloomhaven_unified loading — the game shows nothing here)" :
                                       townReload && !gameLoading ? "immersive town services reloading" : "game spinner")} " +
@@ -1084,7 +1091,7 @@ internal sealed class LoadingIndicator
         {
             // Blit leaves the sub-rect filling the whole target, so the layer's UV rect becomes
             // the identity and CreateQuad keeps the shared primitive mesh.
-            Graphics.Blit(src, rt, new Vector2(uv.width, uv.height), new Vector2(uv.x, uv.y));
+            QuestTextureCopy.Copy(src, rt, new Vector2(uv.width, uv.height), new Vector2(uv.x, uv.y));
         }
         finally
         {
@@ -1141,6 +1148,8 @@ internal sealed class LoadingIndicator
             Dictionary<string, string> kv = ParseManifest(File.ReadAllLines(manifest));
             if (!kv.TryGetValue("v", out string? version) || version != "2")
                 return false;
+            kv.TryGetValue("copyrecipe", out string? copyRecipe);
+            if (!QuestTextureCopy.AcceptCache(copyRecipe)) return false;
             baseTex = LoadPngTexture(IconCachePath(".base.png"), "GloomhavenVR.LoadingIconCached.Base");
             overlayTex = baseTex != null ? LoadPngTexture(IconCachePath(".overlay.png"), "GloomhavenVR.LoadingIconCached.Overlay") : null;
             if (baseTex == null || overlayTex == null)
@@ -1223,7 +1232,8 @@ internal sealed class LoadingIndicator
             {
                 Dictionary<string, string> existing = ParseManifest(File.ReadAllLines(manifest));
                 if (existing.TryGetValue("v", out string? v) && v == "2" &&
-                    existing.TryGetValue("id", out string? id) && id == identity)
+                    existing.TryGetValue("id", out string? id) && id == identity &&
+                    QuestTextureCopy.AcceptCache(existing.TryGetValue("copyrecipe", out string? recipe) ? recipe : null))
                     return; // already the current art — no readback at all
             }
             basePixels = CaptureSpritePixels(baseSprite);
@@ -1267,7 +1277,7 @@ internal sealed class LoadingIndicator
         RenderTexture prev = RenderTexture.active;
         try
         {
-            Graphics.Blit(src, rt,
+            QuestTextureCopy.Copy(src, rt,
                 new Vector2(tr.width / src.width, tr.height / src.height),
                 new Vector2(tr.x / src.width, tr.y / src.height));
             RenderTexture.active = rt;
@@ -1312,6 +1322,7 @@ internal sealed class LoadingIndicator
         sb.Append("# (intro over, Gloomhaven_unified still loading) can show it. Delete these three files to\n");
         sb.Append("# have the mod re-take them on the next load. Nothing here is user tuning.\n");
         sb.Append("v=2\n");
+        if (QuestStandalonePlatform.Enabled) sb.Append("copyrecipe=").Append(QuestTextureCopy.Recipe).Append('\n');
         sb.Append("id=").Append(identity).Append('\n');
         Append(sb, "spin", _spinDegrees);
         Append(sb, "step", _stepSeconds);
@@ -1385,6 +1396,12 @@ internal sealed class LoadingIndicator
 
     private static string DescribeTex(LayerArt art) =>
         art.Tex != null ? $"{art.Tex.name} {art.Uv}" : "procedural";
+
+    private static string QuestSpinnerFacts(Transform? quad, LayerArt? art, Material? material) =>
+        quad == null || art == null || material == null ? "none"
+            : quad.lossyScale + ",rect=" + art.Uv + ",aspect=" + art.Width + "x" + art.Height
+                + ",texture=" + (art.Tex == null ? "none" : art.Tex.name + "," + art.Tex.width + "x" + art.Tex.height)
+                + ",shader=" + material.shader.name + ",supported=" + material.shader.isSupported + ",color=" + material.color;
 
     /// <summary>One icon layer from its uGUI object: sprite texture + atlas sub-rect + tint +
     /// authored rect size (aspect and size relative to the base icon).</summary>

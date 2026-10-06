@@ -1,5 +1,6 @@
 """Scoped read-only Quest captures, partial failures and real Legacy launcher checks."""
 import contextlib
+import base64
 import importlib.util
 import io
 import json
@@ -7,11 +8,13 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import struct
 import sys
 import tempfile
 import unittest
 from unittest import mock
 import zipfile
+import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOLS = ROOT / "tools/quest-installer"
@@ -185,6 +188,56 @@ class CollectorTests(unittest.TestCase):
         self.adb.write_text("fixture executable")
         self.fake = CaptureAdb()
 
+    def test_native_menu_thumbnails_are_bounded_current_run_pngs_without_adb(self):
+        # Use a changing row/column pattern so a flipped image or lost alpha is
+        # detected independently of the producer's RGBA8 serialization.
+        pixels = bytes(component for y in range(16) for x in range(32) for component in (x * 7, y * 13, 61, x * 5))
+        encoded = base64.b64encode(pixels).decode()
+        banner = "[Quest startup] ModBuild=626 input=" + KEY + "\n"
+        lines = [banner]
+        for role in ("glass", "background-left", "background-right", "glass"):
+            lines.append("[Quest startup] presentation menu-thumbnail scene=MainMenu sample=2 role=" + role
+                + " target=fixture width=32 height=16 format=RGBA8-linear bottomRowFirst=true base64=" + encoded + "\n")
+        (self.root / "quest-startup.log").write_text("".join(lines))
+        manifest = {"files": [], "app": {"modBuild": 626, "inputKeyPrefix": KEY[:12]}}
+        capture = collector.Capture(None, "USB-QUEST", self.root, manifest)
+        collector.retain_menu_thumbnails(capture)
+        self.assertEqual(len(manifest["files"]), 3)
+        for row in manifest["files"]:
+            data = (self.root / row["path"]).read_bytes()
+            self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+            offset = 8; compressed = b""
+            while offset < len(data):
+                length = struct.unpack_from(">I", data, offset)[0]
+                kind = data[offset + 4:offset + 8]; content = data[offset + 8:offset + 8 + length]
+                self.assertEqual(struct.unpack_from(">I", data, offset + 8 + length)[0], zlib.crc32(kind + content))
+                if kind == b"IHDR": self.assertEqual(struct.unpack(">IIBBBBB", content), (32, 16, 8, 6, 0, 0, 0))
+                if kind == b"IDAT": compressed += content
+                offset += length + 12
+            raw = zlib.decompress(compressed)
+            self.assertEqual(len(raw), 16 * 129)
+            self.assertEqual(raw[1:129], pixels[15 * 128:16 * 128])
+            self.assertEqual(raw[-128:], pixels[:128])
+            self.assertEqual(row["sourceFile"], "quest-startup.log")
+            self.assertEqual(row["modBuild"], 626)
+
+    def test_menu_thumbnail_ignores_stale_unknown_oversized_and_truncated_samples(self):
+        pixels = base64.b64encode(b"\0" * 2048).decode()
+        line = ("[Quest startup] presentation menu-thumbnail scene=MainMenu sample=2 role=glass target=fixture"
+                " width=32 height=16 format=RGBA8-linear bottomRowFirst=true base64=" + pixels + "\n")
+        manifest = {"files": [], "app": {"modBuild": 626, "inputKeyPrefix": KEY[:12]}}
+        capture = collector.Capture(None, "USB-QUEST", self.root, manifest)
+        path = self.root / "quest-startup.log"
+        for log in (line, "[Quest startup] ModBuild=625 input=" + KEY + "\n" + line,
+                "[Quest startup] ModBuild=626 input=" + "b" * 64 + "\n" + line,
+                "[Quest startup] ModBuild=626 input=" + KEY + "\n" + line.replace("role=glass", "role=../../outside"),
+                "[Quest startup] ModBuild=626 input=" + KEY + "\n" + line.replace("width=32", "width=32000"),
+                "[Quest startup] ModBuild=626 input=" + KEY + "\n" + line.replace(pixels, "AAAA")):
+            path.write_text(log)
+            collector.retain_menu_thumbnails(capture)
+            self.assertEqual(manifest["files"], [])
+        self.assertTrue(manifest["presentationThumbnailsUnavailable"])
+
     def remember(self, hardware="HARDWARE-1"):
         self.config.parent.mkdir(parents=True, exist_ok=True)
         self.config.write_text(json.dumps({"schema": 1, "adb": str(self.adb), "endpoint": "192.168.1.42:5555", "deviceSerial": hardware}))
@@ -280,7 +333,7 @@ class CollectorTests(unittest.TestCase):
             self.assertFalse(row["truncated"])
             self.assertEqual(row["sourceBytes"], len(files[name]))
         self.assertFalse(manifest.get("proceduralFilesUnavailable"))
-        self.assertEqual(manifest["limits"]["proceduralPaths"], 2)
+        self.assertEqual(manifest["limits"]["proceduralPaths"], 3)
         self.assertFalse(any("pull" in call and "quest-procedural-state" in str(call) for call in self.fake.calls))
 
     def test_old_or_non_debuggable_apk_keeps_internal_logs_optional(self):

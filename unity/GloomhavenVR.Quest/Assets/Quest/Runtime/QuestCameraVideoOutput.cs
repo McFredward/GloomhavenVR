@@ -25,6 +25,7 @@ namespace GloomhavenVR.Quest
         Rect captureViewport;
         CommandBuffer completion;
         CommandBuffer farDraw, farSnapshot;
+        Material ordinaryCopyMaterial;
         RenderTexture cameraPixels;
         bool farOutput;
         Material material;
@@ -202,7 +203,8 @@ namespace GloomhavenVR.Quest
                     farDraw.Clear();
                     farDraw.DrawMesh(quad, Matrix4x4.identity, material, 0, 0);
                     farSnapshot.Clear();
-                    farSnapshot.Blit(BuiltinRenderTextureType.CurrentActive, cameraPixels);
+                    if (ordinaryCopyMaterial == null) ordinaryCopyMaterial = GloomhavenVR.Core.QuestTextureCopy.CreateMaterial();
+                    farSnapshot.Blit(BuiltinRenderTextureType.CurrentActive, cameraPixels, ordinaryCopyMaterial, 0);
                     camera.AddCommandBuffer(CameraEvent.BeforeImageEffects, farDraw);
                     snapshotCamera = finalCamera;
                     snapshotCamera.AddCommandBuffer(CameraEvent.AfterEverything, farSnapshot);
@@ -265,7 +267,7 @@ namespace GloomhavenVR.Quest
             {
                 if (farOutput)
                 {
-                    Graphics.Blit(cameraPixels, captured);
+                    GloomhavenVR.Core.QuestTextureCopy.Copy(cameraPixels, captured);
                     // Unity already generates automatic mip chains on this
                     // blit's target. Its explicit GenerateMips API rejects
                     // autoGenerateMips targets (B624 logged this every frame).
@@ -327,7 +329,7 @@ namespace GloomhavenVR.Quest
                     { name = "GloomhavenVR.QuestMovieEvidence", filterMode = FilterMode.Point };
                 if (!sample.Create()) throw new InvalidOperationException("Evidence texture could not be created.");
                 RenderTexture previous = RenderTexture.active;
-                try { Graphics.Blit(source, sample); }
+                try { GloomhavenVR.Core.QuestTextureCopy.Copy(source, sample); }
                 finally { RenderTexture.active = previous; }
                 if (!asynchronous)
                 {
@@ -448,11 +450,13 @@ namespace GloomhavenVR.Quest
             if (farSnapshot != null) farSnapshot.Release();
             if (cameraPixels != null) { cameraPixels.Release(); UnityEngine.Object.Destroy(cameraPixels); }
             if (material != null) UnityEngine.Object.Destroy(material);
+            if (ordinaryCopyMaterial != null) UnityEngine.Object.Destroy(ordinaryCopyMaterial);
             if (quad != null) UnityEngine.Object.Destroy(quad);
             GloomhavenVR.Core.QuestStandalonePlatform.FlatScreenVideoSampling -= CompleteCapture;
             GloomhavenVR.Core.QuestStandalonePlatform.FlatScreenVideoSampled -= SampleConsumer;
             completion = null; material = null; quad = null; texture = null;
             farDraw = null; farSnapshot = null; cameraPixels = null;
+            ordinaryCopyMaterial = null;
         }
     }
 }

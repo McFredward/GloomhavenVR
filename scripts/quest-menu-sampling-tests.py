@@ -30,6 +30,8 @@ def main():
     parser.add_argument("--unity", type=Path, default=Path("/home/claw/unity-2021.3.5/Editor/Unity"))
     parser.add_argument("--owned-project", type=Path)
     parser.add_argument("--game-data", type=Path)
+    parser.add_argument("--case", help="Run one named fixture while investigating an affected render path.")
+    parser.add_argument("--graphics", choices=("glcore", "vulkan"), default="glcore")
     args = parser.parse_args()
     if bool(args.owned_project) != bool(args.game_data):
         parser.error("Owned sprite proof requires both --owned-project and --game-data.")
@@ -41,11 +43,12 @@ def main():
     loading = (ROOT / "src/GloomhavenVR/WorldUI/LoadingIndicator.cs").read_text()
     layer = loading[loading.index("    private sealed class LayerArt\n"):loading.index("    /// <summary>\n    /// True only during an actual", loading.index("    private sealed class LayerArt\n"))]
     sources = {"Sampling.cs": (sharp / "QuestScreenSampling.cs").read_text(),
+               "TextureCopy.cs": (ROOT / "src/GloomhavenVR/Core/QuestTextureCopy.cs").read_text(),
                "Geometry.cs": (sharp / "LoadingIconGeometry.cs").read_text(),
                "EditorValidation.cs": (ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestSpriteGeometryValidation.cs").read_text()}
     factory = method((flat / "FlatScreenStereo.2.Compositor.cs").read_text(), "    internal static RenderTexture CreateColorRt(")
     sources["Factory.cs"] = "using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static class FlatScreenStereo\n{\n" + factory + "}\n"
-    sources["Loading.cs"] = ("using UnityEngine;\nusing UnityEngine.UI;\nnamespace GloomhavenVR.WorldUI;\n"
+    sources["Loading.cs"] = ("using UnityEngine;\nusing UnityEngine.UI;\nusing GloomhavenVR.Core;\nnamespace GloomhavenVR.WorldUI;\n"
         "internal sealed class LoadingIndicator\n{\nprivate const float SizeMeters=.25f;\n"
         "private GameObject? _root = new GameObject(\"fixture-loading-root\");\n" + layer
         + method(loading, "    private static LayerArt? ReadLayer(")
@@ -57,6 +60,9 @@ def main():
     stack = (flat / "FlatScreen.2.CameraStack.cs").read_text()
     assert stack.count("QuestScreenSampling.Configure(uiRt);") == 1
     variants = [("production", "", "", "", ""),
+        ("quest-copy-crop-lost", "TextureCopy.cs", "new Vector4(scale.x, scale.y, offset.x, offset.y)", "new Vector4(1, 1, 0, 0)", "Quest atlas copy retains crop pixels and alpha"),
+        ("quest-builtin-cache-reused", "TextureCopy.cs", "recipe == Recipe", "true", "Quest rejects previous builtin-copy cache"),
+        ("quest-copy-state-leaked", "TextureCopy.cs", "GL.sRGBWrite = previousSrgbWrite;", "/* injected missing color state restore */", "Quest copy restores render state"),
         ("quest-mips-removed", "Sampling.cs", "target.useMipMap = true;", "target.useMipMap = false;", "Quest capture has a mip chain"),
         ("desktop-filter-mutated", "Sampling.cs", "if (!QuestStandalonePlatform.Enabled)", "if (QuestStandalonePlatform.Enabled)", "desktop capture defaults preserved"),
         ("animated-mips-stale", "Sampling.cs", "target.autoGenerateMips = true;", "target.autoGenerateMips = false;", "Quest animated captures regenerate their mip chain"),
@@ -67,6 +73,9 @@ def main():
     if args.owned_project:
         variants.append(("native-trim-padding-discarded", "Geometry.cs", "Vector4 padding = DataUtility.GetPadding(sprite);", "Vector4 padding = Vector4.zero;", "native Image trim and preserveAspect drawing bounds"))
         variants.append(("native-import-size-gate-removed", "EditorValidation.cs", "Close(rect.width, entry.restoredAtlasRect.width, entry.asset);", "/* injected: imported width not validated */", "native imported geometry gate rejects altered receipt"))
+    if args.case:
+        variants = [row for row in variants if row[0] == args.case]
+        if not variants: parser.error("Unknown fixture case.")
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     fixture = ROOT / "tests/QuestMenuSampling.Tests"
     manifest = {"result": str(run / "results.txt"), "cases": []}
@@ -89,6 +98,9 @@ def main():
             raise SystemExit(result.stdout + result.stderr + "\nCompilation failure is not a passing negative control.")
         manifest["cases"].append({"name": name, "dll": str(case / "bin/Release/netstandard2.1" / (assembly + ".dll")), "expected": expected})
     project = run / "unity"; editor = project / "Assets/Editor"; editor.mkdir(parents=True)
+    (project / "Assets/Resources").mkdir()
+    shutil.copyfile(ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestTextureCopy.shader",
+                    project / "Assets/Resources/QuestTextureCopy.shader")
     # Native JsonUtility requires Unity to register nested receipt types during
     # plugin import; loading an otherwise unregistered assembly by reflection
     # alone silently omits arrays of those custom types.
@@ -136,8 +148,9 @@ def main():
         sprites.restore_loading_sprite_geometry(project, args.game_data)
     manifest_path = run / "manifest.json"; manifest_path.write_text(json.dumps(manifest, indent=2))
     (run / "source-hashes.json").write_text(json.dumps({"sources": {k: hashlib.sha256(v.encode()).hexdigest() for k, v in sources.items()}, "ownedSources": owned,
-        "limits": ["Real Unity OpenGL camera/texture pixels and native uGUI geometry; no Quest GPU or final headset readability claim."]}, indent=2))
-    command = [str(args.unity), "-batchmode", "-force-glcore", "-projectPath", str(project),
+        "graphicsApi": args.graphics,
+        "limits": ["Real Unity host camera/texture pixels and native uGUI geometry; no Quest GPU or final headset readability claim."]}, indent=2))
+    command = [str(args.unity), "-batchmode", "-force-" + args.graphics, "-projectPath", str(project),
                "-executeMethod", "InteractionRunner.Start", "-interactionManifest", str(manifest_path), "-logFile", str(run / "unity.log")]
     if not os.environ.get("DISPLAY"):
         command = ["xvfb-run", "-a"] + command
