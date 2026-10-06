@@ -1882,6 +1882,41 @@
         "local"
       ],
       "weight": 75
+    },
+    {
+      "id": "material-catalog",
+      "command": [
+        "python3",
+        "scripts/check-material-catalog.py"
+      ],
+      "groups": [
+        "source",
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "world-material-shader",
+      "command": [
+        "python3",
+        "scripts/check-world-material-shader.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 90
+    },
+    {
+      "id": "world-material-runtime",
+      "command": [
+        "python3",
+        "scripts/check-world-material-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 75
     }
   ]
 }
