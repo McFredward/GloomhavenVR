@@ -216,7 +216,7 @@ internal static class TownServicePresentation
             if (quietService == 2 && !TownServiceTempleController.Prepare(window)) return;
         }
         if ((quietService == 1 || quietService == 3)
-            && !TownServiceQuietController.Prepare(window, quietService)) return;
+            && !PrepareQuietController(window, quietService)) return;
         _quietService = quietService;
         if (_failedWindow == window) return;
         if (_window == null)
@@ -537,6 +537,29 @@ internal static class TownServicePresentation
         // A native mode transition cannot retire its independent wrist presentation.
         if (_quietService == 0) Reset();
         _failedWindow = null;
+    }
+
+    private static bool PrepareQuietController(UIWindow window, byte service)
+    {
+        try { return TownServiceQuietController.Prepare(window, service); }
+        catch (Exception error)
+        {
+            // A missing original callback/asset must not strand a player or retry a failing
+            // preparation every render frame. Ordinary immersive visits never dispatch a
+            // map mode; this exact failed controller gets the existing native escape hatch.
+            Reset();
+            TownServiceQuietController.Reset();
+            _failedWindow = window;
+            window.onHidden.AddListener(OnFallbackHidden);
+            EGuildmasterMode mode = service == 1 ? EGuildmasterMode.Merchant : EGuildmasterMode.Enchantress;
+            NewPartyCharacterUI? selected = NewPartyDisplayUI.PartyDisplay?.SelectedUISlot;
+            if (!window.IsOpen) MapRoomDriver.PressGuildmasterMode(mode, "quiet service preparation failed", suppressNativeSound: true);
+            NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
+            if (selected != null && selected.State == PartySlotState.Assigned && display != null
+                && !ReferenceEquals(display.SelectedUISlot, selected)) selected.OnClick();
+            VRLog.Warn("TownServices", "Original " + mode + " window restored after quiet preparation failed: " + error);
+            return false;
+        }
     }
 
     private static void OnFallbackHidden()
