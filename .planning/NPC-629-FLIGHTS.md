@@ -86,8 +86,10 @@ purse pre-drop ghost retain only the expressly approved local exceptions.
 - Additional precise controls reject an absent inert hidden preparation and a
   second visible prepared offered original. Existing per-render motion, child
   rotation, held-duplicate and terminal-body controls remain in the affected suite.
-- Full plugin strict compile passes with zero warnings/errors. The primary agent
-  runs the complete gate once on the final integrated tree.
+- Full plugin strict compile passes with zero warnings/errors. The integrated
+  complete local attempt and its affected-only continuations retain their exact
+  source snapshots and original failures in `NPC-629-REVIEW.md` and the hashed
+  validation ledger; successful unrelated scopes are not repeated.
 
 The handoff fixture explicitly supplies native inventory/confirmation outcomes
 and pooled artwork construction. The observer fixture supplies the native return

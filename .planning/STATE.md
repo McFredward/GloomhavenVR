@@ -1,5 +1,57 @@
 # State — where the project stands
 
+**Build629 integration complete, 2026-10-06: 1.1.0.**
+
+The current paired hardware logs are Build627; integration starts from the latest
+Frame628 dev commit 176beb741. The recorded remote enhancement first picture took
+24.975 seconds and waited for invisible original tooltip/inventory modules. An
+additive current-visible census (TLV108), deterministic native partitions and
+accepted-publication baselines now separate exact visible dependencies from
+hidden preparation. Visible warm controls retain bounded queue priority and
+repayment inside the existing 864B/50ms budget. An already admitted parked
+merchant palm retains its tiny intent heartbeat without promoting hidden stock.
+
+Original mage holder, ring and selectable areas retain the owner's exact physical
+card frame through independent per-render motion and additive TLV109. Merchant
+flight outcomes follow native inventory: sale retires into the merchant, purchase
+adopts the prepared native original onto the actual acquired item and flies to
+the buyer, cancellation returns owned items to their fan and borrowed samples to
+the cabinet. Returning originals survive NPC/character changes in the existing
+cosmetic lane; no native ownership or extra interaction lock is manufactured.
+Accepted temple behavior, scenario privacy and the Frame628 controls remain intact.
+
+The complete 142-scope local attempt preserves 134 direct passes/eight failures;
+an affected-only eight-scope continuation passes five, and its remaining three
+pass in the final continuation. The exact source-bound union and narrowly reviewed
+heartbeat follow-up are audited without rewriting original failures or repeating
+successful unrelated scopes. Native delivery 355/six causal controls, continuous
+geometry 495/five controls, owner outcomes 207/four controls and independent
+observer returns 480 supplement that gate. These use representative constructed
+native Unity widgets and explicit model boundaries, not the complete game prefab
+set or headset latency measurements. The full final wire executable passes 310,456
+assertions, including independent 108/109 and unchanged 97/98 vectors. One stale
+catalog test deadline now derives from actual encoded pages and unchanged fair
+arbitration; no production transport budget increased. All 14 source gates,
+bundles, bilingual docs, runner inventory and strict Release pass; zero warnings
+and errors. Runner inventory records 15 passes and two environment skips.
+
+The actual 628-to-629 compiled comparison retains 1,220 existing types, changes 17
+intended NPC implementation types plus five inlined build constants and adds one
+flight coordinator. No type is removed or unexplained. All 670 config keys,
+217 literal patch registrations and 4,790 log tokens remain unchanged. Exact
+original reports, input snapshots, focused sources, causal controls and compiled
+scope receipts live in `.planning/debug/npc629/validation-ledger.json`.
+
+No new headset acceptance is claimed. Next paired checks: immediate complete
+merchant/mage first pictures and warm replacements; turning physical card/ring/
+areas as one plane; sale, purchase and cancel destinations and smooth returns,
+including a closed wrist or a character/NPC change during the native outcome.
+See [NPC-629-REVIEW.md](NPC-629-REVIEW.md) and
+[NPC-629-FLIGHTS.md](NPC-629-FLIGHTS.md). No release is created by this integration.
+
+---
+
+
 **Build628 integration complete, 2026-10-06: 1.1.0.**
 
 The maintainer authorized direct dev integration after confirming the main agent
