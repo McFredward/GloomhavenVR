@@ -387,13 +387,10 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             ReportApproachBlock(hasCard ? "native service cap unavailable" : "no owned map card in active fan");
             return;
         }
-        NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
-        NewPartyCharacterUI? selectedSlot = display?.SelectedUISlot;
         bool opened;
-        // The Build 590 headset log places a 110-148 ms main-thread stall inside
-        // TownServicePresentation.Visit on some enchantress entries. That parent
-        // includes both this native press and the subsequent original folio
-        // conversion; keep their costs separate before attributing a residual hitch.
+        // Retain the existing diagnostic scope token. A deliberate visit now requests
+        // original transaction sources without opening a flat destination or selecting
+        // a character; native source preparation is measured by its presentation owner.
         using (PerfMonitor.Scope("TownEnhancement.NativeOpen"))
             opened = TownServiceQuietController.Request(3);
         if (opened)
@@ -401,11 +398,7 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
             if (destination == EGuildmasterMode.Merchant) MapRoomHand.SetMerchantInspection(false);
             if (destination == EGuildmasterMode.Temple) MapRoomHand.SetTempleInspection(false);
             _pendingApproach = false;
-            // Changing native guildmaster destinations can select the first assigned
-            // character. Keep the exact native slot the visitor was inspecting.
-            if (selectedSlot != null && selectedSlot.State == PartySlotState.Assigned
-                && display != null && !ReferenceEquals(display.SelectedUISlot, selectedSlot))
-                selectedSlot.OnClick();
+
         }
         else ReportApproachBlock("native cap refused press");
     }

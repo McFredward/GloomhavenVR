@@ -325,16 +325,10 @@ internal static class TownServiceMerchantHandoff
                 && TownServicePresentation.Ritual?.Handoff?.Card != null
                 || mode == EGuildmasterMode.Temple
                 && TownServicePresentation.Ritual?.HasParkedTempleOffer == true) return false;
-            NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
-            NewPartyCharacterUI? selectedSlot = display?.SelectedUISlot;
             if (!TownServiceQuietController.Request(1)) return false;
             if (TownServiceQuietController.InteractionMode != EGuildmasterMode.Merchant)
                 return false;
-            // Native destination changes can select the first character. A physical
-            // offering belongs to the exact original slot the visitor was inspecting.
-            if (selectedSlot != null && selectedSlot.State == PartySlotState.Assigned
-                && display != null && !ReferenceEquals(display.SelectedUISlot, selectedSlot))
-                selectedSlot.OnClick();
+
         }
         if (_pending != null || _tradeItem != null || _offering != null || _offeredStock != null)
         {

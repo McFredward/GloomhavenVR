@@ -568,6 +568,8 @@ public static class InteractionProgram
         var native = new GameObject("Native", typeof(UIWindow), typeof(UINewEnhancementWindow));
         native.transform.SetParent(root.transform, false);
         var shop = native.GetComponent<UINewEnhancementWindow>();
+        native.GetComponent<UIWindow>().IsOpen = false;
+        TownServicePresentation.QuietWindow = native.GetComponent<UIWindow>();
         var station = new GameObject("Resident").transform; station.SetParent(root.transform, false);
         var palm = new GameObject("ActivityOfferingPalm").transform; palm.SetParent(station, false);
         var card = new GameObject("Owned map card", typeof(VRCard)).GetComponent<VRCard>();
@@ -764,6 +766,9 @@ public static class InteractionProgram
         CardsDriver.OffScenarioFanActive = true;
         CardsDriver.Returned = 0; CardsDriver.LastReturned = null; CardsDriver.Completed = null;
         VRHands.Left = null; card.IsHeld = false;
+        Check(!native.GetComponent<UIWindow>().IsOpen,
+            "quiet mage preview claim cancellation and original selection never open the flat service window");
+        TownServicePresentation.QuietWindow = null;
         UnityEngine.Object.DestroyImmediate(root);
     }
 
@@ -1242,7 +1247,7 @@ public static class InteractionProgram
     {
         var root = new GameObject("Approach");
         var palm = new GameObject("ActivityOfferingPalm").transform; palm.SetParent(root.transform, false);
-        TownServicePopulation.Station = new TownServiceStation { Root = root.transform };
+        TownServicePopulation.Station = new TownServiceStation { Root = root.transform, AttendsLocal = false };
         var firstSlot = new NewPartyCharacterUI();
         var selectedSlot = new NewPartyCharacterUI();
         NewPartyDisplayUI.PartyDisplay = new NewPartyDisplayUI
@@ -1282,47 +1287,48 @@ public static class InteractionProgram
         }
         void Offer() { card.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach(); }
         Outside();
-        MapRoomDriver.Visits = 0; GuildmasterDestinations.Mode = EGuildmasterMode.None;
+        TownServiceQuietController.Requests = 0; GuildmasterDestinations.Mode = EGuildmasterMode.None;
         card.Owned = false; Offer();
-        Check(MapRoomDriver.Visits == 0, "foreign held card never opens native service");
+        Check(TownServiceQuietController.Requests == 0, "foreign held card never opens native service");
         card.Owned = true; StoryComposite.PointOfNoReturn = true; Outside(); Offer();
-        Check(MapRoomDriver.Visits == 0, "story commitment prevents automatic visit");
+        Check(TownServiceQuietController.Requests == 0, "story commitment prevents automatic visit");
         StoryComposite.PointOfNoReturn = false; MapRoomDriver.CanVisit = false; Outside(); Offer();
-        Check(MapRoomDriver.Visits == 0, "native unavailable service never opens");
+        Check(TownServiceQuietController.Requests == 0, "native unavailable service never opens");
         MapRoomDriver.CanVisit = true; Outside();
-        TownServiceEnhancementHandoff.TickApproach(); Check(MapRoomDriver.Visits == 0, "distant card never opens service");
+        TownServiceEnhancementHandoff.TickApproach(); Check(TownServiceQuietController.Requests == 0, "distant card never opens service");
         GloomhavenVR.Net.TownServices.TownServiceGrantSync.CanUseImmersive = false;
         Offer();
-        Check(MapRoomDriver.Visits == 0,
+        Check(TownServiceQuietController.Requests == 0,
             "an incompatible multiplayer host leaves the original native service path available");
         GloomhavenVR.Net.TownServices.TownServiceGrantSync.CanUseImmersive = true;
         Outside();
         Offer();
-        Check(MapRoomDriver.Visits == 1, "owned card approach opens through original native visit");
+        Check(TownServiceQuietController.Requests == 1, "owned card approach requests original callbacks without opening a flat window");
         Check(ReferenceEquals(NewPartyDisplayUI.PartyDisplay.SelectedUISlot, selectedSlot)
-            && selectedSlot.Clicks == 1,
-            "native destination change preserves the visitor's exact selected character slot");
-        Check(MapRoomDriver.LastSuppressed, "automatic enchantress entry suppresses the flat button sound");
-        TownServiceEnhancementHandoff.TickApproach(); Check(MapRoomDriver.Visits == 1, "repeated approach cannot toggle native service");
+            && selectedSlot.Clicks == 0,
+            "quiet entry preserves the exact selected slot without selecting it again");
+        Check(MapRoomDriver.Visits == 0 && GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.None, "quiet enchantress entry never presses or changes the flat native destination");
+        TownServiceEnhancementHandoff.TickApproach(); Check(TownServiceQuietController.Requests == 1, "repeated approach cannot toggle native service");
         GuildmasterDestinations.Mode = EGuildmasterMode.None;
         System.Threading.Thread.Sleep(125);
-        TownServiceEnhancementHandoff.TickApproach(); Check(MapRoomDriver.Visits == 1, "explicit close remains closed while card stays near");
+        TownServiceEnhancementHandoff.TickApproach(); Check(TownServiceQuietController.Requests == 1, "explicit close remains closed while card stays near");
         VRHands.Left = null; Outside(); head.transform.position = palm.position;
-        TownServiceEnhancementHandoff.TickApproach(); Check(MapRoomDriver.Visits == 2, "head proximity opens original service without a held card");
+        TownServiceEnhancementHandoff.TickApproach(); Check(TownServiceQuietController.Requests == 2, "head proximity opens original service without a held card");
         GuildmasterDestinations.Mode = EGuildmasterMode.None;
-        TownServiceEnhancementHandoff.TickApproach(); Check(MapRoomDriver.Visits == 2, "explicit close remains closed while head stays near");
+        TownServiceEnhancementHandoff.TickApproach(); Check(TownServiceQuietController.Requests == 2, "explicit close remains closed while head stays near");
         head.transform.position = palm.position + Vector3.forward * 1.6f; TownServiceEnhancementHandoff.TickApproach();
         head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 2, "head hysteresis avoids boundary reopen");
+        Check(TownServiceQuietController.Requests == 2, "head hysteresis avoids boundary reopen");
         Outside(); head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 3, "leaving and returning re-arms proximity greeting");
+        Check(TownServiceQuietController.Requests == 3, "leaving and returning re-arms proximity greeting");
         var merchantRoot = new GameObject("Merchant competitor");
         merchantRoot.transform.position = root.transform.position - Vector3.right * 2.65f;
         TownServicePopulation.MerchantStation = new TownServiceStation { Root = merchantRoot.transform };
+        TownServicePopulation.Station!.AttendsLocal = false;
         GuildmasterDestinations.Mode = EGuildmasterMode.Merchant;
         VRHands.Left = hand;
         Outside(); head.transform.position = palm.position - Vector3.right * 2.35f; TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 3 && GuildmasterDestinations.Mode == EGuildmasterMode.Merchant,
+        Check(TownServiceQuietController.Requests == 3 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Merchant,
             "head-only overlap keeps the nearer idle merchant destination and its item hand intact");
         MapRoomHand.InspectionBlocked = true;
         fanPalm.position = palm.position;
@@ -1331,55 +1337,55 @@ public static class InteractionProgram
         TownServiceMerchantHandoff.WantsOffering = true;
         System.Threading.Thread.Sleep(125);
         TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 3 && MapRoomHand.InspectionReleases == 0,
+        Check(TownServiceQuietController.Requests == 3 && MapRoomHand.InspectionReleases == 0,
             "parked merchant item is not interrupted by a competing mage hand focus");
         TownServiceMerchantHandoff.WantsOffering = false;
         System.Threading.Thread.Sleep(125);
         TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 4 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
+        Check(TownServiceQuietController.Requests == 4 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Enchantress,
             "intentional fan-hand focus switches the local native destination from merchant to enchantress");
         Check(MapRoomHand.InspectionReleases == 1,
             "merchant item fan is released after the native enchantress visit succeeds");
         GuildmasterDestinations.Mode = EGuildmasterMode.None;
         System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 4,
+        Check(TownServiceQuietController.Requests == 4,
             "closing a visit switched from merchant does not reopen it while still near");
         GuildmasterDestinations.Mode = EGuildmasterMode.None;
         TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 4, "explicitly closing the deferred enchantress visit stays closed while still near");
+        Check(TownServiceQuietController.Requests == 4, "explicitly closing the deferred enchantress visit stays closed while still near");
         Outside(); MapRoomDriver.CanVisit = false;
         head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 4, "native rail briefly unavailable cannot consume the visitor's approach");
+        Check(TownServiceQuietController.Requests == 4, "native rail briefly unavailable cannot consume the visitor's approach");
         MapRoomDriver.CanVisit = true; TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 4, "pending native rail retries are rate-limited between frames");
+        Check(TownServiceQuietController.Requests == 4, "pending native rail retries are rate-limited between frames");
         System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 5, "pending approach opens when original native rail becomes ready");
+        Check(TownServiceQuietController.Requests == 5, "pending approach opens when original native rail becomes ready");
         GuildmasterDestinations.Mode = EGuildmasterMode.None; TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 5, "explicit close clears a previously deferred approach");
+        Check(TownServiceQuietController.Requests == 5, "explicit close clears a previously deferred approach");
         Outside(); GloomhavenVR.Core.Events.VRModeStateMachine.CurrentMode = GloomhavenVR.Core.Events.VRMode.ModalUI;
         head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 5, "modal confirmation prevents proximity opening");
+        Check(TownServiceQuietController.Requests == 5, "modal confirmation prevents proximity opening");
         GloomhavenVR.Core.Events.VRModeStateMachine.CurrentMode = GloomhavenVR.Core.Events.VRMode.TableIdle;
-        System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach(); Check(MapRoomDriver.Visits == 6,
+        System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach(); Check(TownServiceQuietController.Requests == 6,
             "transient modal or unloaded cards defer the original visit instead of consuming its proximity edge");
         GuildmasterDestinations.Mode = EGuildmasterMode.None; TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 6, "explicit close of a deferred modal approach remains closed");
+        Check(TownServiceQuietController.Requests == 6, "explicit close of a deferred modal approach remains closed");
         VRHands.Left = hand; card.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 7, "deliberately offering a card overrides an earlier proximity close");
+        Check(TownServiceQuietController.Requests == 7, "deliberately offering a card overrides an earlier proximity close");
         GuildmasterDestinations.Mode = EGuildmasterMode.None; Outside(); VRHands.Left = null;
         CardsDriver.OffScenarioFanCards = null; head.transform.position = palm.position;
         TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 7, "head arrival before owned map cards finish building stays pending");
+        Check(TownServiceQuietController.Requests == 7, "head arrival before owned map cards finish building stays pending");
         CardsDriver.OffScenarioFanCards = new[] { card };
         System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 8, "pending visit opens after the map cards load without stepping away");
+        Check(TownServiceQuietController.Requests == 8, "pending visit opens after the map cards load without stepping away");
         GuildmasterDestinations.Mode = EGuildmasterMode.None; Outside();
         head.transform.position = palm.position + Vector3.up * 1.5f;
         TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 9, "visitor attention uses the floor-plane reach even when HMD is above the palm");
+        Check(TownServiceQuietController.Requests == 9, "visitor attention uses the floor-plane reach even when HMD is above the palm");
         GuildmasterDestinations.Mode = EGuildmasterMode.None; WorldUIConfig.MapRoomHand!.Value = false;
         Outside(); head.transform.position = palm.position; Offer();
-        Check(!TownServiceEnhancementHandoff.Enabled && MapRoomDriver.Visits == 9, "disabled map hand prevents automatic immersive opening");
+        Check(!TownServiceEnhancementHandoff.Enabled && TownServiceQuietController.Requests == 9, "disabled map hand prevents automatic immersive opening");
         WorldUIConfig.MapRoomHand.Value = true;
         var templeRoot = new GameObject("Temple competitor");
         templeRoot.transform.position = root.transform.position + Vector3.right * 2.65f;
@@ -1388,13 +1394,13 @@ public static class InteractionProgram
         VRHands.Left = hand;
         fanPalm.position = palm.position + Vector3.right * 2.35f;
         head.transform.position = palm.position + Vector3.right * 2.35f; TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 9 && GuildmasterDestinations.Mode == EGuildmasterMode.Temple,
+        Check(TownServiceQuietController.Requests == 9 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Temple,
             "head-only overlap keeps the nearer idle temple destination available: visits="
-            + MapRoomDriver.Visits + " mode=" + GuildmasterDestinations.Mode);
+            + TownServiceQuietController.Requests + " mode=" + GuildmasterDestinations.Mode);
         MapRoomHand.InspectionBlocked = true;
         System.Threading.Thread.Sleep(125);
         fanPalm.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 10 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
+        Check(TownServiceQuietController.Requests == 10 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Enchantress,
             "deliberate fan-hand focus switches from a completed temple visit");
         Check(MapRoomHand.TempleInspectionReleases == 1 && !MapRoomHand.InspectionBlocked,
             "temple purse hand is released after the native enchantress visit succeeds");
@@ -1405,35 +1411,35 @@ public static class InteractionProgram
         confirmation.IsActive = true;
         fanPalm.position = palm.position;
         head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 10 && GuildmasterDestinations.Mode == EGuildmasterMode.Merchant,
+        Check(TownServiceQuietController.Requests == 10 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Merchant,
             "a live merchant purchase confirmation is never interrupted by resident approach");
         confirmation.GetComponent<UIWindow>().IsOpen = false;
         fanPalm.position = palm.position;
         System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 11 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
+        Check(TownServiceQuietController.Requests == 11 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Enchantress,
             "closed merchant confirmation cannot strand a physical visit behind stale IsActive");
         Singleton<UIItemConfirmationBox>.Instance = null;
         UnityEngine.Object.DestroyImmediate(confirmation.gameObject);
         Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Trainer;
         head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 11 && GuildmasterDestinations.Mode == EGuildmasterMode.Trainer,
+        Check(TownServiceQuietController.Requests == 11 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Trainer,
             "physical enchantress approach cannot interrupt a non-service destination");
         TownServicePopulation.MageStation = new TownServiceStation { Root = root.transform };
         Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Temple;
         fanPalm.position = root.transform.position + Vector3.right * 1.35f;
         head.transform.position = root.transform.position + Vector3.right * 1.35f;
         TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 11 && GuildmasterDestinations.Mode == EGuildmasterMode.Temple,
+        Check(TownServiceQuietController.Requests == 11 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Temple,
             "overlapping approach cannot switch away from the physically nearer temple");
         head.transform.position = root.transform.position + Vector3.right * .9f;
         fanPalm.position = root.transform.position + Vector3.right * .9f;
         System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 12 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
+        Check(TownServiceQuietController.Requests == 12 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Enchantress,
             "moving closer to the enchantress switches without crossing her approach boundary again");
         GuildmasterDestinations.Mode = EGuildmasterMode.Temple;
         System.Threading.Thread.Sleep(125);
         TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 12 && GuildmasterDestinations.Mode == EGuildmasterMode.Temple,
+        Check(TownServiceQuietController.Requests == 12 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Temple,
             "a deliberate temple destination press is not undone while the visitor stands still");
         Vector3 midpoint = root.transform.position + Vector3.right * 1.3f;
         Check(TownServiceEnhancementHandoff.PrefersEnchantress(midpoint, EGuildmasterMode.Enchantress)
@@ -1450,13 +1456,13 @@ public static class InteractionProgram
         Outside();
         head.transform.position = root.transform.position + Vector3.forward * 2.30f;
         TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 13,
+        Check(TownServiceQuietController.Requests == 13,
             "gaze-edge visitor opens the native enchantress before stepping into the old 1.4 m palm zone");
         GuildmasterDestinations.Mode = EGuildmasterMode.Merchant;
         Outside();
         head.transform.position = root.transform.position + Vector3.forward * 2.30f;
         TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 14 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
+        Check(TownServiceQuietController.Requests == 14 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Enchantress,
             "nearest enchantress opens for an idle visitor even while the prior native destination is merchant");
         // Build 587 peer evidence: the enchantress's attention hand can extend in
         // the merchant overlap, but the native Merchant destination previously
@@ -1470,17 +1476,17 @@ public static class InteractionProgram
         head.transform.rotation = Quaternion.LookRotation(Vector3.back);
         TownServiceMerchantHandoff.WantsOffering = true;
         TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 14 && GuildmasterDestinations.Mode == EGuildmasterMode.Merchant,
+        Check(TownServiceQuietController.Requests == 14 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Merchant,
             "looking at the offering enchantress cannot interrupt a parked merchant transaction");
         TownServiceMerchantHandoff.WantsOffering = false;
         System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 15 && GuildmasterDestinations.Mode == EGuildmasterMode.Enchantress,
+        Check(TownServiceQuietController.Requests == 15 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Enchantress,
             "local face attention opens the offering enchantress's card cue despite a nearer idle merchant and averted gaze");
         TownServicePopulation.TempleStation = new TownServiceStation { Root = templeRoot.transform };
         Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Temple;
         head.transform.position = root.transform.position + Vector3.right * 1.35f;
         TownServiceEnhancementHandoff.TickApproach();
-        Check(MapRoomDriver.Visits == 15 && GuildmasterDestinations.Mode == EGuildmasterMode.Temple,
+        Check(TownServiceQuietController.Requests == 15 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Temple,
             "mage face attention cannot immediately undo a nearer priestess's native visit in their overlap");
         UnityEngine.Object.DestroyImmediate(templeRoot);
         UnityEngine.Object.DestroyImmediate(merchantRoot);

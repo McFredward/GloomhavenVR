@@ -101,18 +101,26 @@ def sources(root):
     collapse_body = method(pile[collapse_start:], "if (_collapsing)")
     lifecycle += "\ninternal void AdvanceInspectionCollapse() { " + collapse_body + " }\n"
     bound["ActualItemLifecycle.cs"] = "using UnityEngine;using UnityEngine.UI;using ScenarioRuleLibrary;using GloomhavenVR.Core;using GloomhavenVR.Hands;using GloomhavenVR.WorldUI; namespace GloomhavenVR.Cards { internal sealed partial class ItemsPile { " + layout + " internal partial class ItemChip { " + lifecycle + " } } }"
+    import importlib.util
+    helper_path = root / "scripts/bind-town-quiet-controller.py"
+    spec = importlib.util.spec_from_file_location("quiet_handoff_binding", helper_path)
+    helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
+    quiet, quiet_hashes = helper.sources(root); bound.update(quiet)
     hashes = {p: hashlib.sha256(s.encode()).hexdigest() for p, s in bound.items()}
+    hashes.update(quiet_hashes)
     return bound, hashes
 
 
 def mutations():
     return [
+        ("quiet-window-gate", "QuietControllerFixture.cs", "window.IsOpen || TownServicePresentation.IsQuietController(window, service)", "window.IsOpen", "owned release dispatches exact sell confirmation"),
+        ("quiet-native-destination", "QuietControllerFixture.cs", "        _requested = service;", "        MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Merchant, \"mutant\"); _requested = service;", "quiet merchant entry never presses or changes the flat native destination"),
         ("sold-to-seller-fan", "TownServiceCardFlights.cs", "if (sold) fan.CompleteMerchantSale(chip, merchantPalm);", "if (sold) fan.ResumeInspection(chip);", "successful native sale retains the original merchant absorption instead of returning to the seller fan"),
         ("confirmed-reset-cancel", "TownServiceMerchantHandoff.cs", "bool committed = _decisionConfirmed && _tradeItem != null && _character != null && _fan != null;", "bool committed = false;", "retired confirmed outcome uses original character inventory and retains its exact terminal native flight"),
         ("purchase-double-flight", "TownServiceCardFlights.cs", "stock.RestoreMerchantStock();", "stock.ReturnOffering();", "confirmed purchase flies actual newly owned copy to fan without a second stock sample return flight"),
         ("purchase-replaced-original", "ItemsPile.Merchant.cs", "ItemChip? chip = _inspectionPreparedPurchase;", "ItemChip? chip = null;", "native purchase adopts the same prepared widget onto actual model without source or hierarchy churn"),
         ("post-trade-ordinary-fan", "TownServiceMerchantHandoff.cs", "        MapRoomHand.SetMerchantInspection(true); // A native buy/sell refresh never restores the ordinary ability fan here.\n", "", "merchant post-transaction final frame retains only its canonical item fan"),
-        ("late-native-hand-mode", "TownServiceMerchantHandoff.cs", "        if (GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Enchantress\n            || TownServiceEnhancementHandoff.WantsAbilityFan || TownServiceTempleOffering.WantsPurseFocus)\n        { Reset(); return; }\n", "", "same-frame native mage transition retires the old item fan before final publication"),
+        ("late-native-hand-mode", "TownServiceMerchantHandoff.cs", "        if (TownServiceQuietController.InteractionMode == EGuildmasterMode.Enchantress\n            || TownServiceEnhancementHandoff.WantsAbilityFan || TownServiceTempleOffering.WantsPurseFocus)\n        { Reset(); return; }\n", "", "same-frame native mage transition retires the old item fan before final publication"),
         ("physical-occupation", "TownServiceMerchantHandoff.cs", "|| _pending != null;", "|| _pending != null || _tradeItem != null || OwnsPendingDecision;", "merchant occupation ends at physical card removal while the original cancel fade is pending"),
         ("immediate-reservation-release", "TownServiceMerchantHandoff.cs", "if (!preserveReservation) TownServiceMirror.SetLocalTransactionActive(1, false);", "/* retain removed card reservation */", "first merchant cancel releases the physical reservation on the same input stack"),
         ("inspection-tapped-item", "ActualItemLifecycle.cs", "chip.State == ItemChip.Visual.Spent && _inspectionRelease == null", "chip.State == ItemChip.Visual.Spent", "merchant inspection keeps a native spent item upright on first reveal"),

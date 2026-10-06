@@ -65,7 +65,14 @@ def sources(root):
     bound["NativeVisualDistanceFixture.cs"] = ("using UnityEngine; "
         "namespace GloomhavenVR.Hands.Interact { internal static class NativeVisualDistanceFixture {\n"
         + visual_distance + "\n} }")
-    return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
+    import importlib.util
+    helper_path = root / "scripts/bind-town-quiet-controller.py"
+    spec = importlib.util.spec_from_file_location("quiet_handoff_binding", helper_path)
+    helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
+    quiet, quiet_hashes = helper.sources(root); bound.update(quiet)
+    hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
+    hashes.update(quiet_hashes)
+    return bound, hashes
 
 
 def check_presentation_bridge(root):
@@ -76,7 +83,7 @@ def check_presentation_bridge(root):
     def has_temple_approach(body):
         mage = body.find("TownServiceEnhancementHandoff.TickApproach();")
         temple = body.find("TownServiceTempleOffering.TickApproach();")
-        return mage >= 0 and temple > mage
+        return mage >= 0 and temple >= 0 and "if (!quietTemple) TownServiceEnhancementHandoff.TickApproach();" in body
 
     if not has_temple_approach(tick):
         raise RuntimeError("Native temple approach is not polled beside enchantress approach")
@@ -188,6 +195,7 @@ def mutations():
         ("local-guide-response", "TownServiceSharedCue.cs", "internal static void PaintLocal(CanvasGroup? gate, Transform? zone) { }", "internal static void PaintLocal(CanvasGroup? gate, Transform? zone) { if (zone != null) TownServiceOfferFeedback.PaintInk(zone, zone.Find(\"Border\")?.GetComponent<UnityEngine.UI.Image>(), .81f); }", "another visitor cannot change the actual local guide ink scale or haptics"),
         ("retired-remote-guide", "TownServiceSharedCue.cs", "gate.alpha = 0f; gate.interactable = gate.blocksRaycasts = false;", "gate.alpha = 1f; gate.interactable = gate.blocksRaycasts = true;", "legacy shared guide samples never restore remote pre-drop drawing or occupation"),
         ("readiness-freshness", "TownServiceSharedCue.cs", "if (!visitor.Ready || now - visitor.Received > FreshSeconds) continue;", "if (!visitor.Ready) continue;", "expired visitor readiness cannot leave a phantom global offering pose"),
+        ("quiet-window-gate", "QuietControllerFixture.cs", "window.IsOpen || TownServicePresentation.IsQuietController(window, service)", "window.IsOpen", "first opening shows neutral palm locator while native input remains blocked"),
         ("walkaway-window", name, "ModalFallback.CloseFloatedWindow(current._window);", "", "walking away closes empty native service through its existing exit path"),
         ("tiny-offer", name, "card.SetHome(_seat, Vector3.zero, Quaternion.identity, size);", "card.SetHome(_seat, Vector3.zero, Quaternion.identity, .90f);", "offered mage card preserves tracked reading size across independent resident scale"),
         ("reclaim-modal", name, "&& _current.ReclaimReady", "&& _current.Ready", "an existing physical offer remains manually reclaimable while a peer claim changes"),
@@ -200,8 +208,8 @@ def mutations():
         ("return-life", name, "finally { presentation.Started = true; PruneReturns(); }", "finally { presentation.Started = true; Returns.Remove(presentation); PruneReturns(); }", "return presentation survives ritual disposal with actual face and fixed identity"),
         ("reclaim", name, "Detach(); ClearNativeSelection();", "Detach();", "manual reclaim clears native options"),
         ("startup", name,
-         "if (!ValidOwner(Card) || !_alive() || _palm == null || _station == null || _shop == null || _window == null || !_window.IsOpen\n            || _shop.selectedCard",
-         "if (!ValidOwner(Card) || !_alive() || !_input() || _palm == null || _station == null || _shop == null || _window == null || !_window.IsOpen\n            || _shop.selectedCard",
+         "if (!ValidOwner(Card) || !_alive() || _palm == null || _station == null || _shop == null || _window == null || !TownServiceQuietController.IsOpen(_window, 3)\n            || _shop.selectedCard",
+         "if (!ValidOwner(Card) || !_alive() || !_input() || _palm == null || _station == null || _shop == null || _window == null || !TownServiceQuietController.IsOpen(_window, 3)\n            || _shop.selectedCard",
          "opening input fade retains offering"),
         ("preview-commit", name,
          "&& !_shop._isConfirmationBoxOpened && _alive() && _input()\n        && (Card == null ? TownServiceMirror.CanLocalBeginTransaction(3)\n            : !_claimPending && TownServiceMirror.LocalTransactionSettled(3));",
@@ -215,8 +223,8 @@ def mutations():
         ("deferred-approach", name, "if (!_pendingApproach || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI)", "if (!_pendingApproach || !headEntered && !cardEntered || Core.Events.VRModeStateMachine.CurrentMode == Core.Events.VRMode.ModalUI)", "intentional fan-hand focus switches the local native destination from merchant to enchantress"),
         ("bounded-retry", name, "if (!headEntered && !cardEntered && now < _approachRetryAt) return;", "if (now < -1f) return;", "pending native rail retries are rate-limited between frames"),
         ("head-edge", name, "if (headEntered) _headInside = true;", "", "head proximity opens original service without a held card"),
-        ("card-edge", name, "if (cardEntered) _cardInside = true;", "", "owned card approach opens through original native visit"),
-        ("selected-slot", name, "                selectedSlot.OnClick();", "                { }", "native destination change preserves the visitor's exact selected character slot"),
+        ("card-edge", name, "if (cardEntered) _cardInside = true;", "", "owned card approach requests original callbacks without opening a flat window"),
+        ("quiet-flat-native-press", "QuietControllerFixture.cs", "        _requested = service;", "        MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Enchantress, \"mutant\"); _requested = service;", "quiet entry preserves the exact selected slot without selecting it again"),
         ("trade-confirmation", name, "&& tradeConfirmation.GetComponent<UIWindow>() is UIWindow tradeWindow && tradeWindow.IsOpen) return;", "&& false) return;", "a live merchant purchase confirmation is never interrupted by resident approach"),
         ("head-overlap-steal", name,
          "if (!magePreferred) return;",

@@ -188,7 +188,8 @@ namespace GloomhavenVR.WorldUI.MapRoom
             return true;
         }
     }
-    public static class GuildmasterDestinations { public static EGuildmasterMode Mode; public static EGuildmasterMode CurrentDestinationMode() => Mode; }
+    public static class GuildmasterDestinations { private static EGuildmasterMode _mode;
+        public static EGuildmasterMode Mode { get => _mode; set { _mode = value; TownServiceQuietController.EndRequest(1); TownServiceQuietController.EndRequest(3); } } public static EGuildmasterMode CurrentDestinationMode() => Mode; }
     public static class MapRoomHand
     {
         public static Owner? LocalCharacter = new();
@@ -231,17 +232,18 @@ namespace GloomhavenVR.WorldUI
     internal sealed class ConvertedPanel { public Canvas? HostCanvas; }
     internal sealed class TownServiceRitual
     {
-        public TownServiceEnhancementHandoff? Handoff;
+        public TownServiceEnhancementHandoff? Handoff; public bool HasTemplePurseInHand, HasParkedTempleOffer;
         public List<TownServiceSurface> Surfaces = new();
     }
     public static class TownServicePresentation
     {
+        public static UIWindow? QuietWindow; public static UIWindow? Window => QuietWindow; public static bool IsQuietTemple(UIWindow window) => false; public static bool IsQuietController(UIWindow? window, byte service) => service == 3 && window != null && ReferenceEquals(window, QuietWindow);
         public static uint Session = 22; public static float SessionAge = 3f;
         public static bool Active = true; public static byte Service = 3;
         internal static TownServiceRitual? Ritual;
     }
     public static class TownServiceSync { public static bool Owner = true; public static bool LocalOwnsInteraction(byte service, uint session) => Owner && service == 3 && session == TownServicePresentation.Session; }
-    public static class TownServiceMerchantHandoff { public static bool WantsOffering; }
+    public static class TownServiceMerchantHandoff { public static bool WantsOffering; public static bool HasParkedOffer => WantsOffering; public static bool Active = true; }
     public static class WorldUIConfig
     {
         public static readonly ToggleValue ImmersiveTownServices = new(); public static ToggleValue? MapRoomHand = new();

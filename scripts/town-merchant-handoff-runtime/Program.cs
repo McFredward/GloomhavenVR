@@ -73,7 +73,7 @@ public static partial class InteractionProgram
   TownServiceMerchantHandoff.Reset(); MapRoomDriver.Active=true; MapRoomDriver.CanVisit=true;
   CardsDriver.OffScenarioFanIsOpen=true;
   CardsDriver.SuppressedOpenEdges=CardsDriver.SuppressedCloseEdges=0;
-  GuildmasterDestinations.Mode=EGuildmasterMode.None; MapRoomDriver.Visits=0;
+  GuildmasterDestinations.Mode=EGuildmasterMode.None; MapRoomDriver.Visits=0; TownServiceQuietController.Requests=0;
   FFSNet.FFSNetwork.IsOnline=false; StoryComposite.PointOfNoReturn=false;
   TownServiceMerchantTransaction.Requests=0; ShopService.Affordable=true;
   var root=new GameObject("Fixture"); root.transform.localScale=Vector3.one*scale; VRRigDriver.RigRoot=root.transform;
@@ -146,21 +146,23 @@ public static partial class InteractionProgram
   // Native window opening may complete on a subsequent frame; no hidden purchase is allowed.
   int acceptedPulses=VRHands.Right.Haptics;
   first.Release(palm.position);
-  Check(first.TownOffering && MapRoomDriver.Visits==1,"actual owned release parks the original card and requests merchant");
+  Check(first.TownOffering && TownServiceQuietController.Requests==1,"actual owned release parks the original card and requests merchant");
   Check(VRHands.Right.Haptics==acceptedPulses+1,"accepted owned item offer pulses the actual releasing controller");
   object offering=typeof(TownServiceMerchantHandoff).GetField("_offering",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null)!;
   float offeredScale=(float)offering.GetType().GetField("_scale",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(offering)!;
   float offeredWorldWidth=first.FaceWidth*offeredScale*first.transform.parent.lossyScale.x;
   Check(Mathf.Abs(offeredWorldWidth-TownServiceMerchantLayout.CardWidth*scale*1.5f)<.0001f,
       "owned and cabinet cards have one merchant-palm size");
-  Check(MapRoomDriver.LastSuppressed,"automatic merchant entry suppresses the flat button sound");
+  Check(MapRoomDriver.Visits==0 && GuildmasterDestinations.CurrentDestinationMode()==EGuildmasterMode.None,"quiet merchant entry never presses or changes the flat native destination");
   Check(first.transform.parent == zone.parent,"actual owned item shares the floating offering frame");
   Check(TownServiceMerchantTransaction.Requests==0,"release waits for native inventory readiness");
-  window.GetComponent<UIWindow>().IsOpen=true;
+  Check(!window.GetComponent<UIWindow>().IsOpen, "quiet pending sale keeps the actual flat merchant window closed");
+  TownServicePresentation.QuietWindow=window.GetComponent<UIWindow>();
   window.ItemInventory.character=new CMapCharacter(); TownServiceMerchantHandoff.Tick();
   Check(TownServiceMerchantTransaction.Requests==0,"native inventory for another character cannot receive offer");
   Check(first.TownOffering && !first.IsCollapsing,"closed wrist fan retains actual pending offering");
   window.ItemInventory.character=character; TownServiceMerchantHandoff.Tick();
+  Check(!window.GetComponent<UIWindow>().IsOpen, "original merchant callback dispatch runs while its flat native window stays closed");
   Check(TownServiceMerchantTransaction.Requests==1 && TownServiceMerchantTransaction.LastSelling,"owned release dispatches exact sell confirmation");
   Check(TownServiceVoice.Sells==1&&TownServiceVoice.Buys==0&&TownServiceVoice.Offers==0,
       "merchant chooses the seller voice family when a sale confirmation opens");

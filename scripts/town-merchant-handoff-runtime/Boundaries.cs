@@ -212,7 +212,8 @@ namespace GloomhavenVR.WorldUI.MapRoom {
   public static bool CanVisitTownService(EGuildmasterMode mode) => CanVisit;
   public static bool PressGuildmasterMode(EGuildmasterMode mode,string reason, bool suppressNativeSound = false) { Visits++; LastSuppressed=suppressNativeSound; GuildmasterDestinations.Mode = mode; return true; }
  }
- public static class GuildmasterDestinations { public static EGuildmasterMode Mode; public static EGuildmasterMode CurrentDestinationMode()=>Mode; }
+ public static class GuildmasterDestinations { private static EGuildmasterMode _mode;
+        public static EGuildmasterMode Mode { get => _mode; set { _mode = value; TownServiceQuietController.EndRequest(1); TownServiceQuietController.EndRequest(3); } } public static EGuildmasterMode CurrentDestinationMode()=>Mode; }
  public static class MapCharacterSelection { public static MapRuleLibrary.Party.CMapCharacter? Selected; public static MapRuleLibrary.Party.CMapCharacter? Current(out string source) { source="fixture"; return Selected; } }
  internal sealed partial class MapRoomHand {
   private static MapRoomHand s_live = new(); private bool _engaged = true;
@@ -238,14 +239,15 @@ namespace GloomhavenVR.WorldUI {
  internal enum TownVoiceReaction : byte { MerchantOffer, MerchantBuy, MerchantSell, MerchantUnaffordable, MerchantSoldOut }
  internal static class TownServiceVoice { internal static int Offers, Buys, Sells, Unaffordable, SoldOut, StockRequests; internal static bool StockReady=true; internal static bool RequestStockReaction(TownVoiceReaction reaction) { if(!StockReady)return false;StockRequests++;RequestReaction(1,reaction);return true; } internal static void RequestReaction(byte service, TownVoiceReaction reaction) { if(service!=1) return; if(reaction==TownVoiceReaction.MerchantOffer) Offers++; else if(reaction==TownVoiceReaction.MerchantBuy) Buys++; else if(reaction==TownVoiceReaction.MerchantSell) Sells++; else if(reaction==TownVoiceReaction.MerchantUnaffordable) Unaffordable++; else if(reaction==TownVoiceReaction.MerchantSoldOut) SoldOut++; } }
  public static class WorldUIConfig { public static readonly Cards.Dial<bool> ImmersiveTownServices = new(true); }
- public static class TownServiceEnhancementHandoff { public static bool Enabled = true, WantsAbilityFan; }
+ public static class TownServiceEnhancementHandoff { public static bool Enabled = true, WantsAbilityFan; public static bool KeepsQuietVisit; public static bool HasCurrentOffering => TownServicePresentation.Ritual?.Handoff?.Card != null; }
  public static class TownServiceTempleOffering { public static bool WantsPurseFocus; }
  public sealed class TownServiceRitual {
-  public bool HasParkedTempleOffer;
+  public bool HasTemplePurseInHand, HasParkedTempleOffer;
   public TownServiceEnhancementOffer? Handoff;
  }
  public sealed class TownServiceEnhancementOffer { public Cards.VRCard? Card; }
  public static class TownServicePresentation {
+  public static UIWindow? QuietWindow; public static UIWindow? Window => QuietWindow; public static bool IsQuietTemple(UIWindow window) => false; public static bool IsQuietController(UIWindow? window, byte service) => service == 1 && window != null && ReferenceEquals(window, QuietWindow);
   public static TownServiceRitual? Ritual;
   public static bool NativeFallbackFor(byte service) => false;
  }
