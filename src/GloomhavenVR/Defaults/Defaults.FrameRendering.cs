@@ -8,6 +8,7 @@ internal static partial class Defaults
     internal const int ScenarioTerrainDetailPercent = 100; // => [Optimize] ScenarioTerrainDetailPercent
     internal const int ScenarioDistantTerrainDetailPercent = 100; // => [Optimize] ScenarioDistantTerrainDetailPercent
     internal const float ScenarioTerrainDistanceMeters = .75f; // => [Optimize] ScenarioTerrainDistanceMeters
+    internal const int ScenarioTerrainCameraSourceLimitCount = 0; // => [Optimize] ScenarioTerrainCameraSourceLimitCount
     internal const bool SharedEnvironmentMaterialReads = true; // => [Optimize] SharedEnvironmentMaterialReads
     internal const bool SharedUiWindowReads = true; // => [Optimize] SharedUiWindowReads
 }

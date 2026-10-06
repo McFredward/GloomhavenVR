@@ -13,6 +13,7 @@ internal static partial class PerfConfig
     internal static ConfigEntry<int> ScenarioTerrainDetailPercent = null!;
     internal static ConfigEntry<int> ScenarioDistantTerrainDetailPercent = null!;
     internal static ConfigEntry<float> ScenarioTerrainDistanceMeters = null!;
+    internal static ConfigEntry<int> ScenarioTerrainCameraSourceLimitCount = null!;
     internal static ConfigEntry<bool> SharedEnvironmentMaterialReads = null!;
     internal static ConfigEntry<bool> SharedUiWindowReads = null!;
 
@@ -22,6 +23,7 @@ internal static partial class PerfConfig
     internal static int TerrainDetailPercent => Mathf.Clamp(ScenarioTerrainDetailPercent?.Value ?? Defaults.ScenarioTerrainDetailPercent, 0, 100);
     internal static int DistantTerrainDetailPercent => Mathf.Clamp(ScenarioDistantTerrainDetailPercent?.Value ?? Defaults.ScenarioDistantTerrainDetailPercent, 0, 100);
     internal static float TerrainDistanceMeters => Mathf.Clamp(ScenarioTerrainDistanceMeters?.Value ?? Defaults.ScenarioTerrainDistanceMeters, .1f, 10f);
+    internal static int TerrainCameraSourceLimit => Mathf.Clamp(ScenarioTerrainCameraSourceLimitCount?.Value ?? Defaults.ScenarioTerrainCameraSourceLimitCount, 0, 2048);
     internal static bool SharedEnvironmentMaterialReadsOn => SharedEnvironmentMaterialReads?.Value ?? Defaults.SharedEnvironmentMaterialReads;
     internal static bool SharedUiWindowReadsOn => SharedUiWindowReads?.Value ?? Defaults.SharedUiWindowReads;
 
@@ -48,6 +50,9 @@ internal static partial class PerfConfig
         SharedEnvironmentMaterialReads = file.Bind("Optimize", "SharedEnvironmentMaterialReads",
             FrameDefaults.Active ? FrameDefaults.SharedEnvironmentMaterialReads : Defaults.SharedEnvironmentMaterialReads,
             "Reuse exact unchanged original-material reads within one camera invocation. Off repeats the original per-surface validation for A/B comparison. Every renderer and later camera retains live native state.");
+        ScenarioTerrainCameraSourceLimitCount = file.Bind("Optimize", "ScenarioTerrainCameraSourceLimitCount",
+            FrameDefaults.Active ? FrameDefaults.ScenarioTerrainCameraSourceLimitCount : Defaults.ScenarioTerrainCameraSourceLimitCount,
+            new ConfigDescription("Maximum eligible 3D wall/pillar substitutes per eye: 0 is unlimited; lower positive limits reduce substitute preparation CPU work. Remaining surfaces keep their original 3D geometry and shading, which can increase rendering cost. No room is hidden. Works live; fresh Frame/Standalone profiles use 64.", new AcceptableValueRange<int>(0, 2048)));
         SharedUiWindowReads = file.Bind("Optimize", "SharedUiWindowReads",
             FrameDefaults.Active ? FrameDefaults.SharedUiWindowReads : Defaults.SharedUiWindowReads,
             "Share exact current native window-registry reads across converted panels and reuse immediate original-property reads in multiplayer mirrors. Off retains independent reads for A/B comparison. Content, visibility and intermediate animation remain immediate.");

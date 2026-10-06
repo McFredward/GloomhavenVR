@@ -491,6 +491,7 @@ internal static partial class VROptionsTab
                         new("Optimize", "ScenarioTerrainDetailPercent", ""),
                         new("Optimize", "ScenarioDistantTerrainDetailPercent", ""),
                         new("Optimize", "ScenarioTerrainDistanceMeters", ""),
+                        new("Optimize", "ScenarioTerrainCameraSourceLimitCount", ""),
                         new("Optimize", "ScenarioDecorationDensityPercent", ""),
                         new("Optimize", "ScenarioSceneryDensityPercent", ""),
                         new("Optimize", "ScenarioVegetationDensityPercent", ""),
