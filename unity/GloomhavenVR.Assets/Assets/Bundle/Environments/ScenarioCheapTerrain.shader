@@ -113,6 +113,16 @@ Shader "GloomhavenVR/ScenarioCheapTerrain"
     void NativeClip(v2f i)
     {
         if (_GHVRTerrainNeverFade > .5 || _GHVRTerrainNativeRoute < .5) return;
+        // A solid wall has no map contribution. The HIGH/N_MRAO equation below
+        // reduces exactly to clip(1 - cutoff) when its integer toggle is zero;
+        // LOW performs no clip at all. Avoid its texture read, pow and simplex
+        // work in this common case. Keep authored cutoffs above one effective,
+        // and leave every active native dissolve/foundation route unchanged.
+        if (ToggleWallFade == 0)
+        {
+            if (_GHVRTerrainNativeRoute >= 1.5) clip(1. - _Cutoff);
+            return;
+        }
         float2 uv = i.screen.xy / (i.screen.w + 1e-11);
         float4 occlusion = tex2D(_TilesOcclusionMap, uv);
         // Original map alpha holds native projected depth, not an opacity mask.
