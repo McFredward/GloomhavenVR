@@ -1,5 +1,35 @@
 # State — where the project stands
 
+**Quest B627 wizard progress/presentation update, 2026-10-06 (tooling only).**
+
+Each of the seven wizard stages now has a durable total percentage for its
+scheduled work. Raw download/hash/Unity/Bee counters remain separately labelled
+substep progress; their completion/reset cannot finish or restart the stage.
+Only verified output publication yields 100%. Same-input interruption/retry
+retains observed work; changed inputs reset the affected stage. Unknown task
+totals retain the achieved total and current activity, without elapsed-time
+percentages. Future/foreign observational events cannot abort the build.
+
+Unity 2021.3's public Progress tasks and observed import/build/content events
+supplement host milestones. The actual installed 2021.3.5f1 Editor compiles the
+new observer and reports 3/10 then 4/10 through the real parser; no Player/APK
+or exhaustive shader gate was run. Unity/Hub tasks without public counters are
+explicitly labelled as unknown rather than inventing a denominator.
+
+Six exact pinned public publisher character/enemy images ship in the source ZIP
+and are immediately available offline. The enlarged slideshow survives empty
+owned-artwork selections; requested privacy/footer copy is removed. The UI shows
+the selected mod version/build/source commit, including an older resumed source.
+Default builds compile the source in the Builder ZIP (currently 1.1.0/B627),
+not the installed PC mod DLL or automatically fetched latest dev. Mod-file
+inventory/hash checks establish snapshots/cache identity, not shader validation.
+
+Integrated checks: 127 wizard, 42 builder, 15 release/support, 64 installer and
+14 UI tests pass (four real Chrome/HTTP workflows, zero browser skips). Isolated
+startup also serves all six actual image bytes without network and reports the
+actual source build. See [wizard progress evidence](QUEST-WIZARD-20261006.md).
+Runtime ModBuild remains 627; publishing stays on the Quest feature branch.
+
 **Quest B627 builder startup correction, 2026-10-06 (tooling only).**
 
 The maintainer's Windows traceback proves two independent startup failures:

@@ -46,7 +46,9 @@ REQUIRED = set(PUBLIC_PACKAGES) | {'Quest-Builder.cmd', 'QUEST-BUILDER-START.txt
             'src/GloomhavenVR/GloomhavenVR.csproj',
             'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs',
             'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestNativePluginContract.cs'}
-REQUIRED |= PROMOTIONAL_ASSETS | {'tools/quest-wizard-ui/promo-artwork.json'}
+REQUIRED |= PROMOTIONAL_ASSETS | {'tools/quest-wizard-ui/promo-artwork.json',
+    'tools/quest-wizard/stage_plan.py',
+    'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestWizardProgress.cs'}
 
 
 def safe_name(name):

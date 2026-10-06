@@ -45,6 +45,11 @@ class SourceMetadataTests(unittest.TestCase):
         result = discovery.mod_source(source)
         self.assertIsNone(result["modVersion"]); self.assertIsNone(result["modBuild"])
         self.assertIsNone(result["sourceCommit"])
+    def test_large_protocol_still_reports_its_prefix_declaration(self):
+        source = self.source("large-protocol", 627)
+        protocol = source / "src/GloomhavenVR/Net/NetProtocol.cs"
+        with protocol.open("a") as stream: stream.write("x" * 2358000)
+        self.assertEqual(discovery.mod_source(source)["modBuild"], 627)
     def test_saved_session_uses_its_resolved_source_after_launch_zip_update(self):
         launch = self.source("new-launch-release", 629, "c" * 40)
         selected = self.source("prior-session-release", 627, "d" * 40)

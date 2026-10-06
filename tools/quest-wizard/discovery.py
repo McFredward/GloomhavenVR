@@ -64,8 +64,11 @@ def mod_source(repo, commit=None):
             (root / "src/GloomhavenVR/GloomhavenVR.csproj", r"<Version>\s*([0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?)\s*</Version>", "modVersion"),
             (root / "src/GloomhavenVR/Net/NetProtocol.cs", r"public\s+const\s+ushort\s+ModBuild\s*=\s*([0-9]+)\s*;", "modBuild")):
         try:
-            if path.is_file() and path.stat().st_size <= 1048576:
-                match = re.search(pattern, path.read_text(encoding="utf-8"))
+            if path.is_file():
+                # NetProtocol includes a large historical changelog and wire
+                # implementation; its version declaration is in the prefix.
+                with path.open(encoding="utf-8") as stream: raw = stream.read(1048576)
+                match = re.search(pattern, raw)
                 if match: result[field] = int(match[1]) if field == "modBuild" else match[1]
         except (OSError, UnicodeError): pass
     if commit is None:

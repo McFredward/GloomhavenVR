@@ -16,15 +16,18 @@ from state import WizardError
 
 
 ISOLATED_HTTP = """
-import http.client, json, profile, sys, threading
+import hashlib, http.client, json, profile, sys, threading
 from pathlib import Path
+from unittest import mock
 repo, workspace = map(Path, sys.argv[1:3])
 sys.path.insert(0, str(repo / 'tools/quest-wizard'))
 import server, state
 paths = list(sys.path)
 original_profile = sys.modules['profile']
 store = state.Store(workspace)
-local = server.LocalServer(store, repo / 'tools/quest-wizard-ui')
+with mock.patch('urllib.request.OpenerDirector.open', side_effect=AssertionError('offline startup used network')):
+    local = server.LocalServer(store, repo / 'tools/quest-wizard-ui', promotional=True)
+assert len(local.promo.visible()) == 6, 'bundled pictures unavailable before first request'
 thread = threading.Thread(target=local.serve_forever, daemon=True)
 thread.start()
 try:
@@ -37,10 +40,25 @@ try:
     assert response.status == 200, value
     assert value['event'] == 'discovery', value
     assert all(isinstance(value[key], list) for key in ('games', 'unityEditors', 'unityHubs', 'recentSessions'))
+    assert value['modSource']['modBuild'] > 0
+    assert value['modSource']['modVersion']
+    pins = {row['id']: row for row in local.promo.pins}
+    for row in local.promo.visible():
+        connection = http.client.HTTPConnection(*local.server_address, timeout=10)
+        connection.request('GET', row['url'], headers={
+            'X-Quest-Token': local.token, 'Origin': local.origin})
+        response = connection.getresponse()
+        raw = response.read()
+        connection.close()
+        assert response.status == 200
+        assert len(raw) == pins[row['id']]['size']
+        assert hashlib.sha256(raw).hexdigest() == row['sha256']
+    assert not local.promo.diagnostics
     assert sys.path == paths, 'discovery changed import search paths'
     assert sys.modules['profile'] is original_profile
     assert 'native_plugins' not in sys.modules
-    print(json.dumps({'discoveryStatus': response.status, 'stdlibProfilePreserved': True}))
+    print(json.dumps({'discoveryStatus': response.status, 'stdlibProfilePreserved': True,
+                      'offlinePublisherImages': len(pins), 'displayedModBuild': value['modSource']['modBuild']}))
 finally:
     local.shutdown()
     local.close_owned()
