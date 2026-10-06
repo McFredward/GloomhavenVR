@@ -132,8 +132,15 @@ internal static partial class TownServiceMirror
         foreach (RemoteModule old in OfferedRemoteMotion.Keys) if (!old.Alive) DeadOfferedRemoteMotion.Add(old);
         foreach (RemoteModule old in DeadOfferedRemoteMotion) OfferedRemoteMotion.Remove(old);
         OfferedApplyOrder.Clear();
-        foreach (RemoteModule candidate in MotionRemoteFrames.Keys)
-            if (candidate.Alive && candidate.Host.activeInHierarchy) OfferedApplyOrder.Add(candidate);
+        foreach (var candidate in MotionRemoteFrames)
+        {
+            if (!candidate.Key.Alive || !candidate.Key.Host.activeInHierarchy) continue;
+            // Merchant racks and unrelated visitor props have no print affinity.
+            // Sort only the actual offered native partitions, not every town clone.
+            foreach (MotionSlot slot in candidate.Value.Slots)
+                if (slot.Entry.Kind == 9 && slot.Entry.Visible)
+                { OfferedApplyOrder.Add(candidate.Key); break; }
+        }
         OfferedApplyOrder.Sort(CompareOfferedParentage);
         foreach (RemoteModule module in OfferedApplyOrder)
         {

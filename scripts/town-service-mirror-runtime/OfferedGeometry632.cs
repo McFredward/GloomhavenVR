@@ -52,7 +52,7 @@ public static partial class MirrorProgram
         observer.localScale = Vector3.one * 1.3f;
         TownServiceMirror.SharedFrameForRemote = _ => observer;
         RectTransform canvas = (RectTransform)Go("Original world holder canvas", owner).transform;
-        canvas.localScale = Vector3.one * .001f;
+        canvas.localScale = new Vector3(.0011f, .0008f, .0012f);
         canvas.gameObject.AddComponent<Canvas>().renderMode = RenderMode.WorldSpace;
         RectTransform holder = (RectTransform)Go("CardHilight", canvas).transform;
         holder.sizeDelta = new Vector2(325f, 450f); holder.localScale = Vector3.one * .52f;
@@ -70,7 +70,7 @@ public static partial class MirrorProgram
         Image("Native adopted red print", physical, Vector2.zero, physical.sizeDelta, Color.red);
         // The native publisher cuts exact subtrees at both packet-size partitions
         // and dynamic ability-button boundaries. Preserve that actual topology:
-        // each clone has a distinct enclosing canvas and independent world header.
+        // each clone retains its exact native parent and independently sampled root header.
         Func<Transform, bool> exclude = node => node == aura || node == area.transform;
         TownServiceMirror.RegisterTemplate(3, 1, holder, exclude, "enchant.holder|");
         TownServiceMirror.RegisterTemplate(3, 2, aura, address: "enchant.holder|Aura#0");
@@ -91,10 +91,11 @@ public static partial class MirrorProgram
         float clock = Time.unscaledTime + 1f;
         for (int step = 0; step < 5; step++)
         {
-            yield return null; clock += .08f;
+            yield return null; clock += .2f;
             physical.SetPositionAndRotation(new Vector3(.17f, .8f + step * .006f, -.2f), Quaternion.Euler(0f, 93f + step * 29f, 0f));
+            canvas.SetPositionAndRotation(physical.position, physical.rotation);
             holder.SetPositionAndRotation(physical.position, physical.rotation);
-            aura.localRotation = Quaternion.Euler(0f, 0f, step * 18f);
+            area.rectTransform.anchoredPosition = new Vector2(47f + step * 5f, -62f - step * 3f);
             FastCapture current = OfferedCapture629(); CompleteOfferedArtwork632(current.Artwork);
             // Model the separately-budgeted old holder header explicitly: fresh
             // face, ring, row and exact affinity samples arrive first.
@@ -110,6 +111,7 @@ public static partial class MirrorProgram
                 "partitioned native area follows the physical print despite an independently delayed ninety-degree holder header");
             CheckOfferedPlane629(physical, ring.rectTransform, face.Root, (RectTransform)copiedRing.Root.Find("Ring ink"),
                 "partitioned native aura follows the actual physical print plane instead of its old canvas yaw");
+            if (step != 4) continue;
             // A fresh unchanged artwork header contains no TLV109. It cannot
             // invalidate an already verified current exact native print relation.
             var local = (System.Collections.IDictionary)typeof(TownServiceMirror).GetProperty("Local", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
@@ -128,17 +130,35 @@ public static partial class MirrorProgram
             }
             Check(headers == 4, "newer artwork heartbeat probe uses four genuine complete production originals: " + headers);
             TownServiceMirror.TickRemote(_ => observer); OfferedRender629(clock + .17f);
-            physical.rotation = Quaternion.Euler(0f, 181f + step * 29f, 0f);
-            holder.rotation = physical.rotation;
-            FastCapture faceOnly = OfferedCapture629();
-            foreach (byte[] bytes in faceOnly.Motion)
+            var remotes = (IDictionary)typeof(TownServiceMirror).GetField("Remote", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
+            var updatedModules = (IDictionary)remotes[1]!;
+            foreach (ushort moduleId in new ushort[] {10, 11, 12, 13})
             {
-                TownServiceMotionCodec.TryRead(bytes, bytes.Length, out var packet);
-                packet!.Entries.RemoveAll(entry => entry.Module != 13 || entry.Kind != 1);
-                if (packet.Entries.Count == 0) continue;
-                packet.Sequence = ++_offeredSequence629; packet.SampleTime = clock + .22f;
-                TownServiceMirror.ReceiveMotion(1, packet); OfferedReceiptClock629(packet);
+                object updatedModule = updatedModules[moduleId]!;
+                var updatedFrame = (TownServiceFrame)updatedModule.GetType().GetField("LastFrame", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(updatedModule)!;
+                Check(Mathf.Abs(updatedFrame.SampleTime - (clock + .16f)) < .001f,
+                    "genuine same-original artwork heartbeat is actually applied before the affinity probe: " + moduleId + "/" + updatedFrame.SampleTime + "/" + (clock + .16f));
             }
+            yield return null;
+            physical.rotation = Quaternion.Euler(0f, 181f + step * 29f, 0f);
+            canvas.rotation = physical.rotation;
+            holder.rotation = physical.rotation;
+            int movedPrints = 0;
+            for (int turn = 0; turn < 8 && movedPrints == 0; turn++)
+            {
+                FastCapture faceOnly = OfferedCapture629(); CompleteOfferedArtwork632(faceOnly.Artwork);
+                foreach (byte[] bytes in faceOnly.Motion)
+                {
+                    TownServiceMotionCodec.TryRead(bytes, bytes.Length, out var packet);
+                    packet!.Entries.RemoveAll(entry => entry.Module != 13 || entry.Kind != 1);
+                    if (packet.Entries.Count == 0) continue;
+                    movedPrints += packet.Entries.Count;
+                    packet.Sequence = ++_offeredSequence629; packet.SampleTime = clock + .22f;
+                    TownServiceMirror.ReceiveMotion(1, packet); OfferedReceiptClock629(packet);
+                }
+                if (movedPrints == 0) yield return null;
+            }
+            Check(movedPrints == 1, "same-original affinity probe moves the actual physical print with a real fresh numeric sample: " + movedPrints);
             OfferedRender629(clock + .22f); OfferedRender629(clock + .49f);
             CheckOfferedPlane629(physical, ring.rectTransform, face.Root, (RectTransform)copiedRing.Root.Find("Ring ink"),
                 "same-original artwork heartbeat cannot withdraw the current independent offered print affinity");
