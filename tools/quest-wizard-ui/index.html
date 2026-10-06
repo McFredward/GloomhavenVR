@@ -31,6 +31,8 @@
         <nav class="steps" aria-label="Fortschritt / Progress"><ol id="steps"><li data-step="0" class="active" aria-current="step"><span>1</span><b data-i18n="stepGame">Spiel</b></li><li data-step="1"><span>2</span><b data-i18n="stepSetup">Einrichten</b></li><li data-step="2"><span>3</span><b data-i18n="stepBuild">Erstellen</b></li><li data-step="3"><span>4</span><b data-i18n="stepQuest">Quest</b></li></ol></nav>
         <div class="panel-body">
           <p id="mod-source" class="mod-source" hidden></p>
+          <p id="source-update" class="hint source-update" role="status" hidden></p>
+          <p id="resume-notice" class="hint resume-notice" role="status" hidden></p>
           <section id="game-page" class="page">
             <p class="eyebrow" data-i18n="gameEyebrow">SPIELINSTALLATION</p><h2 data-i18n="gameTitle">Wähle deine Spielkopie.</h2><p class="intro" data-i18n="gameIntro">Du brauchst eine gekaufte PC-Version von Gloomhaven. Wir suchen sie für dich.</p>
             <div id="discovery-status" class="discovery-status" role="status" data-i18n="searching">Spielinstallationen werden gesucht …</div>
@@ -57,7 +59,7 @@
           </section>
           <div id="error-banner" class="error-banner" role="alert" hidden></div>
         </div>
-        <footer class="panel-footer"><button id="back" class="text-button" hidden data-i18n="back">← Zurück</button><button id="cancel" class="text-button" hidden data-i18n="cancel">Anhalten</button><button id="primary" class="primary" disabled><span data-i18n="continue">Weiter zur Einrichtung</span><span aria-hidden="true">→</span></button></footer>
+        <footer class="panel-footer"><button id="back" class="text-button" hidden data-i18n="back">← Zurück</button><button id="cancel" class="text-button" hidden data-i18n="cancel">Anhalten</button><button id="new-build" class="text-button" hidden data-i18n="newBuild">Neuen Build einrichten</button><button id="primary" class="primary" disabled><span data-i18n="continue">Weiter zur Einrichtung</span><span aria-hidden="true">→</span></button></footer>
       </section>
     </main>
     <footer class="site-footer"><span>GLOOMHAVENVR <span class="footer-separator">/</span> QUEST BUILDER</span><span data-i18n="footerHelp">Lokaler Builder für Quest Standalone</span></footer>

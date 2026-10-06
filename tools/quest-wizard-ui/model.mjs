@@ -48,3 +48,9 @@ export function stageProgress(stage) {
   return {...value,percent,phasePercent,waiting:stage?.waiting??null};
 }
 export function sessionId(value) { return typeof value === 'string' && /^[a-zA-Z0-9_-]{8,128}$/.test(value) ? value : null; }
+export function savedSession(discovery) {
+  // The owner workspace, rather than this browser's changing loopback origin,
+  // decides which retained build to reopen after a launcher update.
+  return sessionId(discovery?.latestSession) ??
+    (Array.isArray(discovery?.recentSessions) ? discovery.recentSessions.map(row=>sessionId(row?.session)).find(Boolean) : null) ?? null;
+}

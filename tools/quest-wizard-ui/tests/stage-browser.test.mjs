@@ -56,14 +56,14 @@ test('browser keeps a whole-stage total across phase resets and preserves the vi
     client=await browser();
     await client.command('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
     await client.command('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/#fixture-token'});
-    await client.wait("document.getElementById('resume-session')&&document.querySelectorAll('#gallery .art-card img').length===6");
+    await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden&&document.querySelectorAll('#gallery .art-card img').length===6");
     await client.wait("[...document.querySelectorAll('#gallery img')].every(node=>node.complete&&node.naturalWidth>0)");
     assert.equal(await client.evaluate("document.querySelector('.privacy')===null&&document.getElementById('footer-note')===null"),true);
     assert.equal(await client.evaluate("document.querySelector('#gallery img').getBoundingClientRect().width>430"),true,'publisher images occupy a substantial desktop column');
     assert.equal(await client.evaluate("document.getElementById('gallery-controls').hidden"),false);
     assert.equal(await client.evaluate("document.getElementById('gallery-pause').textContent"),'Resume slideshow','reduced motion disables automatic rotation');
-    await client.evaluate("document.querySelector('[data-language=de]').click();document.getElementById('resume-session').click()");
-    await client.wait("!document.getElementById('progress-page').hidden");
+    await client.evaluate("document.querySelector('[data-language=de]').click()");
+    await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
     assert.equal(await client.evaluate("document.getElementById('progress-track').getAttribute('aria-valuenow')"),'70');
     assert.equal(await client.evaluate("document.getElementById('substep-track').getAttribute('aria-valuenow')"),'100');
     assert.equal(await client.evaluate("document.querySelectorAll('#stage-list progress')[5].value"),70);

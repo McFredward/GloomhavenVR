@@ -22,9 +22,8 @@ test('actual browser: measured progress, reopen/check Unity action, specific fai
     for(let index=0;index<100&&!output.includes('\n')&&child.exitCode===null;index++)await delay(50);
     assert.equal(child.exitCode,null,errors);const started=JSON.parse(output.split('\n')[0]);
     client=await browser();await client.command('Page.navigate',{url:started.url});
-    await client.wait("Boolean(document.getElementById('resume-session'))");
-    await client.evaluate("document.querySelector('[data-language=de]').click();document.getElementById('resume-session').click()");
-    await client.wait("!document.getElementById('progress-page').hidden");
+    await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
+    await client.evaluate("document.querySelector('[data-language=de]').click()");
     if(process.env.QUEST_WIZARD_PROMO_CACHE){
       await client.wait("document.querySelectorAll('#gallery img').length===6&&[...document.querySelectorAll('#gallery img')].every(image=>image.naturalWidth>0)");
       assert.equal(await client.evaluate("[...document.querySelectorAll('#gallery > *')].filter(node=>!node.hidden).length"),1);

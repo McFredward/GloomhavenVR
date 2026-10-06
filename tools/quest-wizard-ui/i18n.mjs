@@ -1,5 +1,12 @@
 export const strings = {
   de: {
+    resumeContinue:'Fortsetzen',resumeRetry:'Vorherigen Vorgang erneut öffnen',newBuild:'Neuen Build einrichten',
+    newBuildHint:'Öffnet eine neue Auswahl. Vorhandene Vorgänge und geprüfte Dateien bleiben erhalten.',
+    resumeRestored:'Der zuletzt gespeicherte Vorgang wurde geöffnet. Fortsetzen verwendet dieselbe Auswahl und prüft vorhandene Ergebnisse.',
+    resumeCompleted:'Der zuletzt abgeschlossene Vorgang wurde geöffnet. Sein Build-Ergebnis wird unten angezeigt.',
+    resumeActive:'Der laufende Vorgang wurde geöffnet. Der Wizard zeigt seinen aktuellen Fortschritt.',
+    resumeUnavailable:'Der gespeicherte Vorgang konnte nicht geöffnet werden. Versuche es erneut oder wähle ausdrücklich einen neuen Build. Es wurde kein neuer Vorgang gestartet.',
+    sourceUpdate:'Der vorherige Vorgang verwendete {commit}. Beim Fortsetzen wird der oben angezeigte Paketstand verwendet; betroffene Schritte werden neu geprüft, vorhandene Spiel-Exporte bleiben für die Wiederverwendung erhalten.',
     "phase_recovery-native-index-read":"Native Asset-Verzeichnisse lesen",
     "phase_recovery-native-recipe-merge":"Native Asset-Daten zusammenführen",
     "phase_recovery-native-recipe-hash":"Native Asset-Datei prüfen",
@@ -119,6 +126,13 @@ export const strings = {
     ownershipUnknown:'DLC-Besitz wird geprüft', baseGame:'Basisspiel', cannotBrowse:'Der native Ordnerdialog ist auf diesem Rechner nicht verfügbar. Trage den vollständigen Pfad ein.'
   },
   en: {
+    resumeContinue:'Continue',resumeRetry:'Open previous session again',newBuild:'Set up a new build',
+    newBuildHint:'Opens a new selection. Existing sessions and verified files are retained.',
+    resumeRestored:'The last saved session has been opened. Continue uses the same choices and checks retained results.',
+    resumeCompleted:'The last completed session has been opened. Its build result is shown below.',
+    resumeActive:'The running session has been opened. The wizard shows its current progress.',
+    resumeUnavailable:'The saved session could not be opened. Try again or explicitly choose a new build. No new session has been started.',
+    sourceUpdate:'The previous session used {commit}. Continue uses the package source shown above; affected stages are checked again and existing game exports remain available for reuse.',
     "phase_recovery-native-index-read":"Read native asset indexes",
     "phase_recovery-native-recipe-merge":"Merge native asset data",
     "phase_recovery-native-recipe-hash":"Check native asset file",

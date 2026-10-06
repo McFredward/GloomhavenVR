@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {strings,translate} from '../i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId} from '../model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,savedSession} from '../model.mjs';
 import {LocalApi,PreviewApi} from '../transport.mjs';
 
 test('German and English expose the same strings and parameter ABI',()=>{
@@ -46,6 +46,13 @@ test('browser artwork URLs and session IDs remain local and bounded',()=>{
   for(const value of ['https://other.invalid/api/artwork','file:///original.png','data:image/png,test','/Assets/Texture.png','//other.invalid/api/artwork'])assert.equal(artworkUrl(value,origin),null);
   assert.equal(sessionId('session-123'),'session-123');
   for(const value of ['../secret','short','x'.repeat(129),null])assert.equal(sessionId(value),null);
+});
+
+test('saved owner session takes precedence over recent history and needs no browser storage',()=>{
+  assert.equal(savedSession({latestSession:'latest-session',recentSessions:[{session:'recent-session'}]}),'latest-session');
+  assert.equal(savedSession({recentSessions:[{session:'../invalid'},{session:'recent-session'}]}),'recent-session');
+  assert.equal(savedSession({latestSession:'../invalid',recentSessions:[{session:'recent-session'}]}),'recent-session');
+  for(const discovery of [null,{}, {recentSessions:{}},{latestSession:'bad',recentSessions:[null]}])assert.equal(savedSession(discovery),null);
 });
 
 test('phase completion cannot finish a stage and the next phase leaves its achieved total intact',()=>{

@@ -52,9 +52,12 @@ test('actual loopback HTTP browser: module/CSP/token flow, plan, reopen, safe lo
     const logs=join(stateRoot,'sessions',session,'logs');await mkdir(logs,{recursive:true});
     const literal='<script>window.unsafelyExecuted=true</script>\nfixture: no tools were run';
     await writeFile(join(logs,'tools.log'),literal);
-    await client.command('Page.reload');await client.wait("Boolean(document.getElementById('resume-session'))");
-    await client.evaluate("document.querySelector('[data-language=de]').click();document.getElementById('resume-session').click()");
-    await client.wait("!document.getElementById('progress-page').hidden");
+    await client.command('Page.reload');
+    await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
+    await client.evaluate("document.querySelector('[data-language=de]').click()");
+    assert.equal(await client.evaluate("document.getElementById('primary').firstElementChild.textContent"),'Fortsetzen');
+    assert.equal(await client.evaluate("document.getElementById('game-root').value"),fixtureGame);
+    assert.match(await client.evaluate("document.getElementById('session-detail').textContent"),new RegExp(session));
     assert.equal(await client.evaluate("document.getElementById('result-card').hidden"),true);
     if(ownedArt) {
       await client.wait("document.querySelectorAll('#gallery img').length===3&&[...document.querySelectorAll('#gallery img')].every(image=>image.naturalWidth>0)");

@@ -1,5 +1,5 @@
 import {translate} from './i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId} from './model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,savedSession} from './model.mjs';
 import {LocalApi,PreviewApi} from './transport.mjs';
 
 const $ = id => document.getElementById(id);
@@ -9,7 +9,7 @@ const api = preview ? new PreviewApi() : new LocalApi(location.origin,token);
 let language = (preview ? new URLSearchParams(location.search).get('lang') : null) ?? readStorage('quest-wizard-language') ?? (navigator.language.startsWith('de') ? 'de' : 'en');
 if (!['de','en'].includes(language)) language='de';
 let page=0,selected=null,discovery=null,state=null,busy=false,after=0,log=[],loadedLog=null,pollTimer=null,canConnect=preview||Boolean(token),artworkKey='',artworkGeneration=0;
-let qualification=null;
+let qualification=null,resumeFailed=null,restoredSession=null,sessionGeneration=0;
 let publisherArtwork=[],ownedArtwork=[],artworkSource='';
 const reducedMotion=matchMedia('(prefers-reduced-motion:reduce)');
 let slides=[],slideIndex=0,slideTimer=null,slidePaused=reducedMotion.matches,artPollTimer=null,actionBusy=false,logBusy=false,logSelectionManual=false;
@@ -103,20 +103,28 @@ function renderGames() {
     info.append(title,path,badges);button.append(icon,info,marker);button.addEventListener('click',()=>selectGame(game));$('game-list').append(button);
   }
   $('browse-game').hidden=discovery?.capabilities?.browse===false;$('browse-unity').hidden=discovery?.capabilities?.browse===false;
-  const resume=discovery?.recentSessions?.find(row => sessionId(row.session));
+  const resume=savedSession(discovery);
   if(resume&&!state) {
-    const button=document.createElement('button');button.className='secondary';button.id='resume-session';button.textContent=t('resume');
-    button.addEventListener('click',()=>openSession(resume.session));$('game-list').append(button);
+    const button=document.createElement('button');button.className='secondary';button.id='resume-session';button.textContent=t(resumeFailed?'resumeRetry':'resume');button.disabled=busy;
+    button.addEventListener('click',()=>openSession(resume));$('game-list').append(button);
   }
 }
 function updateView() {
-  const source=state?.modSource??discovery?.modSource;
+  const previous=state?.modSource,current=discovery?.modSource;
+  const sourceUpdate=state&&page===2&&!isActive(state)&&state.status!=='complete'&&
+    !state.choices?.sourceRoot&&!state.choices?.sourceCommit&&!state.choices?.sourceRef&&
+    previous?.sourceCommit&&current?.sourceCommit&&previous.sourceCommit!==current.sourceCommit;
+  const source=sourceUpdate?current:previous??current;
   const version=typeof source?.modVersion==='string'?source.modVersion:'';
   const build=Number.isInteger(source?.modBuild)?'B'+source.modBuild:'';
   const commit=typeof source?.sourceCommit==='string'&&/^[a-f0-9]{40}$/i.test(source.sourceCommit)?source.sourceCommit.slice(0,10):'';
   $('mod-source').hidden=!source||![version,build,commit].some(Boolean);
   $('mod-source').textContent=[version?'GloomhavenVR '+version:'GloomhavenVR',build,commit,t(source?.kind==='bundled-release'?'modSourceRelease':'modSourceCheckout')].filter(Boolean).join(' · ');
   $('mod-source').title=t('modSourceHint');
+  $('source-update').hidden=!sourceUpdate;
+  $('source-update').textContent=sourceUpdate?t('sourceUpdate',{commit:previous.sourceCommit.slice(0,10)}):'';
+  $('resume-notice').hidden=!resumeFailed&&!(page===2&&restoredSession===state?.session);
+  $('resume-notice').textContent=t(resumeFailed?'resumeUnavailable':state?.status==='complete'?'resumeCompleted':isActive(state)?'resumeActive':'resumeRestored');
   const estimate=qualification?.spaceEstimate;
   $('space-estimate').hidden=!estimate;
   if(estimate){$('space-estimate').textContent=t(estimate.scanBounded?'spacePartial':qualification.spaceWarning?'spaceLow':'spaceEstimate',{required:Math.ceil(estimate.additionalEstimatedBytes/1073741824),free:Math.floor(qualification.freeBytes/1073741824)});$('space-estimate').classList.toggle('warning',qualification.spaceWarning===true);}
@@ -124,12 +132,13 @@ function updateView() {
   const step=page===2 ? macroStep(state) : page;
   document.querySelectorAll('[data-step]').forEach(node => {const index=Number(node.dataset.step);node.classList.toggle('active',index===step);node.classList.toggle('done',index<step);if(index===step)node.setAttribute('aria-current','step');else node.removeAttribute('aria-current');});
   $('back').hidden=page!==1;$('cancel').hidden=page!==2||!isActive(state);
+  $('new-build').hidden=!(resumeFailed||page===2&&state&&!isActive(state));$('new-build').disabled=busy;$('new-build').title=t('newBuildHint');
   $('cancel').disabled=busy||['cancelling','cancel_requested'].includes(state?.status);
   $('cancel').textContent=t(['cancelling','cancel_requested'].includes(state?.status)?'cancelling':'cancel');
   $('profile-summary').textContent=t($('profile-name').value?'profileManual':'profileCheck');
   $('selected-review').textContent=$('provider').value.toUpperCase()+' · '+$('game-root').value;
-  $('primary').disabled=busy||!canConnect||(page===0&&!$('game-root').value.trim())||(page===2&&(isActive(state)||state?.status==='complete'));
-  $('primary').firstElementChild.textContent=t(busy?'preparing':page===0?'continue':page===1?'build':isActive(state)?'working':state?.status==='complete'?'done':'retry');
+  $('primary').disabled=busy||!canConnect||Boolean(resumeFailed)||(page===0&&!$('game-root').value.trim())||(page===2&&(isActive(state)||state?.status==='complete'));
+  $('primary').firstElementChild.textContent=t(busy?'preparing':page===0?'continue':page===1?'build':isActive(state)?'working':state?.status==='complete'?'done':state?.status==='blocked'?'retry':'resumeContinue');
   $('primary').lastElementChild.textContent=state?.status==='complete'?'✓':'→';
   if(page===2)renderProgress();
 }
@@ -215,28 +224,32 @@ function restoreChoices(choices) {
   $('unity-terms').checked=choices.acceptUnityTerms===true;$('install-choice').checked=choices.install!==false;
   $('declare-dlc').checked=Array.isArray(choices.ownedDlc);$('dlc-declaration').hidden=!$('declare-dlc').checked;
   document.querySelectorAll('input[name=dlc]').forEach(node=>node.checked=choices.ownedDlc?.includes(node.value)??false);
+  selected=discovery?.games?.find(game=>game.gameRoot===choices.gameRoot&&game.provider===choices.provider)??null;
 }
 async function openSession(session) {
-  if(!sessionId(session))return;clearError();busy=true;updateView();
-  try {const result=await api.status(session);resetArtwork();clearLoadedLog();state=result.state;restoreChoices(state.choices);page=2;after=0;log=[];schedulePoll();}
-  catch(value){error(value);}finally{busy=false;updateView();}
+  if(!sessionId(session)||busy)return false;clearError();busy=true;clearTimeout(pollTimer);sessionGeneration++;updateView();
+  try {const result=await api.status(session);if(!result.state||result.state.session!==session)throw {code:'invalidReply'};
+    resetArtwork();clearLoadedLog();state=result.state;resumeFailed=null;restoredSession=session;restoreChoices(state.choices);page=2;after=0;log=[];schedulePoll();return true;}
+  catch(value){resumeFailed=session;error(value);return false;}finally{busy=false;renderGames();updateView();}
 }
 function schedulePoll() {clearTimeout(pollTimer);if(state?.session)pollTimer=setTimeout(poll,1000);}
 async function poll() {
   if(!state?.session)return;
+  const session=state.session,generation=sessionGeneration;
   try {
-    const result=await api.status(state.session);state=result.state;
-    const events=await api.events(state.session,after);
+    const result=await api.status(session);if(generation!==sessionGeneration||state?.session!==session)return;
+    if(!result.state||result.state.session!==session)throw {code:'invalidReply'};
+    const events=await api.events(session,after);if(generation!==sessionGeneration||state?.session!==session)return;state=result.state;
     for(const event of events.events??[])if(Number(event.sequence)>after) {log.push([event.time,event.stage,event.code,event.message?message(event.message):event.parameters?.message?message(event.parameters.message):event.parameters?.cause??event.parameters?.detail??''].filter(Boolean).join(' · '));after=Math.max(after,Number(event.sequence));}
     log=log.slice(-50);clearError();updateView();
     if($('live-log').checked&&document.querySelector('#progress-page details').open)await refreshLog();
-  }catch(value){error(value);}
+  }catch(value){if(generation===sessionGeneration)error(value);}
   if(isActive(state))schedulePoll();
 }
 async function refreshLog() {
-  if(logBusy||!state?.session)return;logBusy=true;
-  try{const result=await api.log(state.session,$('log-stage').value);if(typeof result.text!=='string'||result.text.length>65536)throw {code:'invalidReply'};loadedLog=result;$('stage-log').textContent=result.text;$('stage-log').hidden=false;$('log-truncated').hidden=!result.truncated;}
-  catch(value){error(value);}finally{logBusy=false;}
+  if(logBusy||!state?.session)return;logBusy=true;const session=state.session,generation=sessionGeneration;
+  try{const result=await api.log(session,$('log-stage').value);if(generation!==sessionGeneration||state?.session!==session)return;if(typeof result.text!=='string'||result.text.length>65536)throw {code:'invalidReply'};loadedLog=result;$('stage-log').textContent=result.text;$('stage-log').hidden=false;$('log-truncated').hidden=!result.truncated;}
+  catch(value){if(generation===sessionGeneration)error(value);}finally{logBusy=false;}
 }
 async function unityAction(action) {
   const waiting=state?.stages?.find(row=>row.waiting)?.waiting;if(!waiting||actionBusy)return;
@@ -250,6 +263,7 @@ document.addEventListener('visibilitychange',()=>showSlide(slideIndex));
 reducedMotion.addEventListener('change',event=>{if(event.matches){slidePaused=true;$('gallery-pause').textContent=t('galleryPlay');showSlide(slideIndex);}});
 async function pollGallery(){try{const result=await api.gallery();await loadArtwork(result.artwork,{publisher:true});}catch{}if(!preview)artPollTimer=setTimeout(pollGallery,5000);}
 async function primary() {
+  if(busy||resumeFailed)return;
   clearError();
   if(page===0){busy=true;updateView();try{const selectedChoices=choicesFromForm(form(),language);
     if(discovery?.capabilities?.spaceEstimate===true){qualification=await api.qualify(selectedChoices.gameRoot);}
@@ -267,6 +281,15 @@ async function browse(kind) {
 }
 document.querySelectorAll('[data-language]').forEach(node=>node.addEventListener('click',()=>setLanguage(node.dataset.language)));
 $('primary').addEventListener('click',primary);$('back').addEventListener('click',()=>{page=0;clearError();updateView();});
+$('new-build').addEventListener('click',()=>{
+  if(busy||isActive(state))return;
+  // This is an explicit opt-out. Removing a UI selection never deletes the
+  // backend session, completed receipts or owner recovery/download workspace.
+  clearTimeout(pollTimer);sessionGeneration++;state=null;resumeFailed=null;restoredSession=null;qualification=null;page=0;after=0;log=[];
+  restoreChoices({install:true});resetArtwork();clearLoadedLog();clearError();renderGames();
+  if(discovery?.games?.length===1)selectGame(discovery.games[0]);
+  updateView();$('game-root').focus();
+});
 $('edit-choices').addEventListener('click',()=>{if(isActive(state))return;clearTimeout(pollTimer);restoreChoices(state?.choices);page=0;clearError();updateView();$('game-root').focus();});
 $('save-support').addEventListener('click',async()=>{
   $('save-support').disabled=true;
@@ -285,6 +308,8 @@ $('declare-dlc').addEventListener('change',()=>{$('dlc-declaration').hidden=!$('
 window.addEventListener('beforeunload',()=>{clearTimeout(pollTimer);clearTimeout(slideTimer);clearTimeout(artPollTimer);blobUrls.forEach(url=>URL.revokeObjectURL(url));});
 $('preview-notice').hidden=!preview;setLanguage(language);
 if(canConnect)pollGallery();
+busy=true;updateView();
 try{discovery=await api.discover();renderGames();if(discovery.games?.length===1)selectGame(discovery.games[0]);
   const editor=discovery.unityEditors?.find(row=>row.version==='2021.3.5f1'&&row.androidSupport);if(editor)$('unity-editor').value=editor.path;
-}catch(value){$('discovery-status').textContent=t('notFound');error(value);}updateView();
+  const session=savedSession(discovery);busy=false;if(session)await openSession(session);
+}catch(value){$('discovery-status').textContent=t('notFound');error(value);}finally{busy=false;renderGames();updateView();}

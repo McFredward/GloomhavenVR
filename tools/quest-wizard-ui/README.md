@@ -35,10 +35,19 @@ sends `X-Quest-Token`; the backend validates Host and browser Origin/fetch conte
 No browser-supplied command, executable or artwork filesystem path is accepted.
 
 The schema-1 API uses discovery, plan, run, cancel, status, events, fixed-kind
-native browse and bounded per-stage logs. `POST /api/plan` receives `{choices}`
-and optionally `session` only after explicitly reviewing an existing session's
-choices. Backend receipts decide safe reuse. A cancelled or interrupted process
-is never presented as an automatically resumable verified build. Polling stops
+native browse and bounded per-stage logs. Discovery automatically opens the
+owner workspace's validated `latestSession`, falling back to `recentSessions`
+on older backends. This restores saved choices, observed progress, failures and
+completed output without posting a plan or starting work. It does not depend on
+origin-scoped browser storage, so changing launcher folders, browser windows or
+loopback ports keeps the same session. The primary Continue action posts `/run`
+with that retained session ID. Setup changes post `/plan` with the existing ID;
+only explicitly choosing "Set up a new build" clears the UI's selected session.
+That action does not delete saved sessions, receipts, downloads or game exports.
+An inaccessible session remains visible and blocks accidental new planning
+until it is reopened or the user explicitly chooses a new build.
+Backend receipts decide safe reuse; automatic reopening is not a claim that
+cancelled/interrupted work is verified complete. Polling stops
 for inactive sessions; cancellation remains pending until backend confirmation.
 Each stage has one persistent total percentage (`progress.stagePercent`). Its
 scheduled operations advance that total using observed completion/counters;
@@ -91,6 +100,10 @@ or silently fetch the latest `dev` branch. Advanced CLI source selection remains
 explicit. Discovery describes the launch release; saved-session status describes
 that session's resolved source, even when the launch ZIP has subsequently changed.
 The visible mod badge uses this metadata rather than guessing from game files.
+When an inactive default-source session is reopened in a newer Builder, the
+badge shows the source that Continue will use and names the previous commit
+separately. Active sessions and completed outputs keep their resolved source.
+Explicit advanced source selections do not get replaced by the launch release.
 
 "Check mod files" hashes the selected source/tools/art inputs for a consistent
 snapshot and safe cached-stage reuse. It does not run the exhaustive shader gate.
@@ -112,6 +125,21 @@ it skips visibly when Chrome is absent and downloads nothing. It serves only the
 static UI in explicit `?preview=1` mode, checks the real DOM, keyboard activation,
 consent gate, cancellation, restored choices, EN/DE and narrow-screen overflow.
 Set `QUEST_WIZARD_SCREENSHOTS` to a private output directory for screenshots.
+
+Both headless test launchers use private temporary Chrome profiles with
+`--password-store=basic --use-mock-keychain`. This prevents an interactive host
+keyring from blocking a fresh profile's cookie-store initialization before
+loopback HTTP requests are sent. These flags are test-only; the user browser and
+production launcher remain unchanged. CDP commands fail after ten seconds and
+the test closes its own browser/profile rather than leaving pending navigation
+and processes after a test timeout. HTTP witnesses use direct Chrome-to-loopback
+transport, without request interception/fulfilment bridges.
+
+`resume-browser.test.mjs` witnesses initial reopening without `/plan` or `/run`,
+saved choices and total progress, same-ID Continue after changing loopback port,
+ready/cancelled/interrupted/completed sessions, explicit new-build selection and
+inaccessible-state retry. The actual backend witness also reopens the retained
+session directly after reload; no secondary resume-button click is required.
 
 For manual preview, serve this directory on loopback and open
 `/?preview=1&lang=de` (or `en`). Demo mode never calls the real API and deliberately

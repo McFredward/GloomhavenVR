@@ -26,7 +26,7 @@ test('native browser: bilingual setup, consent, cancellation, choice edits and r
     }catch{response.writeHead(404);response.end();}
   });
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
-  const child=spawn(chrome,['--headless=new','--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--disable-background-networking','--no-first-run','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],{stdio:'ignore'});
+  const child=spawn(chrome,['--headless=new','--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--disable-background-networking','--password-store=basic','--use-mock-keychain','--no-first-run','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],{stdio:'ignore'});
   let socket;
   try {
     let port;
@@ -36,8 +36,10 @@ test('native browser: bilingual setup, consent, cancellation, choice edits and r
     socket=new WebSocket(targets.find(row=>row.type==='page').webSocketDebuggerUrl);
     await new Promise((resolve,reject)=>{socket.addEventListener('open',resolve,{once:true});socket.addEventListener('error',reject,{once:true});});
     let next=0;const pending=new Map();
-    socket.addEventListener('message',event=>{const data=JSON.parse(event.data);const callback=pending.get(data.id);if(callback){pending.delete(data.id);data.error?callback.reject(Error(JSON.stringify(data.error))):callback.resolve(data.result);}});
-    const command=(method,params={})=>new Promise((resolve,reject)=>{const id=++next;pending.set(id,{resolve,reject});socket.send(JSON.stringify({id,method,params}));});
+    socket.addEventListener('message',event=>{const data=JSON.parse(event.data);const callback=pending.get(data.id);if(callback){pending.delete(data.id);clearTimeout(callback.timer);data.error?callback.reject(Error(JSON.stringify(data.error))):callback.resolve(data.result);}});
+    const command=(method,params={})=>new Promise((resolve,reject)=>{const id=++next;
+      const timer=setTimeout(()=>{pending.delete(id);reject(Error('Browser CDP command timed out: '+method));},10000);
+      pending.set(id,{resolve,reject,timer});socket.send(JSON.stringify({id,method,params}));});
     const evaluate=async(expression)=>{const result=await command('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});assert.equal(result.exceptionDetails,undefined,expression);return result.result.value;};
     async function wait(expression){for(let index=0;index<80;index++){if(await evaluate(expression))return;await delay(50);}assert.fail('Browser condition: '+expression);}
     async function picture(name){if(!process.env.QUEST_WIZARD_SCREENSHOTS)return;await mkdir(process.env.QUEST_WIZARD_SCREENSHOTS,{recursive:true});const image=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(join(process.env.QUEST_WIZARD_SCREENSHOTS,name+'.png'),Buffer.from(image.data,'base64'));}
