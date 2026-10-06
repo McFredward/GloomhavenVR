@@ -8,7 +8,7 @@ import shutil
 import sys
 
 from bundle_members import serialized_members
-from bundle_recovery import catalog_bundle_plan, run_recovery
+from bundle_recovery import catalog_bundle_plan, run_recovery, write_checkpoint, _hash_file
 from export_identity import build_tool, read_identities
 import native_evidence
 from recover import (RecoveryError, managed_inventory, repair_managed_plugins, resolve_game_data,
@@ -64,7 +64,7 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
         counter = build_progress.Counter("recovery-core-receipt-verify", len(receipt["files"]), "files")
         for row in receipt["files"]:
             path = core / row["path"]
-            if not path.is_file() or sha256(path) != row["sha256"]:
+            if not path.is_file() or _hash_file(path, "recovery-core-file-hash") != row["sha256"]:
                 raise RecoveryError("Core recovery output changed: " + row["path"])
             counter.add(1, path.name)
         counter.finish()
@@ -107,7 +107,7 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
         counter = build_progress.Counter("recovery-core-output-hash", len(core_files), "files")
         records = []
         for path in core_files:
-            records.append({"path": path.relative_to(core).as_posix(), "bytes": path.stat().st_size, "sha256": sha256(path)})
+            records.append({"path": path.relative_to(core).as_posix(), "bytes": path.stat().st_size, "sha256": _hash_file(path, "recovery-core-file-hash")})
             counter.add(1, path.name)
         receipt = {"schema": 1, "sourceFingerprint": fingerprint, "exporterSource": tool_proof["source"],
                    "identitiesSha256": sha256(core_identities), "files": records}
@@ -142,7 +142,7 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
     if after_fingerprint != fingerprint:
         raise RecoveryError("Original game files changed during full recovery.")
     progress["sourceFingerprint"], progress["sourceInventory"] = fingerprint, files
-    write_json(output / "quest-full-recovery-progress.json", progress)
+    write_checkpoint(output / "quest-full-recovery-progress.json", progress)
     owners = {}
     plan = catalog_bundle_plan(source)
     total = sum(len(group["bundles"]) for group in plan["groups"])
@@ -197,10 +197,11 @@ def main(argv=None):
     parser.add_argument("--metadata-project", help="Optional previous owned-game managed/shader metadata project.")
     args = parser.parse_args(argv)
     try:
-        result = prepare(args.game_data, args.workspace, args.tool_cache, args.dotnet, args.output_project,
-                         core_project=args.core_project, core_identities=args.core_identities,
-                         bundle_workspace=args.bundle_workspace, metadata_project=args.metadata_project,
-                         managed_dotnet=args.managed_dotnet)
+        with build_progress.silence_diagnostics():
+            result = prepare(args.game_data, args.workspace, args.tool_cache, args.dotnet, args.output_project,
+                             core_project=args.core_project, core_identities=args.core_identities,
+                             bundle_workspace=args.bundle_workspace, metadata_project=args.metadata_project,
+                             managed_dotnet=args.managed_dotnet)
         print(json.dumps(result, sort_keys=True))
         return 0
     except (RecoveryError, OSError, ValueError) as error:

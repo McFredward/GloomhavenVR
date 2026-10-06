@@ -9,6 +9,8 @@ from pathlib import Path
 import re
 import shutil
 import sys
+import time
+import uuid
 
 from catalog import bundle_closure, decode_catalog
 from export_identity import (build_tool, identity_remaps, object_index, read_identities,
@@ -60,7 +62,70 @@ def exportable_identities(rows, evidence):
     return result
 
 
+def _hash_file(path, phase="recovery-checkpoint-file-hash"):
+    size = path.stat().st_size
+    counter = build_progress.Counter(phase, size, "bytes", path.name) if size >= 8 * 1048576 else None
+    digest = sha256(path, progress=counter.add if counter else None)
+    if counter: counter.finish()
+    return digest
+
+
+def _inventory(root, phase, byte_phase):
+    paths = [path for path in sorted(root.rglob("*")) if path.is_file()]
+    counter = build_progress.Counter(phase, len(paths), "files")
+    records = []
+    for path in paths:
+        records.append({"path": path.relative_to(root).as_posix(), "bytes": path.stat().st_size,
+                        "sha256": _hash_file(path, byte_phase)})
+        counter.add(1, path.name)
+    counter.finish()
+    return records
+
+
+def write_checkpoint(path, value):
+    """Stream real checkpoint records without a second whole-JSON string in RAM.
+
+    Large file/identity arrays previously serialized silently after the native
+    merge. Schema/data remain unchanged; only whitespace differs. As with
+    write_json(), the old checkpoint survives any interrupted write, and the
+    merge journal is removed only after published output hashes verify.
+    """
+    path = ordinary_path(path); path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp-" + uuid.uuid4().hex)
+    total = sum(len(item) if isinstance(item, list) else 1 for item in value.values())
+    counter = build_progress.Counter("recovery-checkpoint-write", total, "records", path.name)
+    started = time.monotonic()
+    print("[Quest full recovery] Writing checkpoint:", path.name, ";", total, "records.", flush=True)
+    try:
+        with temporary.open("w", encoding="utf-8", newline="\n") as stream:
+            stream.write("{")
+            for key_index, key in enumerate(sorted(value)):
+                if key_index: stream.write(",")
+                stream.write(json.dumps(key) + ":")
+                item = value[key]
+                if isinstance(item, list):
+                    stream.write("[")
+                    for index, row in enumerate(item):
+                        if index: stream.write(",")
+                        stream.write(json.dumps(row, sort_keys=True, separators=(",", ":")))
+                        counter.add(1, "Checkpoint " + key)
+                    stream.write("]")
+                else:
+                    stream.write(json.dumps(item, sort_keys=True, separators=(",", ":")))
+                    counter.add(1, "Checkpoint " + key)
+            stream.write("}\n"); stream.flush(); os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        counter.finish()
+    finally:
+        temporary.unlink(missing_ok=True)
+    print("[Quest full recovery] Checkpoint published:", path.name, ";", path.stat().st_size,
+          "bytes;", round(time.monotonic() - started, 3), "seconds.", flush=True)
+
+
 def verified_records(root, records, *, excluded=()):
+    started = time.monotonic()
+    print("[Quest full recovery] Verifying checkpoint:", len(records), "files;",
+          sum(row["bytes"] for row in records if row["path"] not in excluded), "bytes.", flush=True)
     counter = build_progress.Counter("recovery-checkpoint-verify", len(records), "files")
     for row in records:
         relative = Path(row["path"])
@@ -69,10 +134,12 @@ def verified_records(root, records, *, excluded=()):
         path = ordinary_path(root / relative)
         if row["path"] in excluded:
             counter.add(1, "Excluded mutable index: " + path.name); continue
-        if not path.is_file() or path.stat().st_size != row["bytes"] or sha256(path) != row["sha256"]:
+        if not path.is_file() or path.stat().st_size != row["bytes"] or _hash_file(path) != row["sha256"]:
             raise RecoveryError("Full recovered checkpoint file changed: " + row["path"])
         counter.add(1, path.name)
     counter.finish()
+    print("[Quest full recovery] Checkpoint verified:", len(records), "files;",
+          round(time.monotonic() - started, 3), "seconds.", flush=True)
 
 
 def recover_merge(output, workspace):
@@ -120,9 +187,11 @@ def begin_merge(output, workspace, index, incoming, evidence, canonical):
         if not source.is_file(): continue
         paths.append(filename)
         if filename.endswith("NativeRecipes/index.jsonl"):
-            for line in source.read_text().splitlines():
-                yaml = json.loads(line)["yamlPath"]
-                if Path(yaml).name != yaml or Path(yaml).suffix != ".yaml": raise RecoveryError("Pending native recipe has an unsafe filename.")
+            for row in native_evidence._read_index(source):
+                yaml = row["yamlPath"]
+                if (not isinstance(yaml, str) or Path(yaml).name != yaml or Path(yaml).suffix != ".yaml"
+                        or any(character in yaml for character in ("/", "\\", ":"))):
+                    raise RecoveryError("Pending native recipe has an unsafe filename.")
                 paths.append("QuestRecovery/NativeRecipes/" + yaml)
     backups = []
     for slot, relative in enumerate(MUTABLE_NATIVE_INDICES):
@@ -178,8 +247,9 @@ def merge_export(project, incoming_project, incoming_rows, canonical_objects):
     """
     project, incoming_project = Path(project).resolve(), Path(incoming_project).resolve()
     pointers, duplicates, incoming = identity_remaps(incoming_rows, canonical_objects)
-    rows, files, output_paths = [], [], {}
+    rows, files, output_paths, originals = [], [], {}, {}
     for row in incoming_rows:
+        if not row.get("skippedCore"): originals.setdefault(row["guid"], row)
         if row.get("skippedCore"):
             missing = [obj for obj in row["objects"] if (obj["collection"], int(obj["pathId"])) not in canonical_objects]
             if missing:
@@ -201,7 +271,7 @@ def merge_export(project, incoming_project, incoming_rows, canonical_objects):
         rows.append({**row, "path": relative})
     counter = build_progress.Counter("recovery-original-collection-merge", len(rows), "collections")
     for row in rows:
-        original = next(item for item in incoming_rows if item["guid"] == row["guid"] and not item.get("skippedCore"))
+        original = originals[row["guid"]]
         source, destination = incoming_project / original["path"], project / row["path"]
         if destination.exists() or destination.with_name(destination.name + ".meta").exists():
             raise RecoveryError("New recovered GUID overlaps an existing generated asset: " + row["guid"])
@@ -216,7 +286,7 @@ def merge_export(project, incoming_project, incoming_rows, canonical_objects):
         # Compound texture importers can contain external Sprite/Atlas pointers.
         target_meta.write_text(remap_yaml(metadata.read_text(encoding="utf-8"), pointers), encoding="utf-8")
         for path in (destination, target_meta):
-            files.append({"path": path.relative_to(project).as_posix(), "sha256": sha256(path), "bytes": path.stat().st_size})
+            files.append({"path": path.relative_to(project).as_posix(), "sha256": _hash_file(path), "bytes": path.stat().st_size})
         for obj in row["objects"]:
             canonical_objects[(obj["collection"], int(obj["pathId"]))] = {**obj, "guid": row["guid"], "path": row["path"]}
         counter.add(1, source.name)
@@ -257,11 +327,10 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
         shutil.copytree(core, output)
         repair_managed_plugins(output, source)
         identities = read_identities(core_identities, core)
-        files = [{"path": path.relative_to(output).as_posix(), "bytes": path.stat().st_size, "sha256": sha256(path)}
-                 for path in sorted(output.rglob("*")) if path.is_file()]
+        files = _inventory(output, "recovery-core-copy-hash", "recovery-checkpoint-file-hash")
         progress = {"schema": 1, "catalogSha256": plan["catalogSha256"], "coreIdentitySha256": sha256(core_identities),
                     "completedGroups": [], "files": files, "identities": identities, "groups": [], "assetsRecovered": False}
-        write_json(checkpoint, progress)
+        write_checkpoint(checkpoint, progress)
     canonical = object_index(identities)
     stage = workspace / "Input/GH_Data"
     stage.parent.mkdir(parents=True, exist_ok=True)
@@ -320,8 +389,7 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
                 project, shaders, scripts = run_export(tool_command, stage, directory / "Export", directory / "export.log",
                                                        directory / "Evidence", settings, require_scene_settings=False)
                 write_json(export_receipt, {"schema": 1, "project": project.relative_to(directory).as_posix(), "shaderRecipes": shaders,
-                           "files": [{"path": path.relative_to(directory).as_posix(), "bytes": path.stat().st_size, "sha256": sha256(path)}
-                                     for path in sorted(directory.rglob("*")) if path.is_file()]})
+                           "files": _inventory(directory, "recovery-export-receipt-hash", "recovery-export-file-hash")})
         finally:
             for key, value in previous.items():
                 if value is None:
@@ -349,7 +417,7 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
                                    "newOriginalObjectCount": merged["newOriginalObjectCount"],
                                    "remappedOriginalPointerCount": merged["remappedOriginalPointerCount"]})
         progress["assetsRecovered"] = len(progress["completedGroups"]) == len(plan["groups"])
-        write_json(checkpoint, progress)
+        write_checkpoint(checkpoint, progress)
         recover_merge(output, workspace)  # committed checkpoint cleans journal/backups
         group_counter.add(1, "Original batch " + str(index + 1) + " merged and checkpoint committed")
         print("[Quest full recovery] Batch", index + 1, "of", len(plan["groups"]), "merged:",
@@ -357,7 +425,7 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
     group_counter.finish()
     build_progress.event("recovery-asset-references", detail="Auditing recovered original asset references", status="start")
     progress["assetReferences"] = audit_asset_references(output)
-    write_json(checkpoint, progress)
+    write_checkpoint(checkpoint, progress)
     build_progress.event("recovery-asset-references", 1, 1, "audits", "Recovered asset references audited", status="complete")
     return progress
 
