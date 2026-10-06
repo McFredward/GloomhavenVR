@@ -313,6 +313,43 @@ class PackageApiStageTests(Temporary):
         self.assertTrue(report["complete"])
         self.assertEqual(self.import_count, 1)
 
+    def test_streaming_native_payload_is_preserved_and_never_audited_as_plugins(self):
+        payloads = {}
+        for name in ("ApparanceEngine.dll", "wine/lib/wine/x86_64-windows/kernel32.dll",
+                     "wine/lib/wine/x86_64-windows/ntdll.dll", "GH.Runtime.dll"):
+            path = self.write(self.project / "Assets/StreamingAssets/ProceduralRuntime" / name,
+                              b"MZ\0unmanaged owned runtime payload:" + name.encode())
+            payloads[path] = path.read_bytes()
+        source_payload = self.write(self.source / "owned-game/ApparanceEngine.dll", b"immutable original engine")
+        source_bytes = source_payload.read_bytes()
+        # Only the special Assets root is excluded. Ordinary plugin discovery
+        # still includes nested directories with a similar name.
+        managed = self.write(self.project / "Assets/Plugins/StreamingAssets/ManagedHelper.dll", b"managed helper")
+        with patch.object(builder, "command", side_effect=self.command):
+            report = self.bind()
+        expected = {"GH.Runtime.dll", "GloomhavenVR.dll", "ManagedHelper.dll"}
+        self.assertEqual(set(report["inputAssemblies"]), expected)
+        self.assertEqual(set(report["outputAssemblies"]), expected)
+        cached_input = next((self.output / "cache/package-api").glob("*/input"))
+        self.assertEqual({p.name for p in cached_input.iterdir()}, expected)
+        contract = json.loads((self.project / "Assets/Quest/Resources/quest-package-api-contract.json").read_text())
+        self.assertEqual({row["path"] for row in contract["plugins"]},
+                         {"Assets/Plugins/GH.Runtime.dll", "Assets/Plugins/QuestGame/GloomhavenVR.dll",
+                          managed.relative_to(self.project).as_posix()})
+        for path, payload in payloads.items():
+            self.assertEqual(path.read_bytes(), payload)
+        self.assertEqual(source_payload.read_bytes(), source_bytes)
+
+    def test_streaming_payload_cannot_stand_in_for_missing_game_mod_plugins(self):
+        self.plugin.unlink()
+        self.mod.unlink()
+        self.write(self.project / "Assets/StreamingAssets/ProceduralRuntime/ApparanceEngine.dll", b"MZ\0native")
+        with patch.object(builder, "command", side_effect=self.command), \
+                self.assertRaisesRegex(storage.BuildError, "no actual staged game/mod plugins"):
+            self.bind()
+        self.assertEqual(self.cli_count, 0)
+        self.assertFalse((self.project / "Assets/Quest/Resources/quest-package-api-contract.json").exists())
+
     def test_editor_or_wrong_player_compilation_cannot_reach_api_audit(self):
         for key, value in (("compilation", "Editor"), ("target", "StandaloneWindows64"), ("backend", "Mono"),
                            ("options", "None"), ("unityVersion", "2021.3.6f1")):

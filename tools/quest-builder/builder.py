@@ -1305,6 +1305,10 @@ def bind_startup_package_apis(args, output: Path, source: Path, project: Path,
     sdk_files = inventory(sdk, [name + ".dll" for name in REPLACED_PACKAGES])
     plugins = {}
     for path in sorted((project / "Assets").rglob("*.dll")):
+        # Unity copies StreamingAssets as runtime data; Wine/engine payload DLLs
+        # there are not managed plugins and must never be rewritten by this audit.
+        if path.relative_to(project / "Assets").parts[0].casefold() == "streamingassets":
+            continue
         if path.stem in REPLACED_PACKAGES:
             continue
         if path.name in plugins:
