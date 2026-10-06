@@ -94,3 +94,19 @@ pixels, stability and multiplayer headroom remain hardware-unverified.
 
 See [the PC settings audit](FRAME-631-PC-SETTINGS-AUDIT.md) for achieved figure,
 effect, scenery and material changes and the limits of the captured A/B timing.
+
+## Integrated Build633 handoff
+
+The follow-up is integrated into `dev` as Build633, preserving the completed632
+NPC implementation. On the combined tree, the affected lifecycle, all14 source
+checks, strict Release/Debug builds, bilingual documentation and296,631 golden
+assertions pass. Compiled review against632 reconciles exactly three intended
+runtime changes and eight inlined build constants. Existing632 integration
+evidence covers unchanged NPC areas; no new complete146-suite pass is claimed.
+
+The maintainer explicitly requested immediate hardware testing and focused
+subsets for small scoped changes on2026-10-06. The additional full run was
+cancelled accordingly; its partial/cancelled report remains in
+`.planning/debug/frame633/final-local/`. The bounded follow-up ledger is
+`.planning/debug/frame633/validation-ledger.json`. These automated results do
+not establish recovery of the native Frame loader or headset-visible quality.

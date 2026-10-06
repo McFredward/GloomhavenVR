@@ -22,11 +22,13 @@ to Codex and record the user's instructions of 2026-09-08.
   checks, and push directly to `origin/dev`. This is authorized by the user;
   another confirmation is unnecessary. Never push worker branches or force-push.
 - During implementation, workers run the relevant focused suites and source checks
-  for their owned changes. After integrating all worker commits, the primary agent
-  runs the complete local gate once on the final `dev` tree, including
-  `scripts/wire-tests.sh` and its golden vectors. A focused `--suite` run is only
-  partial evidence; subsequent fixes require the affected checks again and a
-  complete gate on the final changed tree before pushing.
+  for their owned changes. For substantial integrations, the primary agent runs
+  the complete local gate, including `scripts/wire-tests.sh` and its golden vectors.
+  The maintainer's explicit 2026-10-06 clarification permits focused subsets for
+  small, bounded changes. After a limited repair, rerun the affected checks and
+  reuse already passing evidence for unchanged areas rather than repeating the
+  entire suite. Record the tested scope and inherited evidence honestly: a focused
+  `--suite` pass is not a new complete-gate pass.
 - Speak to the user in German. Write code, comments, and developer documentation
   in English. Product strings remain English and German through `Core/Loc`.
 - Hardware evidence lives in the main checkout's gitignored `.planning/debug/`;

@@ -1,5 +1,33 @@
 # State — where the project stands
 
+**Build633 integration validated for hardware handoff, 2026-10-06: 1.1.0.**
+
+The completed NPC632 work remains unchanged. The independent Frame follow-up
+changes only OpenXR startup, RenderQuality and its existing rig Update entry.
+Quality selection now occurs after successful loader initialization; it cannot
+write resources before that boundary. Initialized stopped displays receive
+startup quality, while running displays are adopted without reallocation.
+The explicit Update entry can commit coalesced settings despite a stale
+`Camera.current`; unmarked callers retain the rendering guard.
+
+The affected lifecycle passes 65 assertions, 17 causal controls and two startup
+controls with 14 source bindings. All 14 source gates, strict Release/Debug
+builds (zero warnings/errors), bilingual documentation and 296,631 golden-vector
+assertions pass. Compiled632-to633 review finds exactly three intended runtime
+changes and eight inlined build constants. Broader NPC evidence remains the
+completed632 gate below; this is a bounded follow-up, not a repeated146-suite
+pass. The additional full run was cancelled at the maintainer's request; its
+original partial/cancelled report is retained.
+
+The 2026-10-06 maintainer clarification permits focused testing for small scoped
+changes and prohibits needless repetition of passing unrelated suites; AGENTS.md
+now records this policy. Both multiplayer peers should use633 for the next test.
+Frame startup recovery, live headset presentation and actual remote latency remain
+hardware-unverified. See [the startup review](../docs/performance/FRAME-631-STARTUP-REVIEW.md)
+and `.planning/debug/frame633/validation-ledger.json`. No new release is established.
+
+---
+
 **Build632 integration validated, 2026-10-06: 1.1.0.**
 
 The actual paired hardware capture is Build629 on both peers. Its remote mage
