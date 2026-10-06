@@ -592,7 +592,28 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 636;
+    public const ushort ModBuild = 637;
+
+    // ModBuild 637 — integrate the Frame636 native world coverage/atmosphere
+    // repair. Exact shipped map data/placement/light coordinators no longer
+    // veto supported static scenery; child actor/interactive/unknown-script
+    // guards remain current. Coverage is independent of the terrain geometry
+    // cap, avoiding its camera-selected native/raw material split. Mode2 keeps
+    // original vertex SH ambient with live WorldMaterialAmbientPercent (100
+    // default;0 retains raw color). The shader bank explicitly uses the native
+    // game's Gamma space and retains actual compiled regular instancing/fog
+    // variants; the builder restores its prior editor settings. Modes0/1 and
+    // native UV/tint/fade/clip remain unchanged.
+    // Terrain captures current poses/config once per Update and skips absent
+    // MPB copies with a fresh per-eye presence check; old private overrides are
+    // cleared. World reads renderer-wide blocks once for all subslots. Existing
+    // native mesh/material/visibility guards and both NeverFade channels remain.
+    // Focused source-bound shader/runtime/native/wiring/terrain controls and
+    // final integration receipts are recorded in FRAME-637-INTEGRATION.md.
+    // No NPC, input or wire-layout behavior change. Install the updated
+    // environment bundle with the assembly; both peers must install637.
+    // Hardware appearance, Frame timings and multiplayer acceptance stay open.
+    //
 
     // ModBuild 636 — integrate the separately audited whole-game material lane
     // after the native enchantress635 repair. Optional live world shading stages

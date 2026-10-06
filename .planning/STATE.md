@@ -1,5 +1,27 @@
 # State — where the project stands
 
+**Build637 integration, 2026-10-07: 1.1.0 development candidate.**
+
+The Frame636 follow-up restores native material coverage for exact shipped map
+coordinators and retains optional cheap vertex ambient in mode2. Current per-eye
+MPB checks skip redundant empty work; head/hand/config reads are shared within
+one terrain Update. Native geometry, visibility and mutable ownership guards
+remain. Original NPC635 runtime repairs remain unchanged.
+
+Independent review also requires actual compiled shader variants in delivery;
+keyword declarations alone are insufficient for instancing/fog. Final package,
+focused receipts and hardware limits are recorded in
+[the637 integration](../docs/performance/FRAME-637-INTEGRATION.md).
+The rebuilt56,858,683-byte bankf64bd581… retains4240 actual Gamma programs,
+all supported regular instancing/fog combinations and unchanged geometry payloads.
+Real Unity loads3170 streams; stripped-variant controls reject the old bank.
+Source15/15, golden296633, strict Release/Debug0/0, docs5 pairs and compiled
+scope pass. Unaffected successful checks are inherited; no new full149-suite
+pass is claimed. Actual Frame picture/FPS and multiplayer remain unverified.
+Install the updated environment bundle and637 on both peers.
+
+---
+
 **Build636 integration, 2026-10-06: 1.1.0 development candidate.**
 
 The audited whole-game material lane is integrated after NPC635. Live world
