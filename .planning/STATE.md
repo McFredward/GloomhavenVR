@@ -1,5 +1,29 @@
 # State — where the project stands
 
+**Build630 integration in validation, 2026-10-06: 1.1.0.**
+
+The new immutable Steam Frame capture identifies Build628/176beb741. The current
+integration starts from Build629/e6ecf3d4532 and preserves its NPC work. Visible
+idle sampling and both controls are completely withdrawn by explicit maintainer
+request. Initial cosmetic caches no longer prolong the native loading indicator;
+resolution changes retain the XR session allocation and coalesce live viewport
+updates. Terrain bank/component reads reuse only one synchronous invocation;
+existing native culling/clone/write safety boundaries remain.
+
+The audit proves delivered geometry/cloth/FX/chunk/UI effects but no isolated
+FPS gain for the toggled controls. Completed windows precede all-room reveal;
+settled three-room spikes remain dominated by terrain pre-cull and wall work.
+Debug timing now retains sparse slow windows, marks Optimize edits and corrects
+refresh/WallFade inference. Further configurable strategies and evidence limits
+are documented in [FRAME-630-INTEGRATION.md](../docs/performance/FRAME-630-INTEGRATION.md).
+
+The complete final dev gate is pending. No new hardware/multiplayer acceptance
+or release is established; preserved immutable logs are in
+`.planning/debug/frame630-review-20261006/inputs/`.
+
+---
+
+
 **Build629 integration complete, 2026-10-06: 1.1.0.**
 
 The current paired hardware logs are Build627; integration starts from the latest

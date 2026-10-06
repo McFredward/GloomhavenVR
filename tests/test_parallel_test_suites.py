@@ -236,13 +236,14 @@ class ParallelSuitesTests(unittest.TestCase):
         frame625_local = {'shared-ui-window-runtime', 'environment-bank-assets',
                           'terrain-budget-runtime', 'remote-mirror-read-runtime'}
         npc629_local = {'town-offered-orientation'}
+        frame630_shared = {'render-quality-runtime'}
         frame617_shared = {'wall-maintenance-trace'}
         quest609_shared = {'quest-builder', 'quest-recovery', 'quest-native', 'quest-weaver'}
-        self.assertEqual(local, LOCAL_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-service-lighting", "town-residents", "town-face", "town-activity", "town-voice", "town-native-audio", "town-native-veil"} | physical_town | frame600 | frame601_local | town602_local | frame603_shared | frame603_local | frame604_local | frame605_local | frame606_local | frame606_shared | frame607_shared | quest609_shared | frame608_local | frame610_local | npc611_shared | npc611_local | frame612_local | npc614_local | frame615_local | frame617_local | frame617_shared | frame618_local | frame619_shared | frame619_local | frame620_shared | frame620_local | frame621_local | npc622_local | npc623_local | onboarding624_shared | frame625_local | npc629_local)
-        self.assertEqual(ci, CI_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-residents", "town-service-lighting", "town-activity-portable", "town-native-audio", "town-native-veil"} | frame600 | frame603_shared | frame606_shared | frame607_shared | quest609_shared | npc611_shared | frame617_shared | frame619_shared | frame620_shared | onboarding624_shared)
+        self.assertEqual(local, LOCAL_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-service-lighting", "town-residents", "town-face", "town-activity", "town-voice", "town-native-audio", "town-native-veil"} | physical_town | frame600 | frame601_local | town602_local | frame603_shared | frame603_local | frame604_local | frame605_local | frame606_local | frame606_shared | frame607_shared | quest609_shared | frame608_local | frame610_local | npc611_shared | npc611_local | frame612_local | npc614_local | frame615_local | frame617_local | frame617_shared | frame618_local | frame619_shared | frame619_local | frame620_shared | frame620_local | frame621_local | npc622_local | npc623_local | onboarding624_shared | frame625_local | npc629_local | frame630_shared)
+        self.assertEqual(ci, CI_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-residents", "town-service-lighting", "town-activity-portable", "town-native-audio", "town-native-veil"} | frame600 | frame603_shared | frame606_shared | frame607_shared | quest609_shared | npc611_shared | frame617_shared | frame619_shared | frame620_shared | onboarding624_shared | frame630_shared)
         self.assertEqual({s['id'] for s in runner.selected_suites(suites, 'source', (0, 1))}, SOURCE_INVENTORY)
-        self.assertEqual(len(local), 142)
-        self.assertEqual(len(ci), 84)
+        self.assertEqual(len(local), 143)
+        self.assertEqual(len(ci), 85)
         self.assertEqual(local-ci, {'presentation-send', 'town-face', 'town-activity', 'town-voice'} | physical_town | frame601_local | town602_local | frame603_local | frame604_local | frame605_local | frame606_local | frame608_local | frame610_local | npc611_local | frame612_local | npc614_local | frame615_local | frame617_local | frame618_local | frame619_local | frame620_local | frame621_local | npc622_local | npc623_local | frame625_local | npc629_local)
         self.assertEqual(ci-local, {'self-update-dialog', 'banner-pose', 'quest-seat', 'town-activity-portable'})
         self.assertEqual(len(runner.selected_suites(suites, 'source', (0, 1))), 14)
@@ -481,6 +482,29 @@ if {wait!r}: time.sleep(60)
         (output / 'results.json').write_text('{}')
         with self.assertRaises(ValueError):
             self.run_suites([self.suite('one', 'pass')])
+
+
+
+class SurfaceRetirementTests(unittest.TestCase):
+    def test_explicit_idle_withdrawal_cannot_hide_an_unrelated_removal(self):
+        spec = importlib.util.spec_from_file_location('surface_guard', ROOT/'scripts/check-surface.py')
+        surface = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(surface)
+        approved = {
+            'configKeys': {
+                '[Optimize] VisibleIdleAnimationIntervalSeconds': 'src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs',
+                '[Optimize] VisibleIdleDisabledClothApproximation': 'src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs'},
+            'harmonyPatches': {
+                'typeof(FigureVisualMirror), nameof(FigureVisualMirror.CloneVisual)': 'src/GloomhavenVR/Core/Perf/ScenarioIdleAnimationBudget.cs'},
+            'logTokens': {}}
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(surface.diff(approved, {}), 0)
+            for kind, key, path in [
+                ('configKeys', '[Optimize] ScenarioCheapWallShading', 'src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs'),
+                ('harmonyPatches', 'typeof(SceneController), nameof(SceneController.DisableLoadingScreen)', 'other.cs'),
+                ('logTokens', 'REMOTE RETURN', 'other.cs'),
+                ('configKeys', '[Optimize] VisibleIdleAnimationIntervalSeconds', 'other.cs')]:
+                self.assertEqual(surface.diff({kind: {key: path}}, {}), 1)
 
 
 if __name__ == '__main__':

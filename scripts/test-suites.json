@@ -983,8 +983,15 @@
     },
     {
       "id": "town-offered-orientation",
-      "command": ["python3", "scripts/check-town-service-mirror.py", "--suite", "offered-orientation"],
-      "groups": ["local"],
+      "command": [
+        "python3",
+        "scripts/check-town-service-mirror.py",
+        "--suite",
+        "offered-orientation"
+      ],
+      "groups": [
+        "local"
+      ],
       "weight": 70
     },
     {
@@ -1830,6 +1837,18 @@
         "local"
       ],
       "weight": 40
+    },
+    {
+      "id": "render-quality-runtime",
+      "command": [
+        "python3",
+        "scripts/check-render-quality-runtime.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 35
     }
   ]
 }

@@ -589,8 +589,28 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 629;
+    public const ushort ModBuild = 630;
 
+    // ModBuild 630 — Frame628 hardware follow-up: remove rejected visible idle
+    // sampling and both controls completely; native visible animation stays continuous.
+    // Native offscreen-only animation culling remains independently configurable.
+    // Cosmetic scenario card/figure preparation no longer prolongs the loading indicator
+    // after native loading ends; true room/material work retains its indicator. Loading
+    // presentation no longer writes backgroundLoadingPriority.
+    // Repeated terrain mesh admission and ancestor component reads reuse only one
+    // synchronous invocation; native inactive sources skip expensive pre-cull work.
+    // Existing clone/write fallback, current native state and before-culling restoration
+    // remain. Debug Optimize changes close timing windows; >=5s sparse windows survive
+    // frequent reported-rate changes, which no longer claim proven reprojection.
+    // Resolution chooses session allocation before OpenXR initialization; coalesced live
+    // edits change only the viewport, avoiding the repeated texture recreations at the
+    // captured .80/.85 abrupt end. Larger-than-capacity requests are saved for restart
+    // with EN/DE help. MSAA commits coalesce but hardware stability remains unverified.
+    // Common PC/Frame source/assets and saved controls remain; no gameplay/wire changes
+    // or new stereo/FPS/multiplayer hardware acceptance is established by local proofs.
+    // The explicit idle retirement is the maintainer's 2026-10-06 exception to the
+    // historical never-remove-key rule, narrowly audited by the surface checker.
+    //
     // ModBuild 629 — paired Build627 offered originals, shared card planes and
     // outcome-specific immersive flights; integrates on Frame628 without asset changes.
     // The host admitted the remote mage picture after 24.975 s while waiting for
