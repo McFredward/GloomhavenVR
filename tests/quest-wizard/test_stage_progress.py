@@ -18,6 +18,8 @@ from processes import ProgressParser, Supervisor
 class StageProgressTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        interval = mock.patch('state.PROGRESS_INTERVAL', 0)
+        interval.start(); self.addCleanup(interval.stop)
         self.store = state.Store(Path(self.temp.name) / 'owned')
         self.saved = self.store.create(wizard.choices({'gameRoot': str(Path(self.temp.name) / 'Game')}))
         self.session = self.saved['session']
@@ -74,7 +76,7 @@ class StageProgressTests(unittest.TestCase):
             self.assertLess(self.progress()['stagePercent'], 100)
         self.assertEqual(self.progress()['percent'], .2)
 
-    def test_recovery_total_counts_committed_batches_and_not_last_collection(self):
+    def test_recovery_requires_batch_context_then_includes_its_measured_substeps(self):
         self.store.operation(self.session, 'build', 'recovery')
         initial = self.progress()['stagePercent']
         self.store.progress(self.session, 'build', 'recovery-original-collection-merge', 2761, 2761, 'collections')
@@ -82,13 +84,126 @@ class StageProgressTests(unittest.TestCase):
         self.store.progress(self.session, 'build', 'recovery-batches', 1, 4, 'batches')
         measured = self.progress()['stagePercent']
         self.assertGreater(measured, initial)
-        for phase in ('recovery-native-recipe-merge', 'recovery-checkpoint-write'):
-            self.store.progress(self.session, 'build', phase, 1, 100, 'files')
-            self.assertEqual(self.progress()['stagePercent'], measured)
+        self.store.progress(self.session, 'build', 'recovery-batch', 1, 4, 'batches')
+        self.store.progress(self.session, 'build', 'recovery-original-collection-merge', 1, 100, 'collections')
+        partial = self.progress()['stagePercent']
+        self.assertGreater(partial, measured)
+        self.store.progress(self.session, 'build', 'recovery-original-collection-merge', 70, 100, 'collections')
+        self.assertGreater(self.progress()['stagePercent'], partial)
+        self.assertLess(self.progress()['stagePercent'], 100)
         self.store.progress(self.session, 'build', 'recovery-batches', 4, 4, 'batches')
         self.assertLess(self.progress()['stagePercent'], 100)
         self.store.operation(self.session, 'build', 'project-files')
         self.assertGreaterEqual(self.progress()['stagePercent'], measured)
+
+    def recovery_batch(self, done=0, total=4):
+        self.store.operation(self.session, 'build', 'recovery')
+        self.store.progress(self.session, 'build', 'recovery-section:batches')
+        self.store.progress(self.session, 'build', 'recovery-batches', done, total, 'batches')
+        self.store.progress(self.session, 'build', 'recovery-batch', done, total, 'batches')
+
+    def test_scoped_files_collections_and_checkpoints_move_total_before_completion(self):
+        self.recovery_batch()
+        for phase, unit in (('recovery-batch-bundle-copy', 'bundles'), ('recovery-export-receipt-hash', 'files'),
+                            ('recovery-original-collection-merge', 'collections'), ('recovery-checkpoint-write', 'records')):
+            with self.subTest(phase=phase):
+                self.store.progress(self.session, 'build', phase, 1, 10, unit)
+                small = self.progress()['stagePercent']
+                self.store.progress(self.session, 'build', phase, 7, 10, unit)
+                self.assertGreater(self.progress()['stagePercent'], small)
+                self.assertLess(self.progress()['stagePercent'], 100)
+
+    def test_large_file_bytes_are_fraction_of_one_parent_file(self):
+        self.store.operation(self.session, 'build', 'recovery')
+        self.store.progress(self.session, 'build', 'recovery-section:source')
+        self.store.progress(self.session, 'build', 'recovery-source-hash', 2, 4, 'files')
+        initial = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'recovery-source-file-hash', 1, 10, 'bytes')
+        small = self.progress()['stagePercent']
+        self.assertGreater(small, initial)
+        self.store.progress(self.session, 'build', 'recovery-source-file-hash', 8, 10, 'bytes')
+        partial = self.progress()['stagePercent']
+        self.assertGreater(partial, small)
+        # A second file's resetting byte counter cannot reset the total or
+        # count an unwitnessed extra file. Only the outer file count accepts it.
+        self.store.progress(self.session, 'build', 'recovery-source-file-hash', 1, 100, 'bytes')
+        self.assertEqual(self.progress()['stagePercent'], partial)
+        self.store.progress(self.session, 'build', 'recovery-source-hash', 3, 4, 'files')
+        self.assertGreater(self.progress()['stagePercent'], partial)
+        self.assertLess(self.progress()['stagePercent'], 100)
+
+    def test_native_index_scope_and_recipe_bytes_stay_inside_current_batch(self):
+        self.recovery_batch(total=2)
+        before = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'recovery-native-index-read', 5, 5, 'bytes')
+        self.assertEqual(self.progress()['stagePercent'], before)
+        self.store.progress(self.session, 'build', 'recovery-original-collection-merge', 5, 5, 'collections')
+        self.store.progress(self.session, 'build', 'recovery-native-index-set', 1, 2, 'indexes')
+        self.store.progress(self.session, 'build', 'recovery-native-index-read', 1, 10, 'bytes')
+        small = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'recovery-native-index-read', 8, 10, 'bytes')
+        self.assertGreater(self.progress()['stagePercent'], small)
+        self.assertLess(self.progress()['stagePercent'] - small, .01)
+        reopened = state.Store(self.store.root)
+        self.assertEqual(reopened.load(self.session)['stages'][5]['progress']['stagePercent'], self.progress()['stagePercent'])
+        self.store.progress(self.session, 'build', 'recovery-native-recipe-merge', 2, 4, 'files')
+        small = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'recovery-native-recipe-copy', 1, 10, 'bytes')
+        self.store.progress(self.session, 'build', 'recovery-native-recipe-copy', 8, 10, 'bytes')
+        self.assertGreater(self.progress()['stagePercent'], small)
+        self.store.progress(self.session, 'build', 'recovery-native-index-write', 9, 10, 'rows')
+        before = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'recovery-batches', 1, 2, 'batches')
+        self.assertGreater(self.progress()['stagePercent'], before)
+        self.store.progress(self.session, 'build', 'recovery-batch', 1, 2, 'batches')
+        self.store.progress(self.session, 'build', 'recovery-batch-bundle-copy', 1, 100, 'bundles')
+        self.assertGreater(self.progress()['stagePercent'], before)
+
+    def test_recovery_source_recheck_has_distinct_scope_and_resume_keeps_nested_high_water(self):
+        self.store.begin_stage(self.session, 'build', 'same')
+        self.recovery_batch()
+        self.store.progress(self.session, 'build', 'recovery-original-collection-merge', 7, 10, 'collections')
+        before = self.progress()['stagePercent']
+        self.store = state.Store(self.store.root)
+        self.store.begin_stage(self.session, 'build', 'same')
+        self.store.progress(self.session, 'build', 'recovery-original-collection-merge', 1, 10, 'collections')
+        self.assertEqual(self.progress()['stagePercent'], before)
+        self.store.progress(self.session, 'build', 'recovery-original-collection-merge', 9, 10, 'collections')
+        self.assertGreater(self.progress()['stagePercent'], before)
+        self.store.progress(self.session, 'build', 'recovery-section:source-recheck')
+        self.store.progress(self.session, 'build', 'recovery-source-hash', 1, 10, 'files')
+        before = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'recovery-source-hash', 8, 10, 'files')
+        self.assertGreater(self.progress()['stagePercent'], before)
+        self.store.begin_stage(self.session, 'build', 'new')
+        self.assertEqual(self.progress()['stagePercent'], 0)
+
+    def test_previous_saved_plan_migrates_without_resetting_observed_total(self):
+        saved = self.store.load(self.session)
+        row = saved['stages'][5]
+        row.update(progressKey='same', status='interrupted', progress=state.stage_progress('recovery-batches', 1, 4, 'batches'))
+        row['progressPlan'] = {'version': 1, 'current': 'recovery', 'completed': list(stage_plan.PLANS['build'][:6]),
+                               'fractions': {'recovery': .25}, 'percent': 29.8}
+        state.atomic_json(self.store.session_dir(self.session) / 'state.json', saved)
+        self.store.begin_stage(self.session, 'build', 'same')
+        migrated = self.store.load(self.session)['stages'][5]
+        self.assertEqual(migrated['progressPlan']['version'], 2)
+        before = migrated['progress']['stagePercent']
+        self.assertGreaterEqual(before, 29.8)
+        self.store.progress(self.session, 'build', 'recovery-batch', 1, 4, 'batches')
+        self.store.progress(self.session, 'build', 'recovery-original-collection-merge', 7, 10, 'collections')
+        self.assertGreater(self.progress()['stagePercent'], before)
+
+    def test_unsupported_nested_scope_and_incidental_counter_never_skip_work(self):
+        self.store.operation(self.session, 'build', 'game-inputs')
+        for phase in ('recovery-section:future', 'recovery-native-future', 'file-hash'):
+            self.store.progress(self.session, 'build', phase, 1, 1, 'commands')
+            self.assertEqual(self.progress()['stagePercent'], 0)
+        self.recovery_batch()
+        before = self.progress()['stagePercent']
+        for phase in ('recovery-section:future', 'recovery-native-future', 'file-hash', 'tool:unity-version'):
+            self.store.progress(self.session, 'build', phase, 1, 1, 'commands')
+            self.assertEqual(self.progress()['stagePercent'], before)
 
     def test_nested_one_file_or_version_command_cannot_finish_a_parent_operation(self):
         self.store.operation(self.session, 'build', 'game-inputs')

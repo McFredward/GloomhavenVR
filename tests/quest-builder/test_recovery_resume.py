@@ -1,6 +1,8 @@
 """Audited recipe migration replays real retained exports and merge journals."""
 import copy
 import argparse
+import contextlib
+import importlib.util
 import io
 import json
 import os
@@ -25,6 +27,11 @@ LEGACY_MERGE_BYTES = {
     "tools/quest-recovery/bundle_recovery.py": 23906,
     "tools/quest-recovery/full_recovery.py": 12857,
     "tools/quest-recovery/native_evidence.py": 3587,
+}
+PREVIOUS_PROGRESS_BYTES = {
+    "tools/quest-recovery/bundle_recovery.py": 27139,
+    "tools/quest-recovery/full_recovery.py": 13022,
+    "tools/quest-recovery/native_evidence.py": 8634,
 }
 
 
@@ -82,13 +89,18 @@ class ResumeFixture(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def inputs(self, game_files, *, legacy=False):
+    def inputs(self, game_files, *, legacy=False, prior_progress=False):
         files = storage.inventory(self.source)
         if legacy:
             for row in files:
                 if row["path"] in recovery_resume.LEGACY_MERGE_FILES:
                     row["sha256"] = recovery_resume.LEGACY_MERGE_FILES[row["path"]]
                     row["size"] = LEGACY_MERGE_BYTES[row["path"]]
+        if prior_progress:
+            for row in files:
+                if row["path"] in recovery_resume.PREVIOUS_PROGRESS_FILES:
+                    row["sha256"] = recovery_resume.PREVIOUS_PROGRESS_FILES[row["path"]]
+                    row["size"] = PREVIOUS_PROGRESS_BYTES[row["path"]]
         value = {"schema": 1, "recipe": 1, "target": "game", "game": {"key": self.game_key, "unityVersion": "2021.3.5f1", "files": game_files},
                  "mod": {"key": storage.value_hash({"files": files}), "files": files}}
         value["inputKey"] = storage.value_hash(value)
@@ -151,6 +163,65 @@ class ResumeFixture(unittest.TestCase):
 
 
 class CompatibleMigrationTests(ResumeFixture):
+    def test_preceding_builder_progress_sources_resume_real_export_and_journal(self):
+        old = self.workspace
+        self.previous = self.inputs(self.previous["game"]["files"], prior_progress=True)
+        self.old_key = recovery_resume.recipe_key(self.previous, 1)
+        self.workspace = old.with_name(self.old_key)
+        old.rename(self.workspace)
+        self.core = self.workspace / "CoreExport/ExportedProject"
+        self.core_identity = self.workspace / "core-identities.jsonl"
+        identity = json.loads(self.core_identity.read_text())
+        identity["path"] = str(self.core / "Assets/core.mat")
+        self.core_identity.write_text(json.dumps(identity) + "\n")
+        receipt = self.workspace / "core-recovery.json"
+        core_proof = json.loads(receipt.read_text())
+        core_proof["identitiesSha256"] = recover.sha256(self.core_identity)
+        recover.write_json(receipt, core_proof)
+        self.raw = self.workspace / "RecoveredProject"
+        self.batches = self.workspace / "BundleRecovery"
+        self.interrupted_batch()
+        receipt = self.batches / "batch-000/export-complete.json"
+        retained = receipt.read_bytes()
+        current = self.inputs(self.previous["game"]["files"])
+        self.assertNotEqual(recovery_resume.recipe_key(current, 1), self.old_key)
+        self.assertEqual(self.select(current), self.workspace)
+        stream = io.StringIO()
+        with patch.dict(os.environ, {recover.build_progress.ENV: "1"}), contextlib.redirect_stdout(stream), \
+             patch.object(recover.build_progress.time, "monotonic", side_effect=iter(range(10000))):
+            result = self.finish(self.workspace)
+        self.assertTrue(result["fullOriginalCatalogRecovered"])
+        self.assertEqual(self.export_calls, 1)
+        self.assertEqual(receipt.read_bytes(), retained)
+        self.assertFalse((self.batches / "merge-pending.json").exists())
+        # Replay actual source-owned producer output through the durable plan;
+        # counts come from real retained files, collection merge and checkpoint
+        # writes, not a hand-maintained synthetic list of matching percentages.
+        spec = importlib.util.spec_from_file_location("resume_scoped_stage_plan", ROOT / "tools/quest-wizard/stage_plan.py")
+        plan = importlib.util.module_from_spec(spec); spec.loader.exec_module(plan)
+        row = {"id": "build", "status": "running"}
+        observed, sections = [], []
+        for line in stream.getvalue().splitlines():
+            if not line.startswith(recover.build_progress.PREFIX): continue
+            event = json.loads(line[len(recover.build_progress.PREFIX):])
+            done, total = event["done"], event["total"]
+            event["percent"] = None if done is None or total is None else (100 if total == 0 else 100 * done / total)
+            value = plan.advance(row, event, event.get("operation"), event.get("status"))
+            observed.append(value["stagePercent"])
+            if event["phase"].startswith("recovery-section:"): sections.append(event["phase"].split(":", 1)[1])
+        self.assertEqual(sections, list(plan.RECOVERY_SECTIONS))
+        self.assertEqual(observed, sorted(observed))
+        self.assertGreater(len(set(observed)), 20)
+        self.assertLess(max(observed), 100)
+
+    def test_mixed_reviewed_source_profiles_do_not_claim_a_whole_shipped_recipe(self):
+        previous = copy.deepcopy(self.previous)
+        for row in previous["mod"]["files"]:
+            if row["path"] == "tools/quest-recovery/native_evidence.py":
+                row["sha256"] = recovery_resume.PREVIOUS_PROGRESS_FILES[row["path"]]
+        current = self.inputs(self.previous["game"]["files"])
+        self.assertFalse(recovery_resume._compatible(previous, current))
+
     def test_large_core_inventory_migrates_and_bound_retry_does_not_hash_assets(self):
         receipt = self.workspace / "core-recovery.json"
         value = json.loads(receipt.read_text())

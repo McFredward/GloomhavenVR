@@ -103,10 +103,13 @@ def merge(project, evidence):
     records = {}
     started = time.monotonic()
     print("[Quest full recovery] Merging captured native indexes and recipes.", flush=True)
-    for filename, keys in (("native-redirect-identities.jsonl", ("collection", "pathId")),
-                           ("NativeRecipes/index.jsonl", ("collection", "pathId"))):
+    indices = (("native-redirect-identities.jsonl", ("collection", "pathId")),
+               ("NativeRecipes/index.jsonl", ("collection", "pathId")))
+    for slot, (filename, keys) in enumerate(indices):
+        build_progress.event("recovery-native-index-set", slot, len(indices), "indexes", filename, status="start")
         source = ordinary_path(evidence / "QuestRecovery" / filename)
         if not source.is_file():
+            build_progress.event("recovery-native-index-set", slot + 1, len(indices), "indexes", filename, status="reuse")
             continue
         destination = ordinary_path(target / filename)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -154,6 +157,7 @@ def merge(project, evidence):
         digest, size = _write_index(destination, values)
         relative = destination.relative_to(project).as_posix()
         records[relative] = {"path": relative, "sha256": digest, "bytes": size}
+        build_progress.event("recovery-native-index-set", slot + 1, len(indices), "indexes", filename, status="complete")
     print("[Quest full recovery] Native evidence merged:", len(records), "files;",
           sum(row["bytes"] for row in records.values()), "bytes;", round(time.monotonic() - started, 3), "seconds.", flush=True)
     return [records[key] for key in sorted(records)]

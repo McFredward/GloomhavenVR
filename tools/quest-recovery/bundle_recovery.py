@@ -122,11 +122,11 @@ def write_checkpoint(path, value):
           "bytes;", round(time.monotonic() - started, 3), "seconds.", flush=True)
 
 
-def verified_records(root, records, *, excluded=()):
+def verified_records(root, records, *, excluded=(), phase="recovery-checkpoint-verify"):
     started = time.monotonic()
     print("[Quest full recovery] Verifying checkpoint:", len(records), "files;",
           sum(row["bytes"] for row in records if row["path"] not in excluded), "bytes.", flush=True)
-    counter = build_progress.Counter("recovery-checkpoint-verify", len(records), "files")
+    counter = build_progress.Counter(phase, len(records), "files")
     for row in records:
         relative = Path(row["path"])
         if relative.is_absolute() or ".." in relative.parts or "\\" in row["path"]:
@@ -338,13 +338,15 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
     settings = json.loads((Path(__file__).parent / "tool-lock.json").read_text())["settings"]
     groups = list(range(len(plan["groups"])) if selected_groups is None else selected_groups)
     measured_groups = list(dict.fromkeys(groups))
+    build_progress.event("recovery-section:batches", detail="Recovering the selected original bundle schedule", status="start")
     group_counter = build_progress.Counter("recovery-batches", len(measured_groups), "batches")
     group_counter.update(sum(index in progress["completedGroups"] for index in measured_groups), "Verified retained recovery batches", force=True)
     for index in groups:
         if index in progress["completedGroups"]:
             continue
         group = plan["groups"][index]
-        build_progress.event("recovery-batch", detail="Preparing original batch " + str(index + 1) + " of " + str(len(plan["groups"])), status="start")
+        build_progress.event("recovery-batch", group_counter.done, len(measured_groups), "batches",
+                             "Preparing original batch " + str(index + 1) + " of " + str(len(plan["groups"])), status="start")
         directory = workspace / ("batch-" + str(index).zfill(3))
         batch_owner = workspace / (directory.name + ".owner.json")
         tool_files = [{"name": Path(argument).name, "sha256": sha256(argument)} for argument in tool_command if Path(argument).is_file()]
@@ -354,7 +356,7 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
         completed_export = json.loads(export_receipt.read_text()) if export_receipt.is_file() else None
         if completed_export:
             if completed_export.get("schema") != 1: raise RecoveryError("Batch export receipt is invalid.")
-            verified_records(directory, completed_export["files"])
+            verified_records(directory, completed_export["files"], phase="recovery-batch-export-verify")
             project = ordinary_path(directory / completed_export["project"])
             if directory not in project.parents: raise RecoveryError("Batch export project escaped its owner.")
             shaders = completed_export["shaderRecipes"]
@@ -423,6 +425,7 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
         print("[Quest full recovery] Batch", index + 1, "of", len(plan["groups"]), "merged:",
               merged["exportedCollectionCount"], "collections; total original objects", len(canonical), flush=True)
     group_counter.finish()
+    build_progress.event("recovery-section:references", detail="Qualifying recovered original asset references", status="start")
     build_progress.event("recovery-asset-references", detail="Auditing recovered original asset references", status="start")
     progress["assetReferences"] = audit_asset_references(output)
     write_checkpoint(checkpoint, progress)

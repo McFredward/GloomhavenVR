@@ -21,6 +21,14 @@ LEGACY_MERGE_FILES = {
     "tools/quest-recovery/full_recovery.py": "29702e3356cd17e786e3d3e57ebee37f11c8201a03aaecc3a86137a3c8447e39",
     "tools/quest-recovery/native_evidence.py": "e711d1017ecd3b5b98dcec91896a4dedafe31ee9a087fdded76da226fbb61951",
 }
+# Immediately preceding B627 Builder (a22376f8c): subsequent changes add only
+# scoped progress boundaries. Adopt the entire reviewed profile, not a guessed
+# version or a mixture of independently unknown orchestration implementations.
+PREVIOUS_PROGRESS_FILES = {
+    "tools/quest-recovery/bundle_recovery.py": "6931dc03f4e19de3c50a5248ca7ef6cea2a2100ca1de86903617ac80b98470d2",
+    "tools/quest-recovery/full_recovery.py": "e2c9ccc1c170126c3204a1f0ea69db84d1fd35c01118a4b076e083f065e6b5a3",
+    "tools/quest-recovery/native_evidence.py": "ec675fd7506f42c0af3877c63f4f31eeb81fddd48dfc9e9a6e4636f75fbdf076",
+}
 DERIVED_FILES = {"tools/quest-builder/full_assets.py", "tools/quest-builder/full_shaders.py"}
 MAX_MANIFESTS = 128
 MAX_JSON_BYTES = 16 * 1024 * 1024
@@ -92,14 +100,17 @@ def _compatible(previous, current):
     required = LEGACY_MERGE_FILES.keys() | {"tools/quest-recovery/QuestExportIdentity.cs",
                "tools/quest-recovery/export_identity.py", "tools/quest-recovery/tool-lock.json"}
     if old.keys() != new.keys() or not required <= old.keys(): return False
+    changed = []
     for name in old:
         if name in DERIVED_FILES: continue  # Their new stage is never adopted.
         if old[name] == new[name]: continue
-        # These three shipped files only changed post-export merge/checkpoints
-        # and observation. A guessed version number or arbitrary older hash is
-        # not sufficient: every other exporter/config/capture source must agree.
-        if old[name]["sha256"] != LEGACY_MERGE_FILES.get(name): return False
-    return True
+        if name not in LEGACY_MERGE_FILES: return False
+        changed.append(name)
+    if not changed: return True
+    # Every exporter/config/capture source outside these exact three is still
+    # identical. The child retains the full input/core/batch/journal hash gates.
+    return any(all(old[name]["sha256"] == profile[name] for name in profile)
+               for profile in (LEGACY_MERGE_FILES, PREVIOUS_PROGRESS_FILES))
 
 
 def _manifest(path):

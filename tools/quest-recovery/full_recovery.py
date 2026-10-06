@@ -34,6 +34,7 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
         if target == source or source in target.parents or target in source.parents:
             raise RecoveryError("Full recovery tools/output must stay outside the read-only original game.")
     workspace.mkdir(parents=True, exist_ok=True)
+    build_progress.event("recovery-section:source", detail="Qualifying original source inputs", status="start")
     files, fingerprint = source_inventory(source)
     source_receipt = workspace / "original-source.json"
     if source_receipt.exists():
@@ -42,6 +43,7 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
             raise RecoveryError("Original game version changed; choose a new full recovery workspace.")
     else:
         write_json(source_receipt, {"schema": 1, "sourceFingerprint": fingerprint, "sourceInventory": files})
+    build_progress.event("recovery-section:core", detail="Preparing and qualifying the original core export", status="start")
     tool, tool_proof = build_tool(tool_cache, dotnet)
     if (core_project is None) != (core_identities is None):
         raise RecoveryError("Existing core reuse requires both its actual project and native identity evidence.")
@@ -138,14 +140,17 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
             shutil.copyfile(path, target)
             if previous is None:
                 progress["files"].append({"path": relative, "bytes": path.stat().st_size, "sha256": digest})
+    build_progress.event("recovery-section:source-recheck", detail="Rechecking original inputs after conversion", status="start")
     _, after_fingerprint = source_inventory(source)
     if after_fingerprint != fingerprint:
         raise RecoveryError("Original game files changed during full recovery.")
     progress["sourceFingerprint"], progress["sourceInventory"] = fingerprint, files
+    build_progress.event("recovery-section:checkpoint", detail="Publishing the qualified full recovery checkpoint", status="start")
     write_checkpoint(output / "quest-full-recovery-progress.json", progress)
     owners = {}
     plan = catalog_bundle_plan(source)
     total = sum(len(group["bundles"]) for group in plan["groups"])
+    build_progress.event("recovery-section:cab-index", detail="Indexing original physical bundle ownership", status="start")
     counter = build_progress.Counter("recovery-cab-bundle-index", total, "bundles")
     for group in plan["groups"]:
         for bundle in group["bundles"]:
