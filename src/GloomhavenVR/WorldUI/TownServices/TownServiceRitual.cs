@@ -534,6 +534,8 @@ internal sealed class TownServiceRitual : IDisposable
     private void MaskDuplicateNativeCard()
     {
         AbilityCardUI? native = Handoff?.Card != null ? Handoff.NativeHighlightedCard : null;
+        if (_service == 3)
+            TownServiceQuietController.SetOriginalEnhancementEffect(_window.GetComponent<UINewEnhancementWindow>(), native != null);
         if (_nativeCardMask != null && (native == null
             || !ReferenceEquals(_nativeCardMask.gameObject, native.gameObject)))
         { _nativeCardMask.Restore(); _nativeCardMask = null; }

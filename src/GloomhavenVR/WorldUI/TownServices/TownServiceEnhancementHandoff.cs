@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using HarmonyLib;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
@@ -19,6 +20,10 @@ namespace GloomhavenVR.WorldUI;
 internal sealed class TownServiceEnhancementHandoff : IDisposable
 {
     private static TownServiceEnhancementHandoff? _current;
+    private static readonly FieldInfo? OriginalCardHolderField = typeof(UIEnhancementCardHighlighter)
+        .GetField("cardHolder", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+    private static readonly FieldInfo? OriginalHolderGroupField = OriginalCardHolderField?.FieldType
+        .GetField("canvasGroup", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
     internal static bool HasCurrentOffering => _current != null && !_current._disposed
         && _current.Card != null && _current._window != null && TownServiceQuietController.IsOpen(_current._window, 3)
         && TownServicePresentation.Active && TownServicePresentation.Service == 3;
@@ -905,6 +910,17 @@ internal sealed class TownServiceEnhancementHandoff : IDisposable
     private void ClearNativeSelection()
     {
         if (_shop == null || _window == null || !TownServiceQuietController.IsOpen(_window, 3)) return;
+        // Native scene shutdown can destroy the serialized UILevelUpCardHolder's
+        // CanvasGroup before the still-live shop. Its Hide then throws while the
+        // mod returns the offering, preventing the remaining teardown. Check that
+        // exact original source; live native selection errors are not swallowed.
+        if (_shop.cardHolder == null) return;
+        if (OriginalCardHolderField != null)
+        {
+            Component? holder = OriginalCardHolderField.GetValue(_shop.cardHolder) as Component;
+            if (holder == null || OriginalHolderGroupField != null
+                && OriginalHolderGroupField.GetValue(holder) as CanvasGroup == null) return;
+        }
         _shop.DeselectCurrentCard();
         _shop.OnSelectedCardToEnhance(null);
     }

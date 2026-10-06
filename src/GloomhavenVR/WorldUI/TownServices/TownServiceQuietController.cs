@@ -31,6 +31,7 @@ internal static class TownServiceQuietController
     private static float _nextPointsSample;
     private static int _points = -1, _capacity = -1;
     private static UnityEngine.Object? _proxyFailureReported;
+    private static MonoBehaviour? _enhancementEffect;
     internal static byte RequestedService
     {
         get
@@ -194,6 +195,30 @@ internal static class TownServiceQuietController
         source.gameObject.SetActive(true);
     }
 
+    internal static void SetOriginalEnhancementEffect(UINewEnhancementWindow shop, bool visible)
+    {
+        if (shop == null || !ReferenceEquals(_owner, shop.GetComponent<UIWindow>())
+            || !TownServicePresentation.IsQuietController(_owner!, 3)) return;
+        if (!visible) { StopOriginalEnhancementEffect(); return; }
+        if (_enhancementEffect != null) return;
+        var effect = Field(shop, "enhanctressEffect").GetValue(shop) as MonoBehaviour;
+        if (effect == null) return;
+        // Native EnterShop starts this exact UIEnchantressEffect. Quiet preparation
+        // deliberately skips EnterShop, so it must start the same pulse/rotation once
+        // its original card-holder has an active converted hierarchy and a physical
+        // offering. Stop it when that offering leaves; hidden preparation does not
+        // run a UI loop. The original LoopAnimator/LeanTween own every animation.
+        Invoke(effect, "Play");
+        _enhancementEffect = effect;
+    }
+
+    private static void StopOriginalEnhancementEffect()
+    {
+        MonoBehaviour? effect = _enhancementEffect;
+        _enhancementEffect = null;
+        if (effect != null) Invoke(effect, "Stop");
+    }
+
     private static void PrepareOriginalCardSlots(UINewEnhancementWindow shop)
     {
         UIPartyCharacterEnhancementAbilityCardsDisplay display = shop.CardsDisplay;
@@ -270,6 +295,7 @@ internal static class TownServiceQuietController
         _ownershipChanged = null;
         try
         {
+            StopOriginalEnhancementEffect();
             if (owner != null && owner.GetComponent<UIShopItemWindow>() is UIShopItemWindow merchant)
                 Invoke(merchant, "ClearEvents");
             if (owner != null && owner.GetComponent<UINewEnhancementWindow>() is UINewEnhancementWindow mage)
