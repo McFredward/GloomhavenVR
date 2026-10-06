@@ -23,6 +23,10 @@ internal static partial class ScenarioTerrainBudget
     private static MeshLookup? _lookup;
     private static Func<Camera, bool>? _nativeCameraConsumers;
     private static Func<Material, Material>? _canonicalMaterial;
+    private static Func<Material, Material>? _worldVariant;
+    private static Func<IDisposable>? _worldReadPass;
+    private static Func<bool>? _worldEnabled;
+    private static Func<Material, bool>? _worldOwns;
     private static Func<bool>? _assetsReady, _assetsUnavailable;
     private static Driver? _driver;
     private static bool _failed;
@@ -36,6 +40,9 @@ internal static partial class ScenarioTerrainBudget
         _nativeCameraConsumers = hasNativeConsumers;
     internal static void ConfigureCanonicalMaterial(Func<Material, Material> canonicalMaterial) =>
         _canonicalMaterial = canonicalMaterial;
+    internal static void ConfigureWorldMaterialIntegration(Func<Material, Material> variant,
+        Func<IDisposable> readPass, Func<bool> enabled, Func<Material, bool> owns)
+    { _worldVariant = variant; _worldReadPass = readPass; _worldEnabled = enabled; _worldOwns = owns; }
     internal static void ConfigureAssetPreparation(Func<bool> assetsReady, Func<bool> assetsUnavailable)
     { _assetsReady = assetsReady; _assetsUnavailable = assetsUnavailable; }
     private static Material CanonicalMaterial(Material material) =>
@@ -421,6 +428,7 @@ internal static partial class ScenarioTerrainBudget
                 if (camera == null || camera != Rig.VRRigDriver.HeadCamera || !VRSession.IsRunning
                     || !isActiveAndEnabled || (_nativeCameraConsumers?.Invoke(camera) ?? camera.commandBufferCount > 0)) return;
                 using (PerfMonitor.Scope("ScenarioTerrain.PreCull"))
+                using (_worldReadPass?.Invoke())
                 {
                     _leaseCamera = camera;
                     PreparePriority();
@@ -453,12 +461,20 @@ internal static partial class ScenarioTerrainBudget
                         if (!supported) continue;
                         // Never mask until ALL required slot submissions have valid materials.
                         surface.EnsureSlots(_materialScratch.Count);
+                        bool world = _worldEnabled?.Invoke() == true;
                         for (int slot = 0; slot < _materialScratch.Count; slot++)
-                            surface.SetMaterial(slot, PerfConfig.CheapWallShadingOn
-                                ? CheapMaterial(CanonicalMaterial(_materialScratch[slot])) : _materialScratch[slot]);
-                        if (Array.Exists(surface.Materials, material => material == null)) continue;
+                        {
+                            Material original = CanonicalMaterial(_materialScratch[slot]);
+                            Material next = world ? _worldVariant?.Invoke(original) ?? original
+                                : PerfConfig.CheapWallShadingOn ? CheapMaterial(original) : _materialScratch[slot];
+                            // A global shader refusal must keep the whole native source.
+                            // The older cheap shader cannot substitute unknown world effects.
+                            supported &= !world || _worldOwns?.Invoke(next) == true;
+                            surface.SetMaterial(slot, next);
+                        }
+                        if (!supported || Array.Exists(surface.Materials, material => material == null)) continue;
                         if (!surface.PrepareProxy(shared, ownerPose, ownerScale)) continue;
-                        surface.CheapLease = PerfConfig.CheapWallShadingOn;
+                        surface.CheapLease = world || PerfConfig.CheapWallShadingOn;
                         surface.Mask(); _leases.Add(surface);
                     }
                     if (PerfMonitor.StepsActive && VRLog.Level >= VRLogLevel.Debug)

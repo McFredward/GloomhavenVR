@@ -488,6 +488,7 @@ internal static partial class VROptionsTab
                         new("Optimize", "ScenarioEnvironmentMeshBank", ""),
                         new("Optimize", "ScenarioExplicitEnvironmentInstancing", ""),
                         new("Optimize", "ScenarioCheapWallShading", ""),
+                        new("Optimize", "WorldMaterialQualityModeCount", ""),
                         new("Optimize", "ScenarioTerrainDetailPercent", ""),
                         new("Optimize", "ScenarioDistantTerrainDetailPercent", ""),
                         new("Optimize", "ScenarioTerrainDistanceMeters", ""),

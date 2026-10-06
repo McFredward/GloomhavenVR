@@ -36,11 +36,47 @@ internal static class ScenarioEnvironmentBudget
     private static Action<Renderer>? _terrainReady, _terrainBeforeWrite;
     private static Action? _terrainBeforeContent;
     private static Func<Renderer, bool>? _terrainOwns;
+    private static Action<GameObject>? _worldQueue;
+    private static Action<Renderer>? _worldReady, _worldBeforeWrite;
+    private static Action? _worldBeforeContent;
+    private static Func<Material, Material>? _worldCanonical;
+    private static Func<Material, bool>? _worldOwns;
+    private static Func<bool>? _worldEnabled;
+    internal static void ConfigureWorldMaterialIntegration(Action<GameObject> queue, Action<Renderer> ready,
+        Action<Renderer> beforeWrite, Action beforeContent, Func<Material, Material> canonical,
+        Func<Material, bool> owns, Func<bool> enabled)
+    { _worldQueue = queue; _worldReady = ready; _worldBeforeWrite = beforeWrite; _worldBeforeContent = beforeContent;
+        _worldCanonical = canonical; _worldOwns = owns; _worldEnabled = enabled; }
     internal static void ConfigureTerrainIntegration(Action<GameObject> queue, Action<Renderer> ready,
         Action<Renderer> beforeWrite, Action beforeContent, Func<Renderer, bool> owns)
     { _terrainQueue = queue; _terrainReady = ready; _terrainBeforeWrite = beforeWrite; _terrainBeforeContent = beforeContent; _terrainOwns = owns; }
     internal static bool OwnsRenderSubstitute(Renderer renderer) => _driver != null && _driver.OwnsSubstitute(renderer);
-    internal static Material CanonicalMaterial(Material material) => _driver?.CanonicalMaterial(material) ?? material;
+    internal static Material CanonicalMaterial(Material material)
+    {
+        Material original = _driver?.CanonicalMaterial(material) ?? material;
+        return _worldCanonical?.Invoke(original) ?? original;
+    }
+    // A material owner notifies reference changes after its own enumeration. Release
+    // obsolete chunks/proxies without calling back into that owner's restoration path.
+    internal static void WorldMaterialChanged(Renderer renderer)
+    {
+        if (renderer == null) return;
+        try
+        {
+            _terrainBeforeWrite?.Invoke(renderer);
+            if (_failed) return;
+            _driver?.BeforeNativeRendererWrite(renderer);
+            _driver?.MaterialReady(renderer);
+        }
+        catch (Exception error) { StopAfterFailure(error); }
+    }
+    internal static void BeforeWorldMaterialDisposal()
+    {
+        // Factory-only terrain consumers may precede bounded world discovery.
+        // Release current and queued substitutes before their material is destroyed.
+        _terrainBeforeContent?.Invoke();
+        _driver?.WorldMaterialsDisposing();
+    }
     private static bool TerrainOwns(Renderer renderer) => _terrainOwns?.Invoke(renderer) == true;
     internal static bool HasNativeCommandBufferConsumers(Camera camera) => camera != null
         && camera.commandBufferCount > 0 && (_driver == null || _driver.HasForeignCommands(camera));
@@ -55,14 +91,14 @@ internal static class ScenarioEnvironmentBudget
     internal static void BeforeNativeRendererWrite(Renderer renderer)
     {
         if (renderer == null) return;
-        try { _terrainBeforeWrite?.Invoke(renderer); if (!_failed) _driver?.BeforeNativeRendererWrite(renderer); }
+        try { _worldBeforeWrite?.Invoke(renderer); _terrainBeforeWrite?.Invoke(renderer); if (!_failed) _driver?.BeforeNativeRendererWrite(renderer); }
         catch (Exception error) { StopAfterFailure(error); }
     }
     internal static void BeforeNativeContentChange()
     {
         try
         {
-            try { _terrainBeforeContent?.Invoke(); }
+            try { _worldBeforeContent?.Invoke(); _terrainBeforeContent?.Invoke(); }
             finally { _driver?.RecoverRenderLeases(); }
         }
         catch (Exception error) { StopAfterFailure(error); }
@@ -99,11 +135,11 @@ internal static class ScenarioEnvironmentBudget
         _failed = false;
     }
 
-    internal static void Placed(GameObject root) { _terrainQueue?.Invoke(root); if (!_failed) _driver?.QueueRoot(root); }
+    internal static void Placed(GameObject root) { _worldQueue?.Invoke(root); _terrainQueue?.Invoke(root); if (!_failed) _driver?.QueueRoot(root); }
     internal static void MaterialReady(Renderer renderer)
     {
         if (renderer == null) return;
-        try { _terrainReady?.Invoke(renderer); if (!_failed) _driver?.MaterialReady(renderer); }
+        try { _worldReady?.Invoke(renderer); _terrainReady?.Invoke(renderer); if (!_failed) _driver?.MaterialReady(renderer); }
         catch (Exception error) { StopAfterFailure(error); }
     }
     internal static void BeforeLoadingComplete() { if (!_failed) _driver?.FinishLoading(); }
@@ -174,6 +210,7 @@ internal static class ScenarioEnvironmentBudget
 
     private static bool CompatibleMaterial(Material material, bool floor)
     {
+        material = CanonicalMaterial(material);
         if (!floor || material == null || material.shader == null) return false;
         string shader = material.shader.name;
         if (shader != "Amp_Basic_N_MRAO" && shader != "Amp_Low/Amp_Basic_N_MRAO_Low"
@@ -264,6 +301,16 @@ internal static class ScenarioEnvironmentBudget
             Material[] current = Renderer.sharedMaterials;
             if (current.Length != Applied.Length) return false;
             for (int i = 0; i < current.Length; i++) if (current[i] != Applied[i]) return false;
+            return true;
+        }
+        internal bool StructuralMaterialReady()
+        {
+            if (IsApplied()) return true;
+            if (_worldEnabled?.Invoke() != true || Renderer == null) return false;
+            Material[] current = Renderer.sharedMaterials;
+            if (current.Length != Original.Length || current.Length == 0) return false;
+            for (int i = 0; i < current.Length; i++)
+                if (_worldOwns?.Invoke(current[i]) != true || CanonicalMaterial(current[i]) != Original[i]) return false;
             return true;
         }
         internal void RestoreMaterial()
@@ -646,7 +693,7 @@ internal static class ScenarioEnvironmentBudget
         internal bool HasLocalReflectionProbes => _reflectionProbes.Count > 0;
         private bool _instancesOn, _meshBankOn;
         private readonly List<int> _dead = new();
-        private bool _batchOn, _structuralOn, _simpleOn, _active, _buildPending, _reportPending;
+        private bool _batchOn, _structuralOn, _simpleOn, _active, _worldOn, _buildPending, _reportPending;
         internal Material CanonicalMaterial(Material material) => material != null && _originalByVariant.TryGetValue(material, out Material original) ? original : material!;
         internal bool OwnsSubstitute(Renderer r) => r != null && (_batchBySource.ContainsKey(r.GetInstanceID()) || _instanceBySource.ContainsKey(r.GetInstanceID()));
         internal bool HasForeignCommands(Camera camera)
@@ -787,18 +834,23 @@ internal static class ScenarioEnvironmentBudget
             bool batch = VRSession.IsRunning && PerfConfig.StaticScenarioBatchesOn;
             bool simple = VRSession.IsRunning && PerfConfig.SimpleEnvironmentShadingOn;
             bool structural = VRSession.IsRunning && StructuralEnabled && simple;
+            bool world = VRSession.IsRunning && _worldEnabled?.Invoke() == true;
+            structural |= world && StructuralEnabled;
+            // The global owner supplies its variants; keep geometry submission available
+            // without making two owners rewrite the same native material slots.
+            simple &= !world;
             int effects = VRSession.IsRunning ? PerfConfig.EnvironmentEffectsDensityPercent : 100;
             bool instances = VRSession.IsRunning && PerfConfig.EnvironmentDrawInstancingOn;
             bool bank = VRSession.IsRunning && PerfConfig.EnvironmentMeshBankOn;
-            bool active = batch || structural || instances || simple || effects < 100;
-            if (batch == _batchOn && structural == _structuralOn && simple == _simpleOn && effects == _effects && active == _active && instances == _instancesOn && bank == _meshBankOn) return;
+            bool active = batch || structural || instances || simple || world || effects < 100;
+            if (batch == _batchOn && structural == _structuralOn && simple == _simpleOn && effects == _effects && active == _active && instances == _instancesOn && bank == _meshBankOn && world == _worldOn) return;
             ReleaseBatches();
             foreach (Surface surface in _surfaces.Values) surface.RestoreMaterial();
             RestoreClonedMaterials();
             foreach (Material material in _materials.Values) if (material != null) UnityEngine.Object.Destroy(material);
             _materials.Clear(); _originalByVariant.Clear();
             _instancesOn = instances; _meshBankOn = bank;
-            _batchOn = batch; _structuralOn = structural; _simpleOn = simple; _effects = effects; _active = active;
+            _batchOn = batch; _structuralOn = structural; _simpleOn = simple; _effects = effects; _active = active; _worldOn = world;
             foreach (Surface surface in _surfaces.Values) ApplyMaterial(surface);
             foreach (Ambient ambient in _ambient.Values) ambient.Apply(Hide(ambient.Hash));
             if (!active) { RestoreAll(); return; }
@@ -856,8 +908,14 @@ internal static class ScenarioEnvironmentBudget
                 Material[] materials = renderer.sharedMaterials;
                 bool cloned = false;
                 for (int i = 0; i < materials.Length; i++)
-                    if (materials[i] != null && _originalByVariant.TryGetValue(materials[i], out Material original))
-                    { materials[i] = original; cloned = true; }
+                    if (materials[i] != null)
+                    {
+                        Material original = CanonicalMaterial(materials[i]);
+                        // Snapshot the genuine source; only our legacy clone references
+                        // belong to this owner's repair. World references have one owner.
+                        cloned |= _originalByVariant.ContainsKey(materials[i]);
+                        materials[i] = original;
+                    }
                 floor = ProvenFloorCore(renderer, filter.sharedMesh, tile, materials);
                 bool structural = !floor && StructuralIdentity(filter.sharedMesh) && !renderer.HasPropertyBlock();
                 if (structural)
@@ -990,7 +1048,7 @@ internal static class ScenarioEnvironmentBudget
                 MeshRenderer renderer = surface.Renderer;
                 RecordPreparationRefusals(renderer, false);
                 if (renderer == null || TerrainOwns(renderer) || _instanceBySource.ContainsKey(renderer.GetInstanceID()) || _batchBySource.ContainsKey(renderer.GetInstanceID())
-                    || !(surface.Floor ? _batchOn : surface.Structural && _structuralOn && surface.IsApplied()) || surface.Tile == null || surface.Mesh == null
+                    || !(surface.Floor ? _batchOn : surface.Structural && _structuralOn && surface.StructuralMaterialReady()) || surface.Tile == null || surface.Mesh == null
                     || renderer.transform.localToWorldMatrix.determinant <= 0f
                     || !renderer.enabled || !renderer.gameObject.activeInHierarchy || renderer.forceRenderingOff
                     || renderer.HasPropertyBlock() || !NativeGeometryCompatible(renderer) || surface.Filter.sharedMesh != surface.Mesh
@@ -1110,7 +1168,7 @@ internal static class ScenarioEnvironmentBudget
                     || s.Renderer.forceRenderingOff || !s.Renderer.enabled
                     || !s.Renderer.gameObject.activeInHierarchy || s.Renderer.HasPropertyBlock() || !NativeGeometryCompatible(s.Renderer)
                     || s.Renderer.sharedMaterials.Length != 1
-                    || !(s.Floor ? _batchOn : s.Structural && _structuralOn && s.IsApplied())
+                    || !(s.Floor ? _batchOn : s.Structural && _structuralOn && s.StructuralMaterialReady())
                     || !CompatibleMaterial(s.Renderer.sharedMaterial, s.Floor || s.Structural)
                     || !ChunkLightingCompatible(s.Renderer)
                     || s.Renderer.transform.localToWorldMatrix.determinant <= 0f
@@ -1355,6 +1413,11 @@ internal static class ScenarioEnvironmentBudget
                 batch.Validate();
                 if (batch.LightingRefused) PerfMonitor.Count("Environment.LightingFallback");
             }
+        }
+        internal void WorldMaterialsDisposing()
+        {
+            ReleaseBatches();
+            _buildPending = true;
         }
         private void ReleaseBatches()
         {

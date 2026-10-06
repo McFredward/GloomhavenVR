@@ -3,9 +3,14 @@
   "editor": "2021.3.5f1",
   "target": "StandaloneWindows64",
   "file": "ghvr-environment.bundle",
-  "sha256": "e48e5f00bb978347434c4e895fd03662c469f3d53f9aed803619c676ea7251d9",
-  "bytes": 56732489,
+  "sha256": "c012d139af3a9712e196d4f67f79a72109fbadf333388aa2d9c87ce42e76577d",
+  "bytes": 56804117,
   "textAssets": 3171,
-  "shaderAssets": 1,
-  "builder": "unity/GloomhavenVR.Assets/Assets/Editor/BuildEnvironmentBank.cs"
+  "shaderAssets": 2,
+  "builder": "unity/GloomhavenVR.Assets/Assets/Editor/BuildEnvironmentBank.cs",
+  "sourceSha256": {
+    "unity/GloomhavenVR.Assets/Assets/Editor/BuildEnvironmentBank.cs": "e28ab929d7dac9217a04f827a42c95d6f071cb96cc70a86edda13fbcc0b3c691",
+    "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/ScenarioCheapTerrain.shader": "bb54a6164dcfcfd66b6ef954ca864ecb375a8031a97a2b626cc91a017b7cdabe",
+    "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/WorldSimpleMaterial.shader": "57e021f530a23d08310d93b93cc0433e281d8a004b0e72ee256d1e5a17bc2e04"
+  }
 }

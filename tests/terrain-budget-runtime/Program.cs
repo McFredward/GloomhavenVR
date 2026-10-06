@@ -286,6 +286,7 @@ public static partial class TerrainProgram
             &&exactOnly.GetComponent<MeshFilter>().sharedMesh==exactOnlySource,
             "coarse bank tier without actual triangle saving retains the native renderer");
         PerfConfig.CheapWallShadingOn=true; PerfConfig.TerrainDetailPercent=100;
+        WorldMaterialBridge(host,scenario,camera,material);
         var faultWall=Surface(scenario,"CV_Wall_Generic_02",new Vector3(-1,1,0),material);
         BundleShaders.Throw=true; Component oldDriver=Driver(host); ScenarioTerrainBudget.Shutdown(); Object.DestroyImmediate(oldDriver);
         ScenarioTerrainBudget.Install(host); ScenarioTerrainBudget.QueueRoot(scenario); Tick(host); Render(camera);
@@ -297,6 +298,47 @@ public static partial class TerrainProgram
         scenario.SetActive(false); NativeCoverage(camera);
         Object.DestroyImmediate(host); Object.DestroyImmediate(scenario); Object.DestroyImmediate(camera.targetTexture); Object.DestroyImmediate(cameraGo); Object.DestroyImmediate(material); DisposeBank();
         return _checks;
+    }
+    private sealed class MaterialPass : IDisposable
+    {
+        internal static int Open, Started;
+        internal MaterialPass() { Open++; Started++; }
+        public void Dispose() { Open--; }
+    }
+    private static void WorldMaterialBridge(GameObject host,GameObject scenario,Camera camera,Material original)
+    {
+        var source=Surface(scenario,"CV_Wall_Generic_04",new Vector3(0,1,0),original);
+        var variant=new Material(original) {name="Fixture.PrivateWorldMaterial"};
+        bool allowed=true,world=true;
+        int calls=0;
+        ScenarioTerrainBudget.ConfigureWorldMaterialIntegration(material=>{calls++;return allowed?variant:material;},
+            ()=>new MaterialPass(),()=>world,material=>material==variant);
+        ScenarioTerrainBudget.QueueRoot(source.gameObject); Tick(host);
+        try
+        {
+            Check(DuringRender(camera,()=>source.forceRenderingOff && Proxies(host).Exists(proxy=>proxy.enabled&&proxy.sharedMaterial==variant)),
+                "terrain world bridge submits the global owner variant on private geometry");
+            Check(calls>0&&MaterialPass.Open==0&&MaterialPass.Started>0&&source.sharedMaterial==original,
+                "terrain world material reads are invocation-scoped and never replace native source slots");
+            allowed=false;
+            Check(DuringRender(camera,()=>!source.forceRenderingOff&&!Proxies(host).Exists(proxy=>proxy.enabled&&proxy.sharedMaterial==variant)),
+                "world shader refusal retains whole native source without falling through to legacy cheap shader");
+            allowed=true;
+            Check(DuringRender(camera,()=>source.forceRenderingOff),"world material recovery can resubmit after a current native refusal");
+            ScenarioTerrainBudget.BeforeNativeContentChange();
+            Check(!source.forceRenderingOff&&Proxies(host).TrueForAll(proxy=>!proxy.enabled),
+                "variant disposal bridge revokes factory-only terrain consumers synchronously");
+            world=false;
+            Check(DuringRender(camera,()=>source.forceRenderingOff&&!Proxies(host).Exists(proxy=>proxy.enabled&&proxy.sharedMaterial==variant)),
+                "world mode off restores independently configured legacy wall shading");
+        }
+        finally
+        {
+            ScenarioTerrainBudget.ConfigureWorldMaterialIntegration(material=>material,()=>new MaterialPass(),()=>false,_=>false);
+            ScenarioTerrainBudget.BeforeNativeContentChange();
+            source.gameObject.SetActive(false);
+            Object.DestroyImmediate(variant);
+        }
     }
     private static void BudgetScaling(GameObject host,MeshRenderer original,Camera camera)
     {

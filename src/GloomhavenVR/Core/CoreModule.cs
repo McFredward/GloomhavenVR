@@ -70,6 +70,22 @@ internal sealed class CoreModule : IVRModule
         ScenarioGenerationDetail.Install();
         ScenarioFigureDetailBudget.Install(_hostGo);
         ScenarioIdleAnimationBudget.Install(_hostGo, () => PerfConfig.OffscreenIdleAnimationOn);
+        WorldMaterialBudget.ConfigureAssetPreparation(ScenarioEnvironmentAssets.EnsureLoaded);
+        WorldMaterialBudget.ConfigureBeforeVariantDisposal(ScenarioEnvironmentBudget.BeforeWorldMaterialDisposal);
+        WorldMaterialBudget.ConfigureCanonicalSource(ScenarioEnvironmentBudget.CanonicalMaterial);
+        WorldMaterialBudget.ConfigureSourceChanged(ScenarioEnvironmentBudget.WorldMaterialChanged);
+        WorldMaterialBudget.ConfigureRenderSubstituteOwnership(renderer =>
+            ScenarioTerrainBudget.OwnsRenderSubstitute(renderer) || ScenarioEnvironmentBudget.OwnsRenderSubstitute(renderer));
+        // Refresh world uniforms after all native pre-cull writers, before the existing
+        // environment owner validates its substitutes at the same native boundary.
+        WorldMaterialBudget.Install(_hostGo);
+        ScenarioEnvironmentBudget.ConfigureWorldMaterialIntegration(WorldMaterialBudget.QueueRoot,
+            WorldMaterialBudget.MaterialReady, WorldMaterialBudget.BeforeNativeRendererWrite,
+            WorldMaterialBudget.BeforeNativeContentChange, WorldMaterialBudget.CanonicalMaterial,
+            WorldMaterialBudget.IsOwnedVariant, () => PerfConfig.WorldMaterialQualityMode > 0);
+        ScenarioTerrainBudget.ConfigureWorldMaterialIntegration(WorldMaterialBudget.VariantFor,
+            WorldMaterialBudget.BeginMaterialReadPass, () => PerfConfig.WorldMaterialQualityMode > 0,
+            WorldMaterialBudget.IsOwnedVariant);
         ScenarioEnvironmentMeshBank.ConfigureAssetPreparation(ScenarioEnvironmentAssets.EnsureLoaded);
         ScenarioTerrainBudget.ConfigureMeshBank(ScenarioEnvironmentMeshBank.IsTerrainEligible,
             ScenarioEnvironmentMeshBank.TryGetDetail);
@@ -148,6 +164,7 @@ internal sealed class CoreModule : IVRModule
         ScenarioTerrainBudget.Shutdown();
         ScenarioStructuralInstancing.Shutdown();
         ScenarioEnvironmentBudget.Shutdown(); // restore only optional static render substitutions
+        WorldMaterialBudget.Shutdown(); // restore only owned material references after substitutes are gone
         ScenarioGenerationDetail.Shutdown(); // release transient generation profiles, never game assets
         ScenarioFigureDetailBudget.Shutdown(); // restore original actor LODs and owned cloth simulation
 

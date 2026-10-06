@@ -135,6 +135,8 @@ def main():
         native = {entry['key']: entry for entry in native_receipt['meshes']}
         assert len(native) == len(native_receipt['meshes']) == len(manifest['entries']), 'complete independent original census'
     receipt = json.loads((root / 'tools/environment-mesh/bank.json').read_text())
+    for path, expected in receipt['sourceSha256'].items():
+        assert hashlib.sha256((root / path).read_bytes()).hexdigest() == expected, 'bank source binding drift: ' + path
     bank = root / 'prebuilt' / receipt['file']
     assert hashlib.file_digest(bank.open('rb'), 'sha256').hexdigest() == receipt['sha256'], 'packaged bank hash drift'
     assert bank.stat().st_size == receipt['bytes'] < 100 * 1024 * 1024, 'bank size bound'
@@ -150,6 +152,9 @@ def main():
             texts[asset.m_Name] = data
         elif obj.type.name == 'Shader': shaders.append(obj.read().m_ParsedForm.m_Name)
     assert shaders.count('GloomhavenVR/ScenarioCheapTerrain') == 1, 'optional shader packed into independent bank'
+    assert shaders.count('GloomhavenVR/WorldSimpleMaterial') == 1, 'whole-game world shader packed into independent bank'
+    assert len(shaders) == receipt['shaderAssets'] == 2, 'exact independent shader inventory'
+    assert env.container['assets/bundle/environments/worldsimplematerial.shader'].read().m_ParsedForm.m_Name == 'GloomhavenVR/WorldSimpleMaterial', 'declared whole-game shader asset path'
     assert env.container['assets/bundle/environments/scenariocheapterrain.shader'].read().m_ParsedForm.m_Name == 'GloomhavenVR/ScenarioCheapTerrain', 'declared shader asset path'
     assert texts.pop('index') == (prepared / 'index.json').read_bytes(), 'runtime index differs from prepared index'
     checked = 0; identities = set(); files = set(); detail_triangles = {0: [0, 0], 50: [0, 0]}
@@ -183,7 +188,7 @@ def main():
     assert native is None or not native, 'native originals omitted from the package'
     assert len(identities) == preparation['originals'] and checked == preparation['variants'], 'prepared census drift'
     assert checked + 1 == receipt['textAssets'], 'packaged asset count drift'
-    print(f'PASS environment bank: {len(manifest["entries"])} exact originals, {checked} immutable streams, shader and package hashes verified')
+    print(f'PASS environment bank: {len(manifest["entries"])} exact originals, {checked} immutable streams, both shaders and package hashes verified')
     print('PASS bounded geometry: same-index 3D detail, original attribute channels/submeshes; triangles ' + str(detail_triangles))
     if args.native_sources: print('PASS independent native source census: every tier100 byte and original bundle/path identity matches')
     if args.unity_load: unity_load(root, args.output_dir)

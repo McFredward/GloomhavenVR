@@ -18,15 +18,16 @@ namespace GloomhavenVR
             {
                 const string root = "Assets/Bundle/EnvironmentMeshes";
                 const string shader = "Assets/Bundle/Environments/ScenarioCheapTerrain.shader";
+                const string worldShader = "Assets/Bundle/Environments/WorldSimpleMaterial.shader";
                 const string output = "Build/Environment";
                 if (Application.unityVersion != "2021.3.5f1")
                     throw new InvalidOperationException("Environment banks require Unity 2021.3.5f1.");
-                if (!File.Exists(root + "/index.json") || !File.Exists(shader))
-                    throw new FileNotFoundException("Generate environment meshes and terrain shader before packing.");
+                if (!File.Exists(root + "/index.json") || !File.Exists(shader) || !File.Exists(worldShader))
+                    throw new FileNotFoundException("Generate environment meshes and both environment shaders before packing.");
                 string[] assets = Directory.GetFiles(root, "*", SearchOption.AllDirectories)
                     .Select(path => path.Replace('\\', '/'))
                     .Where(path => path.EndsWith(".bytes", StringComparison.Ordinal) || path.EndsWith(".json", StringComparison.Ordinal))
-                    .Concat(new[] { shader }).OrderBy(path => path, StringComparer.Ordinal).ToArray();
+                    .Concat(new[] { shader, worldShader }).OrderBy(path => path, StringComparer.Ordinal).ToArray();
                 foreach (string asset in assets)
                     if (AssetDatabase.AssetPathToGUID(asset) == string.Empty)
                         throw new InvalidOperationException("Unimported environment asset: " + asset);

@@ -78,6 +78,7 @@ internal static class BundleShaders
         { "GloomhavenVR/WaterVR",        "Assets/Bundle/Environments/WaterVR.shader" },
         { "GloomhavenVR/ScenarioSimpleEnvironment", "Assets/Bundle/Environments/ScenarioSimpleEnvironment.shader" },
         { "GloomhavenVR/ScenarioCheapTerrain", "Assets/Bundle/Environments/ScenarioCheapTerrain.shader" },
+        { "GloomhavenVR/WorldSimpleMaterial", "Assets/Bundle/Environments/WorldSimpleMaterial.shader" },
         { "GloomhavenVR/TownFlame",      "Assets/Bundle/TownServices/Shaders/TownFlame.shader" },
         // The owned-lighting selector also names these original town-bank shaders.
         // Resolve searches every loaded bank, including ghvr-town.bundle; registering

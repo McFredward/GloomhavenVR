@@ -68,6 +68,9 @@ internal static class FrameDefaults
     internal const bool ScenarioEnvironmentMeshBank = true;
     internal const bool ScenarioExplicitEnvironmentInstancing = true;
     internal const bool ScenarioCheapWallShading = true;
+    // One shared renderer: a fresh low profile requests the strongest audited material
+    // compromise. Saved choices remain authoritative; native geometry and fade stay live.
+    internal const int WorldMaterialQualityModeCount = 2; // => [Optimize] WorldMaterialQualityModeCount
     internal const int ScenarioTerrainDetailPercent = 0;
     internal const int ScenarioDistantTerrainDetailPercent = 0;
     // Limit substitution maintenance per eye; overflow retains native original surfaces.

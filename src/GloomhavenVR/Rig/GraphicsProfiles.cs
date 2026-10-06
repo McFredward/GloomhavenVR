@@ -67,6 +67,7 @@ internal static class GraphicsProfiles
             Set(PerfConfig.ScenarioEnvironmentMeshBank, standalone ? FrameDefaults.ScenarioEnvironmentMeshBank : index < 3);
             Set(PerfConfig.ScenarioExplicitEnvironmentInstancing, standalone ? FrameDefaults.ScenarioExplicitEnvironmentInstancing : index < 3);
             Set(PerfConfig.ScenarioCheapWallShading, standalone ? FrameDefaults.ScenarioCheapWallShading : low);
+            Set(PerfConfig.WorldMaterialQualityModeCount, standalone ? FrameDefaults.WorldMaterialQualityModeCount : 0);
             Set(PerfConfig.ScenarioTerrainDetailPercent, standalone ? FrameDefaults.ScenarioTerrainDetailPercent : index == 1 ? 50 : 100);
             Set(PerfConfig.ScenarioDistantTerrainDetailPercent, standalone ? FrameDefaults.ScenarioDistantTerrainDetailPercent : index == 1 ? 0 : index == 2 ? 50 : 100);
             Set(PerfConfig.ScenarioTerrainCameraSourceLimitCount, standalone ? FrameDefaults.ScenarioTerrainCameraSourceLimitCount : 0);
