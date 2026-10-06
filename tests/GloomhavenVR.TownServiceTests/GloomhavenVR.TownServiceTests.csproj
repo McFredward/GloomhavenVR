@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="TownOriginalValuePoolCases.cs" />
     <Compile Include="ProtocolBoundary.cs" />
     <Compile Include="TownVoiceScheduleCases.cs" />
     <Compile Include="TownGrantCases.cs" />
@@ -19,6 +20,7 @@
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownCatalogClock.cs" />
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceFrame.cs" />
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceCodec.cs" />
+    <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceCodec.OriginalValuePool.cs" />
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceDelta.cs" />
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceGrantCodec.cs" />
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceGrantLedger.cs" />

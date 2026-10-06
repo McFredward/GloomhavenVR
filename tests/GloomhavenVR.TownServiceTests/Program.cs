@@ -10,6 +10,7 @@ internal static class Program
     { _checks++; if (!value) throw new Exception(text); }
     private static void Main()
     {
+        TownOriginalValuePoolCases.Run();
         TownVoiceScheduleCases.Run();
         TownGrantCases.Run();
         DonationCommitClock();

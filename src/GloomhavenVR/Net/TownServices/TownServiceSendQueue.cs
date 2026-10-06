@@ -295,27 +295,35 @@ internal sealed class TownServiceLaneSendQueue
         if (!bundle.HasInFlight && !bundle.HasPending)
         {
             var bytes = new List<byte[]>(); frames.Clear();
+            var originalValues = new TownServiceCodec.OriginalValuePoolBuilder();
             if (!urgent) { _bundleBytes.Clear(); _promotedBundle.Clear(); }
-            int size = 2;
-            // Group neighboring native output before compression so repeated TMP styles,
-            // material tables and card bodies cost once per bounded snapshot. Never wait
-            // for a fuller batch: a lone changed module can leave on this same turn.
-            for (int i=0; i<_order.Count && bytes.Count<TownServiceCodec.MaxBundleFrames; i++)
+            // Share exact native property values *before* the bounded snapshot is
+            // assembled. Four12 KiB native enhancement rows used to fill this
+            // batch, even when they all repeated the same original material/font
+            // tables. A current64-module picture now owns one atomic value pool;
+            // there is no earlier dictionary delivery or observer-default gate.
+            for (int i=0; i<_order.Count && bytes.Count<TownServiceCodec.MaxOriginalValuePoolFrames; i++)
             {
                 int cursor = urgent ? _priorityCursor : _cursor;
                 if (cursor >= _order.Count) cursor = 0; ushort id = _order[cursor++];
                 if (urgent) _priorityCursor = cursor; else _cursor = cursor;
                 if (id == TownServiceFrame.ManifestModule || _priority.Contains(id) != urgent
                     || id == (urgent ? _normalActive : _priorityActive)) continue;
-                ExtrasSendQueue queue=_queues[id];int length=queue.PendingLength;
-                if(length==0)continue;
-                if(size+2+length>58000){if(urgent)_priorityCursor--;else _cursor--;break;}
+                ExtrasSendQueue queue=_queues[id];
+                if (!queue.TryPeekPending(out byte[]? waiting, out _)) continue;
+                if (!originalValues.TryAdd(waiting!))
+                {
+                    // Catalog banks/clock payloads keep the established grammar.
+                    // If this is the first candidate, let ordinary Take deliver it;
+                    // otherwise publish the bounded original picture already built.
+                    if(urgent)_priorityCursor--;else _cursor--;break;
+                }
                 if(!queue.TryTakePending(out byte[]? packet,out object? identity))continue;
-                bytes.Add(packet!);size+=2+length;
+                bytes.Add(packet!);
                 if(identity is TownServiceFrame frame){frames.Add(frame);if(!urgent)_bundleBytes[id]=packet!;}
             }
             if(bytes.Count==0)return null;
-            byte[] container=TownServiceCodec.WriteBundle(bytes);
+            byte[] container=originalValues.Write();
             bundle.Enqueue(container,container.Length);
         }
         byte[]? page=bundle.Next(now);

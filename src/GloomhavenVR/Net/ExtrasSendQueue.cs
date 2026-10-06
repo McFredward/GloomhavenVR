@@ -102,6 +102,11 @@ internal sealed class ExtrasSendQueue
     // Town batching drains exactly the next immutable queued snapshot, preserving the
     // same first/latest transition order as normal per-module fragmentation.
     internal int PendingLength => !HasInFlight && _pending.Count > 0 ? _pending[0].Bytes.Length : 0;
+    internal bool TryPeekPending(out byte[]? bytes, out object? identity)
+    {
+        bytes = null; identity = null; if (PendingLength == 0) return false;
+        bytes = _pending[0].Bytes; identity = _pending[0].Identity; return true;
+    }
     internal bool TryTakePending(out byte[]? bytes, out object? identity)
     {
         bytes=null;identity=null;if(PendingLength==0)return false;

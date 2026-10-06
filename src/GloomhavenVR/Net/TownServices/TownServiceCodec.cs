@@ -6,7 +6,7 @@ using System.Collections.Generic;
 namespace GloomhavenVR.Net.TownServices;
 
 /// <summary>One complete module revision, split into additive TLV78 records inside GVR1.</summary>
-internal static class TownServiceCodec
+internal static partial class TownServiceCodec
 {
     internal const byte MessageType = 19, FragmentType = 20, RecordId = 78;
     internal const byte WorkspaceClothRecordId = NetProtocol.ExtIdTownWorkspaceCloth;
@@ -444,6 +444,7 @@ internal static class TownServiceCodec
         if(packet==null||length<10||length>packet.Length||length>TownServiceFrame.MaxBytes
             ||packet[0]!=0x31||packet[1]!=0x52||packet[2]!=0x56||packet[3]!=0x47
             ||packet[4]!=3||packet[5]!=MessageType)return false;
+        if (HasOriginalValuePool(packet, length)) return TryReadOriginalValuePool(packet, length, out packets);
         using var body=new MemoryStream();
         for(int at=6;at<length;)
         {
