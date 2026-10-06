@@ -152,9 +152,12 @@ internal static class TownServiceQuietController
                 shop.enhancementShop.Clear();
                 shop.OnSelectedCardToEnhance(null);
                 Field(shop, "previousSelectedCard").SetValue(shop, null);
+                Field(shop, "lastShowedCard").SetValue(shop, null);
                 // Keep the original mode transition and tab value coherent. OnSelectedSlot
                 // reads mode, while the visible native options retain their original state.
                 shop.buyButton.Activate();
+                shop.sellButton.gameObject.SetActive(nativeService.IsSellAvailable);
+                shop.buyButton.interactable = nativeService.IsSellAvailable;
                 ActivateSource(shop.CardsDisplay.transform);
                 PrepareOriginalCardSlots(shop);
                 MethodInfo method = Method(shop, "OnControllableOwnershipChanged");
