@@ -28,7 +28,7 @@ namespace GloomhavenVR.Core
     internal static class VRSession
     {
         internal static bool IsRunning=true;
-        internal static readonly Harmony Harmony=new("world.material."+typeof(VRSession).Assembly.GetName().Name);
+        internal static Harmony Harmony=new("world.material."+typeof(VRSession).Assembly.GetName().Name);
     }
     internal static class PerfConfig { internal static int WorldMaterialQualityMode=2; }
     internal static class VRLog
@@ -58,9 +58,11 @@ namespace GloomhavenVR.Core
     }
     internal static class NativeWriteObserver
     {
-        internal static int MaterialCopies,ArrayWrites;
+        internal static int MaterialCopies,ArrayWrites,MaterialReads,MapInventories;
         internal static void Copy(Material target,Material source){MaterialCopies++;target.CopyPropertiesFromMaterial(source);}
         internal static void Slots(Renderer renderer,Material[] slots){ArrayWrites++;renderer.sharedMaterials=slots;}
+        internal static void Read(Renderer renderer,List<Material> slots){MaterialReads++;renderer.GetSharedMaterials(slots);}
+        internal static MapChoreographer[] FindMaps(){MapInventories++;return UnityEngine.Object.FindObjectsOfType<MapChoreographer>(true);}
     }
 }
 namespace GloomhavenVR.Board.FigureGrab

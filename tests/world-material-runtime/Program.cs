@@ -1,15 +1,18 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using GloomhavenVR.Core;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using Object=UnityEngine.Object;
 
 public static class WorldMaterialProgram
 {
     private static int _checks;
+    public static int Assertions => _checks;
     private static void Check(bool value,string message){_checks++;if(!value)throw new Exception(message);}
     private static void Tick(GameObject host,int times=1)
     {
@@ -156,6 +159,77 @@ public static class WorldMaterialProgram
         Object.DestroyImmediate(source.gameObject);Object.DestroyImmediate(scenario);Object.DestroyImmediate(host);
         Object.DestroyImmediate(camera.targetTexture);Object.DestroyImmediate(cameraGo);Object.DestroyImmediate(first);Object.DestroyImmediate(second);Object.DestroyImmediate(foreign);
         return _checks;
+    }
+    public static IEnumerator RunAsync()
+    {
+        Run();
+        // Run completed a plugin owner's teardown. A fresh owner exercises the
+        // production boundary's real reinstall contract in the same managed domain.
+        VRSession.Harmony=new HarmonyLib.Harmony("world.material.lifecycle."+typeof(VRSession).Assembly.GetName().Name);
+        var host=new GameObject("World lifecycle host");
+        Scene retained=SceneManager.CreateScene("WorldMaterialRetained");
+        var scenario=new GameObject("Retained native scenario");SceneManager.MoveGameObjectToScene(scenario,retained);
+        scenario.AddComponent<ProceduralScenario>();
+        var generated=new GameObject("Generated Content");generated.transform.SetParent(scenario.transform,false);
+        var cube=GameObject.CreatePrimitive(PrimitiveType.Cube);Mesh mesh=cube.GetComponent<MeshFilter>().sharedMesh;Object.DestroyImmediate(cube);
+        var original=Native("Retained original");var source=Source("Retained masonry",generated.transform,mesh,original);
+        var cameraGo=new GameObject("Retained camera");var camera=cameraGo.AddComponent<Camera>();camera.transform.position=new Vector3(0,0,-3);camera.transform.LookAt(Vector3.zero);
+        camera.clearFlags=CameraClearFlags.SolidColor;camera.backgroundColor=Color.black;camera.allowHDR=false;
+        camera.targetTexture=new RenderTexture(64,64,24,RenderTextureFormat.ARGBFloat);camera.targetTexture.Create();
+        WorldMaterialBudget.ConfigureBeforeVariantDisposal(()=>{});
+        WorldMaterialBudget.ConfigureSourceChanged(renderer=>WorldMaterialBudget.MaterialReady(renderer));
+        WorldMaterialBudget.ConfigureCanonicalSource(material=>material);
+        WorldMaterialBudget.ConfigureRenderSubstituteOwnership(_=>false);
+        WorldMaterialBudget.ConfigureAssetPreparation(()=>true);
+        PerfConfig.WorldMaterialQualityMode=0;WorldMaterialBudget.Install(host);Tick(host);
+        try
+        {
+            NativeWriteObserver.MaterialReads=0;NativeWriteObserver.MapInventories=0;
+            IDisposable firstPass=WorldMaterialBudget.BeginMaterialReadPass();firstPass.Dispose();
+            for(int i=0;i<64;i++)
+            {
+                using IDisposable pass=WorldMaterialBudget.BeginMaterialReadPass();
+                Check(ReferenceEquals(pass,firstPass),"settled Off reuses a no-op read pass without allocating owned pass objects");
+                WorldMaterialBudget.BeforeNativeRendererWrite(source);
+            }
+            Check(NativeWriteObserver.MaterialReads==0,"settled Off performs no native renderer slot reads");
+            yield return SceneManager.LoadSceneAsync("WorldMaterialUnrelated",LoadSceneMode.Additive);
+            Scene unrelated=SceneManager.GetSceneByName("WorldMaterialUnrelated");
+            Check(unrelated.IsValid()&&unrelated.isLoaded,"actual Unity additive scene load completes for Off discovery boundary");
+            Check(NativeWriteObserver.MapInventories==0,"settled Off additive scene loading performs no scene material inventory");
+            yield return SceneManager.UnloadSceneAsync(unrelated);
+            Check(retained.isLoaded&&source!=null&&source.sharedMaterial==original,"Off additive unload preserves retained native scenery");
+            PerfConfig.WorldMaterialQualityMode=2;Tick(host,16);Center(camera);
+            Check(WorldMaterialBudget.IsOwnedVariant(source!.sharedMaterial),"retained scene adopts the requested material stage before unrelated unload");
+            yield return SceneManager.LoadSceneAsync("WorldMaterialUnrelated",LoadSceneMode.Additive);
+            unrelated=SceneManager.GetSceneByName("WorldMaterialUnrelated");
+            Check(unrelated.isLoaded&&retained.isLoaded,"actual Unity additive scenes coexist before native unload");
+            yield return SceneManager.UnloadSceneAsync(unrelated);
+            Check(!unrelated.isLoaded&&retained.isLoaded&&source!=null,"actual unrelated scene unload retains the native source scene");
+            Tick(host,16);Color shown=Center(camera);
+            Check(WorldMaterialBudget.IsOwnedVariant(source!.sharedMaterial)&&shown.r>.7f,
+                "unrelated additive unload reseeds retained scenery and renders its requested private stage");
+            Check(source.GetComponent<MeshFilter>().sharedMesh==mesh&&source.enabled&&!source.forceRenderingOff,
+                "retained-scene recovery leaves native geometry and visibility authoritative");
+            PerfConfig.WorldMaterialQualityMode=0;
+            using(IDisposable pending=WorldMaterialBudget.BeginMaterialReadPass())
+                Check(!ReferenceEquals(pending,firstPass),"pending Off retains an owned read pass while existing variant consumers need restoration");
+            WorldMaterialBudget.BeforeNativeRendererWrite(source);
+            Check(source.sharedMaterial==original,"pending Off restores existing private source references before native writes");
+            Tick(host);
+            NativeWriteObserver.MaterialReads=0;
+            using(IDisposable settled=WorldMaterialBudget.BeginMaterialReadPass())
+                Check(ReferenceEquals(settled,firstPass),"completed Off transition returns to the allocation-free read pass");
+            WorldMaterialBudget.BeforeNativeRendererWrite(source);
+            Check(NativeWriteObserver.MaterialReads==0,"completed Off transition again avoids native slot reads");
+        }
+        finally
+        {
+            WorldMaterialBudget.Shutdown();
+            Object.DestroyImmediate(camera.targetTexture);Object.DestroyImmediate(cameraGo);Object.DestroyImmediate(host);
+            Object.DestroyImmediate(scenario);Object.DestroyImmediate(original);
+        }
+        yield return SceneManager.UnloadSceneAsync(retained);
     }
     private static void Families(MeshRenderer source,Material first,Material second,Camera camera)
     {

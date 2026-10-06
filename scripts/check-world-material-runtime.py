@@ -65,6 +65,10 @@ def main():
         ('disabled-native-fallback-caster-admitted',[('WorldMaterialBudget.Materials.cs','return original.GetShaderPassEnabled("ShadowCaster") && original.GetShaderPassEnabled("CUSTOM_SHADOW_PASS");','return original.GetShaderPassEnabled("CUSTOM_SHADOW_PASS");',1)],'live disabled native material pass remains original: ShadowCaster'),
         ('disabled-native-low-caster-admitted',[('WorldMaterialBudget.Materials.cs','return original.GetShaderPassEnabled("ShadowCaster") && original.GetShaderPassEnabled("CUSTOM_SHADOW_PASS");','return original.GetShaderPassEnabled("ShadowCaster");',1)],'live disabled native material pass remains original: CUSTOM_SHADOW_PASS'),
         ('video-mpb-admitted',[('WorldMaterialBudget.Materials.cs','if (_block.HasTexture("_MainTex") && _block.GetTexture("_MainTex") is RenderTexture\n                || _slotBlock.HasTexture("_MainTex") && _slotBlock.GetTexture("_MainTex") is RenderTexture) return true;','/* injected animated texture admission */',1)],'current per-slot native video/render texture remains original'),
+        ('off-read-pass-allocates',[('WorldMaterialBudget.cs','if (!Requested && _originalByVariant.Count == 0) return EmptyPass.Instance;','/* injected allocating Off pass */',1)],'settled Off reuses a no-op read pass'),
+        ('off-renderer-material-read',[('WorldMaterialBudget.cs','if (_originalByVariant.Count == 0) return false;','/* injected unused native Off slot read */',1)],'settled Off performs no native renderer slot reads'),
+        ('off-scene-inventory',[('WorldMaterialBudget.cs','private void SceneLoaded(Scene scene, LoadSceneMode mode) { if (Requested) Seed(); }','private void SceneLoaded(Scene scene, LoadSceneMode mode) { if (VRSession.IsRunning) Seed(); }',1)],'settled Off additive scene loading performs no scene material inventory'),
+        ('retained-scene-not-reseeded',[('WorldMaterialBudget.cs','if (Requested) Seed();\n        }\n        internal IDisposable BeginPass()', '/* injected missing retained scene rediscovery */\n        }\n        internal IDisposable BeginPass()',1)],'unrelated additive unload reseeds retained scenery'),
     ]
     variants=[('production',sources,'')]
     if not args.production_only:
@@ -98,6 +102,8 @@ def main():
                 text=text.replace('variant.CopyPropertiesFromMaterial(original);','NativeWriteObserver.Copy(variant, original);')
             if filename=='WorldMaterialBudget.cs':
                 text=text.replace('renderer.sharedMaterials = _slots.ToArray();','NativeWriteObserver.Slots(renderer, _slots.ToArray());')
+                text=text.replace('renderer.GetSharedMaterials(_slots);','NativeWriteObserver.Read(renderer, _slots);')
+                text=text.replace('UnityEngine.Object.FindObjectsOfType<MapChoreographer>(true)','NativeWriteObserver.FindMaps()')
             (production/filename).write_text(text)
         project=case/'World.csproj';shutil.copyfile(fixture/'World.csproj',project)
         assembly='WorldMaterial_'+name.replace('-','_')

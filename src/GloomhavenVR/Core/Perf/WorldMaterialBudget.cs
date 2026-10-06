@@ -115,11 +115,21 @@ internal static partial class WorldMaterialBudget
             SceneManager.sceneUnloaded -= SceneUnloaded;
             RestoreAll(true);
         }
-        private void SceneLoaded(Scene scene, LoadSceneMode mode) { if (VRSession.IsRunning) Seed(); }
+        private bool Requested => VRSession.IsRunning && !_failed && PerfConfig.WorldMaterialQualityMode > 0;
+        private void SceneLoaded(Scene scene, LoadSceneMode mode) { if (Requested) Seed(); }
         private void SceneUnloaded(Scene scene)
-        { RestoreAll(true); _worldRoots.RemoveWhere(root => root == null || root.gameObject.scene == scene); }
+        {
+            RestoreAll(true);
+            _worldRoots.RemoveWhere(root => root == null || root.gameObject.scene == scene);
+            // An additive unload can leave the current world alive. RestoreAll
+            // cleared its candidates too; unchanged settings do not rediscover them.
+            if (Requested) Seed();
+        }
         internal IDisposable BeginPass()
         {
+            // Existing references still need transition/consumer reads until their
+            // owner restores them. A settled Off path has nothing to refresh.
+            if (!Requested && _originalByVariant.Count == 0) return EmptyPass.Instance;
             if (_passDepth++ == 0) { _prepared.Clear(); _scopes.Clear(); _sceneScopes.Clear(); _refreshes = 0; }
             return new ReadPass(this);
         }
@@ -269,6 +279,7 @@ internal static partial class WorldMaterialBudget
         }
         internal bool RestoreRenderer(Renderer renderer)
         {
+            if (_originalByVariant.Count == 0) return false;
             renderer.GetSharedMaterials(_slots);
             bool changed = false;
             for (int slot = 0; slot < _slots.Count; slot++)
