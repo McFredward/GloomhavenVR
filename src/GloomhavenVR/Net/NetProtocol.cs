@@ -592,7 +592,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 634;
+    public const ushort ModBuild = 635;
+
+    // ModBuild 635 — Build634 local enchantress overlay follow-up. Quiet visits
+    // now start/stop the shipped UIEnchantressEffect only while the original
+    // highlighted physical offering is present; hidden preparation runs no loop.
+    // Reused native enhancement-area buttons recover their original local basis
+    // after native world-preserving pooling, retaining callbacks and hover state.
+    // Offered-card effects follow the actual print plane rather than assuming a
+    // pooled print has identity rotation; preserve the native rotation clock and
+    // avoid applying a physical size change twice. Original sprites/controllers
+    // and exact-original observer publication remain, with no new wire layout.
+    // Native shutdown skips selection cleanup only when its exact serialized
+    // holder CanvasGroup was already destroyed. Focused original-game animation,
+    // native prefab geometry/input and source-to-observer proofs are recorded in
+    // .planning/NPC-635-REVIEW.md; they do not establish headset acceptance.
+    // Both multiplayer peers must install635. No asset/default changes here.
+    //
 
     // ModBuild 634 — restore the exact native enchantress EnterShop already-on
     // BUY branch during quiet preparation. UITab.Activate only invokes its

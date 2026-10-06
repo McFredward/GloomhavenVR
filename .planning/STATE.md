@@ -1,5 +1,25 @@
 # State — where the project stands
 
+**Build635 integration, 2026-10-06: 1.1.0 development candidate.**
+
+The Build634 enchantress screenshot is reproduced with original native pooling
+and effect code. Actual pooled areas recover their serialized local basis;
+ring/frame follow the physical print plane even when a pooled card retains yaw.
+The original effect starts only for a visible offering, retains its rotation
+and pulse, and stops on return. Physical rescaling is applied once. Native
+selection callbacks and exact-original remote publication remain unchanged.
+Destroyed-holder shutdown cleanup is guarded without swallowing live failures.
+
+Original native lifecycle/input, rendered geometry and source-to-observer
+tests pass, including retained print rotations and140 remote subframes. Final
+source gates14/14, golden296631, Release/Debug zero warnings/errors, docs5 pairs
+and compiled scope pass. This is focused validation with inherited unchanged
+evidence, not another complete146-suite run or headset acceptance. Remote
+hardware logs are still629. See [the NPC635 review](NPC-635-REVIEW.md).
+Both peers must install635; this round changes no bundles or defaults.
+
+---
+
 **Build634 integration, 2026-10-06: 1.1.0 development candidate.**
 
 The Build633 singleplayer regression is reproduced against original native
