@@ -88,9 +88,12 @@ missing assets, VR teardown and failure retention. At 64 sources / 128 slots wit
 shared originals, executed material copies are 2 per camera and settled array writes
 are 0. These are operation counts, not a headset frame-time claim.
 
-An earlier complete run passed production 459 assertions and 22 independently compiled
-causal controls. The final pass-state/video additions are recorded below after their
-27-variant run. Fourteen read-only source gates passed. The integrated Core/environment/
+The final run passed production 466 assertions and 26 independently compiled causal
+controls, including live FORWARD, fallback ShadowCaster and LOW CUSTOM_SHADOW_PASS
+disable/re-enable, plus per-slot video texture fallback. Every control failed its
+specific runtime assertion; no compilation failure was accepted. Strict Release and
+Debug each passed with zero warnings/errors. Fourteen read-only source gates passed
+again after the final runtime changes. The integrated Core/environment/
 terrain bridges additionally have 16 read-only binding contracts and 8 in-memory source
 controls; these are wiring evidence, not execution of the original game controllers.
 
@@ -102,3 +105,11 @@ failure remain archived as failures. No compile failure is counted as a causal p
 Unity Library/Temp caches are removed after each owned invocation; dependencies and
 raw evidence are retained. The full integration gate, build packaging and hardware
 acceptance belong to the primary agent.
+
+The final worker proof is .planning/debug/world-material-final-controls/run-hlcdvd_g
+(27 cases, unchanged source-hash manifest), with integrated source bindings from the
+parent candidate. Final source-gate results are in world-material-final-source-gates/
+results.json; strict build logs are world-material-final-release.log and
+world-material-final-debug.log. Actual delivery pixels ran on GL llvmpipe; production
+shader pixels, actual game scene/controller execution, Frame timing and multiplayer
+are deliberately separate acceptance domains.
