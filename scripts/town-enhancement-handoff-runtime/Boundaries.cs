@@ -127,6 +127,9 @@ namespace GloomhavenVR.Net.TownServices
     public static class RemoteTownResidents { public static int AuthorPlayer = 11; }
     public static class TownServiceMirror
     {
+        // Numeric publication is outside this local handoff/fit fixture. The
+        // real mirror capture/codec/playback proof covers this source relation.
+        public static void RegisterOfferedFrame(Transform nativeHolder, Transform? physicalPrint) { }
         public static bool Settled = true;
         public static bool CanBegin = true;
         public static bool Denied;
