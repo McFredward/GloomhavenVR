@@ -37,10 +37,11 @@ test('actual browser: measured progress, reopen/check Unity action, specific fai
     await client.wait("!document.getElementById('unity-actions').hidden");
     assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'Benutzeraktion erforderlich');
     assert.match(await client.evaluate("document.getElementById('action-needed-copy').textContent"),/In Unity Hub anmelden/);
-    assert.match(await client.evaluate("document.getElementById('stage-list').textContent"),/50 %/);
+    assert.equal(await client.evaluate("document.getElementById('substep-track').getAttribute('aria-valuenow')"),'50');
     assert.equal(await client.evaluate("document.getElementById('unity-check').getBoundingClientRect().bottom<window.innerHeight"),true,'required user action is visible without scrolling');
     const statusExpression=`(async()=>await(await fetch('/api/status?session=${started.session}',{headers:{'X-Quest-Token':location.hash.slice(1)}})).json())()`;
     const before=await client.evaluate(statusExpression);const nonce=before.state.stages.find(row=>row.id==='unity').waiting.nonce;
+    assert.equal(Number(await client.evaluate("document.getElementById('progress-track').getAttribute('aria-valuenow')")),before.state.stages.find(row=>row.id==='unity').progress.stagePercent??0,'whole-stage value is independent of the 50% prerequisite phase');
     await client.picture('unity-action-official-slideshow-de');
     await client.evaluate("document.getElementById('unity-open').click()");
     await delay(1100);
@@ -56,7 +57,7 @@ test('actual browser: measured progress, reopen/check Unity action, specific fai
     await client.wait("document.getElementById('stage-log').textContent.includes('FAILED: original object identity missing')");
     assert.match(await client.evaluate("document.getElementById('event-log').textContent"),/Spielassets|original object/);
     assert.equal(await client.evaluate("document.getElementById('result-card').hidden"),true);
-    assert.match(await client.evaluate("document.getElementById('stage-list').textContent"),/24.1 %/);
+    assert.match(await client.evaluate("document.getElementById('substep-count').textContent"),/24.1 %/);
     await client.picture('specific-failure-live-log-de');
     const paths=client.events.filter(row=>row.method==='Network.requestWillBeSent').map(row=>new URL(row.params.request.url).pathname);
     assert.equal(paths.filter(path=>path==='/api/action').length,2);

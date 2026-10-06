@@ -67,7 +67,7 @@ test('native browser: bilingual setup, consent, cancellation, choice edits and r
     await evaluate("document.getElementById('unity-terms').checked=true;document.getElementById('primary').click()");
     await wait("!document.getElementById('progress-page').hidden&&!document.getElementById('cancel').hidden");
     assert.equal(await evaluate("document.getElementById('result-card').hidden"),true);
-    assert.equal(await evaluate("document.getElementById('progress-track').hasAttribute('aria-valuenow')"),false,'unknown phase percent remains unknown');
+    assert.equal(await evaluate("document.getElementById('progress-track').getAttribute('aria-valuenow')"),'0','whole-stage total stays visible even without phase units');
     await picture('build-de-1366');
     await evaluate("document.getElementById('cancel').click()");
     await wait("document.getElementById('progress-title').textContent==='Der Build ist angehalten.'");

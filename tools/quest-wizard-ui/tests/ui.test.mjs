@@ -25,12 +25,12 @@ test('ownership is never inferred from selected checkboxes unless explicitly dec
   assert.equal(choicesFromForm({...base,profileName:'Name',profileId:'gog-id'},'en').profile.steamId,undefined);
 });
 
-test('progress preserves an unknown percentage instead of inventing elapsed-time progress',()=>{
+test('whole-stage progress never substitutes a resettable phase percentage',()=>{
   const state={status:'running',stages:[{id:'tools',status:'complete'},{id:'build',status:'running'}]};
-  assert.deepEqual(progressView(state),{completed:1,total:2,phase:'build',percent:null,width:50,indeterminate:true,current:state.stages[1]});
-  for(const percent of [NaN,Infinity,-1,101,'50',null])assert.equal(progressView({...state,progress:{percent}}).percent,null);
+  assert.deepEqual(progressView(state),{completed:1,total:2,phase:'build',percent:0,width:0,indeterminate:false,current:state.stages[1]});
+  for(const percent of [NaN,Infinity,-1,101,'50',null])assert.equal(progressView({...state,progress:{percent}}).percent,0);
   assert.equal(progressView({...state,progress:{percent:0}}).percent,0);
-  assert.equal(progressView({...state,progress:{percent:72}}).width,72);
+  assert.equal(progressView({...state,progress:{percent:72}}).width,0);
   assert.equal(macroStep(state),2);assert.equal(macroStep({...state,status:'complete'}),3);
   assert.equal(isActive({status:'cancel_requested'}),true);assert.equal(isActive({status:'cancelled'}),false);
   const interrupted={status:'interrupted',stages:[{id:'tools',status:'complete'},{id:'build',status:'interrupted'},{id:'install',status:'pending'}],progress:{phase:null,percent:null}};
@@ -48,11 +48,25 @@ test('browser artwork URLs and session IDs remain local and bounded',()=>{
   for(const value of ['../secret','short','x'.repeat(129),null])assert.equal(sessionId(value),null);
 });
 
-test('measured substeps and prerequisite actions survive without invented percentages',async()=>{
-  const stage={id:'unity',status:'running',progress:{phase:'unity-prerequisites',done:3,total:4,percent:75,unit:'checks'},waiting:{nonce:'a'.repeat(32)}};
-  assert.equal(progressView({status:'running',stages:[stage],progress:{percent:null}}).percent,75);
-  assert.equal(stageProgress(stage).percent,75);assert.equal(stageProgress(stage).waiting.nonce,'a'.repeat(32));
-  assert.equal(stageProgress({...stage,progress:{phase:'unity-install',percent:null}}).percent,null);
+test('phase completion cannot finish a stage and the next phase leaves its achieved total intact',()=>{
+  const first={id:'build',status:'running',progress:{stagePercent:71.5,percent:100,phase:'stage:recovery'}};
+  assert.equal(stageProgress(first).percent,71.5);assert.equal(stageProgress(first).phasePercent,100);
+  const next={...first,progress:{stagePercent:72,percent:5,phase:'stage:prepare'}};
+  assert.equal(progressView({status:'running',stages:[next]}).percent,72);
+  assert.equal(stageProgress(next).phasePercent,5);
+  assert.equal(stageProgress({...next,progress:{stagePercent:100,percent:100}}).percent,99.9,'only verified completion reaches 100');
+  assert.equal(stageProgress({...next,status:'complete'}).percent,100);
+  assert.equal(stageProgress({...next,status:'interrupted'}).percent,72);
+  const cancelled=progressView({status:'cancelled',stages:[{...next,status:'cancelled'},{id:'install',status:'pending'}]});
+  assert.equal(cancelled.phase,'build');assert.equal(cancelled.percent,72);
+  for(const stagePercent of [NaN,Infinity,-1,101,'50',null])assert.equal(stageProgress({...next,progress:{stagePercent,percent:80}}).percent,0);
+});
+
+test('measured phases remain separate from planned whole-stage progress and prerequisite actions',async()=>{
+  const stage={id:'unity',status:'running',progress:{phase:'unity-prerequisites',done:3,total:4,percent:75,stagePercent:37.5,unit:'checks'},waiting:{nonce:'a'.repeat(32)}};
+  assert.equal(progressView({status:'running',stages:[stage],progress:{percent:null}}).percent,37.5);
+  assert.equal(stageProgress(stage).percent,37.5);assert.equal(stageProgress(stage).phasePercent,75);assert.equal(stageProgress(stage).waiting.nonce,'a'.repeat(32));
+  assert.equal(stageProgress({...stage,progress:{phase:'unity-install',stagePercent:38,percent:null}}).percent,38);assert.equal(stageProgress({...stage,progress:{phase:'unity-install',percent:null}}).phasePercent,null);
   assert.equal(stageProgress({status:'complete'}).percent,100);assert.equal(stageProgress({status:'pending'}).percent,0);
   const calls=[],api=new LocalApi('http://127.0.0.1:1234','token',async(url,options)=>{calls.push({url:String(url),options});return {ok:true,json:async()=>({schema:1,event:'action_requested'})};});
   await api.action('session-123','unity-open','a'.repeat(32));assert.deepEqual(JSON.parse(calls[0].options.body),{session:'session-123',action:'unity-open',nonce:'a'.repeat(32)});

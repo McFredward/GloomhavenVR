@@ -18,12 +18,12 @@ export function progressView(state) {
   const stages = Array.isArray(state?.stages) ? state.stages : [];
   const completed = Number.isInteger(state?.progress?.completed) ? state.progress.completed : stages.filter(row => row.status === 'complete').length;
   const total = Number.isInteger(state?.progress?.total) && state.progress.total > 0 ? state.progress.total : stages.length;
-  const current = stages.find(row => row.status === 'running') ?? stages.find(row => ['blocked','failed','interrupted'].includes(row.status)) ?? stages.find(row=>row.status==='pending');
-  const raw = current?.progress?.percent ?? state?.progress?.percent;
-  const percent = typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 && raw <= 100 ? raw : null;
-  return {completed, total, phase:state?.progress?.phase ?? current?.id ?? '', percent,
-    width:percent ?? (total > 0 ? Math.max(0,Math.min(100,100*completed/total)) : 0),
-    indeterminate:percent === null && (state?.status === 'running' || state?.status === 'cancelling'), current};
+  const current = stages.find(row => row.status === 'running') ?? stages.find(row => ['blocked','failed','interrupted','cancelled'].includes(row.status)) ?? stages.find(row=>row.status==='pending');
+  // A native phase can finish and restart inside one stage. Its percentage is
+  // never a substitute for the durable, planned whole-stage percentage.
+  const percent = state?.status === 'complete' ? 100 : stageProgress(current).percent;
+  return {completed, total, phase:current?.id ?? state?.progress?.phase ?? '', percent,
+    width:percent, indeterminate:false, current};
 }
 export function macroStep(state) {
   const phase = progressView(state).phase;
@@ -40,9 +40,11 @@ export function artworkUrl(value, origin) {
   catch { return null; }
 }
 export function stageProgress(stage) {
-  const value=stage?.progress??{},raw=value.percent;
+  const value=stage?.progress??{},raw=value.stagePercent;
   const percent=stage?.status==='complete'?100:stage?.status==='pending'?0:
-    typeof raw==='number'&&Number.isFinite(raw)&&raw>=0&&raw<=100?raw:null;
-  return {...value,percent,waiting:stage?.waiting??null};
+    typeof raw==='number'&&Number.isFinite(raw)&&raw>=0&&raw<=100?Math.min(99.9,raw):0;
+  const phaseRaw=value.percent;
+  const phasePercent=typeof phaseRaw==='number'&&Number.isFinite(phaseRaw)&&phaseRaw>=0&&phaseRaw<=100?phaseRaw:null;
+  return {...value,percent,phasePercent,waiting:stage?.waiting??null};
 }
 export function sessionId(value) { return typeof value === 'string' && /^[a-zA-Z0-9_-]{8,128}$/.test(value) ? value : null; }
