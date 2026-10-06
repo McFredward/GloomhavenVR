@@ -150,11 +150,11 @@ internal static class TownServicePresentation
             // previously open native controller. A quiet controller must enter the ordinary
             // native mode once when the player explicitly returns to original windows.
             UIWindow? restore = _window;
-            byte quietService = _quietService;
+            byte restoringQuietService = _quietService;
             Reset();
             _failedWindow = null;
-            if (restore != null && quietService != 0)
-                OpenOriginalWindow(restore, quietService, "original town windows selected");
+            if (restore != null && restoringQuietService != 0)
+                OpenOriginalWindow(restore, restoringQuietService, "original town windows selected");
             if (restore != null && restore.IsOpen)
                 ModalFallback.RestoreClassicTownService(restore);
             return;

@@ -594,6 +594,38 @@ internal static class NetProtocol
     /// 15 Hz board pose while moving).</summary>
     public const ushort ModBuild = 632;
 
+    // ModBuild 632 — paired Build629 NPC follow-up. Actual remote enhancement
+    // admission took28.557s:44 visible originals repeated large independent property
+    // tables before transport compression. Additive TLV110 shares exact owner scalar,
+    // string, property and node values across one self-contained original picture;
+    // current visible census and first originals travel atomically. IEEE signed zero,
+    // localized original text/fonts, native asset references and unknown additive
+    // headers remain exact. No image pixels, matching observer defaults, earlier
+    // dictionary, bandwidth increase or unbounded priority is introduced.
+    // Visibility depends on actual native/converted ink, not merely active objects.
+    // Transaction withdrawal remains immediate even with unchanged module membership.
+    // Offered frame109 now mounts every native descendant partition to the actual
+    // physical card, retaining stretched canvas geometry and independent per-node
+    // motion clocks; face/header refresh cannot restart native ring interpolation.
+    // Normal immersive merchant, temple and mage visits use original transaction
+    // source islands without whole-window Show/EnterShop, flat mode switching, party
+    // selection, portraits, list navigation or flat entrance animations. Native
+    // payment/ownership/stock/progression callbacks remain original. Preserve native
+    // proxy refreshes, tab availability, points/warnings and owned transaction audio;
+    // isolate cosmetic callback faults from the game's action processor. Source
+    // leases restore on failures and teardown. Explicit original-window mode and
+    // bounded exceptional recovery retain the existing usable native window path.
+    // Priestess wrist/held purse focus follows the actual resident/held context,
+    // independently of hidden native window lifetime. Town pre-drop guides remain
+    // visitor-local; actual cards/purses/options/confirmations/returns stay shared.
+    // Actual Unity native prefab capture plus the unchanged full scheduler admits
+    //44 originals in0.45s ordinary/0.90s maximum eight-stream contention; warm rows
+    // take0.15/0.45s. These are fixture outcomes with an explicit editor font/shader
+    // limitation, not headset latency or Frame FPS acceptance. Independent original
+    // bytes, causal delivery/mount/lifecycle controls and final full gate are retained.
+    // Both peers must install632; no assets, quality defaults or scenario privacy change.
+    //
+
     // ModBuild 631 — native merchant card minification, on top of the complete
     // Frame630 integration. Supplied paired logs are Build627: the host exhausted
     // the 384 MB mip cache and left later item artwork without filtered levels.

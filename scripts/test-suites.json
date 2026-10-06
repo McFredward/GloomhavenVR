@@ -1860,6 +1860,28 @@
         "ci"
       ],
       "weight": 35
+    },
+    {
+      "id": "town-first-picture632",
+      "command": [
+        "python3",
+        "scripts/check-town-first-picture632.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 90
+    },
+    {
+      "id": "town-quiet-controller",
+      "command": [
+        "python3",
+        "scripts/check-town-quiet-controller.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 75
     }
   ]
 }

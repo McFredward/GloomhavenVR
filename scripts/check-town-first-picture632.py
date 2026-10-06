@@ -76,7 +76,8 @@ def main():
     (project/'Packages/manifest.json').write_text('{"dependencies":{"com.unity.ugui":"1.0.0","com.unity.textmeshpro":"3.0.6","com.unity.modules.physics":"1.0.0"}}\n')
     (project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
     exporter=root/'scripts/town-first-picture632-runtime/export-native.py'
-    subprocess.run([str(Path.home()/'unitypy-venv/bin/python'),str(exporter),str(root/'ressources/GH_Data'),str(project/'Assets/NativeFirstPicture632')],check=True)
+    exporter_python=os.environ.get('UNITYPY_PYTHON',str(Path.home()/'unitypy-venv/bin/python'))
+    subprocess.run([exporter_python,str(exporter),str(root/'ressources/GH_Data'),str(project/'Assets/NativeFirstPicture632')],check=True)
     hashes={name:hashlib.sha256(text.encode()).hexdigest()for name,text in bound.items()}
     (run/'source-hashes.json').write_text(json.dumps(hashes,indent=2)+'\n')
     path=run/'manifest.json';path.write_text(json.dumps(manifest,indent=2));print('Evidence: '+str(run),flush=True)
