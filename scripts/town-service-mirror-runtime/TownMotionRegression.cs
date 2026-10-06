@@ -420,49 +420,87 @@ public static partial class MirrorProgram
         GloomhavenVR.WorldUI.TownServiceSync.UseProductionPublish = true;
         TownServiceMirror.ResolveTemplate = (service, template, address) =>
         { GloomhavenVR.WorldUI.NativeTemplates.Resolve(service, template, address); return true; };
+        object stock = typeof(GloomhavenVR.WorldUI.TownServiceSync).GetField("Stock", PrivateStatic)!.GetValue(null)!;
+        var stockModules = (System.Collections.IDictionary)typeof(GloomhavenVR.WorldUI.TownServiceSync)
+            .GetField("Modules", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(stock)!;
+        foreach (var chip in chips) chip.AvatarTransport = true;
         GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, null);
-        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount >= count * 2,
+        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount == 0
+            && stockModules.Count == 0,
+            "ordinary canonical avatar fan allocates no duplicate private or stock card originals");
+        // The native sampler/transport eligibility are explicit fixture boundaries.
+        // Retained originals prepare independently; opening the ordinary avatar
+        // fan alone must never reveal a second copy from this cosmetic lane.
+        foreach (var chip in chips) chip.AvatarTransport = false;
+        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, null);
+        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount == 0
+            && stockModules.Count >= count * 2,
             "closed owner item fan publishes complete original fronts with genuine hidden visibility before reveal");
         var modules = new List<ushort>();
-        foreach (Transform face in faces) modules.Add(GloomhavenVR.WorldUI.TownServiceSync.ModuleId(face));
+        foreach (Transform face in faces) modules.Add(GloomhavenVR.WorldUI.TownServiceSync.StockModuleId(face));
         FastCapture hidden = CaptureFast();
         foreach (ushort module in modules)
             Check(hidden.Artwork.Exists(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame)
-                && frame!.Module == module && frame.ParentAlpha == 0f),
+                && frame!.VisitorStock && frame.Module == module && frame.ParentAlpha == 0f && !frame.Visible),
                 "closed owner item fan publishes complete original fronts with genuine hidden visibility before reveal");
         Receive(2, hidden.Artwork);
         TownServiceMirror.SharedFrameForRemote = _ => observer;
         IEnumerator settle = FastSettle(observer, .14f); while (settle.MoveNext()) yield return settle.Current;
+        var stockKeys = (Dictionary<int, int>)typeof(TownServiceMirror).GetField("StockKeys", PrivateStatic)!.GetValue(null)!;
+        Check(stockKeys.ContainsKey(2), "prepared original fan creates the exact independent observer stock identity");
+        int stockPeer = stockKeys[2];
         var copies = new List<TownServiceBinding>(); var fronts = new List<Sprite>();
         foreach (ushort module in modules)
         {
-            TownServiceBinding copy = Remote(2, module)!; copies.Add(copy);
-            Check(copy != null && copy.Root.parent.GetComponent<CanvasGroup>().alpha == 0f,
+            TownServiceBinding copy = Remote(stockPeer, module)!; copies.Add(copy);
+            Check(copy != null && !copy.Root.gameObject.activeInHierarchy
+                && copy.Root.parent.GetComponent<CanvasGroup>().alpha == 0f,
                 "prewarmed original fan stays hidden and never leaks a closed hand");
             fronts.Add(copy.Root.Find("Filled").GetComponent<Image>().sprite);
         }
         foreach (CanvasGroup opacity in opacities) opacity.alpha = 1f;
+        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, null);
+        FastCapture opened = CaptureFast(); DeliverMotion(2, opened); TownServiceMirror.TickRemote(_ => observer);
+        Check(copies.TrueForAll(copy => !copy.Root.gameObject.activeInHierarchy),
+            "opening canonical wrist visibility never reveals independent prepared return duplicates");
+        var returning = chips[0];
+        returning.ReturnStarted = Time.unscaledTime;
+        Vector3 from = returning.transform.position;
+        Quaternion rotation = returning.transform.rotation;
+        Vector3 size = returning.transform.lossyScale;
+        returning.ReturnNumbers = TownCardReturnMotion.Capture(faces[0], returning.transform, shared, hand,
+            0f, .35f, 3, 1.7f, Matrix4x4.TRS(from, rotation, size), rotation,
+            Matrix4x4.TRS(from + Vector3.up * .03f, rotation, size), rotation, Vector3.zero);
         float began = Time.unscaledTime; int events = 0; bool complete = false;
-        while (Time.unscaledTime - began < 1f && !complete)
+        while (Time.unscaledTime - began < .35f && !complete)
         {
             GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, null); TownServiceMirror.SharedFrameForRemote = _ => observer;
             FastCapture reveal = CaptureFast(); DeliverMotion(2, reveal); events += reveal.Motion.Count;
             Check(!reveal.Artwork.Exists(bytes => TownServiceCodec.TryRead(bytes, bytes.Length, out TownServiceFrame? frame)
-                && modules.Contains(frame!.Module) && frame.BaseSequence == 0),
+                && frame!.VisitorStock && modules.Contains(frame.Module) && frame.BaseSequence == 0),
                 "warm reveal does not wait for another full native front baseline");
             TownServiceMirror.TickRemote(_ => observer);
-            complete = copies.TrueForAll(copy => copy.Root.parent.GetComponent<CanvasGroup>().alpha > .99f);
+            complete = copies[0].Root.gameObject.activeInHierarchy
+                && copies[0].Root.parent.GetComponent<CanvasGroup>().alpha > .99f;
             if (!complete) yield return null;
         }
-        Check(complete, "all twenty-four complete warm native fan fronts reveal within one second of wrist opening");
+        Check(complete, "complete prepared native front reveals within its authentic return without new artwork");
+        Check(copies.GetRange(1, count - 1).TrueForAll(copy => !copy.Root.gameObject.activeInHierarchy),
+            "unreturned prepared originals remain hidden when the canonical avatar fan is open");
         File.WriteAllText(Path.Combine(_output, "warm-fan-cadence.txt"),
-            $"nativeFronts={count} nativeRootModules={count * 2} completeReveal={Time.unscaledTime - began:F3}s events={events} maxEvent=864B\n");
+            $"nativeFronts={count} nativeRootModules={count * 2} preparedStockReturnReveal={Time.unscaledTime - began:F3}s events={events} maxEvent=864B\n");
         for (int i = 0; i < copies.Count; i++)
             Check(ReferenceEquals(fronts[i], copies[i].Root.Find("Filled").GetComponent<Image>().sprite),
-                "opening a prewarmed owner item fan reveals its existing complete front through the independent numeric lane");
+                "prepared return reuses every exact immutable native front through the independent numeric lane");
+        returning.ReturnNumbers = null;
+        foreach (var chip in chips) chip.AvatarTransport = true;
+        GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, null);
+        Check(GloomhavenVR.WorldUI.TownServiceSync.ModuleCount == 0
+            && stockModules.Count == 0,
+            "returned ordinary item fan resumes canonical avatar transport without duplicate town modules");
         // Real publisher provenance must elevate the owned parked face and its
         // physical body, while closed unheld prewarms remain background work.
-        chips[0].TownOffering = true;
+        chips[0].TownOffering = true; chips[0].AvatarTransport = false;
         GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, null);
         object sources = typeof(TownServiceMirror).GetField("MotionSources", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null);
         for (float until = Time.unscaledTime + .08f; Time.unscaledTime < until;) yield return null;
