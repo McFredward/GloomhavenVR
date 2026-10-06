@@ -15,8 +15,14 @@ internal static class QuestExportIdentity
     public static bool ShouldExport(IExportContainer container)
     {
         CaptureRedirects(container);
-        if (Environment.GetEnvironmentVariable("QUEST_EXPORT_BUNDLE_ONLY") != "1") return true;
         IExportCollection collection = ((ProjectAssetContainer)container).CurrentCollection;
+        // The Python source patch invokes this method before Exportable so
+        // non-exportable engine redirects still retain their native pointers.
+        // They have no exported asset/GUID entry in the independent core.
+        // Recording them as skippedCore makes a fresh full recovery fail its
+        // original-object closure check (Windows support report 2026-10-06).
+        if (!collection.Exportable) return false;
+        if (Environment.GetEnvironmentVariable("QUEST_EXPORT_BUNDLE_ONLY") != "1") return true;
         // Global engine managers are written into ProjectSettings and cannot
         // be referenced through exported GUIDs (upstream explicitly throws).
         if (collection is AssetRipper.Export.UnityProjects.Project.ManagerExportCollection) return false;

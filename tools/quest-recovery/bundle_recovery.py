@@ -20,6 +20,44 @@ from recover import (RecoveryError, YAML_EXTENSIONS, audit_asset_references,
 
 
 MUTABLE_NATIVE_INDICES = ("QuestRecovery/native-redirect-identities.jsonl", "QuestRecovery/NativeRecipes/index.jsonl")
+NONEXPORTABLE_REDIRECTS = ("AssetRipper.Export.UnityProjects.RedirectExportCollection",
+                         "AssetRipper.Export.UnityProjects.SingleRedirectExportCollection")
+
+
+def exportable_identities(rows, evidence):
+    """Adopt old false skipped-core rows only with their exact native engine witness.
+
+    Before the Exportable guard was added inside ShouldExport, the exporter
+    called it first to capture redirects and then labelled non-exportable
+    collections as skipped core assets. The normal core export has no asset
+    entry for those pointers. Their GUID/fileID/class/source identity must
+    instead agree with the independently captured engine redirect evidence;
+    neither a class name nor an unknown object permits a generic exemption.
+    """
+    redirects = None; result = []; count = 0
+    for row in rows:
+        if not row.get("skippedCore") or row.get("exportCollection") not in NONEXPORTABLE_REDIRECTS:
+            result.append(row); continue
+        if not row.get("objects"):
+            raise RecoveryError("Skipped non-exportable redirect has no original object evidence.")
+        path = ordinary_path(Path(evidence) / "QuestRecovery/native-redirect-identities.jsonl")
+        if redirects is None:
+            from native_targets import engine_redirects
+            redirects = engine_redirects(path) if path.is_file() else {}
+        for obj in row["objects"]:
+            key = obj["collection"].casefold(), int(obj["pathId"])
+            witness = redirects.get(key)
+            if (witness is None or witness["exportCollection"] != row["exportCollection"]
+                    or witness["guid"] != row["guid"] or int(witness["fileId"]) != int(obj["fileId"])
+                    or int(witness["classId"]) != int(obj["classId"])
+                    or not isinstance(obj.get("className"), str) or witness.get("className") != obj["className"]):
+                raise RecoveryError("Skipped non-exportable redirect has no exact native engine witness: "
+                                    + repr((obj["collection"][:160], obj["pathId"], obj.get("className"))))
+            count += 1
+    if count:
+        print("[Quest full recovery] Verified", count,
+              "legacy non-exportable original engine redirects; native pointer evidence retained.", flush=True)
+    return result
 
 
 def verified_records(root, records, *, excluded=()):
@@ -143,8 +181,12 @@ def merge_export(project, incoming_project, incoming_rows, canonical_objects):
     rows, files, output_paths = [], [], {}
     for row in incoming_rows:
         if row.get("skippedCore"):
-            if any((obj["collection"], int(obj["pathId"])) not in canonical_objects for obj in row["objects"]):
-                raise RecoveryError("Skipped core contains an unknown original object; re-export core coherently.")
+            missing = [obj for obj in row["objects"] if (obj["collection"], int(obj["pathId"])) not in canonical_objects]
+            if missing:
+                sample = [(obj["collection"][:160], obj["pathId"], str(obj.get("className", ""))[:80]) for obj in missing[:3]]
+                raise RecoveryError("Skipped core contains an unknown original object; re-export core coherently. "
+                                    + "Missing count=" + str(len(missing)) + "; exportCollection="
+                                    + str(row.get("exportCollection", "unknown"))[:240] + "; sample=" + repr(sample))
             continue
         if row["path"] in duplicates:
             # All original members must already be mapped. A partly known
@@ -287,6 +329,7 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
                 else:
                     os.environ[key] = value
         incoming = read_identities(identity_path, project)
+        incoming = exportable_identities(incoming, directory / "Evidence")
         verified_records(output, progress["files"])
         begin_merge(output, workspace, index, incoming, directory / "Evidence", canonical)
         merged = merge_export(output, project, incoming, canonical)
