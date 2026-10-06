@@ -54,6 +54,7 @@ def _local_helper(name):
 
 host_resources = _local_helper("host_resources")
 build_progress = _local_helper("progress")
+recovery_resume = _local_helper("recovery_resume")
 _release = _local_helper("release") if Path(__file__).with_name("release.py").is_file() else None
 
 
@@ -369,10 +370,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
         recovered = Path(args.campaign_project).resolve()
         campaign.inspect_project(recovered, inputs["game"]["key"], inputs["game"]["files"])
     elif args.target == "game":
-        recipe_files = [item for item in inputs["mod"]["files"]
-                        if item["path"].startswith("tools/quest-recovery/") or item["path"] in (
-                            "tools/quest-builder/full_assets.py", "tools/quest-builder/full_shaders.py")]
-        key = value_hash({"game": inputs["game"]["key"], "recoveryRecipe": recipe_files, "recipe": RECIPE})
+        key = recovery_resume.recipe_key(inputs, RECIPE)
         recovered = output / "cache/recovery" / key / "project"
 
         def recover():
@@ -380,7 +378,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             launcher = source / "tools/quest-recovery/full_recovery.py"
             if not launcher.is_file():
                 raise BuildError("The selected source does not contain the Quest recovery tool.")
-            workspace = output / "cache/full-original-recovery" / key
+            workspace = recovery_resume.select_workspace(output, inputs, source, game, RECIPE)
             raw_project = workspace / "RecoveredProject"
             python = dependencies.python_environment(output / "tool-cache", source)
             recovery_dotnet = dependencies.dotnet10(output / "tool-cache", source, getattr(args, "recovery_dotnet", None))
