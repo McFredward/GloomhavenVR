@@ -5,16 +5,199 @@ hashed checkpoint, writes a fresh private Unity project, preserves witnessed
 B614 GUID contracts, and emits the complete original catalog association. It
 does not call an asset export an Android build or a playable game.
 """
+from contextlib import contextmanager
+import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import sys
+import uuid
 
-from storage import BuildError, write_json
+from storage import BuildError, build_progress, write_json
 
 RECOVERY_TOOLS = Path(__file__).resolve().parents[1] / "quest-recovery"
+STAGING_SECTIONS = ("catalog", "canonical", "copy", "runtime", "guid", "layout",
+                    "native", "catalog-final", "index", "tmp", "bindings", "audit", "scenes", "report")
+COPY_CHUNK = 1024 * 1024
+LARGE_FILE = 8 * COPY_CHUNK
+
+
+@contextmanager
+def _section(name):
+    """Publish actual derived-stage boundaries, never a duration-based percent."""
+    if name not in STAGING_SECTIONS:
+        raise ValueError("Unknown full asset staging section.")
+    phase = "staging-section:" + name
+    build_progress.event(phase, 0, 1, "steps", status="start", operation="recovery")
+    try:
+        yield
+    except BaseException as error:
+        build_progress.event(phase, detail="Failed: " + type(error).__name__, status="failed", operation="recovery")
+        raise
+    build_progress.event(phase, 1, 1, "steps", status="complete", operation="recovery")
+
+
+def _stamp(value):
+    return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+
+
+class _StageProofs:
+    """Hashes read/written in this fresh stage only; never serialized stat trust.
+
+    Each copy endpoint is qualified through startup.safe_path or the exact
+    original runtime task. Repeating parent resolution for every later report
+    lookup would add ancestor walks to all 100,000 files. Leaf lstat identity,
+    size/mtime/ctime still invalidate every proof after a native/GUID rewrite.
+    """
+    def __init__(self):
+        self.files = {}
+
+    def remember(self, path, digest, stamp):
+        self.files[Path(path).absolute()] = stamp, digest
+
+    @staticmethod
+    def current(path):
+        value = path.lstat()
+        if not stat.S_ISREG(value.st_mode):
+            raise BuildError("Staging evidence is not a regular file: " + str(path))
+        return _stamp(value)
+
+    def digest(self, path, hasher=None):
+        path = Path(path).absolute()
+        before = self.current(path)
+        prior = self.files.get(path)
+        if prior is not None and prior[0] == before:
+            return prior[1]
+        digest = (hasher or _hash_output)(path)
+        if self.current(path) != before:
+            raise BuildError("Staging evidence changed while being read: " + str(path))
+        self.remember(path, digest, before)
+        return digest
+
+    def published(self, path):
+        path = Path(path).absolute()
+        prior = self.files.get(path)
+        if prior is None or prior[0] != self.current(path):
+            raise BuildError("Current staged output changed before publication: " + str(path))
+        return prior[1]
+
+
+def _copy_recovered(original, target, expected=None, *, expected_size=None, proofs=None,
+                    phase="staging-copy-file"):
+    """Qualify the exact bytes copied once into the fresh invocation-owned tree.
+
+    The former verify_copy read every asset before copying and read the target
+    again afterwards. The checkpoint hash can instead qualify the bytes passed
+    to the writer. Require complete writes, unchanged source identity/stamps,
+    exact size/hash and the same output inode before retaining a writer proof.
+    Partial output is removed on every failure; original inputs stay read-only.
+    """
+    original, target = Path(original), Path(target)
+    before = original.lstat()
+    if not stat.S_ISREG(before.st_mode):
+        raise BuildError("Immutable source is not a regular file: " + str(original))
+    if expected_size is not None and (type(expected_size) is not int or expected_size != before.st_size):
+        raise BuildError("Recovered output size differs from recovery receipt: " + str(original))
+    if expected is not None and (not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected)):
+        raise BuildError("Recovered output lacks an exact recovery receipt hash: " + str(original))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    digest, count, created = hashlib.sha256(), 0, False
+    counter = build_progress.Counter(phase, before.st_size, "bytes", original.name) if before.st_size >= LARGE_FILE else None
+    try:
+        with original.open("rb") as source:
+            if _stamp(os.fstat(source.fileno())) != _stamp(before):
+                raise BuildError("Recovered output changed before staging: " + str(original))
+            # Exclusive creation cannot overwrite an unexpected file or symlink.
+            with target.open("xb") as destination:
+                created = True
+                for chunk in iter(lambda: source.read(COPY_CHUNK), b""):
+                    if count + len(chunk) > before.st_size:
+                        raise BuildError("Recovered output grew while staging: " + str(original))
+                    if destination.write(chunk) != len(chunk):
+                        raise BuildError("Staged copy write was incomplete: " + str(target))
+                    count += len(chunk); digest.update(chunk)
+                    if counter: counter.add(len(chunk), original.name)
+                if _stamp(os.fstat(source.fileno())) != _stamp(before) or _stamp(original.lstat()) != _stamp(before):
+                    raise BuildError("Recovered output changed while staging: " + str(original))
+                actual = digest.hexdigest()
+                if count != before.st_size or expected is not None and actual != expected:
+                    raise BuildError("Recovered output differs from recovery receipt: " + str(original))
+                destination.flush()
+                written = os.fstat(destination.fileno())
+                if written.st_size != count:
+                    raise BuildError("Staged copy write size differs: " + str(target))
+        if _stamp(target.lstat()) != _stamp(written):
+            raise BuildError("Staged copy changed before publication: " + str(target))
+        if proofs is not None:
+            proofs.remember(target, actual, _stamp(written))
+            proofs.remember(original, actual, _stamp(before))
+        if counter: counter.finish()
+        return actual
+    except BaseException as error:
+        if created: target.unlink(missing_ok=True)
+        if counter: counter.fail(error)
+        raise
+
+
+def _runtime_file(original, target, proofs):
+    """Keep identical bytes already copied from the completed raw checkpoint."""
+    if not target.exists():
+        return _copy_recovered(original, target, proofs=proofs, phase="staging-runtime-file")
+    # Runtime metadata may intentionally come from the preceding canonical
+    # proof tree. Only our qualified current output is eligible for replacement.
+    previous = proofs.published(target)
+    if proofs.digest(original) == previous:
+        return previous
+    temporary = target.with_name(target.name + ".staging-" + uuid.uuid4().hex)
+    try:
+        digest = _copy_recovered(original, temporary, proofs=proofs, phase="staging-runtime-file")
+        if proofs.published(target) != previous:
+            raise BuildError("Runtime metadata changed before replacement: " + str(target))
+        temporary.replace(target)
+        proofs.remember(target, digest, proofs.current(target))
+        return digest
+    finally:
+        proofs.files.pop(temporary.absolute(), None)
+        temporary.unlink(missing_ok=True)
+
+
+def _hash_output(path):
+    size = path.stat().st_size
+    counter = build_progress.Counter("staging-report-file", size, "bytes", path.name) if size >= LARGE_FILE else None
+    result = hashlib.sha256()
+    try:
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(COPY_CHUNK), b""):
+                result.update(chunk)
+                if counter: counter.add(len(chunk), path.name)
+        if counter: counter.finish()
+        return result.hexdigest()
+    except BaseException as error:
+        if counter: counter.fail(error)
+        raise
+
+
+def _output_inventory(output, proofs):
+    # This is the required final provenance inventory, not an extra scan merely
+    # to obtain a progress denominator. Reuse unchanged current writer proofs;
+    # mutated native/GUID outputs are read and hashed before publication.
+    paths = [path for path in sorted(output.rglob("*")) if path.is_file()]
+    counter = build_progress.Counter("staging-report-files", len(paths), "files")
+    records = []
+    try:
+        for path in paths:
+            relative = path.relative_to(output).as_posix()
+            records.append({"path": relative, "sha256": proofs.digest(path, hasher=_hash_output), "size": path.stat().st_size})
+            counter.add(1, relative)
+        counter.finish()
+        return records
+    except BaseException as error:
+        counter.fail(error)
+        raise
 
 
 def _modules():
@@ -127,114 +310,150 @@ def stage(source, game_data, output, tmp_archive, *, canonical_project=None,
     types = json.loads(Path(managed_types).read_text())
     owners = json.loads(Path(cab_bundles).read_text())
     rows = progress["identities"]
-    original_catalog = catalogs.associate(catalog_path, source, rows, owners, types)
-    if canonical_project is not None:
-        if canonical_startup is None:
-            raise BuildError("A previous canonical project requires its actual startup provenance report.")
-        roots = _catalog_roots(canonical_startup, original_catalog)
-        guid_proof = canonical.witness(canonical_project, source, rows, roots)
-    else:
-        import canonical_contracts
-        guid_proof = canonical_contracts.witness(game_data, source, rows, unitypy)
+    with _section("catalog"):
+        original_catalog = catalogs.associate(catalog_path, source, rows, owners, types)
+    with _section("canonical"):
+        if canonical_project is not None:
+            if canonical_startup is None:
+                raise BuildError("A previous canonical project requires its actual startup provenance report.")
+            roots = _catalog_roots(canonical_startup, original_catalog)
+            guid_proof = canonical.witness(canonical_project, source, rows, roots)
+        else:
+            import canonical_contracts
+            guid_proof = canonical_contracts.witness(game_data, source, rows, unitypy)
     output.mkdir(parents=True)
+    proofs = _StageProofs()
     copied = []
-    for row in progress["files"]:
-        relative = row["path"]
-        if relative.startswith("Assets/Resources/srdebugger/"):
-            continue
-        original, target = startup.safe_path(source, relative), startup.safe_path(output, relative)
-        startup.verify_copy(original, target, row["sha256"])
-        copied.append({"path": relative, "sha256": row["sha256"]})
-    # Retain managed type metadata for exact DLL script identities; the original
-    # assemblies themselves are verified against the player's installed files.
-    for path in (output / "Assets/Plugins").glob("*.dll"):
-        original = game_data / "Managed" / path.name
-        if not original.is_file() or recover.sha256(path) != recover.sha256(original):
-            raise BuildError("Recovered full project lost original managed assembly bytes: " + path.name)
-    (output / "QuestRecovery").mkdir(exist_ok=True)
-    shutil.copyfile(managed_types, output / "QuestRecovery/managed-types.json")
+    with _section("copy"):
+        # The retained checkpoint already contains the exact copy schedule.
+        # Exclude the same unused debug resources before counting; do not walk
+        # the input tree a second time merely for a progress denominator.
+        copy_rows = [row for row in progress["files"] if not row["path"].startswith("Assets/Resources/srdebugger/")]
+        counter = build_progress.Counter("staging-copy", len(copy_rows), "files")
+        try:
+            for row in copy_rows:
+                relative = row["path"]
+                original, target = startup.safe_path(source, relative), startup.safe_path(output, relative)
+                _copy_recovered(original, target, row["sha256"], expected_size=row.get("size"), proofs=proofs)
+                copied.append({"path": relative, "sha256": row["sha256"]})
+                counter.add(1, relative)
+            counter.finish()
+        except BaseException as error:
+            counter.fail(error)
+            raise
     original_metadata = Path(canonical_project) if canonical_project is not None else source
     old_identity = original_metadata / "QuestRecovery/original-script-identities.json"
-    if old_identity.is_file():
-        shutil.copyfile(old_identity, output / "QuestRecovery/original-script-identities.json")
-    # All runtime-loaded rule/text inputs stay on disk; desktop Addressables
-    # bundles are replaced by Unity's actual Android content build downstream.
-    rules = game_data / "StreamingAssets/Rulebase"
-    if rules.is_dir():
-        shutil.copytree(rules, output / "Assets/StreamingAssets/Rulebase")
-    for name in ("GloomData.dat", "Apparance", "Procedures"):
-        original = game_data / "StreamingAssets" / name
-        target = output / "Assets/StreamingAssets" / name
-        if original.is_file():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(original, target)
-        elif original.is_dir():
-            shutil.copytree(original, target)
-    rows = canonical.apply(output, rows, guid_proof)
-    write_json(output / "QuestRecovery/original-asset-identities.json", {"schema": 1, "identities": rows})
-    original_objects = identities_module.object_index(rows)
-    layout_report = layouts.restore(game_data, output, original_objects, unitypy)
-    import native_stage
-    rows, native_report = native_stage.restore(output, game_data, rows, owners, unitypy=unitypy)
-    manifest = catalogs.associate(catalog_path, output, rows, owners, types)
-    folder = output / "Assets/QuestOriginalCampaign"
-    folder.mkdir(parents=True)
-    write_json(folder / "campaign-addressables.json", manifest)
-    index, paths = startup.asset_index(output)
-    scripts, plugins = startup.script_index(output, types)
-    selected = set(paths)
-    restored_tmp = tmp.restore(output, original_metadata, selected, tmp_archive)
-    restored_paths = {row["assetPath"] for row in restored_tmp}
-    bindings = startup.binding_manifest(output, selected, scripts, plugins)
-    write_json(folder / "script-bindings.json", bindings)
-    script_origins = json.loads(old_identity.read_text()) if old_identity.is_file() else []
-    if isinstance(script_origins, dict):
-        script_origins = script_origins.get("identities", [])
-    script_audit = recover.audit_script_bindings(output, types, script_origins)
-    references = recover.audit_asset_references(output)
-    scene_settings = (output / "ProjectSettings/EditorBuildSettings.asset").read_text()
-    scenes = re.findall(r"^\s+path: (Assets/.+\.unity)\s*$", scene_settings, re.M)
-    scene_objects = identities_module.object_index(rows)
-    scene_rows = []
-    for index, relative in enumerate(scenes):
-        original = [obj for obj in scene_objects.values() if obj["path"] == relative]
-        if not original or {obj["collection"] for obj in original} != {"level" + str(index)} or len({obj["guid"] for obj in original}) != 1:
-            raise BuildError("Original Campaign scene identity/order is unproven: " + relative)
-        scene_rows.append({"index": index, "path": relative, "guid": original[0]["guid"], "originalCollection": "level" + str(index)})
-    write_json(folder / "campaign-scenes.json", {"schema": 1, "scenes": scene_rows})
-    shader_rows = [{"path": relative, "name": re.search(r'Shader\s+"([^\"]+)"', (output / relative).read_text())[1],
-                    "status": "official-compatible-TMP-source" if relative in restored_paths else "unresolved-original-dummy",
-                    "originalShaderFidelity": False}
-                   for relative in sorted(selected) if relative.endswith(".shader")]
-    if canonical_startup is not None:
-        old_report = json.loads((Path(canonical_startup) / "quest-startup-report.json").read_text())
-    else:
-        old_report = {"sourceFingerprint": progress["sourceFingerprint"],
-                      "sourceBuilderFingerprint": startup.builder_fingerprint(progress["sourceInventory"]),
-                      "originalBuildScenes": [{"index": index, "path": path} for index, path in enumerate(scenes)]}
-    report = {"schema": 1, "target": "campaign", "fullGameReady": False,
-              "sourceFingerprint": old_report["sourceFingerprint"],
-              "sourceBuilderFingerprint": old_report["sourceBuilderFingerprint"],
-              "recoveryReceiptSha256": recover.sha256(checkpoint), "selectedScenes": scenes,
-              "originalBuildScenes": old_report["originalBuildScenes"],
-              "startupAddressablesManifest": "Assets/QuestOriginalCampaign/campaign-addressables.json",
-              "campaignAddressablesManifest": "Assets/QuestOriginalCampaign/campaign-addressables.json",
-              "scriptBindingsManifest": "Assets/QuestOriginalCampaign/script-bindings.json",
-              "managedScriptBindings": script_audit, "missingReferences": references,
-              "unresolvedAddressables": [row for row in manifest["entries"] if row["status"] not in ("associated", "serialized-value-location-excluded")],
-              "shaders": shader_rows, "officialTmpRestorations": restored_tmp, "originalDerivedFiles": copied,
-              "serializedLayoutRestoration": layout_report, "canonicalGuidRestoration": {
-                  "assetCount": len(guid_proof["mappings"]), "originalObjectCount": guid_proof["mappedOriginalObjectCount"],
-                  "rejectedWitnessCount": len(guid_proof["rejected"])},
-              "readiness": {"originalSceneClosureStaged": len(scenes) == 13,
-                            "fullOriginalCatalogRecovered": True, "unityImportVerified": False,
-                            "androidPlayerBuilt": False, "faithfulGraphicsVerified": False,
-                            "playableCampaignVerified": False},
-              "limits": ["Asset recovery is not a hardware or rendering validation.",
-                         "Original custom shader instruction streams require complete portable shader reconstruction."]}
-    report.update(native_report)
-    report["files"] = [{"path": path.relative_to(output).as_posix(), "sha256": recover.sha256(path), "size": path.stat().st_size}
-                       for path in sorted(output.rglob("*")) if path.is_file()]
-    write_json(output / "quest-startup-report.json", report)
-    write_json(output / "quest-campaign-report.json", report)
+    with _section("runtime"):
+        # Keep exact original DLL identity while avoiding another read of the
+        # just-qualified current writer bytes in the fresh output.
+        assemblies = list((output / "Assets/Plugins").glob("*.dll"))
+        counter = build_progress.Counter("staging-managed-assemblies", len(assemblies), "files")
+        for path in assemblies:
+            original = game_data / "Managed" / path.name
+            if not original.is_file() or proofs.digest(path, hasher=_hash_output) != proofs.digest(original, hasher=_hash_output):
+                raise BuildError("Recovered full project lost original managed assembly bytes: " + path.name)
+            counter.add(1, path.name)
+        counter.finish()
+        (output / "QuestRecovery").mkdir(exist_ok=True)
+        tasks = [(Path(managed_types), output / "QuestRecovery/managed-types.json")]
+        if old_identity.is_file():
+            tasks.append((old_identity, output / "QuestRecovery/original-script-identities.json"))
+        # Listing each selected runtime tree is the actual copy plan, reused
+        # directly by the writer; there is no additional directory-size scan.
+        for name in ("Rulebase", "GloomData.dat", "Apparance", "Procedures"):
+            original = game_data / "StreamingAssets" / name
+            target = output / "Assets/StreamingAssets" / name
+            if original.is_file():
+                tasks.append((original, target))
+            elif original.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                for path in sorted(original.rglob("*")):
+                    destination = target / path.relative_to(original)
+                    if path.is_dir(): destination.mkdir(parents=True, exist_ok=True)
+                    elif path.is_file(): tasks.append((path, destination))
+        counter = build_progress.Counter("staging-runtime-copy", len(tasks), "files")
+        try:
+            for original, target in tasks:
+                _runtime_file(original, target, proofs)
+                counter.add(1, target.relative_to(output).as_posix())
+            counter.finish()
+        except BaseException as error:
+            counter.fail(error)
+            raise
+    with _section("guid"):
+        rows = canonical.apply(output, rows, guid_proof)
+        write_json(output / "QuestRecovery/original-asset-identities.json", {"schema": 1, "identities": rows})
+    with _section("layout"):
+        original_objects = identities_module.object_index(rows)
+        layout_report = layouts.restore(game_data, output, original_objects, unitypy)
+    with _section("native"):
+        import native_stage
+        rows, native_report = native_stage.restore(output, game_data, rows, owners, unitypy=unitypy)
+    with _section("catalog-final"):
+        manifest = catalogs.associate(catalog_path, output, rows, owners, types)
+        folder = output / "Assets/QuestOriginalCampaign"
+        folder.mkdir(parents=True)
+        write_json(folder / "campaign-addressables.json", manifest)
+    with _section("index"):
+        index, paths = startup.asset_index(output)
+        scripts, plugins = startup.script_index(output, types)
+        selected = set(paths)
+    with _section("tmp"):
+        restored_tmp = tmp.restore(output, original_metadata, selected, tmp_archive)
+        restored_paths = {row["assetPath"] for row in restored_tmp}
+    with _section("bindings"):
+        bindings = startup.binding_manifest(output, selected, scripts, plugins)
+        write_json(folder / "script-bindings.json", bindings)
+    with _section("audit"):
+        script_origins = json.loads(old_identity.read_text()) if old_identity.is_file() else []
+        if isinstance(script_origins, dict):
+            script_origins = script_origins.get("identities", [])
+        script_audit = recover.audit_script_bindings(output, types, script_origins)
+        references = recover.audit_asset_references(output)
+    with _section("scenes"):
+        scene_settings = (output / "ProjectSettings/EditorBuildSettings.asset").read_text()
+        scenes = re.findall(r"^\s+path: (Assets/.+\.unity)\s*$", scene_settings, re.M)
+        scene_objects = identities_module.object_index(rows)
+        scene_rows = []
+        for index, relative in enumerate(scenes):
+            original = [obj for obj in scene_objects.values() if obj["path"] == relative]
+            if not original or {obj["collection"] for obj in original} != {"level" + str(index)} or len({obj["guid"] for obj in original}) != 1:
+                raise BuildError("Original Campaign scene identity/order is unproven: " + relative)
+            scene_rows.append({"index": index, "path": relative, "guid": original[0]["guid"], "originalCollection": "level" + str(index)})
+        write_json(folder / "campaign-scenes.json", {"schema": 1, "scenes": scene_rows})
+        shader_rows = [{"path": relative, "name": re.search(r'Shader\s+"([^\"]+)"', (output / relative).read_text())[1],
+                        "status": "official-compatible-TMP-source" if relative in restored_paths else "unresolved-original-dummy",
+                        "originalShaderFidelity": False}
+                       for relative in sorted(selected) if relative.endswith(".shader")]
+    with _section("report"):
+        if canonical_startup is not None:
+            old_report = json.loads((Path(canonical_startup) / "quest-startup-report.json").read_text())
+        else:
+            old_report = {"sourceFingerprint": progress["sourceFingerprint"],
+                          "sourceBuilderFingerprint": startup.builder_fingerprint(progress["sourceInventory"]),
+                          "originalBuildScenes": [{"index": index, "path": path} for index, path in enumerate(scenes)]}
+        report = {"schema": 1, "target": "campaign", "fullGameReady": False,
+                  "sourceFingerprint": old_report["sourceFingerprint"],
+                  "sourceBuilderFingerprint": old_report["sourceBuilderFingerprint"],
+                  "recoveryReceiptSha256": recover.sha256(checkpoint), "selectedScenes": scenes,
+                  "originalBuildScenes": old_report["originalBuildScenes"],
+                  "startupAddressablesManifest": "Assets/QuestOriginalCampaign/campaign-addressables.json",
+                  "campaignAddressablesManifest": "Assets/QuestOriginalCampaign/campaign-addressables.json",
+                  "scriptBindingsManifest": "Assets/QuestOriginalCampaign/script-bindings.json",
+                  "managedScriptBindings": script_audit, "missingReferences": references,
+                  "unresolvedAddressables": [row for row in manifest["entries"] if row["status"] not in ("associated", "serialized-value-location-excluded")],
+                  "shaders": shader_rows, "officialTmpRestorations": restored_tmp, "originalDerivedFiles": copied,
+                  "serializedLayoutRestoration": layout_report, "canonicalGuidRestoration": {
+                      "assetCount": len(guid_proof["mappings"]), "originalObjectCount": guid_proof["mappedOriginalObjectCount"],
+                      "rejectedWitnessCount": len(guid_proof["rejected"])},
+                  "readiness": {"originalSceneClosureStaged": len(scenes) == 13,
+                                "fullOriginalCatalogRecovered": True, "unityImportVerified": False,
+                                "androidPlayerBuilt": False, "faithfulGraphicsVerified": False,
+                                "playableCampaignVerified": False},
+                  "limits": ["Asset recovery is not a hardware or rendering validation.",
+                             "Original custom shader instruction streams require complete portable shader reconstruction."]}
+        report.update(native_report)
+        report["files"] = _output_inventory(output, proofs)
+        write_json(output / "quest-startup-report.json", report)
+        write_json(output / "quest-campaign-report.json", report)
     return report
