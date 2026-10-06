@@ -286,6 +286,7 @@ public static class InteractionProgram
         ScenarioIdleAnimationBudget.Register(actor, visiblePose); enabled = true;
         Render(eye); yield return null; Render(eye); yield return null;
         var nativeFramePoses = new List<string>();
+        Transform[] visibleBones = nativeSkins.SelectMany(skin => skin.bones).Distinct().ToArray();
         for (int frame = 0; frame < 8; frame++)
         {
             Color32[] budgetPixels = ReadPixels(eye);
@@ -303,6 +304,8 @@ public static class InteractionProgram
                 "visible idle keeps original meshes materials masks and native LOD tables");
             float previousPhase = animator.GetCurrentAnimatorStateInfo(0).normalizedTime;
             Quaternion previousWing = wing.localRotation;
+            Quaternion[] previousBones = visibleBones.Select(bone => bone.localRotation).ToArray();
+            Vector3[] previousPositions = visibleBones.Select(bone => bone.localPosition).ToArray();
             Render(eye); yield return null;
             Check(animator.GetCurrentAnimatorStateInfo(0).normalizedTime > previousPhase,
                 "visible idle advances its original clock every real Unity frame");
@@ -310,7 +313,11 @@ public static class InteractionProgram
                 "frame=" + Time.frameCount + "; previousPhase=" + previousPhase + "; phase=" + animator.GetCurrentAnimatorStateInfo(0).normalizedTime
                 + "; dt=" + Time.deltaTime + "; mode=" + animator.cullingMode + "; angle=" + Quaternion.Angle(wing.localRotation,previousWing)
                 + "; visible=" + string.Join(",",nativeSkins.Select(skin => skin.name + ":" + skin.isVisible)) + "\n");
-            Check(Quaternion.Angle(wing.localRotation,previousWing) > .001f,
+            // A wing can reach an authored turning point and Quaternion.Angle rounds
+            // tiny changes to zero. Observe the complete original evaluated skeleton.
+            Check(visibleBones.Select((bone,index) => bone.localRotation.x != previousBones[index].x
+                || bone.localRotation.y != previousBones[index].y || bone.localRotation.z != previousBones[index].z
+                || bone.localRotation.w != previousBones[index].w || bone.localPosition != previousPositions[index]).Any(value => value),
                 "visible idle evaluates original native bones every real Unity frame");
             nativeFramePoses.Add("frame=" + Time.frameCount + "; phase=" + animator.GetCurrentAnimatorStateInfo(0).normalizedTime
                 + "; wing=" + wing.localRotation + "; culling=" + animator.cullingMode);

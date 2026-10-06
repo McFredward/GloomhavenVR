@@ -53,3 +53,25 @@ fallback. Native figure detail, actor-bar envelopes, graphics profiles and UI
 inventories have separate focused suites. The integrator regenerates the patch
 inventory and runs the complete final gate. These source/native fixtures do not
 establish new headset FPS, Frame stereo quality or multiplayer latency.
+
+## Worker validation
+
+The final replacement audit passes 187 production assertions and all fifteen causal
+controls (sixteen variants). Two controls deliberately freeze the visible native
+clock or mask the original body and fail the new continuous-picture checks. The
+independent native figure-detail suite passes 142 production assertions and all
+27 controls (28 variants); four idle-mask reader assertions and three reader
+controls are retired with that deleted API. UI inventory passes 1,021 production
+assertions and all five controls; graphics profiles pass 255 assertions, including
+explicit rejection of a bound retired option after every preset. Strict Release
+and Debug pass with zero warnings/errors, and bilingual player docs pass.
+
+The initial source run passes thirteen of fourteen gates. Its sole failure is the
+expected stale generated patch inventory following removal of the clone prefix;
+the integrator owns regeneration. The source census and runtime source are frozen
+for the final integration review. The original unsuccessful fixture compiles and
+single-wing angle-oracle failures remain in private evidence. A complete-skeleton
+read corrects the angle oracle: an authored turning point and Unity's
+`Quaternion.Angle` precision can yield zero despite live movement elsewhere.
+Original same-pose pixels, clocks, meshes, masks, materials and LOD checks remain.
+The extensive native actor-bar envelope suite is tracked separately.
