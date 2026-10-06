@@ -61,7 +61,7 @@ are reused; no exhaustive shader compiler matrix is rerun for these changes.
 ## Focused verification completed before the build
 
 Release mod compilation passes with zero warnings/errors. Focused checks pass:
-390 builder tests;185 installer tests (23 platform skips);832 weaver assertions;
+392 builder tests;185 installer tests (23 platform skips);832 weaver assertions;
 3081 platform assertions/17 defect controls;293 startup assertions/19 controls;
 660 content delivery assertions/18 controls;103 actual filesystem Editor
 exclusion assertions; actual SDK scope30 assertions. Restored full-scope and
@@ -69,6 +69,13 @@ separate diagnostic-scope tests retain their respective native behavior.
 The actual Quest glass/video GPU gates exercise Vulkan and GL, and the focused
 Android Vulkan delivery gate retains its28 observed banks/56 stages. These
 are local source/serialization/compilation proofs, not headset picture proof.
+
+The first build attempt exposed native Wine DLLs in the managed-plugin package
+audit. The selector now excludes the special `Assets/StreamingAssets` payload
+root while retaining genuine managed plugins, including unrelated nested
+folders with the same name. The two new regression tests fail before the fix
+and pass afterward; native payload bytes are unchanged. The warm retry recovers
+its exact archive/manifest transaction before updating the source identity.
 
 ## Next hardware run
 
