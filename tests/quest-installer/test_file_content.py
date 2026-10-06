@@ -47,8 +47,8 @@ class LocalDevice:
         self.calls.append(action)
         if action == ("shell", "am", "force-stop", installer.PACKAGE):
             return ""
-        if action[:3] == ("shell", "sh", "-c"):
-            script = shlex.split(action[3])[0]
+        if action == ("shell", "-T", "sh", "-s"):
+            script = kwargs["input_text"]
             assert self.prefix in script
             # Any other absolute provider/save location is forbidden by this fake.
             assert "/data/user" not in script and "quest-saves" not in script
@@ -96,6 +96,38 @@ class FileContentTests(unittest.TestCase):
         self.mod = {"StreamingAssets/" + name: name.encode() for name in
                     ("gloomhavenvr.bundle", "ghvr-town.bundle", "ghvr-town-voices.bundle")}
         self.make_source()
+
+    def test_large_content_metadata_script_uses_short_argv_and_binary_lf_stdin(self):
+        log = self.root / 'stdin-adb.log'
+        observed = []
+        def runner(command, **options):
+            self.assertLess(len(subprocess.list2cmdline(command).encode('utf-16-le')) // 2, 1024)
+            self.assertEqual(command[-4:], ['shell', '-T', 'sh', '-s'])
+            self.assertFalse(options['text']); self.assertIsInstance(options['input'], bytes)
+            self.assertNotIn(b'\r\n', options['input'])
+            observed.append(options['input'])
+            return subprocess.run(['sh', '-s'], input=options['input'], capture_output=True, timeout=30)
+        adb = installer.Adb('fixture-adb.exe', log, runner=runner)
+        # A real large script, rather than a string-only assertion, executes.
+        lines = ['# ' + 'fixture' * 7000, "printf 'completed\\n'"]
+        self.assertEqual(installer._content_shell(adb, 'quest', lines), 'completed')
+        self.assertGreater(len(observed[0]), 32767)
+        self.assertIn('stdinScript', log.read_text())
+        # The original argv transport would exceed Windows's exact limit.
+        old = ['fixture-adb.exe', '-s', 'quest', 'shell', 'sh', '-c', shlex.quote(observed[0].decode())]
+        self.assertGreater(len(subprocess.list2cmdline(old).encode('utf-16-le')) // 2, 32767)
+
+    def test_process_start_error_keeps_exact_windows_reason_and_command_in_log(self):
+        log = self.root / 'failed-adb.log'
+        def runner(*_, **__):
+            error = OSError('The filename or extension is too long'); error.winerror = 206
+            raise error
+        adb = installer.Adb('fixture-adb.exe', log, runner=runner)
+        with self.assertRaisesRegex(installer.InstallError, 'ADB could not start: .*too long'):
+            adb.run('-s', 'quest', 'shell', 'getprop', 'ro.serialno')
+        text = log.read_text()
+        self.assertIn('"winError": 206', text); self.assertIn('ro.serialno', text)
+        self.assertIn('too long', text)
 
     def make_source(self, key="c" * 64, game=None, mod=None):
         self.game = game if game is not None else self.game

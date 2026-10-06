@@ -4,7 +4,8 @@
 It connects the remembered Quest over Wi-Fi, installs the selected local APK
 with `adb install -r`, and starts the app. The accompanying PowerShell and Python
 entry points support command-line use. The installer selects the latest verified private diagnostic; the current
-hardware checkpoint is618 and remains distinct from a playable campaign.
+hardware checkpoint is B625 with the complete locally owned game bank; headset
+behavior remains unverified until installation and testing finish.
 
 ## First installation on Windows
 
@@ -216,3 +217,27 @@ Copy the resulting ZIP and relevant pictures into the main checkout's ignored
 can include baked profile IDs, headset identifiers and recent Android log lines;
 keep them private. `-OutputRoot` here is the capture destination, whereas the
 installer's same option denotes a builder-output source.
+
+## Windows B625 metadata transport correction (2026-10-06)
+
+The maintainer report confirms that APK B625 installation and embedded identity
+verification completed, then the original file-backed Campaign metadata step
+failed with WinError 206. The actual shipped 6,367-file inventory produces 50
+metadata batches: every previous `sh -c SCRIPT` command exceeded Windows's
+32,767-character [CreateProcessW limit](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw).
+The first command had 78,741 UTF-16 characters and the maximum had 104,652.
+
+The installer now sends generated scripts to `adb -s ADDRESS shell -T sh -s`
+through binary UTF-8 stdin, preserving LF on Windows. The [ADB shell contract](https://android.googlesource.com/platform/packages/modules/adb/+/HEAD/docs/user/adb.1.md)
+supports stdin and `-T` disables PTY allocation. The command stays short; actual
+stat/hash checks, fail-on-error semantics, containment checks and transactional
+receipts are retained. Completed mod/content receipts remain reusable, and
+unknown files/saves are not removed. A process-start failure logs its command,
+Windows error code and original message before displaying an actionable failure.
+
+`GloomhavenVR-Quest-Installer-Update.zip` contains only the corrected installer
+under the existing `GloomhavenVR-Quest-Test` root. Overlay this small update on
+the private B625 test folder, then rerun its usual wireless installer. No APK
+rebuild or new content download is necessary. The complete source builder also
+contains the fix. Real local shell tests cover stdin transport and 32-KiB
+negative controls; Quest/Windows completion still needs hardware evidence.

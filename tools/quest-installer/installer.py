@@ -333,16 +333,26 @@ class Adb:
         self.executable, self.log = str(executable), log
         self.runner = runner or subprocess.run
 
-    def run(self, *args, timeout=20, positive=None, check_text=True):
+    def run(self, *args, timeout=20, positive=None, check_text=True, input_text=None):
         command = [self.executable, *map(str, args)]
         with self.log.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(command) + "\n")
+            if input_text is not None: stream.write(json.dumps({"stdinScript": input_text}, ensure_ascii=False) + "\n")
         try:
-            result = self.runner(command, capture_output=True, text=True, timeout=timeout,
-                                 encoding="utf-8", errors="replace", shell=False)
+            options = {"capture_output": True, "timeout": timeout, "shell": False}
+            if input_text is None: options.update(text=True, encoding="utf-8", errors="replace")
+            else:
+                # Binary stdin preserves LF on Windows; CRLF breaks remote sh.
+                options.update(text=False, input=input_text.encode("utf-8"))
+            result = self.runner(command, **options)
         except subprocess.TimeoutExpired as error:
             raise InstallError("ADB timed out; check the headset and Wi-Fi. No data was removed.") from error
-        raw = (result.stdout or "") + "\n" + (result.stderr or "")
+        except OSError as error:
+            with self.log.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps({"processStartError": type(error).__name__, "winError": getattr(error, "winerror", None), "message": str(error)}) + "\n")
+            raise InstallError("ADB could not start: " + str(error) + ". Its command and error were retained in the ADB log.") from error
+        def decoded(value): return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value or ""
+        raw = decoded(result.stdout) + "\n" + decoded(result.stderr)
         with self.log.open("a", encoding="utf-8") as stream:
             stream.write(raw + "\n")
         if "INSTALL_FAILED_UPDATE_INCOMPATIBLE" in raw:
@@ -563,8 +573,10 @@ def _pull_content_receipt(adb, address, remote, local):
 def _content_shell(adb, address, lines, timeout=180):
     # Every interpolated operand is shell quoted, and paths have already passed
     # bounded containment validation. No user text is executable shell syntax.
-    return adb.run("-s", address, "shell", "sh", "-c", shlex.quote("set -eu\n" + "\n".join(lines)),
-                   timeout=timeout, check_text=False)
+    # A 128-file stat batch exceeds Windows CreateProcess's 32767-character
+    # limit with the real B625 bank. Keep argv short; send LF script over stdin.
+    return adb.run("-s", address, "shell", "-T", "sh", "-s",
+                   input_text="set -eu\n" + "\n".join(lines) + "\n", timeout=timeout, check_text=False)
 
 
 def _remote_content_sizes(adb, address, root, rows):
