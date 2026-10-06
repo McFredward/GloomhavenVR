@@ -148,17 +148,24 @@ public static partial class EnvironmentProgram
             RenderTexture? previous = RenderTexture.active;
             var target = new RenderTexture(48, 48, 24); target.Create();
             var image = new Texture2D(48, 48, TextureFormat.RGBA32, false);
+            Exception? callbackFailure = null;
             Camera.CameraCallback observe = camera =>
             {
                 if (camera != Camera) return;
-                LastRenderedChunks = 0;
-                foreach (var chunk in Chunks()) if (chunk.enabled) LastRenderedChunks++;
-                ObserveRender?.Invoke();
+                try
+                {
+                    LastRenderedChunks = 0;
+                    foreach (var chunk in Chunks()) if (chunk.enabled) LastRenderedChunks++;
+                    ObserveRender?.Invoke();
+                }
+                catch (Exception error) { callbackFailure ??= error; }
             };
             Camera.onPreCull += observe;
             try
             {
-                Camera.targetTexture = target; Camera.Render(); RenderTexture.active = target;
+                Camera.targetTexture = target; Camera.Render();
+                if (callbackFailure != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(callbackFailure).Throw();
+                RenderTexture.active = target;
                 image.ReadPixels(new Rect(0,0,48,48),0,0); image.Apply(); return image.GetPixels32();
             }
             finally
@@ -1062,7 +1069,7 @@ public static partial class EnvironmentProgram
         {
             PresentationPreparationVisibility(); ScopeAndMaterials(); AmbientScopes(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault(); StructuralChunks(); NativeWallChannelsAndRenderedClock();
             int sharedStart = count;
-            SharedOriginalMaterialValidation(); SharedReadOptionToggle(); VerifiedEnvironmentBank(); UnreadableExactChunks(); ExplicitCameraInstances(); MultipleSubmeshInstances(); RevealedClonePixels(); SupplementaryNativeGeometry(); NativeCameraBoundaryLifecycle(); NativeCameraBoundaryOrder(); CommonAbsentLighting(); LateNativeLightingFlags(); LateNativeCommandBufferConsumer(); LivePreparationReport(); DetailedPreparationRefusals(); NativeObjectLighting(); ProbeRejectionSkipsPrivateGeometry(); NativeMaterialLoadStart();
+            SharedOriginalMaterialValidation(); SharedReadOptionToggle(); VerifiedEnvironmentBank(); UnreadableExactChunks(); ExplicitCameraInstances(); MultipleSubmeshInstances(); RevealedClonePixels(); SupplementaryNativeGeometry(); NativeCameraCallbackFailureIsProcessBound(); NativeCameraBoundaryLifecycle(); NativeCameraBoundaryOrder(); CommonAbsentLighting(); LateNativeLightingFlags(); LateNativeCommandBufferConsumer(); LivePreparationReport(); DetailedPreparationRefusals(); NativeObjectLighting(); ProbeRejectionSkipsPrivateGeometry(); NativeMaterialLoadStart();
             Debug.Log("Shared-material validation assertions=" + (count - sharedStart));
             NativeHighHistoricalDelivery();
             NativeHighHistoricalDelivery(toggleNative:true);

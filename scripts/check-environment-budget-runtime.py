@@ -247,6 +247,9 @@ def main():
         for name,before,after,expected in bank_changes:
             assert bank_source.count(before) == 1, 'Bank causal binding drift: '+name
             variants.append((name,source,expected)); bank_variants[name] = bank_source.replace(before,after)
+    if not args.production_only:
+        variants.append(('native-camera-callback-failure-swallowed',source,
+            'actual native camera callback assertions propagate after Render into the runner process status'))
     if args.case:
         unknown = set(args.case)-{name for name,_,_ in variants}
         if unknown: raise SystemExit('Unknown selected case: '+', '.join(sorted(unknown)))
@@ -262,6 +265,17 @@ def main():
     shutil.copytree(ROOT/'tests/environment-budget-runtime', fixture)
     fixture_hashes = {str(path.relative_to(fixture)): hashlib.sha256(path.read_bytes()).hexdigest()
                       for path in fixture.rglob('*') if path.is_file()}
+    swallowed_fixture = None
+    if any(name == 'native-camera-callback-failure-swallowed' for name,_,_ in variants):
+        guard = 'if (callbackFailure != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(callbackFailure).Throw();'
+        program = (fixture/'Program.cs').read_text()
+        assert program.count(guard) == 1, 'Native camera callback process-status binding drift'
+        # This fixture-only control tests the evidence bridge itself. The complete
+        # production source stays unchanged; Unity must not hide failed assertions.
+        swallowed_fixture = run/'fixture-callback-swallowed'
+        shutil.copytree(fixture,swallowed_fixture)
+        (swallowed_fixture/'Program.cs').write_text(program.replace(guard,
+            'if (callbackFailure != null && bool.Parse("false")) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(callbackFailure).Throw();'))
     manifest = {'result':str(run/'results.txt'),'cases':[]}
     bound_sources = {source_path:source,boundary_path:boundary,shader_path:shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,trace_path:trace,occlusion_path:occlusion,dissolve_path:dissolve}
     for bank_file in ('ScenarioEnvironmentMeshBank.cs','ScenarioEnvironmentMeshStream.cs'):
@@ -296,7 +310,8 @@ def main():
         (production/'OcclusionFade.cs').write_text(occlusion)
         project = build/'Environment.csproj'; shutil.copyfile(fixture/'Environment.csproj',project)
         assembly = 'EnvironmentBudget_'+name.replace('-','_')
-        command = [dotnet,'build',str(project),'-c','Release','--nologo','--verbosity','quiet','-p:CaseName='+assembly,'-p:FixtureDir='+str(fixture),'-p:ProductionDir='+str(production),'-p:UnityManaged='+str(args.unity.parent/'Data/Managed')]
+        case_fixture = swallowed_fixture if name == 'native-camera-callback-failure-swallowed' else fixture
+        command = [dotnet,'build',str(project),'-c','Release','--nologo','--verbosity','quiet','-p:CaseName='+assembly,'-p:FixtureDir='+str(case_fixture),'-p:ProductionDir='+str(production),'-p:UnityManaged='+str(args.unity.parent/'Data/Managed')]
         result = subprocess.run(command,capture_output=True,text=True)
         (build/'build.log').write_text(result.stdout+result.stderr)
         if result.returncode: raise SystemExit(result.stdout+result.stderr+'\nA compilation failure cannot pass as a negative control')

@@ -7,6 +7,17 @@ using UnityEngine.Rendering;
 
 public static partial class EnvironmentProgram
 {
+    private static void NativeCameraCallbackFailureIsProcessBound()
+    {
+        using var room=new Room();
+        room.ObserveRender=()=>throw new InvalidOperationException("Environment.NativeCameraCallback.Sentinel");
+        bool caught=false;
+        try { room.Render(); }
+        catch(InvalidOperationException error) { caught=error.Message=="Environment.NativeCameraCallback.Sentinel"; }
+        finally { room.ObserveRender=null; }
+        Check(caught,"actual native camera callback assertions propagate after Render into the runner process status");
+    }
+
     private static void NativeCameraBoundaryLifecycle()
     {
         using var room = new Room();
@@ -266,6 +277,7 @@ public static partial class EnvironmentProgram
 
             // A genuinely populated baked light volume remains per-object even with
             // the simplified shader. This uses the editor's native engine bake.
+            first.probeAnchor=second.probeAnchor=null;
             LightmapSettings.lightProbes = NativeProbeFixture;
             Configure(true,false,100); ScenarioEnvironmentBudget.BeforeLoadingComplete();
             Check(room.Chunks().Length==0,"native populated baked light probes refuse absence-aware chunks");
@@ -297,10 +309,10 @@ public static partial class EnvironmentProgram
         int reports = VRLog.DebugLines.Count;
         Tick(); Tick(); room.Render(); room.Render();
         Check(VRLog.DebugLines.Count==reports,"steady camera and update paths do not repeat preparation diagnostics");
-        for (int i=0;i<50;i++) { ScenarioEnvironmentBudget.Placed(room.Generated); Tick(); }
+        for (int i=0;i<50;i++) { room.Floor(.5f); ScenarioEnvironmentBudget.Placed(room.Generated); Tick(); }
         Check(VRLog.DebugLines.FindAll(line=>line.StartsWith("Scenario environment preparation:")).Count<=32,
             "preparation diagnostics are bounded for each scene despite repeated native placement");
-        for(int i=0;i<10;i++) { Configure(false,false,100); Tick(); Configure(true,false,100); Tick(); }
+        for(int i=0;i<10;i++) { Configure(false,false,100); Tick(); Configure(true,false,100); Tick(); Tick(); }
         Check(VRLog.DebugLines.FindAll(line=>line.StartsWith("Scenario environment preparation:")).Count<=32,
             "complete option off/on toggles cannot reset the current scene preparation diagnostic bound");
     }
