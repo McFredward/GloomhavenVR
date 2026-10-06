@@ -54,8 +54,8 @@ def main():
         ('late-interaction-bypass','|| !CurrentScope(surface.Renderer)','/* injected live native scope veto */','late native interaction veto',source,1),
         ('native-command-buffer-bypass','|| (_nativeCameraConsumers?.Invoke(camera) ?? camera.commandBufferCount > 0)','/* injected command-buffer veto */','native command-buffer camera',source,1),
         ('inactive-host-masks-original','|| !isActiveAndEnabled','|| !enabled','deactivated terrain host retains original wall pixels',source,1),
-        ('hand-proximity-bypass','NearHand(VRHands.Left, bounds)','false','tracked hand proximity restores',source,1),
-        ('distant-detail-ignored','Mathf.Min(near, PerfConfig.DistantTerrainDetailPercent)','near','independent distant terrain detail cap',source,1),
+        ('hand-proximity-bypass','NearHand(detail.Left, bounds)','false','tracked hand proximity restores',source,1),
+        ('distant-detail-ignored','Mathf.Min(near, detail.Distant)','near','independent distant terrain detail cap',source,1),
         ('foreign-mesh-bypass','|| Filter.sharedMesh != Original','/* injected foreign mesh ownership */','foreign native mesh replacement',geometry,1),
         ('native-rendering-layer-not-copied','_proxyRenderer.renderingLayerMask = next.RenderingLayer;','/* injected native layer loss */','actual terrain camera proxy preserves current native rendering layers',geometry,1),
         ('material-slot-block-dropped','Renderer.GetPropertyBlock(SlotBlock, slot);','SlotBlock.Clear();','native material-slot MPB precedence',geometry,1),
@@ -69,6 +69,29 @@ def main():
         ('native-high-foundation-dropped','float foundation = min(max(1. - i.world.y, 0.), 5.) / 3.;','float foundation = 0.;','production HIGH and toggle-native map foundation',shader,1),
         ('native-high-enable-dropped','float M = m * _EnableOcclusionMap;','float M = 0.;','production HIGH and toggle-native map foundation',shader,1),
         ('native-high-cutoff-fixed','clip(value - _Cutoff);','clip(value - .5);','production HIGH and toggle-native map foundation',shader,1),
+    ]
+    controls += [
+        ('repeated-detail-pose-reads','int percent = active && camera != null ? DetailFor(surface, detail) : 100;',
+         'detail = active && camera != null ? new DetailState(camera) : default; int percent = active && camera != null ? DetailFor(surface, detail) : 100;',
+         'ninety-six prepared terrain sources read current head and both tracked positions only once',source,1),
+        ('tracking-loss-ignored','Tracked = hand != null && hand.HasPose;','Tracked = hand != null;',
+         'tracking loss is read on the next terrain Update',source,1),
+        ('hand-scale-ignored','Mathf.Max(hand!.WorldScale, .0001f)','1f',
+         'current tracked hand scale restores full geometry',source,1),
+        ('empty-property-fast-path-removed','if (!Renderer.HasPropertyBlock())','if (false && !Renderer.HasPropertyBlock())',
+         'settled empty native MPB checks one fresh guard and skips all block reads',geometry,1),
+        ('property-absence-cross-eye-stale','if (!Renderer.HasPropertyBlock())','if (_hasPropertyDefaults || !Renderer.HasPropertyBlock())',
+         'native material-slot MPB precedence',geometry,1),
+        ('removed-property-blocks-not-cleared','if (_copiedNativeProperties || !_hasPropertyDefaults)','if (!_hasPropertyDefaults)',
+         'removed native slot property block is cleared',geometry,1),
+        ('empty-property-private-rewrites','if (_copiedNativeProperties || !_hasPropertyDefaults)',
+         'if (_copiedNativeProperties || !_hasPropertyDefaults || _hasPropertyDefaults)',
+         'settled empty native MPB checks one fresh guard and skips all block reads',geometry,1),
+        ('empty-slot-effect-reads','!block.isEmpty && (block.GetFloat','(block.GetFloat',
+         'empty native material-slot block skips effect reads',geometry,1),
+        ('world-floor-safety-channel-lost','block.SetFloat("_GHVRWorldNeverFade", Floor ? 1f : 0f);',
+         'block.SetFloat("_GHVRWorldNeverFade", 0f);',
+         'private floor renderer block sets legacy and world never-fade channels',geometry,1),
     ]
     controls += [
         ('captured-structural-coverage-missing','or "CR_INT_Stone_Int_Wall_01"','or "Unknown_CapturedWall"','captured structural definition is prepared and leased',source,1),
@@ -138,6 +161,23 @@ def main():
         assert geo.count(pose_call)==1, 'actual production private pose observer binding drift'
         observed_geometry=geo.replace(pose_call,
             'TerrainWriteObserver.SetPositionAndRotation(_proxyTransform, _sourceTransform.position, _sourceTransform.rotation);')
+        for before,after in (
+            ('Renderer.HasPropertyBlock()', 'TerrainReadObserver.HasPropertyBlock(Renderer)'),
+            ('Renderer.GetPropertyBlock(Block);', 'TerrainReadObserver.GetPropertyBlock(Renderer, Block);'),
+            ('Renderer.GetPropertyBlock(SlotBlock, slot);', 'TerrainReadObserver.GetPropertyBlock(Renderer, SlotBlock, slot);'),
+            ('_proxyRenderer.SetPropertyBlock(Block);', 'TerrainReadObserver.SetPropertyBlock(_proxyRenderer, Block);'),
+            ('_proxyRenderer.SetPropertyBlock(null, slot);', 'TerrainReadObserver.SetPropertyBlock(_proxyRenderer, null, slot);'),
+            ('_proxyRenderer.SetPropertyBlock(SlotBlock, slot);', 'TerrainReadObserver.SetPropertyBlock(_proxyRenderer, SlotBlock, slot);'),
+            ('block.GetFloat(', 'TerrainReadObserver.Effect(block, '),
+        ):
+            observed_geometry=observed_geometry.replace(before,after)
+        for before,after in (
+            ('Position = head.position;', 'Position = TerrainReadObserver.HeadPosition(head);'),
+            ('head.lossyScale.x', 'TerrainReadObserver.HeadScale(head)'),
+            ('hand!.transform.position', 'TerrainReadObserver.HandPosition(hand!)'),
+        ):
+            assert before in src, 'actual production primitive observer binding drift: '+before
+            src=src.replace(before,after)
         src=src.replace('surface.Renderer.GetSharedMaterials(_materialScratch);', 'TerrainWriteObserver.MaterialReads++; surface.Renderer.GetSharedMaterials(_materialScratch);')
         (production/'Terrain.cs').write_text(src); (production/'Geometry.cs').write_text(observed_geometry)
         (production/'Admission.cs').write_text(admit)

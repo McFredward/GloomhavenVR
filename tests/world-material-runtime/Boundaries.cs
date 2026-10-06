@@ -8,6 +8,11 @@ public class ProceduralBase : MonoBehaviour { }
 public sealed class ProceduralScenario : MonoBehaviour { }
 public sealed class ProceduralStyle : MonoBehaviour { public bool AnimateStyle; }
 public sealed class ApparanceEntity : MonoBehaviour { }
+public class ApparanceMap : MonoBehaviour { }
+public sealed class ProceduralMapConfig : MonoBehaviour { }
+public sealed class ProceduralPlacementNotifierHandler : MonoBehaviour { }
+public sealed class LightShadowsModifierController : MonoBehaviour { }
+public sealed class UnreviewedMapSubclass : ApparanceMap { }
 public class ProceduralTileObserver : ProceduralBase { }
 [RequireComponent(typeof(ApparanceEntity)),RequireComponent(typeof(ProceduralStyle))]
 public sealed class ProceduralMapTile : ProceduralTileObserver { }
@@ -53,16 +58,18 @@ namespace GloomhavenVR.Core
         internal static readonly Dictionary<string,int> Counts=new();
         internal static bool StepsActive=>true;
         internal static void RegisterDebug(string name){ }
-        internal static void Count(string name,int value)=>Counts[name]=value;
+        internal static void Count(string name,int value=1)=>Counts[name]=value;
         internal static IDisposable Scope(string name)=>new Quiet();
     }
     internal static class NativeWriteObserver
     {
-        internal static int MaterialCopies,ArrayWrites,MaterialReads,MapInventories;
+        internal static int MaterialCopies,ArrayWrites,MaterialReads,MapInventories,RendererBlockReads,SlotBlockReads;
         internal static void Copy(Material target,Material source){MaterialCopies++;target.CopyPropertiesFromMaterial(source);}
         internal static void Slots(Renderer renderer,Material[] slots){ArrayWrites++;renderer.sharedMaterials=slots;}
         internal static void Read(Renderer renderer,List<Material> slots){MaterialReads++;renderer.GetSharedMaterials(slots);}
         internal static MapChoreographer[] FindMaps(){MapInventories++;return UnityEngine.Object.FindObjectsOfType<MapChoreographer>(true);}
+        internal static void RendererBlock(Renderer renderer,MaterialPropertyBlock block){RendererBlockReads++;renderer.GetPropertyBlock(block);}
+        internal static void SlotBlock(Renderer renderer,MaterialPropertyBlock block,int slot){SlotBlockReads++;renderer.GetPropertyBlock(block,slot);}
     }
 }
 namespace GloomhavenVR.Board.FigureGrab

@@ -23,6 +23,7 @@ Shader "GloomhavenVR/WorldSimpleMaterial"
         _IsDimmed ("Original HIGH N_MRAO dimming", Float) = 0
         _DimmFactor ("Original HIGH N_MRAO dimmed grey", Float) = .3
         _GHVRWorldMaterialMode ("1 simple lit; 2 textured", Float) = 1
+        _GHVRWorldAmbientWeight ("Textured stage original ambient weight", Range(0,1)) = 1
         _GHVRWorldNativeRoute ("Audited native shader route", Float) = 1
         _GHVRWorldNeverFade ("Authored never-fade floor", Float) = 0
     }
@@ -34,7 +35,7 @@ Shader "GloomhavenVR/WorldSimpleMaterial"
     float _Diffuse_Boost, _Desaturation, _UVTiling, _UV_Offset;
     float _WorldSpace_tiling, _WorldSpace_FallOff, _Cutout, _Cutoff;
     float _IsDimmed, _DimmFactor, _EnableOcclusionMap;
-    float _GHVRWorldMaterialMode, _GHVRWorldNativeRoute, _GHVRWorldNeverFade;
+    float _GHVRWorldMaterialMode, _GHVRWorldNativeRoute, _GHVRWorldNeverFade, _GHVRWorldAmbientWeight;
     // Native camera globals stay outside Properties: a shader material default
     // must not shadow the original per-camera map/enable/integer toggle globals.
     int ToggleWallFade;
@@ -98,6 +99,7 @@ Shader "GloomhavenVR/WorldSimpleMaterial"
         float3 normal : TEXCOORD2;
         float4 screen : TEXCOORD3;
         UNITY_FOG_COORDS(4)
+        float3 ambient : TEXCOORD5;
         UNITY_VERTEX_OUTPUT_STEREO
     };
     v2f vert(appdata v)
@@ -113,6 +115,15 @@ Shader "GloomhavenVR/WorldSimpleMaterial"
             ? TRANSFORM_TEX(v.uv, _MainTex) : highUv * _UVTiling + _UV_Offset;
         o.world = mul(unity_ObjectToWorld, v.vertex).xyz;
         o.normal = UnityObjectToWorldNormal(v.normal);
+        o.ambient = 1.;
+        // Build636's raw stage-2 albedo made the original pale plaster/stone
+        // appear white wherever a terrain proxy replaced native lighting. Keep
+        // the scene's original SH ambient/color space at VERTICES, independent
+        // of the viewer. No per-pixel PBR, normal/MRAO, main/additional light,
+        // reflection or shadow-lighting work returns. Weight0 explicitly keeps
+        // raw unlit albedo; mode1 retains its existing per-pixel diffuse stage.
+        if (_GHVRWorldMaterialMode >= 1.5 && _GHVRWorldAmbientWeight > 0.)
+            o.ambient = lerp(1., max(ShadeSH9(float4(normalize(o.normal),1.)),0.), saturate(_GHVRWorldAmbientWeight));
         o.screen = ComputeScreenPos(o.pos);
         UNITY_TRANSFER_FOG(o,o.pos);
         return o;
@@ -251,7 +262,9 @@ Shader "GloomhavenVR/WorldSimpleMaterial"
             // no normal/MRAO/detail, reflections, specular, parallax or ForwardAdd.
             color *= max(ShadeSH9(float4(n,1.)), 0.) + _LightColor0.rgb * saturate(dot(n,direction));
         }
-        // Stage 2 retains original texture/tint/dim and fog without lighting work.
+        else color *= i.ambient;
+        // Stage 2 retains texture/tint/dim and optional original vertex ambient,
+        // with no per-pixel lighting. Native fog remains independently authored.
         float4 result = float4(color,1.);
         UNITY_APPLY_FOG(i.fogCoord,result);
         return result;

@@ -2,15 +2,18 @@
 
 `GloomhavenVR/WorldSimpleMaterial` retains the native 3D meshes and implements two
 optional material compromises. `_GHVRWorldMaterialMode = 1` uses spherical-harmonic
-ambient light and one diffuse main light; `2` uses original albedo/tint without
-lighting. Both retain original fog and supported native visibility/cutout math.
+ambient light and one diffuse main light; `2` uses original albedo/tint with
+optional original scene SH ambient evaluated at vertices. Both retain original fog and supported native visibility/cutout math.
 Mode 0 restores original materials in the separate runtime owner. PC and Frame
 use the same implementation with different configurable profile defaults.
 
 Stage 1 deliberately omits native PBR, normal/MRAO lighting channels, specular,
 reflections, received-shadow lighting, additional-light passes, detail and
-parallax. Stage 2 also removes
-ambient/main-light computation. This is an explicit lighting compromise, not a
+parallax. Stage 2 removes per-pixel ambient/main-light computation and all main
+light work. `_GHVRWorldAmbientWeight` defaults to 1 and retains the original scene
+SH ambient at vertices; 0 explicitly restores raw unlit albedo. Intermediate
+weights interpolate those two appearances without changing texture, hue, mesh
+or visibility. The setting does not affect stage 1. This is an explicit lighting compromise, not a
 claim of original lighting parity. The shader does not move vertices, disable
 objects, write controllers, change lights or sample idle animations.
 
@@ -197,7 +200,9 @@ successful controls. The retained source controls demonstrate detection rather
 than merely reimplementing a candidate-count formula.
 
 The initial production checkpoint passed 314 rendered assertions. The expanded
-production shader has 318 rendered assertions and 25 source causal controls.
+original stage shader had 318 rendered assertions and 25 source causal controls.
+The appearance follow-up adds 99 rendered assertions (417 total) and one ambient
+omission control (26 total).
 The final run and every causal result are recorded in the worker's private
 `.planning/debug/world-material-shader/` evidence. Automated pixels establish
 fixture behavior only. They do not establish FPS/GPU improvement, Steam Frame
@@ -209,3 +214,43 @@ differences in HIGH UV/ST/projection/dim and LOW foundation/cutout handling.
 Those legacy files are outside this worker's ownership and remain unchanged.
 The new world-material stage uses the independently reviewed equations; parent
 integration owns precedence over the older coarse terrain/environment shaders.
+
+
+## Frame636 pale-wall regression
+
+The supplied four Frame636 screenshots retain detailed pale stone/plaster/wood
+patterns. Its effective setting is stage2. The actual `CR_INT_Plaster_Wall_01`
+texture census binds `CR_INT_Wooden_Int_Wall`, not a missing texture. Its addressed
+original material has tint `(0.8192,0.8091,0.8208)`, diffuse boost1, desaturation0
+and dim0. The exported original texture contains the same pale plaster, stone and
+wood artwork. Raw stage2 deliberately removed the scene lighting that normally
+darkens it. Terrain substitution alone selected only some sources, allowing
+native dark output and bright unlit output to alternate with camera admission.
+The renderer-scope/substitution correction lives in the separate runtime lane.
+
+The shader correction multiplies stage2 albedo by the original renderer SH
+ambient at vertices. `ShadeSH9` uses the engine's native SH coefficients and
+active color-space conversion; no guessed darkening constant, altered material
+tint, main light or per-pixel lighting is introduced. The original game
+`globalgamemanagers` PlayerSettings is Gamma, which the new fixture pins by full
+source and raw object hashes. The asset-builder project's own Linear setting does
+not establish the game's runtime color space.
+
+`appearance-contract.json` additionally pins seven original material/texture
+objects and their resolved native shader identities: the reported interior wall
+and mausoleum, HIGH/LOW Crypt stone, and HIGH/LOW DLC ship wood. Read-only
+`extract-appearance.py` verifies original source/object hashes, local albedo
+PPtrs, texture color space and authored properties; converted images remain
+private debug evidence. Actual Unity renders use those original color images,
+tints, texture transforms and keywords. Independent Unity CPU SH evaluation
+provides the expected ambient modulation at weights0/.4/1 over three camera
+views. A bounded colored scene probe exposes the pale-albedo/ambient distinction;
+its values are fixture inputs, never a production brightness constant. The
+ambient-omitted causal mutation produces a visible RGB error on the reported
+interior wall. Additional comparisons prove stage1 ignores this setting.
+
+These are source-bound color/ambient and view-independent modulation proofs.
+They do not execute native Windows PBR, reproduce the measured scene's actual
+probe, establish HMD pictures or measure GPU/frame-time gains. The next Frame
+review must confirm the native/proxy coverage correction and acceptable scene
+brightness across rooms, other biomes, DLC and multiplayer.

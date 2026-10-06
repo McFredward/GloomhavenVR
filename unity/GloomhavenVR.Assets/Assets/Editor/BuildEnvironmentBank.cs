@@ -32,9 +32,20 @@ namespace GloomhavenVR
                     if (AssetDatabase.AssetPathToGUID(asset) == string.Empty)
                         throw new InvalidOperationException("Unimported environment asset: " + asset);
                 Directory.CreateDirectory(output);
-                AssetBundleManifest manifest = BuildPipeline.BuildAssetBundles(output,
-                    new[] { new AssetBundleBuild { assetBundleName = "ghvr-environment.bundle", assetNames = assets } },
-                    BuildAssetBundleOptions.None, BuildTarget.StandaloneWindows64);
+                // The shipped game's globalgamemanagers PlayerSettings is Gamma.
+                // UnityCG.ShadeSH9 compiles its conversion under
+                // UNITY_COLORSPACE_GAMMA; the companion project's Linear setting
+                // must not silently change the independent runtime shader bank.
+                ColorSpace previousColorSpace = PlayerSettings.colorSpace;
+                AssetBundleManifest manifest;
+                try
+                {
+                    PlayerSettings.colorSpace = ColorSpace.Gamma;
+                    manifest = BuildPipeline.BuildAssetBundles(output,
+                        new[] { new AssetBundleBuild { assetBundleName = "ghvr-environment.bundle", assetNames = assets } },
+                        BuildAssetBundleOptions.None, BuildTarget.StandaloneWindows64);
+                }
+                finally { PlayerSettings.colorSpace = previousColorSpace; }
                 if (manifest == null) throw new InvalidOperationException("Environment bank build returned null.");
                 long length = new FileInfo(output + "/ghvr-environment.bundle").Length;
                 if (length >= 100L * 1024 * 1024) throw new InvalidOperationException("Environment bank exceeds ordinary Git file limit; split it before committing.");

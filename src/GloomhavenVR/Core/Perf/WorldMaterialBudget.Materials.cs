@@ -145,16 +145,22 @@ internal static partial class WorldMaterialBudget
             variant.enableInstancing = original.enableInstancing;
             variant.SetFloat("_GHVRWorldMaterialMode", _mode);
             variant.SetFloat("_GHVRWorldNativeRoute", route);
+            float ambient = _ambientWeight?.Invoke() ?? 1f;
+            variant.SetFloat("_GHVRWorldAmbientWeight", float.IsNaN(ambient) || float.IsInfinity(ambient)
+                ? 1f : Mathf.Clamp01(ambient));
             _refreshes++;
+            // Factory-only terrain/chunk consumers can refresh before the final
+            // owner pass. Report their actual work instead of resetting it away.
+            if (PerfMonitor.StepsActive && VRLog.Level >= VRLogLevel.Debug)
+                PerfMonitor.Count("WorldMaterial.FactoryVariantRefreshes");
             _prepared.Add(original, variant);
             return variant;
         }
-        private bool RendererEffect(MeshRenderer renderer, int slot, Material original)
+        private bool RendererEffect(MeshRenderer renderer, int slot, Material original, bool blocks)
         {
-            if (!renderer.HasPropertyBlock()) return false;
+            if (!blocks) return false;
             int route = ShaderRoute(original);
             if (route < 0) return false;
-            renderer.GetPropertyBlock(_block);
             renderer.GetPropertyBlock(_slotBlock, slot);
             if (_block.HasTexture("_MainTex") && _block.GetTexture("_MainTex") is RenderTexture
                 || _slotBlock.HasTexture("_MainTex") && _slotBlock.GetTexture("_MainTex") is RenderTexture) return true;

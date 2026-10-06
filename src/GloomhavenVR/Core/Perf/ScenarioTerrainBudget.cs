@@ -333,11 +333,18 @@ internal static partial class ScenarioTerrainBudget
                     if (!_surfaces.ContainsKey(id)) { _surfaces.Add(id, new Surface(renderer, filter, transform)); _priorityDirty = true; }
                 }
                 Camera? camera = Rig.VRRigDriver.HeadCamera;
+                // Frame636's settled three-room capture spends about 1.7ms per frame
+                // in this Update. Tracked poses and the detail settings are identical
+                // throughout this synchronous loop; capture them once instead of
+                // crossing Unity's transform boundary for each prepared wall. Renderer
+                // bounds and mesh ownership remain current per source, and the next
+                // Update always captures new poses/settings (including tracking loss).
+                DetailState detail = active && camera != null ? new DetailState(camera) : default;
                 foreach (KeyValuePair<int, Surface> item in _surfaces)
                 {
                     Surface surface = item.Value;
                     if (!surface.Validate(_meshThisInvocation)) { surface.Dispose(); _dead.Add(item.Key); continue; }
-                    int percent = active && camera != null ? DetailFor(surface, camera) : 100;
+                    int percent = active && camera != null ? DetailFor(surface, detail) : 100;
                     surface.StepGeometry(percent, delta);
                 }
                 foreach (int id in _dead) { _surfaces.Remove(id); _priorityDirty = true; }
@@ -368,25 +375,51 @@ internal static partial class ScenarioTerrainBudget
             _sceneThisInvocation, _ancestry, _sceneRoots, _scopeComponents);
         private void ClearValidation()
         { _scopeThisInvocation.Clear(); _sceneThisInvocation.Clear(); _ancestry.Clear(); _sceneRoots.Clear(); _scopeComponents.Clear(); _meshThisInvocation.Clear(); }
-        private static int DetailFor(Surface surface, Camera camera)
+        private readonly struct HandProximity
+        {
+            internal readonly bool Tracked;
+            internal readonly Vector3 Position;
+            internal readonly float Scale;
+            internal HandProximity(VRHand? hand)
+            {
+                Tracked = hand != null && hand.HasPose;
+                Position = Tracked ? hand!.transform.position : default;
+                Scale = Tracked ? Mathf.Max(hand!.WorldScale, .0001f) : 1f;
+            }
+        }
+        private readonly struct DetailState
+        {
+            internal readonly Vector3 Position;
+            internal readonly float Scale, Distance;
+            internal readonly int Near, Distant;
+            internal readonly HandProximity Left, Right;
+            internal DetailState(Camera camera)
+            {
+                Transform head = camera.transform;
+                Position = head.position;
+                Scale = Mathf.Max(Mathf.Abs(head.lossyScale.x), .0001f);
+                Left = new HandProximity(VRHands.Left); Right = new HandProximity(VRHands.Right);
+                Near = PerfConfig.TerrainDetailPercent; Distant = PerfConfig.DistantTerrainDetailPercent;
+                Distance = PerfConfig.TerrainDistanceMeters;
+            }
+        }
+        private static int DetailFor(Surface surface, DetailState detail)
         {
             if (surface.Floor) return 100;
-            float scale = Mathf.Max(Mathf.Abs(camera.transform.lossyScale.x), .0001f);
             Bounds bounds = surface.Renderer.bounds;
-            Vector3 nearest = bounds.ClosestPoint(camera.transform.position);
-            float metres = Vector3.Distance(camera.transform.position, nearest) / scale;
+            Vector3 nearest = bounds.ClosestPoint(detail.Position);
+            float metres = Vector3.Distance(detail.Position, nearest) / detail.Scale;
             // Leaning into the scenery, or touching it with either tracked side, restores
             // exact original geometry. Interactive and held objects are excluded separately.
-            if (metres < .18f || NearHand(VRHands.Left, bounds) || NearHand(VRHands.Right, bounds)) return 100;
-            int near = PerfConfig.TerrainDetailPercent;
+            if (metres < .18f || NearHand(detail.Left, bounds) || NearHand(detail.Right, bounds)) return 100;
+            int near = detail.Near;
             // Small hysteresis keeps a parked threshold from repeatedly morphing the same mesh.
-            float edge = PerfConfig.TerrainDistanceMeters + (surface.Distant ? -.04f : .04f);
+            float edge = detail.Distance + (surface.Distant ? -.04f : .04f);
             surface.Distant = metres > edge;
-            return surface.Distant ? Mathf.Min(near, PerfConfig.DistantTerrainDetailPercent) : near;
+            return surface.Distant ? Mathf.Min(near, detail.Distant) : near;
         }
-        private static bool NearHand(VRHand? hand, Bounds bounds) => hand != null && hand.HasPose
-            && Vector3.Distance(hand.transform.position, bounds.ClosestPoint(hand.transform.position))
-                / Mathf.Max(hand.WorldScale, .0001f) < .12f;
+        private static bool NearHand(HandProximity hand, Bounds bounds) => hand.Tracked
+            && Vector3.Distance(hand.Position, bounds.ClosestPoint(hand.Position)) / hand.Scale < .12f;
 
         internal bool OwnsRenderSubstitute(Renderer renderer) => _surfaces.TryGetValue(renderer.GetInstanceID(), out Surface surface)
             && surface.WantsSubstitute(_active);

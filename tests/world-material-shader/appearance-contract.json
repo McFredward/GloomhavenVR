@@ -1,0 +1,121 @@
+{
+  "playerSettings": {
+    "sourceSha256": "c34de6b98e6a80912cdc2c485d9d6112ad9a1b357f9f13f717533a5c584d3cab",
+    "rawSha256": "d1401587596fe7f3cd25b19e1917dc7443900be02b6be54fb98993e06968f946",
+    "colorSpace": 0
+  },
+  "materials": [
+    {
+      "name": "CR_INT_Wooden_Int_Wall_MAT",
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_cr_int_wooden_int_wall_mat.bundle",
+      "sourceSha256": "f527b1d3bc39b10c3b407bea483e0f3eb46f9f51cefc0c475bba1a475cad97ec",
+      "serializedFile": "CAB-094e9652a71e4f80c7da71073093736d",
+      "pathId": -7339811823517707449,
+      "rawSha256": "be3bc2b7827e42e6a408f8038b25ec5250dbb34fa22c42e4284bba82a966a845",
+      "route": 1,
+      "texture": {
+        "name": "CR_INT_Wooden_Int_Wall",
+        "pathId": 9081934441382931538,
+        "rawSha256": "c3870560e928c364b6ffc185de2b9150b16f258bfddbb5d4b033eeeccd37f3ae",
+        "colorSpace": 1
+      },
+      "shaderIdentity": "StreamingAssets/aa/StandaloneWindows64/misc_high_shaders_assets_all.bundle::CAB-57dce2df1a2ab69aa6943a9cbfd21be8:-3647566309600488322"
+    },
+    {
+      "name": "CR_INT_Wooden_Int_Wall_MAT_LCM",
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_cr_int_wooden_int_wall_mat_lcm.bundle",
+      "sourceSha256": "9e18f3a601ed30a5154368583ff6ea139b02143d0ca7b47e2cef12593d85cef4",
+      "serializedFile": "CAB-b540480d696d9ca684c36d0f42bccc3d",
+      "pathId": -235015090634807765,
+      "rawSha256": "46be5e8992dc1337f7b4231cd4d1da58ae9963c8f0c2dbac422dbf3dc40e3149",
+      "route": 2,
+      "texture": {
+        "name": "CR_INT_Wooden_Int_Wall",
+        "pathId": 9081934441382931538,
+        "rawSha256": "bea1a3f23c79474cbe5d1e28c1d22e08b2a5d62c3ab46752ac646927aa6a93ac",
+        "colorSpace": 1
+      },
+      "shaderIdentity": "StreamingAssets/aa/StandaloneWindows64/misc_shaders_assets_all.bundle::CAB-509d04608b9fcd2bc8f9848fff3298cf:6875751222718558391"
+    },
+    {
+      "name": "CR_Wall_Mausoleum_MAT",
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_cr_wall_mausoleum_mat.bundle",
+      "sourceSha256": "15e5239daecd61335cd7f0ac3801dca860b0a05d63fe23f24219968f06b8ff2a",
+      "serializedFile": "CAB-23ee3495fb0e9ec2e5b8cb949d2d1dbc",
+      "pathId": 4236367995011301293,
+      "rawSha256": "92cf08cb408411047526643fcd42b137a226265290b347b9fd783d7252694f80",
+      "route": 1,
+      "texture": {
+        "name": "CR_Wall_Mausoleum",
+        "pathId": 4452505159051450299,
+        "rawSha256": "475f3af8b435971abb16aa08cfcb6029a4f368103a532eaeb6f49ac774cc6271",
+        "colorSpace": 1
+      },
+      "shaderIdentity": "StreamingAssets/aa/StandaloneWindows64/misc_high_shaders_assets_all.bundle::CAB-57dce2df1a2ab69aa6943a9cbfd21be8:-3647566309600488322"
+    },
+    {
+      "name": "CR_RU_CryptWall_Mat",
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_cr_ru_cryptwall_mat.bundle",
+      "sourceSha256": "a53c919b90ee3e0477c621adab108a66700ab44407a98148b2fc0c1d4520e950",
+      "serializedFile": "CAB-b44f9292e69f6c2ec9744ba9e12973e1",
+      "pathId": 4828518056475777290,
+      "rawSha256": "f0d71f97cd6ef88f6e93aa0effa853cc8d23dd54a8e5cb66d61fdaf97ee9bd9f",
+      "route": 3,
+      "texture": {
+        "name": "CR_RU_CryptWall",
+        "pathId": -2057329469047311318,
+        "rawSha256": "c1a846aa4de8ecd1ca4fc60672acd79c675c88cddf34d0c9d87662ed1418358d",
+        "colorSpace": 1
+      },
+      "shaderIdentity": "StreamingAssets/aa/StandaloneWindows64/misc_high_shaders_assets_all.bundle::CAB-57dce2df1a2ab69aa6943a9cbfd21be8:4740134886656557863"
+    },
+    {
+      "name": "CR_RU_CryptWall_Mat_LCM",
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_cr_ru_cryptwall_mat_lcm.bundle",
+      "sourceSha256": "9f143b5bb20e072dc39c00d980bf86f516c2a9f43cf085b694ee11496c28863d",
+      "serializedFile": "CAB-1bcb8c432371dd83ac5ffa6a101cacc0",
+      "pathId": 8906766746154211271,
+      "rawSha256": "2d9377bc5d738e4dbb8f21e7c7d66638f0aaf2311310405a82c7bf818d00a23b",
+      "route": 4,
+      "texture": {
+        "name": "CR_RU_CryptWall",
+        "pathId": -2057329469047311318,
+        "rawSha256": "68ff4031b5114a21cacda190231e8429668da2894928bd7e830be4895c4bf2bd",
+        "colorSpace": 1
+      },
+      "shaderIdentity": "StreamingAssets/aa/StandaloneWindows64/misc_shaders_assets_all.bundle::CAB-509d04608b9fcd2bc8f9848fff3298cf:-6963389369344063026"
+    },
+    {
+      "name": "DLC_SB_Ship_Wooden_Wall_MAT",
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_dlc_sb_ship_wooden_wall_mat.bundle",
+      "sourceSha256": "dd63b328f8a30dee2e6cc8e0922f1ec46db95a834c48e3bf7350b3e02954396a",
+      "serializedFile": "CAB-d251b020e74accdea76ce893db2aa5c0",
+      "pathId": 5600571962958601243,
+      "rawSha256": "ff11545aa788c3142f74f958248b0362ff3b3ca37a04adf9b895a9271f088844",
+      "route": 1,
+      "texture": {
+        "name": "DLC_SB_Ship_Wooden_Wall_D",
+        "pathId": 7092584617937600897,
+        "rawSha256": "8daf71ced70d73c3d034d4e0be5e2ab93a2c670bd0821f41dcacadcd8b7f074a",
+        "colorSpace": 1
+      },
+      "shaderIdentity": "StreamingAssets/aa/StandaloneWindows64/misc_high_shaders_assets_all.bundle::CAB-57dce2df1a2ab69aa6943a9cbfd21be8:-3647566309600488322"
+    },
+    {
+      "name": "DLC_SB_Ship_Wooden_Wall_MAT_LCM",
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_dlc_sb_ship_wooden_wall_mat_lcm.bundle",
+      "sourceSha256": "6d22a41bccd5cdcb59ee494dbec29e4878d23bb04500dd8109cb24999a9158de",
+      "serializedFile": "CAB-0b973e2411ed8d97ac5a25dbe278d296",
+      "pathId": -7376836950699808354,
+      "rawSha256": "107689f03dd3d95b4c81811b52ff931ea62c1ad551e83e45f315d57919968b8c",
+      "route": 2,
+      "texture": {
+        "name": "DLC_SB_Ship_Wooden_Wall_D",
+        "pathId": 7092584617937600897,
+        "rawSha256": "9e8956b1175242b80cc4eac5b9061946e9b0479d24316e62c8099b6a356719dd",
+        "colorSpace": 1
+      },
+      "shaderIdentity": "StreamingAssets/aa/StandaloneWindows64/misc_shaders_assets_all.bundle::CAB-509d04608b9fcd2bc8f9848fff3298cf:6875751222718558391"
+    }
+  ]
+}

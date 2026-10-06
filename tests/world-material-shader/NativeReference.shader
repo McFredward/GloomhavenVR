@@ -22,6 +22,7 @@ Shader "Fixture/NativeWorldParameters"
         _DimmFactor("Dim grey",Float)=.3
         _GHVRWorldNativeRoute("Route",Float)=1
         _GHVRWorldNeverFade("Floor",Float)=0
+        _AmbientFixtureRGB("Independent CPU SH result",Vector)=(1,1,1,1)
         _NativeNoise("Native simplex boundary",Float)=.003
     }
     SubShader
@@ -45,7 +46,7 @@ Shader "Fixture/NativeWorldParameters"
             #pragma multi_compile __ _SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A
             #include "UnityCG.cginc"
             sampler2D _MainTex, _TilesOcclusionMap;
-            float4 _Tint,_Color,_MainTex_ST,_texcoord_ST;
+            float4 _Tint,_Color,_MainTex_ST,_texcoord_ST,_AmbientFixtureRGB;
             float _UVTiling,_UV_Offset,_WorldSpace_tiling,_WorldSpace_FallOff;
             float _Desaturation,_Diffuse_Boost,_IsDimmed,_DimmFactor,_Cutoff,_Cutout;
             float _GHVRWorldNativeRoute,_GHVRWorldNeverFade,_NativeNoise,_EnableOcclusionMap;
@@ -153,7 +154,7 @@ Shader "Fixture/NativeWorldParameters"
                         tinted=tinted+(dimGrey-tinted)*_IsDimmed;
                     }
                 }
-                float4 output=float4(tinted,1);
+                float4 output=float4(tinted*_AmbientFixtureRGB.rgb,1);
                 UNITY_APPLY_FOG(p.fogCoord,output);
                 return output;
             }

@@ -33,6 +33,8 @@ internal static partial class ScenarioTerrainBudget
         private readonly Transform _sourceTransform, _proxyTransform, _owner;
         private Matrix4x4 _sourcePose, _ownerPose;
         private bool _hasPose, _hasRendererState, _materialsDirty = true;
+        private bool _hasPropertyDefaults, _copiedNativeProperties;
+        private int _proxyMaterialSlots;
         private Mesh? _proxyMesh;
         private RendererState _rendererState;
 
@@ -89,8 +91,8 @@ internal static partial class ScenarioTerrainBudget
         internal void SetMaterial(int slot, Material material)
         { if (Materials[slot] != material) { Materials[slot] = material; _materialsDirty = true; } }
         private static bool LiveSpecialEffect(MaterialPropertyBlock block) =>
-            block.GetFloat("_AddVertexAnim") != 0f || block.GetFloat("_UseEmissiveMap") != 0f
-            || block.GetFloat("_Diffuse_Emissive_On") != 0f;
+            !block.isEmpty && (block.GetFloat("_AddVertexAnim") != 0f || block.GetFloat("_UseEmissiveMap") != 0f
+            || block.GetFloat("_Diffuse_Emissive_On") != 0f);
         internal bool PrepareProxy(bool sharedOwner, Matrix4x4 sharedPose, Vector3 sharedScale)
         {
             Matrix4x4 native = _sourceTransform.localToWorldMatrix;
@@ -112,11 +114,36 @@ internal static partial class ScenarioTerrainBudget
             }
             Mesh mesh = DrawMesh;
             if (_proxyMesh != mesh) { _proxyFilter.sharedMesh = mesh; _proxyMesh = mesh; }
-            if (_materialsDirty) { _proxyRenderer.sharedMaterials = Materials; _materialsDirty = false; }
+            if (_materialsDirty)
+            {
+                // Clear previously owned index blocks before changing the private slot
+                // count. A removed slot must not reappear with stale native artwork
+                // when a later material change grows the array again.
+                if (_copiedNativeProperties)
+                    for (int slot = 0; slot < _proxyMaterialSlots; slot++) _proxyRenderer.SetPropertyBlock(null, slot);
+                _proxyRenderer.sharedMaterials = Materials; _materialsDirty = false;
+                _proxyMaterialSlots = Materials.Length; _hasPropertyDefaults = false;
+            }
             CopyRendererState();
+            // The source guard is fresh for each eye. A source without a native MPB
+            // needs neither block reads nor any effect-value reads.
+            // Only private output can be reused. The first empty invocation after
+            // native blocks disappear must erase their renderer/slot overrides.
+            if (!Renderer.HasPropertyBlock())
+            {
+                if (_copiedNativeProperties || !_hasPropertyDefaults)
+                {
+                    Block.Clear(); SetNeverFade(Block);
+                    _proxyRenderer.SetPropertyBlock(Block);
+                    for (int slot = 0; slot < Materials.Length; slot++) _proxyRenderer.SetPropertyBlock(null, slot);
+                    _hasPropertyDefaults = true; _copiedNativeProperties = false;
+                }
+                return true;
+            }
+            _copiedNativeProperties = true;
             Renderer.GetPropertyBlock(Block);
             if (LiveSpecialEffect(Block)) return false;
-            Block.SetFloat("_GHVRTerrainNeverFade", Floor ? 1f : 0f);
+            SetNeverFade(Block);
             _proxyRenderer.SetPropertyBlock(Block);
             for (int slot = 0; slot < Materials.Length; slot++)
             {
@@ -126,11 +153,19 @@ internal static partial class ScenarioTerrainBudget
                 else
                 {
                     // Material-index blocks override the renderer-wide block in Unity.
-                    SlotBlock.SetFloat("_GHVRTerrainNeverFade", Floor ? 1f : 0f);
+                    SetNeverFade(SlotBlock);
                     _proxyRenderer.SetPropertyBlock(SlotBlock, slot);
                 }
             }
             return true;
+        }
+        private void SetNeverFade(MaterialPropertyBlock block)
+        {
+            // Legacy cheap terrain and the global world shader use separate channels.
+            // Set both on renderer and nonempty index blocks, whose values take
+            // precedence in Unity. Walls explicitly retain the native fade route.
+            block.SetFloat("_GHVRTerrainNeverFade", Floor ? 1f : 0f);
+            block.SetFloat("_GHVRWorldNeverFade", Floor ? 1f : 0f);
         }
         private static bool SameMatrix(Matrix4x4 left, Matrix4x4 right)
         { for (int i = 0; i < 16; i++) if (left[i] != right[i]) return false; return true; }

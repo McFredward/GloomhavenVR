@@ -9,12 +9,15 @@ def verify(root: Path):
         'terrain':'src/GloomhavenVR/Core/Perf/ScenarioTerrainBudget.cs',
     }.items()}
     text={name:path.read_text() for name,path in files.items()}
+    ambient_bound='WorldMaterialBudget.ConfigureAmbientWeight(' in text['core']
     if 'WorldMaterialBudget.Install(_hostGo);' not in text['core']:
         return [],{'coverage':'not-integrated-in-this-worker-tree','contracts':0,'controls':0}
 
     def check(source):
         core,env,terrain=(source[name] for name in ('core','environment','terrain'))
         assert 'WorldMaterialBudget.ConfigureAssetPreparation(ScenarioEnvironmentAssets.EnsureLoaded);' in core,'cold bundle loading binding'
+        if ambient_bound:
+            assert 'WorldMaterialBudget.ConfigureAmbientWeight(() => PerfConfig.WorldMaterialAmbientWeight);' in core,'current native ambient weight config binding'
         assert 'WorldMaterialBudget.ConfigureBeforeVariantDisposal(ScenarioEnvironmentBudget.BeforeWorldMaterialDisposal);' in core,'consumer disposal binding'
         assert 'WorldMaterialBudget.ConfigureCanonicalSource(ScenarioEnvironmentBudget.CanonicalMaterial);' in core,'native source canonical binding'
         assert 'WorldMaterialBudget.ConfigureSourceChanged(ScenarioEnvironmentBudget.WorldMaterialChanged);' in core,'source refusal consumer binding'
@@ -46,6 +49,9 @@ def verify(root: Path):
         ('environment','try { _worldBeforeContent?.Invoke(); _terrainBeforeContent?.Invoke(); }','try { _terrainBeforeContent?.Invoke(); }','native clone first restores world references'),
         ('environment','internal static void Placed(GameObject root) { _worldQueue?.Invoke(root);','internal static void Placed(GameObject root) {','bounded native placement and material ready discovery'),
     ]
+    if ambient_bound:
+        controls.append(('core','WorldMaterialBudget.ConfigureAmbientWeight(() => PerfConfig.WorldMaterialAmbientWeight);',
+                         '/* missing ambient config */','current native ambient weight config binding'))
     for name,before,after,expected in controls:
         assert before in text[name],'integration source binding drift'
         mutated=dict(text);mutated[name]=mutated[name].replace(before,after)
@@ -53,5 +59,6 @@ def verify(root: Path):
         except AssertionError as error:
             assert expected in str(error),'integration negative control failed for another reason: '+str(error)
         else:raise AssertionError('integration negative control escaped: '+expected)
-    return list(files.values()),{'coverage':'read-only-source-wiring','contracts':16,'controls':len(controls),
+    return list(files.values()),{'coverage':'read-only-source-wiring','contracts':16+int(ambient_bound),'controls':len(controls),
+        'ambientConfigBound':ambient_bound,
         'limits':'Existing bridge methods are source-bound here; actual material/renderer/camera lifecycle executes in the separate Unity cases.'}

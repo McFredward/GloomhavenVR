@@ -38,6 +38,8 @@ internal static class Program
             Check(PerfConfig.ScenarioCheapWallShading.Value==(i<2), "wall shading compromise is explicit for low profiles");
             Check(PerfConfig.WorldMaterialQualityModeCount.Value==(i==0?2:0),
                 "standalone requests radical audited world shading while ordinary PC profiles keep native materials");
+            Check(PerfConfig.WorldMaterialAmbientPercent.Value==100,
+                "all explicit profiles preserve scene atmosphere when mode 2 is selected");
             Check(PerfConfig.ScenarioTerrainDetailPercent.Value==(i==0?0:i==1?50:100), "3D terrain detail restores original at balanced/high quality");
             Check(PerfConfig.ScenarioDistantTerrainDetailPercent.Value==(i<2?0:i==2?50:100), "distant 3D geometry has an independent cap");
             Check(PerfConfig.ScenarioTerrainCameraSourceLimitCount.Value==(i==0?64:0),
@@ -63,11 +65,14 @@ internal static class Program
             "individual resolution remains independent after Standalone until another profile is explicitly chosen");
         PerfConfig.ScenarioTerrainCameraSourceLimitCount.Value=32;
         PerfConfig.WorldMaterialQualityModeCount.Value=1;
+        PerfConfig.WorldMaterialAmbientPercent.Value=40;
         PerfConfig.Bind();
         Check(PerfConfig.ScenarioTerrainCameraSourceLimitCount.Value==32,
             "terrain substitution source limit remains independently adjustable after Standalone");
         Check(PerfConfig.WorldMaterialQualityModeCount.Value==1,
             "material shading stage remains independently adjustable after Standalone");
+        Check(PerfConfig.WorldMaterialAmbientPercent.Value==40,
+            "ambient weight remains independently adjustable after an explicit profile");
         PerfConfig.ScenarioCheapWallShading.Value=false;
         PerfConfig.ScenarioExplicitEnvironmentInstancing.Value=false;
         PerfConfig.ScenarioTerrainDetailPercent.Value=75;

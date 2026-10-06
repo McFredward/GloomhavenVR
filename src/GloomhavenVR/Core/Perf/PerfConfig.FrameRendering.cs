@@ -11,6 +11,7 @@ internal static partial class PerfConfig
     internal static ConfigEntry<bool> ScenarioExplicitEnvironmentInstancing = null!;
     internal static ConfigEntry<bool> ScenarioCheapWallShading = null!;
     internal static ConfigEntry<int> WorldMaterialQualityModeCount = null!;
+    internal static ConfigEntry<int> WorldMaterialAmbientPercent = null!;
     internal static ConfigEntry<int> ScenarioTerrainDetailPercent = null!;
     internal static ConfigEntry<int> ScenarioDistantTerrainDetailPercent = null!;
     internal static ConfigEntry<float> ScenarioTerrainDistanceMeters = null!;
@@ -22,6 +23,7 @@ internal static partial class PerfConfig
     internal static bool EnvironmentDrawInstancingOn => ScenarioExplicitEnvironmentInstancing?.Value ?? Defaults.ScenarioExplicitEnvironmentInstancing;
     internal static bool CheapWallShadingOn => ScenarioCheapWallShading?.Value ?? Defaults.ScenarioCheapWallShading;
     internal static int WorldMaterialQualityMode => Mathf.Clamp(WorldMaterialQualityModeCount?.Value ?? Defaults.WorldMaterialQualityModeCount, 0, 2);
+    internal static float WorldMaterialAmbientWeight => Mathf.Clamp(WorldMaterialAmbientPercent?.Value ?? Defaults.WorldMaterialAmbientPercent, 0, 100) * .01f;
     internal static int TerrainDetailPercent => Mathf.Clamp(ScenarioTerrainDetailPercent?.Value ?? Defaults.ScenarioTerrainDetailPercent, 0, 100);
     internal static int DistantTerrainDetailPercent => Mathf.Clamp(ScenarioDistantTerrainDetailPercent?.Value ?? Defaults.ScenarioDistantTerrainDetailPercent, 0, 100);
     internal static float TerrainDistanceMeters => Mathf.Clamp(ScenarioTerrainDistanceMeters?.Value ?? Defaults.ScenarioTerrainDistanceMeters, .1f, 10f);
@@ -43,6 +45,9 @@ internal static partial class PerfConfig
         WorldMaterialQualityModeCount = file.Bind("Optimize", "WorldMaterialQualityModeCount",
             FrameDefaults.Active ? FrameDefaults.WorldMaterialQualityModeCount : Defaults.WorldMaterialQualityModeCount,
             new ConfigDescription("Material shading for supported native static scenery throughout the game and DLCs: 0 = original, 1 = simple lighting, 2 = simple textured color. Lower-quality modes omit fine normal, gloss and surface lighting while retaining original 3D geometry, color textures and native animated visibility. Unsupported materials retain original rendering. At 0 the existing floor/wall shading switches apply; 1/2 take precedence over them. Works live on PC and Frame; fresh Frame/Standalone profiles use 2.", new AcceptableValueRange<int>(0, 2)));
+        WorldMaterialAmbientPercent = file.Bind("Optimize", "WorldMaterialAmbientPercent",
+            Defaults.WorldMaterialAmbientPercent,
+            new ConfigDescription("Ambient lighting for world material mode 2: 100 uses original scene ambient light to retain atmosphere; 0 shows raw textured color. Values between blend the two. Fine surface lighting remains omitted. Works live on every platform; modes 0/1 are unaffected.", new AcceptableValueRange<int>(0, 100)));
         ScenarioTerrainDetailPercent = file.Bind("Optimize", "ScenarioTerrainDetailPercent",
             FrameDefaults.Active ? FrameDefaults.ScenarioTerrainDetailPercent : Defaults.ScenarioTerrainDetailPercent,
             new ConfigDescription("Eligible static wall and pillar mesh detail: 100 preserves original geometry, 0 uses the strongest available prepared 3D simplification. Floors, doors, actors, targeting and gameplay collision remain available. Works live on PC and Frame.", new AcceptableValueRange<int>(0, 100)));

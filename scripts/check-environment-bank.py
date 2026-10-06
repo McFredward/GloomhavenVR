@@ -135,6 +135,7 @@ def main():
         native = {entry['key']: entry for entry in native_receipt['meshes']}
         assert len(native) == len(native_receipt['meshes']) == len(manifest['entries']), 'complete independent original census'
     receipt = json.loads((root / 'tools/environment-mesh/bank.json').read_text())
+    assert receipt['colorSpace'] == 'Gamma', 'independent shader bank must use the shipped game color space'
     for path, expected in receipt['sourceSha256'].items():
         assert hashlib.sha256((root / path).read_bytes()).hexdigest() == expected, 'bank source binding drift: ' + path
     bank = root / 'prebuilt' / receipt['file']

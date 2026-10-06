@@ -182,6 +182,13 @@ public static partial class TerrainProgram
         var hand=new GameObject("Hand").AddComponent<GloomhavenVR.Hands.VRHand>(); hand.HasPose=true; hand.transform.position=wall.transform.position;
         GloomhavenVR.Hands.VRHands.Left=hand; Morph(host); Pixels(camera);
         Check(!ScenarioTerrainBudget.OwnsRenderSubstitute(wall),"tracked hand proximity restores exact original geometry");
+        hand.HasPose=false; Morph(host); Pixels(camera);
+        Check(ScenarioTerrainBudget.OwnsRenderSubstitute(wall),"tracking loss is read on the next terrain Update rather than retaining the previous hand pose");
+        hand.HasPose=true; hand.transform.position=wall.bounds.max+Vector3.right*.18f; hand.WorldScale=2f;
+        Morph(host); Pixels(camera);
+        Check(!ScenarioTerrainBudget.OwnsRenderSubstitute(wall),"current tracked hand scale restores full geometry at the native metric proximity threshold");
+        hand.WorldScale=.5f; Morph(host); Pixels(camera);
+        Check(ScenarioTerrainBudget.OwnsRenderSubstitute(wall),"changed tracked hand scale is read on the next terrain Update");
         GloomhavenVR.Hands.VRHands.Left=null; Object.DestroyImmediate(hand.gameObject);
 
         PerfConfig.CheapWallShadingOn=true; PerfConfig.TerrainDetailPercent=100; PerfConfig.DistantTerrainDetailPercent=100; Morph(host);
@@ -217,6 +224,28 @@ public static partial class TerrainProgram
         var block=new MaterialPropertyBlock(); block.SetColor("_Tint",Color.green); wall.SetPropertyBlock(block,0); Pixels(camera);
         var observed=new MaterialPropertyBlock(); Proxies(host).Find(r=>r.transform.position==wall.transform.position)!.GetPropertyBlock(observed,0);
         Check(observed.GetColor("_Tint")==Color.green,"native material-slot MPB precedence is retained"); wall.SetPropertyBlock(null,0);
+        Render(camera); liveProxy.GetPropertyBlock(observed,0);
+        Check(observed.isEmpty,"removed native slot property block is cleared before the next terrain camera draw");
+        var liveTexture=new Texture2D(1,1); liveTexture.SetPixel(0,0,Color.magenta); liveTexture.Apply();
+        block.Clear(); block.SetColor("_Tint",Color.blue); block.SetTexture("_MainTex",liveTexture); wall.SetPropertyBlock(block);
+        Render(camera); liveProxy.GetPropertyBlock(observed);
+        Check(observed.GetColor("_Tint")==Color.blue&&observed.GetTexture("_MainTex")==liveTexture,
+            "new renderer-wide color and texture property block after an empty eye remains immediate");
+        wall.SetPropertyBlock(null); Render(camera); liveProxy.GetPropertyBlock(observed);
+        Check(observed.GetColor("_Tint")==default&&observed.GetTexture("_MainTex")==null&&observed.GetFloat("_GHVRTerrainNeverFade")==0
+            &&observed.GetFloat("_GHVRWorldNeverFade")==0,"removed native renderer block restores empty-source defaults and both native wall fade channels");
+        TerrainReadObserver.Reset(); Render(camera);
+        Check(TerrainReadObserver.PropertyGuards==1&&TerrainReadObserver.PropertyReads==0
+            &&TerrainReadObserver.EffectReads==0&&TerrainReadObserver.PropertyWrites==0,
+            "settled empty native MPB checks one fresh guard and skips all block reads effect reads and private rewrites");
+        block.SetColor("_Tint",Color.red); wall.SetPropertyBlock(block); TerrainReadObserver.Reset(); Render(camera);
+        // The existing renderer-effect causal control deliberately removes that
+        // entire check. Do not let this access ceiling mask its later native-effect
+        // assertion with an unrelated missing-read failure.
+        Check(TerrainReadObserver.EffectReads<=3&&TerrainReadObserver.PropertyReads==2,
+            "empty native material-slot block skips effect reads while a nonempty renderer block remains fresh");
+        wall.SetPropertyBlock(null); Render(camera); Object.DestroyImmediate(liveTexture);
+        PropertyBridgeChannels(host,scenario,material);
         var liveEffect=new MaterialPropertyBlock(); liveEffect.SetFloat("_AddVertexAnim",1f); wall.SetPropertyBlock(liveEffect);
         Check(!DuringRender(camera,()=>wall.forceRenderingOff),"live renderer-wide vertex effect retains native geometry and shader"); wall.SetPropertyBlock(null);
         liveEffect.Clear(); liveEffect.SetFloat("_UseEmissiveMap",1f); wall.SetPropertyBlock(liveEffect,0);
@@ -351,6 +380,15 @@ public static partial class TerrainProgram
             clones.Add(clone); ScenarioTerrainBudget.QueueRoot(clone.gameObject);
         }
         for(int i=0;i<16;i++)Tick(host);
+        var left=new GameObject("Scaling left hand").AddComponent<GloomhavenVR.Hands.VRHand>();
+        var right=new GameObject("Scaling right hand").AddComponent<GloomhavenVR.Hands.VRHand>();
+        left.HasPose=right.HasPose=true; left.transform.position=Vector3.one*100; right.transform.position=Vector3.one*-100;
+        GloomhavenVR.Hands.VRHands.Left=left; GloomhavenVR.Hands.VRHands.Right=right;
+        TerrainReadObserver.Reset(); Tick(host);
+        Check(TerrainReadObserver.HeadPositions==1&&TerrainReadObserver.HeadScales==1&&TerrainReadObserver.HandPositions==2,
+            "ninety-six prepared terrain sources read current head and both tracked positions only once per synchronous Update");
+        GloomhavenVR.Hands.VRHands.Left=null; GloomhavenVR.Hands.VRHands.Right=null;
+        Object.DestroyImmediate(left.gameObject); Object.DestroyImmediate(right.gameObject);
         PerfConfig.SharedEnvironmentMaterialReadsOn=true;
         PerfConfig.TerrainCameraSourceLimit=12; TerrainWriteObserver.MaterialReads=0;
         Check(DuringRender(camera,()=>clones.FindAll(renderer=>renderer.forceRenderingOff).Count
@@ -379,6 +417,10 @@ public static partial class TerrainProgram
         Check(DuringRender(camera,()=>clones.TrueForAll(renderer=>renderer.forceRenderingOff)&&original.forceRenderingOff),
             "terrain cap zero restores unlimited eligible private submissions live");
         Check(TerrainWriteObserver.MaterialReads==96,"unlimited terrain fallback executes all original native material reads");
+        TerrainReadObserver.Reset(); Render(camera);
+        Check(TerrainReadObserver.PropertyGuards==96&&TerrainReadObserver.PropertyReads==0
+            &&TerrainReadObserver.EffectReads==0&&TerrainReadObserver.PropertyWrites==0,
+            "ninety-six empty native terrain blocks retain per-eye guards without repeated copies or private writes");
         edited.transform.localPosition=new Vector3(100,0,0); TerrainWriteObserver.MaterialReads=0;
         Check(!DuringRender(camera,()=>edited.forceRenderingOff)&&TerrainWriteObserver.MaterialReads==95,
             "actual current camera frustum rejects offscreen substitute work while preserving native source");
@@ -400,6 +442,37 @@ public static partial class TerrainProgram
         foreach(var clone in clones)Object.DestroyImmediate(clone.gameObject);
         Tick(host);
         Debug.Log("Terrain source-bound scaling: capped material reads="+cappedReads+"/96; native source output retained.");
+    }
+    private static void PropertyBridgeChannels(GameObject host,GameObject scenario,Material material)
+    {
+        // Floors are intentionally never admitted by the production owner. Directly
+        // execute the shared proxy helper to pin its compatibility contract for the
+        // world and legacy shaders, without broadening actual floor admission.
+        var floor=Surface(scenario,"CV_Floor_Basic",new Vector3(12,0,0),material,false);
+        Type type=typeof(ScenarioTerrainBudget).GetNestedType("Surface",BindingFlags.NonPublic)!;
+        object surface=Activator.CreateInstance(type,BindingFlags.Instance|BindingFlags.NonPublic,null,
+            new object[]{floor,floor.GetComponent<MeshFilter>(),host.transform},null)!;
+        try
+        {
+            type.GetMethod("EnsureSlots",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(surface,new object[]{1});
+            type.GetMethod("SetMaterial",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(surface,new object[]{0,material});
+            var native=new MaterialPropertyBlock(); native.SetColor("_Tint",Color.cyan); floor.SetPropertyBlock(native,0);
+            Check((bool)type.GetMethod("PrepareProxy",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(surface,
+                new object[]{false,default(Matrix4x4),default(Vector3)})!,"private floor helper accepts unchanged native property blocks");
+            var proxy=(MeshRenderer)type.GetField("_proxyRenderer",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(surface)!;
+            var read=new MaterialPropertyBlock(); proxy.GetPropertyBlock(read);
+            Check(read.GetFloat("_GHVRTerrainNeverFade")==1&&read.GetFloat("_GHVRWorldNeverFade")==1,
+                "private floor renderer block sets legacy and world never-fade channels together");
+            proxy.GetPropertyBlock(read,0);
+            Check(read.GetColor("_Tint")==Color.cyan&&read.GetFloat("_GHVRTerrainNeverFade")==1&&read.GetFloat("_GHVRWorldNeverFade")==1,
+                "private floor slot block preserves native color and both never-fade channels");
+        }
+        finally
+        {
+            var privateObject=(GameObject)type.GetField("_proxy",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(surface)!;
+            type.GetMethod("Dispose",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(surface,null);
+            Object.DestroyImmediate(privateObject); floor.gameObject.SetActive(false);
+        }
     }
     private static void ShaderPixels(Camera camera)
     {

@@ -11,7 +11,16 @@ using Object = UnityEngine.Object;
 public static class WorldMaterialRunner
 {
     [Serializable] private class Entry { public string name, shader, high, noise, caster, expected; }
-    [Serializable] private class Manifest { public string result, evidence; public Entry[] cases; }
+    [Serializable] private class NativeFloat { public string name; public float value; }
+    [Serializable] private class NativeColor { public string name; public float[] value; }
+    [Serializable] private class NativeAppearance
+    {
+        public string name, texturePath; public int route; public bool srgb;
+        public string[] keywords; public NativeFloat[] floats; public NativeColor[] colors;
+        public float[] textureScale, textureOffset, texcoordScale, texcoordOffset;
+    }
+    [Serializable] private class Appearances { public int colorSpace; public NativeAppearance[] samples; }
+    [Serializable] private class Manifest { public string result, evidence, appearance; public Entry[] cases; }
     private static Camera camera;
     private static GameObject surface;
     private static MeshRenderer renderer;
@@ -30,9 +39,11 @@ public static class WorldMaterialRunner
         var args = Environment.GetCommandLineArgs();
         var manifest = JsonUtility.FromJson<Manifest>(File.ReadAllText(args[Array.IndexOf(args,"-worldMaterialManifest")+1]));
         bool passed = true;
+        var nativeAppearance=JsonUtility.FromJson<Appearances>(File.ReadAllText(manifest.appearance));
+        PlayerSettings.colorSpace=(ColorSpace)nativeAppearance.colorSpace;
         using (var report = new StreamWriter(manifest.result))
         {
-            report.WriteLine("Unity " + Application.unityVersion + "; device " + SystemInfo.graphicsDeviceName);
+            report.WriteLine("Unity " + Application.unityVersion + "; device " + SystemInfo.graphicsDeviceName + "; ColorSpace " + QualitySettings.activeColorSpace);
             foreach (var entry in manifest.cases)
             {
                 assertions = 0;
@@ -49,6 +60,7 @@ public static class WorldMaterialRunner
                     RenderStatePixels(shader);
                     ClipPixels(high);
                     LightingPixels(shader);
+                    NativeAppearancePixels(shader,nativeAppearance,manifest.evidence,entry.name);
                     NoisePixels(noise);
                     CasterPixels(caster);
                     if (!String.IsNullOrEmpty(entry.expected)) throw new Exception("negative control escaped: "+entry.name);
@@ -97,7 +109,7 @@ public static class WorldMaterialRunner
     }
     private static Material Material(Shader shader,int route)
     {
-        var m=new Material(shader);temporary.Add(m);m.SetFloat("_GHVRWorldNativeRoute",route);m.SetFloat("_GHVRWorldMaterialMode",2);
+        var m=new Material(shader);temporary.Add(m);m.SetFloat("_GHVRWorldNativeRoute",route);m.SetFloat("_GHVRWorldMaterialMode",2);m.SetFloat("_GHVRWorldAmbientWeight",0);
         m.SetTexture("_MainTex",albedo);m.SetColor("_Tint",new Color(.9f,.5f,.7f,0));m.SetColor("_Color",new Color(.6f,.8f,.9f,.7f));
         m.SetFloat("_Cutoff",.37f);m.SetFloat("_Cutout",.78f);m.SetFloat("_UVTiling",1.37f);m.SetFloat("_UV_Offset",.17f);
         m.SetTextureScale("_MainTex",new Vector2(1.13f,.61f));m.SetTextureOffset("_MainTex",new Vector2(.23f,-.19f));
@@ -271,6 +283,84 @@ public static class WorldMaterialRunner
         Check(Vector3.Distance(new Vector3(lit.r,lit.g,lit.b),Vector3.one)>.1f&&lit.r>.1f,"simple lit stage has a separate, useful diffuse-light result");
         Object.DestroyImmediate(sun.gameObject);RenderSettings.sun=null;RenderSettings.ambientLight=Color.black;Object.DestroyImmediate(material);
     }
+    private static Material NativeAppearanceMaterial(Shader shader, NativeAppearance sample, Texture2D texture)
+    {
+        var material=Material(shader,sample.route);
+        foreach(var value in sample.floats) if(material.HasProperty(value.name)) material.SetFloat(value.name,value.value);
+        foreach(var value in sample.colors) if(material.HasProperty(value.name))
+            material.SetColor(value.name,new Color(value.value[0],value.value[1],value.value[2],value.value[3]));
+        material.SetTexture("_MainTex",texture);
+        material.SetTextureScale("_MainTex",new Vector2(sample.textureScale[0],sample.textureScale[1]));
+        material.SetTextureOffset("_MainTex",new Vector2(sample.textureOffset[0],sample.textureOffset[1]));
+        material.SetTextureScale("_texcoord",new Vector2(sample.texcoordScale[0],sample.texcoordScale[1]));
+        material.SetTextureOffset("_texcoord",new Vector2(sample.texcoordOffset[0],sample.texcoordOffset[1]));
+        material.shaderKeywords=sample.keywords;
+        return material;
+    }
+    private static float MeanBrightness(Color[] pixels)
+    {
+        float total=0;int count=0;
+        foreach(var pixel in pixels)if(pixel.a>.5f){total+=pixel.r*.299f+pixel.g*.587f+pixel.b*.114f;count++;}
+        return count>0?total/count:0;
+    }
+    private static void SaveAppearance(Color[] pixels,string path)
+    {
+        var image=new Texture2D(Size,Size,TextureFormat.RGBA32,false,true);
+        image.SetPixels(pixels);image.Apply();File.WriteAllBytes(path,image.EncodeToPNG());Object.DestroyImmediate(image);
+    }
+    private static void NativeAppearancePixels(Shader shader,Appearances samples,string evidence,string caseName)
+    {
+        Check((int)QualitySettings.activeColorSpace==samples.colorSpace,"original game ColorSpace remains source-bound before ambient proof");
+        var probe=new SphericalHarmonicsL2();
+        // CPU Unity SH evaluates the original scene ambient independently of the
+        // production vertex shader. A bounded dim, colored native probe makes
+        // the raw-albedo/ambient distinction visible without a guessed shader tint.
+        probe.AddAmbientLight(new Color(.022f,.026f,.018f));
+        probe.AddDirectionalLight(new Vector3(.4f,.8f,-.5f).normalized,new Color(.012f,.009f,.005f),1f);
+        RenderSettings.ambientMode=AmbientMode.Custom;RenderSettings.ambientProbe=probe;
+        Shader.SetGlobalInteger("ToggleWallFade",0);RenderSettings.fog=false;
+        foreach(var sample in samples.samples)
+        {
+            var texture=new Texture2D(2,2,TextureFormat.RGBA32,true,!sample.srgb);
+            Check(texture.LoadImage(File.ReadAllBytes(sample.texturePath)),"addressed original albedo decodes: "+sample.name);
+            texture.filterMode=FilterMode.Bilinear;texture.wrapMode=TextureWrapMode.Repeat;temporary.Add(texture);
+            var actual=NativeAppearanceMaterial(shader,sample,texture);
+            var expected=NativeAppearanceMaterial(Shader.Find("Fixture/NativeWorldParameters"),sample,texture);
+            Color[] originalRaw=null,originalAmbient=null;
+            foreach(var angle in new[]{new Vector3(0,1,-4),new Vector3(1.7f,1.2f,-4),new Vector3(-1.7f,.9f,-4)})
+            {
+                camera.transform.position=angle;camera.transform.LookAt(surface.transform.position);
+                surface.transform.rotation=Quaternion.identity;
+                var ambient=new Color[1];probe.Evaluate(new[]{surface.transform.TransformDirection(Vector3.back)},ambient);
+                Color rgb=QualitySettings.activeColorSpace==ColorSpace.Gamma?ambient[0].gamma:ambient[0];
+                rgb.r=Mathf.Max(rgb.r,0);rgb.g=Mathf.Max(rgb.g,0);rgb.b=Mathf.Max(rgb.b,0);
+                foreach(float weight in new[]{0f,.4f,1f})
+                {
+                    actual.SetFloat("_GHVRWorldAmbientWeight",weight);
+                    expected.SetVector("_AmbientFixtureRGB",Vector4.Lerp(Vector4.one,new Vector4(rgb.r,rgb.g,rgb.b,1),weight));
+                    var pixels=Pixels(actual);
+                    Same(pixels,Pixels(expected),"addressed native albedo/CPU ambient across views "+sample.name+" weight="+weight);
+                    if(angle.x==0 && weight==0)originalRaw=pixels;
+                    if(angle.x==0 && weight==1)originalAmbient=pixels;
+                }
+                actual.SetFloat("_GHVRWorldMaterialMode",1);actual.SetFloat("_GHVRWorldAmbientWeight",0);
+                var simpleLit=Pixels(actual);actual.SetFloat("_GHVRWorldAmbientWeight",1);
+                Same(Pixels(actual),simpleLit,"stage1 ignores textured ambient setting "+sample.name);
+                actual.SetFloat("_GHVRWorldMaterialMode",2);
+            }
+            Check(MeanBrightness(originalRaw)>MeanBrightness(originalAmbient)*2.5f,
+                "native original pale albedo is darker under original SH ambient: "+sample.name);
+            if(caseName=="production")
+            {
+                SaveAppearance(originalRaw,Path.Combine(evidence,sample.name+"-raw.png"));
+                SaveAppearance(originalAmbient,Path.Combine(evidence,sample.name+"-ambient.png"));
+            }
+            Object.DestroyImmediate(actual);Object.DestroyImmediate(expected);Object.DestroyImmediate(texture);
+        }
+        camera.transform.position=new Vector3(0,1,-4);camera.transform.LookAt(new Vector3(0,1,0));
+        RenderSettings.ambientMode=AmbientMode.Flat;RenderSettings.ambientLight=Color.black;
+        RenderSettings.ambientProbe=new SphericalHarmonicsL2();
+    }
     [Serializable] private class Sample { public float[] position; public float nativeNoise42; }
     [Serializable] private class Samples { public Sample[] samples; }
     private static void NoisePixels(Shader shader)
@@ -305,7 +395,8 @@ public static class WorldMaterialRunner
         // Failed causal cases own these objects too. In particular, a depth
         // witness must never survive its failed assertion into a later case.
         foreach(Object value in temporary)if(value!=null)Object.DestroyImmediate(value);
-        temporary.Clear();RenderSettings.sun=null;RenderSettings.ambientLight=Color.black;
+        temporary.Clear();RenderSettings.sun=null;RenderSettings.ambientMode=AmbientMode.Flat;RenderSettings.ambientLight=Color.black;
+        RenderSettings.ambientProbe=new SphericalHarmonicsL2();
         if(camera!=null){if(camera.targetTexture!=null)Object.DestroyImmediate(camera.targetTexture);Object.DestroyImmediate(camera.gameObject);}
         if(surface!=null)Object.DestroyImmediate(surface);if(mesh!=null)Object.DestroyImmediate(mesh);
         if(albedo!=null)Object.DestroyImmediate(albedo);if(map!=null)Object.DestroyImmediate(map);

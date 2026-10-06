@@ -21,12 +21,14 @@ internal static partial class WorldMaterialBudget
     private static Func<Renderer, bool>? _substituteOwnership;
     private static Func<bool>? _ensureAssets;
     private static Action? _beforeVariantDisposal;
+    private static Func<float>? _ambientWeight;
 
     internal static void ConfigureCanonicalSource(Func<Material, Material> source) => _canonicalSource = source;
     internal static void ConfigureSourceChanged(Action<Renderer> changed) => _sourceChanged = changed;
     internal static void ConfigureRenderSubstituteOwnership(Func<Renderer, bool> owns) => _substituteOwnership = owns;
     internal static void ConfigureAssetPreparation(Func<bool> ensureLoaded) => _ensureAssets = ensureLoaded;
     internal static void ConfigureBeforeVariantDisposal(Action restoreConsumers) => _beforeVariantDisposal = restoreConsumers;
+    internal static void ConfigureAmbientWeight(Func<float> weight) => _ambientWeight = weight;
     internal static void Install(GameObject host)
     {
         if (_driver != null) return;
@@ -35,7 +37,7 @@ internal static partial class WorldMaterialBudget
         catch (Exception error) { _driver.Fail(error); }
         foreach (string counter in new[] { "WorldMaterial.Candidates", "WorldMaterial.VariantSlots",
             "WorldMaterial.NativeSlots", "WorldMaterial.MaterialRefreshes", "WorldMaterial.ScopeRefusals",
-            "WorldMaterial.ShaderRefusals", "WorldMaterial.EffectRefusals" }) PerfMonitor.RegisterDebug(counter);
+            "WorldMaterial.ShaderRefusals", "WorldMaterial.EffectRefusals", "WorldMaterial.FactoryVariantRefreshes" }) PerfMonitor.RegisterDebug(counter);
     }
     internal static void Shutdown()
     {
@@ -231,12 +233,16 @@ internal static partial class WorldMaterialBudget
                         surface.Refused = true; scopeRefusals++; continue;
                     }
                     renderer.GetSharedMaterials(_slots);
+                    // Renderer-wide MPBs are identical for every native subslot in
+                    // this synchronous loop. Fetch once; slot blocks remain distinct.
+                    bool blocks = renderer.HasPropertyBlock();
+                    if (blocks) renderer.GetPropertyBlock(_block);
                     bool write = false, refused = _slots.Count == 0;
                     for (int slot = 0; slot < _slots.Count; slot++)
                     {
                         Material current = _slots[slot], original = Source(current);
                         Material next = original;
-                        bool effect = RendererEffect(renderer, slot, original);
+                        bool effect = RendererEffect(renderer, slot, original, blocks);
                         if (original != null && !effect) next = VariantFor(original);
                         else effectRefusals++;
                         if (IsVariant(next)) changed++;
