@@ -35,7 +35,10 @@ LOCAL_DEPENDENCIES = ('libs/RuntimeDeps/', 'libs/Natives/', 'tools/RuntimeDepsBu
                       'scripts/.quest-venv/', 'scripts/.quest-python/')
 PROMOTIONAL_ASSETS = {'tools/quest-wizard-ui/assets/promo/' + name for name in (
     'cragheart.png', 'spellweaver.png', 'brute.jpg', 'scoundrel.png', 'bandit-guard.jpg', 'bandit-archer.jpg',
-    'living-bones.jpg', 'living-corpse.jpg', 'living-spirit.jpg', 'cultist.jpg', 'sun-demon.jpg', 'night-demon-elite.jpg')}
+    'living-bones.jpg', 'living-corpse.jpg', 'living-spirit.jpg', 'cultist.jpg', 'sun-demon.jpg', 'night-demon-elite.jpg',
+    'bandit-guard-elite.jpg', 'bandit-archer-elite.jpg', 'living-bones-elite.jpg', 'living-corpse-elite.jpg',
+    'living-spirit-elite.jpg', 'cultist-elite.jpg', 'sun-demon-elite.jpg', 'bandit-commander.jpg',
+    'nightcrawler-scoundrel.jpg')}
 REQUIRED = set(PUBLIC_PACKAGES) | {'Quest-Builder.cmd', 'QUEST-BUILDER-START.txt', 'scripts/quest-builder-wizard.cmd', 'scripts/quest-builder-wizard.ps1', 'scripts/build-quest.py',
             'tools/quest-wizard/wizard.py', 'tools/quest-wizard-ui/index.html', 'tools/quest-installer/bootstrap.ps1',
             'tools/quest-builder/builder.py', 'tools/quest-builder/release.py',
@@ -49,6 +52,9 @@ REQUIRED = set(PUBLIC_PACKAGES) | {'Quest-Builder.cmd', 'QUEST-BUILDER-START.txt
             'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestNativePluginContract.cs'}
 REQUIRED |= PROMOTIONAL_ASSETS | {'tools/quest-wizard-ui/promo-artwork.json',
     'tools/quest-wizard-ui/assets/meta-quest-logo.svg',
+    'tools/quest-wizard-ui/assets/github-mark.svg',
+    'tools/quest-wizard-ui/assets/buymeacoffee-cup.svg',
+    'tools/quest-wizard-ui/assets/octicons-LICENSE.txt',
     'tools/quest-wizard-ui/assets/provenance.json',
     'tools/quest-builder/recovery_resume.py',
     'tools/quest-wizard/stage_plan.py',

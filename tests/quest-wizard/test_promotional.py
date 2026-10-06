@@ -155,7 +155,9 @@ class ActualPublisherBundle(unittest.TestCase):
             gallery = promotional.Gallery(ui, cache, opener=offline)
             self.assertEqual([row['id'] for row in gallery.visible()],
                              ['cragheart', 'spellweaver', 'brute', 'scoundrel', 'bandit-guard', 'bandit-archer',
-                              'living-bones', 'living-corpse', 'living-spirit', 'cultist', 'sun-demon', 'night-demon-elite'])
+                              'living-bones', 'living-corpse', 'living-spirit', 'cultist', 'sun-demon', 'night-demon-elite',
+                              'bandit-guard-elite', 'bandit-archer-elite', 'living-bones-elite', 'living-corpse-elite',
+                              'living-spirit-elite', 'cultist-elite', 'sun-demon-elite', 'bandit-commander', 'nightcrawler-scoundrel'])
             for pin, visible in zip(gallery.pins, gallery.visible()):
                 raw = gallery.read(pin)
                 self.assertEqual(len(raw), pin['size'])
