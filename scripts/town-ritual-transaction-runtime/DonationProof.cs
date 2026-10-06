@@ -9,11 +9,25 @@ using GloomhavenVR.Net.TownServices;
 
 public sealed class FakeCharacter { public string CharacterID="owned"; }
 public static class MapRoomHand { public static FakeCharacter? Selected; public static FakeCharacter? OwnedMerchantCharacter()=>Selected;public static bool TempleInspection;public static void SetTempleInspection(bool value)=>TempleInspection=value; }
-public sealed class FakeTempleInventory { public CanvasGroup slotsCanvasGroup=null!; }
+public sealed class FakeTempleInventory
+{
+    public CanvasGroup slotsCanvasGroup=null!;public readonly System.Collections.Generic.List<UITempleShopSlot> slots=new();
+    public readonly UnityEngine.Events.UnityEvent<object> OnBlessingSelected=new();public int Displays,Refreshes;public FakeTempleTooltip tooltip=null!;
+    public void OnHovered(bool shown,UITempleShopSlot slot){tooltip.Populate(shown,slot);}
+    public void Display(System.Collections.Generic.List<MapRuleLibrary.YML.Locations.TempleYML.TempleBlessingDefinition> blessings,FakeTempleService service)
+    {Displays++;for(int i=0;i<slots.Count&&i<blessings.Count;i++)slots[i].Blessing=blessings[i];}
+    public void Refresh(FakeCharacter character){Refreshes++;}
+}
 public sealed class FakeTempleOffering { public bool Available=true,VisitorPresent=true; }
 public sealed class FakeTempleService
 {
     public bool Affordable=true,Available=true,Permission=true;
+    public readonly System.Collections.Generic.List<MapRuleLibrary.YML.Locations.TempleYML.TempleBlessingDefinition> Blessings=new(){new()};
+    public int Gold,DevotionLevel=1,DevotionCurrentProgress,NextDevotionLevelAmount=100,Buys;
+    public void Buy(string id,MapRuleLibrary.YML.Locations.TempleYML.TempleBlessingDefinition blessing){Buys++;Gold+=10;DevotionCurrentProgress+=10;}
+    public int CalculateDevotionTotalProgress(int level)=>level*100;
+    public System.Collections.Generic.List<MapRuleLibrary.YML.Locations.TempleYML.TempleBlessingDefinition> GetAvailableBlessings()=>Blessings;
+    public int CalculateTotalGoldDonated()=>Gold;
     public bool IsAvailable(string id,object blessing)=>Available;
     public bool CanAfford(string id,object blessing)=>Affordable;
     public bool CanBuy(string id,object blessing)=>Permission;

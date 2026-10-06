@@ -361,7 +361,7 @@ def sources(root):
     approach += method(offering_raw, "private static bool NearestTempleForHead(")
     approach += method(offering_raw, "private static bool WantsMerchantFanAtCounter(")
     approach += method(offering_raw, "internal static bool WantsPurseFocus")
-    approach_source = "using UnityEngine;using VRHand=FakeHand;namespace GloomhavenVR.WorldUI { internal static class BoundTempleApproach { private static bool _approachInside,_purseFocus;private static float _approachAt;" + approach + "} }"
+    approach_source = "using UnityEngine;using GloomhavenVR.Core;using VRHand=FakeHand;namespace GloomhavenVR.WorldUI { internal static class BoundTempleApproach { private static bool _approachInside,_purseFocus;" + approach + "} }"
     _, received, frame, physical, address, _ = purse_visitor_sources(mirror_raw)
     # Preserve the exact received-frame predicate and production classifiers. Only
     # their surrounding loop/session objects are adapted to explicit parameters.
@@ -370,9 +370,32 @@ def sources(root):
     visitor_source = ("using System;using GloomhavenVR.Net.TownServices;internal static class BoundTemplePurseVisitor {"
         + "internal static bool AdmitsReceived(TownServiceFrame received,int peer,bool returning) {"
         + received + "return true;}\n" + (frame + physical + address).replace("private static", "internal static") + "}")
+    controller_raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceTempleController.cs").read_text()
+    controller_source = "using ICharacter=FakeCharacter;\n" + controller_raw[:controller_raw.index("\n/// <summary>Keep native book animation")].replace(
+        "using HarmonyLib;\n", "").replace("internal static class TownServiceTempleController", "internal static class BoundTempleController")
+    proxy_source = "using System;using UnityEngine;using UnityEngine.UI;using GloomhavenVR.Core;namespace GloomhavenVR.WorldUI { internal static class BoundQuietTempleProxyPresentation {private static UITempleWindow? _reported;" + (
+        method(controller_raw, "private static void Prefix(") + method(controller_raw, "private static void Postfix(")).replace("private static void", "internal static void") + "} }"
+    native_path = root / "decompiled/GH.Runtime/UITempleWindow.cs"
+    if not native_path.is_file() and (root / "ressources").is_symlink():
+        native_path = (root / "ressources").resolve().parent / "decompiled/GH.Runtime/UITempleWindow.cs"
+    # Like the onboarding fixture, portable CI has explicit native boundaries. Local evidence
+    # replaces this narrow visibility branch with the actual read-only game method body.
+    native_proxy = "internal void ProxyBuyBlessing(string targetCharacterID,TempleYML.TempleBlessingDefinition blessing){if(window.IsVisible)BuyBlessing(targetCharacterID,blessing);else service.Buy(targetCharacterID,blessing);}"
+    native_origin = "explicit-portable-boundary"
+    if native_path.is_file():
+        native_raw = native_path.read_text()
+        native_start = native_raw.index("\tprivate void ProxyBuyBlessing(string targetCharacterID")
+        native_end = native_raw.index("\n\tpublic void EnablePartialHide()", native_start)
+        native_proxy = native_raw[native_start:native_end].replace("private void ProxyBuyBlessing", "internal void ProxyBuyBlessing")
+        native_origin = "readonly-game-method"
+    native_proxy_source = "using System.Linq;using MapRuleLibrary.Party;using MapRuleLibrary.YML.Locations;internal sealed class BoundNativeTempleProxy {private readonly UIWindow window;private readonly FakeTempleService service;private readonly System.Action<string,TempleYML.TempleBlessingDefinition> _visibleBuy;private string audioItemBless=\"native-bless\";internal BoundNativeTempleProxy(UIWindow source,FakeTempleService model,System.Action<string,TempleYML.TempleBlessingDefinition> visibleBuy){window=source;service=model;_visibleBuy=visibleBuy;}private void BuyBlessing(string id,TempleYML.TempleBlessingDefinition blessing)=>_visibleBuy(id,blessing);" + native_proxy + "}"
     bound = {"RitualTransactions.cs": text, "RitualGuard.cs": guard, "TempleExit.cs": exit_source,
-             "TempleApproach.cs": approach_source, "TemplePurseVisitor.cs": visitor_source}
+             "TempleApproach.cs": approach_source, "TemplePurseVisitor.cs": visitor_source,
+             "TempleQuietController.cs": controller_source, "TempleQuietProxy.cs": proxy_source,
+             "NativeTempleProxy.cs": native_proxy_source}
     hashes = {"TownServiceRitual.cs": hashlib.sha256(raw.encode()).hexdigest(),
+              "TownServiceTempleController.cs": hashlib.sha256(controller_raw.encode()).hexdigest(),
+              "native-boundary/UITempleWindow.ProxyBuyBlessing:" + native_origin: hashlib.sha256(native_proxy.encode()).hexdigest(),
               "TownServiceRitualConfirmationGuard.cs": hashlib.sha256(guard_raw.encode()).hexdigest(),
               "TownServiceTempleOffering.cs": hashlib.sha256(offering_raw.encode()).hexdigest(),
               "Net/TownServices/TownServiceMirror.cs": hashlib.sha256(mirror_raw.encode()).hexdigest(),
@@ -398,20 +421,19 @@ def mutations():
         # that same fence rejects image-only modules after expansion.
         ("purse-visitor-image-leak", "TemplePurseVisitor.cs", '|| frame.Service == 2 && frame.TemplateAddress == "ritual.purse|" && PhysicalPurse(frame.Nodes);', '|| frame.Service == 2 && frame.TemplateAddress == "ritual.purse|";', "cumulative purse delta reaches expansion without repeating its native mesh"),
         ("temple-commit-release", "RitualTransactions.cs", "TownServiceMirror.SetLocalTransactionActive(2, false);\n        if (!committed)", "/* retain priestess reservation */\n        if (!committed)", "successful donation retires its short native commit reservation before the shared blessing finishes"),
-        ("temple-approach-hysteresis", "TempleApproach.cs", "TownServiceOfferingPose.VisitorWithin(station.Root, 1.4f)", "TownServiceOfferingPose.VisitorWithin(station.Root, _approachInside ? 1.65f : 1.4f)", "return from larger attention radius creates a fresh priestess approach"),
-        ("merchant-approach-latch", "TempleApproach.cs", "if (foreign) _approachInside = false;", "if (foreign) _approachInside = true;", "blocked foreign service cannot preserve a stale temple latch"),
-        ("temple-approach-foreign-intent", "TempleApproach.cs",
-         "foreign && !WantsPurseAtBowl(station!.Root)",
-         "foreign && false && !WantsPurseAtBowl(station!.Root)",
-         "head-only overlap cannot steal the enchantress destination"),
-        ("temple-nearest-after-merchant", "TempleApproach.cs", "&& !nearestTemple)",
-         "&& true)",
-         "nearest priestess opens native Temple from stale Merchant mode without a bowl-hand gesture"),
-        ("incompatible-host-approach", "TempleApproach.cs",
-         "|| !TownServiceGrantSync.CanUseImmersive || !TownServiceEnhancementHandoff.Enabled",
-         "|| !TownServiceEnhancementHandoff.Enabled",
-         "incompatible host leaves the original Temple entry path available"),
-        ("temple-character-restore", "TempleApproach.cs", "selectedSlot.OnClick();", "if (selectedSlot.State == PartySlotState.Empty) selectedSlot.OnClick();", "temple entry preserves the exact previously selected native slot"),
+        ("temple-attention-too-narrow", "TempleApproach.cs", "_purseFocus ? 2.6f : 2.4f", "_purseFocus ? 1.65f : 1.4f", "attention-range visitor retains purse when original temple closes"),
+        ("temple-native-destination-coupling", "TempleApproach.cs", "_purseFocus = deliberate || templeNear", "_purseFocus = GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Temple && deliberate || GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Temple && templeNear", "native five-frame close cannot restore the normal ability fan at priestess"),
+        ("temple-quiet-window-open", "TempleQuietController.cs", "temple.Shop.Display(blessings, temple.service);", "window.Show(); temple.Shop.Display(blessings, temple.service);", "quiet temple never opens or activates the flat window"),
+        ("temple-quiet-source-hidden-row", "TempleQuietController.cs", "if (!current.gameObject.activeSelf) return false;", "if (current == null) return false;", "a hidden native row ancestor is never exposed by quiet admission"),
+        ("temple-quiet-no-counter-clock", "TempleQuietController.cs", "Move(frame);", "/* no clock island */", "only original book counter clocks are active with native flat rendering disabled"),
+        ("temple-quiet-ui-every-sample", "TempleQuietController.cs", "if (changed)\n        {", "if (true)\n        {", "standing at the priestess causes no repeated hidden native UI refresh"),
+        ("temple-quiet-active-ancestor-only", "RitualTransactions.cs", "button.GetComponentInParent<UITempleShopSlot>(true)", "button.GetComponentInParent<UITempleShopSlot>()", "quiet inactive source selects the original confirmation without opening the old window"),
+        ("temple-quiet-inactive-click", "RitualTransactions.cs", "bool clicked = quietTemple", "bool clicked = false", "quiet inactive source selects the original confirmation without opening the old window"),
+        ("temple-quiet-native-permission", "TempleQuietController.cs", "|| !temple.service.CanBuy(character.CharacterID, slot.Blessing)", "|| false", "observer without native ownership cannot invoke original selection"),
+        ("temple-quiet-proxy-missing", "TempleQuietProxy.cs", "TownServiceTempleController.AnimateProxy(__instance, __state);", "/* no original book animation */", "quiet native proxy commits once and animates original book after invisible window branch"),
+        ("temple-quiet-proxy-double-buy", "TempleQuietProxy.cs", "TownServiceTempleController.AnimateProxy(__instance, __state);", "__instance.service.Buy(__instance.character.CharacterID, __instance.service.Blessings[0]);TownServiceTempleController.AnimateProxy(__instance, __state);", "quiet native proxy commits once and animates original book after invisible window branch"),
+        ("temple-quiet-proxy-foreign", "TempleQuietProxy.cs", "if (__state < 0 || !TownServicePresentation.IsQuietTemple(__instance.GetComponent<UIWindow>())) return;", "if (__state < 0) return;", "retired quiet context cannot animate an unrelated native proxy"),
+        ("temple-quiet-restore-sibling", "TempleQuietController.cs", "Source.SetSiblingIndex(_sibling);", "Source.SetSiblingIndex(0);", "quiet counter lease restores exact original parent sibling rect and nested canvas state"),
         ("temple-close-missing", "TempleExit.cs", "ModalFallback.CloseFloatedWindow(_window);", "", "physical departure closes native temple before visiting another resident"),
         ("repeat-donation", "RitualTransactions.cs", "_submittedOfferings.Add(offering);", "", "a delayed online stock refresh never permits a duplicate donation"),
         ("donation-revision-missing", "RitualTransactions.cs", "TownServiceMirror.MarkLocalTempleDonationCommitted();", "", "shared blessing revision advances only after each native donation callback"),
@@ -430,7 +452,7 @@ def mutations():
         ("affordability-race", "RitualTransactions.cs", "Func<bool> stillValid = () => _sessionAlive() && TownServiceMirror.LocalTransactionSettled(2)\n            && pendingEligible()", "Func<bool> stillValid = () => _sessionAlive() && TownServiceMirror.LocalTransactionSettled(2)", "post-selection affordability refused"),
         ("owner-race", "RitualTransactions.cs", "&& ReferenceEquals(context, _context()) && ReferenceEquals(selected, identity());", "&& ReferenceEquals(selected, identity());", "post-selection owner change refused"),
         ("item-race", "RitualTransactions.cs", "&& ReferenceEquals(context, _context()) && ReferenceEquals(selected, identity());", "&& ReferenceEquals(context, _context());", "post-selection selected item change refused"),
-        ("existing-prompt", "RitualTransactions.cs", " || box.GetComponent<UIWindow>().IsOpen || !button.IsInteractable()", " || !button.IsInteractable()", "existing unrelated prompt untouched"),
+        ("existing-prompt", "RitualTransactions.cs", " || box.GetComponent<UIWindow>().IsOpen\n            || !quietTemple", "\n            || !quietTemple", "existing unrelated prompt untouched"),
         ("ownership", "RitualTransactions.cs", "bool created = owns &&", "bool created =", "unowned new callback not confirmed"),
         ("stale-prompt", "RitualTransactions.cs", "if (created) box.Hide();", "if (created) { }", "own stale prompt cancelled through native lifecycle"),
         ("transient-row-lock", "RitualTransactions.cs", "if (!valid || !created)", "if (!valid || !button.IsInteractable() || !created)", "native row lock during confirmation is not a cancellation"),

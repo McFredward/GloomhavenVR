@@ -23,13 +23,14 @@ internal static class TempleExitProof
     internal static int Run()
     {
         int checks=0;void Check(bool ok,string why){checks++;if(!ok)throw new Exception(why);}
-        for(int scenario=0;scenario<5;scenario++)
+        for(int scenario=0;scenario<6;scenario++)
         {
             var root=new GameObject("Native temple exit",typeof(UIWindow));var window=root.GetComponent<UIWindow>();window.IsOpen=scenario!=3;
             root.transform.position=new Vector3(2f,.4f,1f);root.transform.localScale=Vector3.one*.7f;
             var head=new GameObject("Tracked head",typeof(Camera));VRRigDriver.HeadCamera=scenario==1?null:head.GetComponent<Camera>();
-            head.transform.position=root.transform.TransformPoint(new Vector3(scenario==2?1f:2.1f,1.75f,0f));
+            head.transform.position=root.transform.TransformPoint(new Vector3(scenario==2?2.1f:3.1f,1.75f,0f));
             var visitor=new BoundTempleExit(window,root.transform){_visited=scenario!=4,_near=false};
+            TownServicePresentation.QuietWindow=scenario==5?window:null;
             MapRoomHand.TempleInspection=true;ModalFallback.Closed=0;
             ModalFallback.OnClose=()=>Check(visitor._ritual.Pieces[0].Token.Cancelled&&!MapRoomHand.TempleInspection&&!visitor.Available,
                 "purse cancellation and fan restoration happen before reentrant native temple exit");
@@ -42,6 +43,6 @@ internal static class TempleExitProof
             else Check(!exited&&ModalFallback.Closed==0,"missing tracking, temporary input disablement or closed/unvisited temple never cause a false exit");
             Object.DestroyImmediate(root);Object.DestroyImmediate(head);
         }
-        VRRigDriver.HeadCamera=null;ModalFallback.OnClose=null;return checks;
+        VRRigDriver.HeadCamera=null;ModalFallback.OnClose=null;TownServicePresentation.QuietWindow=null;return checks;
     }
 }
