@@ -109,5 +109,7 @@ Evidence lives in the worker's private debug directory:
   independent Preview boundary, preserving the original captured-foundation
   negative control and its specific oracle.
 
-These are focused worker checks. The integrator still runs the complete final-tree
-gate, including wire golden vectors, after combining all owned changes.
+These are focused worker checks. Combined-tree checks, complete golden vectors,
+inherited broader evidence and hardware limits are recorded in
+[FRAME-634-INTEGRATION.md](FRAME-634-INTEGRATION.md). The maintainer's October 6
+instruction permits bounded final checks without repeating unrelated local suites.

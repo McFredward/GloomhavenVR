@@ -4,7 +4,7 @@
 
 The immutable capture is
 `.planning/debug/frame634-review-20261006T183809Z/inputs/steam_frame/` in the
-integration checkout. `LogOutput.log:17,73` and `Player.log:42,157` identify
+integration checkout. `LogOutput.log:17,73` and `Player.log:40,155` (raw LF rows) identify
 **Build633 / 902fa3a3b**, built 2026-10-06 18:15:18 UTC. The supplied image hashes
 are recorded by the capture's manifest:
 
