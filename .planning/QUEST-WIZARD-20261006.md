@@ -1,5 +1,57 @@
 # Quest wizard stage progress and offline presentation
 
+## Measured substeps, branding and minimum checkpoint work
+
+The maintainer's later report asks that measured substeps continuously contribute
+to the whole-stage bar, replaces the hero heading with the GloomhavenVR/Meta Quest
+logos, removes its three badges and adds publisher slideshow pictures. The
+version-two durable work schedule contains bounded recovery section, batch,
+collection/file/byte, native-index and checkpoint spans. Large-file counters
+advance only their current parent item. Six-decimal stored CSS/ARIA values retain
+small measured changes; localized text uses up to two decimal places. Older saved
+plans retain their high-water mark; independent output publication alone yields
+100%. Unknown tool work never gains a fabricated time-based percentage.
+
+Both logos ship locally; the Quest SVG preserves its original vector paths and
+has exact provenance. Twelve exact public publisher images work offline before
+game selection, including six additional monster reveals. The previous Archer
+pin was an elite Guard and now uses the actual Archer reveal. Active source links
+follow the pictured publisher announcement. Desktop and narrow layouts are
+visually inspected. Artwork notes and hashes live beside the assets.
+
+The maintainer then observes `Zwischenstand prüfen` two/three times and cancels
+without a support export. Source inspection proves duplicate work: every normal
+batch performed two full scans of the growing merged output, and cold journal
+repair/checkpoint adoption could overlap more scans. This does not establish the
+precise cause of the uncaptured Windows sequence or prove an infinite loop.
+
+Normal batches now have no growing-output verification sweep. A new recovery
+child qualifies the actual retained output once; current writer/copy hashes and
+invocation-local file proofs qualify unchanged native recipes without repeated
+byte reads. Proofs are not serialized and file-write stamps invalidate them.
+Atomic checkpoint publication cleans its journal directly; interrupted cold
+repair checks unchanged files once plus restored mutable indexes. A second merge
+cannot overwrite an unfinished journal. Missing/changed evidence fails visibly
+instead of silently restarting exporters. Retained batch exports skip original
+staging/copy/export, completed reference audits remain reusable, and an unused
+CoreExport is not reread when a matching merged checkpoint is used. Catalog-plan
+hashes are reused for final indexing; tool-file hashes are read once when needed.
+
+Saved-state adoption, interrupted-write repair, restored-index adoption and
+retained-export qualification have separate bilingual labels. Active substeps
+include their actual batch index/total; aggregate batch closure never displays
+the next batch as already started. Existing reviewed exporter/orchestration
+profiles remain eligible for raw workspace continuation; all other source/tool/
+instrumentation witnesses must match. No proprietary inputs/caches are removed.
+
+Qualification uses real small multi-batch identity/merge/journal fixtures,
+isolated HTTP startup serving all publisher/logo bytes, direct Chrome workflows
+and an extracted source-release audit. No host Player/APK, new Unity import,
+exhaustive shader validation or unrelated runtime/wire gate is required by this
+tooling-only change. Full Windows throughput and the uncaptured sequence still
+require the maintainer's build. The latest compact receipts are recorded under
+`/home/claw/quest3-local/build/evidence/B627-wizard-minimal-*`.
+
 ## Windows receipt limit and automatic restart continuation
 
 The later support capture `quest-build-support-20261006T175224Z-14c642bc.zip`

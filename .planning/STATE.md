@@ -1,5 +1,30 @@
 # State — where the project stands
 
+**Quest B627 measured substeps and minimum recovery work, 2026-10-06 (tooling only).**
+
+Nested measured work now advances the persistent whole-stage percentage inside
+recovery batches, including large files, collection merge, native index/recipe
+work and checkpoint publication. Stored precision preserves small bar changes;
+text uses up to two localized decimals. Existing same-input progress migrates
+without resetting. The hero uses both actual logos, its three badges are removed,
+and twelve pinned public publisher pictures are immediately available offline.
+
+The later uncaptured Windows report of repeated `Zwischenstand prüfen` led to
+source-proven removal of two growing-output hash sweeps per ordinary batch.
+Actual retained output qualifies once per fresh invocation. Current writers
+publish hashes, unchanged recipes reuse only invocation-local proofs, and cold
+journal repair preserves interrupted work. Retained exports do not stage/copy/
+export again; completed audits and catalog plans are reused. Unused old core
+assets are not scanned when the matching merged output is qualified. Distinct
+checks have separate labels and current batch numbers; an unfinished journal
+cannot be silently restarted. Known prior raw-export recipes remain compatible.
+
+See [wizard evidence](QUEST-WIZARD-20261006.md) for qualified fixture/browser/
+extracted-release checks. The exact uncaptured Windows sequence and full build
+performance remain unverified. No game runtime, host APK, fresh Editor import,
+exhaustive shader or unrelated wire gate. Publish the source Builder ZIP on the
+Quest feature branch; retain the owner's `%USERPROFILE%\.ghvrq` workspace.
+
 **Quest B627 large receipt and automatic wizard continuation, 2026-10-06 (tooling only).**
 
 The later Windows capture `quest-build-support-20261006T175224Z-14c642bc.zip`

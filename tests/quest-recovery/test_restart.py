@@ -91,6 +91,7 @@ class MergeRestartTests(Fixture):
 class FullBatchRestartTests(Fixture):
     def test_three_real_batches_never_repeat_growing_output_hash_sweeps(self):
         source = self.root / 'GH_Data'; source.mkdir(); (source / 'core-input').write_bytes(b'original core input')
+        tool = self.root / 'exporter-fixture.dll'; tool.write_bytes(b'qualified tool fixture')
         core = self.root / 'core'; base = self.asset(core, 'a' * 32, 'native-core', 1)
         native_dir = core / 'QuestRecovery/NativeRecipes'; native_dir.mkdir(parents=True)
         recipe = native_dir / 'original.yaml'; recipe.write_bytes(b'original native recipe\n')
@@ -118,10 +119,12 @@ class FullBatchRestartTests(Fixture):
              patch.object(bundles, 'audit_asset_references', return_value={'unexpectedUnresolvedCount': 0}) as references, \
              patch.object(bundles, 'run_export', side_effect=export), \
              patch.object(bundles, 'verified_records', wraps=bundles.verified_records) as verify, \
-             patch.object(bundles, '_hash_file', wraps=bundles._hash_file) as hashes:
-            result = bundles.run_recovery(source, core, identity_path, output, workspace, [])
+             patch.object(bundles, '_hash_file', wraps=bundles._hash_file) as hashes, \
+             patch.object(bundles, 'sha256', wraps=bundles.sha256) as input_hashes:
+            result = bundles.run_recovery(source, core, identity_path, output, workspace, [str(tool)])
         self.assertEqual(exports, [0, 1, 2]); self.assertEqual(result['completedGroups'], [0, 1, 2])
         self.assertEqual(verify.call_count, 0)
+        self.assertEqual(sum(Path(call.args[0]) == tool for call in input_hashes.call_args_list), 1)
         self.assertEqual(sum(call.args[0] == output / 'QuestRecovery/NativeRecipes/original.yaml' for call in hashes.call_args_list), 1)
         self.assertEqual(sum(call.args[0] == output / 'Assets/native-core.mat' for call in hashes.call_args_list), 1)
         for row in result['files']:
@@ -135,9 +138,11 @@ class FullBatchRestartTests(Fixture):
              patch.object(bundles, 'stage_input', side_effect=AssertionError('No exporter needs staged inputs')), \
              patch.object(bundles, 'audit_asset_references', side_effect=AssertionError('Completed reference audit is retained')), \
              patch.object(bundles, 'verified_records', wraps=bundles.verified_records) as verify, \
-             patch.object(bundles, '_hash_file', wraps=bundles._hash_file) as hashes:
-            resumed = bundles.run_recovery(source, core, identity_path, output, workspace, [])
+             patch.object(bundles, '_hash_file', wraps=bundles._hash_file) as hashes, \
+             patch.object(bundles, 'sha256', wraps=bundles.sha256) as input_hashes:
+            resumed = bundles.run_recovery(source, core, identity_path, output, workspace, [str(tool)])
         self.assertEqual(resumed, result); self.assertEqual(verify.call_count, 1)
+        self.assertEqual(sum(Path(call.args[0]) == tool for call in input_hashes.call_args_list), 0)
         self.assertEqual(verify.call_args.kwargs['phase'], 'recovery-resume-verify')
         for row in result['files']:
             self.assertEqual(sum(call.args[0] == output / row['path'] for call in hashes.call_args_list), 1)

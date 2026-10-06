@@ -225,12 +225,39 @@ scheduled stage operations and remains below 100 until verified output publicati
 `percent` retains the secondary substep counter; switching substeps can change its
 denominator without resetting the stage total. Neither percentage estimates elapsed
 time or time remaining. Downloads use bytes, snapshots/hash checks use actual file/byte
-inventories, bounded recovery uses committed catalog batch counts, and Bee native
+inventories, and bounded recovery combines committed batch counts with actual
+copy/export/collection/native-index/checkpoint counters inside the current batch.
+Explicit section/index boundaries keep a repeated file or index within its own
+bounded share. A large-file byte counter advances only the current parent file,
+not the entire stage. Six decimal places are retained for the CSS/ARIA bar;
+concise percentage text uses up to two. Version-one saved progress plans keep
+their attained high-water mark when acquiring these nested scopes. Batch numbers
+appear in substep labels, while adopting retained exports and restoring an
+interrupted write have separate labels. Bee native
 compilation uses its emitted action counts. AssetRipper API calls or other tools
 without native counts remain visibly unknown; elapsed time never invents progress.
 The child `GHVRQ_PROGRESS` protocol is enabled only for Wizard runs. Ordinary CLI
 output stays quiet. State/event writes are rate limited and the final observed
 counter is persisted; a failed or interrupted step never receives a success receipt.
+
+Retained recovery output is qualified once per fresh child invocation. The normal
+batch path no longer performs two growing full-output hash scans before/after
+each merge. Current file/index/checkpoint writers provide their own byte hashes;
+unchanged native recipe hashes are reused only in invocation-local memory, with
+file identity/size/write stamps invalidating them. No stat-only trust is retained
+across restarts. Successful journal cleanup checks the checkpoint that this
+invocation actually published rather than calling cold recovery again. A cold
+interrupted journal checks unchanged files once and restores/qualifies only its
+mutable indexes; an unfinished journal cannot be silently replaced.
+
+An already exported batch needs no repeated original-input staging or bundle
+copy. Completed asset-reference audits are reused until another batch changes
+the output. An unused old core export is not reread when the matching merged
+checkpoint is the actual qualified input. Catalog hashing produces one bundle
+schedule reused for final ownership indexing, and the selected exporter tool
+inventory is read once per invocation that has unfinished batches. Source,
+identity, retained-output and genuinely changed-input failures remain explicit.
+These checks support reliable continuation; they are not repeated build tasks.
 
 The UI shows required actions and failures above the stage list. Failure context
 names the affected builder substep and a concise next action; detailed original

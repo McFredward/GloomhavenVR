@@ -21,7 +21,7 @@ RECOVERY_PHASES = {
     "recovery-asset-load": "asset-load", "recovery-asset-export": "asset-export",
     "recovery-shader-recipes": "shader-recipes", "recovery-core-receipt-verify": "core-hash",
     "recovery-core-output-hash": "core-hash", "recovery-core-copy-hash": "core-copy",
-    "recovery-resume-verify": "core-copy", "recovery-rollback-verify": "core-copy",
+    "recovery-resume-verify": "core-copy", "recovery-rollback-verify": "core-copy", "recovery-rollback-index-verify": "core-copy",
     "recovery-batch-bundle-copy": "bundle-copy", "recovery-export-receipt-hash": "export-receipt",
     "recovery-batch-export-verify": "retained-export",
     "recovery-checkpoint-verify": "checkpoint-verify", "recovery-original-collection-merge": "collections",
@@ -31,7 +31,7 @@ FILE_CHILDREN = {
     "recovery-source-file-hash": ("recovery-source-hash",),
     "recovery-core-file-hash": ("recovery-core-receipt-verify", "recovery-core-output-hash"),
     "recovery-export-file-hash": ("recovery-export-receipt-hash",),
-    "recovery-checkpoint-file-hash": ("recovery-batch-export-verify", "recovery-checkpoint-verify", "recovery-resume-verify", "recovery-rollback-verify", "recovery-core-copy-hash", "recovery-original-collection-merge"),
+    "recovery-checkpoint-file-hash": ("recovery-batch-export-verify", "recovery-checkpoint-verify", "recovery-resume-verify", "recovery-rollback-verify", "recovery-rollback-index-verify", "recovery-core-copy-hash", "recovery-original-collection-merge"),
     "recovery-native-recipe-hash": ("recovery-native-recipe-merge",),
     "recovery-native-recipe-copy": ("recovery-native-recipe-merge",),
 }

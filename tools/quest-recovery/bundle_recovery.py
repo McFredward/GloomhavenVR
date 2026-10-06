@@ -201,8 +201,9 @@ def recover_merge(output, workspace, *, proofs=None):
             shutil.copyfile(workspace / row["backup"], target)
         # Immutable files have already passed. Only restored mutable indexes
         # need qualification now; the old path reread the entire project twice.
-        verified_records(output, [row for row in progress["files"] if row["path"] in MUTABLE_NATIVE_INDICES],
-                         phase="recovery-rollback-index-verify", proofs=proofs)
+        restored_indexes = [row for row in progress["files"] if row["path"] in MUTABLE_NATIVE_INDICES]
+        if restored_indexes:
+            verified_records(output, restored_indexes, phase="recovery-rollback-index-verify", proofs=proofs)
     _clean_merge(workspace, value)
     return progress
 
@@ -401,6 +402,7 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
     build_progress.event("recovery-section:batches", detail="Recovering the selected original bundle schedule", status="start")
     group_counter = build_progress.Counter("recovery-batches", len(measured_groups), "batches")
     group_counter.update(sum(index in progress["completedGroups"] for index in measured_groups), "Verified retained recovery batches", force=True)
+    tool_files = None
     for index in groups:
         if index in progress["completedGroups"]:
             continue
@@ -409,7 +411,9 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
                              "Preparing original batch " + str(index + 1) + " of " + str(len(plan["groups"])), status="start")
         directory = workspace / ("batch-" + str(index).zfill(3))
         batch_owner = workspace / (directory.name + ".owner.json")
-        tool_files = [{"name": Path(argument).name, "sha256": sha256(argument)} for argument in tool_command if Path(argument).is_file()]
+        if tool_files is None:
+            tool_files = [{"name": Path(argument).name, "sha256": sha256(argument)}
+                          for argument in tool_command if Path(argument).is_file()]
         own_attempt(batch_owner, {"schema": 1, "owner": "Quest original bundle batch", "group": group,
                     "coreIdentitySha256": expected["coreIdentitySha256"], "toolFiles": tool_files}, directory)
         export_receipt = directory / "export-complete.json"
