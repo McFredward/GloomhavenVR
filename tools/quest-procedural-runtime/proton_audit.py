@@ -578,14 +578,26 @@ def _audit(root: Path, launcher_path, expected_provenance, system_dir: Path, rep
             definitions.setdefault((symbol["name"], symbol["version"]), set()).add(name)
             if symbol["version"] is None or symbol["defaultVersion"]:
                 definitions.setdefault((symbol["name"], None), set()).add(name)
+    def dependency_scope(name: str) -> set[str]:
+        scope = {name, _relative(root, manifest["launcher"]).name}
+        queue = [name]
+        while queue:
+            current = queue.pop()
+            for needed in {**native, **systems}[current]["needed"]:
+                if needed not in scope:
+                    scope.add(needed)
+                    queue.append(needed)
+        return scope
+
     native_imports = []
     for name, value in native.items():
+        scope = dependency_scope(name)
         for symbol in value["symbols"]:
             if symbol["version"] and symbol["version"].startswith("GLIBC"):
                 raise AuditError("Android native binary imports/exports glibc ABI: " + name + ":" + symbol["name"])
             if not symbol["undefined"]:
                 continue
-            providers = definitions.get((symbol["name"], symbol["version"]), set())
+            providers = definitions.get((symbol["name"], symbol["version"]), set()) & scope
             if symbol["versionLibrary"]:
                 providers = providers & {symbol["versionLibrary"]}
             if not providers and symbol["bind"] == "strong":
@@ -637,21 +649,32 @@ def _audit(root: Path, launcher_path, expected_provenance, system_dir: Path, rep
         used_api_sets[name] = providers[0]
         return providers[0]
 
-    def load(name: str) -> dict:
-        if name not in parsed:
-            value = inspect_pe(available[name])
+    def load(name: str, view: str) -> dict:
+        key = (name, view)
+        if key not in parsed:
+            value = inspect_pe(available[name], view=view)
             owner = name in {_relative(root, manifest[k]).name.lower() for k in ("worker", "engine")}
-            if not owner and (value["machine"] not in (0x8664, 0xaa64, 0xa641, 0xa64e) or value["chpe"] is None):
-                raise AuditError("Required Wine/FEX code DLL has no qualified ARM64EC metadata: " + name)
-            parsed[name] = value
-        return parsed[name]
+            if not owner:
+                if view == "native":
+                    if value["machine"] not in (0xaa64, 0xa64e):
+                        raise AuditError("Native bootstrap dependency is not ARM64 PE: " + name)
+                else:
+                    # Wine's no-entrypoint data/forwarder DLLs contain no code
+                    # requiring an EC thunk. Native ARM64 executables are audited
+                    # separately and must never be silently accepted here.
+                    forwarders_only = value["entrypoint"] == 0 and all("forwarder" in e for e in value["ordinalExports"].values())
+                    qualified = value["chpe"] is not None and 1 in value["chpe"]["codeKinds"]
+                    if value["machine"] not in (0x8664, 0xaa64, 0xa641, 0xa64e) or not (qualified or forwarders_only):
+                        raise AuditError("Required Wine/FEX code DLL has no qualified ARM64EC metadata: " + name)
+            parsed[key] = value
+        return parsed[key]
 
-    def resolve_symbol(dll: str, symbol: dict, importer: str, stack=()) -> dict:
+    def resolve_symbol(dll: str, symbol: dict, importer: str, view: str, stack=()) -> dict:
         target = resolve_dll(dll, importer)
         key = (target, symbol.get("name", symbol.get("ordinal")))
         if key in stack or len(stack) >= 64:
             raise AuditError("PE export forwarder is cyclic or unbounded: " + target)
-        value = load(target)
+        value = load(target, view)
         exports = value["exports"] if "name" in symbol else value["ordinalExports"]
         entry = exports.get(key[1])
         if entry is None:
@@ -664,49 +687,61 @@ def _audit(root: Path, launcher_path, expected_provenance, system_dir: Path, rep
             if not library.lower().endswith(".dll"):
                 library += ".dll"
             forwarded = dict(ordinal=int(function[1:])) if function.startswith("#") else dict(name=function)
-            return resolve_symbol(library, forwarded, target, (*stack, key))
-        return dict(dll=target, symbol=key[1], rva=entry["rva"])
+            return resolve_symbol(library, forwarded, target, view, (*stack, key))
+        return dict(dll=target, symbol=key[1], rva=entry["rva"], view=view)
 
     roots = [_relative(root, manifest[k]).name.lower() for k in ("worker", "engine")]
     roots += ["ntdll.dll", "kernel32.dll", "libarm64ecfex.dll"]
-    roots += choices.get("bootstrapPeRoots", [])
-    queue = list(roots)
+    bootstraps = choices.get("bootstrapPeRoots", [])
+    if not isinstance(bootstraps, list) or len(bootstraps) != len(set(bootstraps)):
+        raise AuditError("Native PE bootstrap roots are invalid.")
+    for name in bootstraps:
+        if name not in available or name not in ("wineboot.exe", "services.exe", "winedevice.exe"):
+            raise AuditError("Unknown native ARM64 PE bootstrap root: " + str(name))
+        value = inspect_pe(available[name], view="native")
+        if value["machine"] != 0xaa64 or value["chpe"] is not None:
+            raise AuditError("Declared Wine bootstrap is not plain native ARM64: " + name)
+    queue = [(name, "arm64ec") for name in roots] + [(name, "native") for name in bootstraps]
     visited = set()
     pe_imports = []
     while queue or set(parsed) - visited:
         if not queue:
             queue.extend(set(parsed) - visited)
-        name = queue.pop()
-        if name in visited:
+        name, view = queue.pop()
+        key = (name, view)
+        if key in visited:
             continue
         if name not in available:
             raise AuditError("Required PE root is absent: " + name)
-        visited.add(name)
-        value = load(name)
+        visited.add(key)
+        value = load(name, view)
         for entry in value["imports"]:
             provider = resolve_dll(entry["dll"], name)
-            queue.append(provider)
+            queue.append((provider, view))
             for symbol in entry["symbols"]:
-                result = resolve_symbol(entry["dll"], symbol, name)
-                pe_imports.append(dict(path=name, requestedDll=entry["dll"], delayed=entry["delayed"], requested=symbol, resolved=result))
-    fex = parsed["libarm64ecfex.dll"]
+                result = resolve_symbol(entry["dll"], symbol, name, view)
+                pe_imports.append(dict(path=name, view=view, requestedDll=entry["dll"], delayed=entry["delayed"], requested=symbol, resolved=result))
+    fex = parsed[("libarm64ecfex.dll", "arm64ec")]
+    if provenance["fex"].get("dllSha256", fex["sha256"]) != fex["sha256"]:
+        raise AuditError("Pinned FEX ARM64EC DLL digest differs.")
     if not FEX_EXPORTS <= set(fex["exports"]):
         raise AuditError("FEX ARM64EC dynamic entry ABI is incomplete: " + ",".join(sorted(FEX_EXPORTS - set(fex["exports"]))))
     # Include PE modules reached through forwarders in the Unix-companion graph.
-    reached_unix = {Path(name).stem for name in visited if Path(name).stem in WINE_UNIX_MEMBERS}
+    reached_unix = {Path(name).stem for name, _ in visited if Path(name).stem in WINE_UNIX_MEMBERS}
     mapped_unix = {Path(name).stem for name in wine_native if name.endswith(".so")}
     if reached_unix - mapped_unix:
         raise AuditError("Reached PE Unix companion is absent: " + ",".join(sorted(reached_unix - mapped_unix)))
     if normalized_excluded & reached_unix or (normalized_excluded | mapped_unix) != WINE_UNIX_MEMBERS:
         raise AuditError("Optional Unix module closure/exclusion inventory differs.")
-    report["peClosure"] = [dict(path=str(available[name].relative_to(root)), sha256=parsed[name]["sha256"],
-                                     machine=parsed[name]["machine"], chpe=parsed[name]["chpe"],
-                                     imports=[e["dll"] for e in parsed[name]["imports"]], exports=len(parsed[name]["exports"])) for name in sorted(visited)]
+    report["peClosure"] = [dict(path=str(available[name].relative_to(root)), view=view, sha256=parsed[(name, view)]["sha256"],
+                                     machine=parsed[(name, view)]["machine"], viewMachine=parsed[(name, view)]["viewMachine"],
+                                     chpe=parsed[(name, view)]["chpe"], arm64xFixupCount=len(parsed[(name, view)]["arm64xFixups"]),
+                                     imports=[e["dll"] for e in parsed[(name, view)]["imports"]], exports=len(parsed[(name, view)]["exports"])) for name, view in sorted(visited)]
     report["peImports"] = pe_imports
     report["importedPeOccurrences"] = len(pe_imports)
     report["apiSets"] = [dict(contract=k, provider=v) for k, v in sorted(used_api_sets.items())]
     report["requiredUnixCompanions"] = sorted(reached_unix)
-    report["unreachedPeMembers"] = sorted(set(available) - visited)
+    report["unreachedPeMembers"] = sorted(set(available) - {name for name, _ in visited})
 
 
 def require_passed(report: dict) -> None:

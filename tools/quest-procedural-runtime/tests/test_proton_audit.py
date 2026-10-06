@@ -374,6 +374,42 @@ class ProtonBinaryAuditTests(unittest.TestCase):
         self.fixture.manifest["choices"]["optionalUnixExcluded"].remove("winex11")
         self.reject("exclusion inventory")
 
+    def test_unrelated_native_export_does_not_resolve_unlinked_import(self):
+        # Mere availability elsewhere in the APK is not dynamic-link scope.
+        self.fixture.native_replace("libqn.so", elf_bytes(needed=("libc.so",), imports=("unlinked",), soname="libqn.so"))
+        self.fixture.native_replace("libquest_proton_server.so", elf_bytes(needed=("libc.so",), exports=("unlinked",), soname="libquest_proton_server.so"))
+        self.reject("strong import is unresolved")
+
+    def test_full_member_exclusions_have_same_explicit_scope(self):
+        stems = self.fixture.manifest["choices"]["optionalUnixExcluded"]
+        self.fixture.manifest["choices"]["optionalUnixExcluded"] = ["lib/wine/aarch64-unix/" + n + ".so" for n in stems]
+        self.fixture.manifest["choices"]["optionalUnixExcluded"] += ["lib/wine/aarch64-unix/wine", "lib/wine/aarch64-unix/wine-preloader"]
+        AUDIT.require_passed(self.fixture.audit())
+
+    def test_native_bootstrap_preserves_native_export_view(self):
+        (self.fixture.pe / "wineboot.exe").write_bytes(pe_bytes(machine=0xaa64, hybrid=False, imports={"ntdll.dll": ["NativeOnly"]}))
+        (self.fixture.pe / "ntdll.dll").write_bytes(pe_bytes(exports={"NativeOnly": None}, alternate_exports={"NtFixture": None}))
+        self.fixture.manifest["choices"]["bootstrapPeRoots"] = ["wineboot.exe"]
+        report = self.fixture.audit()
+        AUDIT.require_passed(report)
+        ntdll = [x for x in report["peClosure"] if x["path"].endswith("ntdll.dll")]
+        self.assertEqual({"native", "arm64ec"}, {x["view"] for x in ntdll})
+        native_calls = [x for x in report["peImports"] if x["path"] == "wineboot.exe"]
+        self.assertEqual("NativeOnly", native_calls[0]["resolved"]["symbol"])
+        self.assertEqual("native", native_calls[0]["resolved"]["view"])
+
+    def test_owner_cannot_be_declared_native_bootstrap(self):
+        self.fixture.manifest["choices"]["bootstrapPeRoots"] = ["ApparanceWorker.exe"]
+        self.reject("Unknown native ARM64 PE bootstrap")
+
+    def test_ec_consumer_cannot_call_arbitrary_native_arm64_code(self):
+        (self.fixture.pe / "kernel32.dll").write_bytes(pe_bytes(machine=0xaa64, hybrid=False, exports={"KernelFixture": None}))
+        self.reject("ARM64EC metadata")
+
+    def test_fex_dll_must_match_exact_provenance_hash(self):
+        self.fixture.manifest["provenance"]["fex"]["dllSha256"] = "c" * 64
+        self.reject("FEX ARM64EC DLL digest differs")
+
     def test_fex_dynamic_export_abi_required(self):
         values = {k: None for k in AUDIT.FEX_EXPORTS - {"DispatchJump"}}
         (self.fixture.pe / "libarm64ecfex.dll").write_bytes(pe_bytes(machine=0x8664, exports=values))
