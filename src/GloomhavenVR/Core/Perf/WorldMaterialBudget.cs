@@ -79,8 +79,10 @@ internal static partial class WorldMaterialBudget
     {
         internal readonly MeshRenderer Renderer;
         internal MeshFilter? Filter;
+        internal Mesh? Mesh;
         internal bool Refused;
-        internal Surface(MeshRenderer renderer, MeshFilter filter) { Renderer = renderer; Filter = filter; }
+        internal Surface(MeshRenderer renderer, MeshFilter filter)
+        { Renderer = renderer; Filter = filter; Mesh = filter.sharedMesh; }
     }
     [DefaultExecutionOrder(30008)]
     private sealed partial class Driver : MonoBehaviour
@@ -205,8 +207,9 @@ internal static partial class WorldMaterialBudget
                     if (surface.Renderer == null) { _dead.Add(pair.Key); continue; }
                     MeshRenderer renderer = surface.Renderer;
                     MeshFilter filter = renderer.GetComponent<MeshFilter>();
-                    bool geometryChanged = surface.Filter != filter;
-                    surface.Filter = filter;
+                    Mesh mesh = filter != null ? filter.sharedMesh : null!;
+                    bool geometryChanged = surface.Filter != filter || surface.Mesh != mesh;
+                    surface.Filter = filter; surface.Mesh = mesh;
                     if (geometryChanged) RestoreRenderer(renderer);
                     candidates++;
                     if (!renderer.enabled || !renderer.gameObject.activeInHierarchy
@@ -218,7 +221,7 @@ internal static partial class WorldMaterialBudget
                         surface.Refused = true; scopeRefusals++; continue;
                     }
                     renderer.GetSharedMaterials(_slots);
-                    bool write = false, refused = false;
+                    bool write = false, refused = _slots.Count == 0;
                     for (int slot = 0; slot < _slots.Count; slot++)
                     {
                         Material current = _slots[slot], original = Source(current);
