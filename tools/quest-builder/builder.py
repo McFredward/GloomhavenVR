@@ -52,6 +52,7 @@ def _local_helper(name):
 
 
 host_resources = _local_helper("host_resources")
+build_progress = _local_helper("progress")
 _release = _local_helper("release") if Path(__file__).with_name("release.py").is_file() else None
 
 
@@ -70,6 +71,7 @@ def command(argv: list[str], log: Path, *, cwd: Path | None = None,
             env: dict | None = None) -> str:
     """No shell interpolation, no environment dump and no passwords in argv."""
     argv = list(argv)
+    build_progress.event("tool:" + log.stem[:140], detail=Path(argv[0]).name, status="start")
     unity = any(Path(arg).name.casefold() in ("unity", "unity.exe") for arg in argv)
     if unity and "-version" not in argv:
         policy = host_resources.phase_budget("unity", log.parent)
@@ -89,6 +91,7 @@ def command(argv: list[str], log: Path, *, cwd: Path | None = None,
             raise BuildError(Path(argv[0]).name + " exited with " + str(result.returncode) +
                              "; inspect " + str(log))
     output = log.read_text(encoding="utf-8", errors="replace")
+    build_progress.event("tool:" + log.stem[:140], 1, 1, "commands", Path(argv[0]).name, status="complete")
     return output
 
 
@@ -144,7 +147,7 @@ def source_inventory(repo: Path) -> tuple[list[dict], str, bool]:
                  for p in (repo / name).glob("*") if p.is_file() and p.suffix.lower() in (".dll", ".json")]
         for relative in local:
             _ordinary_owned(repo / relative)
-        combined = [*records, *inventory(repo, local)]
+        combined = [*records, *inventory(repo, local, phase="source-local-dependency-hash")]
         if len({row["path"].casefold() for row in combined}) != len(combined):
             raise BuildError("Release/local dependency inventories overlap or collide.")
         return sorted(combined, key=lambda row: row["path"]), commit, dirty
@@ -166,7 +169,7 @@ def source_inventory(repo: Path) -> tuple[list[dict], str, bool]:
                         if p.is_file() and p.suffix.lower() in (".dll", ".json"))
     commit = git_output(repo, "rev-parse", "HEAD").decode().strip()
     dirty = bool(git_output(repo, "status", "--porcelain", "--untracked-files=normal"))
-    return inventory(repo, selected), commit, dirty
+    return inventory(repo, selected, phase="source-hash"), commit, dirty
 
 
 def original_version(data: Path) -> str:
@@ -209,7 +212,7 @@ def selected_profile(args) -> tuple[dict | None, bytes | None]:
 
 def inspect_inputs(args, repo: Path, output: Path, data: Path) -> dict:
     print("inspect: hashing owned game and current mod inputs", flush=True)
-    game_files = inventory(data)
+    game_files = inventory(data, phase="game-hash")
     source_files, commit, dirty = source_inventory(repo)
     profile, logo = selected_profile(args)
     if profile is not None:
@@ -261,7 +264,7 @@ def snapshot_inputs(inputs: dict, output: Path, repo: Path, data: Path,
     source = output / "inputs/mod" / inputs["mod"]["key"]
     game = output / "inputs/game" / inputs["game"]["key"]
     print("snapshot: verifying/copying immutable game and selected source", flush=True)
-    snapshot(repo, inputs["mod"]["files"], source)
+    snapshot(repo, inputs["mod"]["files"], source, phase="source-snapshot")
     # Reject edits across files during the snapshot window, not only a torn
     # individual read or added source file. Once frozen, later mod development
     # proceeds independently of the potentially lengthy original-game copy.
@@ -269,8 +272,8 @@ def snapshot_inputs(inputs: dict, output: Path, repo: Path, data: Path,
         raise BuildError("The mod changed during snapshotting; rerun against the completed edit.")
     if mod_build(source) != inputs["mod"]["modBuild"]:
         raise BuildError("The input ModBuild disagrees with the captured source.")
-    snapshot(data, inputs["game"]["files"], game)
-    if inventory(data) != inputs["game"]["files"]:
+    snapshot(data, inputs["game"]["files"], game, phase="game-snapshot")
+    if inventory(data, phase="game-snapshot-source-verify") != inputs["game"]["files"]:
         raise BuildError("The original installation changed during snapshotting; finish its update and retry.")
     if inputs.get("probeAssets"):
         probe = inputs["probeAssets"]

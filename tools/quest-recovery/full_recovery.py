@@ -13,6 +13,7 @@ from export_identity import build_tool, read_identities
 import native_evidence
 from recover import (RecoveryError, managed_inventory, repair_managed_plugins, resolve_game_data,
                      run_export, sha256, source_inventory, stage_input, write_json, own_attempt, ordinary_path)
+from recover import build_progress
 
 
 def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
@@ -60,10 +61,13 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
             raise RecoveryError("Core recovery inputs/exporter changed.")
         if sha256(core_identities) != receipt["identitiesSha256"]:
             raise RecoveryError("Core native object identity evidence changed.")
+        counter = build_progress.Counter("recovery-core-receipt-verify", len(receipt["files"]), "files")
         for row in receipt["files"]:
             path = core / row["path"]
             if not path.is_file() or sha256(path) != row["sha256"]:
                 raise RecoveryError("Core recovery output changed: " + row["path"])
+            counter.add(1, path.name)
+        counter.finish()
     else:
         owner = workspace / "core-attempt.json"
         expected = {"schema": 1, "owner": "Quest original core export", "sourceFingerprint": fingerprint,
@@ -99,11 +103,16 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
         read_identities(core_identities, core)
         shutil.copytree(workspace / "CoreEvidence/QuestRecovery", core / "QuestRecovery")
         managed_inventory(source, core / "QuestRecovery/managed-types.json", tool_cache, dotnet=managed_dotnet)
+        core_files = [path for path in sorted(core.rglob("*")) if path.is_file()]
+        counter = build_progress.Counter("recovery-core-output-hash", len(core_files), "files")
+        records = []
+        for path in core_files:
+            records.append({"path": path.relative_to(core).as_posix(), "bytes": path.stat().st_size, "sha256": sha256(path)})
+            counter.add(1, path.name)
         receipt = {"schema": 1, "sourceFingerprint": fingerprint, "exporterSource": tool_proof["source"],
-                   "identitiesSha256": sha256(core_identities),
-                   "files": [{"path": path.relative_to(core).as_posix(), "bytes": path.stat().st_size, "sha256": sha256(path)}
-                             for path in sorted(core.rglob("*")) if path.is_file()]}
+                   "identitiesSha256": sha256(core_identities), "files": records}
         write_json(core_receipt, receipt)
+        counter.finish()
     progress = run_recovery(source, core, core_identities, output,
                             Path(bundle_workspace).resolve() if bundle_workspace else workspace / "BundleRecovery", tool)
     if metadata_project is not None:
@@ -136,6 +145,8 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
     write_json(output / "quest-full-recovery-progress.json", progress)
     owners = {}
     plan = catalog_bundle_plan(source)
+    total = sum(len(group["bundles"]) for group in plan["groups"])
+    counter = build_progress.Counter("recovery-cab-bundle-index", total, "bundles")
     for group in plan["groups"]:
         for bundle in group["bundles"]:
             for node in serialized_members(source / bundle["path"]):
@@ -143,8 +154,10 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
                 if member in owners and owners[member] != bundle["path"]:
                     raise RecoveryError("Original CAB occurs in two distinct physical bundles: " + member)
                 owners[member] = bundle["path"]
+            counter.add(1, Path(bundle["path"]).name)
     owner_path = workspace / "original-cab-bundles.json"
     write_json(owner_path, owners)
+    counter.finish()
     result = {"schema": 1, "recoveryProject": str(output), "coreProject": str(core),
               "managedTypes": str(output / "QuestRecovery/managed-types.json"), "cabBundles": str(owner_path),
               "sourceFingerprint": fingerprint, "originalInputFileCount": len(files),

@@ -10,6 +10,7 @@ import argparse
 import collections
 import hashlib
 import html
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -30,6 +31,10 @@ import uuid
 from md4 import script_file_id
 
 HERE = Path(__file__).resolve().parent
+# Explicit local loading keeps standalone recovery and API importers isolated.
+_progress_spec = importlib.util.spec_from_file_location("quest_recovery_progress", HERE.parent / "quest-builder/progress.py")
+build_progress = importlib.util.module_from_spec(_progress_spec)
+_progress_spec.loader.exec_module(build_progress)
 RECIPE_VERSION = 1
 RECEIPT = "quest-recovery-report.json"
 YAML_EXTENSIONS = {".unity", ".prefab", ".asset", ".mat", ".controller", ".overrideController", ".anim", ".mask",
@@ -43,11 +48,12 @@ class RecoveryError(RuntimeError):
     pass
 
 
-def sha256(path):
+def sha256(path, progress=None):
     digest = hashlib.sha256()
     with Path(path).open("rb") as stream:
         for block in iter(lambda: stream.read(4 * 1024 * 1024), b""):
             digest.update(block)
+            if progress: progress(len(block))
     return digest.hexdigest()
 
 
@@ -130,12 +136,18 @@ def validate_output(source, output):
 
 def source_inventory(game_data):
     files = []
-    for path in sorted(game_data.rglob("*")):
-        if not path.is_file():
-            continue
+    paths = [path for path in sorted(game_data.rglob("*")) if path.is_file()]
+    counter = build_progress.Counter("recovery-source-hash", len(paths), "files")
+    for path in paths:
         relative = path.relative_to(game_data).as_posix()
-        files.append({"path": relative, "bytes": path.stat().st_size, "sha256": sha256(path)})
+        size = path.stat().st_size
+        byte_counter = build_progress.Counter("recovery-source-file-hash", size, "bytes", path.name) if build_progress.enabled() and size >= 8 * 1048576 else None
+        hashed = sha256(path, progress=byte_counter.add) if byte_counter else sha256(path)
+        files.append({"path": relative, "bytes": size, "sha256": hashed})
+        if byte_counter: byte_counter.finish()
+        counter.add(1, path.name)
     encoded = json.dumps(files, sort_keys=True, separators=(",", ":")).encode()
+    counter.finish()
     return files, hashlib.sha256(encoded).hexdigest()
 
 
@@ -252,17 +264,25 @@ def stage_input(game_data, stage, selected_bundles):
             if not stream.read(8).startswith((b"UnityFS\0", b"UnityWeb", b"UnityRaw")):
                 raise RecoveryError(f"Selected bundle has no Unity bundle header: {relative}")
         files.append(path)
-    records = [{"path": path.relative_to(game_data).as_posix(), "bytes": path.stat().st_size, "sha256": sha256(path),
-                "stagedPath": ("SelectedBundles/" if path.relative_to(game_data).as_posix() in selected_bundles else "") + path.relative_to(game_data).as_posix()}
-               for path in files]
+    records = []; counter = build_progress.Counter("recovery-stage-input-hash", len(files), "files")
+    for path in files:
+        relative = path.relative_to(game_data).as_posix()
+        records.append({"path": relative, "bytes": path.stat().st_size, "sha256": sha256(path),
+                        "stagedPath": ("SelectedBundles/" if relative in selected_bundles else "") + relative})
+        counter.add(1, path.name)
+    counter.finish()
     marker = stage.with_name(stage.name + ".quest-input-stage.json")
     own_attempt(marker, {"schema": 1, "owner": "Quest recovery input stage", "source": str(game_data), "files": records}, stage)
     stage.mkdir(parents=True, exist_ok=True)
+    counter = build_progress.Counter("recovery-stage-input-copy", len(records), "files")
     for row in records:
         original, target = game_data / row["path"], ordinary_path(stage / row["stagedPath"])
-        if target.is_file() and target.stat().st_size == row["bytes"] and sha256(target) == row["sha256"]: continue
+        if target.is_file() and target.stat().st_size == row["bytes"] and sha256(target) == row["sha256"]:
+            counter.add(1, target.name); continue
         target.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(original, target)
         if target.stat().st_size != row["bytes"] or sha256(target) != row["sha256"]: raise RecoveryError("Original input changed while staging: " + row["path"])
+        counter.add(1, target.name)
+    counter.finish()
     return selected
 
 
@@ -278,11 +298,13 @@ def export_shader_recipes(base, output):
     directory = output / "QuestRecovery/ShaderRecipes"
     directory.mkdir(parents=True, exist_ok=True)
     entries = []
+    counter = build_progress.Counter("recovery-shader-recipes", len(paths), "objects")
     for link in paths:
         raw_path = urllib.parse.parse_qs(urllib.parse.urlsplit(html.unescape(link)).query)["Path"][0]
         value = json.loads(request(base, "/Assets/Json?" + urllib.parse.urlencode({"Path": raw_path})))
         parsed = value.get("m_ParsedForm")
         if not parsed:
+            counter.add(1, "No parsed Shader recipe")
             continue
         name = parsed.get("m_Name", value.get("m_Name", "Unnamed"))
         key = re.sub(r"[^A-Za-z0-9._-]+", "_", name) + "-" + hashlib.sha256(raw_path.encode()).hexdigest()[:10]
@@ -291,6 +313,8 @@ def export_shader_recipes(base, output):
                           "compiledPlatforms": value.get("m_Platforms", [])})
         entries.append({"name": name, "recipe": path.relative_to(output).as_posix(),
                         "sha256": sha256(path), "compiledPlatforms": value.get("m_Platforms", [])})
+        counter.add(1, name)
+    counter.finish()
     return entries
 
 
@@ -312,6 +336,7 @@ def export_script_identities(base, output):
 
 
 def run_export(executable, stage, export, log_path, shader_root, settings, require_scene_settings=True):
+    build_progress.event("recovery-exporter-start", detail="Starting pinned asset exporter", status="start")
     with socket.socket() as available:
         available.bind(("127.0.0.1", 0))
         port = available.getsockname()[1]
@@ -335,13 +360,17 @@ def run_export(executable, stage, export, log_path, shader_root, settings, requi
                     time.sleep(0.2)
             request(base, "/Settings/Update", settings)
             print("[Quest recovery] Loading owned core assets; detailed progress is in", log_path, flush=True)
+            build_progress.event("recovery-asset-load", detail="Loading owned assets; detailed exporter log: " + log_path.name, status="start")
             request(base, "/LoadFolder", {"Path": str(stage)})
+            build_progress.event("recovery-asset-load", 1, 1, "requests", "Original assets loaded", status="complete")
+            build_progress.event("recovery-asset-export", detail="Exporting original assets; detailed exporter log: " + log_path.name, status="start")
             request(base, "/Export/UnityProject", {"Path": str(export)})
             project = export / "ExportedProject"
             if require_scene_settings and not (project / "ProjectSettings/EditorBuildSettings.asset").is_file():
                 raise RecoveryError(f"Export did not produce original scene settings; see {log_path}.")
             if not (project / "Assets").is_dir():
                 raise RecoveryError(f"Export did not produce an asset tree; see {log_path}.")
+            build_progress.event("recovery-asset-export", 1, 1, "requests", "Original asset export completed", status="complete")
             recipes = export_shader_recipes(base, shader_root)
             identities = export_script_identities(base, shader_root)
             return project, recipes, identities

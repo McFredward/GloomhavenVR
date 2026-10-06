@@ -14,7 +14,17 @@ import tarfile
 import urllib.request
 import zipfile
 
-from storage import BuildError, digest, write_json, value_hash, _ordinary_owned
+from storage import BuildError, digest, write_json, value_hash, _ordinary_owned, build_progress
+
+
+def _hash_archive(path, algorithm, phase):
+    counter = build_progress.Counter(phase, path.stat().st_size, "bytes", path.name)
+    result = hashlib.new(algorithm)
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1048576), b""):
+            result.update(block); counter.add(len(block))
+    counter.finish()
+    return result.hexdigest()
 
 
 def download_sdk(spec, archive, *, algorithm="sha512"):
@@ -22,9 +32,10 @@ def download_sdk(spec, archive, *, algorithm="sha512"):
     if archive.exists(): return
     partial = _ordinary_owned(archive.with_suffix(archive.suffix + ".download"))
     if partial.exists():
-        with partial.open("rb") as stream:
-            if hashlib.file_digest(stream, algorithm).hexdigest() == spec["hash"]:
-                os.replace(partial, archive); return
+        if _hash_archive(partial, algorithm, "recovery-sdk-partial-hash") == spec["hash"]:
+            os.replace(partial, archive)
+            build_progress.event("recovery-sdk-download", 1, 1, "archives", "Verified retained complete download", status="reuse")
+            return
     offset = partial.stat().st_size if partial.exists() else 0
     request = urllib.request.Request(spec["url"], headers={"Range": "bytes=" + str(offset) + "-"} if offset else {})
     with urllib.request.urlopen(request, timeout=60) as response:
@@ -37,14 +48,20 @@ def download_sdk(spec, archive, *, algorithm="sha512"):
         elif status == 200:
             offset = 0; expected = int(response.headers.get("Content-Length", "0")) or None
         else: raise BuildError("Recovery SDK server did not return a usable archive.")
+        total = int(match[3]) if status == 206 else expected
+        counter = build_progress.Counter("recovery-sdk-download", total, "bytes", archive.name)
+        counter.update(offset, force=True)
         with partial.open("ab" if offset else "wb") as stream:
-            shutil.copyfileobj(response, stream, 1048576); stream.flush(); os.fsync(stream.fileno())
+            for block in iter(lambda: response.read(1048576), b""):
+                stream.write(block); counter.add(len(block))
+            stream.flush(); os.fsync(stream.fileno())
     if expected is not None and partial.stat().st_size != expected:
         raise BuildError("Recovery SDK download ended early; its verified offset can resume.")
-    with partial.open("rb") as stream: actual = hashlib.file_digest(stream, algorithm).hexdigest()
+    actual = _hash_archive(partial, algorithm, "recovery-sdk-download-hash")
     if actual != spec["hash"]:
         partial.unlink(); raise BuildError("Official tool archive fails its pinned " + algorithm.upper() + ".")
     os.replace(partial, archive)
+    counter.finish()
 
 
 def python_abi():
@@ -110,30 +127,38 @@ def python_environment(cache, source, *, procedural=True):
             state["requirementsKey"] = None
             write_json(marker, state)
         if not executable.is_file():
+            build_progress.event("builder-python-venv", detail="Creating isolated build Python", status="start")
             subprocess.run([sys.executable, "-m", "venv", str(root)], check=True, stdout=log, stderr=subprocess.STDOUT)
+            build_progress.event("builder-python-venv", 1, 1, "environments", "Isolated Python created", status="complete")
         if not matching_python(executable, root): raise BuildError("Builder Python did not produce the exact launcher ABI.")
         if state.get("requirementsKey") != key:
             env = dict(os.environ)
             env.update(PIP_CONFIG_FILE=os.devnull, PIP_EXTRA_INDEX_URL="", PIP_DISABLE_PIP_VERSION_CHECK="1")
             common = [str(executable), "-m", "pip", "install", "--index-url", "https://pypi.org/simple", "--require-hashes", "--only-binary=:all:"]
             print("dependencies: installing pinned build packages in " + str(root), flush=True)
+            build_progress.event("builder-python-bootstrap", detail="Installing pinned pip bootstrap requirements", status="start")
             subprocess.run(common + ["-r", str(bootstrap)],
                            check=True, stdout=log, stderr=subprocess.STDOUT, env=env)
+            build_progress.event("builder-python-bootstrap", 1, 1, "commands", "Bootstrap requirements installed", status="complete")
             # tpk_ar's verified source distribution contains only Python and
             # uses the separately pinned, already-installed setuptools/wheel.
             # The network requirements deliberately enforce binary-only tools.
             # Install the one witnessed source package separately before that
             # file can reset pip's format policy.
+            build_progress.event("builder-python-source-package", detail="Installing pinned source package", status="start")
             subprocess.run(common + ["--no-binary=:all:", "--no-build-isolation", "--no-deps", "-r", str(pure_source)],
                            check=True, stdout=log, stderr=subprocess.STDOUT, env=env)
+            build_progress.event("builder-python-source-package", 1, 1, "commands", "Pinned source package installed", status="complete")
             command = common + ["--no-build-isolation"]
             for requirement in requirements: command += ["-r", str(requirement)]
             try:
+                build_progress.event("builder-python-packages", detail="Installing pinned build requirements; see build-python.log", status="start")
                 subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT, env=env)
             except subprocess.CalledProcessError as error:
                 raise BuildError("Pinned builder packages could not be installed; inspect " + str(log_path)) from error
             state["requirementsKey"] = key
             write_json(marker, state)
+            build_progress.event("builder-python-packages", 1, 1, "commands", "Pinned build requirements installed", status="complete")
     if os.name == "nt": paths = [root / "Lib/site-packages"]
     else: paths = list((root / "lib").glob("python*/site-packages"))
     if len(paths) != 1: raise BuildError("Builder Python has no unique isolated site-packages directory.")
@@ -176,8 +201,7 @@ def dotnet10(cache, source, explicit=None):
     if not archive.exists():
         print("dependencies: downloading official pinned .NET " + version, flush=True)
         download_sdk(spec, archive)
-    with archive.open("rb") as stream:
-        actual = hashlib.file_digest(stream, "sha512").hexdigest()
+    actual = _hash_archive(archive, "sha512", "recovery-sdk-archive-hash")
     if actual != spec["hash"]: raise BuildError("Official recovery SDK archive fails its pinned SHA512.")
     stage = root.with_name(root.name + ".extracting")
     owner = stage.with_name(stage.name + ".json")
@@ -192,16 +216,28 @@ def dotnet10(cache, source, explicit=None):
     try:
         if archive.suffix == ".zip":
             with zipfile.ZipFile(archive) as package:
-                for row in package.infolist():
+                members = package.infolist()
+                for row in members:
                     path = Path(row.filename)
                     if path.is_absolute() or ".." in path.parts or "\\" in row.filename:
                         raise BuildError("Recovery SDK archive has a nonlocal member.")
-                package.extractall(stage)
+                counter = build_progress.Counter("recovery-sdk-extract", len(members), "files")
+                for row in members:
+                    package.extract(row, stage); counter.add(1, Path(row.filename).name)
         else:
-            with tarfile.open(archive) as package: package.extractall(stage, filter="data")
+            with tarfile.open(archive) as package:
+                members = package.getmembers(); counter = build_progress.Counter("recovery-sdk-extract", len(members), "files")
+                def measured_members():
+                    for row in members:
+                        yield row
+                        counter.add(1, Path(row.name).name)
+                # Keep TarFile's deferred directory permissions/timestamps and
+                # safe-link handling intact across the entire extraction.
+                package.extractall(stage, members=measured_members(), filter="data")
         write_json(stage / marker.name, {"schema": 1, "version": version, "archiveSha512": actual})
         stage.rename(root)
         owner.unlink()
+        counter.finish()
     except BaseException:
         shutil.rmtree(stage)
         raise

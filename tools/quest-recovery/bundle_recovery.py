@@ -16,21 +16,25 @@ from export_identity import (build_tool, identity_remaps, object_index, read_ide
 import native_evidence
 from recover import (RecoveryError, YAML_EXTENSIONS, audit_asset_references,
                      audit_export_log, repair_managed_plugins, run_export,
-                     sha256, stage_input, write_json, is_unity_yaml, ordinary_path, own_attempt)
+                     sha256, stage_input, write_json, is_unity_yaml, ordinary_path, own_attempt, build_progress)
 
 
 MUTABLE_NATIVE_INDICES = ("QuestRecovery/native-redirect-identities.jsonl", "QuestRecovery/NativeRecipes/index.jsonl")
 
 
 def verified_records(root, records, *, excluded=()):
+    counter = build_progress.Counter("recovery-checkpoint-verify", len(records), "files")
     for row in records:
         relative = Path(row["path"])
         if relative.is_absolute() or ".." in relative.parts or "\\" in row["path"]:
             raise RecoveryError("Recovery checkpoint has an unsafe relative path.")
         path = ordinary_path(root / relative)
-        if row["path"] in excluded: continue
+        if row["path"] in excluded:
+            counter.add(1, "Excluded mutable index: " + path.name); continue
         if not path.is_file() or path.stat().st_size != row["bytes"] or sha256(path) != row["sha256"]:
             raise RecoveryError("Full recovered checkpoint file changed: " + row["path"])
+        counter.add(1, path.name)
+    counter.finish()
 
 
 def recover_merge(output, workspace):
@@ -153,6 +157,7 @@ def merge_export(project, incoming_project, incoming_rows, canonical_objects):
         relative = "Assets/QuestRecoveredBundles/" + row["guid"] + "/" + Path(row["path"]).name
         output_paths[row["path"]] = relative
         rows.append({**row, "path": relative})
+    counter = build_progress.Counter("recovery-original-collection-merge", len(rows), "collections")
     for row in rows:
         original = next(item for item in incoming_rows if item["guid"] == row["guid"] and not item.get("skippedCore"))
         source, destination = incoming_project / original["path"], project / row["path"]
@@ -172,6 +177,8 @@ def merge_export(project, incoming_project, incoming_rows, canonical_objects):
             files.append({"path": path.relative_to(project).as_posix(), "sha256": sha256(path), "bytes": path.stat().st_size})
         for obj in row["objects"]:
             canonical_objects[(obj["collection"], int(obj["pathId"]))] = {**obj, "guid": row["guid"], "path": row["path"]}
+        counter.add(1, source.name)
+    counter.finish()
     return {"exportedCollectionCount": len(rows), "newOriginalObjectCount": sum(len(row["objects"]) for row in rows),
             "remappedOriginalPointerCount": len(pointers), "files": files, "identities": rows}
 
@@ -218,11 +225,15 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
     stage.parent.mkdir(parents=True, exist_ok=True)
     stage_input(source, stage, [])
     settings = json.loads((Path(__file__).parent / "tool-lock.json").read_text())["settings"]
-    groups = range(len(plan["groups"])) if selected_groups is None else selected_groups
+    groups = list(range(len(plan["groups"])) if selected_groups is None else selected_groups)
+    measured_groups = list(dict.fromkeys(groups))
+    group_counter = build_progress.Counter("recovery-batches", len(measured_groups), "batches")
+    group_counter.update(sum(index in progress["completedGroups"] for index in measured_groups), "Verified retained recovery batches", force=True)
     for index in groups:
         if index in progress["completedGroups"]:
             continue
         group = plan["groups"][index]
+        build_progress.event("recovery-batch", detail="Preparing original batch " + str(index + 1) + " of " + str(len(plan["groups"])), status="start")
         directory = workspace / ("batch-" + str(index).zfill(3))
         batch_owner = workspace / (directory.name + ".owner.json")
         tool_files = [{"name": Path(argument).name, "sha256": sha256(argument)} for argument in tool_command if Path(argument).is_file()]
@@ -245,6 +256,7 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
         if selected.exists():
             shutil.rmtree(selected)
         selected.mkdir()
+        bundle_counter = build_progress.Counter("recovery-batch-bundle-copy", len(group["bundles"]), "bundles")
         for row in group["bundles"]:
             path = source / row["path"]
             if sha256(path) != row["sha256"]:
@@ -253,6 +265,8 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
             if destination.exists():
                 raise RecoveryError("Distinct original bundles have the same staged filename.")
             shutil.copy2(path, destination)
+            bundle_counter.add(1, path.name)
+        bundle_counter.finish()
         capture = native_evidence.environment(directory / "Evidence")
         previous = {key: os.environ.get(key) for key in ("QUEST_EXPORT_IDENTITIES", "QUEST_EXPORT_BUNDLE_ONLY", *capture)}
         identity_path = directory / "identities.jsonl"
@@ -294,10 +308,14 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
         progress["assetsRecovered"] = len(progress["completedGroups"]) == len(plan["groups"])
         write_json(checkpoint, progress)
         recover_merge(output, workspace)  # committed checkpoint cleans journal/backups
+        group_counter.add(1, "Original batch " + str(index + 1) + " merged and checkpoint committed")
         print("[Quest full recovery] Batch", index + 1, "of", len(plan["groups"]), "merged:",
               merged["exportedCollectionCount"], "collections; total original objects", len(canonical), flush=True)
+    group_counter.finish()
+    build_progress.event("recovery-asset-references", detail="Auditing recovered original asset references", status="start")
     progress["assetReferences"] = audit_asset_references(output)
     write_json(checkpoint, progress)
+    build_progress.event("recovery-asset-references", 1, 1, "audits", "Recovered asset references audited", status="complete")
     return progress
 
 

@@ -4,22 +4,42 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
+import time
 import uuid
+
+# Installer/API loaders intentionally avoid global dependency aliases. Resolve
+# this standard-library-only helper beside the exact selected storage source.
+build_progress = None
+if Path(__file__).with_name("progress.py").is_file():
+    _progress_spec = importlib.util.spec_from_file_location("quest_builder_progress", Path(__file__).with_name("progress.py"))
+    build_progress = importlib.util.module_from_spec(_progress_spec)
+    _progress_spec.loader.exec_module(build_progress)
+
+
+def _counter(phase, total, unit):
+    return build_progress.Counter(phase, total, unit) if build_progress and build_progress.enabled() else None
 
 
 class BuildError(RuntimeError):
     """An actionable conversion failure, safe to display without credentials."""
 
 
-def digest(path: Path) -> str:
+def digest(path: Path, progress=None) -> str:
     result = hashlib.sha256()
+    counter = None
+    if progress is None and build_progress and build_progress.enabled() and path.stat().st_size >= 8 * 1048576:
+        counter = build_progress.Counter("file-hash", path.stat().st_size, "bytes", path.name)
+        progress = counter.add
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             result.update(chunk)
+            if progress: progress(len(chunk))
+    if counter: counter.finish()
     return result.hexdigest()
 
 
@@ -44,19 +64,19 @@ def write_json(path: Path, value) -> None:
         temp.unlink(missing_ok=True)
 
 
-def record_file(path: Path, relative: str) -> dict:
+def record_file(path: Path, relative: str, progress=None) -> dict:
     before = path.stat()
-    hashed = digest(path)
+    hashed = digest(path, progress=progress) if progress else digest(path)
     after = path.stat()
     if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
         raise BuildError("An input changed while being hashed: " + relative + "; retry after the edit completes.")
     return {"path": relative, "sha256": hashed, "size": after.st_size}
 
 
-def inventory(root: Path, paths: list[str] | None = None) -> list[dict]:
+def inventory(root: Path, paths: list[str] | None = None, *, phase="input-hash") -> list[dict]:
     if paths is None:
         paths = sorted(str(p.relative_to(root).as_posix()) for p in root.rglob("*") if p.is_file())
-    result = []
+    result = []; selected = []
     for relative in sorted(set(paths)):
         rel = Path(relative)
         if rel.is_absolute() or ".." in rel.parts:
@@ -69,25 +89,38 @@ def inventory(root: Path, paths: list[str] | None = None) -> list[dict]:
         contained_link = path.is_symlink() and root.resolve() in path.resolve().parents
         if path.is_symlink() and not contained_link and not relative.startswith(("libs/RuntimeDeps/", "libs/Natives/")):
             raise BuildError("A conversion input is an unsupported symlink: " + relative)
-        result.append(record_file(path, rel.as_posix()))
+        selected.append((path, rel.as_posix()))
+    counter = _counter(phase, sum(path.stat().st_size for path, _ in selected), "bytes")
+    try:
+        for path, relative in selected:
+            result.append(record_file(path, relative, progress=lambda size: counter.add(size, Path(relative).name)) if counter else record_file(path, relative))
+        if counter: counter.finish()
+    except BaseException as error:
+        if counter: counter.fail(error)
+        if isinstance(error, ValueError) and counter:
+            raise BuildError("An input changed while being hashed; retry after the edit completes.") from error
+        raise
     return result
 
 
-def verify_files(root: Path, records: list[dict]) -> bool:
+def verify_files(root: Path, records: list[dict], *, phase="file-verify") -> bool:
+    counter = _counter(phase, sum(item["size"] for item in records), "bytes")
     for item in records:
         path = root / item["path"]
         if not path.is_file() or path.is_symlink() or path.stat().st_size != item["size"]:
             return False
-        if digest(path) != item["sha256"]:
+        if (digest(path, progress=lambda size: counter.add(size, Path(item["path"]).name)) if counter else digest(path)) != item["sha256"]:
             return False
+    if counter: counter.finish()
     return True
 
 
-def snapshot(source: Path, records: list[dict], destination: Path) -> None:
+def snapshot(source: Path, records: list[dict], destination: Path, *, phase="snapshot") -> None:
     receipt = destination / ".snapshot.json"
     if receipt.is_file():
         prior = json.loads(receipt.read_text(encoding="utf-8"))
-        if prior.get("files") == records and verify_files(destination, records):
+        if prior.get("files") == records and verify_files(destination, records, phase=phase + "-verify"):
+            if build_progress: build_progress.event(phase, 1, 1, "snapshots", "Verified existing snapshot", status="reuse")
             return
         raise BuildError("Immutable snapshot is corrupt: " + str(destination) + "; remove this snapshot and retry.")
     if destination.exists():
@@ -102,6 +135,7 @@ def snapshot(source: Path, records: list[dict], destination: Path) -> None:
     else: write_json(owner, expected)
     # The owner is durable before any directory/member creation. A killed copy
     # resumes only this exact known file set; original inputs stay read-only.
+    counter = _counter(phase, len(records), "files")
     for item in records:
         original = source / item["path"]
         copied = _ordinary_owned(temp / item["path"])
@@ -110,9 +144,11 @@ def snapshot(source: Path, records: list[dict], destination: Path) -> None:
             shutil.copyfile(original, copied)
             if copied.stat().st_size != item["size"] or digest(copied) != item["sha256"]:
                 raise BuildError("An input changed while copied: " + item["path"] + "; retry after editing stops.")
+        if counter: counter.add(1, Path(item["path"]).name)
     write_json(temp / ".snapshot.json", {"schema": 1, "files": records})
     temp.replace(destination)
     owner.unlink()
+    if counter: counter.finish()
 
 
 def ensure_output(output: Path, repo: Path, game_data: Path | None = None) -> Path:
@@ -486,7 +522,7 @@ class Stages:
                 candidate = (self.output / item["path"]).resolve()
                 if self.output.resolve() not in candidate.parents:
                     return None
-            return value if verify_files(self.output, records) else None
+            return value if verify_files(self.output, records, phase="stage-receipt-verify:" + name) else None
         except (ValueError, OSError, KeyError):
             return None
 
@@ -494,19 +530,28 @@ class Stages:
         prior = self.valid(name, key)
         if prior:
             print(name + ": reusing verified output", flush=True)
+            if build_progress: build_progress.event("stage:" + name, 1, 1, "stages", "Verified output reused", status="reuse")
             return prior
         self.path(name, key).unlink(missing_ok=True)
         print(name + ": running", flush=True)
+        started = time.monotonic()
+        if build_progress: build_progress.event("stage:" + name, detail="Running builder stage", status="start")
         try:
             paths, details = action()
-            records = [record_file(p, p.relative_to(self.output).as_posix()) for p in paths]
+            paths = list(paths)
+            counter = _counter("stage-output-verify:" + name, sum(path.stat().st_size for path in paths), "bytes")
+            records = [record_file(p, p.relative_to(self.output).as_posix(), progress=lambda size, p=p: counter.add(size, p.name))
+                       if counter else record_file(p, p.relative_to(self.output).as_posix()) for p in paths]
             if not records:
                 raise BuildError(name + " produced no verifiable files.")
             value = {"schema": 1, "stage": name, "key": key, "outputs": records, "details": details}
             write_json(self.path(name, key), value)
+            if counter: counter.finish()
+            if build_progress: build_progress.event("stage:" + name, 1, 1, "stages", "Output verified; duration " + str(round(time.monotonic() - started, 3)) + " s", status="complete")
             return value
         except BaseException as exc:
             # Failed/cancelled stages never acquire a successful receipt.
             write_json(self.output / "last-failure.json", {"schema": 1, "stage": name, "key": key,
                        "error": type(exc).__name__, "message": str(exc)})
+            if build_progress: build_progress.event("stage:" + name, detail="Failed: " + type(exc).__name__, status="failed")
             raise
