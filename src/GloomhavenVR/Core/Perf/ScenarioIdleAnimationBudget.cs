@@ -37,11 +37,13 @@ internal static class ScenarioIdleAnimationBudget
         PerfMonitor.Register("Figure.VisibleIdleSources");
         PerfMonitor.Register("Figure.VisibleIdleLodRefused");
         PerfMonitor.Register("Figure.VisibleIdlePhysicsRefused");
+        PerfMonitor.RegisterDebug("Figure.VisibleIdleClothApproximation");
         try
         {
-            VRSession.Harmony?.PatchAll(typeof(ScenarioIdleAnimationPlayPatch));
-            VRSession.Harmony?.PatchAll(typeof(ScenarioIdleAnimationLocomotionPatch));
-            VRSession.Harmony?.PatchAll(typeof(ScenarioIdleAnimationClonePatch));
+            Harmony harmony = VRSession.Harmony ?? throw new InvalidOperationException("Native idle hooks require the session Harmony owner.");
+            harmony.PatchAll(typeof(ScenarioIdleAnimationPlayPatch));
+            harmony.PatchAll(typeof(ScenarioIdleAnimationLocomotionPatch));
+            harmony.PatchAll(typeof(ScenarioIdleAnimationClonePatch));
             ScenarioCameraCullBoundary.Install();
             ScenarioCameraCullBoundary.Subscribe(AfterNativePreCull);
         }
@@ -126,7 +128,8 @@ internal static class ScenarioIdleAnimationBudget
             if (Applied && Animator.cullingMode != AnimatorCullingMode.CullUpdateTransforms)
             { Applied = false; Foreign = true; }
             VisibleLodRefused = visibleInterval > 0f && Visible?.HasActiveNativeLod == true;
-            VisiblePhysicsRefused = visibleInterval > 0f && Pose.HasActiveIdleCloth;
+            VisiblePhysicsRefused = visibleInterval > 0f && (Pose.HasActiveIdleCloth
+                || (Pose.HasIdleCloth && !PerfConfig.VisibleIdleClothApproximation));
             bool visibleAllowed = visibleInterval > 0f && !VisibleLodRefused && !VisiblePhysicsRefused;
             bool eligible = (enabled || visibleAllowed) && !Foreign
                 && (Original == AnimatorCullingMode.AlwaysAnimate
@@ -252,6 +255,13 @@ internal static class ScenarioIdleAnimationBudget
                 int masked = 0;
                 foreach (Record record in _records.Values) masked += record.Visible?.MaskedSurfaceCount ?? 0;
                 PerfMonitor.Count("Figure.VisibleIdleSources", masked);
+                if (PerfMonitor.StepsActive && VRLog.WantsDebug)
+                {
+                    int clothApproximations = 0;
+                    foreach (Record record in _records.Values)
+                        if (record.Visible?.HasMaskedClothApproximation == true) clothApproximations++;
+                    PerfMonitor.Count("Figure.VisibleIdleClothApproximation", clothApproximations);
+                }
                 if (_cameraPolicies.Count > 0) _cameraPolicies.Pop();
                 bool restoreOuter = _cameraPolicies.Count > 0 && _cameraPolicies.Peek();
                 foreach (Record record in _records.Values)
@@ -263,11 +273,23 @@ internal static class ScenarioIdleAnimationBudget
         {
             try
             {
+                // A later onPreCull listener may change camera consumers, the setting
+                // or local/remote ownership after our early admission callback.
+                bool admitted = isActiveAndEnabled && VRSession.IsRunning && NativeActionsReady
+                    && camera == HeadCamera() && camera != null && !NativeCameraConsumers(camera);
+                float interval = Mathf.Clamp(VisibleInterval(), 0f, .5f);
                 foreach (Record record in _records.Values)
                 {
                     bool owned = record.Visible?.IsMasked == true;
+                    if (interval <= 0f && record.Applied && record.VisibleInterval > 0f)
+                    { record.Resume(); continue; }
+                    if (!owned) continue;
+                    if (!admitted || record.Actor == null || record.Actor.IsMoving
+                        || HeldFigures.Owns(record.Actor) || NetHeldFigures.Owns(record.Actor)
+                        || ActorPropBody.IsHeld(record.Actor))
+                    { record.Resume(); continue; }
                     record.Visible?.ValidateCameraLease();
-                    if (owned && record.Visible?.IsMasked != true) record.Resume();
+                    if (record.Visible?.IsMasked != true) record.Resume();
                 }
             }
             catch (Exception error) { FailOpen(error); }

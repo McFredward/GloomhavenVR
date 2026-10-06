@@ -422,10 +422,13 @@ public static class InteractionProgram
         foreach(Renderer renderer in hero.Meshes)Check(renderer.enabled,"native renderer enabled flags stay intact");
         Check(hero.Meshes[0].forceRenderingOff&&hero.Meshes[1].forceRenderingOff&&!hero.Meshes[2].forceRenderingOff,
             "orphaned fine meshes are masked while the original coarse body remains visible");
-        Check(ScenarioFigureDetailBudget.OwnsLodMask(hero.Meshes[0])
-            &&ScenarioFigureDetailBudget.OwnsLodMask(hero.Meshes[1])
-            &&!ScenarioFigureDetailBudget.OwnsLodMask(hero.Meshes[2]),
-            "idle mask reader recognizes only omitted renderers in the current owned LOD table");
+        using(ScenarioFigureDetailBudget.BeginLodMaskRead())
+        {
+            Check(ScenarioFigureDetailBudget.OwnsLodMask(hero.Meshes[0])
+                &&ScenarioFigureDetailBudget.OwnsLodMask(hero.Meshes[1])
+                &&!ScenarioFigureDetailBudget.OwnsLodMask(hero.Meshes[2]),
+                "idle mask reader recognizes only omitted renderers in the current owned LOD table");
+        }
         LOD[] applied=hero.Group.GetLODs();
         for(int i=0;i<3;i++)Check(applied[i].screenRelativeTransitionHeight==hero.Original[i].screenRelativeTransitionHeight
             &&applied[i].fadeTransitionWidth==hero.Original[i].fadeTransitionWidth,"native transitions and far culling survive the cap");
@@ -468,10 +471,14 @@ public static class InteractionProgram
         Check(Original(enemy)&&Original(empty),"100 percent restores exact original native LOD table after change");
         PerfConfig.EnemyFigureDetailPercent=0;Tick();
         var takeover=Build(scenario,CActor.EType.Enemy);Tick();
+        using(ScenarioFigureDetailBudget.BeginLodMaskRead())
+            Check(ScenarioFigureDetailBudget.OwnsLodMask(takeover.Meshes[0]),
+                "idle mask scope proves the current original table before a later native write");
         LOD[] taken=takeover.Group.GetLODs();taken[0].renderers=takeover.Original[0].renderers;
         taken[0].screenRelativeTransitionHeight=.85f;takeover.Group.SetLODs(taken);
-        Check(!ScenarioFigureDetailBudget.OwnsLodMask(takeover.Meshes[0]),
-            "idle mask reader immediately relinquishes a foreign native LOD table");
+        using(ScenarioFigureDetailBudget.BeginLodMaskRead())
+            Check(!ScenarioFigureDetailBudget.OwnsLodMask(takeover.Meshes[0]),
+                "idle mask reader immediately relinquishes a foreign native LOD table");
         for(int i=0;i<30;i++)Tick();
         Check(!takeover.Meshes[0].forceRenderingOff&&takeover.Group.GetLODs()[0].screenRelativeTransitionHeight==.85f,
             "bounded steady ownership check releases masks when a foreign controller replaces the table");

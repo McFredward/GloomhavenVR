@@ -93,6 +93,13 @@ internal static class ScenarioFigureDetailBudget
     // Visible-idle sampling may omit ONLY fine body renderers actually removed by this
     // current owned native table. An arbitrary forceRenderingOff flag is not ownership.
     internal static bool OwnsLodMask(Renderer renderer) => _driver?.OwnsLodMask(renderer) == true;
+    internal readonly struct LodMaskReadScope : IDisposable
+    {
+        private readonly Action? _finish;
+        internal LodMaskReadScope(Action? finish) => _finish = finish;
+        public void Dispose() => _finish?.Invoke();
+    }
+    internal static LodMaskReadScope BeginLodMaskRead() => _driver?.BeginLodMaskRead() ?? default;
 
     internal static void ActorReady(GameObject root)
     {
@@ -204,11 +211,11 @@ internal static class ScenarioFigureDetailBudget
             if (Group == null || !SameTable(Group.GetLODs(), Applied))
             { RestoreMasks(); Foreign = true; Applied = null; }
         }
-        internal bool OwnsMask(Renderer renderer)
+        internal bool OwnsMask(Renderer renderer, HashSet<LodRecord>? verified = null)
         {
             if (Foreign || Applied == null || renderer == null || !renderer.forceRenderingOff
                 || !_masked.Contains(renderer)) return false;
-            CheckOwnership();
+            if (verified == null || verified.Add(this)) CheckOwnership();
             return !Foreign && Applied != null && _masked.Contains(renderer) && renderer.forceRenderingOff;
         }
 
@@ -320,8 +327,22 @@ internal static class ScenarioFigureDetailBudget
         }
         internal bool OwnsLodMask(Renderer renderer)
         {
-            foreach (LodRecord lod in _lods) if (lod.OwnsMask(renderer)) return true;
+            foreach (LodRecord lod in _lods)
+                if (lod.OwnsMask(renderer, _maskReadDepth > 0 ? _maskReadVerified : null)) return true;
             return false;
+        }
+        private readonly HashSet<LodRecord> _maskReadVerified = new();
+        private int _maskReadDepth;
+        private Action? _finishMaskRead;
+        internal LodMaskReadScope BeginLodMaskRead()
+        {
+            if (_maskReadDepth++ == 0) _maskReadVerified.Clear();
+            _finishMaskRead ??= EndLodMaskRead;
+            return new LodMaskReadScope(_finishMaskRead);
+        }
+        private void EndLodMaskRead()
+        {
+            if (--_maskReadDepth == 0) _maskReadVerified.Clear();
         }
         private readonly Dictionary<int, ActorRecord> _roots = new();
         private readonly HashSet<int> _seen = new();
@@ -516,7 +537,7 @@ internal static class ScenarioFigureDetailBudget
             if (_lods.Count > 0)
             {
                 if (_ownershipCursor >= _lods.Count) _ownershipCursor = 0;
-                _lods[_ownershipCursor++].CheckOwnership(); // at most one allocating native read per frame
+                _lods[_ownershipCursor++].CheckOwnership(); // one allocating census read; body-copy scopes validate separately
             }
             if (_reportPending && !loading && _pending.Count == 0 && Time.unscaledTime >= _reportAt)
             {

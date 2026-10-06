@@ -56,12 +56,15 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
         internal MeshRenderer Proxy = null!;
         internal Material[] Materials = Array.Empty<Material>();
         internal Cloth? Cloth;
+        internal SkinQuality SkinQuality;
+        internal SkinWeights SkinWeights;
         internal bool Masked;
         internal bool Matches(List<Material> current)
         {
             if (Source == null || Proxy == null || Source.sharedMesh != Original
                 || !Source.enabled || !Source.gameObject.activeInHierarchy || Source.HasPropertyBlock()
                 || Source.GetComponent<Cloth>() != Cloth || (Cloth != null && Cloth.enabled)
+                || Source.quality != SkinQuality || QualitySettings.skinWeights != SkinWeights
                 || Source.lightmapIndex >= 0
                 || Source.shadowCastingMode != Proxy.shadowCastingMode || Source.receiveShadows != Proxy.receiveShadows
                 || Source.lightProbeUsage != Proxy.lightProbeUsage || Source.reflectionProbeUsage != Proxy.reflectionProbeUsage
@@ -97,6 +100,8 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
     internal int Samples { get; private set; }
     internal bool IsMasked { get; private set; }
     internal int MaskedSurfaceCount => IsMasked ? _surfaces.Count : 0;
+    internal bool HasMaskedClothApproximation => IsMasked && _pose.HasIdleCloth
+        && PerfConfig.VisibleIdleClothApproximation;
     internal bool AwaitingNativePose => _sampleFrame >= 0;
     internal bool HasActiveNativeLod
     {
@@ -189,7 +194,8 @@ internal sealed class ScenarioVisibleIdleSnapshot : IDisposable
             proxy.allowOcclusionWhenDynamic = source.allowOcclusionWhenDynamic;
             proxy.sortingLayerID = source.sortingLayerID; proxy.sortingOrder = source.sortingOrder;
             _surfaces.Add(new Surface { Source = source, Original = mesh, Baked = baked,
-                Proxy = proxy, Materials = proxy.sharedMaterials, Cloth = source.GetComponent<Cloth>() });
+                Proxy = proxy, Materials = proxy.sharedMaterials, Cloth = source.GetComponent<Cloth>(),
+                SkinQuality = source.quality, SkinWeights = QualitySettings.skinWeights });
         }
         foreach (LODGroup group in _nativeLods)
         {

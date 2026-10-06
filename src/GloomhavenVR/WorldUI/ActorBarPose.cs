@@ -146,6 +146,9 @@ internal sealed class ActorBarPose
     {
         result.Clear();
         if (!IsEventFreeNativeIdle()) return false;
+        // This read contains native getters only. Coalesce identical table verification
+        // inside this one invocation, then discard it before any callback/frame/camera.
+        using var maskRead = ScenarioFigureDetailBudget.BeginLodMaskRead();
         foreach (Skin skin in _idleSkins)
         {
             if (!skin.SourceMatches()) { result.Clear(); return false; }
@@ -170,6 +173,9 @@ internal sealed class ActorBarPose
     internal bool IsEventFreeNativeIdle()
     {
         if (HasActiveIdleCloth) return false;
+        // Disabled Cloth can still display frozen solver deformation which BakeMesh
+        // does not retain. Only the separate, explicit approximation may replace it.
+        if (HasIdleCloth && !PerfConfig.VisibleIdleClothApproximation) return false;
         if (!SparseEligible || _animator == null || !_animator.isActiveAndEnabled
             || _animator.runtimeAnimatorController != _preparedController || _animator.layerCount != 1
             || _animator.IsInTransition(0) || _animator.GetNextAnimatorStateInfo(0).fullPathHash != 0)

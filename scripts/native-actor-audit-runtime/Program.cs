@@ -20,10 +20,32 @@ public static class InteractionProgram
     [Serializable] private sealed class NativeField { public string name = "", value = ""; }
     public static int Checks;
     public static string Metrics = "";
+    private static LODGroup[]? _cloneGroups;
+    private static LOD[][]? _cloneTables;
+    private static SkinnedMeshRenderer[]? _cloneSkins;
+    private static void ObserveRestoredCloneSource()
+    {
+        if (_cloneGroups == null) return;
+        Check(_cloneGroups.Select((group,index) => SameLodTable(group.GetLODs(),_cloneTables![index])).All(value => value)
+            && _cloneSkins!.All(skin => !skin.forceRenderingOff),
+            "real visual clone restores original source topology before its body executes");
+    }
     private static string Arg(string key)
     { string[] args = Environment.GetCommandLineArgs(); return args[Array.IndexOf(args, key) + 1]; }
+    private static Exception? _pendingAssertion;
     private static void Check(bool condition, string label)
-    { Checks++; if (!condition) throw new Exception(label); }
+    {
+        Checks++;
+        if (!condition) throw _pendingAssertion = new Exception(label);
+    }
+    private static void Render(Camera camera)
+    {
+        // Unity catches managed camera-callback exceptions at its native boundary.
+        // Preserve assertions from callbacks and rethrow on the runner side, otherwise
+        // an invalid clone/table can print an Exception while the case reports PASS.
+        camera.Render();
+        if (_pendingAssertion != null) throw _pendingAssertion;
+    }
     private static void InjectOptionalFault() => throw new InvalidOperationException("Injected optional-owner lifetime fault");
     private static ScenarioVisibleIdleSnapshot CaptureCurrentPoseForPixelCalibration(ActorBarPose pose, Transform host)
     {
@@ -47,7 +69,7 @@ public static class InteractionProgram
         if (!same)
         {
             string prefix = Path.Combine(Arg("-evidenceRoot"), typeof(InteractionProgram).Assembly.GetName().Name! + "-pixel-mismatch");
-            var picture = new Texture2D(128,128,TextureFormat.RGBA32,false);
+            var picture = new Texture2D((int)Math.Sqrt(actual.Length),(int)Math.Sqrt(actual.Length),TextureFormat.RGBA32,false);
             picture.SetPixels32(actual); picture.Apply(); File.WriteAllBytes(prefix + "-actual.png", picture.EncodeToPNG());
             picture.SetPixels32(expected); picture.Apply(); File.WriteAllBytes(prefix + "-expected.png", picture.EncodeToPNG());
             Object.DestroyImmediate(picture);
@@ -67,11 +89,11 @@ public static class InteractionProgram
     }
     private static Color32[] ReadPixels(Camera eye)
     {
-        eye.Render();
+        Render(eye);
         RenderTexture previous = RenderTexture.active;
         RenderTexture.active = eye.targetTexture;
-        var image = new Texture2D(128,128,TextureFormat.RGBA32,false);
-        image.ReadPixels(new Rect(0,0,128,128),0,0); image.Apply();
+        var image = new Texture2D(eye.targetTexture.width,eye.targetTexture.height,TextureFormat.RGBA32,false);
+        image.ReadPixels(new Rect(0,0,eye.targetTexture.width,eye.targetTexture.height),0,0); image.Apply();
         Color32[] pixels = image.GetPixels32();
         RenderTexture.active = previous; Object.DestroyImmediate(image);
         return pixels;
@@ -313,7 +335,7 @@ public static class InteractionProgram
         eye.transform.LookAt(root.transform.position + Vector3.up);
         eye.orthographic = true; eye.orthographicSize = 5f;
         eye.clearFlags = CameraClearFlags.SolidColor; eye.backgroundColor = Color.black;
-        eye.targetTexture = new RenderTexture(128, 128, 24); eye.targetTexture.Create();
+        eye.targetTexture = new RenderTexture(512, 512, 24); eye.targetTexture.Create();
         SkinnedMeshRenderer[] visibleSkins = root.GetComponentsInChildren<SkinnedMeshRenderer>(true);
         foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true)) renderer.enabled = true;
         foreach (SkinnedMeshRenderer skin in visibleSkins)
@@ -369,7 +391,7 @@ public static class InteractionProgram
         Camera.onPreCull += inspectLease;
         for (int frame = 0; frame < 12; frame++)
         {
-            yield return null; eye.Render();
+            yield return null; Render(eye);
             Check(visibleSkins.All(skin => !skin.forceRenderingOff),
                 "visible idle masks restore after each real camera");
             Check(visibleSkins.Select((skin,index) => skin.enabled && skin.sharedMesh==originalMeshes[index]).All(value => value),
@@ -396,13 +418,24 @@ public static class InteractionProgram
             Check(originalPixels.Count(pixel => pixel.g > 128 && pixel.r < 64)>10 && SameBodyPixels(proxyPixels, originalPixels),
                 "private visible idle silhouette matches native same-pose drawing");
         }
+        foreach (SkinQuality policy in new[] { SkinQuality.Bone1,SkinQuality.Bone2,SkinQuality.Bone4 })
+        {
+            foreach (SkinnedMeshRenderer skin in visibleSkins) skin.quality = policy;
+            yield return null; // allow native quality/skin caches to settle before the GPU control
+            Color32[] sourcePolicy = ReadPixels(eye);
+            using var policyCalibration = CaptureCurrentPoseForPixelCalibration(visiblePose,host.transform);
+            policyCalibration.BeforeCamera(true);
+            Color32[] bakedPolicy = ReadPixels(eye); policyCalibration.Release();
+            Check(sourcePolicy.Count(pixel=>pixel.g>128&&pixel.r<64)>10 && SameBodyPixels(bakedPolicy,sourcePolicy),
+                "same-pose bake preserves the actual native skinning influence policy " + policy);
+        }
         admittedEye = eye;
         // Warm visibility after the original control; then demonstrate that transforms
         // stop between samples while the real native state clock continues.
-        for (int frame=0; frame<4; frame++) { yield return null; eye.Render(); }
+        for (int frame=0; frame<4; frame++) { yield return null; Render(eye); }
         Quaternion frozenWing = wing.localRotation;
         float frozenClock = animator.GetCurrentAnimatorStateInfo(0).normalizedTime;
-        for (int frame=0; frame<8; frame++) { yield return null; eye.Render(); }
+        for (int frame=0; frame<8; frame++) { yield return null; Render(eye); }
         Check(animator.GetCurrentAnimatorStateInfo(0).normalizedTime > frozenClock,
             "visible idle keeps the real native state clock advancing");
         Check(Quaternion.Angle(wing.localRotation, frozenWing) < .01f,
@@ -411,13 +444,13 @@ public static class InteractionProgram
         var nativeBuffer = new UnityEngine.Rendering.CommandBuffer { name = "native-renderer-consumer" };
         nativeBuffer.DrawRenderer(visibleSkins[0], visibleSkins[0].sharedMaterial);
         eye.AddCommandBuffer(UnityEngine.Rendering.CameraEvent.BeforeForwardOpaque, nativeBuffer);
-        eye.Render();
+        Render(eye);
         Check(!visibleRecord.Visible.IsMasked && visibleSkins.All(skin => !skin.forceRenderingOff),
             "native command-buffer consumers retain original figure renderers");
         eye.RemoveCommandBuffer(UnityEngine.Rendering.CameraEvent.BeforeForwardOpaque, nativeBuffer); nativeBuffer.Dispose();
         // An action begins inside an already acquired camera lease: restoration must
         // be synchronous, not postponed until the next Update or PostRender.
-        invokeActionInsideLease = true; eye.Render();
+        invokeActionInsideLease = true; Render(eye);
         Check(!invokeActionInsideLease,
             "native action immediately releases visible idle masks before continuation");
         Check(animator.cullingMode == AnimatorCullingMode.AlwaysAnimate,
@@ -448,7 +481,7 @@ public static class InteractionProgram
         int priorSamples = records.Values.Sum(item => item.Visible?.Samples ?? 0);
         for (int frame = 0; frame < 30; frame++)
         {
-            yield return null; eye.Render();
+            yield return null; Render(eye);
             Check(records.Values.Count(item => item.Visible?.AwaitingNativePose == true) <= 2,
                 "visible idle crowd warms at most two actual native poses concurrently");
             int samples = records.Values.Sum(item => item.Visible?.Samples ?? 0);
@@ -459,7 +492,7 @@ public static class InteractionProgram
         }
         Check(records.Values.All(item => item.Visible?.HasPose == true),
             "rotating visible idle sample lane eventually admits every actual crowd rig");
-        host.SetActive(false); eye.Render();
+        host.SetActive(false); Render(eye);
         Check(records.Values.All(item => !item.Applied && item.Visible?.IsMasked == false)
             && crowd.SelectMany(item => item.GetComponentsInChildren<SkinnedMeshRenderer>(true)).All(skin => !skin.forceRenderingOff),
             "inactive idle host retains original native modes and visible skins across actual camera callbacks");
@@ -474,18 +507,23 @@ public static class InteractionProgram
         animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
         animator.Play("Idle-Run", 0, .2f); animator.Update(.001f);
         ActorBarPose authoredPose = ActorBarPose.Capture(root, head)!;
-        ScenarioIdleAnimationBudget.Install(host, () => false, () => .5f, () => eye);
+        float authoredInterval = .5f;
+        ScenarioIdleAnimationBudget.Install(host, () => false, () => authoredInterval, () => eye);
         ScenarioIdleAnimationBudget.Register(actor, authoredPose);
         var nativeDriver = host.GetComponent<ScenarioIdleAnimationBudget.Driver>();
         var nativeRecords = (Dictionary<ActorBehaviour, ScenarioIdleAnimationBudget.Record>)recordsField.GetValue(nativeDriver)!;
         var authoredRecord = nativeRecords[actor];
-        for (int frame = 0; frame < 8; frame++) { yield return null; eye.Render(); }
+        for (int frame = 0; frame < 8; frame++) { yield return null; Render(eye); }
         Check(authoredRecord.Applied && authoredRecord.Original == AnimatorCullingMode.CullUpdateTransforms
             && authoredRecord.Visible!.HasPose,
             "authored CullUpdateTransforms rigs prepare real supported visible idle poses");
         var nativeTables = nativeLods.Select(group => group.GetLODs()).ToArray();
         var nativeSizes = nativeLods.Select(group => group.size).ToArray();
         var nativeReferences = nativeLods.Select(group => group.localReferencePoint).ToArray();
+        // Causal lease mutations activate only AFTER native warmup succeeds. A broken
+        // first lease can otherwise fail a generic admission prerequisite and never
+        // reach the specific topology/restoration oracle it is meant to exercise.
+        nativeLods[0].gameObject.name = "NativeLodLeaseProbe";
         bool sawNativeLodLease = false;
         Camera.CameraCallback inspectNativeLod = camera =>
         {
@@ -503,7 +541,7 @@ public static class InteractionProgram
         for (int level = 0; level < nativeTables[0].Length; level++)
         {
             nativeLods[0].ForceLOD(level);
-            eye.Render();
+            Render(eye);
             Check(sawNativeLodLease && authoredRecord.Visible!.HasPose,
                 "native forced LOD uses an actual complete pose lease");
             Check(nativeLods.Select((group,index) => SameLodTable(group.GetLODs(), nativeTables[index])).All(value => value),
@@ -538,25 +576,31 @@ public static class InteractionProgram
                 "native distance LOD and far culling match original camera pixels");
         }
         eye.orthographic = true; eye.transform.position = eyePosition; eye.transform.LookAt(root.transform.position + Vector3.up);
-        for (int frame = 0; frame < 3; frame++) { yield return null; eye.Render(); }
+        for (int frame = 0; frame < 3; frame++) { yield return null; Render(eye); }
         Quaternion authoredWing = wing.localRotation;
         float authoredClock = animator.GetCurrentAnimatorStateInfo(0).normalizedTime;
-        for (int frame = 0; frame < 6; frame++) { yield return null; eye.Render(); }
+        for (int frame = 0; frame < 6; frame++) { yield return null; Render(eye); }
         Check(animator.GetCurrentAnimatorStateInfo(0).normalizedTime > authoredClock,
             "native LOD pose lease retains authored original animation clock");
         Check(Quaternion.Angle(wing.localRotation, authoredWing) < .01f,
             "native LOD pose lease suppresses actual authored native bone writes");
         // A different forced level chosen AFTER this owner's PreCull uses the native
         // group's hidden state directly, without resetting or guessing it.
-        Camera.CameraCallback lateForced = camera => { if (camera == eye) nativeLods[0].ForceLOD(1); };
-        Camera.onPreCull += lateForced;
-        Color32[] lateForcedBaked = ReadPixels(eye);
-        Camera.onPreCull -= lateForced;
         nativeDriver.HeadCamera = () => null;
+        nativeLods[0].ForceLOD(1);
         Color32[] lateForcedExact = ReadPixels(eye);
+        using (var forcedCalibration = CaptureCurrentPoseForPixelCalibration(authoredPose,host.transform))
+        {
+            nativeLods[0].ForceLOD(0);
+            forcedCalibration.BeforeCamera(true);
+            Camera.CameraCallback lateForced = camera => { if (camera == eye) nativeLods[0].ForceLOD(1); };
+            Camera.onPreCull += lateForced;
+            Color32[] lateForcedBaked = ReadPixels(eye);
+            Camera.onPreCull -= lateForced; forcedCalibration.Release();
+            Check(lateForcedExact.Count(pixel=>pixel.g>128&&pixel.r<64)>10 && SameBodyPixels(lateForcedBaked,lateForcedExact),
+                "late native ForceLOD keeps the exact forced original body");
+        }
         nativeDriver.HeadCamera = () => eye;
-        Check(SameBodyPixels(lateForcedBaked, lateForcedExact),
-            "late native ForceLOD keeps the exact forced original body");
         // Foreign table changes revoke the lease BEFORE rendering and survive cleanup.
         LOD[] foreignTable = nativeLods[0].GetLODs();
         foreignTable[0].screenRelativeTransitionHeight *= .9f;
@@ -578,7 +622,7 @@ public static class InteractionProgram
             "late foreign LOD table revokes idle lease and survives owner restoration");
         nativeLods[0].SetLODs(nativeTables[0]); nativeLods[0].ForceLOD(-1);
         float recoverBefore = Time.unscaledTime + 1.5f;
-        while (!authoredRecord.Visible!.HasPose && Time.unscaledTime < recoverBefore) { yield return null; eye.Render(); }
+        while (!authoredRecord.Visible!.HasPose && Time.unscaledTime < recoverBefore) { yield return null; Render(eye); }
         Check(authoredRecord.Visible!.HasPose, "native LOD path recovers after foreign table fallback");
         // Current Fastest/Frame figure detail rewrites early levels to the original
         // coarse body and masks omitted fine skins. Owner identity is a separately tested
@@ -593,7 +637,7 @@ public static class InteractionProgram
         foreach (Renderer renderer in cappedMasks)
         { renderer.forceRenderingOff = true; ScenarioFigureDetailBudget.OwnedMasks.Add(renderer); }
         float cappedBefore = Time.unscaledTime + 1.5f;
-        while (!authoredRecord.Visible.HasPose && Time.unscaledTime < cappedBefore) { yield return null; eye.Render(); }
+        while (!authoredRecord.Visible.HasPose && Time.unscaledTime < cappedBefore) { yield return null; Render(eye); }
         Check(authoredRecord.Visible.HasPose && authoredPose.CopyIdleSkinSources(ownedIdleSkins)
             && ownedIdleSkins.Count == retainedBody.OfType<SkinnedMeshRenderer>().Count()
             && cappedMasks.All(renderer => renderer.forceRenderingOff),
@@ -607,10 +651,10 @@ public static class InteractionProgram
         nativeDriver.HeadCamera = () => eye;
         Check(cappedNative.Count(pixel => pixel.g > 128 && pixel.r < 64) > 10 && SameBodyPixels(cappedBaked, cappedNative),
             "capped native LOD pose keeps exact original coarse body pixels");
-        for (int frame = 0; frame < 3; frame++) { yield return null; eye.Render(); }
+        for (int frame = 0; frame < 3; frame++) { yield return null; Render(eye); }
         Quaternion cappedWing = wing.localRotation;
         float cappedClock = animator.GetCurrentAnimatorStateInfo(0).normalizedTime;
-        for (int frame = 0; frame < 6; frame++) { yield return null; eye.Render(); }
+        for (int frame = 0; frame < 6; frame++) { yield return null; Render(eye); }
         Check(animator.GetCurrentAnimatorStateInfo(0).normalizedTime > cappedClock
             && Quaternion.Angle(wing.localRotation,cappedWing) < .01f,
             "capped native LOD pose really suppresses bone writes while native clock continues");
@@ -618,16 +662,60 @@ public static class InteractionProgram
         foreach (Renderer renderer in cappedMasks) renderer.forceRenderingOff = false;
         ScenarioFigureDetailBudget.OwnedMasks.Clear(); nativeLods[0].SetLODs(nativeTables[0]);
         float originalBefore = Time.unscaledTime + 1.5f;
-        while (!authoredRecord.Visible.HasPose && Time.unscaledTime < originalBefore) { yield return null; eye.Render(); }
+        while (!authoredRecord.Visible.HasPose && Time.unscaledTime < originalBefore) { yield return null; Render(eye); }
         Check(authoredRecord.Visible.HasPose, "original native LOD body recovers after the separate detail cap restores");
+
+        // Ownership/settings/native renderer consumers may change in a subscriber
+        // AFTER our own PreCull. These pixels belong to the actual current camera.
+        foreach (string lateGate in new[] { "local hold", "remote hold", "prop hold", "interval zero", "native DrawRenderer" })
+        {
+            float gateBefore=Time.unscaledTime+1.5f;
+            while ((!authoredRecord.Applied || !authoredRecord.Visible.HasPose || authoredRecord.Visible.AwaitingNativePose) && Time.unscaledTime<gateBefore)
+            { yield return null; Render(eye); }
+            bool ownedBeforeGate=false;
+            var lateBuffer=new UnityEngine.Rendering.CommandBuffer { name="late-native-renderer-consumer" };
+            foreach (SkinnedMeshRenderer source in visibleSkins) lateBuffer.DrawRenderer(source,source.sharedMaterial);
+            Camera.CameraCallback lateActorGate=camera=>
+            {
+                if(camera!=eye)return;
+                ownedBeforeGate=authoredRecord.Visible.IsMasked;
+                if(lateGate=="local hold") HeldFigures.Held=actor;
+                if(lateGate=="remote hold") NetHeldFigures.Held=actor;
+                if(lateGate=="prop hold") ActorPropBody.Held=actor;
+                if(lateGate=="interval zero") authoredInterval=0f;
+                if(lateGate=="native DrawRenderer") eye.AddCommandBuffer(UnityEngine.Rendering.CameraEvent.BeforeForwardOpaque,lateBuffer);
+            };
+            Camera.onPreCull+=lateActorGate;
+            Color32[] lateGateActual=ReadPixels(eye);
+            Camera.onPreCull-=lateActorGate;
+            bool resumedAfterActualCamera=!authoredRecord.Applied;
+            nativeDriver.HeadCamera=()=>null;
+            Color32[] lateGateExpected=ReadPixels(eye);
+            nativeDriver.HeadCamera=()=>eye;
+            Check(ownedBeforeGate && lateGateExpected.Count(pixel=>pixel.g>128&&pixel.r<64)>10
+                && SameBodyPixels(lateGateActual,lateGateExpected) && resumedAfterActualCamera
+                && animator.cullingMode==AnimatorCullingMode.CullUpdateTransforms
+                && visibleSkins.All(skin=>!skin.forceRenderingOff),
+                "late "+lateGate+" restores actual current-camera native body and authored mode");
+            HeldFigures.Held=null; NetHeldFigures.Held=null; ActorPropBody.Held=null; authoredInterval=.5f;
+            eye.RemoveCommandBuffer(UnityEngine.Rendering.CameraEvent.BeforeForwardOpaque,lateBuffer); lateBuffer.Dispose();
+        }
+        float cloneBefore=Time.unscaledTime+1.5f;
+        while ((!authoredRecord.Applied || !authoredRecord.Visible.HasPose || authoredRecord.Visible.AwaitingNativePose) && Time.unscaledTime<cloneBefore)
+        { yield return null; Render(eye); }
 
         // Clone seam restores ALL native renderer/table state before Instantiate.
         bool clonedInsideLease = false;
+        var cloneOracle = new Harmony("ghvr.nativeActorAudit.cloneOracle");
+        cloneOracle.Patch(typeof(FigureVisualMirror).GetMethod("CloneVisual",BindingFlags.Static|BindingFlags.NonPublic),
+            prefix:new HarmonyMethod(typeof(InteractionProgram),nameof(ObserveRestoredCloneSource)) { priority=Priority.Last });
         Camera.CameraCallback cloneDuringLease = camera =>
         {
             if (camera != eye || clonedInsideLease || !authoredRecord.Visible!.IsMasked) return;
+            _cloneGroups = nativeLods; _cloneTables = nativeTables; _cloneSkins = visibleSkins;
             GameObject clone = FigureVisualMirror.CloneVisual(root, Vector3.zero, Quaternion.identity,
                 Vector3.one, out FigureVisualMirror cloneMirror); clonedInsideLease = true;
+            _cloneGroups = null; _cloneTables = null; _cloneSkins = null;
             Check(clone.GetComponentsInChildren<LODGroup>(true).SelectMany(group => group.GetLODs())
                 .Select(level => level.renderers.Length).SequenceEqual(nativeTables.SelectMany(table => table)
                     .Select(level => level.renderers.Length)),
@@ -639,7 +727,8 @@ public static class InteractionProgram
                 "native clone never captures idle source masks");
             Object.DestroyImmediate(clone);
         };
-        Camera.onPreCull += cloneDuringLease; eye.Render(); Camera.onPreCull -= cloneDuringLease;
+        Camera.onPreCull += cloneDuringLease; Render(eye); Camera.onPreCull -= cloneDuringLease;
+        cloneOracle.UnpatchSelf();
         Check(clonedInsideLease, "native clone fixture runs inside an actual LOD pose lease");
         var nestedObject = new GameObject("Nested native idle observer");
         var nestedEye = nestedObject.AddComponent<Camera>(); nestedEye.enabled = false; nestedEye.CopyFrom(eye);
@@ -647,11 +736,11 @@ public static class InteractionProgram
         Camera.CameraCallback nested = camera =>
         {
             if (camera != eye || nestedRendered || !authoredRecord.Visible!.IsMasked) return;
-            nestedRendered = true; nestedEye.Render();
+            nestedRendered = true; Render(nestedEye);
             Check(authoredRecord.Visible.IsMasked,
                 "nested native camera restores the suspended outer LOD lease");
         };
-        Camera.onPreCull += nested; eye.Render(); Camera.onPreCull -= nested;
+        Camera.onPreCull += nested; Render(eye); Camera.onPreCull -= nested;
         Check(nestedRendered && nativeLods.Select((group,index) => SameLodTable(group.GetLODs(),nativeTables[index])).All(value => value),
             "nested native cameras restore exact original LOD tables at outer completion");
         Object.DestroyImmediate(nestedObject);
@@ -668,7 +757,7 @@ public static class InteractionProgram
         // Observe late native renderer writes through the real camera callback boundary.
         // Each case bakes actual publisher skin once, then changes one original flag
         // before the next camera. A stale proxy must decline before the source is masked.
-        foreach (string property in new[] { "sorting", "motion", "occlusion", "lod" })
+        foreach (string property in new[] { "sorting", "motion", "occlusion", "quality", "lod" })
         {
             animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
             animator.Play("Idle-Run", 0, 0f); animator.Update(.001f);
@@ -683,25 +772,28 @@ public static class InteractionProgram
             };
             Camera.CameraCallback release = camera => { if (camera == eye) lateSnapshot.Release(); };
             Camera.onPreCull += acquire; Camera.onPostRender += release;
-            eye.Render();
+            Render(eye);
             Check(maskedAtCull && visibleSkins.All(skin => !skin.forceRenderingOff),
                 "late renderer fixture starts from a restored native camera lease");
             SkinnedMeshRenderer source = visibleSkins[0];
             int originalOrder = source.sortingOrder;
             var originalMotion = source.motionVectorGenerationMode;
             bool originalOcclusion = source.allowOcclusionWhenDynamic;
+            SkinQuality originalQuality = source.quality;
             if (property == "sorting") source.sortingOrder = originalOrder + 7;
             if (property == "motion") source.motionVectorGenerationMode = originalMotion == UnityEngine.MotionVectorGenerationMode.ForceNoMotion
                 ? UnityEngine.MotionVectorGenerationMode.Camera : UnityEngine.MotionVectorGenerationMode.ForceNoMotion;
             if (property == "occlusion") source.allowOcclusionWhenDynamic = !originalOcclusion;
+            if (property == "quality") source.quality = originalQuality == SkinQuality.Bone1 ? SkinQuality.Bone4 : SkinQuality.Bone1;
             if (property == "lod") { nativeLods[0].enabled = true; nativeLods[0].fadeMode = LODFadeMode.CrossFade; }
-            eye.Render();
+            Render(eye);
             Check(!maskedAtCull && !lateSnapshot.HasPose && visibleSkins.All(skin => !skin.forceRenderingOff),
                 "late native " + property + " edit declines the stale idle proxy before rendering");
-            source.sortingOrder = originalOrder; source.motionVectorGenerationMode = originalMotion;
+            source.sortingOrder = originalOrder; source.motionVectorGenerationMode = originalMotion; source.quality = originalQuality;
             source.allowOcclusionWhenDynamic = originalOcclusion; nativeLods[0].enabled = false; nativeLods[0].fadeMode = LODFadeMode.None;
             Camera.onPreCull -= acquire; Camera.onPostRender -= release; lateSnapshot.Dispose();
         }
+        PerfConfig.VisibleIdleClothApproximation = true;
         var nativeCloth = visibleSkins[0].gameObject.AddComponent<Cloth>();
         nativeCloth.enabled = false;
         ActorBarPose clothPose = ActorBarPose.Capture(root, head)!;
@@ -725,7 +817,122 @@ public static class InteractionProgram
         Check(!clothPose!.IsEventFreeNativeIdle() && !clothRecord.Applied
             && animator.cullingMode == AnimatorCullingMode.AlwaysAnimate,
             "live native cloth activation restores original bone evaluation immediately");
-        clothSnapshot.Dispose(); Object.DestroyImmediate(nativeCloth);
+        clothSnapshot.Dispose();
+
+        // A live graphics switch disables an ALREADY simulated solver. Freeze only
+        // this fixture's animation clock so displacement is actual cloth deformation,
+        // then verify both the native frozen garment and the explicitly different
+        // skeletal approximation. Frozen solver topology is welded (fewer particles
+        // than source vertices), so assigning Cloth.vertices to the mesh is unsafe.
+        // Production never resets physics vertices, coefficients or actor clocks.
+        float originalSpeed = animator.speed;
+        animator.speed = 0f;
+        nativeCloth.useGravity = false;
+        nativeCloth.externalAcceleration = new Vector3(0f, -15f, 0f);
+        nativeCloth.damping = .1f;
+        ClothSkinningCoefficient[] constraints = nativeCloth.coefficients;
+        Vector3[] solverRest = nativeCloth.vertices;
+        Check(constraints.Length > 10 && solverRest.Length == constraints.Length,
+            "simulated garment has actual native solver vertices");
+        float pinnedHeight = solverRest.Max(vertex => vertex.y) - .05f;
+        for (int vertex = 0; vertex < constraints.Length; vertex++)
+        {
+            constraints[vertex].maxDistance = solverRest[vertex].y >= pinnedHeight ? 0f : .5f;
+            constraints[vertex].collisionSphereDistance = 0f;
+        }
+        nativeCloth.coefficients = constraints;
+        nativeCloth.enabled = true;
+        for (int frame = 0; frame < 3; frame++) { yield return null; Render(eye); }
+        Vector3[] solverBefore = nativeCloth.vertices;
+        for (int frame = 0; frame < 30; frame++) { yield return null; Render(eye); }
+        Vector3[] solverAfter = nativeCloth.vertices;
+        File.WriteAllText(Path.Combine(evidence,name+"-simulated-cloth-topology.txt"),
+            "meshVertices="+visibleSkins[0].sharedMesh.vertexCount+"; solverVertices="+solverAfter.Length
+            +"; maxDisplacement="+solverAfter.Zip(solverBefore,(a,b)=>Vector3.Distance(a,b)).Max());
+        Check(solverAfter.Zip(solverBefore, (after,before) => Vector3.Distance(after,before)).Max() > .005f,
+            "actual native cloth simulates deformation before graphics disable");
+        nativeCloth.enabled = false;
+        Color32[] simulatedClothOriginal = ReadPixels(eye);
+        Color32[] simulatedClothBaked;
+        using (var frozenCloth = CaptureCurrentPoseForPixelCalibration(clothPose,host.transform))
+        {
+            frozenCloth.BeforeCamera(true);
+            simulatedClothBaked = ReadPixels(eye);
+            frozenCloth.Release();
+        }
+        int frozenBody = simulatedClothOriginal.Count(pixel=>pixel.g>128&&pixel.r<64);
+        Check(frozenBody>10 && simulatedClothBaked.Count(pixel=>pixel.g>128&&pixel.r<64)>10
+            && simulatedClothBaked.Zip(simulatedClothOriginal,(a,b)=>Math.Abs(a.g-b.g)>16).Count(value=>value)>frozenBody/20,
+            "explicit disabled cloth approximation changes the frozen native solver shape");
+        GameObject skeletalControl = FigureVisualMirror.CloneVisual(root,Vector3.zero,Quaternion.identity,
+            Vector3.one,out FigureVisualMirror skeletalMirror);
+        foreach (SkinnedMeshRenderer source in visibleSkins) source.forceRenderingOff=true;
+        Color32[] skeletalOriginal = ReadPixels(eye);
+        foreach (SkinnedMeshRenderer source in visibleSkins) source.forceRenderingOff=false;
+        Object.DestroyImmediate(skeletalControl);
+        Check(SameBodyPixels(simulatedClothBaked,skeletalOriginal),
+            "explicit disabled cloth approximation keeps the complete original skeletal body");
+        PerfConfig.VisibleIdleClothApproximation = false;
+        using (var refusedCloth = new ScenarioVisibleIdleSnapshot(clothPose,host.transform))
+        {
+            refusedCloth.Tick(true,.5f);
+            typeof(ScenarioVisibleIdleSnapshot).GetField("_sampleFrame",BindingFlags.NonPublic|BindingFlags.Instance)!
+                .SetValue(refusedCloth,Time.frameCount-1);
+            refusedCloth.AfterNativePose();
+            refusedCloth.BeforeCamera(true);
+            Color32[] preservedCloth = ReadPixels(eye);
+            Check(!clothPose.IsEventFreeNativeIdle() && !refusedCloth.HasPose && !refusedCloth.IsMasked
+                && SameBodyPixels(preservedCloth,simulatedClothOriginal),
+                "disabled cloth option off preserves the full frozen native solver body");
+        }
+        PerfConfig.VisibleIdleClothApproximation = true;
+        animator.speed=originalSpeed;
+        nativeCloth.enabled = false;
+        ScenarioIdleAnimationBudget.Install(host, () => false, () => .5f, () => eye);
+        ScenarioIdleAnimationBudget.Register(actor,clothPose);
+        var physicsDriver = host.GetComponent<ScenarioIdleAnimationBudget.Driver>();
+        var physicsRecords = (Dictionary<ActorBehaviour,ScenarioIdleAnimationBudget.Record>)recordsField.GetValue(physicsDriver)!;
+        float physicsBefore = Time.unscaledTime + 1.5f;
+        while (!physicsRecords[actor].Visible!.HasPose && Time.unscaledTime < physicsBefore) { yield return null; Render(eye); }
+        Check(physicsRecords[actor].Visible!.HasPose,"disabled cloth native driver prepares its complete real body");
+        for(int frame=0;frame<3;frame++) { yield return null; Render(eye); }
+        Quaternion approximateWing=wing.localRotation;
+        float approximateClock=animator.GetCurrentAnimatorStateInfo(0).normalizedTime;
+        for(int frame=0;frame<6;frame++) { yield return null; Render(eye); }
+        Check(animator.GetCurrentAnimatorStateInfo(0).normalizedTime>approximateClock
+            && Quaternion.Angle(wing.localRotation,approximateWing)<.01f,
+            "explicit disabled cloth native warm path skips bone writes while its clock advances");
+        Render(eye);
+        Check(PerfMonitor.Counts["Figure.VisibleIdleClothApproximation"]==1,
+            "cloth approximation telemetry counts a real masked body");
+        Camera.CameraCallback disableLateApproximation = camera => { if (camera == eye) PerfConfig.VisibleIdleClothApproximation=false; };
+        Camera.onPreCull += disableLateApproximation;
+        Color32[] lateApproximationOff = ReadPixels(eye);
+        Camera.onPreCull -= disableLateApproximation;
+        physicsDriver.HeadCamera = () => null;
+        Color32[] exactApproximationOff = ReadPixels(eye);
+        Check(SameBodyPixels(lateApproximationOff,exactApproximationOff)
+            && animator.cullingMode==AnimatorCullingMode.AlwaysAnimate && visibleSkins.All(skin=>!skin.forceRenderingOff)
+            && !physicsRecords[actor].Applied && PerfMonitor.Counts["Figure.VisibleIdleClothApproximation"]==0,
+            "live cloth approximation off restores exact current-camera native body and original mode");
+        PerfConfig.VisibleIdleClothApproximation=true; physicsDriver.HeadCamera=()=>eye;
+        physicsBefore=Time.unscaledTime+1.5f;
+        while (!physicsRecords[actor].Visible!.HasPose && Time.unscaledTime<physicsBefore) { yield return null; Render(eye); }
+        Check(physicsRecords[actor].Visible!.HasPose,"explicit cloth approximation recovers after a live off toggle");
+        Camera.CameraCallback enableLateCloth = camera => { if (camera == eye) nativeCloth.enabled = true; };
+        Camera.onPreCull += enableLateCloth;
+        Color32[] latePhysicsActual = ReadPixels(eye);
+        Camera.onPreCull -= enableLateCloth;
+        physicsDriver.HeadCamera = () => null;
+        Color32[] latePhysicsExpected = ReadPixels(eye);
+        Check(latePhysicsExpected.Count(pixel=>pixel.g>128&&pixel.r<64)>10 && SameBodyPixels(latePhysicsActual,latePhysicsExpected)
+            && animator.cullingMode == AnimatorCullingMode.AlwaysAnimate && visibleSkins.All(skin=>!skin.forceRenderingOff),
+            "late native cloth activation retains actual original body pixels before camera culling");
+        Check(PerfMonitor.Counts["Figure.VisibleIdleClothApproximation"]==0,
+            "cloth approximation telemetry excludes actual native physics fallback");
+        ScenarioIdleAnimationBudget.Shutdown(); yield return null;
+        animator.speed=originalSpeed; PerfConfig.VisibleIdleClothApproximation=false;
+        Object.DestroyImmediate(nativeCloth);
         Object.DestroyImmediate(eye.targetTexture); Object.DestroyImmediate(eyeObject);
 
         // An eventful idle is deliberately NOT admitted, even though Unity continues
