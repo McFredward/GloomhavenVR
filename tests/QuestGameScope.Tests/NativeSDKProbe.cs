@@ -84,7 +84,7 @@ static class NativeSDKProbe
             Check(cancel != null && cancel.ReturnType == typeof(void), "original cancellation bool/Action ABI");
             var helper = typeof(GloomhavenVR.Quest.QuestGameScope).GetMethod("NotifyGuildmasterUnavailable", BindingFlags.Public | BindingFlags.Static,
                 null, new[] { typeof(bool), typeof(Action) }, null);
-            Check(helper != null && helper.ReturnType == typeof(void), "public static full Campaign notice ABI");
+            Check(helper == null, "full game does not expose the retired Guildmaster rejection notice");
 #endif
             Console.WriteLine("PASS Quest native scope SDK reflection: " + assertions + " original ABI assertions; no Unity callbacks invoked");
             return 0;

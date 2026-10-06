@@ -232,6 +232,7 @@ namespace GloomhavenVR.Quest.Editor
 
         static void ConfigureAndroid(string package, bool originalStartup, bool configureSigning = true)
         {
+            bool fullCampaign = Environment.GetEnvironmentVariable("GHVR_QUEST_TARGET") == "game";
             if (!EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Android, BuildTarget.Android))
                 throw new InvalidOperationException("Android build target switch failed");
             PlayerSettings.companyName = "GloomhavenVR";
@@ -249,10 +250,12 @@ namespace GloomhavenVR.Quest.Editor
             if (originalStartup)
             {
                 PlayerSettings.SetApiCompatibilityLevel(BuildTargetGroup.Android, ApiCompatibilityLevel.NET_4_6);
-                // Large recovered assemblies exhaust the native optimizer's memory.
-                // Development players establish execution; native release performance
-                // is evaluated separately from the complete Campaign content scope.
-                PlayerSettings.SetIl2CppCompilerConfiguration(BuildTargetGroup.Android, Il2CppCompilerConfiguration.Debug);
+                // Keep Development diagnostics while optimising native Campaign
+                // execution. Unoptimised recovered rule parsers made startup
+                // unnecessarily expensive on the mobile CPU. Build hosts must
+                // bound native compiler concurrency to fit their available RAM.
+                PlayerSettings.SetIl2CppCompilerConfiguration(BuildTargetGroup.Android, fullCampaign
+                    ? Il2CppCompilerConfiguration.Release : Il2CppCompilerConfiguration.Debug);
                 // IL2CPP preserves a long left-associated tuning sum as nested calls.
                 // Increase the parser limit without changing the managed expression.
                 // The NDK's old BFD reports ARM64 CALL26 relocation overflows here.
@@ -264,7 +267,6 @@ namespace GloomhavenVR.Quest.Editor
             PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevel30;
             PlayerSettings.colorSpace = ColorSpace.Linear;
             PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
-            bool fullCampaign = Environment.GetEnvironmentVariable("GHVR_QUEST_TARGET") == "game";
             if (fullCampaign) ConfigureFixedEyeMsaa();
             // Original Windows DXBC embeds reversed-depth and top-origin UV math.
             // Unity's Vulkan branch has those same conventions; GLES does not.

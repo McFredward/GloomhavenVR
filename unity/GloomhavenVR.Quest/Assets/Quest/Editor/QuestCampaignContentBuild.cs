@@ -22,6 +22,7 @@ namespace GloomhavenVR.Quest.Editor
         internal const string StableLink = "Assets/Quest/CampaignLink/link.xml";
         const string ManifestPath = "Assets/Quest/Resources/quest-startup-content.json";
         const string DeliveryPath = "Assets/StreamingAssets/Quest/content-delivery.json";
+        internal const string InstallationPath = "Assets/StreamingAssets/Quest/installation-manifest.json";
 
         [Serializable] internal sealed class Journal
         {
@@ -49,6 +50,12 @@ namespace GloomhavenVR.Quest.Editor
         {
             public string file, archive, sha256;
             public long size;
+        }
+        [Serializable] sealed class InstallationManifest
+        {
+            public int schema = 1;
+            public string inputKey;
+            public QuestGameContentManifest game, mod;
         }
         readonly string root;
         readonly Journal journal;
@@ -100,6 +107,8 @@ namespace GloomhavenVR.Quest.Editor
                 if (Exists(Confined(root, move.temporary))) throw new IOException("Interrupted or unowned Campaign exclusion destination exists.");
             string delivery = Confined(root, DeliveryPath);
             byte[] originalDelivery = File.Exists(delivery) ? File.ReadAllBytes(delivery) : null;
+            string installation = Confined(root, InstallationPath);
+            byte[] originalInstallation = File.Exists(installation) ? File.ReadAllBytes(installation) : null;
             // Addressables1.19.19 GetStreamingAssetPaths ALWAYS adds BuildPath,
             // even with DoNotBuildWithPlayer. Keep its exact linker declarations
             // in Assets before excluding both generated content representations.
@@ -111,6 +120,19 @@ namespace GloomhavenVR.Quest.Editor
                 CopyVerified(source, destination, manifest.archiveSha256);
                 manifest.externalDelivery = true;
                 WriteAtomic(manifestFile, System.Text.Encoding.UTF8.GetBytes(JsonUtility.ToJson(manifest, true) + "\n"));
+                // The PC installer needs the final native per-file inventory,
+                // including current mod banks, before starting the headset app.
+                // Publishing it inside the signed APK moves B624's six-minute
+                // archive hash/extraction out of the game's startup path.
+                var modManifest = JsonUtility.FromJson<QuestGameContentManifest>(File.ReadAllText(
+                    Confined(root, "Assets/Quest/Resources/quest-mod-content.json")));
+                if (modManifest == null || modManifest.schema != 1 || modManifest.inputKey != inputKey
+                    || modManifest.archive != "quest-mod-content.zip" || !IsHash(modManifest.archiveSha256)
+                    || modManifest.files == null || modManifest.files.Length == 0)
+                    throw new InvalidDataException("PC installation requires this APK's complete current mod inventory.");
+                WriteAtomic(installation, System.Text.Encoding.UTF8.GetBytes(JsonUtility.ToJson(new InstallationManifest {
+                    inputKey = inputKey, game = manifest, mod = modManifest
+                }, true) + "\n"));
                 WriteAtomic(delivery, System.Text.Encoding.UTF8.GetBytes(JsonUtility.ToJson(new Delivery {
                     inputKey = inputKey, files = new[] { new FileRecord {
                         file = Path.GetFileName(destination), archive = manifest.archive,
@@ -142,6 +164,8 @@ namespace GloomhavenVR.Quest.Editor
                     WriteAtomic(manifestFile, originalManifest);
                     if (originalDelivery == null) { if (File.Exists(delivery)) File.Delete(delivery); }
                     else WriteAtomic(delivery, originalDelivery);
+                    if (originalInstallation == null) { if (File.Exists(installation)) File.Delete(installation); }
+                    else WriteAtomic(installation, originalInstallation);
                     if (createdLink && File.Exists(link) && Hash(link) == linkHash)
                     {
                         File.Delete(link);

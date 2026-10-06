@@ -1,5 +1,31 @@
 # State — where the project stands
 
+**Quest B625 corrections prepared,2026-10-06: full Campaign/Guildmaster scope.**
+
+Verified B624 hardware startup installed5,897 remaining full-game files on the
+headset; the earlier menu tree contained only470files. The PC installer now
+expands both signed inventories, resumes changed-file batches and commits native
+completion receipts. Full-target startup accepts those receipts without6,367
+file-stat/hash scans and stops with localized PC-installer guidance if incomplete;
+there is no hidden multi-minute archive adoption/extraction fallback.
+
+Guildmaster is restored by explicit maintainer correction: original mode menu,
+save validation/loading and multiplayer admission are retained. Its earlier
+exclusion assumed a completely removed procedural engine; that replacement was
+never completed. The port retains the original x64 DLL behind Wine/Box64. B624
+failed the Wine guest libc entry before Engine.Start; the actual Android Box64
+binary now includes the upstream glibc guest-start functions as well as Bionic.
+Successful Quest engine execution, generation and mobile performance remain open.
+
+Vulkan camera-video orientation uses the observed GPU projection sign; manual
+mip generation respects automatic ownership. A Quest-only transparent consumer
+preserves already-composed native menu RGB instead of multiplying alpha twice.
+Exact black-menu causal closure remains unverified; two bounded handover snapshots
+and asynchronous16x8probes will distinguish producer/visibility/consumer failure.
+Native full-target compilation changes Debug to Release while Development player
+logging remains available. The forthcoming signed B625 hardware package must be
+built/read back before any new handoff replaces the accepted B624 package.
+
 **Quest full Campaign B624 built and verified, 2026-10-06: isolated feature.**
 
 The exact B623 hardware capture records a native Adreno/Vulkan crash during

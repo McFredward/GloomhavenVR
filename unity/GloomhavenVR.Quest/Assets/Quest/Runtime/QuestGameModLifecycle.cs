@@ -187,8 +187,17 @@ namespace GloomhavenVR.Quest
             renderedView = loadingView; renderedState = state; renderedPercent = overallPercent; renderedGerman = german;
             // Keep phase names, paths and file counts out of the product flow.
             // This one global bar continues across content and native startup.
-            loadingView.UpdateOverall(QuestText.Get(state == "failed" ? "startupFailed" : "loadingPreparing", german),
+            loadingView.UpdateOverall(QuestText.Get(state == "failed"
+                ? contentInstallationFailed ? "contentInstallationIncomplete" : "startupFailed" : "loadingPreparing", german),
                 overallPercent, state == "original-bootstrap-loaded");
+        }
+
+        bool contentInstallationFailed;
+        public void ShowContentInstallationFailure()
+        {
+            contentInstallationFailed = true;
+            renderedState = null;
+            UpdateStartupView("failed", viewPercent);
         }
 
         void RetargetLoadingView()

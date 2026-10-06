@@ -271,12 +271,16 @@ internal static class Program
         Inputs inputs = Setup("changed-original-bank", warm: true, keepSource: true);
         string target = Path.Combine(Fixture.Root, "quest-owned-game", inputs.Original.files[0].path);
         byte[] corrupt = (byte[])inputs.OriginalPayload.Clone(); corrupt[43] ^= 1; File.WriteAllBytes(target, corrupt);
+        var repaired = QuestGameContent.Install(inputs.Original, Path.Combine(Fixture.Root, "quest-owned-game"),
+            Application.Data, true, Path.Combine(Fixture.Root, "explicit-repair.zip"), repair: true);
+        Check(repaired.ExtractedFiles == 1 && File.ReadAllBytes(target).SequenceEqual(inputs.OriginalPayload),
+            "repair-only-needed-bank", "explicit repair restores the changed original bytes before normal startup");
         var owner = Owner();
         using (var held = new FileStream(Path.Combine(Fixture.Root, "quest-mod-resources", inputs.Mod.files[0].path), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             new Pump(owner).Finish();
-        Check(Fixture.Events.Contains("original-copy") && !Fixture.Events.Contains("mod-copy"), "repair-only-needed-bank", "changed game bytes must not reinstall a receipt-warm mod bank");
-        Check(Fixture.ViewCreations == 1, "one-repair-view", "changed bank must request one global startup canvas");
-        Successful(owner, inputs, false);
+        Check(!Fixture.Events.Contains("original-copy") && !Fixture.Events.Contains("mod-copy"), "repair-only-needed-bank", "completed explicit repair starts without transferring either bank again");
+        Check(Fixture.ViewCreations == 0, "one-repair-view", "completed explicit repair must retain a quiet normal startup");
+        Successful(owner, inputs, true);
     }
     static void LogWriteFailure()
     {
@@ -306,12 +310,39 @@ internal static class Program
         Check(Fixture.ViewVisible, "failure-view", "explicit failure must be visible even on a previously quiet warm path");
         Call(owner, "OnDestroy");
     }
+    static void PcInstalledCampaign()
+    {
+        Inputs installed = Setup("pc-completed-campaign", warm: true);
+        installed.Original.externalDelivery = true;
+        Resources.Assets["quest-startup-content"] = new TextAsset(JsonSerializer.Serialize(installed.Original, Json));
+        var ready = Owner(); new Pump(ready).Finish();
+        Successful(ready, installed, true);
+        Check(!Fixture.Events.Contains("original-copy"), "pc-receipt-no-source", "expanded Campaign starts without any APK or bank source");
+        Call(ready, "OnDestroy");
+
+        Inputs incomplete = Setup("pc-interrupted-campaign", warm: true, keepSource: true);
+        incomplete.Original.externalDelivery = true;
+        Resources.Assets["quest-startup-content"] = new TextAsset(JsonSerializer.Serialize(incomplete.Original, Json));
+        File.Delete(Path.Combine(Fixture.Root, "quest-owned-game", ".quest-installation.receipt"));
+        // Original data and both archives exist: do not adopt/hash/extract them
+        // on the headset after an interrupted PC installation.
+        var failed = Owner(); new Pump(failed).Finish();
+        Check(failed.State == "failed" && !failed.OriginalBootstrapStarted && Fixture.Addressables == 0,
+            "pc-receipt-required", "an incomplete PC tree must stop before native startup");
+        Check(Fixture.Events.Contains("pc-installation-required") && Fixture.ViewVisible,
+            "pc-installation-help", "missing completion receipt must give visible installer guidance");
+        Check(!Fixture.Events.Contains("original-copy") && !File.Exists(Path.Combine(Fixture.Root, "quest-startup-content.zip.download")),
+            "pc-no-headset-fallback", "incomplete PC tree must not trigger a hidden archive fallback");
+        Call(failed, "OnDestroy");
+    }
+
     static int Main(string[] args)
     {
         try
         {
             evidence = Path.GetFullPath(args[0]); System.IO.Directory.CreateDirectory(evidence);
             HeldWorker(); HeldSceneHandover(); Success("cold-editor", editor: true); Success("warm-android", warm: true); Success("warm-editor", editor: true, warm: true); Success("legacy-android", warm: true, legacy: true); RepairOnlyChangedBank(); LogWriteFailure();
+            PcInstalledCampaign();
             foreach (string defect in new[] { "mod-archive", "payload", "missing-entry", "missing-manifest" }) Failure(defect);
             foreach (string defect in new[] { "original-archive", "mod-failure", "addressables-failure", "scene-unavailable" }) Failure(defect, 1);
             Console.WriteLine("PASS Quest startup loading: " + assertions + " assertions; actual Bootstrap/content/delivery, Unity/logger/downstream seams");

@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Exercise the production excluded-mode notice/cancellation seam with defect controls."""
+"""Verify restored Guildmaster native UI ownership in the complete Quest target.
+
+The former rejection-notice fixture is retired by the2026-10-06 scope change.
+Original mode/admission IL preservation is checked separately by QuestWeaver.
+"""
 import hashlib
 import json
 from pathlib import Path
@@ -11,45 +15,38 @@ import tempfile
 def main():
     root = Path(__file__).resolve().parents[1]
     runtime = root / "unity/GloomhavenVR.Quest/Assets/Quest/Runtime"
-    text = root / "src/GloomhavenVR/Core/Loc/QuestText.cs"
-    names = ("QuestGameScope.cs", "QuestSceneObjects.cs", "QuestScopeObjects.cs")
-    sources = {name: (runtime / name).read_text() for name in names}
-    controls = [
-        ("visible-notice-not-retired", "if (notice.ShowingMessage)", "if (notice.ShowingMessage && notice.Shows < 0)", "unavailable notice replaces visible native failure"),
-        ("old-hotkeys-retained", 'NativeNoticeMethod(typeof(ErrorMessage), "ClearHotkeySessions", Type.EmptyTypes).Invoke(notice, null);', "", "native old buttons and hotkeys retired exactly once"),
-        ("caller-cancellation-lost", ".Invoke(SaveData.Instance, new object[] { loadMenuOnCancel, onCancelLoad });", ".Invoke(SaveData.Instance, new object[] { loadMenuOnCancel, null });", "caller cancellation exactly once"),
-        ("menu-flag-lost", ".Invoke(SaveData.Instance, new object[] { loadMenuOnCancel, onCancelLoad });", ".Invoke(SaveData.Instance, new object[] { false, onCancelLoad });", "original cancellation preserves menu flag"),
-        ("duplicate-acknowledgement", "if (completed) return;", "if (completed && notice.Shows < 0) return;", "caller cancellation exactly once"),
-        ("german-explanation-lost", "Application.systemLanguage.Equals(SystemLanguage.German)", "false", "localized scope explanation"),
-    ]
-    output = root / ".planning/debug/quest-guildmaster-notice"
+    sources = {name: (runtime / name).read_text() for name in
+               ("QuestGameScope.cs", "QuestSceneObjects.cs", "QuestScopeObjects.cs")}
+    sources["QuestText.cs"] = (root / "src/GloomhavenVR/Core/Loc/QuestText.cs").read_text()
+    output = root / ".planning/debug/quest-guildmaster-scope"
     output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=output))
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
-    proof = {"sources": {name: hashlib.sha256((runtime / name).read_bytes()).hexdigest() for name in names},
-             "textSha256": hashlib.sha256(text.read_bytes()).hexdigest(), "cases": [],
-             "limit": "Managed native-call seams; original SDK ABI and actual admission IL are separate checks. No headset claim."}
-    for name, before, after, expected in [("production", "", "", "")] + controls:
+    proof = {"sources": {name: hashlib.sha256(value.encode()).hexdigest() for name, value in sources.items()},
+             "limit": "Actual scope with Unity component seams; no native engine/headset claim.", "cases": []}
+    for name, defect in (("production", False), ("guildmaster-exclusion-restored", True)):
         case = run / name
         case.mkdir()
         for filename, source in sources.items():
-            if filename == "QuestGameScope.cs" and before:
-                assert source.count(before) == 1, "mutation binding drift: " + name
-                source = source.replace(before, after, 1)
+            if defect and filename == "QuestGameScope.cs":
+                assert source.count("#if !GHVR_QUEST_GAME") == 1
+                source = source.replace("#if !GHVR_QUEST_GAME", "#if GHVR_QUEST_GAME")
             (case / filename).write_text(source)
-        result = subprocess.run([dotnet, "run", "--project", str(root / "tests/QuestGameScope.Tests/QuestGameScope.Guildmaster.csproj"),
-                                 "-c", "Release", "-p:RuntimeSource=" + str(case), "-p:QuestTextSource=" + str(text)],
+        fixture = case / "fixture"
+        shutil.copytree(root / "tests/QuestGameScope.Tests", fixture, ignore=shutil.ignore_patterns("bin", "obj"))
+        result = subprocess.run([dotnet, "run", "--project", str(fixture / "QuestGameScope.Tests.csproj"),
+                                 "-c", "Release", "-p:QuestFullGame=true", "-p:RuntimeSource=" + str(case)],
                                 text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
         (case / "console.log").write_text(result.stdout)
         compiled = "error CS" not in result.stdout and "error MSB" not in result.stdout
-        passed = compiled and (result.returncode != 0 and "FAIL " + expected in result.stdout if expected
-                               else result.returncode == 0 and "PASS Quest Guildmaster notice: 145 " in result.stdout)
-        proof["cases"].append({"name": name, "exitCode": result.returncode, "expected": expected, "passed": passed})
+        passed = compiled and (result.returncode != 0 and "FAIL full game Guildmaster native ownership retained" in result.stdout
+                               if defect else result.returncode == 0 and "PASS Quest native purchase scope:" in result.stdout)
+        proof["cases"].append({"name": name, "exitCode": result.returncode, "passed": passed})
         (run / "proof.json").write_text(json.dumps(proof, indent=2) + "\n")
         if not passed:
             raise SystemExit("FAIL " + name + "; see " + str(case / "console.log"))
         print("PASS " + name, flush=True)
-    print("PASS Quest Guildmaster notice: 145 assertions + " + str(len(controls)) + " rejected defects; evidence " + str(run))
+    print("PASS restored Guildmaster scope and executable exclusion defect; evidence " + str(run))
 
 
 if __name__ == "__main__":

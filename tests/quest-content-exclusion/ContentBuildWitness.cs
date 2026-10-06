@@ -38,7 +38,11 @@ public static class ContentBuildWitness
     static void SetManifest(string key) {
         Write(Manifest,JsonUtility.ToJson(new QuestGameContentManifest{schema=1,inputKey=key,archive="quest-startup-content.zip",
             archiveSha256=Hash(Full(QuestCampaignContentBuild.ArchivePath)),files=new QuestGameContentFile[0]},true));
+        Write("Assets/Quest/Resources/quest-mod-content.json",JsonUtility.ToJson(new QuestGameContentManifest{
+            schema=1,inputKey=key,archive="quest-mod-content.zip",archiveSha256=new string('c',64),
+            files=new[]{new QuestGameContentFile{path="StreamingAssets/current-mod.bundle",sha256=new string('d',64),size=17}}},true));
     }
+    sealed class InstallationView { public int schema; public string inputKey; public QuestGameContentManifest game,mod; }
     static QuestCampaignContentBuild Begin(string key=Key) { return new QuestCampaignContentBuild(Full("Output/game.apk"),key); }
     static QuestCampaignContentBuild.Journal Journal() {return JsonUtility.FromJson<QuestCampaignContentBuild.Journal>(File.ReadAllText(Full(QuestCampaignContentBuild.JournalPath)));}
     static void Saved(QuestCampaignContentBuild.Journal value){Write(QuestCampaignContentBuild.JournalPath,JsonUtility.ToJson(value,true));}
@@ -58,6 +62,12 @@ public static class ContentBuildWitness
         Assert(File.Exists(Full("Output/GloomhavenVR-Quest-content.zip")),"External bank copied");
         Assert(Hash(Full("Output/GloomhavenVR-Quest-content.zip"))==Journal().moves[0].sha256,"External bank exact actualSHA");
         Assert(Journal().state=="excluded","Excluded journal completed");
+        var inventory=JsonUtility.FromJson<InstallationView>(File.ReadAllText(Full(QuestCampaignContentBuild.InstallationPath)));
+        Assert(inventory.schema==1 && inventory.inputKey==Key,"Signed installation inventory matches current input");
+        Assert(inventory.game.externalDelivery && inventory.game.archiveSha256==Journal().moves[0].sha256,
+            "Installation inventory uses actual final external native bank");
+        Assert(inventory.mod.inputKey==Key && inventory.mod.files.Length==1 && inventory.mod.files[0].size==17,
+            "Installation inventory preserves exact current mod files");
         normal.Dispose();Sources(true);normal.Dispose();
         Assert(Journal().state=="restored","Normal dispose durable restored state");
         using(Begin())Sources(false);Sources(true);
@@ -89,12 +99,15 @@ public static class ContentBuildWitness
         NewProject(Path.Combine(baseDirectory,"rollback"));
         byte[] manifestBefore=File.ReadAllBytes(Full(Manifest));
         Write("Assets/StreamingAssets/Quest/content-delivery.json","original delivery");
+        Write(QuestCampaignContentBuild.InstallationPath,"original installation inventory");
         var initiating=new InvalidOperationException("initiating refresh failure");
         AssetDatabase.onRefresh=()=>{throw initiating;};
         bool same=false;try{Begin();}catch(Exception error){same=Object.ReferenceEquals(error,initiating);}
         Assert(same,"Constructor retains initiating exception identity");Sources(true);
         Assert(Convert.ToBase64String(File.ReadAllBytes(Full(Manifest)))==Convert.ToBase64String(manifestBefore),"Constructor restores exact manifest bytes");
         Assert(File.ReadAllText(Full("Assets/StreamingAssets/Quest/content-delivery.json"))=="original delivery","Original delivery bytes restored");
+        Assert(File.ReadAllText(Full(QuestCampaignContentBuild.InstallationPath))=="original installation inventory",
+            "Original installation inventory restored after interrupted build");
         Assert(!File.Exists(Full(QuestCampaignContentBuild.StableLink)),"Created linker rolled back");
         AssetDatabase.onRefresh=null;using(Begin()){};Sources(true);
         string previousLink=File.ReadAllText(Full(QuestCampaignContentBuild.StableLink));

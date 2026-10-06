@@ -63,6 +63,9 @@ public static class QuestText
             case "startupLoadingOriginal": return german ? "Originalspiel wird gestartet" : "Starting the original game";
             case "startupOriginalLoaded": return german ? "Originalstart geladen" : "Original startup loaded";
             case "startupFailed": return german ? "Spielstart angehalten" : "Game startup stopped";
+            case "contentInstallationIncomplete": return german
+                ? "Installation unvollständig. Starte das Installationsprogramm auf deinem PC erneut."
+                : "Installation incomplete. Run the installer on your PC again.";
             case "startupDiagnosticScope": return german ? "Originalmenüs; Kampagne, Mod und Crossplay bleiben unbestätigt." : "Original menus; campaign, mod and crossplay remain unverified.";
             case "startupVoiceUnavailable": return german ? "Sprachchat ist in dieser Startdiagnose nicht verfügbar." : "Voice chat is unavailable in this startup diagnostic.";
             case "probeAim": return german ? "Zielpose links / rechts" : "Left / right aim pose";

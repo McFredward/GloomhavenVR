@@ -3,8 +3,10 @@
 Work continues on `feature/quest3-standalone`; the concurrent desktop `dev` tree
 is independent. The requested deliverable is the full Campaign hardware package,
 including owned Jaws of the Lion and Solo Scenarios, original VR controls/MR,
-local native saves and original session-code multiplayer. Guildmaster and Steam
-Workshop remain explicitly unavailable. Store/cloud/friends services stay absent.
+local native saves and original session-code multiplayer. Guildmaster is included
+again by the maintainer's2026-10-06 correction: its former exclusion depended on
+removing the procedural engine, whereas the implemented bridge retains it.
+Steam Workshop remains unavailable. Store/cloud/friends services stay absent.
 
 ## Original content and dynamic generation
 

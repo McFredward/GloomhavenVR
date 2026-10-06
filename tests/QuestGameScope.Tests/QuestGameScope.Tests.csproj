@@ -7,6 +7,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <DefineConstants>GHVR_QUEST_STARTUP</DefineConstants>
+    <DefineConstants Condition="'$(QuestFullGame)' == 'true'">$(DefineConstants);GHVR_QUEST_GAME</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(RuntimeSource)/QuestGameScope.cs" />

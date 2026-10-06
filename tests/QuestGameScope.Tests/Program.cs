@@ -127,10 +127,18 @@ static class Program
         var voice = new VoiceChat.VoceChatOptions();
         var create = new GLOOM.MainMenu.UICreateGameDLCStep();
         Tick(scope);
+#if GHVR_QUEST_GAME
+        Check(options.Guildmaster.IsInteractable && Tooltip(options.Guildmaster.gameObject)!.ShownTooltipText == null, "full game Guildmaster native ownership retained");
+#else
         Check(!options.Guildmaster.IsInteractable && Tooltip(options.Guildmaster.gameObject)!.CanBeShown, "original Guildmaster exclusion retained");
+#endif
         Check(!workshop.IsInteractable && workshop.TooltipEnabled, "original Workshop identity excluded");
         Check(credits.IsInteractable && !credits.TooltipEnabled, "ordinary suboption ignores Workshop display label");
+#if GHVR_QUEST_GAME
+        Check(voice.NativeButton.interactable && Tooltip(voice.NativeButton.gameObject) == null, "full game voice native ownership retained");
+#else
         Check(!voice.NativeButton.interactable && Tooltip(voice.NativeButton.gameObject) != null, "voice diagnostic exclusion retained");
+#endif
         Check(create.ConfirmButton.interactable, "campaign DLC step remains under native ownership");
         workshop.Bind(new GLOOM.MainMenu.MenuSuboption("GUI_MULTIPLAYER")); workshop.IsInteractable = true;
         Tick(scope, .1f); Check(workshop.IsInteractable, "pooled Workshop exclusion cannot leak into multiplayer");
@@ -138,6 +146,21 @@ static class Program
     }
     static void GuildmasterAttachedTooltip()
     {
+#if GHVR_QUEST_GAME
+        foreach (bool available in new[] { false, true })
+        {
+            var fullScope = Reset(); var fullOptions = new GLOOM.MainMenu.UIMainOptionsMenu();
+            var fullButton = fullOptions.Guildmaster; fullButton.Bind(new GLOOM.MainMenu.MenuSuboption("GUI_GUILDMASTER"));
+            fullButton.IsInteractable = available;
+            var originalTooltip = Tooltip(fullButton.gameObject)!; var callback = fullButton.CallbackIdentity;
+            for (int i = 0; i < 128; i++) Tick(fullScope, i * .04f);
+            Check(fullButton.IsInteractable == available, "full game Guildmaster native availability retained");
+            Check(ReferenceEquals(fullButton.CallbackIdentity, callback), "full game Guildmaster native callback retained");
+            Check(ReferenceEquals(Tooltip(fullButton.gameObject), originalTooltip) && originalTooltip.SetTextCalls == 0,
+                "full game Guildmaster native tooltip retained");
+            NoErrors("full game Guildmaster");
+        }
+#else
         var scope = Reset(); var options = new GLOOM.MainMenu.UIMainOptionsMenu();
         var button = options.Guildmaster; var tooltip = Tooltip(button.gameObject)!;
         button.Bind(new GLOOM.MainMenu.MenuSuboption("GUI_GUILDMASTER"));
@@ -168,6 +191,7 @@ static class Program
         Check(Debug.Errors.Count == 1 && Debug.Errors[0].Contains("Original Guildmaster attached tooltip binding is missing."),
             "changed Guildmaster scene binding emits one explicit original ABI failure");
         Check(Tooltip(options.Guildmaster.gameObject) == null, "changed Guildmaster scene does not create substitute tooltip");
+#endif
     }
     static void DiscoveryBoundaries()
     {

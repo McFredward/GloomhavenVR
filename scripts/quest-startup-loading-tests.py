@@ -33,8 +33,7 @@ def main():
          "yield return modLifecycle.Activate(modRoot);\n            yield return modLifecycle.Activate(modRoot);", "one-owner"),
         ("stale-mod-checkpoint", "SaveState();\n            yield return modLifecycle.Activate(modRoot);",
          "yield return modLifecycle.Activate(modRoot);", "mod-checkpoint"),
-        ("synchronous-main-hash", "Task.Run(() => QuestGameContent.Install(manifest, root, source, sourceIsApk, archive, expectedArchive, ReportContentProgress))",
-         "Task.FromResult(QuestGameContent.Install(manifest, root, source, sourceIsApk, archive, expectedArchive, ReportContentProgress))", "main-hash"),
+        ("synchronous-main-hash", "Task.Run(() => {", "RunSynchronously(() => {", "main-hash"),
         ("worker-unity-path", "void ReportContentProgress(QuestGameContentProgress progress)\n        {",
          "void ReportContentProgress(QuestGameContentProgress progress)\n        {\n            string forbiddenWorkerPath = Application.persistentDataPath;", "worker-api"),
         ("wrong-apk-source", "sourceIsApk ? Application.dataPath :", "sourceIsApk ? Application.streamingAssetsPath :", "startup-completes"),
@@ -64,7 +63,11 @@ def main():
     for name, before, after, expected in mutations:
         if bootstrap.count(before) != 1:
             raise RuntimeError("Mutation binding drift: " + name)
-        cases.append((name, bootstrap.replace(before, after), expected))
+        modified = bootstrap.replace(before, after)
+        if name == "synchronous-main-hash":
+            modified = modified.replace("        IEnumerator EnsureContent(",
+                "        static Task<QuestGameContentDeliveryResult> RunSynchronously(Func<QuestGameContentDeliveryResult> work) { return Task.FromResult(work()); }\n        IEnumerator EnsureContent(")
+        cases.append((name, modified, expected))
     output = root / ".planning/debug/quest-startup-loading"
     output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=output))

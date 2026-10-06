@@ -553,7 +553,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 624;
+    public const ushort ModBuild = 625;
+
+    // ModBuild 625 — B624 first full-content hardware startup installed almost
+    // 11 GB on-headset. Move resumable expanded-file installation to the PC;
+    // warm launches consume only completion receipts, never a full bank scan.
+    // Correct the Vulkan camera-video UV sign and automatic-mipmap ownership;
+    // consume transparent native menu captures without a second alpha multiply.
+    // Optimise native Campaign code while retaining Development diagnostics.
+    // Include Guildmaster again by maintainer request: original admission,
+    // save validation and mode loading remain authoritative. Workshop is excluded.
+    // Restore Wine guest libc startup in Android Box64. Actual engine execution,
+    // scene generation and mobile performance still require headset evidence.
 
     // ModBuild 624 — B623 Quest capture isolates a native Vulkan/OpenXR crash
     // during live eye-resolution replacement, before original game bootstrap.

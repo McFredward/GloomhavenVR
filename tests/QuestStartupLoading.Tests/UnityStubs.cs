@@ -202,6 +202,7 @@ namespace GloomhavenVR.Quest
             if (!Fixture.ViewVisible) { Fixture.ViewCreations++; Fixture.ViewVisible = true; Fixture.Event("delivery-view"); }
         }
         public void EndDeliveryView() { Fixture.RequireMain("EndDeliveryView"); Fixture.ViewVisible = false; Fixture.Event("end-delivery-view"); }
+        public void ShowContentInstallationFailure() { Fixture.RequireMain("ShowContentInstallationFailure"); Fixture.Event("pc-installation-required"); BeginDeliveryView(); }
         public void UpdateStartupView(string state, int percent)
         {
             Fixture.RequireMain("UpdateStartupView"); Fixture.MainUpdates++;

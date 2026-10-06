@@ -228,18 +228,23 @@ namespace GloomhavenVR.Quest
             string source = sourceIsApk ? Application.dataPath : Path.Combine(Application.streamingAssetsPath, manifest.archive);
             if (manifest.externalDelivery)
             {
-                // Complete Campaign content can exceed the Android APK ZIP32
-                // signing limit. The wireless installer stages the exact bank
-                // named by this APK; warm receipts require no bank reread.
+                // The PC installer transfers the expanded Campaign tree and
+                // commits its completion receipt before launching this APK.
                 sourceIsApk = false;
                 source = Path.Combine(Application.persistentDataPath, "quest-install-input", manifest.inputKey, manifest.archive);
             }
             currentContentScope = phase;
             currentContentSource = manifest.externalDelivery ? "adb-owned-content" : sourceIsApk ? "installed-apk" : "local-streaming-assets";
-            // One worker reuses a valid installation receipt without content
-            // reads or progress. Legacy adoption is quiet; only actual new bytes
-            // request a shared loading view through the managed progress sink.
-            Task<QuestGameContentDeliveryResult> delivery = Task.Run(() => QuestGameContent.Install(manifest, root, source, sourceIsApk, archive, expectedArchive, ReportContentProgress));
+            // Full Campaign installation belongs to the PC. Never silently
+            // substitute a multi-minute headset hash/extraction fallback when
+            // its installer was interrupted or the APK was copied alone.
+            Task<QuestGameContentDeliveryResult> delivery = Task.Run(() => {
+                if (!manifest.externalDelivery)
+                    return QuestGameContent.Install(manifest, root, source, sourceIsApk, archive, expectedArchive, ReportContentProgress);
+                var installed = QuestGameContent.GetExisting(manifest, root, expectedArchive);
+                if (installed == null) throw new InvalidDataException("Campaign installation is incomplete. Run the PC installer again; use --repair-content if files need repair.");
+                return installed;
+            });
             while (!delivery.IsCompleted)
             {
                 QuestGameContentProgress progress; lock (contentSync) progress = contentProgress;
@@ -251,7 +256,11 @@ namespace GloomhavenVR.Quest
                 yield return null;
             }
             UpdateStartupPresentation();
-            if (delivery.IsFaulted) { Fail(phase + "-delivery", delivery.Exception.GetBaseException()); yield break; }
+            if (delivery.IsFaulted) {
+                Fail(phase + "-delivery", delivery.Exception.GetBaseException());
+                if (manifest.externalDelivery && modLifecycle != null) modLifecycle.ShowContentInstallationFailure();
+                yield break;
+            }
             try { if (File.Exists(archive)) File.Delete(archive); }
             catch (Exception e) { Fail(phase + "-archive-cleanup", e); }
             if (State == "failed") yield break;

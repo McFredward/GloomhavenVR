@@ -2,6 +2,14 @@
 
 ## Unified development workflow (2026-09-29)
 
+**Quest scope, corrected by the maintainer on2026-10-06:** include Guildmaster
+again. Its earlier exclusion depended on removing the procedural engine; the
+current bridge instead preserves original dynamic generation. Retain native
+Guildmaster menu availability, saves, loading and multiplayer admission. Remove
+Quest-specific unavailable hints/guards from the complete game target. Steam
+Workshop and store/cloud services remain excluded. Engine execution and its
+combined mobile CPU/memory/frame cost remain unverified hardware gates.
+
 **Quest exception, clarified by the maintainer on 2026-10-03:** keep Quest
 implementation and hardware installer work on `feature/quest3-standalone`, with
 separate worker worktrees from its current checkpoint. The primary agent reviews,
