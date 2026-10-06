@@ -2,11 +2,33 @@
 
 ## Delivery status
 
-The complete Campaign Player is currently building. There is no validated B623
-APK or Windows archive at this checkpoint. Replace this paragraph with the actual
-signed APK, adjacent content-bank and Windows archive identities only after all
-native build/delivery gates complete. The runtime source remains frozen at
-`fa6c1f9a`; separately recorded Editor/host corrections do not change that source.
+The complete signed Campaign Player and Windows hardware archive were built on
+2026-10-06. The actual Player, native Shader closure and delivered Compute gates
+pass. The independent whole-artifact audit also passes; headset execution is
+not yet verified. Runtime source remains frozen at `fa6c1f9a`; the captured host
+and Editor corrections come from `796ea528d` and its recorded overrides.
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `GloomhavenVR-Quest-B623.apk` | 2,494,100,526 | `ef954d63eb7f12eb284205817ac170c0c7559092ca18ee4f297100be5d6268f9` |
+| `GloomhavenVR-Quest-content.zip` | 10,912,754,791 | `f6be86714e77536d38d00b3701ae5f64f720e357305deed22966ac9419eb668c` |
+| `GloomhavenVR-Quest-B623-Windows.zip` | 13,408,142,006 | `e855b11c43c574e304a0f8c4a0dbf0a61c5be5bab533e061aad48ecba3b32201` |
+
+The accepted build key is `1ac08393c2401fc0ff0e85806ecd6eb313c42e55563e86abf7ba8e5181f00186`.
+All14 Player scenes are present, including the13 originals and Quest bootstrap.
+Actual Vulkan delivery retains688 original Shader roots and51,564 original
+aliases; the completed Player has zero native Shader compiler errors. All13
+original ComputeShaders/36 Vulkan kernels pass actual executable-byte validation.
+Native Build ID `d23d2717d3cae4f7` matches the signed APK and retained debug library;
+1,150 actual native-source/managed-backup files are recorded for crash analysis.
+
+The independent audit reads8,968 native payloads and confirms all6,531 original
+public catalog roots,6,431 runtime aliases,601 procedural definitions,8 movie
+bindings and19 external movies. It checks all688 actual Shader identities and
+51,564 aliases in both Player and Addressables, both native variant collections,
+and all2,316 public original Material roots. Windows ZIP64, all CRCs and the
+packaged APK/content/50 installer-source hashes pass. This does not claim pixel
+parity, an audit of every private Material object, or hardware gameplay success.
 
 ## Intended scope and installation
 
@@ -26,6 +48,12 @@ matched APK without clearing app data. A complete-content first installation
 transfers substantially more data than the previous menu-only test. Preserve
 existing save backups. `scripts/collect-quest-logs.cmd` records the actual installed
 identity, logs and runtime diagnostics; use it after each hardware run.
+
+The declared expanded content is11,169,001,254 bytes. Allow at least30 GB free for
+the first archive/extraction/install cycle; first-launch content preparation and
+warm-launch timing must be measured separately. This candidate enables Jaws of
+the Lion and Solo Scenarios from the maintainer's declaration. Alternative skins
+remain unowned, and local identity is `Quest Local Test (DUMMY)`, Steam ID `0`.
 
 ## First Campaign hardware run
 

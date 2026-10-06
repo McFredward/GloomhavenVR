@@ -829,3 +829,68 @@ SVC/PPtrs and 16 original material samples across 20 dependency bundles. No
 compiler is invoked. This is complete native-AA evidence, not a signed Player
 or hardware success; the imported project and completed native cache are retained
 for the Player retry.
+
+## Accepted complete Campaign delivery — 2026-10-06
+
+The preserved warm retry `1ac08393c2401fc0ff0e85806ecd6eb313c42e55563e86abf7ba8e5181f00186`
+completes the actual Android Player and every production delivery gate. Runtime
+input remains `fa6c1f9a`, ModBuild623/input `7ecd1e978c52905f…`; the recorded host
+and Editor corrections are captured from `796ea528d`. No original game references
+or concurrent `dev` work are changed. All378 final affected builder tests pass.
+The opt-in51,564-program compiler matrix is not repeated. The native-AA gate
+invokes zero compiler queries and passes all688 exact original roots/51,564
+aliases before content packaging. The completed Player has zero native Shader
+compiler errors, preserves MultiPass/Vulkan and all14 selected scenes, and passes
+the actual signed Shader and13-compute/36-kernel executable-byte closure checks.
+
+The complete content bank has6,367 byte-verified members,3,256 native Android
+bundles,10,912,754,791 archive bytes and11,169,001,254 declared expanded bytes.
+The signed APK is2,494,100,526 bytes, SHA-256
+`ef954d63eb7f12eb284205817ac170c0c7559092ca18ee4f297100be5d6268f9`.
+The content bank SHA is
+`f6be86714e77536d38d00b3701ae5f64f720e357305deed22966ac9419eb668c`.
+The Windows archive is13,408,142,006 bytes, SHA
+`e855b11c43c574e304a0f8c4a0dbf0a61c5be5bab533e061aad48ecba3b32201`.
+It contains wireless installation, capture and save scripts with automatic local
+Python/platform-tools provisioning. This private candidate uses the explicit
+dummy identity and selected purchased Jaws of the Lion/Solo Scenarios; alternate
+skins remain unowned. Guildmaster/Workshop and store/cloud services remain
+excluded under the previously recorded contracts.
+
+The independent whole-artifact audit passes in893.479 seconds. It reads8,968
+native payloads, confirms every6,531 original public catalog root and6,431
+runtime alias, all601 procedural definitions,8 actual movie bindings/19 external
+movies, all688 original Shader identities and51,564 original aliases in both
+native banks, both native SVC/PPtr projections and all2,316 public original
+Material roots. Actual13/36 Vulkan kernels and the4 exact Unity-engine compute
+objects pass independently. ZIP64 end records, archive CRCs and all nested
+payload/build-evidence/50 installer-source hashes match the actual deliverables.
+It does not certify every9,187 private Material object, original pixel parity,
+Android gameplay or server admission.
+
+Two defects in the private independent auditor are corrected without changing
+the APK: isolated Python omitted its sibling ShaderObserver module; native public
+root matching lowercased only expected paths. The latter false positive is
+reproduced against the actual unchanged portrait bundle: all4 original paths
+and their Sprite/Texture2D native preloads are present, with original case.
+Consistent case normalization accepts those paths while missing, renamed and
+wrong-directory controls still reject. All16 general parser controls pass and
+the entire independent artifact audit is repeated successfully. The original
+failed receipts and exact auditor source hashes remain in private evidence.
+
+Native Build ID `d23d2717d3cae4f7` matches the signed APK, Gradle's packaged bytes
+and retained complete debug library including debug-info/line sections. The
+1,150 actual unshipped native-source/managed-backup files have a retained hash
+boundary. Old B622 hardware packages and B615–B622 symbol payloads are removed
+only after recorded identity checks and zero live references; matching B623
+symbols/source and the imported project stay available. This resumed session
+reclaims36,603,371,520 bytes from obsolete owned payloads and its released16-GiB
+swap, without touching host swap, original game files, saves, captures or other
+agents' worktrees. Previous worker/C++ cleanup evidence remains retained.
+
+The modern resumable Windows Wizard implementation remains available on the
+feature branch. A complete fresh Windows-user build is not inferred from this
+Linux-hosted Player or backend/browser checks. Integrated Quest pictures, cold
+and warm startup timing, full Campaign turns/room transitions/procedural bridge,
+save round trips, DLC paths and PC-with/without-mod multiplayer/voice remain the
+next hardware checks. See [the concrete B623 procedure](QUEST3-HARDWARE-623.md).

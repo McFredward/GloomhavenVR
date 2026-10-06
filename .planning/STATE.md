@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Quest full Campaign implementation in progress, 2026-10-05: isolated feature, ModBuild623.**
+**Quest full Campaign B623 built, 2026-10-06: isolated feature.**
 
 The maintainer authorized implementation through a complete hardware APK, not
 another menu diagnostic. Work remains on `feature/quest3-standalone`, independent
@@ -8,9 +8,29 @@ of concurrent `dev` changes. All13 original scenes and the entire original catal
 are staged. Actual Android compilation builds all three current-mod asset banks;
 the original native engine/Opus payload and all1,465 core/six bundled audio clips
 are prepared. Full source recovery stages688 original Shaders/9,187 materials.
-The complete Android graphics/compute gates, HDR probe/source Sprite fidelity,
-final IL2CPP player and Windows hardware package are still in progress. B622 is
-retained as the previous artifact; no complete Campaign APK is claimed yet.
+The signed full IL2CPP Player and13.41-GB Windows hardware archive are built.
+Actual native delivery passes all688 original Shaders/51,564 original aliases and
+13 ComputeShaders/36 Vulkan kernels, with zero Player Shader compiler errors.
+The APK is2,494,100,526 bytes, SHA `ef954d63eb7f…`; its adjacent10.91-GB bank has
+6,367 verified entries/3,256 Android bundles. Runtime is frozen at `fa6c1f9a`,
+with recorded host/Editor corrections from `796ea528d`. All378 affected builder
+tests pass. Native Build ID `d23d2717d3cae4f7` matches retained debug symbols and
+the signed Player;1,150 actual native-source/managed-backup files are hashed.
+The independent whole-artifact audit passes8,968 native payloads, all6,531 original
+public catalog roots,6,431 aliases,601 procedural definitions and actual movies.
+It independently confirms both688-Shader/51,564-alias banks and all2,316 public
+original Material roots; Windows ZIP64/CRC/nested-payload/50 installer-source
+hashes pass. Windows SHA is `e855b11c43c57…`. Integrated headset execution,
+pictures, timing, procedural runtime, saves and cross-platform sessions remain
+hardware checks. B623 replaces a menu-only diagnostic with the full Campaign
+candidate; see [B623 hardware procedure](QUEST3-HARDWARE-623.md).
+
+Superseded B622 hardware packages and B615–B622 symbol payloads are removed after
+actual identity/reference checks; small historical receipts remain. Current
+imported project/Library, game inputs, saves, captures and matching B623 native
+debug/source data are preserved. Cleanup in this resumed session reclaims
+36,603,371,520 bytes, including the released owned16-GiB build swap. No other
+agent's checkout or the shared `dev` branch is changed.
 See [full port evidence](QUEST3-FULL-PORT-PROGRESS.md).
 
 **Quest B622 hardware candidate ready, 2026-10-04: isolated feature.**
