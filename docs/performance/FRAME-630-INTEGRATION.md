@@ -49,7 +49,31 @@ its new causal read guards, and full production render-quality48/13 controls.
 The XR provider is explicitly modeled; no new headset picture, crash-free run,
 FPS target or multiplayer capacity is certified by those fixtures.
 
-Final integrated gate status is pending until the source-frozen dev check ends.
+The final source-frozen630 check passes143/143 local suites and14/14 source
+gates, strict Release and Debug with zero warnings/errors, four native bundles,
+1,594 figure derivatives in66 parts and five bilingual player-document pairs.
+Runner unit tests record16 passes and two environment skips.
+
+The golden executable passes310,454 assertions. Compared with629, the retired
+numeric idle dial removes exactly two dynamic stepper-bound assertions. The
+unchanged executable with only629 configuration declarations restored passes
+310,456; byte vectors and dispatch remain unchanged. The original counterfactual
+host-resolution error is retained beside the corrected private-dotnet invocation.
+
+The actual629-to630 compiled comparison changes20 intended implementation types,
+eight inlined build types and one branch metadata file, removes the two explicitly
+withdrawn idle types and adds nothing unexplained. The integration guard retains
+its historical601 baseline and returns1 for intended compiled differences; this
+is not a failed source/runtime check. Exact results, SHA-bound inputs and scope
+review live in`.planning/debug/frame630/validation-ledger.json`.
+
+The latest maintainer request hands final integration/push to the main agent after
+his current631 item-card filtering task. Source630 is already locally integrated
+atd61687842 and preserved onwork/frame630-review-20261006; the Frame agent does
+not push. Four completed Frame worktrees were removed after verified evidence
+copies. Immutable duplicate test payloads were deduplicated within this run; all
+source, image and assembly bytes remain evidenced. Shared/Quest/NPC worktrees and
+dependencies are untouched.
 
 ## Next hardware run
 

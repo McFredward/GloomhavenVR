@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Build630 integration in validation, 2026-10-06: 1.1.0.**
+**Build630 integration validated for handoff, 2026-10-06: 1.1.0.**
 
 The new immutable Steam Frame capture identifies Build628/176beb741. The current
 integration starts from Build629/e6ecf3d4532 and preserves its NPC work. Visible
@@ -17,9 +17,21 @@ Debug timing now retains sparse slow windows, marks Optimize edits and corrects
 refresh/WallFade inference. Further configurable strategies and evidence limits
 are documented in [FRAME-630-INTEGRATION.md](../docs/performance/FRAME-630-INTEGRATION.md).
 
-The complete final dev gate is pending. No new hardware/multiplayer acceptance
-or release is established; preserved immutable logs are in
-`.planning/debug/frame630-review-20261006/inputs/`.
+The complete source-frozen630 gate passes all143 local suites,14 source gates,
+strict Release/Debug with zero warnings/errors, bundles and bilingual docs. Golden
+vectors pass310,454 assertions: exactly two dynamic stepper bounds assertions
+leave with the withdrawn numeric idle dial; the unchanged executable with only
+629 config declarations restored passes310,456. Actual629-to630 compiled review
+finds20 implementation types,8 inlined build types,1 branch metadata change and
+2 explicitly withdrawn types, with no unexplained difference. All4,790 log tokens
+remain; only the two requested keys and obsolete clone patch retire.
+
+The latest user request delegates final integration/push to the main agent after
+his current631 card-filter work. Frame630 is already on local dev atd61687842;
+its documentation completion is onwork/frame630-review-20261006. No Frame-agent
+push or new hardware/multiplayer acceptance/release is established. Source-bound
+results live in`.planning/debug/frame630/validation-ledger.json`; immutable hardware
+logs remain in`.planning/debug/frame630-review-20261006/inputs/`.
 
 ---
 
