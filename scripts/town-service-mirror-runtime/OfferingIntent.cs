@@ -25,12 +25,14 @@ public static partial class MirrorProgram
             // Cold, alpha-zero originals are intentionally not serialized by the
             // visibility admission boundary. First admit an actual active request,
             // then park that same native guide while testing its intent heartbeat.
+            int coldOriginals = 0;
             foreach (byte[] packet in Capture())
             {
                 Check(TownServiceCodec.TryRead(packet, packet.Length, out TownServiceFrame? frame), "cold offering fixture packet decodes");
                 if (frame!.Module == TownServiceFrame.ManifestModule) manifest = frame;
-                else Check(frame.Module != 10, "cold invisible offering publishes no original artwork");
+                else coldOriginals++;
             }
+            Check(coldOriginals == 0, "cold invisible offering publishes no original artwork");
             Check(manifest != null, "cold offering retains owner session membership");
             Check(Remote(2, 10) == null, "cold invisible offering has no observer artwork");
             zone.GetComponent<CanvasGroup>().alpha = 1f;
