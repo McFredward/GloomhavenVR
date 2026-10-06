@@ -1069,7 +1069,9 @@ public static partial class EnvironmentProgram
         {
             PresentationPreparationVisibility(); ScopeAndMaterials(); AmbientScopes(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault(); StructuralChunks(); NativeWallChannelsAndRenderedClock();
             int sharedStart = count;
-            SharedOriginalMaterialValidation(); SharedReadOptionToggle(); VerifiedEnvironmentBank(); UnreadableExactChunks(); ExplicitCameraInstances(); MultipleSubmeshInstances(); RevealedClonePixels(); SupplementaryNativeGeometry(); NativeCameraCallbackFailureIsProcessBound(); NativeCameraBoundaryLifecycle(); NativeCameraBoundaryOrder(); NativeChunkLightmapWrites(); CommonAbsentLighting(); LateNativeLightingFlags(); LateNativeCommandBufferConsumer(); LivePreparationReport(); DetailedPreparationRefusals(); NativeObjectLighting(); ProbeRejectionSkipsPrivateGeometry(); NativeMaterialLoadStart();
+            // Keep each dedicated probe/flag oracle ahead of supplementary lightmap checks:
+            // broad causal mutations must fail at their own native lighting boundary first.
+            SharedOriginalMaterialValidation(); SharedReadOptionToggle(); VerifiedEnvironmentBank(); UnreadableExactChunks(); ExplicitCameraInstances(); MultipleSubmeshInstances(); RevealedClonePixels(); SupplementaryNativeGeometry(); NativeCameraCallbackFailureIsProcessBound(); NativeCameraBoundaryLifecycle(); NativeCameraBoundaryOrder(); CommonAbsentLighting(); LateNativeLightingFlags(); NativeChunkLightmapWrites(); LateNativeCommandBufferConsumer(); LivePreparationReport(); DetailedPreparationRefusals(); NativeObjectLighting(); ProbeRejectionSkipsPrivateGeometry(); NativeMaterialLoadStart();
             Debug.Log("Shared-material validation assertions=" + (count - sharedStart));
             NativeHighHistoricalDelivery();
             NativeHighHistoricalDelivery(toggleNative:true);
