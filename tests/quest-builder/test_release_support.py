@@ -159,6 +159,25 @@ class SupportTests(unittest.TestCase):
         self.assertNotIn('MUST NEVER SHIP', text); self.assertNotIn('Bearer hidden', text)
         self.assertNotIn('must not ship', text)
         self.assertEqual(json.loads(rows['diagnostic.json'])['events'][0]['parameters']['total'], 29)
+
+    def test_procedural_support_keeps_actual_failures_without_runtime_or_owner_data(self):
+        key = 'd' * 64
+        prefix = 'procedural/procedural-runtime-proton/' + key + '/'
+        root = self.root / 'build/tool-cache/campaign-native/procedural-runtime-proton' / key
+        root.mkdir(parents=True)
+        (root / 'native-build.log').write_text('Native linker failed\nAuthorization: Bearer hidden\n')
+        write_json(root / 'proton-stage-summary.json', {'status': 'failed', 'backend': 'proton-arm64ec-fex',
+            'missing': ['Required native binding absent'], 'androidExecutionVerified': False})
+        for name in ('payload/ApparanceEngine.dll', 'payload/runtime-manifest.json', 'downloads/private.log',
+                     'proton-stage-audit.json'):
+            path = root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text('MUST NEVER SHIP')
+        _, rows = self.export()
+        self.assertIn('Native linker failed', rows[prefix + 'native-build.log'])
+        audit = json.loads(rows[prefix + 'proton-stage-summary.json'])
+        self.assertEqual(audit['missing'], ['Required native binding absent'])
+        self.assertFalse(audit['androidExecutionVerified'])
+        self.assertNotIn('MUST NEVER SHIP', '\n'.join(rows.values()))
+        self.assertNotIn('Bearer hidden', '\n'.join(rows.values()))
     @unittest.skipIf(os.name == 'nt', 'symlink privilege varies')
     def test_symlink_logs_are_rejected(self):
         target = self.root / 'private'; target.write_text('secret')

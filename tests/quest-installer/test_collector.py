@@ -333,7 +333,7 @@ class CollectorTests(unittest.TestCase):
             self.assertFalse(row["truncated"])
             self.assertEqual(row["sourceBytes"], len(files[name]))
         self.assertFalse(manifest.get("proceduralFilesUnavailable"))
-        self.assertEqual(manifest["limits"]["proceduralPaths"], 3)
+        self.assertEqual(manifest["limits"]["proceduralPaths"], 4)
         self.assertFalse(any("pull" in call and "quest-procedural-state" in str(call) for call in self.fake.calls))
 
     def test_old_or_non_debuggable_apk_keeps_internal_logs_optional(self):

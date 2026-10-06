@@ -17,7 +17,7 @@ MAX_FILE_BYTES = 2 * 1048576
 MAX_TOTAL_BYTES = 24 * 1048576
 MAX_FILES = 64
 SAFE_DETAIL_KEYS = {'schema', 'inputKey', 'gameKey', 'sourceHash', 'commit', 'modBuild', 'apkSha256',
-                    'requested', 'hardwareVerified', 'status', 'version', 'backend', 'outcome'}
+                    'requested', 'hardwareVerified', 'status', 'version', 'backend', 'proceduralBackend', 'outcome'}
 SAFE_EVENT_KEYS = {'phase', 'done', 'total', 'unit', 'percent', 'detail', 'updatedAt', 'executable',
                    'exitCode', 'durationSeconds', 'log', 'logs', 'cause', 'builderError', 'failureStage',
                    'error', 'message', 'traceback', 'outputCount', 'controlledStop', 'tool', 'version',
@@ -99,6 +99,22 @@ def recovery_logs(build_root, failure=None):
     return result
 
 
+def procedural_logs(build_root):
+    """Only the latest known native build/audit files, never DLL/data inventories."""
+    result = []
+    for backend in ('procedural-runtime-proton', 'procedural-runtime'):
+        root = ordinary(build_root / 'tool-cache/campaign-native' / backend)
+        if not root.is_dir(): continue
+        folders = sorted((ordinary(row) for row in root.iterdir()
+                          if re.fullmatch(r'[0-9a-f]{64}', row.name) and not row.is_symlink() and row.is_dir()),
+                         key=lambda row: row.stat().st_mtime_ns, reverse=True)[:2]
+        for folder in folders:
+            for name in ('native-build.log', 'proton-stage-summary.json'):
+                path = ordinary(folder / name)
+                if path.is_file(): result.append(('procedural/' + backend + '/' + folder.name + '/' + name, path))
+    return result
+
+
 def export_support(state_root, session, destination=None):
     """Snapshot even a running/failed build without altering stage receipts."""
     root = ordinary(state_root)
@@ -166,6 +182,8 @@ def export_support(state_root, session, destination=None):
         if path.is_file(): candidates.append((path.stat().st_mtime_ns, 'resources/' + name, path, True))
     for name, path in recovery_logs(build_root, failure):
         candidates.append((path.stat().st_mtime_ns, name, path, False))
+    for name, path in procedural_logs(build_root):
+        candidates.append((path.stat().st_mtime_ns, name, path, name.endswith('.json')))
     # Resource records first, then newest logs. Older logs beyond bounds are listed.
     candidates.sort(key=lambda row: (row[3], row[0]), reverse=True)
     archive_rows = []; used = 0

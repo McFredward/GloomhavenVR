@@ -26,7 +26,7 @@ namespace GloomhavenVR.Quest
         {
             public int schema = 1, modBuild, originalErrors, loadedScenes, completedModules;
             public string inputKey, state, failureDetail, modStage, modFailure, inviteKeyboardFailure, lastScene, scope = "original-startup-real-vr-mod";
-            public string utc, contentPhase, contentFile;
+            public string utc, contentPhase, contentFile, proceduralBackend;
             public long contentProcessedBytes, contentTotalBytes, contentOverallProcessedBytes, contentOverallTotalBytes;
             public int contentFileIndex, contentFileCount, preparationCompletedSteps, preparationTotalSteps;
             public double elapsedSeconds, lastContentProgressAgeSeconds;
@@ -395,13 +395,16 @@ namespace GloomhavenVR.Quest
         {
             if (logPath == null) return;
             bool proceduralConfigured = false, nativeVoiceAvailable = false;
+            string proceduralBackend = null;
 #if GHVR_QUEST_GAME
             proceduralConfigured = QuestGameProcedural.Configured;
+            proceduralBackend = QuestGameProcedural.Backend;
             nativeVoiceAvailable = QuestGameNetwork.NativeVoiceAvailable;
 #endif
             QuestGameContentProgress progress; double progressTime;
             lock (contentSync) { progress = contentProgress; progressTime = lastContentProgress; }
             var state = new StartupState { scope = RuntimeScope, campaignPackageBuilt = CampaignPackageBuilt, proceduralBridgeConfigured = proceduralConfigured,
+                proceduralBackend = proceduralBackend,
                 modBuild = build != null ? build.modBuild : 0, inputKey = build != null ? build.inputKey : null, state = State, failureDetail = FailureDetail,
                 utc = DateTime.UtcNow.ToString("O"), elapsedSeconds = startupClock.Elapsed.TotalSeconds, mainThreadFrames = mainThreadFrames,
                 contentPhase = progress != null ? progress.Phase : null, contentFile = progress != null ? progress.File : null,

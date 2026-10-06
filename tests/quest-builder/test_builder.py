@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / "tools/quest-builder"))
 import builder
 import profile as identity
 import storage
+import native_plugins
 
 
 def png():
@@ -310,12 +311,19 @@ class ApkTests(Temporary):
             return "Signer #1 certificate SHA-256 digest: " + "a" * 64
         return "package: name='" + builder.PACKAGE + "' versionCode='1'"
 
-    def campaign_fixture(self, omit=None, input_key=None):
+    def campaign_fixture(self, omit=None, input_key=None, backend="proton-arm64ec-fex"):
         self.inputs["target"] = "game"
         self.inputs["inputKey"] = "c" * 64
+        self.inputs["proceduralBackend"] = backend
         self.metadata["inputKey"] = self.inputs["inputKey"]
         self.metadata["target"] = "game"
         self.metadata["graphicsApi"] = "Vulkan"
+        native_names = {"libQuestApparance.so", "libopus_egpv.so"}
+        native_names.update(native_plugins.PROTON_REQUIRED if backend == "proton-arm64ec-fex" else {"libquest_box64.so", "libquest_wineserver.so"})
+        native_rows = [{"path": native_plugins.PREFIX + name, "sha256": storage.value_hash(name), "size": 64}
+                       for name in sorted(native_names)]
+        native_contract = {"schema": 1, "backend": backend, "files": native_rows}
+        self.metadata.update(proceduralBackend=backend, stagedProceduralNativeFiles=native_rows)
         storage.write_json(self.evidence, self.metadata)
         self.fixture_apk()
         bank = self.apk.parent / "GloomhavenVR-Quest-content.zip"
@@ -339,7 +347,8 @@ class ApkTests(Temporary):
         with zipfile.ZipFile(self.apk, "a") as archive:
             archive.write(mod_bank, "assets/quest-mod-content.zip")
             archive.writestr("assets/Quest/installation-manifest.json", json.dumps(contract))
-            for name in ("libQuestApparance.so", "libquest_box64.so", "libquest_wineserver.so", "libopus_egpv.so"):
+            archive.writestr("assets/Quest/procedural-native.json", json.dumps(native_contract))
+            for name in native_names:
                 if name != omit: archive.writestr("lib/arm64-v8a/" + name, arm64_elf_header())
             archive.writestr("assets/Quest/content-delivery.json", json.dumps({"schema": 1, "package": builder.PACKAGE,
                 "inputKey": input_key or self.inputs["inputKey"], "files": [{"file": bank.name, "archive": "quest-startup-content.zip",
@@ -390,7 +399,7 @@ class ApkTests(Temporary):
             builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
 
     def test_campaign_rejects_missing_executable_or_wrong_bank_owner(self):
-        self.campaign_fixture(omit="libquest_box64.so")
+        self.campaign_fixture(omit="libquest_proton.so")
         with self.assertRaisesRegex(storage.BuildError, "native game ABI"):
             builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
         self.campaign_fixture(input_key="another-build")
@@ -453,6 +462,37 @@ class ApkTests(Temporary):
             self.fixture_apk(omit="lib/arm64-v8a/" + name)
             with self.subTest(name=name), self.assertRaises(storage.BuildError):
                 builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+
+    def test_campaign_explicit_box64_comparison_retains_its_exact_native_abi(self):
+        self.campaign_fixture(backend="box64-wine9")
+        with patch.object(builder, "command", self.tool_output):
+            self.assertFalse(builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)["isDiagnostic"])
+
+    def test_campaign_rejects_backend_mismatch_and_old_native_executables(self):
+        self.campaign_fixture()
+        self.inputs["proceduralBackend"] = "box64-wine9"
+        with self.assertRaisesRegex(storage.BuildError, "selected backend"):
+            builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+        self.inputs["proceduralBackend"] = "proton-arm64ec-fex"
+        with zipfile.ZipFile(self.apk, "a") as archive:
+            archive.writestr("lib/arm64-v8a/libquest_box64.so", arm64_elf_header())
+        with self.assertRaisesRegex(storage.BuildError, "different procedural backend"):
+            builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+
+    def test_campaign_rejects_missing_or_mismatched_signed_native_inventory(self):
+        self.campaign_fixture()
+        self.metadata["stagedProceduralNativeFiles"] = []
+        storage.write_json(self.evidence, self.metadata)
+        with self.assertRaisesRegex(storage.BuildError, "signed native backend inventory"):
+            builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+        self.campaign_fixture()
+        with zipfile.ZipFile(self.apk) as archive:
+            records = [(entry, archive.read(entry)) for entry in archive.infolist()
+                       if entry.filename != "assets/Quest/procedural-native.json"]
+        with zipfile.ZipFile(self.apk, "w") as archive:
+            for entry, data in records: archive.writestr(entry, data)
+        with self.assertRaisesRegex(storage.BuildError, "signed procedural native program"):
+            builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
 
     def test_mislabeled_arm64_libraries_fail_elf_validation(self):
         valid = arm64_elf_header()
@@ -536,6 +576,23 @@ class DevelopmentAndDeploymentTests(Temporary):
         self.args = builder.parser().parse_args([
             "prepare", "--repo-root", str(self.repo), "--game-root", str(self.data),
             "--output-root", str(self.output), "--target", "probe", "--dummy-profile", "--steam-logo", str(self.logo)])
+
+    def test_backend_choice_is_captured_and_invalidates_only_derived_input_identity(self):
+        self.args.target = "game"
+        with patch.dict(os.environ, {"GHVRQ_PROCEDURAL_BACKEND": "proton-arm64ec-fex"}):
+            first = builder.inspect_inputs(self.args, self.repo, self.output, self.data)
+        self.assertEqual(first["proceduralBackend"], "proton-arm64ec-fex")
+        self.args.procedural_backend = "box64-wine9"
+        with patch.dict(os.environ, {"GHVRQ_PROCEDURAL_BACKEND": "proton-arm64ec-fex"}):
+            second = builder.inspect_inputs(self.args, self.repo, self.output, self.data)
+        self.assertEqual(second["proceduralBackend"], "box64-wine9")
+        self.assertNotEqual(first["inputKey"], second["inputKey"])
+        self.assertEqual(first["game"], second["game"])
+        self.assertEqual(first["mod"], second["mod"])
+        self.assertEqual(first["profileKey"], second["profileKey"])
+        self.args.procedural_backend = None
+        with patch.dict(os.environ, {"GHVRQ_PROCEDURAL_BACKEND": "unknown"}), self.assertRaisesRegex(storage.BuildError, "Unknown procedural"):
+            builder.inspect_inputs(self.args, self.repo, self.output, self.data)
 
     def test_startup_restores_post_effects_before_movie_or_native_staging(self):
         inputs = builder.inspect_inputs(self.args, self.repo, self.output, self.data)

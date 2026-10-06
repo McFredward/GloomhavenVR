@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 
 from storage import BuildError, digest, record_file, write_json
+import native_plugins
 
 
 def load(source, relative):
@@ -14,14 +15,16 @@ def load(source, relative):
     return module
 
 
-def stage(source, project, game, cache, ndk):
+def stage(source, project, game, cache, ndk, *, backend="proton-arm64ec-fex"):
     plugins = project / "Assets/Quest/Plugins/Android"
     streaming = project / "Assets/StreamingAssets"
     runtime = load(source, "tools/quest-procedural-runtime/runtime.py")
-    procedural = runtime.stage(cache, ndk, plugins, streaming, game / "Plugins/x86_64/ApparanceEngine.dll")
+    procedural = runtime.stage(cache, ndk, plugins, streaming, game / "Plugins/x86_64/ApparanceEngine.dll", backend=backend)
     original = game / "Plugins/x86_64/ApparanceEngine.dll"
     manifest = json.loads(Path(procedural["manifest"]).read_text())
-    if (manifest.get("schema") != 1 or manifest.get("originalEngineSha256") != digest(original)
+    expected_schema = {"proton-arm64ec-fex": 2, "box64-wine9": 1}.get(backend)
+    if (expected_schema is None or manifest.get("schema") != expected_schema
+            or manifest.get("backend") != backend or manifest.get("originalEngineSha256") != digest(original)
             or set(runtime.EXPORTS) != {"ApparanceInitialise", "ApparanceIsRunning", "ApparanceUpdate", "ApparanceSave", "ApparanceShutdown",
                 "ApparanceCreateEntity", "ApparanceDestroyEntity", "ApparanceEntityBuild", "ApparancePopEntityTask", "ApparancePopEngineTask", "ApparanceUpdateAsset", "ApparanceGetNextAssetRequest"}):
         raise BuildError("Staged procedural bridge differs from its original owned native ABI.")
@@ -34,11 +37,27 @@ def stage(source, project, game, cache, ndk):
     resources = project / "Assets/Quest/Resources"
     resources.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(procedural["manifest"], resources / "quest-procedural-runtime.json")
+    native_rows = manifest.get("androidNativeFiles")
+    if not isinstance(native_rows, list) or not native_rows:
+        raise BuildError("Procedural runtime did not declare its actual Android native files.")
+    # Runtime filenames are a backend contract, never a broad .so directory
+    # sweep that can silently retain executables from an earlier preparation.
+    program_rows = []
+    for row in native_rows:
+        name = row.get("path") if isinstance(row, dict) else None
+        if not isinstance(name, str) or "/" in name or "\\" in name:
+            raise BuildError("Procedural native filename is not local to the Android plugin directory.")
+        program_rows.append({"path": native_plugins.PREFIX + name,
+                             "sha256": row.get("sha256"), "size": row.get("size")})
+    program_rows.append(record_file(plugins / "arm64-v8a/libopus_egpv.so", native_plugins.PREFIX + "libopus_egpv.so"))
+    program_contract = {"schema": 1, "backend": backend, "files": program_rows}
+    native_plugins.verify_staged(project, program_contract, backend=backend)
+    write_json(resources / "quest-procedural-native.json", program_contract)
+    write_json(streaming / "Quest/procedural-native.json", program_contract)
     result = {"schema": 1, "scope": "original-campaign-native-abis", "originalEngineSha256": digest(original),
               "proceduralPayloadManifestSha256": procedural["manifestSha256"], "payloadFiles": procedural["files"],
               "voice": voice, "androidDeviceExecutionVerified": False,
-              "nativeFiles": [record_file(plugins / "arm64-v8a" / name, "Assets/Quest/Plugins/Android/arm64-v8a/" + name)
-                  for name in ("libQuestApparance.so", "libquest_box64.so", "libquest_wineserver.so", "libopus_egpv.so")]}
+              "proceduralBackend": backend, "nativeFiles": program_rows}
     write_json(project / "QuestCampaignEvidence/native-runtime.json", result)
     return result
 
@@ -49,6 +68,7 @@ def build_contract(project, inputs):
     native = json.loads((project / "QuestCampaignEvidence/native-runtime.json").read_text())
     platform = json.loads((resources / "quest-standalone-report.json").read_text())
     if (native.get("schema") != 1 or native.get("scope") != "original-campaign-native-abis"
+            or native.get("proceduralBackend") != inputs.get("proceduralBackend")
             or platform.get("scope") != "campaign-local-platform" or not platform.get("startupAdapterComplete")
             or not platform.get("bepInExAdapterGenerated") or platform.get("issues")
             or "lifecycle-mod.dll" not in platform.get("inputAssemblies", {})):
@@ -66,8 +86,9 @@ def build_contract(project, inputs):
     if len(mod) != 1:
         raise BuildError("Full-game contract requires exactly one actual current mod assembly.")
     paths += mod
-    paths += [resources / name for name in ("quest-procedural-runtime.json", "quest-standalone-report.json",
+    paths += [resources / name for name in ("quest-procedural-runtime.json", "quest-procedural-native.json", "quest-standalone-report.json",
               "quest-startup-report.json", "quest-startup-movies.json", "quest-mod-content.json", "quest-dlc-ownership.json")]
+    paths.append(project / "Assets/StreamingAssets/Quest/procedural-native.json")
     for row in native["nativeFiles"]:
         if record_file(project / row["path"], row["path"]) != row:
             raise BuildError("Campaign native plugin changed after staging: " + row["path"])

@@ -25,6 +25,7 @@ PROCEDURAL_APP_FILES = {
     "quest-procedural-worker.log": "files/quest-procedural-state/procedural-worker.log",
     "quest-procedural-worker.previous.log": "files/quest-procedural-state/procedural-worker.previous.log",
     "quest-procedural-engine.log": "files/quest-procedural-state/wine-prefix/drive_c/log.txt",
+    "quest-proton-engine.log": "files/quest-procedural-state/proton-prefix/drive_c/log.txt",
 }
 # Each diagnostic target emits its own files; absence is an explicit availability
 # gap, while a known-present file that cannot be transferred remains an error.

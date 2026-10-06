@@ -14,6 +14,8 @@ namespace GloomhavenVR.Quest
         static extern int quest_apparance_configure(string nativeLibraryDirectory, string payloadDirectory, string writableRuntimeDirectory);
         public static bool Configured { get; private set; }
         public static string Failure { get; private set; }
+        public static string Backend { get; private set; }
+        [Serializable] sealed class BackendContract { public int schema = 0; public string backend = null; }
 
         public static void Configure(string ownedContentRoot)
         {
@@ -24,6 +26,13 @@ namespace GloomhavenVR.Quest
             if (!Directory.Exists(payload)) throw new DirectoryNotFoundException("The manifested original procedural runtime payload is absent.");
             try
             {
+                var resource = Resources.Load<TextAsset>("quest-procedural-native");
+                if (resource == null) throw new InvalidDataException("The signed procedural backend contract is unavailable.");
+                var contract = JsonUtility.FromJson<BackendContract>(resource.text);
+                if (contract == null || contract.schema != 1
+                    || (contract.backend != "proton-arm64ec-fex" && contract.backend != "box64-wine9"))
+                    throw new InvalidDataException("The procedural backend identity is invalid.");
+                Backend = contract.backend;
                 string native, writable;
                 using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
                 using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
@@ -44,7 +53,8 @@ namespace GloomhavenVR.Quest
                 int result = quest_apparance_configure(native, payload, writable);
                 if (result != 0) throw new InvalidOperationException("Native procedural bridge configuration failed: " + result);
                 Configured = true;
-                UnityEngine.Debug.Log("[Quest procedural] Original engine process paths configured; native generation readiness is established by the original engine, not this configuration step.");
+                UnityEngine.Debug.Log("[Quest procedural] Original engine process paths configured; backend=" + Backend
+                    + "; native generation readiness is established by the original engine, not this configuration step.");
             }
             catch (Exception failure)
             {

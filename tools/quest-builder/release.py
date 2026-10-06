@@ -37,8 +37,13 @@ REQUIRED = set(PUBLIC_PACKAGES) | {'Quest-Builder.cmd', 'QUEST-BUILDER-START.txt
             'tools/quest-wizard/wizard.py', 'tools/quest-wizard-ui/index.html', 'tools/quest-installer/bootstrap.ps1',
             'tools/quest-builder/builder.py', 'tools/quest-builder/release.py',
             'tools/quest-recovery/full_recovery.py', 'tools/QuestWeaver/Program.cs',
-            'tools/quest-procedural-runtime/worker.c', 'src/GloomhavenVR/GloomhavenVR.csproj',
-            'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs'}
+            'tools/quest-procedural-runtime/worker.c', 'tools/quest-procedural-runtime/runtime.py',
+            'tools/quest-procedural-runtime/proton_runtime.py', 'tools/quest-procedural-runtime/proton_layout.py',
+            'tools/quest-procedural-runtime/proton_audit.py', 'tools/quest-procedural-runtime/proton.lock.json',
+            'tools/quest-procedural-runtime/proton_launcher.c', 'tools/quest-builder/native_plugins.py',
+            'src/GloomhavenVR/GloomhavenVR.csproj',
+            'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs',
+            'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestNativePluginContract.cs'}
 
 
 def safe_name(name):

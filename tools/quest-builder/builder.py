@@ -33,6 +33,7 @@ import campaign
 import mod_assets
 import build_provenance
 import import_workspace
+import native_plugins
 
 from profile import discover_steam_root, dummy_identity, load_profile, read_logo, ProfileError
 from storage import (BuildError, Stages, canonical, digest, ensure_output, inventory,
@@ -244,6 +245,13 @@ def inspect_inputs(args, repo: Path, output: Path, data: Path) -> dict:
                       "modBuild": mod_build(repo), "files": source_files},
               "profile": profile, "profileKey": profile_key, "probeAssets": probe,
               "startupProject": original_startup, "campaignProject": original_campaign}
+    if args.target == "game":
+        backend = getattr(args, "procedural_backend", None) or os.environ.get("GHVRQ_PROCEDURAL_BACKEND", "proton-arm64ec-fex")
+        if backend not in ("proton-arm64ec-fex", "box64-wine9"):
+            raise BuildError("Unknown procedural runtime backend: " + backend)
+        # Backend choice is an immutable preparation/build input. Switching an
+        # explicit fallback must never reuse the other backend's prepared Player.
+        inputs["proceduralBackend"] = backend
     inputs["inputKey"] = value_hash(inputs)
     manifest = output / "manifests" / (inputs["inputKey"] + ".json")
     write_json(manifest, inputs)
@@ -492,7 +500,8 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
                 campaign.stage_file_backed_extras(project, game)
                 dependencies.python_environment(output / "tool-cache", source)
                 selected_tools = toolchain(args, output)
-                campaign_native.stage(source, project, game, output / "tool-cache/campaign-native", Path(selected_tools["androidNdk"]))
+                campaign_native.stage(source, project, game, output / "tool-cache/campaign-native", Path(selected_tools["androidNdk"]),
+                                      backend=inputs["proceduralBackend"])
                 original_owners = campaign_shaders.original_cab_bundles(source, game)
                 full_audio.stage(project, game, dotnet=tool_path(args.dotnet, "dotnet"),
                     tool_cache=output / "tool-cache/campaign-native-codecs",
@@ -565,6 +574,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
                               project / "Assets/StreamingAssets/quest-mod-content.zip"])
             if args.target == "game":
                 contracts.extend([project / "QuestCampaignEvidence/native-runtime.json", resources / "quest-procedural-runtime.json",
+                                  resources / "quest-procedural-native.json", project / "Assets/StreamingAssets/Quest/procedural-native.json",
                                   project / "Assets/QuestOriginalCampaign/bundled-audio.json"])
                 contracts.append(project / "Assets/QuestOriginalCampaign/native-cubemaps.json")
                 contracts.extend([project / "Assets/QuestOriginalCampaign/native-sprites.json",
@@ -1047,9 +1057,23 @@ def validate_apk(apk: Path, report: Path, inputs: dict, tools: dict, output: Pat
             raise BuildError("The APK lacks IL2CPP metadata.")
         content_files = []
         if inputs["target"] == "game":
-            for required in ("libQuestApparance.so", "libquest_box64.so", "libquest_wineserver.so", "libopus_egpv.so"):
-                if "lib/arm64-v8a/" + required not in names:
-                    raise BuildError("Complete Campaign APK lacks its native game ABI: " + required)
+            native_path = "assets/Quest/procedural-native.json"
+            if native_path not in names or archive.getinfo(native_path).file_size > 65536:
+                raise BuildError("Complete Campaign APK lacks its signed procedural native program inventory.")
+            native_contract = json.loads(archive.read(native_path))
+            selected_backend = inputs.get("proceduralBackend")
+            native_rows = native_plugins.validate(native_contract, backend=selected_backend)
+            if metadata.get("proceduralBackend") != native_contract["backend"] or metadata.get("stagedProceduralNativeFiles") != native_rows:
+                raise BuildError("Player evidence differs from its signed native backend inventory.")
+            required_names = {"lib/arm64-v8a/" + row["path"][len(native_plugins.PREFIX):] for row in native_rows}
+            for required in required_names:
+                if names.count(required) != 1:
+                    raise BuildError("Complete Campaign APK lacks or repeats its native game ABI: " + required)
+            other_backend_names = {"lib/arm64-v8a/" + name for name in
+                (("libquest_box64.so", "libquest_wineserver.so") if native_contract["backend"] == "proton-arm64ec-fex"
+                 else tuple(native_plugins.PROTON_REQUIRED))}
+            if other_backend_names.intersection(names):
+                raise BuildError("Campaign APK contains native programs from a different procedural backend.")
             path = "assets/Quest/content-delivery.json"
             if path not in names or archive.getinfo(path).file_size > 65536:
                 raise BuildError("Complete Campaign APK lacks its signed content delivery contract.")
@@ -1489,6 +1513,8 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--game-root", type=Path)
     result.add_argument("--output-root", type=Path)
     result.add_argument("--target", choices=("probe", "startup", "game"), default="game")
+    result.add_argument("--procedural-backend", choices=("proton-arm64ec-fex", "box64-wine9"),
+                        help="Developer override: the default full-game backend is Android ARM64EC Proton/FEX; Box64/Wine9 is an explicit comparison only.")
     result.add_argument("--validate-campaign-shaders", action="store_true",
                         help="Developer audit: compile/reflect every original Campaign shader program; normal builds keep required native SVC/import checks.")
     result.add_argument("--profile-json", type=Path)

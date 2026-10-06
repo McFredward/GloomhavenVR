@@ -20,7 +20,7 @@ namespace GloomhavenVR.Quest.Editor
     public static class QuestBuild
     {
         [Serializable] sealed class ModInput { public int modBuild; }
-        [Serializable] sealed class InputManifest { public string inputKey; public ModInput mod; }
+        [Serializable] sealed class InputManifest { public string inputKey, proceduralBackend; public ModInput mod; }
         [Serializable] sealed class BuildStamp { public int schema = 1; public int modBuild; public string inputKey; }
         public const string CampaignShaderModeReceiptPath = "QuestCampaignShaderEvidence/build-mode.json";
         [Serializable] public sealed class CampaignShaderModeReceipt
@@ -42,6 +42,8 @@ namespace GloomhavenVR.Quest.Editor
             public bool campaignShaderExhaustiveCompleted, campaignShaderExhaustiveReused;
             public int campaignShaderNativeCompilerQueries;
             public string[] scenes;
+            public string proceduralBackend;
+            public QuestNativePluginContract.NativeFile[] stagedProceduralNativeFiles;
         }
         static string Required(string key)
         {
@@ -128,7 +130,7 @@ namespace GloomhavenVR.Quest.Editor
             ConfigureAndroid(package, target != "probe");
             PlayerSettings.bundleVersion = "0.1.0.B" + manifest.mod.modBuild + "." + manifest.inputKey.Substring(0, 12);
             PlayerSettings.Android.bundleVersionCode = manifest.mod.modBuild;
-            ConfigureNativePlugin();
+            var nativeContract = ConfigureNativePlugin(manifest.proceduralBackend);
             ConfigureXr(target != "probe");
             PrepareDiagnosticMaterials();
             PrepareDiagnosticResources();
@@ -195,7 +197,9 @@ namespace GloomhavenVR.Quest.Editor
                 campaignShaderValidationMode = campaignShaderMode == null ? "not-applicable" : campaignShaderMode.mode,
                 campaignShaderExhaustiveCompleted = campaignShaderMode != null && campaignShaderMode.exhaustiveCompilerValidationCompleted,
                 campaignShaderExhaustiveReused = campaignShaderMode != null && campaignShaderMode.exhaustiveResultReused,
-                campaignShaderNativeCompilerQueries = campaignShaderMode == null ? 0 : campaignShaderMode.nativeCompilerQueriesThisInvocation
+                campaignShaderNativeCompilerQueries = campaignShaderMode == null ? 0 : campaignShaderMode.nativeCompilerQueriesThisInvocation,
+                proceduralBackend = nativeContract == null ? null : nativeContract.backend,
+                stagedProceduralNativeFiles = nativeContract == null ? null : nativeContract.files
             }, true));
             if (report.summary.result != BuildResult.Succeeded)
                 throw new InvalidOperationException("Android build failed: " + report.summary.result + ", errors=" + report.summary.totalErrors);
@@ -603,12 +607,12 @@ namespace GloomhavenVR.Quest.Editor
             EditorUtility.SetDirty(manager);
             EditorUtility.SetDirty(perTarget);
         }
-        static void ConfigureNativePlugin()
+        static QuestNativePluginContract.Contract ConfigureNativePlugin(string selectedBackend)
         {
             var paths = new System.Collections.Generic.List<string> { "Assets/Quest/Plugins/Android/arm64/libghvr_quest_passthrough.so" };
+            QuestNativePluginContract.Contract nativeContract = null;
 #if GHVR_QUEST_GAME
-            paths.AddRange(new[] { "libQuestApparance.so", "libquest_box64.so", "libquest_wineserver.so", "libopus_egpv.so" }
-                .Select(name => "Assets/Quest/Plugins/Android/arm64-v8a/" + name));
+            nativeContract = QuestNativePluginContract.Configure(selectedBackend);
 #endif
             foreach (string path in paths)
             {
@@ -618,11 +622,10 @@ namespace GloomhavenVR.Quest.Editor
                 importer.SetCompatibleWithEditor(false);
                 importer.SetCompatibleWithPlatform(BuildTarget.Android, true);
                 importer.SetPlatformData(BuildTarget.Android, "CPU", "ARM64");
-                // Box64 and the private server launcher are executable PIE
-                // files under nativeLibraryDir; Unity must never dlopen them.
                 importer.isPreloaded = false;
                 importer.SaveAndReimport();
             }
+            return nativeContract;
         }
         static void EnableFeature(string id)
         {
