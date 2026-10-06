@@ -17,6 +17,9 @@ import os
 from pathlib import Path, PureWindowsPath
 import re
 import shutil
+import shlex
+import struct
+import tempfile
 import subprocess
 import sys
 import time
@@ -53,7 +56,7 @@ def builder_module():
     # nor replace an application's existing stdlib profile or cached test module.
     missing = object()
     names = ["profile", "storage"]
-    names += [name for name in ("script_order", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets", "full_assets", "campaign", "mod_assets", "build_provenance")
+    names += [name for name in ("script_order", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets", "full_assets", "campaign", "mod_assets", "build_provenance", "import_workspace")
               if (REPO / "tools/quest-builder" / (name + ".py")).is_file()]
     names += ["startup", "builder"]
     aliases = [name for name in names if name != "builder"] + ["_ghvr_wireless_" + name for name in names]
@@ -440,7 +443,300 @@ def write_json(path, value):
         temporary.unlink(missing_ok=True)
 
 
-def install_content(adb, address, source, previous=None):
+# Native installation receipt v1 is shared with QuestGameContent.Delivery.cs.
+# The private completion receipt is a cache, not an anti-piracy credential.
+_RECEIPT = ".quest-installation.receipt"
+_RECEIPT_LIMIT = 8 * 1024 * 1024
+_INSTALL_BATCH_BYTES = 256 * 1024 * 1024
+
+
+def _receipt_string(value):
+    encoded = value.encode("utf-8")
+    return struct.pack("<i", len(encoded)) + encoded
+
+
+def content_key(manifest):
+    rows = sorted(manifest["files"], key=lambda row: row["path"].encode("utf-16-be"))
+    data = bytearray(struct.pack("<i", 1) + _receipt_string(manifest["archive"]) + struct.pack("<i", len(rows)))
+    for row in rows:
+        data.extend(_receipt_string(row["path"]) + struct.pack("<q", row["size"]) + _receipt_string(row["sha256"]))
+    return hashlib.sha256(data).hexdigest()
+
+
+def encode_content_receipt(manifest, files):
+    data = bytearray(struct.pack("<ii", 0x49514847, 1) + _receipt_string(content_key(manifest)) + struct.pack("<i", len(files)))
+    for row in files.values():
+        data.extend(_receipt_string(row["path"]) + _receipt_string(row["sha256"]) + struct.pack("<q", row["size"])
+                    + struct.pack("<QQqqqqq", 0, 0, row["size"], 0, 0, 0, 0))
+    if len(data) > _RECEIPT_LIMIT - 32:
+        raise InstallError("Installation receipt exceeds its bounded size.")
+    return bytes(data) + hashlib.sha256(data).digest()
+
+
+def decode_content_receipt(data):
+    if not 48 <= len(data) <= _RECEIPT_LIMIT or hashlib.sha256(data[:-32]).digest() != data[-32:]:
+        return None
+    payload = data[:-32]
+    offset = 0
+
+    def number(fmt):
+        nonlocal offset
+        result = struct.unpack_from(fmt, payload, offset)
+        offset += struct.calcsize(fmt)
+        return result[0] if len(result) == 1 else result
+
+    def string(maximum):
+        nonlocal offset
+        size = number("<i")
+        if not 0 <= size <= maximum or size > len(payload) - offset:
+            raise ValueError("Invalid receipt string")
+        result = payload[offset:offset + size].decode("utf-8")
+        offset += size
+        return result
+
+    try:
+        if number("<ii") != (0x49514847, 1):
+            return None
+        key, count = string(64), number("<i")
+        if not re.fullmatch(r"[0-9a-f]{64}", key) or not 0 < count <= 32768:
+            return None
+        rows = {}
+        for _ in range(count):
+            path, sha, size = string(8192), string(64), number("<q")
+            identity = number("<QQqqqqq")
+            if not _content_path(path) or not re.fullmatch(r"[0-9a-f]{64}", sha) or size < 0 or identity[2] != size or path in rows:
+                return None
+            rows[path] = {"path": path, "sha256": sha, "size": size}
+        return {"key": key, "files": rows} if offset == len(payload) else None
+    except (ValueError, UnicodeError, struct.error):
+        return None
+
+
+def _content_path(path):
+    return (isinstance(path, str) and path.startswith("StreamingAssets/") and len(path.encode("utf-8")) <= 8192
+            and not any(char in path for char in "\\:\0\r\n\t")
+            and all(part not in ("", ".", "..") for part in path.split("/")))
+
+
+def installation_manifest(source):
+    with zipfile.ZipFile(source.apk) as apk:
+        name = "assets/Quest/installation-manifest.json"
+        if name not in apk.namelist():
+            return None  # Older local test packages retain their archive delivery.
+        if apk.getinfo(name).file_size > _RECEIPT_LIMIT:
+            raise InstallError("Installation manifest exceeds its bounded size.")
+        manifest = json.loads(apk.read(name))
+    if manifest.get("schema") != 1 or manifest.get("inputKey") != source.input_key:
+        raise InstallError("Installation inventory differs from the selected APK.")
+    for kind, archive in (("game", "quest-startup-content.zip"), ("mod", "quest-mod-content.zip")):
+        value = manifest.get(kind)
+        if (not isinstance(value, dict) or value.get("schema") != 1 or value.get("inputKey") != source.input_key
+                or value.get("archive") != archive or not re.fullmatch(r"[0-9a-f]{64}", str(value.get("archiveSha256", "")))
+                or not isinstance(value.get("files"), list) or not 0 < len(value["files"]) <= 32768):
+            raise InstallError("Invalid " + kind + " installation inventory.")
+        paths = set()
+        for row in value["files"]:
+            if (not isinstance(row, dict) or not _content_path(row.get("path"))
+                    or row["path"].casefold() in paths or type(row.get("size")) is not int or row["size"] < 0
+                    or not re.fullmatch(r"[0-9a-f]{64}", str(row.get("sha256", "")))):
+                raise InstallError("Invalid or duplicate installed content path.")
+            paths.add(row["path"].casefold())
+        if kind == "mod" and paths != {"streamingassets/" + name for name in
+                ("gloomhavenvr.bundle", "ghvr-town.bundle", "ghvr-town-voices.bundle")}:
+            raise InstallError("The full-game mod inventory must contain its three native banks.")
+    if (len(source.content) != 1 or not manifest["game"].get("externalDelivery")
+            or source.content[0].sha256 != manifest["game"]["archiveSha256"]):
+        raise InstallError("Installation game inventory differs from the adjacent owned bank.")
+    return manifest
+
+
+def _pull_content_receipt(adb, address, remote, local):
+    try:
+        adb.run("-s", address, "pull", remote, local, timeout=30, check_text=False)
+    except InstallError:
+        return None
+    if not local.is_file() or local.stat().st_size > _RECEIPT_LIMIT:
+        return None
+    return decode_content_receipt(local.read_bytes())
+
+
+def _content_shell(adb, address, lines, timeout=180):
+    # Every interpolated operand is shell quoted, and paths have already passed
+    # bounded containment validation. No user text is executable shell syntax.
+    return adb.run("-s", address, "shell", "sh", "-c", shlex.quote("set -eu\n" + "\n".join(lines)),
+                   timeout=timeout, check_text=False)
+
+
+def _remote_content_sizes(adb, address, root, rows):
+    result = {}
+    for offset in range(0, len(rows), 128):
+        batch = rows[offset:offset + 128]
+        lines = []
+        parents = set()
+        for row in batch:
+            parts = row["path"].split("/")
+            parents.update(root + "/" + "/".join(parts[:end]) for end in range(1, len(parts)))
+        for parent in sorted(parents):
+            lines.append("test ! -L " + shlex.quote(parent))
+        for index, row in enumerate(batch):
+            target = shlex.quote(root + "/" + row["path"])
+            lines.append("if test -f " + target + " && ! test -L " + target + "; then printf '" + str(index)
+                         + "\\t'; stat -c %s " + target + "; fi")
+        raw = _content_shell(adb, address, lines, timeout=30)
+        for line in raw.splitlines():
+            parts = line.split("\t")
+            if len(parts) != 2 or not all(re.fullmatch(r"[0-9]+", part) for part in parts):
+                raise InstallError("Unexpected device content metadata; installation stopped.")
+            index, size = map(int, parts)
+            if index >= len(batch) or batch[index]["path"] in result:
+                raise InstallError("Duplicate or invalid device content metadata.")
+            result[batch[index]["path"]] = size
+    return result
+
+
+def _matching_remote_content(adb, address, root, rows):
+    matched = {}
+    for offset in range(0, len(rows), 32):
+        batch = rows[offset:offset + 32]
+        lines = []
+        for row in batch:
+            target = shlex.quote(root + "/" + row["path"])
+            lines.append("if test -f " + target + "; then sha256sum " + target + "; fi")
+        raw = _content_shell(adb, address, lines, timeout=600)
+        wanted = {root + "/" + row["path"]: row for row in batch}
+        observed = set()
+        for line in raw.splitlines():
+            match = re.fullmatch(r"([0-9a-f]{64})  (.+)", line)
+            if not match or match[2] not in wanted or match[2] in observed:
+                raise InstallError("Unexpected or duplicate device content checksum.")
+            observed.add(match[2])
+            row = wanted[match[2]]
+            if match[1] == row["sha256"]:
+                matched[row["path"]] = row
+    return matched
+
+
+def _verify_remote_content(adb, address, root, rows):
+    if len(_matching_remote_content(adb, address, root, rows)) != len(rows):
+        raise InstallError("Installed file verification failed; the app was not launched. Rerun the installer to repair it.")
+
+
+def _validate_zip_members(archive, manifest):
+    wanted = {row["path"]: row for row in manifest["files"]}
+    actual = {}
+    for info in archive.infolist():
+        if (info.filename not in wanted or info.filename in actual or info.file_size != wanted[info.filename]["size"]
+                or info.is_dir() or (info.external_attr >> 16) & 0o170000 == 0o120000):
+            raise InstallError("Owned content archive differs from its exact file inventory.")
+        actual[info.filename] = info
+    if actual.keys() != wanted.keys():
+        raise InstallError("Owned content archive is missing manifested files.")
+    return actual
+
+
+def _publish_content_receipt(adb, address, root, manifest, rows, temporary, final):
+    local = temporary / "receipt.bin"
+    local.write_bytes(encode_content_receipt(manifest, rows))
+    remote = root + "/" + final
+    adb.run("-s", address, "push", local, remote + ".upload", timeout=30)
+    _content_shell(adb, address, ["mv -f " + shlex.quote(remote + ".upload") + " " + shlex.quote(remote)], timeout=30)
+
+
+def _install_content_tree(adb, address, source, manifest, archive, root, temporary, repair):
+    rows = manifest["files"]
+    members = _validate_zip_members(archive, manifest)
+    _content_shell(adb, address, ["mkdir -p " + shlex.quote(root), "test ! -L " + shlex.quote(root)], timeout=30)
+    committed = _pull_content_receipt(adb, address, root + "/" + _RECEIPT, temporary / "committed.bin")
+    if committed and committed["key"] == content_key(manifest) and not repair:
+        print("Reusing completed file-backed content: " + root.rsplit("/", 1)[-1] + ".")
+        return {"contentKey": committed["key"], "files": len(rows), "reusedFiles": len(rows), "uploadedFiles": 0}
+    inventory = {}
+    for receipt in (committed, _pull_content_receipt(adb, address, root + "/" + _RECEIPT + ".previous", temporary / "previous.bin"),
+                    _pull_content_receipt(adb, address, root + "/" + _RECEIPT + ".pending", temporary / "pending.bin")):
+        if receipt:
+            inventory.update(receipt["files"])
+    sizes = _remote_content_sizes(adb, address, root, rows)
+    retained = {row["path"]: row for row in rows if inventory.get(row["path"]) == row and sizes.get(row["path"]) == row["size"]}
+    if repair and retained:
+        # Repair verifies all claimed bytes at installation time, never at launch.
+        retained = _matching_remote_content(adb, address, root, list(retained.values()))
+    needed = [row for row in rows if row["path"] not in retained]
+    if needed:
+        # Invalidate completion BEFORE any replacement write. Retain only files
+        # which this operation accepts; a failed repair must never revive a stale
+        # claim for the same-sized corrupt file on the next installer run.
+        _publish_content_receipt(adb, address, root, manifest, retained, temporary, _RECEIPT + ".previous")
+        _content_shell(adb, address, ["rm -f " + shlex.quote(root + "/" + _RECEIPT)], timeout=30)
+    print("Preparing " + str(len(needed)) + " changed files on the PC; " + str(len(retained)) + " files remain installed.")
+    uploaded = 0
+    while needed:
+        batch, size = [], 0
+        while needed and (not batch or (len(batch) < 256 and size + needed[0]["size"] <= _INSTALL_BATCH_BYTES)):
+            row = needed.pop(0); batch.append(row); size += row["size"]
+        stage = temporary / "StreamingAssets"
+        stage.mkdir()
+        try:
+            for row in batch:
+                target = temporary / row["path"]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                sha, written = hashlib.sha256(), 0
+                with archive.open(members[row["path"]]) as origin, target.open("wb") as destination:
+                    for block in iter(lambda: origin.read(1024 * 1024), b""):
+                        sha.update(block); written += len(block); destination.write(block)
+                if written != row["size"] or sha.hexdigest() != row["sha256"]:
+                    raise InstallError("PC extraction differs from the APK inventory: " + row["path"])
+            transfer_timeout = min(21600, max(180, 120 + (size + 1048575) // 1048576))
+            adb.run("-s", address, "push", stage, root + "/", timeout=transfer_timeout)
+            _verify_remote_content(adb, address, root, batch)
+            retained.update((row["path"], row) for row in batch)
+            _publish_content_receipt(adb, address, root, manifest, retained, temporary, _RECEIPT + ".pending")
+            uploaded += len(batch)
+            print("Installed content files: " + str(len(retained)) + "/" + str(len(rows)) + ".")
+        finally:
+            shutil.rmtree(stage)
+    _publish_content_receipt(adb, address, root, manifest, retained, temporary, _RECEIPT)
+    obsolete = [row for path, row in inventory.items() if path not in retained]
+    if obsolete:
+        # Delete only earlier manifested files, after the replacement tree is
+        # committed. Unknown files and original saves are outside this scope.
+        _remote_content_sizes(adb, address, root, obsolete)  # Reject linked parents.
+        for offset in range(0, len(obsolete), 128):
+            _content_shell(adb, address, ["rm -f " + shlex.quote(root + "/" + row["path"])
+                                         for row in obsolete[offset:offset + 128]], timeout=30)
+    _content_shell(adb, address, ["rm -f " + shlex.quote(root + "/" + _RECEIPT + suffix) for suffix in (".pending", ".previous")], timeout=30)
+    return {"contentKey": content_key(manifest), "files": len(rows), "reusedFiles": len(rows) - uploaded, "uploadedFiles": uploaded}
+
+
+def install_file_content(adb, address, source, repair=False):
+    manifest = installation_manifest(source)
+    if manifest is None:
+        return None
+    adb.run("-s", address, "shell", "am", "force-stop", PACKAGE, timeout=30)
+    base = "/sdcard/Android/data/" + PACKAGE + "/files/"
+    records = []
+    with tempfile.TemporaryDirectory(prefix="ghvr-quest-install-") as name, zipfile.ZipFile(source.apk) as apk:
+        temporary = Path(name)
+        mod_info = apk.getinfo("assets/quest-mod-content.zip")
+        if mod_info.file_size > 4 * 1024 * 1024 * 1024:
+            raise InstallError("Mod content archive exceeds its bounded size.")
+        mod_path = temporary / "quest-mod-content.zip"
+        with apk.open(mod_info) as origin, mod_path.open("wb") as destination:
+            shutil.copyfileobj(origin, destination, 1024 * 1024)
+        if digest(mod_path) != manifest["mod"]["archiveSha256"]:
+            raise InstallError("The embedded mod bank differs from its inventory.")
+        for kind, path, root in (("mod", mod_path, base + "quest-mod-resources"),
+                                ("game", source.content[0].path, base + "quest-owned-game")):
+            with zipfile.ZipFile(path) as archive:
+                result = _install_content_tree(adb, address, source, manifest[kind], archive, root, temporary, repair)
+            records.append({"archive": manifest[kind]["archive"], "sha256": manifest[kind]["archiveSha256"],
+                            "size": path.stat().st_size, "remote": root, "fileBacked": True, **result})
+    return records
+
+
+def install_content(adb, address, source, previous=None, repair=False):
+    prepared = install_file_content(adb, address, source, repair=repair)
+    if prepared is not None:
+        return prepared
     if not source.content:
         return []
     # Only this installed game's private external directory is touched.
@@ -510,6 +806,7 @@ def parser():
     result.add_argument("--serial")
     result.add_argument("--setup", action="store_true")
     result.add_argument("--no-launch", action="store_true")
+    result.add_argument("--repair-content", action="store_true", help="Verify installed game bytes and repair missing/changed files before launch.")
     result.add_argument("--dry-run", action="store_true")
     return result
 
@@ -577,7 +874,7 @@ def main(argv=None, runner=None):
                 if prior.get("deviceSerial") == hardware and prior.get("package") == PACKAGE: previous = prior
             except (OSError, ValueError):
                 pass
-        content_records = install_content(adb, address, source, previous)
+        content_records = install_content(adb, address, source, previous, repair=args.repair_content)
         clean_previous_content(adb, address, previous, content_records)
         if not args.no_launch:
             adb.run("-s", address, "shell", "am", "start", "-W", "-n", ACTIVITY,

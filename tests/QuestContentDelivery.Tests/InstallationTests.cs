@@ -5,11 +5,26 @@ using GloomhavenVR.Quest;
 
 static partial class Program
 {
-    static QuestGameContentDeliveryResult Install(Fixture fixture, Action<QuestGameContentProgress>? progress = null)
-        => QuestGameContent.Install(fixture.Manifest, fixture.Output, fixture.Source, true, fixture.Staged, Archive, progress);
+    static QuestGameContentDeliveryResult Install(Fixture fixture, Action<QuestGameContentProgress>? progress = null, bool repair = false)
+        => QuestGameContent.Install(fixture.Manifest, fixture.Output, fixture.Source, true, fixture.Staged, Archive, progress, repair);
 
     static void InstallationCache()
     {
+        // Frozen PC-installer vector: decode the Python-owned binary receipt in
+        // the actual native-runtime reader. No content files exist in this root;
+        // warm startup must trust the completed installation, not enumerate them.
+        var pc = new Fixture(); Directory.CreateDirectory(pc.Output);
+        var pcManifest = new QuestGameContentManifest { schema = 1, inputKey = new string('a', 64),
+            archive = Archive, archiveSha256 = new string('0', 64), externalDelivery = true,
+            files = new[] {
+                new QuestGameContentFile { path = "StreamingAssets/Rulebase/Campaign.ruleset", size = 16, sha256 = "fa70d28857436775711be7ac9b7593100bfd3cb9dd09c0e42ab9b92d3c9ab7f2" },
+                new QuestGameContentFile { path = "StreamingAssets/Movies/intro.mp4", size = 13, sha256 = "14b38e5d7646f68b90f155713f66e6289a3ee85368dc2aefab5692b6e7f1ec47" }
+            } };
+        File.WriteAllBytes(QuestGameContent.InstallationReceiptPath(pc.Output), Convert.FromBase64String("R0hRSQEAAABAAAAAYTM3MDk4MDRkMDdiYzhkNTZkMWU1MjFkZTkwMzFmZmMzNGVkNmI1ZTA4YjY3YWJkZGM0MWVkYjZjODFlZjIwZgIAAAApAAAAU3RyZWFtaW5nQXNzZXRzL1J1bGViYXNlL0NhbXBhaWduLnJ1bGVzZXRAAAAAZmE3MGQyODg1NzQzNjc3NTcxMWJlN2FjOWI3NTkzMTAwYmZkM2NiOWRkMDljMGU0MmFiOWI5MmQzYzlhYjdmMhAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAU3RyZWFtaW5nQXNzZXRzL01vdmllcy9pbnRyby5tcDRAAAAAMTRiMzhlNWQ3NjQ2ZjY4YjkwZjE1NTcxM2Y2NmU2Mjg5YTNlZTg1MzY4ZGMyYWVmYWI1NjkyYjZlN2YxZWM0Nw0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADj9KdG29Z7/Pa1CVsYgdCOOMIzAmsxpuWZLk5ZKGGydw=="));
+        var pcResult = QuestGameContent.GetExisting(pcManifest, pc.Output);
+        Check(pcResult != null && pcResult.ContentKey == "a3709804d07bc8d56d1e521de9031ffc34ed6b5e08b67abddc41edb6c81ef20f" && pcResult.MetadataCheckedFiles == 0,
+            "receipt-pc-native-format-and-key");
+        Check(QuestGameContent.GetExisting(pcManifest, pc.Output, checkMetadata: true) == null, "receipt-pc-explicit-repair");
         var external = new Fixture(apk: false);
         external.Manifest.externalDelivery = true;
         var externalProgress = new List<QuestGameContentProgress>();
@@ -48,7 +63,7 @@ static partial class Program
             catch (IOException) { Check(false, "receipt-warm-no-content-reads"); }
         }
         Check(result.InstallationReceiptReused && result.ReusedContent && result.VerifiedBytes == 0 && result.VerifiedFiles == 0
-            && result.MetadataCheckedFiles == 3 && progress.Count == 0, "receipt-warm-zero-byte-work");
+            && result.MetadataCheckedFiles == 0 && progress.Count == 0, "receipt-warm-zero-byte-work");
         string key = result.ContentKey;
         var otherScope = new QuestGameContentManifest { schema = 1, inputKey = cold.Manifest.inputKey,
             archive = "quest-mod-content.zip", archiveSha256 = cold.Manifest.archiveSha256, files = cold.Manifest.files };
@@ -74,8 +89,9 @@ static partial class Program
         var repair = new Fixture(); Install(repair);
         DateTime untouched = File.GetLastWriteTimeUtc(repair.Target(0));
         File.Delete(repair.Target(1));
-        Check(QuestGameContent.GetExisting(repair.Manifest, repair.Output) == null, "receipt-detect-missing");
-        File.Delete(repair.Source); progress.Clear(); result = Install(repair, progress.Add); repair.Match();
+        Check(QuestGameContent.GetExisting(repair.Manifest, repair.Output) != null, "receipt-warm-no-metadata-scan");
+        Check(QuestGameContent.GetExisting(repair.Manifest, repair.Output, checkMetadata: true) == null, "receipt-detect-missing");
+        File.Delete(repair.Source); progress.Clear(); result = Install(repair, progress.Add, repair: true); repair.Match();
         Check(result.MetadataCheckedFiles == 2 && result.ExtractedFiles == 1 && result.VerifiedFiles == 0
             && result.ReusedArchive && result.InstallationState == "repaired", "receipt-only-missing-repaired");
         Check(File.GetLastWriteTimeUtc(repair.Target(0)) == untouched, "receipt-repair-keeps-unaffected");
@@ -84,11 +100,11 @@ static partial class Program
         var changed = new Fixture(); Install(changed);
         byte[] altered = (byte[])changed.Payloads[0].Clone(); altered[30] ^= 1;
         File.WriteAllBytes(changed.Target(0), altered);
-        Check(QuestGameContent.GetExisting(changed.Manifest, changed.Output) == null, "receipt-detect-changed-metadata");
-        result = Install(changed); changed.Match();
+        Check(QuestGameContent.GetExisting(changed.Manifest, changed.Output, checkMetadata: true) == null, "receipt-detect-changed-metadata");
+        result = Install(changed, repair: true); changed.Match();
         Check(result.MetadataCheckedFiles == 2 && result.ExtractedFiles == 1, "receipt-changed-repaired");
         File.SetLastWriteTimeUtc(changed.Target(0), new DateTime(2003, 1, 1, 0, 0, 0, DateTimeKind.Utc));
-        result = Install(changed);
+        result = Install(changed, repair: true);
         Check(result.MetadataCheckedFiles == 2 && result.VerifiedFiles == 1 && result.ExtractedFiles == 0
             && result.InstallationReceiptPublished, "receipt-touched-valid-file-adopted");
 
@@ -125,8 +141,8 @@ static partial class Program
         falseReceipt[falseReceipt.Length - 40] ^= 1; // Last entry's ctime nanoseconds, with a valid envelope checksum.
         SHA256.HashData(falseReceipt.AsSpan(0, falseReceipt.Length - 32)).CopyTo(falseReceipt, falseReceipt.Length - 32);
         File.WriteAllBytes(receiptPath, falseReceipt);
-        Check(QuestGameContent.GetExisting(falseStats.Manifest, falseStats.Output) == null, "receipt-false-metadata-declined");
-        result = Install(falseStats);
+        Check(QuestGameContent.GetExisting(falseStats.Manifest, falseStats.Output, checkMetadata: true) == null, "receipt-false-metadata-declined");
+        result = Install(falseStats, repair: true);
         Check(result.MetadataCheckedFiles == 2 && result.VerifiedFiles == 1 && result.ExtractedFiles == 0
             && result.InstallationReceiptPublished, "receipt-false-metadata-rechecked");
 

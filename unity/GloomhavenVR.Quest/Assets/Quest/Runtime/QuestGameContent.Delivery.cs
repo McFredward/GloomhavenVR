@@ -17,22 +17,26 @@ namespace GloomhavenVR.Quest
         const int MaximumReceiptPathBytes = 8192;
         static readonly UTF8Encoding ReceiptEncoding = new UTF8Encoding(false, true);
 
-        /// <summary>Reuse an installed bank using a local receipt and cheap file
-        /// metadata. No content-byte reads, archive access or progress callbacks.
-        /// ConfigureNativeHash must precede workers on Android, as for Deliver.</summary>
+        /// <summary>Reuse a committed private installation without scanning its
+        /// thousands of files on each launch. The PC installer validates changed
+        /// bytes and publishes this receipt only after its completed transfer.
+        /// Explicit repair checks metadata; native file loaders report missing or
+        /// corrupt assets visibly. This is an ownership cache, not a DRM proof.</summary>
         public static QuestGameContentDeliveryResult GetExisting(QuestGameContentManifest manifest, string root,
-            string expectedArchive = "quest-startup-content.zip")
+            string expectedArchive = "quest-startup-content.zip", bool checkMetadata = false)
         {
             ValidateInstallation(manifest, root, expectedArchive);
             string key = InstallationContentKey(manifest);
             InstallationReceipt receipt = ReadInstallationReceipt(root);
             if (receipt == null || receipt.ContentKey != key) return null;
-            foreach (QuestGameContentFile file in manifest.files)
-                if (!ReceiptFileMatches(receipt, file, Target(root, file.path))) return null;
+            if (receipt.Files.Count != manifest.files.Length) return null;
+            if (checkMetadata)
+                foreach (QuestGameContentFile file in manifest.files)
+                    if (!ReceiptFileMatches(receipt, file, Target(root, file.path))) return null;
             return new QuestGameContentDeliveryResult
             {
                 ReusedContent = true, ContentKey = key, InstallationState = "cached",
-                InstallationReceiptReused = true, MetadataCheckedFiles = manifest.files.Length
+                InstallationReceiptReused = true, MetadataCheckedFiles = checkMetadata ? manifest.files.Length : 0
             };
         }
 
@@ -43,9 +47,9 @@ namespace GloomhavenVR.Quest
         /// it is neither an anti-piracy measure nor an adversarial file proof.</summary>
         public static QuestGameContentDeliveryResult Install(QuestGameContentManifest manifest, string root, string sourcePath,
             bool sourceIsApk, string archivePath, string expectedArchive = "quest-startup-content.zip",
-            Action<QuestGameContentProgress> progress = null)
+            Action<QuestGameContentProgress> progress = null, bool repair = false)
         {
-            QuestGameContentDeliveryResult existing = GetExisting(manifest, root, expectedArchive);
+            QuestGameContentDeliveryResult existing = GetExisting(manifest, root, expectedArchive, repair);
             if (existing != null) return existing;
             string key = InstallationContentKey(manifest);
             InstallationReceipt receipt = ReadInstallationReceipt(root);
