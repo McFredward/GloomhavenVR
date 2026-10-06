@@ -373,6 +373,26 @@ def mutations():
     ]
 
 
+def mutation_edits(name, filename, before, after):
+    """Remove both real validation sites for these two historical regression controls.
+
+    Quiet entry deliberately revalidates the approach at its original-controller
+    boundary. Removing only the approach guard correctly leaves the second guard
+    protecting the native visit. The negative control must remove that same rule
+    from both production-bound methods; the original runtime assertion stays intact.
+    """
+    edits = [] if filename is None else [(filename, before, after)]
+    if name == "held-merchant-offer":
+        edits.append(("QuietControllerFixture.cs",
+            "if (_requested != service && (TownServiceMerchantHandoff.HasParkedOffer\n            || TownServiceEnhancementHandoff.HasCurrentOffering)) return false;",
+            "if (_requested != service && (false\n            || TownServiceEnhancementHandoff.HasCurrentOffering)) return false;"))
+    elif name == "incompatible-host":
+        edits.append(("QuietControllerFixture.cs",
+            "|| !WorldUIConfig.ImmersiveTownServices.Value || !TownServiceGrantSync.CanUseImmersive",
+            "|| !WorldUIConfig.ImmersiveTownServices.Value"))
+    return edits
+
+
 def main():
     repo = Path(__file__).resolve().parent.parent
     parser = argparse.ArgumentParser(description=__doc__)
@@ -414,16 +434,22 @@ def main():
     # its exact method instead of silently modifying both or failing after dozens
     # of unrelated builds have already completed.
     for name, filename, before, after, _ in variants[1:]:
-        if filename not in bound:
-            raise RuntimeError(f"Production binding drift: missing {filename} for {name}")
-        replace_once(bound[filename], before, after)
+        for target, original, replacement in mutation_edits(name, filename, before, after):
+            if target not in bound:
+                raise RuntimeError(f"Production binding drift: missing {target} for {name}")
+            replace_once(bound[target], original, replacement)
     for name, filename, before, after, expected in variants:
         build = run / name
         production = build / "production"
         production.mkdir(parents=True)
-        for path, text in bound.items():
-            if path == filename:
-                text = replace_once(text, before, after)
+        mutated = dict(bound)
+        edits = mutation_edits(name, filename, before, after)
+        for target, original, replacement in edits:
+            mutated[target] = replace_once(mutated[target], original, replacement)
+        (build / "mutation-edits.json").write_text(json.dumps([
+            {"source": target, "before": original, "after": replacement}
+            for target, original, replacement in edits], indent=2) + "\n")
+        for path, text in mutated.items():
             (production / path).write_text(text)
         project = build / "Interaction.csproj"
         shutil.copyfile(fixture / "Interaction.csproj", project)
