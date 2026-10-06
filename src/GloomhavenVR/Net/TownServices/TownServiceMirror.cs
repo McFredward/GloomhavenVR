@@ -780,7 +780,10 @@ internal static partial class TownServiceMirror
     // session heartbeat. This adds one small urgent packet per .75 s, not a stream
     // of unchanged catalog cards or per-frame intent packets.
     private static bool NeedsHeartbeat(LocalModule module) => module.Id == _heartbeatModule
-        || ReferenceEquals(_local, PrivateLane) && _service == 1 && module.Address == MerchantOfferingAddress;
+        || NeedsOfferingHeartbeat(module);
+
+    private static bool NeedsOfferingHeartbeat(LocalModule module) =>
+        ReferenceEquals(_local, PrivateLane) && _service == 1 && module.Address == MerchantOfferingAddress;
 
     internal static void EndSession()
     { if (ReferenceEquals(_local, PrivateLane) && _local.TransactionActive)
@@ -906,7 +909,11 @@ internal static partial class TownServiceMirror
                     else emitted = TownServiceDelta.Create(module.Baseline!, frame);
                     // Prepared hidden inventories/tooltips are background dependencies,
                     // not part of the currently visible offered card and controls.
+                    // A previously admitted, parked merchant guide still carries the
+                    // bounded shared-palm intent heartbeat. Keep only that tiny header
+                    // urgent; the earlier cold-original visibility gate remains intact.
                     emitted.HighPriority = _local.RequiredMounts.Contains(module.Id)
+                        || NeedsOfferingHeartbeat(module)
                         || CurrentModuleVisible(module) && (module.HighPriority || module.WasPriority || NeedsHeartbeat(module));
                     if (module.CatalogResident && module.CatalogDormant)
                     { module.Last = TownServiceDelta.Retain(frame); module.LastSent = frame.Sequence; continue; }
