@@ -1,5 +1,47 @@
 # State — where the project stands
 
+**Quest full Campaign B624 built and verified, 2026-10-06: isolated feature.**
+
+The exact B623 hardware capture records a native Adreno/Vulkan crash during
+replacement of the external XR eye images after live MSAA4 and eye scale1.5
+requests, before original game bootstrap. Quest now activates the shared Steam
+Frame standalone defaults and retains its initial Vulkan eye allocation. Native
+startup MSAA is0 across all six actual Player quality levels; lower resolution
+uses viewport-only scaling. Stored values survive, with accurate English/German
+descriptions and effective labels. Desktop/GLES retain their original setters.
+
+The signed full ARM64 IL2CPP Player contains all13 original scenes plus Quest
+bootstrap and the complete Campaign/purchased-DLC native bank. APK size is
+2,494,104,762 bytes, SHA `7b16dabefd36c103…`; adjacent bank size is10,912,754,848
+bytes, SHA `0831f24bf61cd77b…`. Runtime is frozen at `59d787816`, input
+`c85cbfcb18abf929…`. Release compilation has zero warnings/errors;3081 platform
+assertions/17 defect controls,576 affected Frame assertions/5 controls and all378
+builder tests pass. Actual delivery retains688 original Shaders/51,564 aliases
+and13 ComputeShaders/36 Vulkan kernels, with zero exhaustive compiler queries.
+
+Accepted whole-bank evidence is inherited only for6,365 byte-identical payloads.
+The changed bundle retains all public roots and other native object bytes; its
+six reserialized Shaders retain4,296 byte-identical actual executable programs.
+Independent catalog comparison preserves lookup associations and dependency
+edges. Actual APK CRC and native quality-setting readback pass. Native Build ID
+`eb8f47caa41067ae` matches retained debug symbols and signed Player;1,150 actual
+native-source/managed-backup files are hashed. Windows ZIP64/member CRCs, nested
+APK/bank hashes and all50 current installer-source hashes pass. Windows archive
+size is13,408,148,631 bytes, SHA `659a8d78960f3d3d…`. Headset startup, pictures,
+Campaign runtime, saves and cross-platform sessions still require hardware tests.
+See [B624 hardware procedure](QUEST3-HARDWARE-624.md).
+
+After verified handoff,19 completed Quest worker worktrees,20 reproducible clean
+historical source snapshots, obsolete B622 builds/project, old B620/B623 symbol
+payloads, one rejected partial bank and old hardware packages are removed. Branch
+refs, unique untracked inputs and small receipts are retained. The dirty worker
+and eight dirty/unknown historical snapshots remain. Shared filesystem free space
+increases68,756,516,864 bytes during this cleanup; the owned16-GiB build swap was
+removed separately beforehand. Current imports/Library/Shader caches, canonical
+game inputs, captures and other agents' checkouts remain. Only B624 payloads and
+current handoff evidence remain in the main hardware directory. No tracked `dev`
+files are changed; publish only `feature/quest3-standalone`.
+
 **Quest full Campaign B623 built, 2026-10-06: isolated feature.**
 
 The maintainer authorized implementation through a complete hardware APK, not
