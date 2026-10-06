@@ -361,6 +361,14 @@ def main():
         variants = [("production", None, None, None, "")]
         if not args.no_negative_controls:
             variants += [
+                ("merchant-readiness-missing", "TownServiceMirror.Motion.cs",
+                 "CueReady = TownServiceMerchantHandoff.WantsOffering", "CueReady = false",
+                 "parked native merchant offer remains requested even when its original ghost alpha is zero"),
+                ("merchant-readiness-heartbeat-missing", "TownServiceMirror.Motion.cs",
+                 "_nextMotionMerchantReady = now + TownServiceMotionCodec.Heartbeat;",
+                 "_nextMotionMerchantReady = float.MaxValue;",
+                 "live visitor readiness is actually retransmitted while local guide art stays private"),
+
                 ("source-wire-session", "PublisherTick.cs", "TownServiceMirror.LocalOwnsInteraction(service, Private._generation)", "TownServiceMirror.LocalOwnsInteraction(service, sourceSession)", "local interaction ownership uses the current wire generation after service switches"),
                 # The transaction election has the same tie expression; mutate only the visual lease.
                 ("highest-player-wins", "TownServiceMirror.cs", 'if (pair.Key <= 0 || !session.Active || session.Service != service\n                || now - session.LastSeenTime > NetProtocol.StaleTimeoutSeconds) continue;\n            float age = session.SessionAge + Mathf.Max(0f, now - session.ReceivedTime);\n            if (owner == 0 || age > oldestAge + .05f\n                || Mathf.Abs(age - oldestAge) <= .05f && pair.Key < owner)', 'if (pair.Key <= 0 || !session.Active || session.Service != service\n                || now - session.LastSeenTime > NetProtocol.StaleTimeoutSeconds) continue;\n            float age = session.SessionAge + Mathf.Max(0f, now - session.ReceivedTime);\n            if (owner == 0 || age > oldestAge + .05f\n                || Mathf.Abs(age - oldestAge) <= .05f && pair.Key > owner)', "simultaneous resident claims use the deterministic player-ID tie break"),

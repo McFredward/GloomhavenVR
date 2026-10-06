@@ -244,13 +244,15 @@ python3 scripts/run-test-suites.py --group local --list
 python3 scripts/run-test-suites.py --group local --suite native-playback
 ```
 
-`--suite ID` is a partial run for iteration. It does not execute every standalone suite or the
-golden wire vectors and is not a release or push gate. Record the selected IDs and assertion
-counts when reporting a focused result. After reviewing and integrating the worker commits,
-the primary agent runs the complete local gate above once on the final `dev` tree. In particular,
-`scripts/wire-tests.sh` runs all local suites and then the golden vectors. If a later fix changes
-that validated tree, rerun the affected focused checks and the complete gate on the final tree
-before pushing. Do not count a prior tree's result as coverage for the new tree.
+`--suite ID` is a partial run. It does not execute every standalone suite or the golden wire
+vectors, and must never be reported as a complete gate. Record selected IDs, source bindings,
+assertion counts and limitations. Substantial integrations require the complete final local
+gate above; `scripts/wire-tests.sh` runs all local suites and then the golden vectors.
+The maintainer's 2026-10-06 instruction permits focused checks for bounded repairs: rerun the
+affected checks, review the final compiled changes and reuse passing evidence only where its
+bound production sources remain unchanged. Do not repeat successful unrelated suites merely
+because a limited fixture or repair changed. Hosted CI and release requirements remain as
+documented below; a focused local repair is not a new full-suite certification.
 
 Independent tests run concurrently by default. The source group contains 14 read-only gates;
 `wire-tests.sh` runs the complete local suite inventory through the same bounded scheduler, then executes

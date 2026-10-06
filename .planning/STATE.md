@@ -1,5 +1,38 @@
 # State — where the project stands
 
+**Build634 integration, 2026-10-06: 1.1.0 development candidate.**
+
+The Build633 singleplayer regression is reproduced against original native
+tab/mode/selection/highlight code: an already-selected buy toggle does not emit
+its callback, leaving enhancement mode NONE or retained SELL. Quiet preparation
+now follows the game's original already-on EnterShop branch. The original points
+heading also removes its null-sprite full-cover white backing reversibly; native
+text, icons and updates remain. No flat service window or party-selection change
+is introduced. Counter owner/observer state uses the existing exact-original
+transport. Existing remote logs are Build629 and cannot validate this633 repair.
+
+The resident ownership review verifies independent per-NPC claims and cleanup:
+different players can occupy different residents, and completed/withdrawn local
+visits release their source before the next visit. Pending native transactions
+retain their rightful source until returned/cancelled/committed; their ownership
+never blocks a different resident for another player. See
+[the NPC634 review](NPC-634-REVIEW.md) for focused evidence and boundaries.
+
+The parallel Frame634 work is merged at9fb092a72. Fresh Standalone eye scale is
+.80, decorative torch coverage is broader, and expensive terrain substitution
+checks have an optional per-camera budget (64 fresh Frame;0 PC/unlimited).
+Accepted viewport resets recover without live allocation. Shared classification
+and inactive dissolve work are reduced; active wall fades remain native.
+Install the updated environment bundle with the assembly. Existing saved
+configuration remains; actual headset performance is still unverified. See
+[the Frame634 integration](../docs/performance/FRAME-634-INTEGRATION.md).
+
+Validation is focused and inherits source-bound passing Frame/NPC632 evidence.
+It does not claim a new complete146-suite run; final receipts live under
+`.planning/debug/npc634/`. Both peers must install634 for the next hardware test.
+
+---
+
 **Build633 integration validated for hardware handoff, 2026-10-06: 1.1.0.**
 
 The completed NPC632 work remains unchanged. The independent Frame follow-up

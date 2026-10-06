@@ -12,7 +12,11 @@ public static partial class MirrorProgram
 {
     private static IEnumerator PopulatedPublicCabinetHandover()
     {
-        TownServiceMirror.Shutdown(); Baselines.Clear(); NetPlayerActors.Peer = 2;
+        TownServiceMirror.Shutdown(); Baselines.Clear();
+        // Sequential clients need their own process-local claim, as in the
+        // navigation fixture. Changing only Peer leaks the preceding client's
+        // bank claim into the next observer's authority tie break.
+        var identities = new PublicNavigationIdentities(); identities.Switch(2);
         Transform owner = Go("populated cabinet native author").transform;
         Transform viewer = Go("populated cabinet observer").transform;
         Transform rack = Go("Original cabinet housing", owner).transform;
@@ -76,7 +80,7 @@ public static partial class MirrorProgram
             TownServiceMirror.RegisterModule(31, 1, neighbour, address: "item.612|");
             SetPopulatedRack(0, 0);
         }
-        List<byte[]> initial = Capture().Where(bytes => ReadModule(bytes) != 31).ToList(); NetPlayerActors.Peer = 10;
+        List<byte[]> initial = Capture().Where(bytes => ReadModule(bytes) != 31).ToList(); identities.Switch(10);
         Receive(2, initial); TownServiceMirror.TickRemote(_ => viewer);
         Check(Remote(-2, 10) != null, "populated public original root builds: "
             + string.Join(" | ", GloomhavenVR.Core.VRLog.Messages.TakeLast(8)));
@@ -95,7 +99,7 @@ public static partial class MirrorProgram
         Check(Remote(-2, 11)!.Root.GetComponent<Button>() == null || !Remote(-2, 11)!.Root.GetComponent<Button>().interactable,
             "public observer originals never acquire the author's native category callback");
 
-        NetPlayerActors.Peer = 3;
+        identities.Switch(3);
         key.onClick.Invoke(); // Inspection alone does not replace the prepared native bank.
         Check(TownServiceMirror.PublicAuthor == 2 && !TownServiceMirror.IsPublicAuthor
             && TownServicePublicMerchant.FixtureObserving && rack.GetComponent<Renderer>().forceRenderingOff,
@@ -104,7 +108,7 @@ public static partial class MirrorProgram
         // not the normal category/page input path exercised by Navigation.cs.
         TownServiceMirror.ClaimPublicCatalog();
         using (TownServiceMirror.UsePublicLane()) SetPopulatedRack(1, 256);
-        List<byte[]> changed = Capture().Where(bytes => ReadModule(bytes) != 31).ToList(); NetPlayerActors.Peer = 10;
+        List<byte[]> changed = Capture().Where(bytes => ReadModule(bytes) != 31).ToList(); identities.Switch(10);
         List<byte[]> missing = changed.Where(bytes => ReadModule(bytes) != 23).ToList();
         Receive(3, missing); TownServiceMirror.TickRemote(_ => viewer);
         Check(TownServiceMirror.PublicAuthor == 3 && !TownServiceMirror.HasReadyPublicPresentation
@@ -126,14 +130,14 @@ public static partial class MirrorProgram
 
         // The next press belongs to the same author. Its new member epoch can
         // overtake the rack root without revealing an empty or stale page.
-        NetPlayerActors.Peer = 3; key.onClick.Invoke();
+        identities.Switch(3); key.onClick.Invoke();
         using (TownServiceMirror.UsePublicLane())
         {
             extraKey.gameObject.SetActive(true);
             TownServiceMirror.RegisterModule(13, 1, extraKey, address: "merchant.category.unlocked|");
             SetPopulatedRack(2, 512);
         }
-        List<byte[]> next = Capture().Where(bytes => ReadModule(bytes) != 31).ToList(); NetPlayerActors.Peer = 10;
+        List<byte[]> next = Capture().Where(bytes => ReadModule(bytes) != 31).ToList(); identities.Switch(10);
         byte[] firstMember = next.Single(bytes => ReadModule(bytes) == 21);
         Receive(3, new[] { firstMember }); TownServiceMirror.TickRemote(_ => viewer);
         Check(!TownServiceMirror.HasReadyPublicPresentation && second.gameObject.activeInHierarchy,
@@ -148,14 +152,14 @@ public static partial class MirrorProgram
         Check(TownServiceMirror.HasReadyPublicPresentation && third.gameObject.activeInHierarchy
             && ReferenceEquals(second, third) && Remote(-3, 12)!.Root.gameObject.activeInHierarchy && Remote(-3, 13)!.Root.gameObject.activeInHierarchy,
             "the same author's next complete category reuses the populated original native group");
-        NetPlayerActors.Peer = 2; key.onClick.Invoke();
+        identities.Switch(2); key.onClick.Invoke();
         Check(TownServiceMirror.PublicAuthor == 3 && !TownServiceMirror.IsPublicAuthor && key.interactable
             && TownServicePublicMerchant.FixtureObserving,
             "later visitor inspection does not replace the prepared bank after validated owner replacements");
-        NetPlayerActors.Peer = 10;
+        identities.Switch(10);
         TownServiceMirror.CommitPublicVisibility = null;
         catalog.Drawers[0].FixtureDisposeFollower(); TownServicePublicMerchant.Catalog = null;
-        TownServicePublicMerchant.FixtureResetVisibility(); TownServiceMirror.Shutdown(); NetPlayerActors.Peer = 1;
+        TownServicePublicMerchant.FixtureResetVisibility(); TownServiceMirror.Shutdown(); identities.Switch(1);
         yield return null;
     }
 

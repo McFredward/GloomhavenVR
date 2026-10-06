@@ -10,6 +10,11 @@ public static partial class MirrorProgram
 {
     private static Transform CardWithLocalPads(Transform parent, bool pads, bool visiblePad = false)
     {
+        // This fixture represents a drawn native map card, not an orphan Image.
+        // Build632's visible-original census correctly excludes graphics with no
+        // active Canvas. Keep the original parent outside the compared card tree.
+        if (parent.GetComponentInParent<Canvas>() == null)
+            parent.gameObject.AddComponent<Canvas>().renderMode = RenderMode.WorldSpace;
         Transform card = Rect("Original ability face", parent, Vector2.zero, new Vector2(294f, 450f));
         card.gameObject.AddComponent<Image>().color = new Color(.25f, .6f, .8f, 1f);
         for (int n = 0; n < 2; n++)
@@ -34,6 +39,8 @@ public static partial class MirrorProgram
             Transform viewer = Go("card pooling observer").transform;
             Transform template = CardWithLocalPads(Go("borrowed native source").transform, direction == 1);
             Transform source = CardWithLocalPads(author, direction == 0);
+            Check(source.GetComponent<Image>().canvas != null && source.GetComponent<Image>().canvas.isActiveAndEnabled,
+                "pooled original card has its actual native drawing prerequisite before publication");
             using (var sender = new TownServiceBinding(source))
             using (var provenance = new TownServiceBinding(template))
                 Check(sender.Structure == provenance.Structure && sender.Nodes.Length == 3 && provenance.Nodes.Length == 3,
@@ -77,6 +84,7 @@ public static partial class MirrorProgram
         TownServiceMirror.Shutdown(); Baselines.Clear(); NetPlayerActors.Peer = 10;
         Transform author = Go("partitioned item author").transform;
         Transform viewer = Go("partitioned item viewer").transform;
+        author.gameObject.AddComponent<Canvas>().renderMode = RenderMode.WorldSpace;
         Transform item = Rect("Original partitioned item", author, Vector2.zero, new Vector2(294f, 450f));
         item.gameObject.AddComponent<Image>().color = Color.blue;
         Transform description = Rect("Original item description", item, Vector2.zero, new Vector2(250f, 300f));
@@ -101,6 +109,18 @@ public static partial class MirrorProgram
         Transform face = Rect("Released original ability face", author, Vector2.zero, new Vector2(294f, 450f));
         face.gameObject.AddComponent<Image>().color = Color.cyan;
         Transform body = Go("Released original ability backing").transform; body.SetParent(author, false);
+        var mesh = new Mesh { name = "original ability backing geometry" };
+        mesh.vertices = new[] { Vector3.zero, Vector3.right, Vector3.up };
+        mesh.triangles = new[] { 0, 1, 2 }; mesh.RecalculateBounds(); Assets.Add(mesh);
+        var material = new Material(Shader.Find("Unlit/Color"))
+            { name = "original ability backing material", color = Color.gray };
+        Assets.Add(material);
+        body.gameObject.AddComponent<MeshFilter>().sharedMesh = mesh;
+        body.gameObject.AddComponent<MeshRenderer>().sharedMaterial = material;
+        Check(face.GetComponent<Image>().canvas != null && face.GetComponent<Image>().canvas.isActiveAndEnabled
+            && body.GetComponent<MeshFilter>().sharedMesh.vertexCount == 3
+            && body.GetComponent<MeshRenderer>().sharedMaterial != null,
+            "released original face and backing have real drawable output before publication");
         TownServiceMirror.RegisterTemplate(3, 1, face, address: "face.611|");
         TownServiceMirror.RegisterTemplate(3, 1, body, address: "map.cardbody|");
         TownServiceMirror.BeginSession(3, 632, author, author);

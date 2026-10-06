@@ -592,7 +592,25 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 633;
+    public const ushort ModBuild = 634;
+
+    // ModBuild 634 — restore the exact native enchantress EnterShop already-on
+    // BUY branch during quiet preparation. UITab.Activate only invokes its
+    // callback when the toggle changes; NONE/retained SELL otherwise filtered
+    // every empty enhancement area. Native selection, payment/proxy callbacks
+    // and original windows remain unchanged. The original points heading uses
+    // the reversible full-cover background filter, retaining text/icons and
+    // identical owner-authored observer state instead of a null-sprite white bar.
+    // Focused native-mode/counter/grant checks cover reentry, cancellation and
+    // independent resident ownership; no new headset acceptance is claimed.
+    // Integrate the parallel Frame634 source-bound follow-up: fresh Standalone
+    // eye scale .80, accepted-viewport reset recovery, numbered decorative torch
+    // coverage, optional terrain source-check budget (64 fresh Frame, 0 PC),
+    // shared immutable classification and inactive dissolve shader fast path.
+    // Existing saved settings, active wall fade, original geometry fallback,
+    // gameplay and network formats remain. Ship the updated environment bundle
+    // with this assembly. Both multiplayer peers must install634.
+    //
 
     // ModBuild 633 — integrate the parallel Frame631 startup/PC-quality follow-up
     // after the complete NPC632 gate. Select quality only after successful OpenXR
