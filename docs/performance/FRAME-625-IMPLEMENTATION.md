@@ -1,5 +1,9 @@
 # Isolated Steam Frame implementation based on Build625
 
+> Build630 update: visible idle pose sampling and both associated options were
+> removed at the maintainer's explicit request. See
+> [FRAME-630-IDLE-REMOVAL.md](FRAME-630-IDLE-REMOVAL.md). The evidence below is historical.
+
 This is the historical isolated candidate receipt. The maintainer approved its
 handover on October 5; integration after NPC Build626 uses **ModBuild627**.
 [FRAME-627-INTEGRATION.md](FRAME-627-INTEGRATION.md) records the subsequent

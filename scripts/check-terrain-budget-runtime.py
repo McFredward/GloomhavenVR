@@ -36,7 +36,7 @@ def main():
     controls=[
         ('floorhex-veto-missing','AuthoredName(mesh.name).IndexOf("Floor", StringComparison.OrdinalIgnoreCase) >= 0','false','complete floor identity veto recognizes FloorHex',source,1),
         ('bank-identity-veto-missing','!StructuralIdentity(filter.sharedMesh) ? 2','false ? 2','eligible non-floor terrain has private proxies while floors remain native',source,1),
-        ('wall-owner-veto-missing','state.Structural |= node.GetComponent<ProceduralWall>() != null;','state.Structural |= node.GetComponent<ProceduralWall>() != null || node.GetComponent<ProceduralMapTile>() != null;','eligible non-floor terrain has private proxies while floors remain native',source,1),
+        ('wall-owner-veto-missing','state.Structural |= component is ProceduralWall;','state.Structural |= component is ProceduralWall or ProceduralMapTile;','eligible non-floor terrain has private proxies while floors remain native',source,1),
         ('temporary-readiness-bypass','while (active && ready && nodes-- > 0','while (active && nodes-- > 0','temporary bank readiness retains discovery',source,1),
         ('terminal-pending-retained','if (unavailable)\n                {\n                    _pending.Clear(); _queued.Clear();','if (unavailable)\n                {\n                    /* injected terminal pending leak */','terminal bank failure clears pending discovery',source,1),
         ('later-readiness-never-reseeds','_assetsWereReady = ready;','/* injected readiness transition loss */','eligible non-floor terrain has private proxies while floors remain native',source,1),
@@ -47,13 +47,13 @@ def main():
         ('detail-has-no-effect','_progress >= 1f) _current = _percent >= 100 ? null : _target;','_progress >= 1f) _current = null;','coarse 3D endpoint materially reduces',geometry,1),
         ('original-triangles-through-endpoint','_current = _percent >= 100 ? null : _target;','_current = _percent >= 100 ? null : _morph;','coarse 3D endpoint materially reduces',geometry,1),
         ('identical-tier-substitute','if (percent < 100 && TriangleCount(target) >= OriginalTriangles) { percent = 100; target = _exact; }','/* injected private exact-tier overhead */','coarse bank tier without actual triangle saving retains',geometry,1),
-        ('actor-scope-bypass','node.GetComponent<ActorBehaviour>() != null','false','actor-owned source with genuine bank mesh is never scenery',source,1),
+        ('actor-scope-bypass',' or ActorBehaviour',' /* injected actor veto bypass */','actor-owned source with genuine bank mesh is never scenery',source,1),
         ('late-interaction-bypass','|| !CurrentScope(surface.Renderer)','/* injected live native scope veto */','late native interaction veto',source,1),
         ('native-command-buffer-bypass','|| (_nativeCameraConsumers?.Invoke(camera) ?? camera.commandBufferCount > 0)','/* injected command-buffer veto */','native command-buffer camera',source,1),
         ('inactive-host-masks-original','|| !isActiveAndEnabled','|| !enabled','deactivated terrain host retains original wall pixels',source,1),
         ('hand-proximity-bypass','NearHand(VRHands.Left, bounds)','false','tracked hand proximity restores',source,1),
         ('distant-detail-ignored','Mathf.Min(near, PerfConfig.DistantTerrainDetailPercent)','near','independent distant terrain detail cap',source,1),
-        ('foreign-mesh-bypass','&& Filter.sharedMesh == Original','/* injected foreign mesh ownership */','foreign native mesh replacement',geometry,1),
+        ('foreign-mesh-bypass','|| Filter.sharedMesh != Original','/* injected foreign mesh ownership */','foreign native mesh replacement',geometry,1),
         ('native-rendering-layer-not-copied','_proxyRenderer.renderingLayerMask = next.RenderingLayer;','/* injected native layer loss */','actual terrain camera proxy preserves current native rendering layers',geometry,1),
         ('material-slot-block-dropped','Renderer.GetPropertyBlock(SlotBlock, slot);','SlotBlock.Clear();','native material-slot MPB precedence',geometry,1),
         ('live-renderer-effect-ignored','if (LiveSpecialEffect(Block)) return false;','/* injected live renderer effect bypass */','live renderer-wide vertex effect retains',geometry,1),
@@ -73,6 +73,12 @@ def main():
         ('settled-proxy-pose-rewritten','if (!_hasPose || !SameMatrix(native, _sourcePose) || !SameMatrix(owner, _ownerPose))','if (!_hasPose || _hasPose)','settled terrain camera retains private proxy transform without repeated native writes',geometry,1),
         ('material-route-cross-camera-stale','_routesThisCamera.Clear();','/* injected cross-camera route reuse */','native keyword edits remain live between actual camera invocations',source,1),
         ('revoked-admission-counted','if (!surface.IsMasked) continue;','if (surface == null) continue;','revoked native-write camera leases are absent from terrain completion counters',source,1),
+    ]
+    controls += [
+        ('repeated-mesh-admission-read', 'if (!meshes.TryGetValue(Original, out bool eligible))',
+         'bool eligible; if (true)', 'repeated native mesh admission is read exactly once', geometry, 1),
+        ('mesh-admission-cross-camera-stale', '_meshThisInvocation.Clear();',
+         '/* injected stale mesh admission */', 'repeated native mesh admission is read exactly once', source, 1),
     ]
     variants=[('production',source,geometry,shader,'')]
     if not args.production_only:

@@ -1,5 +1,9 @@
 # Optional visible scenario idle poses
 
+> Build630 update: visible idle pose sampling and both associated options were
+> removed at the maintainer's explicit request. See
+> [FRAME-630-IDLE-REMOVAL.md](FRAME-630-IDLE-REMOVAL.md). The evidence below is historical.
+
 The Build 627 Gaming-PC capture explains why the first visible-idle implementation
 saved no work: all sixteen tracked animators were already authored as
 `CullUpdateTransforms`, twelve actor checks per frame found captured Cloth, and

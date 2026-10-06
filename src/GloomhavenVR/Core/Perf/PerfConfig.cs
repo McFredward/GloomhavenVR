@@ -930,5 +930,15 @@ internal static partial class PerfConfig
             + "moment this goes back to 0. NOT the fix if that line reports masterTextureLimit above "
             + "0 — a discarded mip level is a different mechanism and LOD cannot blur a texture.",
             new AcceptableValueRange<float>(0f, 8f)));
+        // Frame628's short wall/batching edits were averaged into shared windows,
+        // so successful admission was visible but individual FPS effects were not.
+        // Debug hardware audits close the measurement on actual Optimize writes;
+        // no steady polling/formatting or normal player trace is introduced.
+        _file.SettingChanged += (_, args) =>
+        {
+            if (!VRLog.WantsDebug || args.ChangedSetting.Definition.Section != "Optimize") return;
+            PerfMonitor.MarkChange("[Optimize] " + args.ChangedSetting.Definition.Key
+                + "=" + args.ChangedSetting.BoxedValue);
+        };
     }
 }

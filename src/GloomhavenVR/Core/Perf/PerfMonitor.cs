@@ -448,12 +448,16 @@ internal static partial class PerfMonitor
                            + (!invalidateSceneCensus
                                ? "The separate incremental census retains its explicit capture span."
                                : ""));
-        if (_frameCount >= MinMarkFrames)
+        // The all-rooms Frame628 capture changes reported rate every 5--10s
+        // while producing fewer than 120 frames. Dropping each old window hid
+        // precisely the slow state under investigation. Keep long sparse windows
+        // with their actual sample count; quick repeated slider edits stay quiet.
+        if (_frameCount >= MinMarkFrames || (elapsed >= 5f && _frameCount >= 2))
             LogSummary(elapsed);
         ResetWindow(now);
     }
 
-    /// <summary>Frames a window must hold before <see cref="MarkChange"/> bothers to summarise it.</summary>
+    /// <summary>Short-window sample threshold; windows lasting five seconds also retain sparse slow-frame evidence.</summary>
     private const int MinMarkFrames = 120;
 
     /// <summary>Drop the host and every record (hot-reload teardown; never throws).</summary>
@@ -720,14 +724,12 @@ internal static partial class PerfMonitor
             VRLog.Info(Scope0, $"DISPLAY presentation rate changed {previous:F1}Hz → {hz:F1}Hz "
                                + $"(budget {1000f / previous:F2}ms → {1000f / hz:F2}ms, source {source}). "
                                + (hz < previous
-                                   ? "A LOWER rate means the runtime is now REPROJECTING: the app is paced "
-                                     + "to the reduced interval, so frame time and the runtime's GPU figure "
-                                     + "both pin to it regardless of how much work we actually do. Timings "
-                                     + "across this boundary cannot be compared, and a quality setting "
-                                     + "changed below a rate lock will look like it does nothing even when "
-                                     + "it does."
-                                   : "A HIGHER rate means the runtime released the reprojection lock — "
-                                     + "measurements from here on reflect real work again."));
+                                   ? "A LOWER reported rate changes this measurement budget. It can reflect runtime "
+                                     + "pacing or refresh policy; this counter alone does not prove reprojection, "
+                                     + "GPU headroom or compositor cost. Compare matched settings/view windows "
+                                     + "and the measured main-thread spans before assigning a cause."
+                                   : "A HIGHER reported rate changes this measurement budget; it alone does not "
+                                     + "prove that reprojection stopped or that timings now exclude runtime waits."));
         }
     }
 
@@ -853,7 +855,14 @@ internal static partial class PerfMonitor
                 + $"distanceLOD={PerfConfig.FigureDistanceLodEnabled} npcBody=original100% "
                 + $"boneLimit={PerfConfig.MaximumSkinningBones} "
                 + $"idleBarInterval={PerfConfig.ActorBarPoseCheckInterval:F3}s "
-                + $"panelInterval={PerfConfig.UiMaintenanceInterval:F3}s; not a latched A/B boundary.");
+                + $"panelInterval={PerfConfig.UiMaintenanceInterval:F3}s "
+                + $"terrainNear={PerfConfig.TerrainDetailPercent}% terrainFar={PerfConfig.DistantTerrainDetailPercent}% "
+                + $"terrainDistance={PerfConfig.TerrainDistanceMeters:F2}m cheapWalls={PerfConfig.CheapWallShadingOn} "
+                + $"meshBank={PerfConfig.EnvironmentMeshBankOn} chunks={PerfConfig.StaticScenarioBatchesOn} "
+                + $"explicitInstances={PerfConfig.EnvironmentDrawInstancingOn} simpleEnvironment={PerfConfig.SimpleEnvironmentShadingOn} "
+                + $"sharedMaterials={PerfConfig.SharedEnvironmentMaterialReadsOn} sharedUI={PerfConfig.SharedUiWindowReadsOn} "
+                + $"nativeCloth={PerfConfig.FigureClothSimulationEnabled} figureFX={PerfConfig.FigureEffectsDensityPercent}% "
+                + $"environmentFX={PerfConfig.EnvironmentEffectsDensityPercent}%; not a latched A/B boundary.");
         LogSceneProfile();
     }
 

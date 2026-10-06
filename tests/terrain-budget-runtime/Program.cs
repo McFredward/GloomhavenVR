@@ -247,6 +247,25 @@ public static partial class TerrainProgram
         wall.gameObject.AddComponent<CInteractable>(); Pixels(camera);
         Check(!DuringRender(camera,()=>wall.forceRenderingOff),"late native interaction veto preserves original presentation");
         Object.DestroyImmediate(wall.GetComponent<CInteractable>());
+        // Two independently visible sources sharing one original exercise actual
+        // bank reads, then a changed verdict between genuine camera invocations.
+        var repeated=Object.Instantiate(wall.gameObject).GetComponent<MeshRenderer>();
+        repeated.transform.SetParent(wall.transform.parent,false);
+        repeated.transform.localPosition+=new Vector3(8,0,0);
+        ScenarioTerrainBudget.QueueRoot(repeated.gameObject); Tick(host);
+        int bankReads=0; bool bankAllowed=true;
+        ScenarioTerrainBudget.ConfigureMeshBank(mesh=>{bankReads++; return bankAllowed&&Bank.ContainsKey(mesh);},Lookup);
+        bankReads=0;
+        Check(DuringRender(camera,()=>wall.forceRenderingOff&&repeated.forceRenderingOff)&&bankReads==1,
+            "repeated native mesh admission is read exactly once in a synchronous camera invocation");
+        bankAllowed=false; bankReads=0;
+        Check(!DuringRender(camera,()=>wall.forceRenderingOff||repeated.forceRenderingOff)&&bankReads==1,
+            "changed bank admission is re-read between actual camera invocations");
+        bankAllowed=true; repeated.gameObject.SetActive(false); bankReads=0;
+        Check(DuringRender(camera,()=>wall.forceRenderingOff&&!repeated.forceRenderingOff)&&bankReads==1,
+            "inactive repeated sources retain native flags and do not require bank admission");
+        ScenarioTerrainBudget.ConfigureMeshBank(Bank.ContainsKey,Lookup);
+        Object.DestroyImmediate(repeated.gameObject);
         GloomhavenVR.Board.FigureGrab.HeldProps.Held=true; Pixels(camera);
         Check(Proxies(host).TrueForAll(r=>!r.enabled),"held-source veto retains native rendering"); GloomhavenVR.Board.FigureGrab.HeldProps.Held=false;
         wall.enabled=false; Pixels(camera); Check(!DuringRender(camera,()=>wall.forceRenderingOff),"native disabled visibility immediately suppresses private proxy"); wall.enabled=true;

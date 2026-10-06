@@ -99,6 +99,13 @@ public static class InteractionProgram
             Drain(persistent.scene);
             Check(PerfFrameSplit.Roster!=null&&PerfFrameSplit.Roster.Length==native,
                 "adaptive refresh census eventually publishes the native roster");
+            PerfMonitor.SeedPacing();
+            PerfMonitor.AdaptiveRefresh(24,60,10f);
+            Check(PerfMonitor.ClosedWindows==1&&PerfMonitor.LastSummarizedHz==72,
+                "slow long windows retain actual sparse frame evidence before a refresh change");
+            PerfMonitor.AdaptiveRefresh(72,3,.2f);
+            Check(PerfMonitor.ClosedWindows==1&&PerfMonitor.ResetWindows==2,
+                "quick slider-like boundaries reset without emitting tiny statistical windows");
             Field("_rationer").SetValue(null,new CensusRationer());Request();
             for(int i=0;i<12;i++)PerfSceneProfile.Tick(persistent.scene);
             Check(Pending(),"graphics boundary starts from a live partially visited census");

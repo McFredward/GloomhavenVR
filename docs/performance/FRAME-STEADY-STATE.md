@@ -1,5 +1,9 @@
 # Loaded scenario performance follow-up
 
+> Build630 update: visible idle pose sampling and both associated options were
+> removed at the maintainer's explicit request. See
+> [FRAME-630-IDLE-REMOVAL.md](FRAME-630-IDLE-REMOVAL.md). The evidence below is historical.
+
 The implementation was developed from `dev` at `a517e0090` (ModBuild627) in an
 isolated worker and is now integrated as common PC/Frame Build628. It targets
 continuous work after scenario preparation, following the maintainer's October6

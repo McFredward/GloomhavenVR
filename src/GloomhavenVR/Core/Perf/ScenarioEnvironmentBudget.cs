@@ -34,8 +34,7 @@ internal static class ScenarioEnvironmentBudget
     private static bool StructuralEnabled => _structuralEnabled?.Invoke() == true;
     private static Action<GameObject>? _terrainQueue;
     private static Action<Renderer>? _terrainReady, _terrainBeforeWrite;
-    private static Action? _terrainBeforeContent, _otherBeforeContent;
-    internal static void ConfigureBeforeNativeContentChange(Action beforeContent) => _otherBeforeContent = beforeContent;
+    private static Action? _terrainBeforeContent;
     private static Func<Renderer, bool>? _terrainOwns;
     internal static void ConfigureTerrainIntegration(Action<GameObject> queue, Action<Renderer> ready,
         Action<Renderer> beforeWrite, Action beforeContent, Func<Renderer, bool> owns)
@@ -63,8 +62,8 @@ internal static class ScenarioEnvironmentBudget
     {
         try
         {
-            try { _otherBeforeContent?.Invoke(); }
-            finally { try { _terrainBeforeContent?.Invoke(); } finally { _driver?.RecoverRenderLeases(); } }
+            try { _terrainBeforeContent?.Invoke(); }
+            finally { _driver?.RecoverRenderLeases(); }
         }
         catch (Exception error) { StopAfterFailure(error); }
     }

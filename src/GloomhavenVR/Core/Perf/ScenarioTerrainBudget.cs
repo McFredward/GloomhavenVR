@@ -133,7 +133,7 @@ internal static partial class ScenarioTerrainBudget
 
     private struct ScopeState { internal bool Valid, Generated, Structural, Scenario; }
     private static bool NativeScope(MeshRenderer renderer, Dictionary<Transform, ScopeState> scopes,
-        Dictionary<int, bool> scenes, List<Transform> ancestry, List<GameObject> roots)
+        Dictionary<int, bool> scenes, List<Transform> ancestry, List<GameObject> roots, List<Component> components)
     {
         ancestry.Clear();
         ScopeState state = new() { Valid = true };
@@ -146,16 +146,24 @@ internal static partial class ScenarioTerrainBudget
         {
             Transform node = ancestry[i];
             string nodeName = node.name;
-            bool blocked = node.GetComponent<Canvas>() != null || node.GetComponent<ActorBehaviour>() != null
-                || node.GetComponent<ProceduralProp>() != null || node.GetComponent<ProceduralDoorway>() != null
-                || node.GetComponent<UnityGameEditorDoorProp>() != null || node.GetComponent<CInteractable>() != null
-                || node.GetComponent<Animator>() != null || node.GetComponent<Rigidbody>() != null || node.GetComponent<Light>() != null
-                || node.GetComponent<SkinnedMeshRenderer>() != null || nodeName == "Preview"
+            // Build628 Frame evidence records 16--17ms average terrain pre-cull and
+            // >60ms spikes with three rooms. One native component-list read replaces
+            // twelve separate native lookups for each distinct ancestor. Keep this
+            // verdict scoped to this invocation: components and parents added between
+            // eyes must still revoke admission before native culling.
+            node.GetComponents(components);
+            bool blocked = nodeName == "Preview"
                 || nodeName.StartsWith("GloomhavenVR", StringComparison.Ordinal) || StructuralBoundary(nodeName);
+            foreach (Component component in components)
+            {
+                blocked |= component is Canvas or ActorBehaviour or ProceduralProp or ProceduralDoorway
+                    or UnityGameEditorDoorProp or CInteractable or Animator or Rigidbody or Light or SkinnedMeshRenderer;
+                state.Structural |= component is ProceduralWall;
+                state.Scenario |= component is ProceduralScenario;
+            }
+            components.Clear();
             state.Valid &= !blocked;
             state.Generated |= nodeName == "Generated Content";
-            state.Structural |= node.GetComponent<ProceduralWall>() != null;
-            state.Scenario |= node.GetComponent<ProceduralScenario>() != null;
             scopes[node] = state;
         }
         ancestry.Clear();
@@ -212,6 +220,8 @@ internal static partial class ScenarioTerrainBudget
         private readonly Dictionary<int, bool> _sceneThisInvocation = new();
         private readonly List<Transform> _ancestry = new();
         private readonly List<GameObject> _sceneRoots = new();
+        private readonly List<Component> _scopeComponents = new();
+        private readonly Dictionary<Mesh, bool> _meshThisInvocation = new();
         private Camera? _leaseCamera;
         private bool _active;
         private int _walls;
@@ -315,7 +325,7 @@ internal static partial class ScenarioTerrainBudget
                 foreach (KeyValuePair<int, Surface> item in _surfaces)
                 {
                     Surface surface = item.Value;
-                    if (!surface.Validate()) { surface.Dispose(); _dead.Add(item.Key); continue; }
+                    if (!surface.Validate(_meshThisInvocation)) { surface.Dispose(); _dead.Add(item.Key); continue; }
                     int percent = active && camera != null ? DetailFor(surface, camera) : 100;
                     surface.StepGeometry(percent, delta);
                 }
@@ -344,9 +354,9 @@ internal static partial class ScenarioTerrainBudget
             }
         }
         private bool CurrentScope(MeshRenderer renderer) => NativeScope(renderer, _scopeThisInvocation,
-            _sceneThisInvocation, _ancestry, _sceneRoots);
+            _sceneThisInvocation, _ancestry, _sceneRoots, _scopeComponents);
         private void ClearValidation()
-        { _scopeThisInvocation.Clear(); _sceneThisInvocation.Clear(); _ancestry.Clear(); _sceneRoots.Clear(); }
+        { _scopeThisInvocation.Clear(); _sceneThisInvocation.Clear(); _ancestry.Clear(); _sceneRoots.Clear(); _scopeComponents.Clear(); _meshThisInvocation.Clear(); }
         private static int DetailFor(Surface surface, Camera camera)
         {
             if (surface.Floor) return 100;
@@ -411,10 +421,14 @@ internal static partial class ScenarioTerrainBudget
                     _leaseCamera = camera;
                     foreach (Surface surface in _surfaces.Values)
                     {
-                        if (!surface.Validate() || !surface.WantsSubstitute(Enabled)
-                            || !surface.Renderer.enabled || !surface.Renderer.gameObject.activeInHierarchy
-                            || surface.Renderer.forceRenderingOff || surface.Renderer.isPartOfStaticBatch
-                            || surface.Renderer.additionalVertexStreams != null || !CurrentScope(surface.Renderer)) continue;
+                        // Prepared surfaces include unopened rooms. Reject their native
+                        // disabled/inactive renderers before bank/material/proxy work.
+                        // No admission verdict survives this camera invocation.
+                        if (surface.Renderer == null || !surface.Renderer.enabled
+                            || !surface.Renderer.gameObject.activeInHierarchy || surface.Renderer.forceRenderingOff
+                            || !surface.WantsSubstitute(Enabled) || !surface.Validate(_meshThisInvocation)
+                            || surface.Renderer.isPartOfStaticBatch || surface.Renderer.additionalVertexStreams != null
+                            || !CurrentScope(surface.Renderer)) continue;
                         surface.Renderer.GetSharedMaterials(_materialScratch);
                         if (_materialScratch.Count != surface.Original.subMeshCount) continue;
                         bool supported = true;

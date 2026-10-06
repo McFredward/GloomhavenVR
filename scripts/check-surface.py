@@ -238,6 +238,21 @@ def snapshot() -> dict:
     return {"configKeys": keys, "harmonyPatches": patches, "logTokens": tokens}
 
 
+
+# Explicit maintainer withdrawal (2026-10-06, Frame628 hardware review): remove
+# visible idle sampling AND its controls completely. This narrow retirement is
+# not an opt-out for future settings/patch changes. Match the original owner too;
+# an unrelated surface cannot borrow the same name to conceal its removal.
+AUTHORIZED_RETIREMENTS = {
+    "configKeys": {
+        "[Optimize] VisibleIdleAnimationIntervalSeconds": "src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs",
+        "[Optimize] VisibleIdleDisabledClothApproximation": "src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs",
+    },
+    "harmonyPatches": {
+        "typeof(FigureVisualMirror), nameof(FigureVisualMirror.CloneVisual)": "src/GloomhavenVR/Core/Perf/ScenarioIdleAnimationBudget.cs",
+    },
+}
+
 def diff(before: dict, after: dict) -> int:
     worst = 0
     for kind, label in (
@@ -246,9 +261,14 @@ def diff(before: dict, after: dict) -> int:
         ("logTokens", "LOG GREP TOKEN — the next hardware round cannot find it"),
     ):
         b, a = before.get(kind, {}), after.get(kind, {})
-        gone = sorted(set(b) - set(a))
+        removed = set(b) - set(a)
+        retired = sorted(key for key in removed
+                         if AUTHORIZED_RETIREMENTS.get(kind, {}).get(key) == b[key])
+        gone = sorted(removed - set(retired))
         added = sorted(set(a) - set(b))
-        print(f"=== {kind}: {len(b)} -> {len(a)}  ({len(gone)} removed, {len(added)} added) ===")
+        print(f"=== {kind}: {len(b)} -> {len(a)}  ({len(removed)} removed, {len(retired)} authorized, {len(added)} added) ===")
+        for key in retired:
+            print(f"  AUTHORIZED RETIREMENT (maintainer 2026-10-06): {key}")
         if gone:
             worst = 1
             print(f"  REMOVED — {label}:")
@@ -261,7 +281,7 @@ def diff(before: dict, after: dict) -> int:
                 print(f"    + ... and {len(added) - 200} more")
     print()
     print("REMOVALS ARE THE FAILURE; additions are new work." if worst else
-          "nothing was removed from the three surfaces the compiled-form guard cannot see.")
+          "no unapproved removal from the three surfaces the compiled-form guard cannot see.")
     return worst
 
 

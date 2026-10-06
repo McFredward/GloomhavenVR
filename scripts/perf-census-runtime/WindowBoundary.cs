@@ -31,11 +31,11 @@ internal static partial class PerfMonitor
         ClosedWindows = ResetWindows = 0;
     }
 
-    internal static void AdaptiveRefresh(float hz)
+    internal static void AdaptiveRefresh(float hz, int frames=140, float seconds=10f)
     {
         XrProbe.LastRefreshHz = hz;
-        _frameCount = 140;
-        _windowStart = Time.unscaledTime - 10;
+        _frameCount = frames;
+        _windowStart = Time.unscaledTime - seconds;
         _budgetResolvedAt = Time.unscaledTime - 11;
         RefreshBudget();
     }

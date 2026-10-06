@@ -1,5 +1,9 @@
 # Build628: performance after scenario loading
 
+> Build630 update: visible idle pose sampling and both associated options were
+> removed at the maintainer's explicit request. See
+> [FRAME-630-IDLE-REMOVAL.md](FRAME-630-IDLE-REMOVAL.md). The evidence below is historical.
+
 Build628 integrates the reviewed common PC/Frame package into current dev
 `a517e0090` (Build627). The maintainer explicitly authorized direct integration
 and an origin/dev push after confirming that the parallel main agent is idle.

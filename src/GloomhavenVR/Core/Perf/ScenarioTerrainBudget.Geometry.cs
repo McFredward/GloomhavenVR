@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -46,8 +47,19 @@ internal static partial class ScenarioTerrainBudget
             _proxyRenderer = _proxy.AddComponent<MeshRenderer>();
             _proxyRenderer.enabled = false;
         }
-        internal bool Validate() => Renderer != null && Filter != null && Original != null
-            && Filter.sharedMesh == Original && _eligibleMesh?.Invoke(Original) == true;
+        internal bool Validate(Dictionary<Mesh, bool> meshes)
+        {
+            if (Renderer == null || Filter == null || Original == null || Filter.sharedMesh != Original) return false;
+            // Bank admission reads the same native mesh metadata for every repeated
+            // wall. Reuse only within one synchronous Update/camera invocation;
+            // later eyes and native content changes re-read the genuine source.
+            if (!meshes.TryGetValue(Original, out bool eligible))
+            {
+                eligible = _eligibleMesh?.Invoke(Original) == true;
+                meshes[Original] = eligible;
+            }
+            return eligible;
+        }
         internal bool WantsSubstitute(bool enabled) => (enabled && PerfConfig.CheapWallShadingOn)
             || (_current != null && _current != Original) || _progress < 1f;
         internal Mesh DrawMesh => _progress < 1f && _morph != null ? _morph : _current ?? Original;

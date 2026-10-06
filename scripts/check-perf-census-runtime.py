@@ -43,6 +43,8 @@ CONTROLS = (
     ("indicator-throttles-native-loading", "LoadingLifecycleMethods.cs", "if (loading == _nativeLoadingObserved) return;", "Application.backgroundLoadingPriority = UnityEngine.ThreadPriority.Low; if (loading == _nativeLoadingObserved) return;", "loading display preserves the actual native async priority on every edge"),
     ("refresh-cancels-census", "ScopeMethods.cs", "invalidateSceneCensus: false", "invalidateSceneCensus: true", "adaptive refresh preserves the same in-progress census"),
     ("setting-keeps-census", "ScopeMethods.cs", "if (invalidateSceneCensus)", "if (false && invalidateSceneCensus)", "graphics changes still cancel incremental inventories"),
+    ("drop-sparse-slow-window", "ScopeMethods.cs", " || (elapsed >= 5f && _frameCount >= 2)", "", "slow long windows retain actual sparse frame evidence before a refresh change"),
+    ("emit-tiny-statistical-window", "ScopeMethods.cs", "elapsed >= 5f && _frameCount >= 2", "_frameCount >= 2", "quick slider-like boundaries reset without emitting tiny statistical windows"),
     ("refresh-keeps-pacing-window", "ScopeMethods.cs", "if (changed)\n            MarkChange", "if (false && changed)\n            MarkChange", "refresh closes the old pacing window before adopting the new rate"),
     ("omit-profile-fault-cancel", "ScopeMethods.cs", "PerfSceneProfile.Cancel();\n            _sceneProfileFaulted = true;", "_sceneProfileFaulted = true;", "profile summary fault cancels pending job and completed roster"),
     ("queue-after-profile-fault", "ScopeMethods.cs", "if (_sceneProfileFaulted)", "if (false)", "profile summary fault cannot schedule a new census"),
