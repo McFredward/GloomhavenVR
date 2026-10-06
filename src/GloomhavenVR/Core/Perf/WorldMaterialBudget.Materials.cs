@@ -15,6 +15,20 @@ internal static partial class WorldMaterialBudget
         "_USEEMISSIVEMAP_ON", "_DIFFUSE_EMISSIVE_ON_ON", "_USE_TEXTURE_EMISSION", "_FRESNEL_ON_ON",
         "_MOSSTEXTURE_ON_ON", "_MOSSTEXTURE_NOISE_ON_ON", "_EMISSION", "_DETAIL_MULX2", "_PARALLAXMAP" };
     private static readonly string[] StandardStateProperties = { "_Mode", "_SrcBlend", "_DstBlend", "_ZWrite" };
+    private static bool NativePassesEnabled(Material original)
+    {
+        // Pass enablement is mutable native presentation. CopyProperties does not
+        // translate a disabled native pass to this shader's differently named pass.
+        // Read actual names once per unique original in this synchronous pass.
+        for (int pass = 0; pass < original.passCount; pass++)
+        {
+            string name = original.GetPassName(pass);
+            if (!string.IsNullOrEmpty(name) && !original.GetShaderPassEnabled(name)) return false;
+        }
+        // AMP HIGH/Legacy can inherit a caster through Fallback; LOW has its own
+        // CUSTOM_SHADOW_PASS. Explicitly disabled fallback/caster remains native.
+        return original.GetShaderPassEnabled("ShadowCaster") && original.GetShaderPassEnabled("CUSTOM_SHADOW_PASS");
+    }
     private static bool ProvenProgram(Material material, int route)
     {
         // Intersection, not union: native objects with the SAME shader name have
@@ -67,7 +81,7 @@ internal static partial class WorldMaterialBudget
     private static int Route(Material original)
     {
         int route = ShaderRoute(original);
-        if (route < 0 || original.renderQueue > 2500) return -1;
+        if (route < 0 || original.renderQueue > 2500 || !NativePassesEnabled(original)) return -1;
         string shader = original.shader.name;
         foreach (string property in EffectProperties)
         {
@@ -142,6 +156,8 @@ internal static partial class WorldMaterialBudget
             if (route < 0) return false;
             renderer.GetPropertyBlock(_block);
             renderer.GetPropertyBlock(_slotBlock, slot);
+            if (_block.HasTexture("_MainTex") && _block.GetTexture("_MainTex") is RenderTexture
+                || _slotBlock.HasTexture("_MainTex") && _slotBlock.GetTexture("_MainTex") is RenderTexture) return true;
             foreach (string property in EffectProperties)
             {
                 // A native spelling can have a different type in another family.
