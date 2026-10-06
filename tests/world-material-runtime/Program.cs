@@ -327,16 +327,17 @@ public static class WorldMaterialProgram
         Check(NativeWriteObserver.MaterialCopies==2&&PerfMonitor.Counts["WorldMaterial.VariantSlots"]==128,"world material refresh scales with two unique originals instead of 128 native slots");
         NativeWriteObserver.MaterialCopies=0;NativeWriteObserver.ArrayWrites=0;Center(camera);
         Check(NativeWriteObserver.MaterialCopies==2&&NativeWriteObserver.ArrayWrites==0,"settled 64-source world stage copies unique materials without per-eye native array writes");
+        Debug.Log("World material scaling: 64 sources /128slots; copies="+NativeWriteObserver.MaterialCopies+"; arrayWrites="+NativeWriteObserver.ArrayWrites);
         var block=new MaterialPropertyBlock();block.SetColor("_Tint",Color.white);source.SetPropertyBlock(block);
         foreach(var clone in copies)clone.SetPropertyBlock(block);
         NativeWriteObserver.RendererBlockReads=0;NativeWriteObserver.SlotBlockReads=0;Center(camera);
         Check(NativeWriteObserver.RendererBlockReads==64&&NativeWriteObserver.SlotBlockReads==128,
             "settled 64-source two-slot MPBs read renderer-wide blocks once per source and keep each slot independent");
+        Debug.Log("World material MPB scaling: 64 sources /128slots; wideReads="+NativeWriteObserver.RendererBlockReads+"; slotReads="+NativeWriteObserver.SlotBlockReads);
         block.SetFloat("_AddVertexAnim",1f);source.SetPropertyBlock(block,1);Center(camera);
         Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterials[0])&&source.sharedMaterials[1]==second,
             "live per-slot effect remains authoritative with shared renderer-wide block reads");
         source.SetPropertyBlock(null);source.SetPropertyBlock(null,1);foreach(var clone in copies)clone.SetPropertyBlock(null);
-        Debug.Log("World material scaling: 64 sources /128slots; copies="+NativeWriteObserver.MaterialCopies+"; arrayWrites="+NativeWriteObserver.ArrayWrites);
         foreach(var clone in copies)Object.DestroyImmediate(clone.gameObject);
     }
     private static void LateChanges(GameObject host,MeshRenderer source,Material first,Material second,Camera camera)
