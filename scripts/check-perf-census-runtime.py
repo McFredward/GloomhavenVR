@@ -38,7 +38,9 @@ CONTROLS = (
     ("room-uses-enabled-as-loading", "ScenarioRoomLoading.cs", "if (Handles?.GetValue(request) is AsyncOperationHandle<Material>[] handles)", "if (!request.Renderer.enabled && Handles?.GetValue(request) is AsyncOperationHandle<Material>[] handles)", "room readiness uses original pending materials even when renderer is enabled"),
     ("room-counts-completed-handles", "ScenarioRoomLoading.cs", "handle.IsValid() && !handle.IsDone", "handle.IsValid()", "completed native handles close the spinner despite preserved material holes"),
     ("room-counts-released-handles", "ScenarioRoomLoading.cs", "|| Released?.GetValue(request) is true", "|| false", "released native requests cannot hold room loading open"),
-    ("room-counts-presentation-budget", "ScenarioInteractionPreparation.cs", "&& (!_roomPass || ScenarioRoomLoading.HasPendingReveal)", "&& (!_roomPass || IsPreparing)", "completed room assets hide the spinner while cosmetic preparation continues"),
+    ("initial-cache-keeps-spinner", "ScenarioInteractionPreparation.cs", "IsPreparing && ScenarioRoomLoading.HasPendingReveal", "IsPreparing && (!_roomPass || ScenarioRoomLoading.HasPendingReveal)", "initial cosmetic preparation cannot extend completed native loading"),
+    ("room-counts-presentation-budget", "ScenarioInteractionPreparation.cs", "IsPreparing && ScenarioRoomLoading.HasPendingReveal", "IsPreparing && (_roomPass || ScenarioRoomLoading.HasPendingReveal)", "completed room assets hide the spinner while cosmetic preparation continues"),
+    ("indicator-throttles-native-loading", "LoadingLifecycleMethods.cs", "if (loading == _nativeLoadingObserved) return;", "Application.backgroundLoadingPriority = UnityEngine.ThreadPriority.Low; if (loading == _nativeLoadingObserved) return;", "loading display preserves the actual native async priority on every edge"),
     ("refresh-cancels-census", "ScopeMethods.cs", "invalidateSceneCensus: false", "invalidateSceneCensus: true", "adaptive refresh preserves the same in-progress census"),
     ("setting-keeps-census", "ScopeMethods.cs", "if (invalidateSceneCensus)", "if (false && invalidateSceneCensus)", "graphics changes still cancel incremental inventories"),
     ("refresh-keeps-pacing-window", "ScopeMethods.cs", "if (changed)\n            MarkChange", "if (false && changed)\n            MarkChange", "refresh closes the old pacing window before adopting the new rate"),
@@ -78,7 +80,12 @@ def bound_sources(root):
     assert "ScenarioInteractionPreparation.Install(_hostGo);" in (root / "src/GloomhavenVR/Core/CoreModule.cs").read_text()
     loading = (root / "src/GloomhavenVR/WorldUI/LoadingIndicator.cs").read_text()
     assert "(nativeGameLoading || ScenarioInteractionPreparation.ShowsLoadingIndicator)" in loading
-    assert "TickLoadPriority(nativeGameLoading &&" in loading, "post-load preparation restores ordinary native async priority"
+    assert "TickNativeLoading(nativeGameLoading &&" in loading, "loading lifecycle observes native state independently of cosmetic caches"
+    assert not re.search(r"Application\.backgroundLoadingPriority\s*=", loading), "loading presentation never changes native async integration priority"
+    lifecycle = braced(loading, "    private void TickNativeLoading(")
+    bound["LoadingLifecycleMethods.cs"] = ("using UnityEngine; using GloomhavenVR.Core; namespace GloomhavenVR.WorldUI; "
+        "internal sealed class LoadingIndicator { private bool _nativeLoadingObserved; private float _nativeLoadingStartedAt;\n"
+        + lifecycle + "\n}\n")
     members = [braced(monitor, m) for m in (
         "    private sealed class Step", "    internal static long BeginStep()", "    internal static void EndStep(",
         "    internal readonly struct Measure", "    private static void LogSceneProfile()", "    private static void LogSplit(",
@@ -100,7 +107,8 @@ def bound_sources(root):
         "    private void BeginGrab(", "    private static float ReachDistance(",
         "    private void SetHighlighted(", "    private static bool CanGrabNow(", "    private static bool AllowsHandNow(")]
     bound["GrabMethods.cs"] = (root / "scripts/perf-census-runtime/GrabBoundary.cs").read_text().replace("// ORIGINAL_METHODS", "\n".join(members))
-    return bound, {"PerfMonitor.cs": hashlib.sha256(monitor.encode()).hexdigest(),
+    return bound, {"LoadingIndicator.cs": hashlib.sha256(loading.encode()).hexdigest(),
+                   "PerfMonitor.cs": hashlib.sha256(monitor.encode()).hexdigest(),
                    "ProximityGrabber.cs": hashlib.sha256(grab.encode()).hexdigest(),
                    "PerfFrameSplit.cs": hashlib.sha256(split.encode()).hexdigest(),
                    "PerfFrameSplit.Zoom.cs": hashlib.sha256(zoom.encode()).hexdigest(),

@@ -1083,9 +1083,9 @@ internal static class WorldUIConfig
             "While the flat game shows its loading screen (scene transitions, scenario " +
             "start), float the game's own ROTATING LOADING SPINNER — the icon only, not the " +
             "hints/progress screen — in front of the HMD on the black void, hide the " +
-            "floating 2D screen for the duration, and lower Unity's background loading " +
-            "priority so head/hand rendering hitches less (the load itself takes slightly " +
-            "longer). A few residual single-frame freezes remain (the game's per-transition " +
+            "floating 2D screen for the duration. Native loading priority is retained; " +
+            "optional card and figure preparation does not extend the spinner after the " +
+            "scenario is ready. A few residual single-frame freezes remain (the game's per-transition " +
             "GC pause and synchronous asset-assembly frames cannot be split). Off = vanilla " +
             "behavior: the HMD shows a motionless void during loads.");
 

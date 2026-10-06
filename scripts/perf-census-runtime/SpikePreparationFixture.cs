@@ -111,6 +111,31 @@ public static class SpikePreparationFixture
             Check(choreographer.Processed==5,
                 "ordinary logging preserves uninstrumented native message dispatch");
             VRLog.WantsDebug=true;
+            // Bind the actual production edge observer and exercise Unity's process setting.
+            // Scene flags/resources below remain external game seams; no native game assembly
+            // is claimed by this small loading lifecycle fixture.
+            var loadingObserver = new GloomhavenVR.WorldUI.LoadingIndicator();
+            MethodInfo observeLoading = loadingObserver.GetType().GetMethod("TickNativeLoading", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            UnityEngine.ThreadPriority originalPriority = Application.backgroundLoadingPriority;
+            try
+            {
+                foreach (UnityEngine.ThreadPriority priority in new[] { UnityEngine.ThreadPriority.BelowNormal, UnityEngine.ThreadPriority.Normal, UnityEngine.ThreadPriority.High, UnityEngine.ThreadPriority.Low })
+                {
+                    Application.backgroundLoadingPriority = priority;
+                    VRLog.Lines.Clear();
+                    foreach (bool edge in new[] { false, true, true, false, false, true, false })
+                    {
+                        observeLoading.Invoke(loadingObserver, new object[] { edge });
+                        Check(Application.backgroundLoadingPriority == priority,
+                            "loading display preserves the actual native async priority on every edge");
+                    }
+                    Check(VRLog.Lines.Count == 4,
+                        "normal loading lifecycle logs each real edge without growing every frame");
+                    Check(VRLog.Lines[0].Contains("Loading started:") && VRLog.Lines[1].Contains("Loading ended:"),
+                        "normal lifecycle retains useful native loading start and completion context");
+                }
+            }
+            finally { Application.backgroundLoadingPriority = originalPriority; }
             game=SceneManager.GetSceneByName("Game");proc=SceneManager.GetSceneByName("ProcGen");
             if(!game.IsValid())game=SceneManager.CreateScene("Game");
             if(!proc.IsValid())proc=SceneManager.CreateScene("ProcGen");
@@ -129,13 +154,17 @@ public static class SpikePreparationFixture
             ScenarioInteractionPreparation.Tick();
             Check(ScenarioInteractionPreparation.IsPreparing&&ScenarioCardPreparation.Begins==begins,
                 "initial preparation defers finite resource deadlines until native visual queues settle");
+            Check(!ScenarioInteractionPreparation.ShowsLoadingIndicator,
+                "initial cosmetic preparation cannot extend completed native loading");
             ScenarioSceneryBudget.IsPreparingPresentation=false;
             ScenarioInteractionPreparation.Tick();
             Check(ScenarioInteractionPreparation.IsPreparing&&FigureInteractionPreparation.Ticks+ScenarioCardPreparation.Ticks==coldPreparationTicks+1,
-                "one cold preparation job per frame keeps the spinner visible");
+                "one cold preparation job per frame keeps original resources available in the background");
+            Check(!ScenarioInteractionPreparation.ShowsLoadingIndicator,
+                "initial card and figure jobs cannot own the completed scenario spinner");
             ScenarioInteractionPreparation.Tick();
             Check(!ScenarioInteractionPreparation.IsPreparing&&FigureInteractionPreparation.IsReady&&ScenarioCardPreparation.IsReady,
-                "both original preparation jobs release the visual loading gate");
+                "both original preparation jobs complete without delaying native loading");
             begins=ScenarioCardPreparation.Begins;
             for(int i=0;i<10;i++)ScenarioInteractionPreparation.Tick();
             Check(ScenarioCardPreparation.Begins==begins,

@@ -41,12 +41,12 @@ namespace GloomhavenVR.WorldUI;
 ///   menu composite) hides and the Menu2D head camera's black void clear carries the
 ///   backdrop. The gate is recomputed every tick, so the screen returns through its normal
 ///   Show() path the moment loading ends. Hands stay visible (mod layer).</item>
-/// <item>Smaller hitches (part 2): while loading, <c>Application.backgroundLoadingPriority</c>
-///   is dropped to <c>Low</c> — Unity's async-integration time slice per frame shrinks, so
-///   the many 25–100 ms integration hitches get smaller at the cost of a somewhat longer
-///   load. The game never sets the value and only polls <c>isDone</c>, so nothing depends
-///   on load timing. The EXACT prior value is captured before the flip and restored when
-///   loading ends (and defensively on <see cref="Shutdown"/>).</item>
+/// <item>Native loading priority is retained. The former <c>Low</c> override deliberately
+///   lengthened asynchronous integration to smooth loading hitches. The user explicitly
+///   accepts those hitches and reported excessive loading in the Build628 Frame capture;
+///   presentation must not throttle native loading. Optional card/figure cache preparation
+///   continues after native completion without owning the spinner or flat-screen gate.
+///   A newly revealed room still shows its actual procedural/material work.</item>
 /// </list>
 ///
 /// The residual big single frames (per-transition GC.Collect spike, procgen
@@ -192,7 +192,7 @@ namespace GloomhavenVR.WorldUI;
 /// every tick re-resolves <c>VRRigDriver.HeadCamera</c> and rebuilds on Unity-null, so the
 /// indicator survives any number of rig cycles. Purely local presentation (MP: nothing on
 /// the wire); every game-object mutation is mod-owned; [WorldUI] LoadingIndicator=false
-/// disables the whole feature (visuals, gate and priority flip).
+/// disables the whole feature (visuals and gate).
 /// </summary>
 internal sealed class LoadingIndicator
 {
@@ -305,9 +305,9 @@ internal sealed class LoadingIndicator
     private float _overlayAlpha;
     private bool _increaseAlpha;
 
-    // Background-loading-priority flip (part 2).
-    private bool _prioritySet;
-    private UnityEngine.ThreadPriority _priorPriority;
+    // Observe native loading edges; this display never writes async loading priority.
+    private bool _nativeLoadingObserved;
+    private float _nativeLoadingStartedAt;
 
     // Appear/disappear ramp: 0 = fully gone (root deactivated), 1 = fully shown.
     private float _fade;
@@ -349,19 +349,10 @@ internal sealed class LoadingIndicator
         if (townReload && !gameLoading) _townReloadVisual = true;
         else if (gameLoading) _townReloadVisual = false;
 
-        // Part 2 runs whenever the feature is on and a load is in flight — flipped and
-        // restored on the edges only, one log line each (existing VRLog style).
-        //
-        // NOT during the boot window, and that exclusion is deliberate: shrinking Unity's
-        // async-integration slice buys smoother frames by making the load LONGER, and the boot
-        // load is the one the user is complaining about the length of. It would also buy
-        // nothing there — the frames that stall are the game's own synchronous YML parse on
-        // the main thread, not async integration, so a smaller slice cannot touch them. The
-        // boot clause is a display decision and stays one; it must not sit on the load path.
-        // Preparation is bounded mod-owned work; do not leave Unity's asynchronous
-        // integration throttled to Low AFTER native loading has ended. This previously
-        // prolonged original portrait/card requests while the post-load spinner waited.
-        TickLoadPriority(nativeGameLoading && _boot != BootCoverage.Covering);
+        // Build628 retained the initial spinner for 61.81s of optional card/figure
+        // prewarming AFTER the native screen/input had completed. Do not manufacture
+        // another loading period for those caches, or throttle the native async loader.
+        TickNativeLoading(nativeGameLoading && _boot != BootCoverage.Covering);
 
         // Only a real scene load owns the full picture. A town-mode toggle leaves
         // original/rescue windows reachable while its spinner runs in front of options.
@@ -454,13 +445,8 @@ internal sealed class LoadingIndicator
 
     public void Shutdown()
     {
-        // Defensive restore: never leave the process with a lowered loading priority.
-        if (_prioritySet)
-        {
-            Application.backgroundLoadingPriority = _priorPriority;
-            _prioritySet = false;
-            VRLog.Info("WorldUI", $"Loading indicator shutdown: backgroundLoadingPriority restored to {_priorPriority}.");
-        }
+        _nativeLoadingObserved = false;
+        _nativeLoadingStartedAt = 0f;
         FlatScreenSuppressed = false;
         if (_root != null)
         {
@@ -717,23 +703,23 @@ internal sealed class LoadingIndicator
         }
     }
 
-    // ---- part 2: async-integration slice shrink ------------------------------------------
+    // ---- native loading lifecycle (observation only) -------------------------------------
 
-    private void TickLoadPriority(bool loading)
+    private void TickNativeLoading(bool loading)
     {
-        if (loading && !_prioritySet)
+        if (loading == _nativeLoadingObserved) return;
+        _nativeLoadingObserved = loading;
+        if (loading)
         {
-            _priorPriority = Application.backgroundLoadingPriority;
-            Application.backgroundLoadingPriority = UnityEngine.ThreadPriority.Low;
-            _prioritySet = true;
-            VRLog.Info("WorldUI", $"Loading started: backgroundLoadingPriority {_priorPriority} → Low " +
-                                  "(smaller per-frame async-integration slices — smaller hitches, slightly longer load).");
+            _nativeLoadingStartedAt = Time.realtimeSinceStartup;
+            VRLog.Info("WorldUI", $"Loading started: backgroundLoadingPriority {Application.backgroundLoadingPriority} "
+                + "retained; native loading owns the spinner, optional interaction caches do not.");
         }
-        else if (!loading && _prioritySet)
+        else
         {
-            Application.backgroundLoadingPriority = _priorPriority;
-            _prioritySet = false;
-            VRLog.Info("WorldUI", $"Loading ended: backgroundLoadingPriority restored to {_priorPriority}.");
+            VRLog.Info("WorldUI", $"Loading ended: native loading display released after "
+                + $"{Time.realtimeSinceStartup - _nativeLoadingStartedAt:0.00}s; "
+                + "optional interaction caches continue without holding the spinner.");
         }
     }
 
