@@ -136,11 +136,8 @@ internal static class TownServicePresentation
         }
         catch (Exception e)
         {
-            UIWindow? restore = _window;
-            if (_failedWindow == null) _failedWindow = _window;
-            Reset();
-            if (restore != null && restore.IsOpen)
-                ModalFallback.RestoreTownServiceContext(restore, _origin, _yaw);
+            if (_window != null) RestoreNativeForOpening("Original service preparation failed");
+            else Reset();
             VRLog.Note("WorldUI", "TOWN SERVICE FALLBACK: original window restored after " + e);
         }
     }
@@ -302,9 +299,8 @@ internal static class TownServicePresentation
             }
             catch
             {
-                Reset();
-                ModalFallback.RestoreTownServiceContext(window, _origin, _yaw);
-                _failedWindow = window;
+                // Retain the exact controller until the outer failure handler has restored
+                // its native escape hatch. A quiet controller has no open flat window yet.
                 throw;
             }
             VRLog.Note("WorldUI", "TOWN SERVICE OPEN: service=" + service + " session=" + _session + " native sections=" + Surfaces.Count);
@@ -384,10 +380,11 @@ internal static class TownServicePresentation
     private static void RestoreNativeForOpening(string reason)
     {
         UIWindow? original = _window;
-        if (original == null || !original.IsOpen) return;
+        if (original == null || _quietService == 0 && !original.IsOpen) return;
         Vector3 originalPosition = _origin;
         Quaternion originalYaw = _yaw;
         byte service = Service;
+        bool quiet = _quietService != 0;
         if (_failedWindow != null) _failedWindow.onHidden.RemoveListener(OnFallbackHidden);
         _failedWindow = original;
         // The independent merchant hand must release its parked item before the
@@ -395,6 +392,19 @@ internal static class TownServicePresentation
         // card would remain in front of the restored original confirmation.
         if (service == 1) TownServiceMerchantHandoff.Reset();
         Reset();
+        if (quiet)
+        {
+            // This exceptional recovery is the only quiet visit that opens the old window.
+            // Clear the logical request so the next tick cannot immediately reclaim it.
+            TownServiceQuietController.Reset();
+            EGuildmasterMode mode = service == 1 ? EGuildmasterMode.Merchant
+                : service == 2 ? EGuildmasterMode.Temple : EGuildmasterMode.Enchantress;
+            NewPartyCharacterUI? selected = NewPartyDisplayUI.PartyDisplay?.SelectedUISlot;
+            if (!original.IsOpen) MapRoomDriver.PressGuildmasterMode(mode, reason, suppressNativeSound: true);
+            NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
+            if (selected != null && selected.State == PartySlotState.Assigned && display != null
+                && !ReferenceEquals(display.SelectedUISlot, selected)) selected.OnClick();
+        }
         original.onHidden.AddListener(OnFallbackHidden);
         ConvertedPanel? restored = ModalFallback.RestoreTownServiceContext(original,
             originalPosition, originalYaw);
@@ -585,7 +595,7 @@ internal static class TownServicePresentation
     internal static void Reset()
     {
         if (_window == null && Surfaces.Count == 0 && Tokens.Count == 0 && _mat == null)
-        { TownServiceTempleController.Reset(); return; }
+        { TownServiceTempleController.Reset(); TownServiceQuietController.Release(); return; }
         CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: true);
         CardsDriver.SuppressNextOffScenarioFanEdgeSound(open: false);
         TownServicePalmConfirmation.Clear();
