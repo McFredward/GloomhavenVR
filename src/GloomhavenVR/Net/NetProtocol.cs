@@ -589,7 +589,26 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 630;
+    public const ushort ModBuild = 631;
+
+    // ModBuild 631 — native merchant card minification, on top of the complete
+    // Frame630 integration. Supplied paired logs are Build627: the host exhausted
+    // the 384 MB mip cache and left later item artwork without filtered levels.
+    // Small exact untrimmed atlas sprites now use the existing bounded CPU region
+    // bake; a prepared whole-atlas copy is still reused. Source resolution, pivot,
+    // border, PPU and original asset identities remain. The 384 MB byte ceiling
+    // stays unchanged; the metadata runaway guard rises from 512 to 2048 regions
+    // because the original BattleOverlayCanvas alone contains 895 safe members.
+    // Native Image base and active override art share the filter/arrival/restore
+    // path, including explicit overrides equal to the base. Inert town observers
+    // resolve original asset metadata and immediately use that same local sampling
+    // policy instead of reinstalling mipless pictures. No wire records, card
+    // geometry, concealment, gameplay, quality defaults or asset bundles change.
+    // Actual Unity perspective proofs compare six distance/tilt views per original
+    // item against an 8x reference and retain close-view print resolution. These
+    // prove filtering behavior, not headset temporal appearance or full-game cache
+    // sufficiency in every save; the next paired hardware run remains necessary.
+    //
 
     // ModBuild 630 — Frame628 hardware follow-up: remove rejected visible idle
     // sampling and both controls completely; native visible animation stays continuous.

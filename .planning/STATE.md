@@ -1,5 +1,23 @@
 # State — where the project stands
 
+**Build631 integrated validation pending, 2026-10-06: 1.1.0.**
+
+Native merchant distance filtering now uses economical exact sprite regions and
+the common base/override art path on both owning cards and inert town observers.
+The384 MiB byte ceiling, original print resolution/geometry, original asset
+identities and wire format remain. The2048 metadata guard covers the895-member
+native UI atlas without the former512-region count refusal. Supplied paired logs
+remain Build627; source/Unity filtering evidence is not headset acceptance.
+
+Focused565 Unity assertions, five causal controls and790 existing packed-sprite
+preparation assertions pass. Original item far/tilted render comparisons roughly
+halve sampling error and retain the close view. The complete final integrated
+gate is pending; [CARD-631-FILTERING.md](CARD-631-FILTERING.md) records evidence,
+scope, parity and hardware limits. All completed Frame630 changes and documentation
+are integrated as ancestors; the final combined tree will be pushed to dev.
+
+---
+
 **Build630 integration validated for handoff, 2026-10-06: 1.1.0.**
 
 The new immutable Steam Frame capture identifies Build628/176beb741. The current

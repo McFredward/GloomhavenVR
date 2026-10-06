@@ -1,9 +1,9 @@
 # Planning index
 
-Updated 2026-10-06 for Build627: the approved common PC/Frame rendering handover,
-nine reversible controls, native ownership review and final integrated validation.
-NPC626 remains the original enhancement admission/print and per-render return
-baseline. Hardware outcomes remain separate from source/runtime evidence. This
+Updated 2026-10-06 for Build631: native card distance filtering integrates with
+the completed Frame630 loading, terrain and safe XR resolution review. NPC629
+remains the offered-original admission/print and outcome-specific return baseline.
+Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
 status; it is not the player manual.
 
@@ -15,6 +15,9 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [CARD-631-FILTERING.md](CARD-631-FILTERING.md) | Native item distance filtering, original asset/override parity and Unity render evidence |
+| [../docs/performance/FRAME-630-INTEGRATION.md](../docs/performance/FRAME-630-INTEGRATION.md) | Completed Frame loading, continuous animation, terrain and live XR viewport integration |
+| [NPC-629-REVIEW.md](NPC-629-REVIEW.md) | Offered-original admission, exact shared card planes and native outcome flights |
 | [../docs/performance/FRAME-627-INTEGRATION.md](../docs/performance/FRAME-627-INTEGRATION.md) | Reviewed PC/Frame controls, native ownership, final gate continuations and hardware limits |
 | [FRAME-627-RENDER-REVIEW.md](FRAME-627-RENDER-REVIEW.md) | Actual native environment/terrain boundaries, early probe refusal and source/pixel proof |
 | [NPC-626-REVIEW.md](NPC-626-REVIEW.md) | Paired Build625 enhancement admission, actual print geometry, per-render returns, 1:1 boundaries and explicit validation continuations |
