@@ -135,8 +135,11 @@ internal static class CardFaceMipBake
     /// </summary>
     private const int MaxBakedTextures = 256;
 
-    /// <summary>Runaway guard on PER-SPRITE bakes — see <see cref="MaxBakedTextures"/>.</summary>
-    private const int MaxSpriteBakes = 512;
+    /// <summary>Runaway metadata guard, independent of the unchanged byte ceiling.
+    /// The original BattleOverlayCanvas alone contains 895 safe sprite regions; its
+    /// 555 untrimmed members now share the economical region path. The old 512 guard
+    /// would reject legitimate native card/icon regions despite ample byte headroom.</summary>
+    private const int MaxSpriteBakes = 2048;
 
     /// <summary>Largest side for a per-sprite baked texture (card-face sprites are ≤ ~1024).</summary>
     private const int MaxSpriteDim = 2048;
@@ -310,17 +313,7 @@ internal static class CardFaceMipBake
             {
                 if (img == null)
                     continue;
-                Sprite? sprite = img.sprite;
-                if (sprite == null)
-                    continue;
-                if (s_originalByReplacement.ContainsKey(sprite.GetInstanceID()))
-                    continue; // already sampling one of OUR baked copies
-                Sprite? replacement = ReplacementFor(sprite);
-                if (replacement != null)
-                {
-                    img.sprite = replacement;
-                    swapped++;
-                }
+                swapped += ApplyTo(img);
             }
             if (swapped > 0 && !s_swapLogged)
             {
@@ -353,11 +346,10 @@ internal static class CardFaceMipBake
         {
             foreach (Image image in faceRoot.GetComponentsInChildren<Image>(includeInactive: true))
             {
-                if (image == null || image.sprite == null)
+                if (image == null)
                     continue;
-                Sprite sprite = image.sprite;
-                if (!s_originalByReplacement.ContainsKey(sprite.GetInstanceID()))
-                    ReplacementFor(sprite);
+                PresentationFor(image.sprite);
+                PresentationFor(image.overrideSprite);
             }
         }
         catch (System.Exception ex)
@@ -391,11 +383,14 @@ internal static class CardFaceMipBake
                 if (img == null)
                     continue;
                 Sprite? sprite = img.sprite;
-                if (sprite != null
-                    && s_originalByReplacement.TryGetValue(sprite.GetInstanceID(), out Sprite original)
-                    && original != null)
+                if (sprite != null) img.sprite = OriginalFor(sprite);
+                // Query AFTER the base write. A null override follows the restored
+                // base; an explicit override equal to the old base stays independent.
+                Sprite? draw = img.overrideSprite;
+                if (draw != null)
                 {
-                    img.sprite = original;
+                    Sprite original = OriginalFor(draw);
+                    if (!ReferenceEquals(original, draw)) img.overrideSprite = original;
                 }
             }
         }
@@ -407,6 +402,32 @@ internal static class CardFaceMipBake
                 VRLog.Warn("Cards", $"Face mip-bake restore failed ({ex.GetType().Name}: {ex.Message}).");
             }
         }
+    }
+
+    /// <summary>Local sampling policy; asset banks and wire identities always retain
+    /// OriginalFor. A native town observer must use the same cache as the owning card,
+    /// rather than assigning its resolved mipless original directly.</summary>
+    internal static Sprite? PresentationFor(Sprite? source)
+    {
+        if (source == null || CardsConfig.FaceMipBake == null || !CardsConfig.FaceMipBake.Value)
+            return source;
+        return IsBakedSprite(source) ? source : ReplacementFor(source) ?? source;
+    }
+
+    /// <summary>Filter the base and any independently authored override. Read the
+    /// override AFTER changing the base: a null override now follows the filtered base,
+    /// while an explicit override equal to the OLD base still needs filtering. This
+    /// preserves Unity's implicit-base behavior without accessing private Image fields.</summary>
+    internal static int ApplyTo(Image image)
+    {
+        Sprite? source = image.sprite;
+        Sprite? filtered = PresentationFor(source);
+        int swapped = 0;
+        if (!ReferenceEquals(source, filtered)) { image.sprite = filtered; swapped++; }
+        Sprite? draw = image.overrideSprite;
+        filtered = PresentationFor(draw);
+        if (!ReferenceEquals(draw, filtered)) { image.overrideSprite = filtered; swapped++; }
+        return swapped;
     }
 
     /// <summary>
@@ -453,7 +474,7 @@ internal static class CardFaceMipBake
                 LogSpriteSkip(source, "TIGHT atlas packing — neighboring sprites share its rectangular " +
                                       "atlas area, a rect copy would render their fragments");
             }
-            else if (TryExactRect(source, out Rect texRect))
+            else if (TryExactRect(source, out Rect texRect) && !PreferRegion(source, srcTex))
             {
                 // Fast path: plain unrotated, untrimmed rect — an equivalent FullRect
                 // sprite on the SHARED mipmapped atlas copy (one bake serves many sprites).
@@ -492,7 +513,7 @@ internal static class CardFaceMipBake
         source = OriginalFor(source);
         if (IsPrepared(source) || IsRotatedPacked(source) || IsTightPacked(source)) return false;
         Texture2D atlas = source.texture;
-        if (TryExactRect(source, out _))
+        if (TryExactRect(source, out _) && !PreferRegion(source, atlas))
             return !s_bakedByTexture.ContainsKey(atlas.GetInstanceID())
                 && !s_bakedByIdentity.ContainsKey(IdentityOf(atlas));
         try
@@ -536,6 +557,20 @@ internal static class CardFaceMipBake
             }
         }
     }
+
+    /// <summary>Build631's supplied Build627 host exhausted the unchanged 384 MB
+    /// cache before several item faces arrived. The first small untrimmed sprite had
+    /// paid for an entire 4096-square UI atlas (~85 MB) rather than its own pixels.
+    /// Use the existing exact CPU row-slice path for a small region instead. Reuse a
+    /// whole-atlas copy when it already exists, avoiding a second pixel allocation.
+    /// Full-coverage and oversized sprites retain the original shared-atlas path;
+    /// mip zero, pivot, border, PPU and source identity are unchanged.</summary>
+    private static bool PreferRegion(Sprite source, Texture2D atlas) =>
+        atlas.width <= MaxTextureDim && atlas.height <= MaxTextureDim
+        && source.rect.width <= MaxSpriteDim && source.rect.height <= MaxSpriteDim
+        && source.rect.width * source.rect.height * 4f <= (long)atlas.width * atlas.height
+        && !(s_bakedByTexture.TryGetValue(atlas.GetInstanceID(), out Texture2D? baked) && baked != null)
+        && !(s_bakedByIdentity.TryGetValue(IdentityOf(atlas), out baked) && baked != null);
 
     /// <summary>Pivot in normalized rect space, as Sprite.Create wants it.</summary>
     private static Vector2 NormalizedPivot(Sprite source) => new(

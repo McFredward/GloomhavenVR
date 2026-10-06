@@ -431,7 +431,8 @@ internal sealed class TownServiceBinding : IDisposable
                         CanvasGroup cg = Require<CanvasGroup>(node); cg.enabled = n[0] != 0; cg.alpha = n[1]; cg.ignoreParentGroups = n[2] != 0;
                         cg.interactable = false; cg.blocksRaycasts = false; break;
                     case TownServiceProperty.Image:
-                        Image image = Require<Image>(node); image.sprite = assets.Resolve<Sprite>(text[0]); image.overrideSprite = assets.Resolve<Sprite>(text[1]);
+                        Image image = Require<Image>(node); image.sprite = GloomhavenVR.Cards.CardFaceMipBake.PresentationFor(assets.Resolve<Sprite>(text[0]));
+                        image.overrideSprite = GloomhavenVR.Cards.CardFaceMipBake.PresentationFor(assets.Resolve<Sprite>(text[1]));
                         image.type = (Image.Type)n[0]; image.fillAmount = n[1]; image.fillMethod = (Image.FillMethod)n[2]; image.fillOrigin = (int)n[3];
                         image.fillClockwise = n[4] != 0; image.preserveAspect = n[5] != 0; image.fillCenter = n[6] != 0; image.pixelsPerUnitMultiplier = n[7]; break;
                     case TownServiceProperty.RawImage:

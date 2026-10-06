@@ -36,9 +36,9 @@ def main():
       boundary=(copy/'Boundaries.cs').read_text();anchor='        internal static bool LocalReady, PublishedReady;';assert boundary.count(anchor)==1
       if 'bool HasReadyVisitor(' not in boundary: boundary=boundary.replace(anchor,anchor+'\n        internal static bool HasReadyVisitor(byte service) => false;')
       if 'bool HasReadyMerchantVisitor' not in boundary: boundary=boundary.replace(anchor,anchor+'\n        internal static bool HasReadyMerchantVisitor => false;')
-      anchor='internal static class CardFaceMipBake { internal static Sprite OriginalFor(Sprite sprite) => sprite; }'
+      anchor='internal static class CardFaceMipBake { internal static Sprite OriginalFor(Sprite sprite) => sprite; internal static Sprite? PresentationFor(Sprite? sprite) => sprite; }'
       assert boundary.count(anchor)==1
-      boundary=boundary.replace(anchor,'internal static class CardFaceMipBake { internal static readonly Dictionary<Sprite,Sprite> Originals=new(); internal static Sprite OriginalFor(Sprite sprite) => Originals.TryGetValue(sprite,out Sprite source)?source:sprite; }')
+      boundary=boundary.replace(anchor,'internal static class CardFaceMipBake { internal static readonly Dictionary<Sprite,Sprite> Originals=new(); internal static Sprite OriginalFor(Sprite sprite) => Originals.TryGetValue(sprite,out Sprite source)?source:sprite; internal static Sprite? PresentationFor(Sprite? sprite) => sprite; }')
       (copy/'Boundaries.cs').write_text(boundary)
       program=(copy/'Program.cs').read_text();anchor='            DelayedCensusRace();';assert program.count(anchor)==1
       program=program.replace(anchor,'            if (suite.StartsWith("native-peer-", StringComparison.Ordinal))\n            { IEnumerator peer = NativePeer(suite); while (peer.MoveNext()) yield return peer.Current; File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\\n"); yield break; }\n'+anchor)

@@ -1634,6 +1634,17 @@
       "weight": 90
     },
     {
+      "id": "card-mip",
+      "command": [
+        "python3",
+        "scripts/check-card-mip.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 5
+    },
+    {
       "id": "wall-maintenance-trace",
       "command": [
         "python3",
