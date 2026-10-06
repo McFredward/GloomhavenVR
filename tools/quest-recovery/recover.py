@@ -557,10 +557,82 @@ def is_unity_yaml(path):
     return prefix.startswith((b"%YAML ", b"--- !u!"))
 
 
+class _PointerStructureFallback(Exception):
+    """An uncommon YAML structure needs the original complete node traversal."""
+
+
+def _stream_pointer_tokens(clean, text, start, loader):
+    """Keep only candidate PPtr maps, not every mesh/animation YAML node."""
+    import yaml
+    from yaml.events import AliasEvent, MappingEndEvent, MappingStartEvent, ScalarEvent, SequenceEndEvent, SequenceStartEvent
+    # Frames contain kind, next-is-key, current-key, candidate-values and
+    # candidate-key-set. Native maps use scalar keys; aliases/complex keys retain
+    # the established node parser instead of inventing their semantics.
+    stack, tokens = [], []
+    pointer_keys = {"fileID", "guid", "type"}
+    for event in yaml.parse(clean, Loader=loader):
+        kind = type(event)
+        if kind is ScalarEvent:
+            if stack and stack[-1][0] == 0:
+                frame = stack[-1]
+                if frame[1]:
+                    frame[2] = event.value
+                    if event.value not in pointer_keys: frame[4] = False
+                elif frame[4]:
+                    frame[3][frame[2]] = event
+                frame[1] = not frame[1]
+        elif kind is MappingStartEvent or kind is SequenceStartEvent:
+            if stack and stack[-1][0] == 0:
+                parent = stack[-1]
+                if parent[1]: raise _PointerStructureFallback()
+                if parent[4]: parent[3][parent[2]] = None
+                parent[1] = True
+            stack.append([0, True, None, {}, True] if kind is MappingStartEvent else [1])
+        elif kind is MappingEndEvent:
+            frame = stack.pop()
+            if frame[4] and set(frame[3]) == pointer_keys and all(value is not None for value in frame[3].values()):
+                guid = frame[3]["guid"]
+                if not re.fullmatch(r"[0-9a-f]{32}", guid.value):
+                    raise RecoveryError("Native serialized PPtr has an invalid GUID.")
+                left, right = start + guid.start_mark.index, start + guid.end_mark.index
+                if text[left:right] != guid.value:
+                    raise RecoveryError("Unknown quoted native serialized PPtr GUID representation.")
+                tokens.append((guid.value, left, right))
+        elif kind is SequenceEndEvent:
+            stack.pop()
+        elif kind is AliasEvent:
+            raise _PointerStructureFallback()
+    # The established stack traversal visits mapping/sequence values backwards.
+    return list(reversed(tokens))
+
+
+def _composed_pointer_tokens(clean, text, start, loader):
+    """Retain the original semantics for uncommon YAML keys and aliases."""
+    import yaml
+    from yaml.nodes import MappingNode, ScalarNode, SequenceNode
+    stack, tokens = [yaml.compose(clean, Loader=loader)], []
+    while stack:
+        current = stack.pop()
+        if isinstance(current, MappingNode):
+            values = {key.value: value for key, value in current.value if isinstance(key, ScalarNode)}
+            if set(values) == {"fileID", "guid", "type"} and all(isinstance(value, ScalarNode) for value in values.values()):
+                guid = values["guid"]
+                if not re.fullmatch(r"[0-9a-f]{32}", guid.value):
+                    raise RecoveryError("Native serialized PPtr has an invalid GUID.")
+                left, right = start + guid.start_mark.index, start + guid.end_mark.index
+                if text[left:right] != guid.value:
+                    raise RecoveryError("Unknown quoted native serialized PPtr GUID representation.")
+                tokens.append((guid.value, left, right))
+            else:
+                stack.extend(value for _, value in current.value)
+        elif isinstance(current, SequenceNode):
+            stack.extend(current.value)
+    return tokens
+
+
 def serialized_pointer_tokens(text):
     """Yield GUID/token spans from actual YAML PPtr nodes, never scalar names."""
     import yaml
-    from yaml.nodes import MappingNode, ScalarNode, SequenceNode
     loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
     headers = list(re.finditer(r"^--- !u!\d+ &-?\d+[ \t]*$", text, re.M))
     ranges = [(header.start(), headers[index + 1].start() if index + 1 < len(headers) else len(text))
@@ -572,7 +644,10 @@ def serialized_pointer_tokens(text):
         clean = re.sub(r"^%[^\n]*", lambda match: " " * len(match[0]), block, flags=re.M)
         clean = re.sub(r"^--- !u!\d+ &-?\d+[ \t]*$", lambda match: "---" + " " * (len(match[0]) - 3), clean, flags=re.M)
         try:
-            node = yaml.compose(clean, Loader=loader)
+            try:
+                tokens = _stream_pointer_tokens(clean, text, start, loader)
+            except _PointerStructureFallback:
+                tokens = _composed_pointer_tokens(clean, text, start, loader)
         except yaml.scanner.ScannerError as error:
             # Original Unity null managed-reference registries use this compact
             # empty flow mapping. PyYAML's Python parser accepts it; libyaml's C
@@ -583,42 +658,52 @@ def serialized_pointer_tokens(text):
             if (loader is yaml.SafeLoader or error.problem != "found unexpected ':'" or
                     not any(match.start(1) <= index < match.end(1) for match in empty_types)):
                 raise
-            node = yaml.compose(clean, Loader=yaml.SafeLoader)
-        stack = [node]
-        while stack:
-            current = stack.pop()
-            if isinstance(current, MappingNode):
-                values = {key.value: value for key, value in current.value if isinstance(key, ScalarNode)}
-                if set(values) == {"fileID", "guid", "type"} and all(isinstance(value, ScalarNode) for value in values.values()):
-                    guid = values["guid"]
-                    if not re.fullmatch(r"[0-9a-f]{32}", guid.value):
-                        raise RecoveryError("Native serialized PPtr has an invalid GUID.")
-                    left, right = start + guid.start_mark.index, start + guid.end_mark.index
-                    if text[left:right] != guid.value:
-                        raise RecoveryError("Unknown quoted native serialized PPtr GUID representation.")
-                    yield guid.value, left, right
-                else:
-                    stack.extend(value for _, value in current.value)
-            elif isinstance(current, SequenceNode):
-                stack.extend(current.value)
+            tokens = _composed_pointer_tokens(clean, text, start, yaml.SafeLoader)
+        yield from tokens
 
 
 def audit_asset_references(project):
     """Check all native YAML/importer PPtr GUIDs, regardless of asset suffix."""
-    guids = {}
-    for metadata in (project / "Assets").rglob("*.meta"):
-        match = GUID_PATTERN.search(metadata.read_text(encoding="utf-8", errors="replace"))
-        if match:
-            guids.setdefault(match[1], []).append(metadata.relative_to(project).as_posix())
-    missing = collections.defaultdict(set)
-    references = 0
-    for asset in (project / "Assets").rglob("*"):
-        if not asset.is_file() or not is_unity_yaml(asset):
-            continue
-        for guid, _, _ in serialized_pointer_tokens(asset.read_text(encoding="utf-8", errors="replace")):
-            references += 1
-            if not guid.startswith("0000000000000000") and guid not in guids:
-                missing[guid].add(asset.relative_to(project).as_posix())
+    project = Path(project)
+    guids, missing = {}, collections.defaultdict(set)
+    # Generated assets already passed the merge ownership checks. Enumerate once
+    # without a second metadata walk or per-file stat; every file is opened once.
+    assets = [Path(folder) / name for folder, _, names in os.walk(project / "Assets") for name in names]
+    counter = build_progress.Counter("recovery-asset-references", len(assets), "files", "Recovered asset references")
+    references, relative = 0, "Assets"
+    try:
+        for asset in assets:
+            relative = asset.relative_to(project).as_posix()
+            with asset.open("rb") as stream:
+                prefix = stream.read(64)
+                if asset.suffix == ".meta" or prefix.startswith((b"%YAML ", b"--- !u!")):
+                    size = os.fstat(stream.fileno()).st_size
+                    bytes_counter = (build_progress.Counter("recovery-asset-reference-file", size, "bytes", relative)
+                                     if size > 4 * 1024 * 1024 else None)
+                    chunks = [prefix]
+                    if bytes_counter: bytes_counter.add(len(prefix))
+                    for chunk in iter(lambda: stream.read(4 * 1024 * 1024), b""):
+                        chunks.append(chunk)
+                        if bytes_counter: bytes_counter.add(len(chunk))
+                    text = b"".join(chunks).decode("utf-8", errors="replace")
+                    chunks.clear()
+                    if asset.suffix == ".meta":
+                        match = GUID_PATTERN.search(text)
+                        if match: guids.setdefault(match[1], []).append(relative)
+                    for guid, _, _ in serialized_pointer_tokens(text):
+                        references += 1
+                        if not guid.startswith("0000000000000000") and guid not in guids:
+                            missing[guid].add(relative)
+                    if bytes_counter: bytes_counter.finish()
+                    del text
+            counter.add(1, relative)
+        # Metadata definitions may occur after their references in the one pass.
+        missing = {guid: paths for guid, paths in missing.items() if guid not in guids}
+        counter.finish()
+    except Exception as error:
+        counter.fail(error)
+        print("[Quest recovery] Asset reference audit failed:", relative, ";", type(error).__name__, flush=True)
+        raise
     duplicates = {guid: paths for guid, paths in guids.items() if len(paths) > 1}
     return {"referenceCount": references, "missingGuidCount": len(missing),
             "missing": {g: sorted(paths) for g, paths in sorted(missing.items())},
