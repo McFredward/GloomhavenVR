@@ -84,15 +84,18 @@ def recovery_logs(build_root, failure=None):
                           and not row.is_symlink() and row.is_dir()), key=lambda row: row.stat().st_mtime, reverse=True)[:2]
     result = []
     for folder in folders:
-        core = ordinary(folder / 'core-export.log')
-        if core.is_file(): result.append(('recovery/' + folder.name + '/core-export.log', core))
+        for name in ('core-export.log', 'core-export.console.log'):
+            core = ordinary(folder / name)
+            if core.is_file(): result.append(('recovery/' + folder.name + '/' + name, core))
         batches = ordinary(folder / 'BundleRecovery')
         if not batches.is_dir(): continue
         # At most the newest eight batch logs, including the failing export.
         rows = sorted((ordinary(row / 'export.log') for row in batches.iterdir()
                        if re.fullmatch(r'batch-\d{3,6}', row.name) and not row.is_symlink() and row.is_dir()),
                       key=lambda row: row.stat().st_mtime if row.is_file() else 0, reverse=True)[:8]
-        result.extend(('recovery/' + folder.name + '/' + row.parent.name + '/export.log', row) for row in rows if row.is_file())
+        for row in rows:
+            for path in (row, ordinary(row.with_name('export.console.log'))):
+                if path.is_file(): result.append(('recovery/' + folder.name + '/' + row.parent.name + '/' + path.name, path))
     return result
 
 

@@ -24,7 +24,7 @@ def tool_failure(root, stage, log, started, executable, exit_code):
         try:
             if failure_path.stat().st_size <= 65536:
                 failure = json.loads(failure_path.read_text(encoding="utf-8"))
-                if failure.get("schema") == 1:
+                if isinstance(failure, dict) and failure.get("schema") == 1:
                     name = failure.get("stage")
                     if isinstance(name, str) and re.fullmatch(r"[a-z][a-z0-9-]{0,80}", name):
                         parameters["failureStage"] = name
