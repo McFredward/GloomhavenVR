@@ -1,6 +1,6 @@
 # Quest procedural engine: Android ARM64EC Wine/Proton with FEX
 
-Status: source evaluation only, 2026-10-06. No backend, APK, builder, game input, or protocol was changed for this evaluation. Guildmaster is included again following the maintainer's latest instruction; Workshop remains excluded. B625's corrected Box64 backend remains the implementation under test.
+Status: source evaluation and static artifact inspection only, 2026-10-06. No archive code was executed and no backend, APK, builder, game input, or protocol was changed for this evaluation. Guildmaster is included again following the maintainer's latest instruction; Workshop remains excluded. B625's corrected Box64 backend remains the implementation under test.
 
 ## Assessment
 
@@ -15,16 +15,38 @@ The Windows FEX modules perform CPU emulation while Wine and the ARM64EC ABI han
 | Component | Pinned source or release | Evidence and limit |
 | --- | --- | --- |
 | Android Proton Wine | `GameNative/proton-wine`, `555aa70febb7d36e82d96697b554ff8f4fe0bb1a`; release `proton-11.0-2-20260928`, published 2026-09-28 | GitHub API confirms the commit and ARM64EC archive. Source includes Bionic, ARM64EC loader, anonymous PE mapping and synchronization patches. |
-| ARM64EC Wine archive | `proton-11.0-2-arm64ec.wcp`, 98,079,159 bytes | GitHub release API reports SHA-256 `fffa467241bdae3eacd6ceb7e8096bb7793d617ce53a198dae8bc63a3453f595`. Archive was not downloaded/executed; its ELF dependency closure has not been verified. |
+| ARM64EC Wine archive | `proton-11.0-2-arm64ec.wcp`, 98,079,159 bytes | Downloaded and matched SHA-256 `fffa467241bdae3eacd6ceb7e8096bb7793d617ce53a198dae8bc63a3453f595`. All 35 outer ELF modules, selected PE system modules and the nested prefix template were inspected without executing them; runtime `dlopen`/sandbox behavior remains unverified. |
 | GameNative application | `utkarshdalal/GameNative`, `7074d14d806a5595d26bbbf6d067ac1a665eb853` | Inspected Bionic launcher, process helper, Android flavors, manifest and third-party notices. |
 | GameNative FEX source | `555e8bd2d1f07fc7455e21324c9f9c7303c7ee7d`, 2026-09-19 | Inspected ARM64EC initialization, threading, UnixLib and build definitions. GitHub comparison identifies it as an ancestor of official FEX, 64 commits behind the official revision below; this inspection does not identify the source revision of a CDN binary. |
 | Official FEX source | `FEX-Emu/FEX`, `7d3090f78237267b2adf2d32116f0105b8d665cb`, 2026-10-05 | Current upstream reference and memory-model documentation. Do not silently combine this with an older binary. |
 | Userspace ntsync | `GameNative/ntsync-android`, `7ce6435e5979b1cb5341aa4b299f31e8937fe121` | Revision explicitly named by the Proton Wine release; source describes file-backed shared state and futex waits. |
-| Prefix template source | `GameNative/bionic-prefix-files`, `6286ac456e4a8376e053ce1ce4f565bd37cc4af4` | Identified dependency. Its binary contents were not audited and should not be copied wholesale into the port. |
+| Prefix template source | `GameNative/bionic-prefix-files`, `6286ac456e4a8376e053ce1ce4f565bd37cc4af4` | Identified source dependency. The actual template inside the downloaded WCP was subsequently inventoried; it contains launcher-specific paths and should not be copied wholesale into the port. |
 
 Primary source links: [Proton Wine release](https://github.com/GameNative/proton-wine/releases/tag/proton-11.0-2-20260928), [release API including artifact digest](https://api.github.com/repos/GameNative/proton-wine/releases/tags/proton-11.0-2-20260928), [GameNative source](https://github.com/utkarshdalal/GameNative/tree/7074d14d806a5595d26bbbf6d067ac1a665eb853), [GameNative FEX revision](https://github.com/GameNative/FEX/commit/555e8bd2d1f07fc7455e21324c9f9c7303c7ee7d), [official FEX revision](https://github.com/FEX-Emu/FEX/commit/7d3090f78237267b2adf2d32116f0105b8d665cb), [ntsync revision](https://github.com/GameNative/ntsync-android/tree/7ce6435e5979b1cb5341aa4b299f31e8937fe121), [prefix template revision](https://github.com/GameNative/bionic-prefix-files/tree/6286ac456e4a8376e053ce1ce4f565bd37cc4af4).
 
 GameNative's pinned component manifest names FEX2609, but an HTTP HEAD to its official CDN returned HTTP 403 here. The manifest supplies no digest or source commit for that entry. Therefore FEX2609's precise binary provenance remains open. A smaller FEX2605 archive inside the pinned application Git tree was inspected instead: 1,544,380 compressed bytes, SHA-256 `2de0a0502190bfc96e62f1f9a252dec9cd81b59c3fbda763dfc5bea812afd437`, containing only `libarm64ecfex.dll` and `libwow64fex.dll`. Its ARM64EC DLL has a nonzero CHPE metadata pointer and imports `ntdll.dll`; an AMD64 PE machine field alone would misclassify this hybrid artifact. This historical binary confirms packaging shape, not compatibility between May FEX and September Wine. [Pinned component manifest](https://github.com/utkarshdalal/GameNative/blob/7074d14d806a5595d26bbbf6d067ac1a665eb853/manifest.json), [inspected historical archive](https://github.com/utkarshdalal/GameNative/blob/7074d14d806a5595d26bbbf6d067ac1a665eb853/app/src/main/assets/fexcore/fexcore-2605.tzst)
+
+## Static inspection of the exact September Wine archive
+
+The public WCP was streamed and checksum-verified before inspection. No archive path or symlink was extracted into an executable tree: ELF/selected PE members were copied individually into temporary fixed filenames for `readelf`/`llvm-readobj`, then deleted. The nested XZ prefix was inventoried as data. A private 420 KiB JSON receipt retains member inventories, hashes, ELF dependencies/undefined symbols and PE metadata at `/home/claw/quest3-local/build/evidence/proton-arm64ec-wcp-20260928-audit.json`; the 98 MB download and temporary binaries were removed after this audit. This is static artifact evidence, not a Wine launch or Quest compatibility result.
+
+The outer archive has 2,246 entries. All 35 ELF members identify as AArch64; their combined file size is 15,661,928 bytes. These central modules have particularly small link-time dependency sets:
+
+| Actual WCP member | Bytes | Interpreter | `DT_NEEDED` | SHA-256 |
+| --- | ---: | --- | --- | --- |
+| `lib/wine/aarch64-unix/wine` | 6,472 | `/system/bin/linker64` | `libdl.so`, `libc.so` | `9e3bdd33af2bd536aa623490dcb1d3c740de0275175a804dc1741c8b6c9dfdf1` |
+| `bin/wineserver` | 6,415,640 | `/system/bin/linker64` | `libdl.so`, `libc.so` | `0dc11843e4597195d284b7c0c08a896504207ea14e09f66e026f915cb396fb20` |
+| `lib/wine/aarch64-unix/ntdll.so` | 1,788,528 | Shared library | `libdl.so`, `libc.so` | `ad7b5129c9657a06e8367b66df8e672fe3431ac0893eb139a708b684329a382e` |
+
+`bin/wine` is a symlink to the first row, not a second standalone loader. Every dynamically linked ELF member has `/data/data/com.termux/files/usr/lib` as its runtime search path. Core Android Bionic libraries can resolve independently of that historical path, but our own Wine Unix libraries need explicit package-local resolution. For example, `ws2_32.so` directly needs `ntdll.so`, and `win32u.so` needs `ntdll.so` plus system `libm.so`/`libdl.so`/`libc.so`.
+
+No `libredirect`, `libsteambootstrap`, `libkgslshim`, `libevshim` or FEX member occurs in either the outer archive or nested prefix. None of those helper names appears in any outer ELF's `DT_NEEDED`, and no corresponding helper name was found in its undefined dynamic symbols. Thus these proprietary launcher helpers are **not mandatory link-time dependencies of the inspected Wine loader/server/ntdll**. Environment preloading, runtime `dlopen` and application-specific behavior remain separate questions; the static audit does not prove that an unadapted WCP works without GameNative's launch setup.
+
+Optional outer Unix modules have additional dependency families: `winex11.so` needs X11/Xext/Android SysV-SHM; `winealsa.so` needs ALSA; `winepulse.so` needs PulseAudio; `winegstreamer.so` needs GStreamer/GLib; `winedmo.so` needs FFmpeg. The packaged `lsteamclient.so` adds `libc++_shared.so` and uses Wine/system libraries, but the audited procedural core does not link to it. None of these third-party libraries is provided as a separate member of this WCP. Disabling irrelevant drivers and resolving the actual headless import/runtime closure are still necessary.
+
+The archive includes 750 PE DLL/EXE/driver members under `aarch64-windows` and 738 under `i386-windows`, with no `x86_64-windows` tree. The inspected AArch64 `ntdll`, `kernel32`, `kernelbase`, `msvcp140`, `vcruntime140`, `ucrtbase`, `user32`, `ole32`, `ws2_32` and `advapi32` report ARM64 machine type and nonzero CHPE metadata. This is direct evidence of hybrid metadata in the system modules, consistent with the source's ARM64EC/ARM64X build, without a complete x64 Wine builtin tree. The 32-bit set is not justified by our x64-only worker's direct imports and can be considered for removal after replay verifies its absence is safe. FEX is a separate component that must still be supplied and selected correctly.
+
+The nested `prefixPack.txz` is 22,067,952 bytes, SHA-256 `ade99dc80b17086a269c038c9bc50167902103a9a61df763cba4d613543ff12a`. Its 575 entries include 114 PE files and no ELF or FEX/helper member. Actual drive symlinks still target `com.winlator.cmod` paths, while font registry paths refer to Termux and an older `proton-10-arm64ec` tree. The source's fresh-prefix GameNative `Z:` mapping and this archive's template mapping are different launcher-specific assumptions. Both must be replaced by our own explicit prefix layout; extracting this historical template unchanged would break the existing absolute `Z:` input contract.
 
 ## Preserve the existing boundary
 
