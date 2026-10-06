@@ -168,6 +168,9 @@ def export_support(state_root, session, destination=None):
             details = value.get('details', value)
             meta[name] = {key: safe_json(item, replacements) for key, item in details.items() if key in SAFE_DETAIL_KEYS}
     candidates = []
+    for name in ('wizard-requests.log', 'wizard-requests.previous.log'):
+        path = ordinary(root / 'logs' / name)
+        if path.is_file(): candidates.append((path.stat().st_mtime_ns, 'wizard/' + name, path, False))
     for log_root, prefix, accept in ((session_root / 'logs', 'wizard', lambda name: bool(WIZARD_LOG.fullmatch(name))),
                                      (build_root / 'logs', 'build', lambda name: bool(BUILD_LOG.fullmatch(name)))):
         log_root = ordinary(log_root)

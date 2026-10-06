@@ -1,5 +1,28 @@
 # Quest B627 — Android Proton/FEX builder handoff
 
+## Windows wizard startup follow-up
+
+The shipped `native_plugins.py` dependency was absent from the installer's
+isolated loader list. The subsequent Windows native folder dialog also passed
+a unicode array directly into its `LPWSTR` structure field. Both faults are
+corrected in the source release, without changing the runtime ModBuild.
+
+Validation comprises 98 wizard, 64 installer and 15 release/support cases.
+Actual isolated HTTP discovery exercises the default implementation with no
+builder-directory import path and preserves a preloaded stdlib `profile`.
+Windows API fixtures exercise the pointer field and COM/Shell lifetimes; these
+are not evidence that the actual Windows Shell dialog has been operated here.
+The updated ZIP receives a separate extracted-release discovery smoke before
+delivery. A startup/import/type failure now has a localized HTTP response and
+a bounded redacted traceback in the owner workspace's
+`logs/wizard-requests.log`; support exports include this and one previous log.
+
+For the Windows retest, close the previous launch window and extract the complete
+updated Builder release, replacing its authored files. Retain script-local
+Python/venv and the owner workspace (`%USERPROFILE%\.ghvrq`) so completed setup
+and work can be reused. Start `Quest-Builder.cmd`, check automatic discovery and
+use the folder button to select the owned game or Unity editor.
+
 The maintainer authorized the backend switch immediately after the B626 source
 checkpoint on 2026-10-06. Implementation remains on `feature/quest3-standalone`;
 the parallel `dev` tree is untouched. APKs are built on the maintainer's Windows

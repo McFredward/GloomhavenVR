@@ -122,6 +122,16 @@ class SupportTests(unittest.TestCase):
         self.assertLessEqual(len(rows['wizard/build.log'].encode()), 1024)
         self.assertIn('start', rows['wizard/build.log']); self.assertIn('FINAL ERROR', rows['wizard/build.log'])
         self.assertTrue(json.loads(rows['diagnostic.json'])['files'][0]['truncated'])
+    def test_pre_session_request_diagnostics_are_selected_redacted_and_bounded(self):
+        logs = self.root / 'logs'; logs.mkdir()
+        (logs / 'wizard-requests.log').write_text('ModuleNotFoundError: native_plugins\nAuthorization: Bearer secret\n')
+        (logs / 'wizard-requests.previous.log').write_text('TypeError: folder picker field\n')
+        (logs / 'unrelated.log').write_text('MUST NOT EXPORT')
+        _, rows = self.export()
+        self.assertIn('native_plugins', rows['wizard/wizard-requests.log'])
+        self.assertIn('folder picker field', rows['wizard/wizard-requests.previous.log'])
+        self.assertNotIn('Bearer secret', '\n'.join(rows.values()))
+        self.assertNotIn('MUST NOT EXPORT', '\n'.join(rows.values()))
     def test_oversized_structured_resources_do_not_bypass_secret_redaction(self):
         evidence = self.root / 'build/evidence'; evidence.mkdir(parents=True)
         write_json(evidence / 'resource-policy.json', {'schema': 1, 'huge': 'x' * 4000, 'password': 'DO NOT LEAK'})

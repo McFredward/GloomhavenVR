@@ -1,5 +1,28 @@
 # State — where the project stands
 
+**Quest B627 builder startup correction, 2026-10-06 (tooling only).**
+
+The maintainer's Windows traceback proves two independent startup failures:
+`native_plugins.py` is shipped but missing from the installer/API loader's
+dependency order; the Shell folder dialog receives an array where its structure
+requires an `LPWSTR`. The isolated loader now registers the exact local native
+contract and restores all preexisting aliases without changing `sys.path`.
+The folder picker casts its live wide-character buffer and explicitly declares
+COM/Shell argument and return types, including pointer-sized PIDLs and HRESULT.
+
+Unexpected import/type request failures now return localized JSON instead of
+closing the HTTP connection. Bounded, timestamped and redacted request tracebacks
+are retained at `logs/wizard-requests.log` in the owner workspace, even before a
+session exists, and included in a later session's support export.
+
+Focused validation: 98 wizard tests, 64 installer tests and 15 release/support
+tests pass. Evidence includes genuine isolated HTTP discovery with stdlib
+`profile` already loaded; picker fixtures exercise writable buffers, 64-bit
+pointer preservation, selection, cancellation and balanced COM cleanup. Windows
+Shell interaction itself still needs the maintainer's Windows retest. The final
+game-free release is also checked through its extracted isolated HTTP discovery
+path before publication. No game-runtime change, APK or ModBuild increment.
+
 **Quest B627 prepared, 2026-10-06: Android Proton/FEX Windows-builder update.**
 
 The maintainer authorized immediate implementation after B626. The full-game

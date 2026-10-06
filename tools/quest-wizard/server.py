@@ -1,6 +1,7 @@
 """Token-protected loopback-only HTTP adapter for the local wizard engine."""
 from __future__ import annotations
 import ctypes
+from datetime import datetime, timezone
 import hmac
 import importlib.util
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -11,6 +12,7 @@ from pathlib import Path, PurePosixPath
 import secrets
 import re
 import threading
+import traceback
 from urllib.parse import parse_qs, unquote, urlsplit
 import webbrowser
 
@@ -23,7 +25,7 @@ def browse(kind):
     if os.name != "nt" or kind not in ("game", "unity"):
         raise WizardError("browse_unavailable", "Native path selection is unavailable on this host.", "Die native Ordnerauswahl ist hier nicht verfügbar.")
     from ctypes import wintypes as w
-    ole = ctypes.OleDLL("ole32")
+    ole = ctypes.WinDLL("ole32")
     shell = ctypes.WinDLL("shell32")
     class BrowseInfo(ctypes.Structure):
         _fields_ = [("owner", w.HWND), ("root", ctypes.c_void_p), ("display", w.LPWSTR),
@@ -32,18 +34,26 @@ def browse(kind):
     shell.SHBrowseForFolderW.argtypes = [ctypes.POINTER(BrowseInfo)]
     shell.SHBrowseForFolderW.restype = ctypes.c_void_p
     shell.SHGetPathFromIDListW.argtypes = [ctypes.c_void_p, w.LPWSTR]
+    shell.SHGetPathFromIDListW.restype = w.BOOL
+    ole.CoInitializeEx.argtypes = [ctypes.c_void_p, w.DWORD]
+    ole.CoInitializeEx.restype = ctypes.c_int32
     ole.CoTaskMemFree.argtypes = [ctypes.c_void_p]
+    ole.CoTaskMemFree.restype = None
+    ole.CoUninitialize.argtypes = []
+    ole.CoUninitialize.restype = None
     initialized = ole.CoInitializeEx(None, 2)
-    if initialized not in (0, 1): raise WizardError("browse_failed", "Windows could not open the folder picker.")
+    if initialized not in (0, 1): raise WizardError("browse_failed", "Windows could not open the folder picker.", "Windows konnte die Ordnerauswahl nicht öffnen.")
     title = "Select your Gloomhaven installation" if kind == "game" else "Select the Unity 2021.3.5f1 Editor folder"
     label = ctypes.create_unicode_buffer(32768)
     try:
-        info = BrowseInfo(None, None, label, title, 0x41, None, 0, 0)
+        # Structure fields require a pointer, unlike native function arguments,
+        # where ctypes converts an array automatically. Keep label alive here.
+        info = BrowseInfo(None, None, ctypes.cast(label, w.LPWSTR), title, 0x41, None, 0, 0)
         item = shell.SHBrowseForFolderW(ctypes.byref(info))
         if not item: return None
         try:
             output = ctypes.create_unicode_buffer(32768)
-            if not shell.SHGetPathFromIDListW(item, output): raise WizardError("browse_failed", "Selected folder is not a filesystem path.")
+            if not shell.SHGetPathFromIDListW(item, output): raise WizardError("browse_failed", "Selected folder is not a filesystem path.", "Der ausgewählte Ordner ist kein Dateisystempfad.")
             path = Path(output.value)
             if kind == "unity":
                 path = next((candidate for candidate in (path / "Unity.exe", path / "Editor/Unity.exe") if candidate.is_file()), path / "Unity.exe")
@@ -63,6 +73,7 @@ class LocalServer(ThreadingHTTPServer):
         self.token = secrets.token_urlsafe(32)
         self.engine_factory, self.discover = engine_factory, discover
         self.jobs, self.jobs_lock, self.browse_lock = {}, threading.Lock(), threading.Lock()
+        self.request_log_lock = threading.Lock()
         self.job_errors = {}
         self.artwork_cache, self.artwork_lock = {}, threading.Lock()
         self.action_lock = threading.Lock()
@@ -74,6 +85,20 @@ class LocalServer(ThreadingHTTPServer):
         super().__init__(("127.0.0.1", port), Handler)
         self.origin = "http://127.0.0.1:" + str(self.server_address[1])
         self.url = self.origin + "/#" + self.token
+
+    def request_failure(self, error):
+        """Retain startup failures even before a build session exists."""
+        helper = discovery.local_support_module(REPO, "support")
+        detail, _ = helper.redact("".join(traceback.format_exception(error)),
+                                 ((self.token, "[local token]"), (str(REPO), "[builder]"),
+                                  (str(self.store.root), "[workspace]")))
+        with self.request_log_lock:
+            path = ordinary(self.store.root / "logs/wizard-requests.log")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.exists() and path.stat().st_size >= 262144:
+                os.replace(path, path.with_name("wizard-requests.previous.log"))
+            with path.open("a", encoding="utf-8") as stream:
+                stream.write(datetime.now(timezone.utc).isoformat() + "\n" + detail[-32768:] + "\n")
 
     def artwork(self, session, state):
         """Resolve only witnessed recovery caches, never a browser filesystem path."""
@@ -218,8 +243,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if self.command != "GET": raise WizardError("route", "Unsupported local route.")
             self.static(parsed.path)
-        except (WizardError, OSError, ValueError, KeyError, RuntimeError) as error:
-            if not isinstance(error, WizardError): error = WizardError("request_failed", "The local request could not be completed.")
+        except (WizardError, OSError, ValueError, KeyError, RuntimeError, ImportError, TypeError) as error:
+            if not isinstance(error, WizardError):
+                try: self.server.request_failure(error)
+                except (OSError, ImportError, RuntimeError, ValueError): pass
+                error = WizardError("request_failed", "The local request failed. Details are in logs/wizard-requests.log in the wizard workspace.",
+                                    "Die lokale Anfrage ist fehlgeschlagen. Details stehen in logs/wizard-requests.log im Wizard-Arbeitsordner.")
             self.send_json({"schema": 1, "event": "error", "code": error.code, "message": error.message, "parameters": error.parameters},
                            403 if error.code in ("request_token", "request_origin") else 400)
 

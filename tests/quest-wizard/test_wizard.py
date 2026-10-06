@@ -248,6 +248,30 @@ class HttpTests(Fixture):
         code,value=self.request('/api/browse',{'kind':'game','command':'malicious'});self.assertEqual(code,400)
         code,value=self.request('/api/artwork?session='+self.plan()['session']+'&id=../secret');self.assertEqual(code,400)
 
+    def test_startup_import_and_type_errors_are_structured_logged_and_recoverable(self):
+        for exception in (ModuleNotFoundError, TypeError):
+            with self.subTest(exception=exception.__name__):
+                def fail(*_): raise exception('fixture startup failure ' + self.http.token)
+                with mock.patch.object(self.http, 'discover', side_effect=fail):
+                    code, value = self.request('/api/discover')
+                self.assertEqual(code, 400)
+                self.assertEqual(value['code'], 'request_failed')
+                self.assertNotEqual(value['message']['en'], value['message']['de'])
+                log = (self.store.root / 'logs/wizard-requests.log').read_text()
+                self.assertIn(exception.__name__ + ': fixture startup failure', log)
+                self.assertIn('Traceback', log)
+                self.assertNotIn(self.http.token, log)
+                self.assertNotIn(self.http.token, json.dumps(value))
+                self.assertEqual(self.request('/api/discover')[0], 200)
+
+    def test_request_failure_log_rotation_retains_one_previous_file(self):
+        log = self.store.root / 'logs/wizard-requests.log'
+        log.parent.mkdir(); log.write_text('previous bounded history\n' + 'x' * 262144)
+        self.http.request_failure(TypeError('fixture picker failed'))
+        self.assertIn('fixture picker failed', log.read_text())
+        self.assertNotIn('previous bounded history', log.read_text())
+        self.assertIn('previous bounded history', log.with_name('wizard-requests.previous.log').read_text())
+
 
 
 class SourceDependencyTests(Fixture):

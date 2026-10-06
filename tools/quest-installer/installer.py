@@ -56,7 +56,7 @@ def builder_module():
     # nor replace an application's existing stdlib profile or cached test module.
     missing = object()
     names = ["profile", "storage"]
-    names += [name for name in ("script_order", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets", "full_assets", "campaign", "mod_assets", "build_provenance", "import_workspace")
+    names += [name for name in ("script_order", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets", "full_assets", "campaign", "mod_assets", "build_provenance", "import_workspace", "native_plugins")
               if (REPO / "tools/quest-builder" / (name + ".py")).is_file()]
     names += ["startup", "builder"]
     aliases = [name for name in names if name != "builder"] + ["_ghvr_wireless_" + name for name in names]
