@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace GloomhavenVR.Core;
 
@@ -16,14 +17,22 @@ internal static partial class ScenarioTerrainBudget
         internal readonly MaterialPropertyBlock SlotBlock = new();
         internal Material[] Materials = Array.Empty<Material>();
         internal bool Distant;
+        internal bool CheapLease;
         private Mesh? _exact, _target, _morph, _current;
         private Vector3[]? _from, _to, _vertices;
         private float _progress = 1f;
         private int _percent = 100, _requestedPercent = 100;
         private bool _masked;
+        private Mesh? _countedMesh;
+        private int _countedTriangles;
         private readonly GameObject _proxy;
         private readonly MeshRenderer _proxyRenderer;
         private readonly MeshFilter _proxyFilter;
+        private readonly Transform _sourceTransform, _proxyTransform, _owner;
+        private Matrix4x4 _sourcePose, _ownerPose;
+        private bool _hasPose, _hasRendererState, _materialsDirty = true;
+        private Mesh? _proxyMesh;
+        private RendererState _rendererState;
 
         internal Surface(MeshRenderer renderer, MeshFilter filter, Transform owner)
         {
@@ -32,6 +41,7 @@ internal static partial class ScenarioTerrainBudget
             OriginalTriangles = TriangleCount(Original);
             _proxy = new GameObject("GloomhavenVR.TerrainProxy");
             _proxy.transform.SetParent(owner, false);
+            _sourceTransform = renderer.transform; _proxyTransform = _proxy.transform; _owner = owner;
             _proxyFilter = _proxy.AddComponent<MeshFilter>();
             _proxyRenderer = _proxy.AddComponent<MeshRenderer>();
             _proxyRenderer.enabled = false;
@@ -41,7 +51,19 @@ internal static partial class ScenarioTerrainBudget
         internal bool WantsSubstitute(bool enabled) => (enabled && PerfConfig.CheapWallShadingOn)
             || (_current != null && _current != Original) || _progress < 1f;
         internal Mesh DrawMesh => _progress < 1f && _morph != null ? _morph : _current ?? Original;
-        internal int DrawTriangles => TriangleCount(DrawMesh);
+        internal int DrawTriangles
+        {
+            get
+            {
+                Mesh mesh = DrawMesh;
+                // Endpoint/topology identity changes only during owned preparation or
+                // morphing. Keep triangle bookkeeping out of every settled camera draw.
+                if (_countedMesh != mesh) { _countedMesh = mesh; _countedTriangles = TriangleCount(mesh); }
+                return _countedTriangles;
+            }
+        }
+        internal bool IsMasked => _masked && Renderer != null && Renderer.forceRenderingOff
+            && _proxyRenderer != null && _proxyRenderer.enabled && _proxy.activeInHierarchy;
         private static int TriangleCount(Mesh mesh)
         {
             int count = 0;
@@ -49,40 +71,35 @@ internal static partial class ScenarioTerrainBudget
                 if (mesh.GetTopology(slot) == MeshTopology.Triangles) count += (int)mesh.GetIndexCount(slot) / 3;
             return count;
         }
-        internal void EnsureSlots(int count) { if (Materials.Length != count) Materials = new Material[count]; }
+        internal void EnsureSlots(int count)
+        { if (Materials.Length != count) { Materials = new Material[count]; _materialsDirty = true; } }
+        internal void SetMaterial(int slot, Material material)
+        { if (Materials[slot] != material) { Materials[slot] = material; _materialsDirty = true; } }
         private static bool LiveSpecialEffect(MaterialPropertyBlock block) =>
             block.GetFloat("_AddVertexAnim") != 0f || block.GetFloat("_UseEmissiveMap") != 0f
             || block.GetFloat("_Diffuse_Emissive_On") != 0f;
         internal bool PrepareProxy()
         {
-            Transform source = Renderer.transform;
-            _proxy.transform.SetPositionAndRotation(source.position, source.rotation);
-            // Keep the proxy outside every native cloning root. A non-identity mod host
-            // or native shear cannot be faithfully expressed by this TRS path: fail open.
-            Vector3 parentScale = _proxy.transform.parent.lossyScale;
-            if (Mathf.Abs(parentScale.x) < .0001f || Mathf.Abs(parentScale.y) < .0001f || Mathf.Abs(parentScale.z) < .0001f) return false;
-            _proxy.transform.localScale = new Vector3(source.lossyScale.x / parentScale.x,
-                source.lossyScale.y / parentScale.y, source.lossyScale.z / parentScale.z);
-            Matrix4x4 native = source.localToWorldMatrix, proxy = _proxy.transform.localToWorldMatrix;
-            for (int i = 0; i < 16; i++) if (Mathf.Abs(native[i] - proxy[i]) > .0001f) return false;
-            _proxy.layer = Renderer.gameObject.layer;
-            _proxyFilter.sharedMesh = DrawMesh;
-            _proxyRenderer.sharedMaterials = Materials;
-            _proxyRenderer.shadowCastingMode = Renderer.shadowCastingMode;
-            _proxyRenderer.receiveShadows = Renderer.receiveShadows;
-            _proxyRenderer.lightProbeUsage = Renderer.lightProbeUsage;
-            _proxyRenderer.reflectionProbeUsage = Renderer.reflectionProbeUsage;
-            _proxyRenderer.probeAnchor = Renderer.probeAnchor;
-            _proxyRenderer.lightProbeProxyVolumeOverride = Renderer.lightProbeProxyVolumeOverride;
-            _proxyRenderer.sortingLayerID = Renderer.sortingLayerID;
-            _proxyRenderer.sortingOrder = Renderer.sortingOrder;
-            _proxyRenderer.allowOcclusionWhenDynamic = Renderer.allowOcclusionWhenDynamic;
-            _proxyRenderer.lightmapIndex = Renderer.lightmapIndex;
-            _proxyRenderer.lightmapScaleOffset = Renderer.lightmapScaleOffset;
-            _proxyRenderer.realtimeLightmapIndex = Renderer.realtimeLightmapIndex;
-            _proxyRenderer.realtimeLightmapScaleOffset = Renderer.realtimeLightmapScaleOffset;
-            _proxyRenderer.motionVectorGenerationMode = Renderer.motionVectorGenerationMode;
-            _proxyRenderer.renderingLayerMask = Renderer.renderingLayerMask;
+            Matrix4x4 native = _sourceTransform.localToWorldMatrix, owner = _owner.localToWorldMatrix;
+            if (!_hasPose || !SameMatrix(native, _sourcePose) || !SameMatrix(owner, _ownerPose))
+            {
+                _hasPose = false;
+                _proxyTransform.SetPositionAndRotation(_sourceTransform.position, _sourceTransform.rotation);
+                // Keep the proxy outside every native cloning root. Unsupported host
+                // shear/scale retains the original; no native transform is ever written.
+                Vector3 parentScale = _owner.lossyScale;
+                if (Mathf.Abs(parentScale.x) < .0001f || Mathf.Abs(parentScale.y) < .0001f || Mathf.Abs(parentScale.z) < .0001f) return false;
+                Vector3 sourceScale = _sourceTransform.lossyScale;
+                _proxyTransform.localScale = new Vector3(sourceScale.x / parentScale.x,
+                    sourceScale.y / parentScale.y, sourceScale.z / parentScale.z);
+                Matrix4x4 proxy = _proxyTransform.localToWorldMatrix;
+                for (int i = 0; i < 16; i++) if (Mathf.Abs(native[i] - proxy[i]) > .0001f) return false;
+                _sourcePose = native; _ownerPose = owner; _hasPose = true;
+            }
+            Mesh mesh = DrawMesh;
+            if (_proxyMesh != mesh) { _proxyFilter.sharedMesh = mesh; _proxyMesh = mesh; }
+            if (_materialsDirty) { _proxyRenderer.sharedMaterials = Materials; _materialsDirty = false; }
+            CopyRendererState();
             Renderer.GetPropertyBlock(Block);
             if (LiveSpecialEffect(Block)) return false;
             Block.SetFloat("_GHVRTerrainNeverFade", Floor ? 1f : 0f);
@@ -100,6 +117,54 @@ internal static partial class ScenarioTerrainBudget
                 }
             }
             return true;
+        }
+        private static bool SameMatrix(Matrix4x4 left, Matrix4x4 right)
+        { for (int i = 0; i < 16; i++) if (left[i] != right[i]) return false; return true; }
+        private struct RendererState
+        {
+            internal int Layer, SortingLayer, SortingOrder, Lightmap, RealtimeLightmap;
+            internal uint RenderingLayer;
+            internal bool ReceiveShadows, Occlusion;
+            internal ShadowCastingMode Shadows;
+            internal LightProbeUsage LightProbe;
+            internal ReflectionProbeUsage ReflectionProbe;
+            internal MotionVectorGenerationMode Motion;
+            internal Transform? Anchor;
+            internal GameObject? ProxyVolume;
+            internal Vector4 LightmapOffset, RealtimeLightmapOffset;
+        }
+        private void CopyRendererState()
+        {
+            // Read every current native value on every camera. Only avoid identical
+            // private Unity writes, which otherwise dirty the same renderer each eye.
+            RendererState next = new()
+            {
+                Layer = Renderer.gameObject.layer, Shadows = Renderer.shadowCastingMode,
+                ReceiveShadows = Renderer.receiveShadows, LightProbe = Renderer.lightProbeUsage,
+                ReflectionProbe = Renderer.reflectionProbeUsage, Anchor = Renderer.probeAnchor,
+                ProxyVolume = Renderer.lightProbeProxyVolumeOverride, SortingLayer = Renderer.sortingLayerID,
+                SortingOrder = Renderer.sortingOrder, Occlusion = Renderer.allowOcclusionWhenDynamic,
+                Lightmap = Renderer.lightmapIndex, LightmapOffset = Renderer.lightmapScaleOffset,
+                RealtimeLightmap = Renderer.realtimeLightmapIndex, RealtimeLightmapOffset = Renderer.realtimeLightmapScaleOffset,
+                Motion = Renderer.motionVectorGenerationMode, RenderingLayer = Renderer.renderingLayerMask
+            };
+            if (!_hasRendererState || next.Layer != _rendererState.Layer) _proxy.layer = next.Layer;
+            if (!_hasRendererState || next.Shadows != _rendererState.Shadows) _proxyRenderer.shadowCastingMode = next.Shadows;
+            if (!_hasRendererState || next.ReceiveShadows != _rendererState.ReceiveShadows) _proxyRenderer.receiveShadows = next.ReceiveShadows;
+            if (!_hasRendererState || next.LightProbe != _rendererState.LightProbe) _proxyRenderer.lightProbeUsage = next.LightProbe;
+            if (!_hasRendererState || next.ReflectionProbe != _rendererState.ReflectionProbe) _proxyRenderer.reflectionProbeUsage = next.ReflectionProbe;
+            if (!_hasRendererState || next.Anchor != _rendererState.Anchor) _proxyRenderer.probeAnchor = next.Anchor;
+            if (!_hasRendererState || next.ProxyVolume != _rendererState.ProxyVolume) _proxyRenderer.lightProbeProxyVolumeOverride = next.ProxyVolume;
+            if (!_hasRendererState || next.SortingLayer != _rendererState.SortingLayer) _proxyRenderer.sortingLayerID = next.SortingLayer;
+            if (!_hasRendererState || next.SortingOrder != _rendererState.SortingOrder) _proxyRenderer.sortingOrder = next.SortingOrder;
+            if (!_hasRendererState || next.Occlusion != _rendererState.Occlusion) _proxyRenderer.allowOcclusionWhenDynamic = next.Occlusion;
+            if (!_hasRendererState || next.Lightmap != _rendererState.Lightmap) _proxyRenderer.lightmapIndex = next.Lightmap;
+            if (!_hasRendererState || !next.LightmapOffset.Equals(_rendererState.LightmapOffset)) _proxyRenderer.lightmapScaleOffset = next.LightmapOffset;
+            if (!_hasRendererState || next.RealtimeLightmap != _rendererState.RealtimeLightmap) _proxyRenderer.realtimeLightmapIndex = next.RealtimeLightmap;
+            if (!_hasRendererState || !next.RealtimeLightmapOffset.Equals(_rendererState.RealtimeLightmapOffset)) _proxyRenderer.realtimeLightmapScaleOffset = next.RealtimeLightmapOffset;
+            if (!_hasRendererState || next.Motion != _rendererState.Motion) _proxyRenderer.motionVectorGenerationMode = next.Motion;
+            if (!_hasRendererState || next.RenderingLayer != _rendererState.RenderingLayer) _proxyRenderer.renderingLayerMask = next.RenderingLayer;
+            _rendererState = next; _hasRendererState = true;
         }
         internal void StepGeometry(int percent, float delta)
         {

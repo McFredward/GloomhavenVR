@@ -88,7 +88,7 @@ internal static partial class ScenarioTerrainBudget
         AuthoredName(mesh.name).IndexOf("Floor", StringComparison.OrdinalIgnoreCase) >= 0;
     private static bool StructuralIdentity(Mesh mesh)
     {
-        // Positively audited wall bodies/pillars from pcg_crypt/cave, in addition
+        // Positively audited wall bodies/pillars from pcg_crypt/cave/city, in addition
         // to immutable bank provenance AND live ProceduralWall ownership below.
         // The bank also contains floors, props, foundations and anonymous meshes:
         // membership alone cannot authorize a coarse terrain representation.
@@ -98,7 +98,35 @@ internal static partial class ScenarioTerrainBudget
             or "CV_Wall_Generic_01" or "CV_Wall_Generic_02" or "CV_Wall_Generic_03"
             or "CV_Wall_Generic_04" or "CV_Wall_Generic_05"
             or "CV_Wall_Generic_Thin_01" or "CV_Wall_Generic_Thin_Narrow_01"
-            or "CV_Wall_Generic_Thin_Narrow_02";
+            or "CV_Wall_Generic_Thin_Narrow_02"
+            // Build627's three-room PC capture contains these ten exact definitions.
+            // Their original pcg_city prefabs and existing bank streams were audited;
+            // wall shelves/candles/tapestries, bases and arbitrary CR_INT names are
+            // deliberately absent. A matching mesh inside an under-wall or doorway
+            // template is still native (StructuralBoundary below), even when that
+            // template is itself nested under a ProceduralWall.
+            or "CR_INT_Stone_Int_Wall_01" or "CR_INT_Stone_Int_Wall_02"
+            or "CR_INT_Stone_Int_Wall_03" or "CR_INT_Stone_Int_Wall_04"
+            or "CR_INT_Stone_Int_Wall_02_Narrow" or "CR_INT_Stone_Pillar_04"
+            or "CR_INT_Wooden_Int_Pillar_Single"
+            or "CR_INT_Wooden_Hut_Pillars_01" or "CR_INT_Wooden_Hut_Pillars_02"
+            or "CR_INT_Wooden_Hut_Pillars_03";
+    }
+    private static bool StructuralBoundary(string name)
+    {
+        // pcg_city uses identical wall/pillar meshes in TO_INT_* wall bodies AND
+        // PCG_TO_INT_UnderWall / TO_INT_*Doorway / Entrance / EXIT templates.
+        // Immutable mesh identity cannot distinguish those uses. Conservatively
+        // retain such native ancestor boundaries, including late reparenting.
+        return name.IndexOf("UnderWall", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("UnderFloor", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Foundation", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Slab", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("TopCap", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Doorway", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("DoorFrame", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Entrance", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("_EXIT_", StringComparison.OrdinalIgnoreCase) >= 0;
     }
     private static bool Gate(Material material, string key) =>
         material.HasProperty(key) && material.GetFloat(key) != 0f;
@@ -117,14 +145,15 @@ internal static partial class ScenarioTerrainBudget
         for (int i = ancestry.Count - 1; i >= 0; i--)
         {
             Transform node = ancestry[i];
+            string nodeName = node.name;
             bool blocked = node.GetComponent<Canvas>() != null || node.GetComponent<ActorBehaviour>() != null
                 || node.GetComponent<ProceduralProp>() != null || node.GetComponent<ProceduralDoorway>() != null
                 || node.GetComponent<UnityGameEditorDoorProp>() != null || node.GetComponent<CInteractable>() != null
                 || node.GetComponent<Animator>() != null || node.GetComponent<Rigidbody>() != null || node.GetComponent<Light>() != null
-                || node.GetComponent<SkinnedMeshRenderer>() != null || node.name == "Preview"
-                || node.name.StartsWith("GloomhavenVR", StringComparison.Ordinal);
+                || node.GetComponent<SkinnedMeshRenderer>() != null || nodeName == "Preview"
+                || nodeName.StartsWith("GloomhavenVR", StringComparison.Ordinal) || StructuralBoundary(nodeName);
             state.Valid &= !blocked;
-            state.Generated |= node.name == "Generated Content";
+            state.Generated |= nodeName == "Generated Content";
             state.Structural |= node.GetComponent<ProceduralWall>() != null;
             state.Scenario |= node.GetComponent<ProceduralScenario>() != null;
             scopes[node] = state;
@@ -175,6 +204,9 @@ internal static partial class ScenarioTerrainBudget
         private readonly List<Material> _materialScratch = new();
         private readonly Dictionary<Material, Material> _cheap = new();
         private readonly HashSet<Material> _readThisCamera = new();
+        private readonly Dictionary<Material, int> _routesThisCamera = new();
+        private readonly HashSet<int> _discovered = new();
+        private readonly int[] _refusals = new int[4];
         private readonly List<Surface> _leases = new();
         private readonly Dictionary<Transform, ScopeState> _scopeThisInvocation = new();
         private readonly Dictionary<int, bool> _sceneThisInvocation = new();
@@ -184,6 +216,7 @@ internal static partial class ScenarioTerrainBudget
         private bool _active;
         private int _walls;
         private int _reportedSurfaces = -1, _reportedSettings;
+        private int _reportedDiscovery = -1;
         private float _nextReport;
         private bool _assetsWereReady = true, _assetFailureReported;
         private Shader? _shader;
@@ -214,6 +247,7 @@ internal static partial class ScenarioTerrainBudget
         }
         private void Seed()
         {
+            _discovered.Clear(); Array.Clear(_refusals, 0, _refusals.Length);
             SceneRegistry.MapTiles.Collect(_tiles);
             foreach (ProceduralMapTile tile in _tiles) if (tile != null) QueueRoot(tile.gameObject);
             _tiles.Clear();
@@ -265,10 +299,16 @@ internal static partial class ScenarioTerrainBudget
                     for (int child = 0; child < node.childCount; child++) QueueRoot(node.GetChild(child).gameObject);
                     MeshRenderer renderer = node.GetComponent<MeshRenderer>();
                     MeshFilter filter = node.GetComponent<MeshFilter>();
-                    if (renderer == null || filter == null || filter.sharedMesh == null || !CurrentScope(renderer)
-                        || _eligibleMesh?.Invoke(filter.sharedMesh) != true || FloorIdentity(filter.sharedMesh)
-                        || !StructuralIdentity(filter.sharedMesh)) continue;
+                    if (renderer == null || filter == null || filter.sharedMesh == null) continue;
                     int id = renderer.GetInstanceID();
+                    bool first = _discovered.Add(id);
+                    // Reject unsupported identities before decoding any bank member.
+                    // Preparation can be expensive during loading, but it should prepare
+                    // only sources which can actually save work on the settled board.
+                    int refusal = FloorIdentity(filter.sharedMesh) ? 1 : !StructuralIdentity(filter.sharedMesh) ? 2
+                        : !CurrentScope(renderer) ? 0
+                        : _eligibleMesh?.Invoke(filter.sharedMesh) != true ? 3 : -1;
+                    if (refusal >= 0) { if (first) _refusals[refusal]++; continue; }
                     if (!_surfaces.ContainsKey(id)) _surfaces.Add(id, new Surface(renderer, filter, transform));
                 }
                 Camera? camera = Rig.VRRigDriver.HeadCamera;
@@ -284,13 +324,21 @@ internal static partial class ScenarioTerrainBudget
                 if (!active) { _pending.Clear(); _queued.Clear(); }
                 int settings = (PerfConfig.CheapWallShadingOn ? 1 : 0) + PerfConfig.TerrainDetailPercent * 2
                     + PerfConfig.DistantTerrainDetailPercent * 202;
-                if (_pending.Count == 0 && (_reportedSurfaces != _surfaces.Count || _reportedSettings != settings)
+                if (_pending.Count == 0 && (_reportedSurfaces != _surfaces.Count || _reportedSettings != settings
+                    || _reportedDiscovery != _discovered.Count)
                     && Time.unscaledTime >= _nextReport)
                 {
                     _reportedSurfaces = _surfaces.Count; _reportedSettings = settings; _nextReport = Time.unscaledTime + 2f;
+                    _reportedDiscovery = _discovered.Count;
                     VRLog.Note("Perf", "Scenario terrain budget: surfaces=" + _surfaces.Count + ", cheap="
                         + PerfConfig.CheapWallShadingOn + ", detail=" + PerfConfig.TerrainDetailPercent
                         + "%, distantDetail=" + PerfConfig.DistantTerrainDetailPercent + "%.");
+                    if (VRLog.Level >= VRLogLevel.Debug)
+                        VRLog.Debug("Perf", "Scenario terrain coverage: prepared=" + _surfaces.Count
+                            + ", distinctRendererVisits=" + _discovered.Count + ", refusedScope=" + _refusals[0]
+                            + ", refusedFloor=" + _refusals[1] + ", refusedIdentity=" + _refusals[2]
+                            + ", refusedBank=" + _refusals[3]
+                            + "; preparation membership, not visible GPU draws. Triangle counters count surviving paired camera leases.");
                 }
                 ClearValidation();
             }
@@ -328,10 +376,27 @@ internal static partial class ScenarioTerrainBudget
         internal void RecoverLeases()
         {
             foreach (Surface surface in _leases) surface.Unmask();
-            _leases.Clear(); _leaseCamera = null; _readThisCamera.Clear();
+            _leases.Clear(); _leaseCamera = null; _readThisCamera.Clear(); _routesThisCamera.Clear();
             ClearValidation();
         }
-        private void HandlePostRender(Camera camera) { if (camera == _leaseCamera) RecoverLeases(); }
+        private void HandlePostRender(Camera camera)
+        {
+            if (camera != _leaseCamera) return;
+            int originals = 0, submitted = 0, cheap = 0;
+            foreach (Surface surface in _leases)
+            {
+                // A later native MPB/material/visibility writer can revoke a pre-cull
+                // admission. Count only leases still owned at this paired render end.
+                // Frustum/occlusion and GPU execution remain outside this measurement.
+                if (!surface.IsMasked) continue;
+                originals += surface.OriginalTriangles; submitted += surface.DrawTriangles;
+                if (surface.CheapLease) cheap++;
+            }
+            PerfMonitor.Count("Terrain.OriginalTriangles", originals);
+            PerfMonitor.Count("Terrain.SubmittedTriangles", submitted);
+            PerfMonitor.Count("Terrain.CheapSurfaces", cheap);
+            RecoverLeases();
+        }
         private void HandlePreCull(Camera camera)
         {
             try
@@ -344,7 +409,6 @@ internal static partial class ScenarioTerrainBudget
                 using (PerfMonitor.Scope("ScenarioTerrain.PreCull"))
                 {
                     _leaseCamera = camera;
-                    int originals = 0, submitted = 0, cheap = 0;
                     foreach (Surface surface in _surfaces.Values)
                     {
                         if (!surface.Validate() || !surface.WantsSubstitute(Enabled)
@@ -354,26 +418,28 @@ internal static partial class ScenarioTerrainBudget
                         surface.Renderer.GetSharedMaterials(_materialScratch);
                         if (_materialScratch.Count != surface.Original.subMeshCount) continue;
                         bool supported = true;
-                        foreach (Material material in _materialScratch) supported &= MaterialRoute(CanonicalMaterial(material)) >= 0;
+                        foreach (Material material in _materialScratch) supported &= CurrentMaterialRoute(CanonicalMaterial(material)) >= 0;
                         if (!supported) continue;
                         // Never mask until ALL required slot submissions have valid materials.
                         surface.EnsureSlots(_materialScratch.Count);
                         for (int slot = 0; slot < _materialScratch.Count; slot++)
-                            surface.Materials[slot] = PerfConfig.CheapWallShadingOn
-                                ? CheapMaterial(CanonicalMaterial(_materialScratch[slot])) : _materialScratch[slot];
+                            surface.SetMaterial(slot, PerfConfig.CheapWallShadingOn
+                                ? CheapMaterial(CanonicalMaterial(_materialScratch[slot])) : _materialScratch[slot]);
                         if (Array.Exists(surface.Materials, material => material == null)) continue;
                         if (!surface.PrepareProxy()) continue;
+                        surface.CheapLease = PerfConfig.CheapWallShadingOn;
                         surface.Mask(); _leases.Add(surface);
-                        originals += surface.OriginalTriangles; submitted += surface.DrawTriangles;
-                        if (PerfConfig.CheapWallShadingOn) cheap++;
                     }
-                    PerfMonitor.Count("Terrain.OriginalTriangles", originals);
-                    PerfMonitor.Count("Terrain.SubmittedTriangles", submitted);
-                    PerfMonitor.Count("Terrain.CheapSurfaces", cheap);
                 }
                 _readThisCamera.Clear();
             }
             catch (Exception error) { RecoverLeases(); FailOpen(error); }
+        }
+        private int CurrentMaterialRoute(Material material)
+        {
+            if (material == null) return -1;
+            if (_routesThisCamera.TryGetValue(material, out int route)) return route;
+            route = MaterialRoute(material); _routesThisCamera.Add(material, route); return route;
         }
         private Material CheapMaterial(Material original)
         {
@@ -391,7 +457,7 @@ internal static partial class ScenarioTerrainBudget
             {
                 material.CopyPropertiesFromMaterial(original);
                 material.shader = _shader;
-                material.SetFloat("_GHVRTerrainNativeRoute", MaterialRoute(original));
+                material.SetFloat("_GHVRTerrainNativeRoute", CurrentMaterialRoute(original));
             }
             return material;
         }
@@ -403,6 +469,7 @@ internal static partial class ScenarioTerrainBudget
             foreach (Material material in _cheap.Values) if (material != null) UnityEngine.Object.Destroy(material);
             _cheap.Clear();
             _reportedSurfaces = -1;
+            _reportedDiscovery = -1; _discovered.Clear(); Array.Clear(_refusals, 0, _refusals.Length);
         }
     }
 }

@@ -12,6 +12,16 @@ public sealed class CInteractable : MonoBehaviour { }
 public sealed class ActorBehaviour : MonoBehaviour { }
 namespace GloomhavenVR.Core
 {
+    internal enum VRLogLevel { Info, Debug }
+    // The compiled fixture binds the one private production pose-write call here.
+    // It records invocation and still executes the unchanged actual Unity operation;
+    // Unity's hasChanged alone cannot detect repeated identical setter invocations.
+    internal static class TerrainWriteObserver
+    {
+        internal static int PoseWrites;
+        internal static void SetPositionAndRotation(Transform target, Vector3 position, Quaternion rotation)
+        { PoseWrites++; target.SetPositionAndRotation(position, rotation); }
+    }
     internal static class VRSession { internal static bool IsRunning = true; }
     internal static class PerfConfig
     {
@@ -21,8 +31,10 @@ namespace GloomhavenVR.Core
     }
     internal static class VRLog
     {
+        internal static VRLogLevel Level = VRLogLevel.Debug;
         internal static readonly List<string> Faults = new();
         internal static void Note(string scope, string message) => Faults.Add(message);
+        internal static void Debug(string scope, string message) => Faults.Add(message);
     }
     internal static class BundleShaders
     {
