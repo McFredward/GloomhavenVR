@@ -29,7 +29,8 @@ test('terminal failure exposes its concrete bounded cause; stale activity never 
 
 test('all fourteen project-staging sections and their file counters have plain localized labels',()=>{
   const sections=['catalog','canonical','copy','runtime','guid','layout','native','catalog-final','index','tmp','bindings','audit','scenes','report'];
-  const phases=['recovery-asset-reference-file','recovery-section:staging','staging-copy','staging-copy-file','staging-report-hash',...sections.map(section=>'staging-section:'+section)];
+  const phases=['recovery-asset-reference-file','recovery-section:staging','staging-copy','staging-copy-file','staging-report-hash',
+    'staging-managed-assemblies','staging-runtime-copy','staging-runtime-file','staging-report-files','staging-report-file',...sections.map(section=>'staging-section:'+section)];
   for(const language of ['de','en'])for(const phase of phases){
     const key='phase_'+phase,label=translate(language,key);
     assert.notEqual(label,key,language+': '+phase);
