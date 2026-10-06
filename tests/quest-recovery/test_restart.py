@@ -1,5 +1,6 @@
 """Interrupted owned exports and merge journals, with actual GUID/object mapping."""
 import hashlib
+import contextlib
 import io
 import json
 import os
@@ -203,6 +204,23 @@ class SourceAcquisitionTests(Fixture):
         self.assertEqual(request.call_args.args[0].get_header('Range'),'bytes=5-');self.assertEqual(archive.read_bytes(),raw)
 
 class CoreExportRestartTests(Fixture):
+    def test_complete_bundle_schedule_is_announced_before_slow_core_work(self):
+        source=self.root/'owned/GH_Data';(source/'Managed').mkdir(parents=True)
+        for name in ('Managed/GH.Runtime.dll','globalgamemanagers','level0','resources.assets','ScriptingAssemblies.json'):
+            (source/name).write_bytes(b'actual original '+name.encode())
+        output=io.StringIO()
+        with patch.dict(os.environ,{recover.build_progress.ENV:'1'}),contextlib.redirect_stdout(output), \
+             patch.object(full_recovery,'catalog_bundle_plan',return_value={'groups':[{},{}]}) as plan, \
+             patch.object(full_recovery,'build_tool',side_effect=RuntimeError('observed start of core tool')):
+            with self.assertRaisesRegex(RuntimeError,'start of core tool'):
+                full_recovery.prepare(source,self.root/'workspace',self.root/'tools','dotnet')
+        events=[json.loads(line.removeprefix(recover.build_progress.PREFIX)) for line in output.getvalue().splitlines()
+                if line.startswith(recover.build_progress.PREFIX)]
+        schedule=next(event for event in events if event['phase']=='recovery-plan')
+        self.assertEqual((schedule['done'],schedule['total'],schedule['unit']),(0,2,'batches'))
+        self.assertLess(events.index(schedule),next(index for index,event in enumerate(events) if event['phase']=='recovery-section:core'))
+        self.assertEqual(len(plan.call_args.kwargs['source_inventory']),5)
+
     def test_unfinished_core_retries_without_restaging_verified_inputs(self):
         source=self.root/'owned/GH_Data';(source/'Managed').mkdir(parents=True)
         for name in ('Managed/GH.Runtime.dll','globalgamemanagers','level0','resources.assets','ScriptingAssemblies.json'):(source/name).write_bytes(b'actual original '+name.encode())

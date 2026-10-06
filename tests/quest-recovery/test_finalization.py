@@ -42,6 +42,36 @@ class Fixture(unittest.TestCase):
 
 
 class NativeMergeTests(Fixture):
+    def test_unchanged_output_index_is_not_reparsed_or_republished_between_batches(self):
+        self.recipe(self.evidence)
+        proofs = native.FileProofs()
+        native.merge(self.output, self.evidence, proofs=proofs)
+        index = self.output / "QuestRecovery/NativeRecipes/index.jsonl"
+        before = index.read_bytes(), index.stat().st_mtime_ns
+        with patch.object(native, "_read_index", wraps=native._read_index) as reads, \
+             patch.object(native, "_write_index", side_effect=AssertionError("Same original rows need no new index")):
+            native.merge(self.output, self.evidence, proofs=proofs)
+        self.assertFalse(any(call.args[0] == index for call in reads.call_args_list))
+        self.assertEqual((index.read_bytes(), index.stat().st_mtime_ns), before)
+
+    def test_real_index_change_invalidates_invocation_parsed_rows(self):
+        self.recipe(self.evidence)
+        proofs = native.FileProofs()
+        native.merge(self.output, self.evidence, proofs=proofs)
+        index = self.output / "QuestRecovery/NativeRecipes/index.jsonl"
+        changed = json.loads(index.read_text()); changed["yamlSha256"] = "a" * 64
+        index.write_text(json.dumps(changed) + "\n")
+        with self.assertRaisesRegex(recover.RecoveryError, "Native source evidence disagrees"):
+            native.merge(self.output, self.evidence, proofs=proofs)
+
+    def test_qualified_leaf_replaced_with_a_link_is_rejected(self):
+        copied, _ = self.recipe(self.output); self.recipe(self.evidence)
+        proofs = native.FileProofs(); native.merge(self.output, self.evidence, proofs=proofs)
+        other = self.root / "outside.yaml"; other.write_bytes(copied.read_bytes())
+        copied.unlink(); copied.symlink_to(other)
+        with self.assertRaisesRegex(recover.RecoveryError, "filesystem links"):
+            native.merge(self.output, self.evidence, proofs=proofs)
+
     def test_invocation_recipe_proof_is_reused_then_invalidated_by_real_modification(self):
         copied, _ = self.recipe(self.output); self.recipe(self.evidence)
         proofs = native.FileProofs()
@@ -136,6 +166,15 @@ class JournalNativeRestartTests(Fixture):
         self.progress = {"schema": 1, "completedGroups": [], "files": self.records(), "identities": []}
         self.checkpoint = self.output / "quest-full-recovery-progress.json"; recover.write_json(self.checkpoint, self.progress)
     def begin(self): bundles.begin_merge(self.output, self.workspace, 0, [], self.evidence, {})
+
+    def test_journal_and_merge_parse_each_incoming_index_once(self):
+        proofs = native.FileProofs()
+        index = self.evidence / "QuestRecovery/NativeRecipes/index.jsonl"
+        with patch.object(native, "_read_index", wraps=native._read_index) as reads:
+            bundles.begin_merge(self.output, self.workspace, 0, [], self.evidence, {}, proofs=proofs)
+            native.merge(self.output, self.evidence, proofs=proofs)
+        self.assertEqual(sum(call.args[0] == index for call in reads.call_args_list), 1)
+        self.assertEqual(set(proofs._indexes), {self.output / relative for relative in bundles.MUTABLE_NATIVE_INDICES})
 
     def test_windows_unsafe_recipe_refuses_journal_before_output_mutation(self):
         index = self.new.parent / "index.jsonl"; row = json.loads(index.read_text())

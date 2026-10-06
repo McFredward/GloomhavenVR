@@ -38,6 +38,11 @@ NESTED_PROGRESS_BYTES = {
     "tools/quest-recovery/full_recovery.py": 13647,
     "tools/quest-recovery/native_evidence.py": 9023,
 }
+MINIMAL_RECOVERY_BYTES = {
+    "tools/quest-recovery/bundle_recovery.py": 31883,
+    "tools/quest-recovery/full_recovery.py": 14662,
+    "tools/quest-recovery/native_evidence.py": 11384,
+}
 
 
 class ResumeFixture(unittest.TestCase):
@@ -55,7 +60,7 @@ class ResumeFixture(unittest.TestCase):
         self.game_key = storage.value_hash({"files": game_files})
         self.game = self.output / "inputs/game" / self.game_key
         storage.snapshot(originals, game_files, self.game)
-        for name in (*recovery_resume.LEGACY_MERGE_FILES, "tools/quest-recovery/QuestExportIdentity.cs",
+        for name in (*recovery_resume.ORCHESTRATION_FILES, "tools/quest-recovery/QuestExportIdentity.cs",
                      "tools/quest-recovery/export_identity.py", "tools/quest-recovery/tool-lock.json",
                      *recovery_resume.DERIVED_FILES):
             target = self.source / name
@@ -94,7 +99,7 @@ class ResumeFixture(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def inputs(self, game_files, *, legacy=False, prior_progress=False, nested_progress=False):
+    def inputs(self, game_files, *, legacy=False, prior_progress=False, nested_progress=False, minimal_recovery=False):
         files = storage.inventory(self.source)
         if legacy:
             for row in files:
@@ -111,6 +116,16 @@ class ResumeFixture(unittest.TestCase):
                 if row["path"] in recovery_resume.NESTED_PROGRESS_FILES:
                     row["sha256"] = recovery_resume.NESTED_PROGRESS_FILES[row["path"]]
                     row["size"] = NESTED_PROGRESS_BYTES[row["path"]]
+        if minimal_recovery:
+            for row in files:
+                if row["path"] in recovery_resume.MINIMAL_RECOVERY_FILES:
+                    row["sha256"] = recovery_resume.MINIMAL_RECOVERY_FILES[row["path"]]
+                    row["size"] = MINIMAL_RECOVERY_BYTES[row["path"]]
+        if legacy or prior_progress or nested_progress or minimal_recovery:
+            for row in files:
+                if row["path"] == recovery_resume.OBSERVER_FILE:
+                    row["sha256"] = recovery_resume.PREVIOUS_OBSERVER_SHA256
+                    row["size"] = 40027
         value = {"schema": 1, "recipe": 1, "target": "game", "game": {"key": self.game_key, "unityVersion": "2021.3.5f1", "files": game_files},
                  "mod": {"key": storage.value_hash({"files": files}), "files": files}}
         value["inputKey"] = storage.value_hash(value)
@@ -173,9 +188,10 @@ class ResumeFixture(unittest.TestCase):
 
 
 class CompatibleMigrationTests(ResumeFixture):
-    def _check_shipped_progress_profile(self, *, prior_progress=False, nested_progress=False):
+    def _check_shipped_progress_profile(self, *, prior_progress=False, nested_progress=False, minimal_recovery=False):
         old = self.workspace
-        self.previous = self.inputs(self.previous["game"]["files"], prior_progress=prior_progress, nested_progress=nested_progress)
+        self.previous = self.inputs(self.previous["game"]["files"], prior_progress=prior_progress, nested_progress=nested_progress,
+                                    minimal_recovery=minimal_recovery)
         self.old_key = recovery_resume.recipe_key(self.previous, 1)
         self.workspace = old.with_name(self.old_key)
         old.rename(self.workspace)
@@ -229,6 +245,36 @@ class CompatibleMigrationTests(ResumeFixture):
 
     def test_nested_progress_builder_sources_resume_real_export_and_journal(self):
         self._check_shipped_progress_profile(nested_progress=True)
+
+    def test_minimal_recovery_shipped_builder_resumes_real_export_and_journal(self):
+        self._check_shipped_progress_profile(minimal_recovery=True)
+
+    def test_shipped_migration_keeps_the_complete_real_recovery_source_keyset(self):
+        for row in storage.inventory(ROOT / "tools/quest-recovery"):
+            original = ROOT / "tools/quest-recovery" / row["path"]
+            target = self.source / "tools/quest-recovery" / row["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(original, target)
+        self._check_shipped_progress_profile(minimal_recovery=True)
+
+    def test_minimal_recovery_migration_still_rejects_corrupted_retained_game_bytes(self):
+        self._check_shipped_progress_profile(minimal_recovery=True)
+        progress = json.loads((self.raw / "quest-full-recovery-progress.json").read_text())
+        relative = next(row["path"] for row in progress["files"] if row["path"].startswith("Assets/")
+                        and row["path"].endswith(".mat"))
+        path = self.raw / relative
+        path.write_bytes(b"changed retained original fields")
+        with self.assertRaisesRegex(recover.RecoveryError, "Full recovered checkpoint file changed"):
+            self.finish(self.workspace)
+        self.assertTrue(path.is_file())
+        self.assertEqual(self.export_calls, 1)
+
+    def test_unknown_log_observer_cannot_claim_a_shipped_whole_source_profile(self):
+        previous = copy.deepcopy(self.previous)
+        for row in previous["mod"]["files"]:
+            if row["path"] == recovery_resume.OBSERVER_FILE: row["sha256"] = "f" * 64
+        current = self.inputs(self.previous["game"]["files"])
+        self.assertFalse(recovery_resume._compatible(previous, current))
 
     def test_mixed_reviewed_source_profiles_do_not_claim_a_whole_shipped_recipe(self):
         previous = copy.deepcopy(self.previous)

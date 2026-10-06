@@ -8,6 +8,7 @@ a later stage. No reconstructed content is written into the source checkout.
 """
 import argparse
 import collections
+from contextlib import contextmanager
 import hashlib
 import html
 import importlib.util
@@ -22,6 +23,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -335,6 +337,72 @@ def export_script_identities(base, output):
     return entries
 
 
+class ExportLogProgress:
+    """Read the pinned exporter's actual collection counts, never guess time."""
+    pattern = re.compile(rb"^ExportProgress\s*:\s*\(([0-9]+)/([0-9]+)\) Exporting '([^\r\n]*)'\r?$", re.M)
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self.offset = self.path.stat().st_size if self.path.is_file() else 0
+        self.pending = b""
+        self.done, self.total, self.detail = 0, None, None
+        self.counter = None
+
+    def poll(self):
+        if not self.path.is_file(): return
+        with self.path.open("rb") as stream:
+            stream.seek(self.offset)
+            raw = stream.read(8 * 1048576)
+            self.offset = stream.tell()
+        if not raw: return
+        lines = (self.pending + raw).split(b"\n")
+        self.pending = lines.pop()[-16384:]
+        for line in lines:
+            match = self.pattern.fullmatch(line)
+            if match is None: continue
+            done, total = int(match[1]), int(match[2])
+            if not 0 < total <= 9007199254740991 or not self.done < done <= total:
+                continue
+            if self.total is not None and total != self.total:
+                continue  # A reset/different export must not change this scope.
+            self.done, self.total = done, total
+            self.detail = "Exporting " + match[3].decode("utf-8", errors="replace")[:512]
+            if self.counter is None:
+                self.counter = build_progress.Counter("recovery-asset-export", total, "collections", self.detail)
+            self.counter.update(done, self.detail)
+
+
+@contextmanager
+def observe_export_log(path):
+    """Bounded optional observation while the synchronous export request runs."""
+    if not build_progress.enabled():
+        yield
+        return
+    progress, stopped = ExportLogProgress(path), threading.Event()
+
+    def observe():
+        while not stopped.wait(.25):
+            try: progress.poll()
+            except (OSError, ValueError): return
+
+    watcher = threading.Thread(target=observe, name="quest-export-progress", daemon=True)
+    try:
+        watcher.start()
+    except (OSError, RuntimeError):
+        yield
+        return
+    try:
+        yield
+    finally:
+        stopped.set(); watcher.join(timeout=1.)
+        if not watcher.is_alive():
+            try:
+                progress.poll()
+                if progress.counter is not None:
+                    progress.counter.update(progress.done, progress.detail, force=True)
+            except (OSError, ValueError): pass  # Optional observation never fails export.
+
+
 def run_export(executable, stage, export, log_path, shader_root, settings, require_scene_settings=True):
     build_progress.event("recovery-exporter-start", detail="Starting pinned asset exporter", status="start")
     with socket.socket() as available:
@@ -364,7 +432,8 @@ def run_export(executable, stage, export, log_path, shader_root, settings, requi
             request(base, "/LoadFolder", {"Path": str(stage)})
             build_progress.event("recovery-asset-load", 1, 1, "requests", "Original assets loaded", status="complete")
             build_progress.event("recovery-asset-export", detail="Exporting original assets; detailed exporter log: " + log_path.name, status="start")
-            request(base, "/Export/UnityProject", {"Path": str(export)})
+            with observe_export_log(log_path):
+                request(base, "/Export/UnityProject", {"Path": str(export)})
             project = export / "ExportedProject"
             if require_scene_settings and not (project / "ProjectSettings/EditorBuildSettings.asset").is_file():
                 raise RecoveryError(f"Export did not produce original scene settings; see {log_path}.")

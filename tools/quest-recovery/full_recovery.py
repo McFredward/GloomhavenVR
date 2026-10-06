@@ -43,6 +43,10 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
             raise RecoveryError("Original game version changed; choose a new full recovery workspace.")
     else:
         write_json(source_receipt, {"schema": 1, "sourceFingerprint": fingerprint, "sourceInventory": files})
+    # Announce the actual bounded schedule before the slow core export. The
+    # wizard can keep one stable conversion denominator throughout all batches.
+    plan = catalog_bundle_plan(source, source_inventory=files)
+    build_progress.event("recovery-plan", 0, len(plan["groups"]), "batches", "Full original conversion schedule", status="start")
     build_progress.event("recovery-section:core", detail="Preparing and qualifying the original core export", status="start")
     tool, tool_proof = build_tool(tool_cache, dotnet)
     if (core_project is None) != (core_identities is None):
@@ -125,7 +129,6 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
     # The actual catalog plan hashes required original bundles once. Final CAB
     # ownership indexing uses this same plan instead of rereading every bundle
     # merely to recreate an unchanged schedule; the final source guard remains.
-    plan = catalog_bundle_plan(source)
     progress = run_recovery(source, core, core_identities, output,
                             Path(bundle_workspace).resolve() if bundle_workspace else workspace / "BundleRecovery", tool,
                             bundle_plan=plan)

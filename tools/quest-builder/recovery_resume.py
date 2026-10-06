@@ -37,6 +37,18 @@ NESTED_PROGRESS_FILES = {
     "tools/quest-recovery/full_recovery.py": "793f13e432a860febc4754a6b0c07ce0ca5e3eedc0e32ed857ff3131b024435a",
     "tools/quest-recovery/native_evidence.py": "d774d94dc0333b5f1c1c68d4498fe15c95f4e23436565ef05930c0eeeafc7abe",
 }
+# Shipped Builder 5dce06841: the subsequent observer reads existing exporter
+# logs and minimizes repeated Python index/path work. The C# capture, pinned
+# exporter/config and native object contract remain byte-identical. Accept this
+# complete reviewed profile, never a mix of individually recognized files.
+MINIMAL_RECOVERY_FILES = {
+    "tools/quest-recovery/bundle_recovery.py": "5657aa6e87ab3a17afb3d09afb21b78a89256b90536dad1caeed6bc0f317aa02",
+    "tools/quest-recovery/full_recovery.py": "cb9a909c2cfd7372ada13a4ff5102bd3ce13472684264dcfa9d10eff3a22ed07",
+    "tools/quest-recovery/native_evidence.py": "092139fb8a478d21f114a0e989262c709037a092eec05ff3e8970bdb1aca95f4",
+}
+OBSERVER_FILE = "tools/quest-recovery/recover.py"
+PREVIOUS_OBSERVER_SHA256 = "8502923f2cfc7d85c4f9fca29356c5b5f3bacf66b2def2379a01c3f68f52c9d1"
+ORCHESTRATION_FILES = set(LEGACY_MERGE_FILES) | {OBSERVER_FILE}
 DERIVED_FILES = {"tools/quest-builder/full_assets.py", "tools/quest-builder/full_shaders.py"}
 MAX_MANIFESTS = 128
 MAX_JSON_BYTES = 16 * 1024 * 1024
@@ -105,20 +117,21 @@ def _records(rows, size_key):
 
 def _compatible(previous, current):
     old, new = _records(recipe_files(previous), "size"), _records(recipe_files(current), "size")
-    required = LEGACY_MERGE_FILES.keys() | {"tools/quest-recovery/QuestExportIdentity.cs",
+    required = ORCHESTRATION_FILES | {"tools/quest-recovery/QuestExportIdentity.cs",
                "tools/quest-recovery/export_identity.py", "tools/quest-recovery/tool-lock.json"}
     if old.keys() != new.keys() or not required <= old.keys(): return False
     changed = []
     for name in old:
         if name in DERIVED_FILES: continue  # Their new stage is never adopted.
         if old[name] == new[name]: continue
-        if name not in LEGACY_MERGE_FILES: return False
+        if name not in ORCHESTRATION_FILES: return False
         changed.append(name)
     if not changed: return True
-    # Every exporter/config/capture source outside these exact three is still
+    # Every exporter/config/capture source outside these exact four is still
     # identical. The child retains the full input/core/batch/journal hash gates.
-    return any(all(old[name]["sha256"] == profile[name] for name in profile)
-               for profile in (LEGACY_MERGE_FILES, PREVIOUS_PROGRESS_FILES, NESTED_PROGRESS_FILES))
+    return any(all(old[name]["sha256"] == expected for name, expected in profile.items())
+               for profile in ({**base, OBSERVER_FILE: PREVIOUS_OBSERVER_SHA256} for base in
+                               (LEGACY_MERGE_FILES, PREVIOUS_PROGRESS_FILES, NESTED_PROGRESS_FILES, MINIMAL_RECOVERY_FILES)))
 
 
 def _manifest(path):
@@ -188,7 +201,7 @@ def select_workspace(output, inputs, source, game, recipe):
         if not path.is_file() or path.stat().st_size != row["bytes"] or digest(path) != row["sha256"]:
             raise BuildError("Current recovery source differs from its immutable manifest: " + row["path"])
     contract = value_hash({"schema": 1, "files": [row for name, row in sorted(current_records.items())
-                                                  if name not in LEGACY_MERGE_FILES and name not in DERIVED_FILES]})
+                                                  if name not in ORCHESTRATION_FILES and name not in DERIVED_FILES]})
     selected_manifest = None
     if binding.exists():
         bound = _read(binding)

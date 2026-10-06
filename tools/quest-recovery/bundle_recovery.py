@@ -238,7 +238,7 @@ def begin_merge(output, workspace, index, incoming, evidence, canonical, *, proo
         if not source.is_file(): continue
         paths.append(filename)
         if filename.endswith("NativeRecipes/index.jsonl"):
-            for row in native_evidence._read_index(source):
+            for row in (proofs.index_rows(source) if proofs is not None else native_evidence._read_index(source)):
                 yaml = row["yamlPath"]
                 if (not isinstance(yaml, str) or Path(yaml).name != yaml or Path(yaml).suffix != ".yaml"
                         or any(character in yaml for character in ("/", "\\", ":"))):
@@ -255,11 +255,13 @@ def begin_merge(output, workspace, index, incoming, evidence, canonical, *, proo
                                     else sha256(output / "quest-full-recovery-progress.json")), "addedPaths": sorted(set(paths)), "backups": backups})
 
 
-def catalog_bundle_plan(game_data, byte_limit=768 * 1024 * 1024):
+def catalog_bundle_plan(game_data, byte_limit=768 * 1024 * 1024, *, source_inventory=None):
     """Select actual catalog dependencies, never a guessed bundle filename set."""
     root = Path(game_data).resolve()
     catalog = root / "StreamingAssets/aa/catalog.json"
-    decoded = decode_catalog(json.loads(catalog.read_text(encoding="utf-8-sig")))
+    catalog_bytes = catalog.read_bytes()
+    decoded = decode_catalog(json.loads(catalog_bytes.decode("utf-8-sig")))
+    witnessed = {row["path"]: row for row in source_inventory} if source_inventory is not None else None
     assets = [row["index"] for row in decoded["locations"]
               if row["internalId"].replace("\\", "/").startswith(("Assets/", "Packages/"))]
     bundles = bundle_closure(decoded, assets)
@@ -271,7 +273,15 @@ def catalog_bundle_plan(game_data, byte_limit=768 * 1024 * 1024):
         with path.open("rb") as stream:
             if not stream.read(8).startswith((b"UnityFS\0", b"UnityWeb", b"UnityRaw")):
                 raise RecoveryError("Required catalog dependency is not a Unity bundle: " + relative)
-        rows.append({"path": relative, "bytes": path.stat().st_size, "sha256": sha256(path)})
+        size = path.stat().st_size
+        if witnessed is not None:
+            row = witnessed.get(relative)
+            if row is None or row["bytes"] != size or not re.fullmatch("[0-9a-f]{64}", row["sha256"]):
+                raise RecoveryError("Original bundle changed after source qualification: " + relative)
+            digest = row["sha256"]
+        else:
+            digest = sha256(path)
+        rows.append({"path": relative, "bytes": size, "sha256": digest})
     # Largest-first packing bounds individual compressed inputs and avoids a
     # high-texture group accidentally concentrating all large bundles.
     groups = []
@@ -284,7 +294,7 @@ def catalog_bundle_plan(game_data, byte_limit=768 * 1024 * 1024):
         group["bytes"] += row["bytes"]
     for group in groups:
         group["bundles"].sort(key=lambda item: item["path"])
-    return {"schema": 1, "catalogSha256": sha256(catalog), "assetLocationCount": len(assets),
+    return {"schema": 1, "catalogSha256": hashlib.sha256(catalog_bytes).hexdigest(), "assetLocationCount": len(assets),
             "requiredBundleCount": len(rows), "requiredBundleBytes": sum(row["bytes"] for row in rows),
             "compressedBatchByteLimit": byte_limit, "groups": groups,
             "readiness": {"assetsRecovered": False, "androidAssetsBuilt": False}}

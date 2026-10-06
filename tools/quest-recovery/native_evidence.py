@@ -24,10 +24,15 @@ class FileProofs:
     """
     def __init__(self):
         self._files = {}
+        self._indexes = {}
 
     @staticmethod
     def _stamp(path):
-        value = ordinary_path(path).stat()
+        # All public entry points qualify the complete parent chain once.
+        # Repeating that walk before and after hashing each of 62,000 recipes
+        # multiplied metadata queries in the reported Windows merge. lstat still
+        # rejects a substituted leaf link; real local writes invalidate stamps.
+        value = path.lstat()
         if not stat.S_ISREG(value.st_mode):
             raise RecoveryError("Qualified recovery evidence is not a regular file: " + str(path))
         return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
@@ -52,6 +57,29 @@ class FileProofs:
             raise RecoveryError("Published recovery evidence changed size: " + str(path))
         self._files[path] = stamp, digest
 
+    def index_rows(self, path):
+        """Parse each unchanged current index once, never trust a serialized cache."""
+        path = ordinary_path(path)
+        before = self._stamp(path)
+        previous = self._indexes.get(path)
+        if previous is not None and previous[0] == before:
+            return previous[1]
+        rows = tuple(_read_index(path))
+        if self._stamp(path) != before:
+            raise RecoveryError("Native index changed while being read: " + str(path))
+        self._indexes[path] = before, rows
+        return rows
+
+    def remember_index(self, path, rows):
+        """Retain exactly the index rows just atomically published by our writer."""
+        path = ordinary_path(path)
+        self._indexes[path] = self._stamp(path), tuple(rows)
+
+    def forget_index(self, path):
+        # Incoming batch indexes are not needed after publication. Retain only
+        # the two current output indexes instead of all large batch graphs.
+        self._indexes.pop(Path(path).absolute(), None)
+
     def published_digest(self, path):
         """Require an unchanged writer/read proof, rather than adopting new bytes."""
         path = ordinary_path(path)
@@ -68,12 +96,13 @@ def environment(directory):
             "QUEST_EXPORT_NATIVE_RECIPES": str(root / "NativeRecipes")}
 
 
-def _recipe_path(directory, row):
+def _recipe_path(directory, row, *, qualified_directory=False):
     name = row["yamlPath"]
     if (not isinstance(name, str) or Path(name).name != name or Path(name).suffix != ".yaml"
             or any(character in name for character in ("/", "\\", ":"))):
         raise RecoveryError("Native recipe escaped its captured evidence directory.")
-    return ordinary_path(directory / name)
+    path = directory / name
+    return path if qualified_directory else ordinary_path(path)
 
 
 def _hash_recipe(path):
@@ -168,14 +197,20 @@ def merge(project, evidence, *, proofs=None):
         for path in (destination, source):
             if not path.is_file():
                 continue
-            for row in _read_index(path):
+            # Both directories are already ordinary. Index parsing validates
+            # names without 62,000 redundant ancestor walks; FileProofs.digest
+            # qualifies every actual recipe when its bytes are used below.
+            ordinary_path(path.parent)
+            build_progress.event("recovery-native-index-input", detail=("Retained" if path == destination else "Incoming")
+                                 + " native index: " + filename, status="start")
+            for row in proofs.index_rows(path):
                 key = tuple(row[name].casefold() if name == "collection" else row[name] for name in keys)
                 previous = values.get(key)
                 if previous is not None and previous != row:
                     raise RecoveryError("Native source evidence disagrees across export batches: " + repr(key))
                 values[key] = row
                 if filename.startswith("NativeRecipes/"):
-                    original = _recipe_path(path.parent, row)
+                    original = _recipe_path(path.parent, row, qualified_directory=True)
                     name = original.name.casefold()
                     expected, candidates = recipes_by_name.setdefault(name, (row["yamlSha256"], {}))
                     if expected != row["yamlSha256"]:
@@ -183,7 +218,7 @@ def merge(project, evidence, *, proofs=None):
                     candidates[original] = row
         counter = build_progress.Counter("recovery-native-recipe-merge", len(recipes_by_name), "files")
         for _, (expected, candidates) in sorted(recipes_by_name.items()):
-            first = next(iter(candidates)); copied = ordinary_path(destination.parent / first.name)
+            first = next(iter(candidates)); copied = destination.parent / first.name
             # Windows names must identify the same recipe on all builder hosts.
             if any(path.name != copied.name for path in candidates):
                 raise RecoveryError("Native recipe filenames collide case-insensitively.")
@@ -206,8 +241,18 @@ def merge(project, evidence, *, proofs=None):
                                                              "sha256": expected, "bytes": copied.stat().st_size}
             counter.add(1, copied.name)
         counter.finish()
-        digest, size = _write_index(destination, values)
-        proofs.remember(destination, digest, size)
+        previous_rows = proofs.index_rows(destination) if destination.is_file() else ()
+        # Duplicate original core capture occurs in every bounded export. An
+        # identical canonical index needs neither serialization nor replacement.
+        if destination.is_file() and len(previous_rows) == len(values) and all(previous_rows[index] == values[key]
+                                                     for index, key in enumerate(sorted(values))):
+            digest = proofs.digest(destination); size = destination.stat().st_size
+            build_progress.event("recovery-native-index-write", len(values), len(values), "rows", destination.name, status="reuse")
+        else:
+            digest, size = _write_index(destination, values)
+            proofs.remember(destination, digest, size)
+            proofs.remember_index(destination, (values[key] for key in sorted(values)))
+        proofs.forget_index(source)
         relative = destination.relative_to(project).as_posix()
         records[relative] = {"path": relative, "sha256": digest, "bytes": size}
         build_progress.event("recovery-native-index-set", slot + 1, len(indices), "indexes", filename, status="complete")
