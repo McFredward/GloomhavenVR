@@ -2,6 +2,9 @@ import importlib.util
 import io
 import pathlib
 import struct
+import hashlib
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -13,10 +16,59 @@ import runtime
 from wine_paths import relocate
 from box64_guest import ORIGINAL, ADAPTED, apply
 import box64_host
+import box64_glibc_guest
 from tasks import canonical_task
 
 
 class RuntimeContracts(unittest.TestCase):
+    def test_actual_pinned_guest_startup_preprocessor_paths(self):
+        original = (ROOT / "tests/pinned-entrypoint.c.txt").read_bytes()
+        self.assertEqual(hashlib.sha256(original).hexdigest(), box64_glibc_guest.SOURCE_SHA256)
+        adapted = box64_glibc_guest.adapt(original)
+        # Complete upstream function bodies, including constructors, entry
+        # arguments, stack alignment and exit handling, survive byte for byte.
+        glibc_body = original[original.index(b"EXPORT int32_t my___libc_start_main("):original.index(b"#ifdef BOX32")]
+        self.assertIn(glibc_body, adapted)
+        bionic_body = original[original.index(b"void EXPORT my___libc_init("):original.index(b"#else\n")]
+        self.assertIn(bionic_body, adapted)
+        compiler = shutil.which("clang") or shutil.which("cc")
+        if not compiler:
+            self.skipTest("A real C preprocessor is required for guest entry branch evidence.")
+        with tempfile.TemporaryDirectory() as directory:
+            source = pathlib.Path(directory)
+            for name in ("debug.h", "x64run_private.h", "box64cpu.h", "box64cpu_util.h", "elfloader.h", "box32.h"):
+                (source / name).write_text("")
+            def branches(data, android):
+                path = source / "entrypoint.c"; path.write_bytes(data)
+                args = [compiler, "-E", "-P", "-I", str(source)]
+                if android:
+                    args.append("-DANDROID")
+                return subprocess.check_output(args + [str(path)], text=True)
+            historical_android = branches(original, True)
+            self.assertIn("my___libc_init(", historical_android)
+            self.assertNotIn("my___libc_start_main(", historical_android)
+            historical_linux = branches(original, False)
+            self.assertIn("my___libc_start_main(", historical_linux)
+            self.assertNotIn("my___libc_init(", historical_linux)
+            android = branches(adapted, True)
+            self.assertIn("my___libc_init(", android)
+            self.assertIn("my___libc_start_main(", android)
+            self.assertEqual(branches(adapted, False), historical_linux)
+            path = source / "src/emu/entrypoint.c"; path.parent.mkdir(parents=True); path.write_bytes(original)
+            box64_glibc_guest.apply(source)
+            self.assertEqual(path.read_bytes(), adapted)
+            with self.assertRaisesRegex(RuntimeError, "audited revision"):
+                box64_glibc_guest.apply(source)
+        with self.assertRaisesRegex(RuntimeError, "audited revision"):
+            box64_glibc_guest.adapt(original.replace(b"DynaRun(emu)", b"DifferentRun(emu)"))
+
+    def test_actual_binary_guest_entry_gate_rejects_each_missing_export(self):
+        required = box64_glibc_guest.REQUIRED_EXPORTS
+        box64_glibc_guest.require_exports(required | {"unrelated"})
+        for missing in required:
+            with self.subTest(missing=missing), self.assertRaisesRegex(RuntimeError, missing):
+                box64_glibc_guest.require_exports(required - {missing})
+
     def test_box64_header_recipe_preserves_dependencies_without_shell_or_git(self):
         with tempfile.TemporaryDirectory(prefix="Quest & 100% ") as directory:
             source = pathlib.Path(directory)

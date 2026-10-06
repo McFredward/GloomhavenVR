@@ -71,6 +71,13 @@ def _host_patch(source, revision):
     module.apply(source, revision)
 
 
+def _glibc_guest_tools():
+    spec = importlib.util.spec_from_file_location("quest_procedural_guest_entry", HERE / "box64_glibc_guest.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _wine_paths(payload):
     spec = importlib.util.spec_from_file_location("quest_procedural_wine_paths", HERE / "wine_paths.py")
     module = importlib.util.module_from_spec(spec)
@@ -105,7 +112,7 @@ def build(output_cache: Path, ndk: Path) -> tuple[Path, dict]:
     ndk = Path(ndk).resolve()
     key = hashlib.sha256((digest(ndk / "source.properties") + "".join(digest(path) for path in
                          (HERE / "runtime.py", HERE / "upstream.lock.json", HERE / "protocol.h", HERE / "worker.c",
-                          HERE / "bridge.c", HERE / "server_launcher.c", HERE / "box64_guest.py", HERE / "box64_host.py"))).encode()).hexdigest()
+                          HERE / "bridge.c", HERE / "server_launcher.c", HERE / "box64_guest.py", HERE / "box64_host.py", HERE / "box64_glibc_guest.py"))).encode()).hexdigest()
     output = Path(output_cache).resolve() / "procedural-runtime" / key
     output.mkdir(parents=True, exist_ok=True)
     receipt_path = output / "native-build.json"
@@ -138,6 +145,7 @@ def build(output_cache: Path, ndk: Path) -> tuple[Path, dict]:
         package.extractall(output, members=selected, filter="data")
     _guest_patch(source)
     _host_patch(source, upstream["revision"])
+    _glibc_guest_tools().apply(source)
     tools = _voice_tools()
     cmake = tools.cmake_command()
     command = [cmake, "-S", str(source), "-B", str(output / "box64-build"),
@@ -189,9 +197,15 @@ def build(output_cache: Path, ndk: Path) -> tuple[Path, dict]:
         actual = {line.split()[-1] for line in symbols.splitlines() if line.split()}
         if not set(EXPORTS + ("quest_apparance_configure", "quest_apparance_last_error")).issubset(actual):
             raise RuntimeError("Original procedural native exports are incomplete.")
+        box_symbols = subprocess.check_output([tool(root, "llvm-nm"), "-D", "--defined-only", str(output / "libquest_box64.so")], text=True)
+        box_exports = {line.split()[-1] for line in box_symbols.splitlines() if line.split()}
+        guest_entry = _glibc_guest_tools()
+        guest_entry.require_exports(box_exports)
     names = ("libQuestApparance.so", "libquest_box64.so", "libquest_wineserver.so", "ApparanceWorker.exe")
     receipt = {"schema": 1, "inputKey": key, "box64": upstream, "ndkSha256": digest(ndk / "source.properties"),
                "artifacts": [dict(path=name, sha256=digest(output / name), size=(output / name).stat().st_size) for name in names],
+               "box64GuestEntryExports": sorted(guest_entry.REQUIRED_EXPORTS),
+               "box64DualGuestEntrySourceSha256": guest_entry.SOURCE_SHA256,
                "androidExecutionVerified": False}
     receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
     # Keep the verified final artifacts and provenance, not hundreds of MB of

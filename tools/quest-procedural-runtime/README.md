@@ -39,6 +39,18 @@ The ARM QEMU proof uses a private Linux/glibc environment and records `androidEx
 
 Android/Bionic loader behavior, SELinux process execution, first Wine-prefix setup latency, headset memory/performance and sleep/resume remain hardware acceptance checks. Their result must be taken from a real full-target capture. The general runtime path supports changed parameters and arbitrary original procedures; further captured dynamic-prop, obstacle and seed fixtures strengthen the existing byte comparison without replacing native execution.
 
+The B624 headset capture proves that the Android worker reached Box64 and then
+failed Wine's `__libc_start_main` relocation before Wine main. The pinned upstream
+`src/emu/entrypoint.c` conditionally compiled only the Bionic guest entry on an
+Android host; the earlier Linux/glibc-host proof compiled the glibc branch. The
+Quest adaptation preserves the complete upstream entry bodies and includes both
+64-bit guest entries on Android. Its source checksum is pinned separately, and
+the actual final ARM64 executable must export `my___libc_init`,
+`my___libc_start_main` and `my___libc_init_first` before staging. This proves the
+missing entry is present; successful Wine and original-engine execution on the
+headset still require a new hardware capture. The small test fixture is the
+unchanged Box64 revision's MIT-licensed entry source.
+
 Primary sources: [Box64 Wine support](https://github.com/ptitSeb/box64/blob/v0.4.4/docs/WINE.md), [Box64 Android build](https://github.com/ptitSeb/box64/blob/v0.4.4/CMakeLists.txt), [portable Wine build and source instructions](https://github.com/Kron4ek/Wine-Builds), [official Wine 9.0 source](https://gitlab.winehq.org/wine/wine/-/tree/wine-9.0), and [Android executable storage restrictions](https://developer.android.com/about/versions/10/behavior-changes-10#execute-permission).
 
 The Windows x64 source build uses the pinned CMake/Ninja wheels and the selected
