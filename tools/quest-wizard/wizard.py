@@ -87,6 +87,7 @@ class Engine:
             stage = row["id"]; key = self.key(state, stage); started = time.monotonic()
             try:
                 self.store.check_cancel(session)
+                self.store.begin_stage(session, stage, key)
                 prior = self.store.valid(session, stage, key, report_progress=True)
                 if prior:
                     if stage == "tools" and not self.actions: self.qualify(state)
@@ -97,7 +98,14 @@ class Engine:
                     self.emit(self.store.event(state, "stage_reused", stage, durationSeconds=row["durationSeconds"], outputCount=len(prior["outputs"]))); continue
                 row.update(status="running", attempts=row["attempts"] + 1, startedAt=time.time())
                 if hasattr(supervisor, "set_stage"): supervisor.set_stage(stage)
-                self.store.progress(session, stage, "starting", detail="Starting stage; tool counters are not yet available.")
+                descriptions = {"tools": "Checking host capacity and preparing Git and .NET tools.",
+                                "source": "Verifying selected mod source and preparing its compile-time dependencies.",
+                                "unity": "Checking Unity Editor, Android modules and licence prerequisites.",
+                                "profile": "Preparing the local player identity and Steam logo.",
+                                "inspect": "Reading owned game files and the selected mod source manifest.",
+                                "build": "Preparing complete game assets, compiling the current mod and Android player.",
+                                "install": "Connecting to the Quest and installing the verified APK and content."}
+                self.store.progress(session, stage, "starting", detail=descriptions[stage])
                 self.emit(self.store.event(state, "stage_started", stage))
                 action = self.actions.get(stage) or getattr(self, "stage_" + stage)
                 paths, details = action(state, supervisor)
@@ -139,7 +147,9 @@ class Engine:
         return qualification
 
     def stage_tools(self, state, supervisor):
+        self.store.operation(state["session"], "tools", "qualify", detail="Checking available memory, disk space and supported host.")
         self.qualify(state)
+        self.store.operation(state["session"], "tools", "qualify", complete=True, detail="Host capacity checked.")
         return provision.tools(self.store, state["session"], supervisor)
     def stage_source(self, state, supervisor):
         return provision.source_checkout(self.store, state["session"], state["choices"], self.details(state, "tools"), supervisor, self.repo)
@@ -157,6 +167,7 @@ class Engine:
         else: provision.download(provision.LOCK["steamLogo"], logo, lambda: self.store.check_cancel(state["session"]),
                                  progress=lambda done, total: self.store.progress(state["session"], "profile", "steam-logo-download", done, total, "bytes", "Steam logo"))
         _, logo_hash = module.read_logo(logo)
+        self.store.operation(state["session"], "profile", "identity", detail="Reading the selected local PC account identity.")
         if selected.get("profile"): profile = selected["profile"]
         elif selected["provider"] == "steam":
             root = Path(selected["steamRoot"]) if selected.get("steamRoot") else module.discover_steam_root()
@@ -165,6 +176,7 @@ class Engine:
         else: raise WizardError("profile_required", "GOG/Epic install records do not contain an account identity; enter its name and account ID.", "GOG-/Epic-Installationsdaten enthalten keine Kontoidentität; bitte Namen und Konto-ID eingeben.")
         path = self.store.session_dir(state["session"]) / "profile.json"
         atomic_json(path, profile)
+        self.store.operation(state["session"], "profile", "identity", complete=True, detail="Local identity recorded.")
         return [path, logo], {"profilePath": str(path), "steamLogo": str(logo), "logoSha256": logo_hash}
 
     def arguments(self, state, command):
@@ -235,6 +247,7 @@ class Engine:
             return [result], {"requested": False}
         source = Path(self.details(state, "source")["sourceRoot"])
         config = self.store.root / "device/wireless-install.json"
+        self.store.operation(state["session"], "install", "connect", detail="Preparing ADB and reconnecting to the authorized Quest.")
         supervisor.run([sys.executable, "-B", "-X", "utf8", str(source / "scripts/install-quest-wireless.py"),
                         "--output-root", self.details(state, "build")["outputRoot"], "--config", str(config)], self.log(state, "install"))
         receipt = config.parent / "wireless-last-install.json"
@@ -242,6 +255,7 @@ class Engine:
         if (value["apkSha256"] != self.details(state, "build")["apkSha256"]
                 or value["inputKey"] != self.details(state, "build")["inputKey"]):
             raise WizardError("installed_identity", "Installed receipt differs from the completed build.")
+        self.store.operation(state["session"], "install", "launch", complete=True, detail="Installed build identity and launch receipt confirmed.")
         atomic_json(result, {"schema": 1, "requested": True, "inputKey": value["inputKey"], "apkSha256": value["apkSha256"], "launched": value["launched"]})
         return [result, receipt], {"requested": True, "hardwareVerified": False}
 

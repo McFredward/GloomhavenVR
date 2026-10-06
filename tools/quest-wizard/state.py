@@ -10,6 +10,7 @@ import math
 import threading
 import time
 import uuid
+import stage_plan
 
 STAGES = ("tools", "source", "unity", "profile", "inspect", "build", "install")
 PROGRESS_INTERVAL = 0.5
@@ -163,6 +164,7 @@ class Store:
                 if error.code != "already_running": raise
         for row in value["stages"]:
             row.setdefault("progress", stage_progress("complete", 1, 1) if row["status"] == "complete" else stage_progress())
+            stage_plan.advance(row, row["progress"])
         return value
 
     @contextmanager
@@ -189,6 +191,7 @@ class Store:
             state["updated"] = time.time()
             for row in state["stages"]:
                 row.setdefault("progress", stage_progress("complete", 1, 1) if row["status"] == "complete" else stage_progress())
+                stage_plan.advance(row, row["progress"])
             atomic_json(self.session_dir(state["session"]) / "state.json", state)
 
     def amend(self, session, choices):
@@ -200,6 +203,7 @@ class Store:
             state.update(choices=choices, choicesKey=value_hash(choices), status="ready", needsActions=[])
             for row in state["stages"]:
                 row.update(status="pending", details={}, progress=stage_progress())
+                row.pop("progressPlan", None)
                 row.pop("waiting", None)
             self.event(state, "choices_updated")
             return state
@@ -240,10 +244,33 @@ class Store:
     def record(self, session, code, stage=None, **parameters):
         with self._lock: return self._event(self._state(session), code, stage, **parameters)
 
-    def progress(self, session, stage, phase, done=None, total=None, unit=None, detail=None):
-        value = stage_progress(phase, done, total, unit, detail)
+    def begin_stage(self, session, stage, key):
+        """Retry the same immutable inputs without resetting completed work units."""
         with self._lock:
             state = self._state(session); row = self._row(state, stage)
+            if row.get("progressKey") != key:
+                row.pop("progressPlan", None)
+                row["progress"] = stage_progress()
+                row["status"] = "pending"
+            row["progressKey"] = key
+            self.save(state)
+
+    def operation(self, session, stage, name, *, complete=False, detail=None):
+        if name not in stage_plan.PLANS.get(stage, ()):
+            raise WizardError("invalid_progress", "Unknown planned operation.")
+        return self.progress(session, stage, "operation:" + name, 1 if complete else None,
+                             1 if complete else None, "operations", detail,
+                             operation=name, status="complete" if complete else "start")
+
+    def progress(self, session, stage, phase, done=None, total=None, unit=None, detail=None, *, operation=None, status=None):
+        value = stage_progress(phase, done, total, unit, detail)
+        if status is not None and status not in ("start", "progress", "complete", "reuse", "failed"):
+            raise WizardError("invalid_progress", "Invalid progress event status.")
+        if operation is not None and operation not in stage_plan.PLANS.get(stage, ()):
+            raise WizardError("invalid_progress", "Unknown planned operation.")
+        with self._lock:
+            state = self._state(session); row = self._row(state, stage)
+            stage_plan.advance(row, value, operation, status)
             old = row.get("progress", {}); row["progress"] = value
             clock = time.monotonic(); last = self._progress_saved.get((session, stage), 0)
             changed_phase = old.get("phase") != phase or old.get("total") != total

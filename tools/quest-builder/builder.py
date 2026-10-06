@@ -213,8 +213,11 @@ def selected_profile(args) -> tuple[dict | None, bytes | None]:
 
 def inspect_inputs(args, repo: Path, output: Path, data: Path) -> dict:
     print("inspect: hashing owned game and current mod inputs", flush=True)
+    build_progress.operation("game-inputs", detail="Reading owned original game files")
     game_files = inventory(data, phase="game-hash")
+    build_progress.operation("mod-inputs", detail="Checking selected source files and source ModBuild")
     source_files, commit, dirty = source_inventory(repo)
+    build_progress.operation("profile-inputs", detail="Validating local identity and owned DLC records")
     profile, logo = selected_profile(args)
     if profile is not None:
         profile["dlcOwnership"] = dlcs.capture(args, data, profile)
@@ -253,6 +256,8 @@ def inspect_inputs(args, repo: Path, output: Path, data: Path) -> dict:
         # explicit fallback must never reuse the other backend's prepared Player.
         inputs["proceduralBackend"] = backend
     inputs["inputKey"] = value_hash(inputs)
+    if getattr(args, "command", "inspect") == "inspect": build_progress.operation("manifest", detail="Publishing the immutable input manifest")
+    else: build_progress.operation("profile-inputs", complete=True, detail="Input identity and DLC ownership captured")
     manifest = output / "manifests" / (inputs["inputKey"] + ".json")
     write_json(manifest, inputs)
     if profile:
@@ -264,6 +269,7 @@ def inspect_inputs(args, repo: Path, output: Path, data: Path) -> dict:
     print("inspect: " + str(len(game_files)) + " game files, " + str(len(source_files)) +
           " mod/tool/asset files; ModBuild " + str(inputs["mod"]["modBuild"]) +
           ("; explicitly DUMMY test identity" if profile and profile.get("isDummy") else ""), flush=True)
+    if getattr(args, "command", "inspect") == "inspect": build_progress.operation("manifest", complete=True, detail="Input manifest published")
     return inputs
 
 
@@ -272,6 +278,7 @@ def snapshot_inputs(inputs: dict, output: Path, repo: Path, data: Path,
     source = output / "inputs/mod" / inputs["mod"]["key"]
     game = output / "inputs/game" / inputs["game"]["key"]
     print("snapshot: verifying/copying immutable game and selected source", flush=True)
+    build_progress.operation("source-snapshot", detail="Freezing the selected current mod source")
     snapshot(repo, inputs["mod"]["files"], source, phase="source-snapshot")
     # Reject edits across files during the snapshot window, not only a torn
     # individual read or added source file. Once frozen, later mod development
@@ -280,7 +287,9 @@ def snapshot_inputs(inputs: dict, output: Path, repo: Path, data: Path,
         raise BuildError("The mod changed during snapshotting; rerun against the completed edit.")
     if mod_build(source) != inputs["mod"]["modBuild"]:
         raise BuildError("The input ModBuild disagrees with the captured source.")
+    build_progress.operation("game-snapshot", detail="Copying or verifying retained original game inputs")
     snapshot(data, inputs["game"]["files"], game, phase="game-snapshot")
+    build_progress.operation("snapshot-check", detail="Confirming the installation did not change during the copy")
     if inventory(data, phase="game-snapshot-source-verify") != inputs["game"]["files"]:
         raise BuildError("The original installation changed during snapshotting; finish its update and retry.")
     if inputs.get("probeAssets"):
@@ -298,6 +307,7 @@ def snapshot_inputs(inputs: dict, output: Path, repo: Path, data: Path,
                  output / "inputs/startup" / original_startup["key"])
         if inventory(startup_project.resolve()) != original_startup["files"]:
             raise BuildError("The original startup project changed during snapshotting; finish export and retry.")
+    build_progress.operation("snapshot-check", complete=True, detail="Immutable mod and original game snapshots confirmed")
     return source, game
 
 
@@ -347,6 +357,7 @@ def toolchain(args, output: Path) -> dict:
 
 
 def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
+    build_progress.operation("recovery", detail="Recovering or reusing the complete original scene and asset catalog")
     stages = Stages(output)
     recovered = None
     if args.target == "startup":
@@ -421,6 +432,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
         stages.path("prepare", key).unlink(missing_ok=True)
 
     def generate_files():
+        build_progress.operation("project-files", detail="Preparing the Android Unity project and original scene bindings")
         template = source / "unity/GloomhavenVR.Quest"
         if not (template / "Assets/Quest").is_dir():
             raise BuildError("The selected source is missing unity/GloomhavenVR.Quest/Assets/Quest.")
@@ -500,17 +512,21 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
                 campaign.stage_file_backed_extras(project, game)
                 dependencies.python_environment(output / "tool-cache", source)
                 selected_tools = toolchain(args, output)
+                build_progress.operation("native-runtime", detail="Preparing Android procedural engine and native compatibility runtime")
                 campaign_native.stage(source, project, game, output / "tool-cache/campaign-native", Path(selected_tools["androidNdk"]),
                                       backend=inputs["proceduralBackend"])
                 original_owners = campaign_shaders.original_cab_bundles(source, game)
+                build_progress.operation("audio", detail="Converting original audio for Android")
                 full_audio.stage(project, game, dotnet=tool_path(args.dotnet, "dotnet"),
                     tool_cache=output / "tool-cache/campaign-native-codecs",
                     cab_bundles=original_owners)
+                build_progress.operation("textures", detail="Converting original textures and platform images")
                 full_textures.stage(project, game, dotnet=tool_path(args.dotnet, "dotnet"),
                     tool_cache=output / "tool-cache/campaign-native-codecs", cab_bundles=original_owners)
                 full_texture2d.stage(project, game, dotnet=tool_path(args.dotnet, "dotnet"),
                     tool_cache=output / "tool-cache/campaign-native-codecs", cab_bundles=original_owners)
                 import campaign_compute
+                build_progress.operation("graphics", detail="Preparing original compute kernels and required shader sources")
                 campaign_compute.stage(source, project, output / "tool-cache/campaign-compute" / inputs["inputKey"])
                 campaign_shaders.stage(source, project, game, campaign_shader_cache(output, inputs["game"]["key"]))
             package_startup_content(project, inputs["inputKey"])
@@ -520,6 +536,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             package_data["dependencies"].update(original_builtin_modules(game, editor))
             write_json(project / "Packages/manifest.json", package_data)
             restore_ugui_layout_gate(project, game, editor)
+            build_progress.operation("mod-banks", detail="Building current VR mod resource banks")
             package_mod_content(project, inputs, output, source, editor)
             defines = "GHVR_QUEST_STARTUP;GHVR_QUEST_GAME" if args.target == "game" else "GHVR_QUEST_STARTUP"
             (project / "Assets/csc.rsp").write_text("-define:" + defines + "\n", encoding="utf-8")
@@ -605,6 +622,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             return result
 
     stages.run("prepare", key, generate)
+    build_progress.operation("mod-banks", complete=True, detail="Prepared Unity project and complete content contracts verified")
     return project
 
 
@@ -1169,7 +1187,9 @@ def validate_player_shader_log(path):
 
 def build(args, inputs: dict, output: Path, source: Path, game: Path, project: Path) -> Path:
     tools = toolchain(args, output)
+    build_progress.operation("weave", detail="Compiling current VR mod and adapting original managed game assemblies")
     weave(args, inputs, output, source, game, project)
+    build_progress.operation("weave", complete=True, detail="Current mod and original managed game bindings compiled")
     key_file, private = signing(output, tools)
     provenance = build_provenance.capture(inputs, project, source, Path(__file__).resolve().parent, tools)
     key = value_hash({"input": inputs["inputKey"], "toolchain": tools["key"], "recipe": RECIPE,
@@ -1198,6 +1218,7 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                  "--cache", str(output / "tool-cache/openxr-headers")],
                 output / "logs" / ("native-" + key[:12] + ".log"), cwd=source)
         if args.target in ("startup", "game"):
+            build_progress.operation("package-api", detail="Binding recovered original scripts to Android Unity package APIs")
             bind_startup_package_apis(args, output, source, project, tools, key)
         if args.target == "game":
             import campaign_native
@@ -1224,10 +1245,12 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
         dotnet = tool_path(args.dotnet, "dotnet")
         launcher = host_resources.prepare_bee_launcher(dotnet, output)
         env = host_resources.unity_native_environment(tools["editor"], launcher, policy["jobs"], dotnet, env)
+        build_progress.operation("unity-import", detail="Unity imports the prepared project and compiles Editor scripts")
         command(unity_launcher(tools["editor"], graphics=args.target == "game") + ["-quit", "-projectPath", str(project),
                  "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuildConcurrency.Build",
                  "-logFile", str(output / "logs" / ("unity-build-" + key[:12] + ".log"))],
                 output / "logs" / ("unity-launch-" + key[:12] + ".log"), env=env)
+        build_progress.operation("delivery", detail="Validating the actual signed APK and complete delivered content banks")
         if build_provenance.capture(inputs, project, source, Path(__file__).resolve().parent, tools) != provenance:
             raise BuildError("Staged build tools changed during the Player build; retry after editing stops.")
         metadata = json.loads(report.read_text(encoding="utf-8"))
@@ -1277,6 +1300,7 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                "apk": apk.relative_to(output).as_posix(), "details": receipt["details"]})
     print("build: verified " + str(apk) + (" (DIAGNOSTIC: " + args.target + ")" if args.target != "game" else "") +
           (" (DUMMY IDENTITY)" if inputs["profile"].get("isDummy") else ""), flush=True)
+    build_progress.operation("delivery", complete=True, detail="Signed APK, native content bank and build receipt verified")
     return apk
 
 

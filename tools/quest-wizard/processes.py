@@ -39,6 +39,12 @@ class ProgressParser:
                 if not isinstance(value, dict) or value.get("schema") != 1: return None
                 fields = {name: value.get(name) for name in ("phase", "done", "total", "unit", "detail")}
                 stage_progress(**fields)  # The same strict bounds apply at ingestion.
+                if value.get("operation") is not None:
+                    if not isinstance(value["operation"], str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,79}", value["operation"]): return None
+                    fields["operation"] = value["operation"]
+                if value.get("status") is not None:
+                    if value["status"] not in ("start", "progress", "complete", "reuse", "failed"): return None
+                    fields["status"] = value["status"]
                 return fields
             except (ValueError, TypeError, WizardError): return None
         match = re.fullmatch(r"\[\s*(\d+)/(\d+)\s+\d+(?:\.\d+)?s\]\s+(Csc|Clang|Compile|Link|CopyFiles|IL2CPP\w*|Generate\w*|Archive|Lump|Pch|MoveFiles|DeleteFiles)\b(.*)", line)
@@ -53,6 +59,26 @@ class ProgressParser:
         match = re.fullmatch(r"Installed content files: (\d+)/(\d+)\.", line)
         if match and 0 < int(match[2]) >= int(match[1]):
             return {"phase": "install-content", "done": int(match[1]), "total": int(match[2]), "unit": "files", "detail": line}
+        if re.fullmatch(r"Confirmed installed build: B\d+ \(input [0-9a-f]{12}\)", line):
+            return {"phase": "operation:apk", "done": 1, "total": 1, "unit": "operations", "detail": line, "operation": "apk", "status": "complete"}
+        if line.startswith(("Installing complete Campaign content:", "Preparing ")) or line == "Reusing the verified Campaign content already on this Quest.":
+            return {"phase": "operation:content", "done": None, "total": None, "unit": None, "detail": line[:1024], "operation": "content", "status": "start"}
+        # The Editor writes real import counters and lifecycle milestones even
+        # before our source has compiled. No total is invented for a single asset.
+        match = re.search(r"(?:Importing|Imported)\s+(\d+)\s+(?:assets|files)\s+(?:of|/)\s*(\d+)", line, re.I)
+        if match and 0 < int(match[2]) >= int(match[1]):
+            return {"phase": "unity-asset-import", "done": int(match[1]), "total": int(match[2]), "unit": "assets", "detail": line[:1024]}
+        if line.startswith("Start importing "):
+            return {"phase": "unity-asset-import", "done": None, "total": None, "unit": None, "detail": line[:1024]}
+        milestones = ((r"^\[Package Manager\].*(?:Resolving|Registering|Installing)", "unity-packages"),
+                      (r"^Begin MonoManager ReloadAssembly|^Reloading assemblies", "unity-domain"),
+                      (r"^Compiling (?:shader|compute)|^Shader compiler", "unity-shaders"),
+                      (r"^Invoking il2cpp|^Converting managed assemblies|^IL2CPP", "unity-il2cpp"),
+                      (r"^Building Gradle project|^Starting a Gradle Daemon|^> Task :", "unity-gradle"),
+                      (r"^Asset Pipeline Refresh", "unity-refresh"))
+        for pattern, phase in milestones:
+            if re.search(pattern, line):
+                return {"phase": phase, "done": None, "total": None, "unit": None, "detail": line[:1024]}
         match = re.search(r"(?:Receiving objects|Resolving deltas|Counting objects):\s*\d+%\s*\((\d+)/(\d+)\)", line)
         if match and 0 < int(match[2]) >= int(match[1]):
             return {"phase": "git-transfer:" + source[:100], "done": int(match[1]), "total": int(match[2]), "unit": "objects", "detail": line[:1024]}

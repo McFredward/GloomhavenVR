@@ -37,7 +37,7 @@ class ProgressTests(ProgressFixture):
         self.store.progress(self.session, "build", "copy", 3, 8, "files", "actor.png")
         value = self.row()["progress"]
         self.assertEqual(value["percent"], 37.5)
-        self.assertEqual(set(value), {"phase", "done", "total", "unit", "percent", "detail", "updatedAt"})
+        self.assertEqual(set(value), {"phase", "done", "total", "unit", "percent", "detail", "updatedAt", "stagePercent", "stageOperation", "stageDone", "stageTotal"})
 
     def test_unknown_total_and_elapsed_time_never_invent_percentage(self):
         self.store.progress(self.session, "build", "unity", detail="Importing original assets")

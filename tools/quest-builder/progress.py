@@ -14,7 +14,7 @@ PREFIX = "GHVRQ_PROGRESS "
 def enabled(): return os.environ.get(ENV) == "1"
 
 
-def event(phase, done=None, total=None, unit=None, detail=None, *, status="progress", stream=None):
+def event(phase, done=None, total=None, unit=None, detail=None, *, status="progress", stream=None, operation=None):
     if not isinstance(phase, str) or not phase or len(phase) > 160:
         raise ValueError("Progress phase must be a bounded non-empty string.")
     for count in (done, total):
@@ -26,8 +26,18 @@ def event(phase, done=None, total=None, unit=None, detail=None, *, status="progr
     if status not in ("start", "progress", "complete", "reuse", "failed"): raise ValueError("Invalid progress event.")
     detail = None if detail is None else re.sub(r"[\x00-\x08\x0b-\x1f]", "", detail)[:1024]
     value = {"schema": 1, "phase": phase, "done": done, "total": total, "unit": unit, "detail": detail, "status": status}
+    if operation is not None:
+        if not isinstance(operation, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,79}", operation):
+            raise ValueError("Invalid planned operation.")
+        value["operation"] = operation
     if enabled(): print(PREFIX + json.dumps(value, ensure_ascii=False, separators=(",", ":")), file=stream or sys.stdout, flush=True)
     return value
+
+
+def operation(name, *, complete=False, detail=None):
+    """Publish an actual schedule boundary; nested counters retain their own units."""
+    return event("operation:" + name, 1 if complete else None, 1 if complete else None,
+                 "operations", detail, status="complete" if complete else "start", operation=name)
 
 
 class Counter:

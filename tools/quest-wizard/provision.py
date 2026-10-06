@@ -128,11 +128,13 @@ def tools(store, session, supervisor):
                                    lambda: store.check_cancel(session),
                                    lambda done, total: store.progress(session, 'tools', 'tool-extract-' + name, done, total, 'files'))
         log = store.session_dir(session) / "logs" / (name + "-version.log")
+        store.operation(session, 'tools', 'verify-' + name, detail='Checking ' + name + ' executable version and support files')
         supervisor.run([executable, "--version"], log)
         store.record(session, 'tool_verified', 'tools', tool=name, version=spec['version'])
         expected = "git version " + spec["version"] if name == "git" else spec["version"]
         if log.read_text(encoding="utf-8").strip() != expected:
             raise WizardError("tool_version", "A provisioned tool reported an unexpected version.")
+        store.operation(session, 'tools', 'verify-' + name, complete=True, detail=name + ' version confirmed')
         found[name] = str(executable)
         tool_root = executable.parent.parent if name == "git" else executable.parent
         # A missing SDK support DLL must invalidate this receipt even when the
@@ -162,6 +164,8 @@ def derive_runtime_dependencies(checkout, game_root, details, supervisor, logs, 
     if len(packages) != 3 or len(projects) != 3:
         raise WizardError("runtime_recipe", "The selected mod has changed its XR dependency recipe; its declared package projects need review.")
     versions = dict(packages); actual = {}; pending = []
+    store, session = getattr(supervisor, 'store', None), getattr(supervisor, 'session', None)
+    if store and session: store.operation(session, 'source', 'xr-sources', detail='Preparing declared XR package sources')
     for project in projects:
         text = project.read_text(encoding="utf-8")
         version = re.search(r"<PackageSourceVersion>([^<]+)</PackageSourceVersion>", text)
@@ -181,6 +185,7 @@ def derive_runtime_dependencies(checkout, game_root, details, supervisor, logs, 
         pending.append((project, target, package, version[1]))
     # Project references may build another XR package, so all sources must be
     # present before the first .NET build (the Bash recipe has the same order).
+    if store and session: store.operation(session, 'source', 'xr-build', detail='Compiling the selected source\'s XR dependency projects')
     for project, target, package, version in pending:
         supervisor.run([details["dotnet8"], "build", project, "-c", "Release", "--nologo", "-v", "quiet", "-p:GameManaged=" + str(managed)], logs / (package + "-build.log"), env=environment(details))
         check_cancel(); built = project.parent / "bin/Release/net472" / target.name
@@ -188,12 +193,14 @@ def derive_runtime_dependencies(checkout, game_root, details, supervisor, logs, 
         actual[project.stem] = {"sha256": digest(target), "source": "declared-provisional-project", "package": package, "version": version}
     manifest = checkout / "libs/RuntimeDeps/wizard-dependencies.json"
     atomic_json(manifest, {"schema": 1, "kind": "compile-time dependency inputs; Quest uses Android PlayerSdk packages", "assemblies": actual})
+    if store and session: store.operation(session, 'source', 'xr-build', complete=True, detail='XR compile-time dependencies verified')
     return manifest
 
 
 def release_source(store, session, choices, details, supervisor, source):
     """Copy only verified release inputs; keep immutable per-release workspaces."""
     release = discovery.local_support_module(source, "release")
+    store.operation(session, 'source', 'source-verify', detail='Checking the shipped source manifest against its exact files')
     records, commit, dirty = release.verified_source_inventory(source)
     if choices.get("sourceCommit") and choices["sourceCommit"] != commit:
         raise WizardError("source_changed", "Selected commit differs from the shipped release.")
@@ -218,6 +225,7 @@ def release_source(store, session, choices, details, supervisor, source):
                                           store.session_dir(session) / "logs", lambda: store.check_cancel(session))
     # The builder validates shipped sources and adds local derived references
     # separately. No game or license files are copied into the release itself.
+    store.operation(session, 'source', 'source-inventory', detail='Recording selected source, ModBuild and derived dependency identities')
     current_records, current, _ = discovery.builder(checkout).source_inventory(checkout)
     receipt = store.session_dir(session) / "source.json"
     atomic_json(receipt, {"schema": 1, "sourceRoot": str(checkout), "commit": current, "dirty": False,
@@ -231,6 +239,7 @@ def source_checkout(store, session, choices, details, supervisor, repo):
     if (source / "quest-builder-release.json").is_file() and not (source / ".git").exists():
         return release_source(store, session, choices, details, supervisor, source)
     checkout = ordinary(store.root / "source" / session)
+    store.operation(session, 'source', 'source-verify', detail='Resolving the selected source to one immutable commit')
     git = details["git"]; env = environment(details)
     log_root = store.session_dir(session) / "logs"
     owner = store.session_dir(session) / "source-attempt.json"
@@ -276,6 +285,7 @@ def source_checkout(store, session, choices, details, supervisor, repo):
             supervisor.run([git, "-C", checkout, "fetch", "--depth", "1", origin, commit],
                            log_root / "source-selected-commit.log", env=env)
     atomic_json(resolution, {"schema": 1, "commit": commit})
+    store.operation(session, 'source', 'source-copy', detail='Preparing the selected mod checkout')
     supervisor.run([git, "-C", checkout, "checkout", "--detach", commit], log_root / "source-checkout.log", env=env)
     def source_inventory(directory, filename):
         # The existing inventory invokes `git` on PATH. Run in a private child
@@ -295,12 +305,14 @@ def source_checkout(store, session, choices, details, supervisor, repo):
         # Copy the exact source inventory, including ordinary uncommitted mod
         # work and explicitly declared ignored XR DLLs. Secret/output rules stay
         # in the existing builder; source is read-only.
-        for row in records:
+        for index, row in enumerate(records, 1):
             store.check_cancel(session)
             original = source / row["path"]; target = ordinary(checkout / row["path"])
             target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(original, target)
             if digest(target) != row["sha256"]: raise WizardError("source_changed", "A source file changed while copied; retry when editing stops.")
+            store.progress(session, 'source', 'source-copy', index, len(records), 'files', Path(row['path']).name)
     derived = derive_runtime_dependencies(checkout, choices["gameRoot"], details, supervisor, log_root, lambda: store.check_cancel(session))
+    store.operation(session, 'source', 'source-inventory', detail='Recording the exact source and runtime-dependency manifest')
     records, current, dirty = source_inventory(checkout, "source-owned-inventory.json")
     receipt = store.session_dir(session) / "source.json"
     atomic_json(receipt, {"schema": 1, "sourceRoot": str(checkout), "commit": current, "dirty": dirty,

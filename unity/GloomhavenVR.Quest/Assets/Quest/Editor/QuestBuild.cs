@@ -117,6 +117,8 @@ namespace GloomhavenVR.Quest.Editor
         }
         static void BuildPlayer()
         {
+            QuestWizardProgress.Operation("unity-import", true, "Unity project imported and Editor build entry point reached.");
+            QuestWizardProgress.Operation("unity-validation", false, "Checking imported original scenes, package APIs and Android build settings.");
             campaignShaderMode = null;
             string target = Required("GHVR_QUEST_TARGET");
             if (target != "probe" && target != "startup" && target != "game")
@@ -407,7 +409,10 @@ namespace GloomhavenVR.Quest.Editor
                 QuestCampaignComputeValidation.ValidateSources();
                 campaignShaderMode = PrepareCampaignShaders();
             }
+            QuestWizardProgress.Operation("unity-validation", true, "Required original scene and graphics contracts validated.");
+            QuestWizardProgress.Operation("content-bank", false, "Building original Android Addressables and complete game content bank.");
             QuestStartupAddressablesBuild.Build();
+            QuestWizardProgress.Operation("content-bank", true, "Original Android content bank built and verified.");
             if (campaign) QuestCampaignAssetValidation.ValidateAfterAndroidBuild();
             QuestPostEffectValidation.Validate(true);
             QuestUiAssetValidation.Validate(true);
