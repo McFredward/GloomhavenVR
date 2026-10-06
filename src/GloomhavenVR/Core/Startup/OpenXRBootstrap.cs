@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using GloomhavenVR.Rig;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.XR;
@@ -63,10 +64,12 @@ internal static class OpenXRBootstrap
         {
             // e.g. ScriptEngine hot reload without a clean shutdown — reuse the session.
             VRLog.Warn("Core", "An XRDisplaySubsystem already exists — reusing the existing XR session.");
+            RenderQuality.AdoptRunningSession();
             VRSession.IsRunning = true;
             return true;
         }
 
+        RenderQuality.PrepareSession(); // allocation selection precedes loader/session creation
         CreateSettings();
 
         List<OpenXRRuntimeRegistry.RuntimeEntry> candidates;
@@ -328,6 +331,7 @@ internal static class OpenXRBootstrap
             // Start → XRManagerSettings.StartSubsystems → OpenXRLoader.Start. NOTE: the
             // display subsystem may not be 'running' yet — StartInternal() defers until the
             // runtime reports XrReady (delivered via the onBeforeRender message pump).
+            RenderQuality.PrepareDisplays(); // new display allocation/MSAA before its first start
             _generalSettings.Start();        // publicized private
             VRLog.Debug("Core", "  phase 3/4: Start (StartSubsystems) returned.");
 
@@ -457,6 +461,7 @@ internal static class OpenXRBootstrap
         VRSession.RuntimeName = null;
 
         StopAndDeinitQuiet();
+        RenderQuality.EndSession(); // never reset a live swapchain from the per-frame rig path
 
         foreach (OpenXRFeature feature in _features)
             UnityEngine.Object.Destroy(feature);

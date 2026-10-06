@@ -589,7 +589,7 @@ internal static partial class Loc
             // — see the twelve dead names deleted together in the 2026-08-22 sweep, two blocks up.
             ["RenderQuality/MsaaLevel"] = Pair("MSAA level", "MSAA-Stufe"),
             ["RenderQuality/ForceAnisotropic"] = Pair("Anisotropic filtering", "Anisotrope Filterung"),
-            ["RenderQuality/EyeResolutionScale"] = Pair("Resolution per eye", "Auflösung pro Auge"),
+            ["RenderQuality/EyeResolutionScale"] = Pair("Requested resolution per eye", "Gewünschte Auflösung pro Auge"),
             ["RenderQuality/PixelLightCount"] = Pair("Pixel lights (max)", "Pixellichter (max)"),
             ["RenderQuality/ForceFullTextureResolution"] =
                 Pair("Force full texture resolution", "Volle Texturauflösung erzwingen"),

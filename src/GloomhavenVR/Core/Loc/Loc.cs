@@ -1016,7 +1016,7 @@ internal static partial class Loc
         ["vr_o_curlassist"] = Pair("Full curl at grip value", "Vollgriff ab Griffwert"),
         ["h_vr_o_curlassist"] = Pair("Lower it and a partial squeeze of the grip already counts as a full fist — for hands that cannot press all the way.", "Niedriger stellen, und ein halber Druck auf die GRIP-Taste zählt schon als volle Faust — für Hände, die nicht ganz durchdrücken können."),
         // Grafik ▸ Darstellung
-        ["vr_o_eyeres"] = Pair("Resolution per eye", "Auflösung pro Auge"),
+        ["vr_o_eyeres"] = Pair("Requested resolution per eye", "Gewünschte Auflösung pro Auge"),
         ["h_vr_o_eyeres"] = Pair("The main sharpness-vs-frames dial: above 1 is sharper and dearer, below 1 cheaper and softer.", "Der Haupt-Regler Schärfe gegen Bildrate: über 1 schärfer und teurer, unter 1 günstiger und weicher."),
         ["vr_o_msaa"] = Pair("MSAA level", "MSAA-Stufe"),
         ["h_vr_o_msaa"] = Pair("Smooths jagged edges. Higher looks calmer and costs GPU time.", "Glättet Treppenkanten. Höher wirkt ruhiger und kostet GPU-Zeit."),
