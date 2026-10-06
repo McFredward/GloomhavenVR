@@ -592,7 +592,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 632;
+    public const ushort ModBuild = 633;
+
+    // ModBuild 633 — integrate the parallel Frame631 startup/PC-quality follow-up
+    // after the complete NPC632 gate. Select quality only after successful OpenXR
+    // initialization; no legacy eye allocation/viewport or native MSAA setter runs
+    // before runtime discovery. Newly initialized stopped displays receive startup
+    // resources; reused live displays remain adopted without reallocating them.
+    // The actual Rig.RenderQuality Update tail uses an explicit phase entry because
+    // Camera.current may retain a stale last camera during valid Update. Unmarked
+    // callers retain conservative rendering guards. Existing slider debounce/MSAA
+    // spacing, deferred viewport refusal and no-live-allocation contract remain.
+    // Source-bound65 assertions/17 causal controls/2 startup guards do not prove
+    // native XR_ERROR_RUNTIME_UNAVAILABLE recovery or headset rendering stability.
+    // Preserve all NPC632 originals, callbacks, parity and queue improvements.
+    // Both peers must install633; no assets, defaults or wire layout change here.
+    //
 
     // ModBuild 632 — paired Build629 NPC follow-up. Actual remote enhancement
     // admission took28.557s:44 visible originals repeated large independent property
