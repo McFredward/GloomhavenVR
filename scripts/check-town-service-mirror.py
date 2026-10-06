@@ -72,7 +72,7 @@ def sources(root):
     if merchant_control.exists(): bound[merchant_control.name] = merchant_control.read_text()
     native_publication = base / "Net/TownServices/TownServiceMirror.NativePublication.cs"
     if native_publication.exists(): bound[native_publication.name] = native_publication.read_text()
-    for fast in ("TownServiceFastNumbers", "TownServiceMotionCodec", "TownServiceMotionCodec.OfferedFrame", "TownServiceMotionBudget", "TownServiceReturnMotion", "TownCardReturnMotion", "TownServiceMirror.Motion"):
+    for fast in ("TownServiceFastNumbers", "TownServiceMotionCodec", "TownServiceMotionCodec.OfferedFrame", "TownServiceMotionBudget", "TownServiceReturnMotion", "TownCardReturnMotion", "TownServiceMirror.Motion", "TownServiceMirror.PreparedCardReturns"):
         path = base / "Net/TownServices" / (fast + ".cs")
         if path.exists(): bound[path.name] = path.read_text()
     pad = base / "Hands/Interact/PokeOnlyTarget.cs"
@@ -337,6 +337,9 @@ def main():
                 ("card-return-sampled-only", "TownServiceMirror.Motion.cs", "ApplyCardReturnMotion(module, flight, composed, composed.Merged, now);", "_ = now;", "native card return advances on every rendered frame without another packet"),
                 ("card-return-wrong-child", "TownCardReturnMotion.cs", "rotation * Rotation(values, 28)", "rotation", "the exact original card face follows its authored root-relative rotation"),
                 ("card-return-held-duplicate", "TownServiceMirror.Stock.cs", "bool shown = !held && current.Visible;", "bool shown = current.Visible;", "prepared stock original stays hidden while the canonical avatar holds its one card"),
+                ("card-return-terminal-body", "TownServiceMirror.Stock.cs", '        || address.StartsWith("inspectionbody.", StringComparison.Ordinal)\n', "", "exact terminal item body survives independent stock admission without a live NPC occupation"),
+                ("card-return-no-inert-preparation", "TownServiceMirror.cs", "if (!frame.Visible && !PrepareHiddenCardReturnOriginal(frame))", "if (!frame.Visible)", "actual offered source prepares inert exact face and body before native return starts"),
+                ("card-return-prepared-duplicate", "TownServiceMirror.cs", "if (frame.VisitorStock && HidePreparedCardReturn(source)) frame.Visible = false;", "_ = source;", "prepared offered original never duplicates its still-live private palm picture"),
             ]
     if args.suite == "item-transfer":
         variants = [("production", None, None, None, "")]

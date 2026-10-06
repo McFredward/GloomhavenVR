@@ -38,7 +38,18 @@ namespace GloomhavenVR.Cards
         public string SweepName=>name;
         public bool TrySweepDistance(Vector3 point,out float distance) {distance=point.magnitude;return true;}
     }
-    internal sealed partial class VRCard : TransferProbe { internal bool TryTownReturnMotion(Transform source,Transform shared,Hands.VRHand? hand,out uint revision,out float[] values) {revision=0;values=System.Array.Empty<float>();return false;} }
+    internal sealed partial class VRCard : TransferProbe {
+        internal float[]? ReturnNumbers; internal float ReturnStarted;
+        internal bool TryTownReturnMotion(Transform source,Transform shared,Hands.VRHand? hand,out uint revision,out float[] values)
+        { revision=629; values=ReturnNumbers==null?System.Array.Empty<float>():(float[])ReturnNumbers.Clone();
+          if(values.Length!=0)values[0]=Time.unscaledTime-ReturnStarted;return values.Length==38; }
+    }
+    internal static class NativeReturnSampleBoundary
+    {
+        internal static bool TryTownReturnMotion(this Transform original,Transform source,Transform shared,Hands.VRHand? hand,out uint revision,out float[] values)
+        { var card=original.GetComponent<VRCard>(); if(card!=null)return card.TryTownReturnMotion(source,shared,hand,out revision,out values);
+          revision=0;values=System.Array.Empty<float>();return false; }
+    }
     internal sealed class MerchantProbe : TransferProbe,IItemCardHold
     {
         public bool IsItemCard=>true; public Transform HeldRoot=>transform;

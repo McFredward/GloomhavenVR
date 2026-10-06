@@ -34,6 +34,8 @@ def replace_once(source, before, after):
 
 def sources(root):
     paths = ["src/GloomhavenVR/WorldUI/TownServices/TownServiceMerchantHandoff.cs",
+             "src/GloomhavenVR/WorldUI/TownServices/TownServiceCardFlights.cs",
+             "src/GloomhavenVR/Net/TownServices/TownCardReturnMotion.cs",
              "src/GloomhavenVR/WorldUI/TownServices/TownServiceOfferingPose.cs",
              "src/GloomhavenVR/Cards/Piles/ItemsPile.Merchant.cs",
              "src/GloomhavenVR/WorldUI/MapRoom/MapRoomHand.5.Merchant.cs",
@@ -69,6 +71,11 @@ def sources(root):
         "internal void BeginInspectionEmerge(Vector3 localConverge, float spinSign)",
         "internal bool TickInspectionArtArrival()",
         "internal void PrepareInspectionReturn(Transform fanRoot)",
+        "internal void ResumeInspectionGlide()",
+        "internal void PrepareMerchantPurchase(Vector3 position, Quaternion rotation)",
+        "internal void AdoptMerchantPurchase(CItem purchased)",
+        "internal void BeginMerchantPurchase(Transform fan, Vector3 position, Quaternion rotation, float width)",
+        "internal bool TryTownReturnMotion(Transform source, Transform shared, VRHand? hand,",
         "internal void RestoreHostedFaceFrame()",
         "private static GameObject SpawnHostedItemCard(int itemId, Transform parent)",
         "private static void CanonicalizeHostedFace(Transform face, RectTransform canvas)",
@@ -78,6 +85,7 @@ def sources(root):
         "private static float EaseOutBack(float t, float s)",
         "public override void OnGrab(VRHand hand)",
         "public override void OnRelease(VRHand hand, Vector3 velocity)"])
+    lifecycle += "\n" + next(line.strip() for line in pile.splitlines() if "private static float EaseInBack(float t, float s) =>" in line)
     # Bind the exact production return-glide and terminal settle branches without importing the
     # unrelated 200-line item Update state machine. This keeps the regression test sensitive to
     # both the animated approach and the final canonical pose write.
@@ -89,13 +97,20 @@ def sources(root):
                   "            Vector3 posTarget = _homePos;\n"
                   "            float scaleTarget = _homeScale;\n"
                   + return_branch + "\n        }")
-    bound["ActualItemLifecycle.cs"] = "using UnityEngine;using UnityEngine.UI;using GloomhavenVR.Core;using GloomhavenVR.Hands;using GloomhavenVR.WorldUI; namespace GloomhavenVR.Cards { internal sealed partial class ItemsPile { " + layout + " internal partial class ItemChip { " + lifecycle + " } } }"
+    collapse_start = pile.index("            if (_collapsing)", pile.index("        private void Update()"))
+    collapse_body = method(pile[collapse_start:], "if (_collapsing)")
+    lifecycle += "\ninternal void AdvanceInspectionCollapse() { " + collapse_body + " }\n"
+    bound["ActualItemLifecycle.cs"] = "using UnityEngine;using UnityEngine.UI;using ScenarioRuleLibrary;using GloomhavenVR.Core;using GloomhavenVR.Hands;using GloomhavenVR.WorldUI; namespace GloomhavenVR.Cards { internal sealed partial class ItemsPile { " + layout + " internal partial class ItemChip { " + lifecycle + " } } }"
     hashes = {p: hashlib.sha256(s.encode()).hexdigest() for p, s in bound.items()}
     return bound, hashes
 
 
 def mutations():
     return [
+        ("sold-to-seller-fan", "TownServiceCardFlights.cs", "if (sold) fan.CompleteMerchantSale(chip, merchantPalm);", "if (sold) fan.ResumeInspection(chip);", "successful native sale retains the original merchant absorption instead of returning to the seller fan"),
+        ("confirmed-reset-cancel", "TownServiceMerchantHandoff.cs", "bool committed = _decisionConfirmed && _tradeItem != null && _character != null && _fan != null;", "bool committed = false;", "retired confirmed outcome uses original character inventory and retains its exact terminal native flight"),
+        ("purchase-double-flight", "TownServiceCardFlights.cs", "stock.RestoreMerchantStock();", "stock.ReturnOffering();", "confirmed purchase flies actual newly owned copy to fan without a second stock sample return flight"),
+        ("purchase-replaced-original", "ItemsPile.Merchant.cs", "ItemChip? chip = _inspectionPreparedPurchase;", "ItemChip? chip = null;", "native purchase adopts the same prepared widget onto actual model without source or hierarchy churn"),
         ("post-trade-ordinary-fan", "TownServiceMerchantHandoff.cs", "        MapRoomHand.SetMerchantInspection(true); // A native buy/sell refresh never restores the ordinary ability fan here.\n", "", "merchant post-transaction final frame retains only its canonical item fan"),
         ("late-native-hand-mode", "TownServiceMerchantHandoff.cs", "        if (GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Enchantress\n            || TownServiceEnhancementHandoff.WantsAbilityFan || TownServiceTempleOffering.WantsPurseFocus)\n        { Reset(); return; }\n", "", "same-frame native mage transition retires the old item fan before final publication"),
         ("physical-occupation", "TownServiceMerchantHandoff.cs", "|| _pending != null;", "|| _pending != null || _tradeItem != null || OwnsPendingDecision;", "merchant occupation ends at physical card removal while the original cancel fade is pending"),
@@ -160,6 +175,7 @@ def main():
     parser.add_argument("--unity-ui", type=Path, help="Real UnityEngine.UI.dll (never metadata-only RefAsm)")
     parser.add_argument("--no-negative-controls", action="store_true", help="Quick positive run; not complete validation")
     parser.add_argument("--negative-control", action="append", default=[], help="Run named controls plus production; partial focused evidence")
+    parser.add_argument("--suite", choices=["all", "flight-outcomes"], default="all", help="Focused native outcome scope; all remains the complete merchant scope")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
@@ -174,8 +190,10 @@ def main():
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     bound, hashes = sources(args.source_root)
     (run / "source-hashes.json").write_text(json.dumps({"root": str(args.source_root.resolve()), "sha256": hashes}, indent=2) + "\n")
-    manifest = {"result": str(run / "results.txt"), "cases": []}
+    manifest = {"result": str(run / "results.txt"), "method": "RunFlightOutcomes" if args.suite == "flight-outcomes" else "Run", "cases": []}
     variants = [("production", None, None, None, "")]
+    if args.suite == "flight-outcomes" and not args.no_negative_controls and not args.negative_control:
+        args.negative_control = ["sold-to-seller-fan", "confirmed-reset-cancel", "purchase-double-flight", "purchase-replaced-original"]
     if not args.no_negative_controls:
         variants += [("historical-census", "ItemsPile.Merchant.cs", None, None, "stable membership never rereads the inventory census")]
     if not args.no_negative_controls:

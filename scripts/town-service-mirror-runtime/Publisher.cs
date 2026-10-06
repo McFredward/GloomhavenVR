@@ -227,6 +227,7 @@ namespace GloomhavenVR.WorldUI
         internal static ushort PublicModuleId(Transform source) => Public.Sources[source].Parts[0].Id;
         internal static int PublicModuleCount => Public.Modules.Count;
         internal static int PublicSourceCount => Public.Sources.Count;
+        internal static ushort StockModuleId(Transform source) => Stock.Sources[source].Parts[0].Id;
 #if !PUBLISHER622
         private void CollectDynamic(Transform source) { }
 #endif
@@ -252,7 +253,7 @@ namespace GloomhavenVR.WorldUI
             if (BindModules)
             {
                 string address = key + "|";
-                if (Registered.Add(address)) TownServiceMirror.RegisterTemplate(_service, 1, source, address: address);
+                if (Registered.Add(_service + ":" + address)) TownServiceMirror.RegisterTemplate(_service, 1, source, address: address);
                 TownServiceMirror.RegisterModule(module.Id, 1, source, address: address);
             }
         }
@@ -274,8 +275,10 @@ namespace GloomhavenVR.Cards
             internal GloomhavenVR.Hands.VRHand? Holder;
             internal bool TownOffering;
             internal bool IsCollapsing;
+            internal float[]? ReturnNumbers; internal float ReturnStarted;
             internal bool TryTownReturnMotion(Transform source,Transform shared,Hands.VRHand? hand,out uint revision,out float[] values)
-            {revision=0;values=Array.Empty<float>();return false;}
+            {revision=629;values=ReturnNumbers==null?Array.Empty<float>():(float[])ReturnNumbers.Clone();
+             if(values.Length!=0)values[0]=Time.unscaledTime-ReturnStarted;return values.Length==38;}
             internal bool AvatarTransport;
             internal Item? Item;
         }
@@ -284,9 +287,16 @@ namespace GloomhavenVR.Cards
 }
 namespace GloomhavenVR.WorldUI
 {
+    internal static class TownServiceCardFlights
+    {
+        internal static readonly List<GloomhavenVR.Cards.ItemsPile.ItemChip> Returning = new();
+        internal static bool HasRetained => Returning.Count != 0;
+    }
     internal static class TownServiceMerchantHandoff
     {
         internal static bool Active;
+        internal static bool HasParkedOffer;
+        internal static GloomhavenVR.Cards.ItemsPile.ItemChip? PreparedPurchase;
         internal static bool WantsOffering;
         internal static uint Session;
         internal static float SessionAge;

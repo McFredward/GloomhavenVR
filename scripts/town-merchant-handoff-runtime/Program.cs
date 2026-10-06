@@ -12,7 +12,7 @@ using MapRuleLibrary.Adventure;
 using ScenarioRuleLibrary;
 using UnityEngine;
 using UnityEngine.UI;
-public static class InteractionProgram
+public static partial class InteractionProgram
 {
  private static int _count;
  private static void Check(bool condition,string reason) { _count++; if(!condition) throw new Exception(reason); }
@@ -22,6 +22,7 @@ public static class InteractionProgram
   Exception? benchmarkFailure=null;
   foreach(int size in new[]{31,512}) try { Benchmark(size); } catch(Exception error) { benchmarkFailure ??= error; }
   if(benchmarkFailure!=null) throw benchmarkFailure;
+  int previous = _count; RunFlightOutcomes(); _count += previous;
   return _count;
  }
  private static void ProvePublicHeldItemProvenance() {
@@ -50,7 +51,7 @@ public static class InteractionProgram
   Check(!ItemsPile.InspectionUsesAvatarTransport(held)&&pile.InspectionOfferingSeat==44,"actual offered item leaves the canonical fan seat and stays in shared palm transport");
   held.TownOffering=false;pile.ResumeInspection(held);
   Check(!ItemsPile.InspectionUsesAvatarTransport(held)&&pile.InspectionOfferingSeat==44,"real palm return keeps its fan seat withdrawn until the original glide lands");
-  for(int t=0;t<512&&!ItemsPile.InspectionUsesAvatarTransport(held);t++)pile.TickInspection(original.AllCharacterItems,1);
+  for(int t=0;t<512&&!ItemsPile.InspectionUsesAvatarTransport(held);t++){held.AdvanceInspectionReturn(.016f);pile.TickInspection(original.AllCharacterItems,1);}
   Check(ItemsPile.InspectionUsesAvatarTransport(held)&&pile.InspectionOfferingSeat==-1,"completed return restores canonical fan transport exactly once");
   MapCharacterSelection.Selected=other;
   Check(MapRoomHand.TryNameMerchantItem(held,out var focused)&&focused.Same(source)&&ReferenceEquals(MapRoomHand.ResolveMerchantHeldItem(received),held.Item),"immutable owned source survives unrelated current fan focus until native release");

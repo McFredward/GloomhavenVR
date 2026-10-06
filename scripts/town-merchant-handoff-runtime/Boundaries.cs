@@ -31,7 +31,7 @@ public class NewPartyDisplayUI {
  public NewPartyCharacterUI? SelectedUISlot;
 }
 public class UIWindow : MonoBehaviour { public bool IsOpen, IsVisible; public void Hide() { IsOpen=false; IsVisible=false; } }
-public class ItemCardUI : MonoBehaviour { public ScenarioRuleLibrary.CItem item=null!; public int CardID=>item.ID; public UnityEngine.UI.Image cardBackground=null!,validOwnerIcon=null!; }
+public class ItemCardUI : MonoBehaviour { public ScenarioRuleLibrary.CItem item=null!; public int StateRefreshes; public void UpdateState(ScenarioRuleLibrary.CItem.EItemSlotState state,bool force=false){StateRefreshes++;} public int CardID=>item.ID; public UnityEngine.UI.Image cardBackground=null!,validOwnerIcon=null!; }
 public class ObjectPool : MonoBehaviour {
  public enum ECardType { Item }
  public static ObjectPool? instance;
@@ -90,7 +90,7 @@ namespace GloomhavenVR.Hands {
  public enum HapticPreset { ClickPulse, HoverTick }
  public class VRHand { public bool HasPose = true; public float WorldScale = 1; public int Haptics; public Holder Grabber = new(); public HandRig Rig = new(); public Gate PalmGate = new(); public HandSide Side; public void SendHaptic(HapticPreset preset) { if(preset==HapticPreset.ClickPulse)Haptics++; } }
  public class Holder { public object? Held; public void CancelAll() { if (Held is Cards.ItemsPile.ItemChip chip) chip.Holder = null; Held = null; } }
- public class HandRig { public Transform PalmCenter = null!; public Transform GrabAnchor = null!; }
+ public class HandRig { public Transform PalmCenter = null!; public Transform GrabAnchor = null!; public Transform Root => PalmCenter; }
  public class Gate { public bool IsOpen = true, Enabled, IgnoreWhenHandBusy; public float EnterDegrees, ExitDegrees; }
  public static class VRHands { public static VRHand? Left, Right, Primary; }
 }
@@ -110,6 +110,7 @@ namespace GloomhavenVR.Cards {
   public static readonly Dial<float> ItemFanSeedScale = new(.12f), ItemFanSettleOvershoot = new(1.7f), ItemFanOpenSpinDegrees = new(20f), ItemFanOpenDuration = new(.25f), ItemFanCloseDuration = new(.2f), ItemFanOpenArc = new(.015f);
   public static readonly Dial<float> FanRadius = new(.3f), FanSplitMultiplier = new(1f), FanSplitFalloff = new(1f), FanHoverSplitScale = new(1f);
   public static readonly Dial<float> InspectScale = new(1.6f), CardLerpSpeed = new(14f); public static readonly Dial<string> CardGrabSound = new(""); public const float CardHeight=.14f,CardWidth=.1f;
+  public static readonly Dial<float> FanSelectedPopForward = new(.02f);
   private static readonly Dial<float> RadiusFactor = new(1f), Step = new(10f);
   public static Dial<float> FanRadiusFactor(PileKind kind)=>RadiusFactor;
   public static Dial<float> FanStepDegrees(PileKind kind)=>Step;
@@ -117,7 +118,8 @@ namespace GloomhavenVR.Cards {
   public static readonly Dial<bool> RevealIgnoreWhenGrabbing = new(true);
  }
  public enum PileKind { Items }
- public class VRCard { }
+ internal static class Defaults { internal const float FanSelectedPopForward=.02f; }
+ public class VRCard { internal static float SmootherStep(float t)=>t*t*t*(t*(t*6f-15f)+10f); internal static Vector3 FlyArcOffset(float t,Vector3 arc,float scale)=>arc*(Mathf.Sin(t*Mathf.PI)*scale); }
  public static class CardsDriver {
   internal static bool OffScenarioFanIsOpen;
   internal static IReadOnlyList<VRCard>? OffScenarioFanCards;
@@ -153,9 +155,10 @@ namespace GloomhavenVR.Cards {
   private void ClearChips() { foreach(var c in _chips) UnityEngine.Object.DestroyImmediate(c.gameObject); _chips.Clear(); }
   internal partial class ItemChip : GrabbableBehaviour {
    public enum Visual { Normal, Spent } public Visual State;
+   private static Visual Classify(ScenarioRuleLibrary.CItem item)=>item.SlotState==ScenarioRuleLibrary.CItem.EItemSlotState.Spent?Visual.Spent:Visual.Normal;
    public bool IsTownInspection => Owner != null && Owner._inspectionRelease != null; public bool PendingUse, TownOffering; public Action? TownOfferingReclaimed;
    public void CancelReleaseGlide() { _releaseGlide=0f; }
-   public void ResumeInspectionGlide() { _releaseGlide=.3f; }
+   internal bool TownReturnActive => _collapsing || _releaseGlide > 0f || _inspectionArtPending;
    private Vector3 _homePos,_emergeFrom,_collapseWorld,_collapseFrom;
    private Quaternion _homeRot=Quaternion.identity,_emergeSpin,_collapseFromRot,_collapseSpin;
    private float _homeScale=1f,_releaseGlide,_emergeTime,_emergeDelay,_collapseFromScale,_collapseTime,_collapseDelay,_heldScale=1f,_pop;
@@ -168,13 +171,16 @@ namespace GloomhavenVR.Cards {
    private GameObject? _cardGo;
    private Canvas? _faceCanvas;
    private const float TightArtPollSeconds=2f;
-   private bool _inspectionArtPending;
+   private bool _inspectionArtPending,_preparedMerchantPurchase;
+   private bool _inspectionPurchasePending,_inspectionPurchaseCollapse; private Vector3 _inspectionPurchasePosition; private Quaternion _inspectionPurchaseRotation; private float _inspectionPurchaseScale;
+   internal void CollapseMerchantPurchaseWhenReady() => _inspectionPurchaseCollapse = true;
    private Vector3 _inspectionArtConverge;
    private float _inspectionArtSpinSign,_inspectionArtDeadline;
    public bool InspectionArtPending=>_inspectionArtPending;
    public float FaceWidth=>.14f;
    public Vector3 Home=>_homePos; public Quaternion HomeRotation=>_homeRot;
    public float CollapseTime=>_collapseTime;
+   private const float PopUp=.016f,PopScale=1.18f;
    private static float SeedScale()=>Mathf.Clamp(CardsConfig.ItemFanSeedScale.Value,.02f,1f);
    private static float Overshoot()=>Mathf.Clamp(CardsConfig.ItemFanSettleOvershoot.Value,0f,3f);
    public void SetGrabStrip(float width) { }
@@ -250,7 +256,7 @@ namespace GloomhavenVR.WorldUI {
   internal class Entry { internal bool Current,Selling; internal int ItemId; }
   internal readonly List<Entry> Entries = new();
   public static Func<ScenarioRuleLibrary.CItem,bool,bool>? CanOffer; public static Func<ScenarioRuleLibrary.CItem,bool,Vector3,bool>? Offer; public static Func<Vector3,bool>? InOfferingZone; public static bool HeldOfferAvailable; public static Action<TownServiceToken>? RetainOffer; public static bool TryHeldOffer(Vector3 target, out Vector3 position, out Hands.VRHand? hand, out bool selling) { position=default; hand=null; selling=false; return HeldOfferAvailable; } }
- internal sealed class TownServiceToken { public int Parks,Returns; public void ParkOffering(Transform seat,Action reclaim) { Parks++; } public void ReturnOffering() { Returns++; } }
+ internal sealed class TownServiceToken { public int Parks,Returns,Restores; public Transform? PhysicalRoot; public void ParkOffering(Transform seat,Action reclaim) { Parks++;if(PhysicalRoot!=null)PhysicalRoot.SetParent(seat,true); } public void ReturnOffering() { Returns++; } public void RestoreMerchantStock(){Restores++;} public void RetainOffering(Transform parent){if(PhysicalRoot!=null)PhysicalRoot.SetParent(parent,true);} }
  internal static class TownServicePalmConfirmation {
   internal static int Bindings;
   internal static bool PhysicalControlsVisible;

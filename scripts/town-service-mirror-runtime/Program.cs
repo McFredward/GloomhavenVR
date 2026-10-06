@@ -1436,6 +1436,8 @@ public static partial class MirrorProgram
             if (suite == "card-return")
             {
                 IEnumerator returns = CardReturns626(); while (returns.MoveNext()) yield return returns.Current;
+                IEnumerator terminal = RetiredMerchantReturn629(); while (terminal.MoveNext()) yield return terminal.Current;
+                IEnumerator prepared = PreparedNativeReturns629(); while (prepared.MoveNext()) yield return prepared.Current;
                 if (variant == "production") { IEnumerator areas = PrintedAreas626(); while (areas.MoveNext()) yield return areas.Current; }
                 File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\n");yield break;
             }
