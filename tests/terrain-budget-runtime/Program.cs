@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using GloomhavenVR.Core;
 using UnityEngine;
@@ -73,6 +74,7 @@ public static partial class TerrainProgram
     private static void DisposeBank() { foreach(var entry in Bank) foreach(Mesh mesh in entry.Value) Object.DestroyImmediate(mesh); Bank.Clear(); }
     public static int Run()
     {
+        PerfConfig.SharedEnvironmentMaterialReadsOn=false; PerfConfig.TerrainCameraSourceLimit=0;
         _checks=0; Bank.Clear(); ProceduralWall.m_WallCache.Clear(); VRLog.Faults.Clear(); BundleShaders.Throw=false;
         PerfConfig.CheapWallShadingOn=true; PerfConfig.TerrainDetailPercent=100; PerfConfig.DistantTerrainDetailPercent=100;
         var host=new GameObject("GloomhavenVR.TerrainOwner"); var scenario=new GameObject("Scenario"); scenario.AddComponent<ProceduralScenario>();
@@ -266,6 +268,7 @@ public static partial class TerrainProgram
             "inactive repeated sources retain native flags and do not require bank admission");
         ScenarioTerrainBudget.ConfigureMeshBank(Bank.ContainsKey,Lookup);
         Object.DestroyImmediate(repeated.gameObject);
+        BudgetScaling(host,wall,camera);
         GloomhavenVR.Board.FigureGrab.HeldProps.Held=true; Pixels(camera);
         Check(Proxies(host).TrueForAll(r=>!r.enabled),"held-source veto retains native rendering"); GloomhavenVR.Board.FigureGrab.HeldProps.Held=false;
         wall.enabled=false; Pixels(camera); Check(!DuringRender(camera,()=>wall.forceRenderingOff),"native disabled visibility immediately suppresses private proxy"); wall.enabled=true;
@@ -294,6 +297,67 @@ public static partial class TerrainProgram
         scenario.SetActive(false); NativeCoverage(camera);
         Object.DestroyImmediate(host); Object.DestroyImmediate(scenario); Object.DestroyImmediate(camera.targetTexture); Object.DestroyImmediate(cameraGo); Object.DestroyImmediate(material); DisposeBank();
         return _checks;
+    }
+    private static void BudgetScaling(GameObject host,MeshRenderer original,Camera camera)
+    {
+        var clones=new List<MeshRenderer>();
+        for(int i=0;i<95;i++)
+        {
+            var clone=Object.Instantiate(original.gameObject).GetComponent<MeshRenderer>();
+            clone.transform.SetParent(original.transform.parent,false);
+            clone.transform.localPosition=original.transform.localPosition;
+            clones.Add(clone); ScenarioTerrainBudget.QueueRoot(clone.gameObject);
+        }
+        for(int i=0;i<16;i++)Tick(host);
+        PerfConfig.SharedEnvironmentMaterialReadsOn=true;
+        PerfConfig.TerrainCameraSourceLimit=12; TerrainWriteObserver.MaterialReads=0;
+        Check(DuringRender(camera,()=>clones.FindAll(renderer=>renderer.forceRenderingOff).Count
+            +(original.forceRenderingOff?1:0)==12),"terrain CPU cap admits only bounded private substitutes while every remaining original stays native");
+        int cappedReads=TerrainWriteObserver.MaterialReads;
+        Check(cappedReads==12&&PerfMonitor.Counts["Terrain.CameraCandidates"]==12
+            &&PerfMonitor.Counts["Terrain.CameraBudgetFallback"]==84,
+            "actual per-eye native material reads scale with terrain CPU cap instead of all prepared sources");
+        Check(clones.TrueForAll(renderer=>renderer.enabled&&!renderer.forceRenderingOff)
+            && original.enabled&&!original.forceRenderingOff,"budget fallback preserves every original room source after render");
+        int[] chosen=null!;
+        DuringRender(camera,()=>{chosen=clones.FindAll(renderer=>renderer.forceRenderingOff).ConvertAll(renderer=>renderer.GetInstanceID()).ToArray();return true;});
+        Check(DuringRender(camera,()=>clones.FindAll(renderer=>renderer.forceRenderingOff).ConvertAll(renderer=>renderer.GetInstanceID()).ToArray().SequenceEqual(chosen)),
+            "settled terrain CPU selection is stable across genuine successive camera invocations");
+        // Same-count replace, rename and live source edits occur between actual eyes.
+        var edited=clones.First(renderer=>chosen.Contains(renderer.GetInstanceID()));
+        var script=edited.gameObject.AddComponent<CInteractable>(); Render(camera);
+        Check(!DuringRender(camera,()=>edited.forceRenderingOff),"new native component between eyes revokes capped terrain admission");
+        Object.DestroyImmediate(script); edited.gameObject.AddComponent<Animator>();
+        Check(!DuringRender(camera,()=>edited.forceRenderingOff),"same-count native component replacement between eyes remains freshly guarded");
+        Object.DestroyImmediate(edited.GetComponent<Animator>());
+        edited.transform.name="Preview";
+        Check(!DuringRender(camera,()=>edited.forceRenderingOff),"current source rename cannot reuse an old capped native scope");
+        edited.transform.name="Body";
+        TerrainWriteObserver.MaterialReads=0; PerfConfig.TerrainCameraSourceLimit=0;
+        Check(DuringRender(camera,()=>clones.TrueForAll(renderer=>renderer.forceRenderingOff)&&original.forceRenderingOff),
+            "terrain cap zero restores unlimited eligible private submissions live");
+        Check(TerrainWriteObserver.MaterialReads==96,"unlimited terrain fallback executes all original native material reads");
+        edited.transform.localPosition=new Vector3(100,0,0); TerrainWriteObserver.MaterialReads=0;
+        Check(!DuringRender(camera,()=>edited.forceRenderingOff)&&TerrainWriteObserver.MaterialReads==95,
+            "actual current camera frustum rejects offscreen substitute work while preserving native source");
+        Plane[] authored=GeometryUtility.CalculateFrustumPlanes(camera.cullingMatrix);
+        Matrix4x4 eyeProjection=camera.projectionMatrix;
+        Plane[] shifted=GeometryUtility.CalculateFrustumPlanes(eyeProjection*Matrix4x4.TRS(new Vector3(-100,0,0),Quaternion.identity,Vector3.one)*camera.worldToCameraMatrix);
+        var union=typeof(ScenarioTerrainBudget).GetMethod("OutsideBounds",BindingFlags.NonPublic|BindingFlags.Static)!;
+        Check(!GeometryUtility.TestPlanesAABB(authored,edited.bounds)&&GeometryUtility.TestPlanesAABB(shifted,edited.bounds),
+            "stereo union fixture really places current native source in one alternate eye frustum");
+        Check(!(bool)union.Invoke(null,new object[]{edited.bounds,authored,authored,shifted,true})!,
+            "terrain union retains a source visible exclusively to the second eye");
+        Matrix4x4 oldCulling=camera.cullingMatrix; camera.cullingMatrix=Matrix4x4.zero;
+        Check(DuringRender(camera,()=>edited.forceRenderingOff),"invalid native camera planes preserve full original terrain admission");
+        camera.cullingMatrix=oldCulling;
+        PerfConfig.SharedEnvironmentMaterialReadsOn=false; TerrainWriteObserver.MaterialReads=0;
+        Check(DuringRender(camera,()=>edited.forceRenderingOff)&&TerrainWriteObserver.MaterialReads==96,
+            "shared-read off restores the complete legacy terrain admission path");
+        PerfConfig.SharedEnvironmentMaterialReadsOn=false; PerfConfig.TerrainCameraSourceLimit=0;
+        foreach(var clone in clones)Object.DestroyImmediate(clone.gameObject);
+        Tick(host);
+        Debug.Log("Terrain source-bound scaling: capped material reads="+cappedReads+"/96; native source output retained.");
     }
     private static void ShaderPixels(Camera camera)
     {
@@ -343,6 +407,22 @@ public static partial class TerrainProgram
                 Check(same,"production HIGH and toggle-native map foundation vignette cutoff retain original fragment coverage");
             }
         }
+        block.SetInteger("ToggleWallFade",0);
+        foreach(int route in new[]{2,3})
+        {
+            cheaperHigh.SetFloat("_GHVRTerrainNativeRoute",route); originalHigh.SetFloat("_NativeToggleVariant",route==3?1f:0f);
+            foreach(float cutoff in new[]{-.15f,.5f,1f,1.2f})
+            {
+                block.SetFloat("_Cutoff",cutoff); cube.GetComponent<MeshRenderer>().SetPropertyBlock(block);
+                cube.GetComponent<MeshRenderer>().sharedMaterial=cheaperHigh; Color[] actual=Pixels(camera);
+                cube.GetComponent<MeshRenderer>().sharedMaterial=originalHigh; Color[] expected=Pixels(camera);
+                Check(actual.Select(pixel=>pixel.r+pixel.g+pixel.b>.05f).SequenceEqual(expected.Select(pixel=>pixel.r+pixel.g+pixel.b>.05f)),
+                    "inactive HIGH and toggle-native clip retain original authored cutoff including above one");
+            }
+        }
+        mat.SetFloat("_GHVRTerrainNativeRoute",1f); block.SetFloat("_Cutoff",1.2f);
+        cube.GetComponent<MeshRenderer>().sharedMaterial=mat; cube.GetComponent<MeshRenderer>().SetPropertyBlock(block);
+        Check(Visible(Pixels(camera))>0,"inactive original LOW route never clips even for authored cutoff above one");
         Object.DestroyImmediate(cheaperHigh); Object.DestroyImmediate(originalHigh);
         Object.DestroyImmediate(map); Object.DestroyImmediate(testMesh); Object.DestroyImmediate(cube); Object.DestroyImmediate(mat);
     }

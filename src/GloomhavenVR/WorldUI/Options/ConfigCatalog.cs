@@ -922,6 +922,7 @@ internal static class ConfigCatalog
                                      || key == "ScenarioTerrainDetailPercent"
                                      || key == "ScenarioDistantTerrainDetailPercent"
                                      || key == "ScenarioTerrainDistanceMeters"
+                                     || key == "ScenarioTerrainCameraSourceLimitCount"
                                      || key == "SharedEnvironmentMaterialReads"
                                      || key == "SharedUiWindowReads"
                                      || key == "ScenarioFigureClothSimulation"

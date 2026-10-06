@@ -11,10 +11,11 @@ internal static class FrameDefaults
 {
     internal static bool Active => FrameLaunchOptIn.MarkerExists(Paths.BepInExRootPath);
 
-    // Build 592 standalone hardware run. 3408 pixels per eye was selected in SteamVR,
-    // outside the mod; the mod's scale remains 1.00 and does not hard-code that resolution.
+    // Build 634: the maintainer explicitly selects 0.80 for fresh Frame settings and the
+    // shared Standalone profile. Bind retains saved choices; ordinary PC defaults stay 1.00.
+    // The runtime still chooses the native eye extent (3408 per side in the supplied run).
     internal const int MsaaLevel = 0;
-    internal const float EyeResolutionScale = 1f;
+    internal const float EyeResolutionScale = .8f;
     internal const bool ForceAnisotropic = true;
     internal const bool ForceFullTextureResolution = true;
     internal const bool ForceTextureStreamingOff = false;
@@ -69,6 +70,9 @@ internal static class FrameDefaults
     internal const bool ScenarioCheapWallShading = true;
     internal const int ScenarioTerrainDetailPercent = 0;
     internal const int ScenarioDistantTerrainDetailPercent = 0;
+    // Limit substitution maintenance per eye; overflow retains native original surfaces.
+    // This CPU/GPU trade is independently adjustable and still needs hardware comparison.
+    internal const int ScenarioTerrainCameraSourceLimitCount = 64; // => [Optimize] ScenarioTerrainCameraSourceLimitCount
     internal const float ScenarioTerrainDistanceMeters = .75f;
     internal const bool SharedEnvironmentMaterialReads = true;
     internal const bool SharedUiWindowReads = true;

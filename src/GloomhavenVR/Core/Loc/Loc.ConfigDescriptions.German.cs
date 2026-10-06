@@ -330,6 +330,7 @@ internal static partial class Loc
             ["Optimize/ScenarioTerrainDetailPercent"] = "100% erhält geeignete Originalwände und Säulen; kleinere Werte wählen vorbereitete gröbere 3D-Meshes. Böden, Türen, Figuren und Spielkollisionen bleiben.",
             ["Optimize/ScenarioDistantTerrainDetailPercent"] = "Zusätzliche Detailgrenze für geeignete Wände und Säulen ab dem gewählten Betrachtungsabstand. Alle aufgedeckten spielrelevanten Inhalte bleiben dargestellt.",
             ["Optimize/ScenarioTerrainDistanceMeters"] = "Betrachtungsabstand in VR, ab dem die Detailgrenze für entfernte Wände und Säulen gilt.",
+            ["Optimize/ScenarioTerrainCameraSourceLimitCount"] = "Begrenzt die Zahl vereinfachter 3D-Wand- und Säulenflächen pro Auge. 0 ist unbegrenzt; kleinere positive Werte sparen CPU-Arbeit für die Ersatzdarstellung. Übrige Flächen behalten ihre originale 3D-Geometrie und Schattierung, was mehr Renderleistung kosten kann. Kein Raum wird ausgeblendet. Wirkt sofort; neue Frame- und Standalone-Profile nutzen 64.",
             ["Optimize/SharedEnvironmentMaterialReads"] = "Spart wiederholte identische Materialprüfungen innerhalb eines Kameraaufrufs. Aus ermöglicht den direkten Vergleich; die Darstellung bleibt gleich.",
             ["Optimize/SharedUiWindowReads"] = "Spart wiederholte Fensterabfragen und unmittelbare Originalabfragen in Multiplayer-Spiegeln. Inhalte, native Sichtbarkeit und Animation bleiben unmittelbar; Aus ermöglicht einen Vergleich.",
             ["Optimize/ScenarioEnvironmentEffectsDensityPercent"] =

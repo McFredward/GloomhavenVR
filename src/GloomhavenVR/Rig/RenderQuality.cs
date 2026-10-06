@@ -306,9 +306,12 @@ internal static class RenderQuality
     private static float _lastEyeRefusal = -1f;
     private const float SliderQuietSeconds = 0.35f;
     private const float MsaaResourceQuietSeconds = 1f;
+    private const float ViewportRepairIntervalSeconds = 1f;
 
     /// <summary>Last value written to <see cref="XRSettings.renderViewportScale"/> by us (1 = untouched).</summary>
     private static float _viewportScaleApplied = 1f;
+    private static bool _viewportScaleAccepted;
+    private static float _nextViewportRepairTime;
 
     /// <summary>
     /// Has the resolution row announced itself in the log yet this session?
@@ -878,6 +881,7 @@ internal static class RenderQuality
             AdoptRunningSession();
             return; // unexpectedly live/reused display: never allocate or assume new capacity
         }
+        _viewportScaleAccepted = Displays.Count > 0;
         foreach (XRDisplaySubsystem display in Displays)
         {
             TryStartupSetting(() => display.scaleOfAllRenderTargets = _sessionAllocationScale,
@@ -887,6 +891,7 @@ internal static class RenderQuality
             _viewportScaleApplied = Mathf.Clamp(WantedEyeScale() / _sessionAllocationScale, 0.01f, 1f);
             TryStartupSetting(() => display.scaleOfAllViewports = _viewportScaleApplied,
                 "new display viewport");
+            _viewportScaleAccepted &= Mathf.Abs(display.scaleOfAllViewports - _viewportScaleApplied) < 0.005f;
             TryStartupSetting(() => display.SetMSAALevel(Mathf.Max(_committedMsaa, 1)),
                 "new display MSAA");
         }
@@ -941,6 +946,8 @@ internal static class RenderQuality
         _baseMegaSamples = 0;
         _eyeScaleAnnounced = false;
         _viewportScaleApplied = 1f;
+        _viewportScaleAccepted = false;
+        _nextViewportRepairTime = 0f;
         _diagCountdown = 0;
     }
 
@@ -1031,7 +1038,21 @@ internal static class RenderQuality
         }
         _lastEyeRefusal = -1f;
         float viewport = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);
-        if (Mathf.Abs(_lastLoggedEyeScale - wanted) < 0.0005f) return;
+        if (Mathf.Abs(_lastLoggedEyeScale - wanted) < 0.0005f)
+        {
+            // The Frame633 run first accepted .85 in both native eyes, then lost it
+            // at menu/scenario setup without a config edit. A remembered request
+            // cannot prove current delivery. Repair previously accepted viewports
+            // only in the existing safe Update boundary, at most once per second.
+            // A refused setter disarms repair until a new user request: never fight
+            // an unsupported provider each frame or fall back to live allocation.
+            if (!_viewportScaleAccepted || Time.unscaledTime < _nextViewportRepairTime
+                || Mathf.Abs(XRSettings.renderViewportScale - viewport) < 0.005f) return;
+            _nextViewportRepairTime = Time.unscaledTime + ViewportRepairIntervalSeconds;
+            _viewportScaleAccepted = ApplyViewportScale(viewport, "restoring a previously accepted viewport after native reset");
+            RequestEyeTargetDiagnostics($"viewport reset repair → {viewport:F2}");
+            return;
+        }
         VRLog.Note("Rig", $"Eye resolution live change requested: " +
                           $"{_lastLoggedEyeScale:F2}x -> {wanted:F2}x " +
                           $"(eye target before change {XRSettings.eyeTextureWidth}x{XRSettings.eyeTextureHeight}); " +
@@ -1041,6 +1062,8 @@ internal static class RenderQuality
                               : "no XR texture allocation change requested."));
         if (Mathf.Abs(viewport - 1f) < 0.0005f) ReleaseViewportScale();
         else ApplyViewportScale(viewport, "coalesced live resolution within the stable session allocation");
+        _viewportScaleAccepted = Mathf.Abs(XRSettings.renderViewportScale - viewport) < 0.005f;
+        _nextViewportRepairTime = Time.unscaledTime + ViewportRepairIntervalSeconds;
         _lastLoggedEyeScale = wanted;
         VRLog.Info("Rig", $"Eye render resolution scale asserted → {wanted:F2} requested; " +
                           $"effective request capped at {Mathf.Min(wanted, _sessionAllocationScale):F2}x. " +

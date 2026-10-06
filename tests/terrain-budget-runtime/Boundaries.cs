@@ -19,6 +19,7 @@ namespace GloomhavenVR.Core
     internal static class TerrainWriteObserver
     {
         internal static int PoseWrites;
+        internal static int MaterialReads;
         internal static void SetPositionAndRotation(Transform target, Vector3 position, Quaternion rotation)
         { PoseWrites++; target.SetPositionAndRotation(position, rotation); }
     }
@@ -26,6 +27,8 @@ namespace GloomhavenVR.Core
     internal static class PerfConfig
     {
         internal static bool CheapWallShadingOn;
+        internal static bool SharedEnvironmentMaterialReadsOn;
+        internal static int TerrainCameraSourceLimit;
         internal static int TerrainDetailPercent = 100, DistantTerrainDetailPercent = 100;
         internal static float TerrainDistanceMeters = .75f;
     }
@@ -47,6 +50,8 @@ namespace GloomhavenVR.Core
         private readonly struct Quiet : IDisposable { public void Dispose() { } }
         internal static readonly Dictionary<string,int> Counts = new();
         internal static void Register(string name) { }
+        internal static void RegisterDebug(string name) { }
+        internal static bool StepsActive => true;
         internal static IDisposable Scope(string name) => new Quiet();
         internal static void Count(string name, int count) => Counts[name] = count;
     }

@@ -10,6 +10,7 @@ internal static partial class ScenarioTerrainBudget
     private sealed class Surface
     {
         internal readonly MeshRenderer Renderer;
+        internal readonly int Identity;
         internal readonly MeshFilter Filter;
         internal readonly Mesh Original;
         internal readonly bool Floor;
@@ -37,7 +38,7 @@ internal static partial class ScenarioTerrainBudget
 
         internal Surface(MeshRenderer renderer, MeshFilter filter, Transform owner)
         {
-            Renderer = renderer; Filter = filter; Original = filter.sharedMesh;
+            Renderer = renderer; Identity = renderer.GetInstanceID(); Filter = filter; Original = filter.sharedMesh;
             Floor = FloorIdentity(Original);
             OriginalTriangles = TriangleCount(Original);
             _proxy = new GameObject("GloomhavenVR.TerrainProxy");
@@ -90,16 +91,17 @@ internal static partial class ScenarioTerrainBudget
         private static bool LiveSpecialEffect(MaterialPropertyBlock block) =>
             block.GetFloat("_AddVertexAnim") != 0f || block.GetFloat("_UseEmissiveMap") != 0f
             || block.GetFloat("_Diffuse_Emissive_On") != 0f;
-        internal bool PrepareProxy()
+        internal bool PrepareProxy(bool sharedOwner, Matrix4x4 sharedPose, Vector3 sharedScale)
         {
-            Matrix4x4 native = _sourceTransform.localToWorldMatrix, owner = _owner.localToWorldMatrix;
+            Matrix4x4 native = _sourceTransform.localToWorldMatrix;
+            Matrix4x4 owner = sharedOwner ? sharedPose : _owner.localToWorldMatrix;
             if (!_hasPose || !SameMatrix(native, _sourcePose) || !SameMatrix(owner, _ownerPose))
             {
                 _hasPose = false;
                 _proxyTransform.SetPositionAndRotation(_sourceTransform.position, _sourceTransform.rotation);
                 // Keep the proxy outside every native cloning root. Unsupported host
                 // shear/scale retains the original; no native transform is ever written.
-                Vector3 parentScale = _owner.lossyScale;
+                Vector3 parentScale = sharedOwner ? sharedScale : _owner.lossyScale;
                 if (Mathf.Abs(parentScale.x) < .0001f || Mathf.Abs(parentScale.y) < .0001f || Mathf.Abs(parentScale.z) < .0001f) return false;
                 Vector3 sourceScale = _sourceTransform.lossyScale;
                 _proxyTransform.localScale = new Vector3(sourceScale.x / parentScale.x,

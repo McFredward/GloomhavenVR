@@ -50,6 +50,10 @@ internal static partial class ScenarioTerrainBudget
         PerfMonitor.Register("Terrain.OriginalTriangles");
         PerfMonitor.Register("Terrain.SubmittedTriangles");
         PerfMonitor.Register("Terrain.CheapSurfaces");
+        PerfMonitor.RegisterDebug("Terrain.CameraCandidates");
+        PerfMonitor.RegisterDebug("Terrain.CameraSubstitutes");
+        PerfMonitor.RegisterDebug("Terrain.CameraBudgetFallback");
+        PerfMonitor.RegisterDebug("Terrain.CameraFrustumFallback");
     }
     internal static void Shutdown()
     {
@@ -152,14 +156,14 @@ internal static partial class ScenarioTerrainBudget
             // verdict scoped to this invocation: components and parents added between
             // eyes must still revoke admission before native culling.
             node.GetComponents(components);
-            bool blocked = nodeName == "Preview"
-                || nodeName.StartsWith("GloomhavenVR", StringComparison.Ordinal) || StructuralBoundary(nodeName);
+            bool blocked = BlockedName(nodeName);
             foreach (Component component in components)
             {
-                blocked |= component is Canvas or ActorBehaviour or ProceduralProp or ProceduralDoorway
-                    or UnityGameEditorDoorProp or CInteractable or Animator or Rigidbody or Light or SkinnedMeshRenderer;
-                state.Structural |= component is ProceduralWall;
-                state.Scenario |= component is ProceduralScenario;
+                if (component is null) continue;
+                ComponentRole role = Classify(component);
+                blocked |= (role & ComponentRole.Blocked) != 0;
+                state.Structural |= (role & ComponentRole.Structural) != 0;
+                state.Scenario |= (role & ComponentRole.Scenario) != 0;
             }
             components.Clear();
             state.Valid &= !blocked;
@@ -202,7 +206,7 @@ internal static partial class ScenarioTerrainBudget
     }
 
     [DefaultExecutionOrder(30010)]
-    private sealed class Driver : MonoBehaviour
+    private sealed partial class Driver : MonoBehaviour
     {
         private readonly Dictionary<int, Surface> _surfaces = new();
         private readonly Queue<Transform> _pending = new();
@@ -319,7 +323,7 @@ internal static partial class ScenarioTerrainBudget
                         : !CurrentScope(renderer) ? 0
                         : _eligibleMesh?.Invoke(filter.sharedMesh) != true ? 3 : -1;
                     if (refusal >= 0) { if (first) _refusals[refusal]++; continue; }
-                    if (!_surfaces.ContainsKey(id)) _surfaces.Add(id, new Surface(renderer, filter, transform));
+                    if (!_surfaces.ContainsKey(id)) { _surfaces.Add(id, new Surface(renderer, filter, transform)); _priorityDirty = true; }
                 }
                 Camera? camera = Rig.VRRigDriver.HeadCamera;
                 foreach (KeyValuePair<int, Surface> item in _surfaces)
@@ -329,7 +333,7 @@ internal static partial class ScenarioTerrainBudget
                     int percent = active && camera != null ? DetailFor(surface, camera) : 100;
                     surface.StepGeometry(percent, delta);
                 }
-                foreach (int id in _dead) _surfaces.Remove(id);
+                foreach (int id in _dead) { _surfaces.Remove(id); _priorityDirty = true; }
                 _dead.Clear();
                 if (!active) { _pending.Clear(); _queued.Clear(); }
                 int settings = (PerfConfig.CheapWallShadingOn ? 1 : 0) + PerfConfig.TerrainDetailPercent * 2
@@ -419,14 +423,27 @@ internal static partial class ScenarioTerrainBudget
                 using (PerfMonitor.Scope("ScenarioTerrain.PreCull"))
                 {
                     _leaseCamera = camera;
-                    foreach (Surface surface in _surfaces.Values)
+                    PreparePriority();
+                    bool shared = PerfConfig.SharedEnvironmentMaterialReadsOn;
+                    PrepareFrustum(camera, shared);
+                    Matrix4x4 ownerPose = shared ? transform.localToWorldMatrix : default;
+                    Vector3 ownerScale = shared ? transform.lossyScale : default;
+                    int limit = PerfConfig.TerrainCameraSourceLimit;
+                    int candidates = 0, budgetFallback = 0, frustumFallback = 0;
+                    foreach (Surface surface in _priority)
                     {
                         // Prepared surfaces include unopened rooms. Reject their native
                         // disabled/inactive renderers before bank/material/proxy work.
                         // No admission verdict survives this camera invocation.
                         if (surface.Renderer == null || !surface.Renderer.enabled
                             || !surface.Renderer.gameObject.activeInHierarchy || surface.Renderer.forceRenderingOff
-                            || !surface.WantsSubstitute(Enabled) || !surface.Validate(_meshThisInvocation)
+                            || !surface.WantsSubstitute(Enabled)) continue;
+                        // Bound full guard/copy work, not merely successful masks. Rejected
+                        // candidates also cost CPU; budget fallback keeps original output.
+                        if (limit > 0 && candidates >= limit) { budgetFallback++; continue; }
+                        if (OutsideFrustum(surface.Renderer)) { frustumFallback++; continue; }
+                        candidates++;
+                        if (!surface.Validate(_meshThisInvocation)
                             || surface.Renderer.isPartOfStaticBatch || surface.Renderer.additionalVertexStreams != null
                             || !CurrentScope(surface.Renderer)) continue;
                         surface.Renderer.GetSharedMaterials(_materialScratch);
@@ -440,9 +457,16 @@ internal static partial class ScenarioTerrainBudget
                             surface.SetMaterial(slot, PerfConfig.CheapWallShadingOn
                                 ? CheapMaterial(CanonicalMaterial(_materialScratch[slot])) : _materialScratch[slot]);
                         if (Array.Exists(surface.Materials, material => material == null)) continue;
-                        if (!surface.PrepareProxy()) continue;
+                        if (!surface.PrepareProxy(shared, ownerPose, ownerScale)) continue;
                         surface.CheapLease = PerfConfig.CheapWallShadingOn;
                         surface.Mask(); _leases.Add(surface);
+                    }
+                    if (PerfMonitor.StepsActive && VRLog.Level >= VRLogLevel.Debug)
+                    {
+                        PerfMonitor.Count("Terrain.CameraCandidates", candidates);
+                        PerfMonitor.Count("Terrain.CameraSubstitutes", _leases.Count);
+                        PerfMonitor.Count("Terrain.CameraBudgetFallback", budgetFallback);
+                        PerfMonitor.Count("Terrain.CameraFrustumFallback", frustumFallback);
                     }
                 }
                 _readThisCamera.Clear();
@@ -479,7 +503,7 @@ internal static partial class ScenarioTerrainBudget
         {
             RecoverLeases();
             foreach (Surface surface in _surfaces.Values) surface.Dispose();
-            _surfaces.Clear(); _pending.Clear(); _queued.Clear();
+            _surfaces.Clear(); _priority.Clear(); _priorityDirty = false; _pending.Clear(); _queued.Clear();
             foreach (Material material in _cheap.Values) if (material != null) UnityEngine.Object.Destroy(material);
             _cheap.Clear();
             _reportedSurfaces = -1;

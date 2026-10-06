@@ -43,7 +43,7 @@ internal static class GraphicsProfiles
             int density = index == 0 ? 0 : index == 1 ? 25 : index == 2 ? 60 : 100;
             int body = index == 0 ? 0 : index == 1 ? 33 : index == 2 ? 66 : 100;
             Set(RenderQuality.MsaaLevel, standalone ? FrameDefaults.MsaaLevel : index == 1 ? 2 : index == 2 ? 4 : 8);
-            Set(RenderQuality.EyeResolutionScale, FrameDefaults.EyeResolutionScale);
+            Set(RenderQuality.EyeResolutionScale, standalone ? FrameDefaults.EyeResolutionScale : Defaults.EyeResolutionScale);
             Set(RenderQuality.ForceAnisotropic, FrameDefaults.ForceAnisotropic);
             Set(RenderQuality.ForceFullTextureResolution, FrameDefaults.ForceFullTextureResolution);
             Set(RenderQuality.ForceTextureStreamingOff, FrameDefaults.ForceTextureStreamingOff);
@@ -69,6 +69,7 @@ internal static class GraphicsProfiles
             Set(PerfConfig.ScenarioCheapWallShading, standalone ? FrameDefaults.ScenarioCheapWallShading : low);
             Set(PerfConfig.ScenarioTerrainDetailPercent, standalone ? FrameDefaults.ScenarioTerrainDetailPercent : index == 1 ? 50 : 100);
             Set(PerfConfig.ScenarioDistantTerrainDetailPercent, standalone ? FrameDefaults.ScenarioDistantTerrainDetailPercent : index == 1 ? 0 : index == 2 ? 50 : 100);
+            Set(PerfConfig.ScenarioTerrainCameraSourceLimitCount, standalone ? FrameDefaults.ScenarioTerrainCameraSourceLimitCount : 0);
             Set(PerfConfig.ScenarioTerrainDistanceMeters, FrameDefaults.ScenarioTerrainDistanceMeters);
             Set(PerfConfig.SharedEnvironmentMaterialReads, true);
             Set(PerfConfig.SharedUiWindowReads, true);

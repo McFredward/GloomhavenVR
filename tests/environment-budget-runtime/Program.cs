@@ -177,7 +177,7 @@ public static partial class EnvironmentProgram
         }
         internal GameObject ForeignSceneTile()
         {
-            Scene scene = SceneManager.CreateScene("RuntimeFixture.Foreign." + typeof(EnvironmentProgram).Assembly.GetName().Name);
+            Scene scene = SceneManager.CreateScene("RuntimeFixture.Foreign." + typeof(EnvironmentProgram).Assembly.GetName().Name + "." + Guid.NewGuid().ToString("N"));
             var tile = new GameObject("RuntimeFixture.ForeignTile"); tile.AddComponent<ProceduralMapTile>();
             SceneManager.MoveGameObjectToScene(tile, scene); foreign.Add(tile);
             return Child("Generated Content", tile.transform);
@@ -1067,7 +1067,7 @@ public static partial class EnvironmentProgram
         Application.logMessageReceived += EngineMessage;
         try
         {
-            PresentationPreparationVisibility(); ScopeAndMaterials(); AmbientScopes(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault(); StructuralChunks(); NativeWallChannelsAndRenderedClock();
+            PresentationPreparationVisibility(); ScopeAndMaterials(); AmbientScopes(); DecorativeSmokeCoverage(); DecorativeSmokeSimulationOwnership(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault(); StructuralChunks(); NativeWallChannelsAndRenderedClock();
             int sharedStart = count;
             // Keep each dedicated probe/flag oracle ahead of supplementary lightmap checks:
             // broad causal mutations must fail at their own native lighting boundary first.

@@ -28,15 +28,16 @@ def main():
     args = parser.parse_args()
     root=args.source_root.resolve(); fixture=ROOT/'tests/terrain-budget-runtime'
     paths=[root/'src/GloomhavenVR/Core/Perf/ScenarioTerrainBudget.cs',root/'src/GloomhavenVR/Core/Perf/ScenarioTerrainBudget.Geometry.cs',
+        root/'src/GloomhavenVR/Core/Perf/ScenarioTerrainBudget.Admission.cs',
         root/'unity/GloomhavenVR.Assets/Assets/Bundle/Environments/ScenarioCheapTerrain.shader',
         root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentMeshStream.cs']
-    source, geometry, shader=[p.read_text() for p in paths[:3]]
+    source, geometry, admission, shader=[p.read_text() for p in paths[:4]]
     assert 'StaticBatchingUtility' not in source+geometry and 'SetStaticBatchInfo' not in source+geometry
     assert not re.search(r'(?<![\w])(?:Filter\.sharedMesh|Renderer\.sharedMaterials)\s*=(?!=)', source+geometry), 'native cloning sources must stay unchanged'
     controls=[
         ('floorhex-veto-missing','AuthoredName(mesh.name).IndexOf("Floor", StringComparison.OrdinalIgnoreCase) >= 0','false','complete floor identity veto recognizes FloorHex',source,1),
         ('bank-identity-veto-missing','!StructuralIdentity(filter.sharedMesh) ? 2','false ? 2','eligible non-floor terrain has private proxies while floors remain native',source,1),
-        ('wall-owner-veto-missing','state.Structural |= component is ProceduralWall;','state.Structural |= component is ProceduralWall or ProceduralMapTile;','eligible non-floor terrain has private proxies while floors remain native',source,1),
+        ('wall-owner-veto-missing','if (component is ProceduralWall) role |= ComponentRole.Structural;','if (component is ProceduralWall or ProceduralMapTile) role |= ComponentRole.Structural;','eligible non-floor terrain has private proxies while floors remain native',admission,1),
         ('temporary-readiness-bypass','while (active && ready && nodes-- > 0','while (active && nodes-- > 0','temporary bank readiness retains discovery',source,1),
         ('terminal-pending-retained','if (unavailable)\n                {\n                    _pending.Clear(); _queued.Clear();','if (unavailable)\n                {\n                    /* injected terminal pending leak */','terminal bank failure clears pending discovery',source,1),
         ('later-readiness-never-reseeds','_assetsWereReady = ready;','/* injected readiness transition loss */','eligible non-floor terrain has private proxies while floors remain native',source,1),
@@ -47,7 +48,7 @@ def main():
         ('detail-has-no-effect','_progress >= 1f) _current = _percent >= 100 ? null : _target;','_progress >= 1f) _current = null;','coarse 3D endpoint materially reduces',geometry,1),
         ('original-triangles-through-endpoint','_current = _percent >= 100 ? null : _target;','_current = _percent >= 100 ? null : _morph;','coarse 3D endpoint materially reduces',geometry,1),
         ('identical-tier-substitute','if (percent < 100 && TriangleCount(target) >= OriginalTriangles) { percent = 100; target = _exact; }','/* injected private exact-tier overhead */','coarse bank tier without actual triangle saving retains',geometry,1),
-        ('actor-scope-bypass',' or ActorBehaviour',' /* injected actor veto bypass */','actor-owned source with genuine bank mesh is never scenery',source,1),
+        ('actor-scope-bypass',' or ActorBehaviour',' /* injected actor veto bypass */','actor-owned source with genuine bank mesh is never scenery',admission,1),
         ('late-interaction-bypass','|| !CurrentScope(surface.Renderer)','/* injected live native scope veto */','late native interaction veto',source,1),
         ('native-command-buffer-bypass','|| (_nativeCameraConsumers?.Invoke(camera) ?? camera.commandBufferCount > 0)','/* injected command-buffer veto */','native command-buffer camera',source,1),
         ('inactive-host-masks-original','|| !isActiveAndEnabled','|| !enabled','deactivated terrain host retains original wall pixels',source,1),
@@ -69,7 +70,7 @@ def main():
     ]
     controls += [
         ('captured-structural-coverage-missing','or "CR_INT_Stone_Int_Wall_01"','or "Unknown_CapturedWall"','captured structural definition is prepared and leased',source,1),
-        ('native-foundation-boundary-ignored','|| StructuralBoundary(nodeName)','/* injected source-template boundary bypass */','same audited structural mesh under a foundation cap or doorway template stays native',source,1),
+        ('native-foundation-boundary-ignored','|| StructuralBoundary(nodeName)','/* injected source-template boundary bypass */','same audited structural mesh under a foundation cap or doorway template stays native',admission,1),
         ('settled-proxy-pose-rewritten','if (!_hasPose || !SameMatrix(native, _sourcePose) || !SameMatrix(owner, _ownerPose))','if (!_hasPose || _hasPose)','settled terrain camera retains private proxy transform without repeated native writes',geometry,1),
         ('material-route-cross-camera-stale','_routesThisCamera.Clear();','/* injected cross-camera route reuse */','native keyword edits remain live between actual camera invocations',source,1),
         ('revoked-admission-counted','if (!surface.IsMasked) continue;','if (surface == null) continue;','revoked native-write camera leases are absent from terrain completion counters',source,1),
@@ -80,11 +81,33 @@ def main():
         ('mesh-admission-cross-camera-stale', '_meshThisInvocation.Clear();',
          '/* injected stale mesh admission */', 'repeated native mesh admission is read exactly once', source, 1),
     ]
-    variants=[('production',source,geometry,shader,'')]
+    # Source-bound operation ordering: the inactive dissolve branch precedes all
+    # map, pow and simplex work. Pixel/native-route controls below prove its result.
+    assert shader.index('if (ToggleWallFade == 0)') < shader.index('float4 occlusion = tex2D(_TilesOcclusionMap, uv);'), 'inactive native dissolve early-out occurs before texture work'
+    controls += [
+        ('terrain-cap-ignored','if (limit > 0 && candidates >= limit)','if (limit < 0 && candidates >= limit)',
+         'terrain CPU cap admits only bounded private substitutes',source,1),
+        ('terrain-frustum-ignored','if (OutsideFrustum(surface.Renderer))','if (OutsideFrustum(surface.Renderer) && limit < 0)',
+         'actual current camera frustum rejects offscreen substitute work',source,1),
+        ('terrain-classification-cross-type-stale','if (shared && Roles.TryGetValue(type, out ComponentRole cached)) return cached;',
+         'if (shared && Roles.Count > 0 && component is CInteractable) return ComponentRole.None;',
+         'new native component between eyes revokes capped terrain admission',admission,1),
+        ('inactive-shader-toggle-inverted','if (ToggleWallFade == 0)','if (ToggleWallFade != 0)',
+         'production native wall map has multiple visible intermediate frames',shader,1),
+        ('inactive-shader-unconditional','if (ToggleWallFade == 0)','if (true)',
+         'production native wall map has multiple visible intermediate frames',shader,1),
+        ('terrain-stereo-second-eye-dropped','&& (!stereo || !GeometryUtility.TestPlanesAABB(left, bounds)\n                && !GeometryUtility.TestPlanesAABB(right, bounds))',
+         '&& (!stereo || !GeometryUtility.TestPlanesAABB(left, bounds))',
+         'terrain union retains a source visible exclusively to the second eye',admission,1),
+        ('inactive-shader-clip-lost','if (_GHVRTerrainNativeRoute >= 1.5) clip(1. - _Cutoff);',
+         '/* injected high authored-cutoff bypass */',
+         'inactive HIGH and toggle-native clip retain original authored cutoff',shader,1),
+    ]
+    variants=[('production',source,geometry,admission,shader,'')]
     if not args.production_only:
         for name,before,after,expected,text,count in controls:
             assert text.count(before)==count, 'mutation binding drift: '+name
-            values=[source,geometry,shader]
+            values=[source,geometry,admission,shader]
             values[values.index(text)]=text.replace(before,after)
             variants.append((name,*values,expected))
     if args.case:
@@ -107,14 +130,16 @@ def main():
     input_hashes={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
     dotnet=shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
     manifest={'result':str(run/'results.txt'),'cases':[]}
-    for name,src,geo,shade,expected in variants:
+    for name,src,geo,admit,shade,expected in variants:
         case=run/name; production=case/'production'; production.mkdir(parents=True)
         pose_call='_proxyTransform.SetPositionAndRotation(_sourceTransform.position, _sourceTransform.rotation);'
         assert geo.count(pose_call)==1, 'actual production private pose observer binding drift'
         observed_geometry=geo.replace(pose_call,
             'TerrainWriteObserver.SetPositionAndRotation(_proxyTransform, _sourceTransform.position, _sourceTransform.rotation);')
+        src=src.replace('surface.Renderer.GetSharedMaterials(_materialScratch);', 'TerrainWriteObserver.MaterialReads++; surface.Renderer.GetSharedMaterials(_materialScratch);')
         (production/'Terrain.cs').write_text(src); (production/'Geometry.cs').write_text(observed_geometry)
-        (production/'MeshStream.cs').write_text(paths[3].read_text())
+        (production/'Admission.cs').write_text(admit)
+        (production/'MeshStream.cs').write_text(paths[4].read_text())
         shutil.copyfile(fixture/'NativeCoverage.cs',production/'NativeCoverage.cs')
         literals=['new Entry('+','.join([json.dumps(entry['name']),json.dumps(entry['exactPath']),
             json.dumps(entry['coarsePath']),str(entry['sourceTriangles'])])+')' for entry in native['entries']]

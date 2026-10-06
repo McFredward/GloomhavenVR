@@ -62,6 +62,11 @@ assert 'Camera.rect =' not in original and '.projectionMatrix =' not in original
 args.output_dir.mkdir(parents=True,exist_ok=True)
 run = Path(tempfile.mkdtemp(prefix='run-',dir=args.output_dir.resolve()))
 fixture = ROOT/'tests/GloomhavenVR.RenderQualityTests'
+inputs = [source/'Rig/RenderQuality.cs', source/'Core/Startup/OpenXRBootstrap.cs',
+          source/'Rig/VRRigDriver.cs', Path(__file__), *fixture.glob('*.cs'),
+          *fixture.glob('*.csproj'), *sorted((source/'Defaults').glob('*.cs')),
+          source/'Core/Startup/FrameDefaults.cs']
+input_hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
 constants = ''.join(p.read_text() for p in (source/'Defaults').glob('*.cs'))
 frame = (source/'Core/Startup/FrameDefaults.cs').read_text()
 extra = ''
@@ -93,6 +98,9 @@ production = execute('production')
 if production.returncode: raise SystemExit(production.stdout+production.stderr)
 print(production.stdout.strip())
 mutations = [
+ ('native-reset-repair-omitted','if (!_viewportScaleAccepted || Time.unscaledTime < _nextViewportRepairTime','if (true || Time.unscaledTime < _nextViewportRepairTime','unchanged accepted viewport is restored after native reset'),
+ ('native-reset-no-spacing','Time.unscaledTime < _nextViewportRepairTime','false','repeated native viewport resets have bounded repair spacing'),
+ ('native-reset-refusal-retried','_viewportScaleAccepted = ApplyViewportScale(viewport, "restoring a previously accepted viewport after native reset");','ApplyViewportScale(viewport, "restoring a previously accepted viewport after native reset");','refused native reset repair disarms automatic retries'),
  ('live-allocation','float viewport = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);','XRSettings.eyeTextureResolutionScale = wanted;\n        float viewport = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);','live resolution never recreates XR allocation'),
  ('resolution-no-quiet','Time.unscaledTime - _pendingEyeScaleSince < SliderQuietSeconds','false','intermediate resolution requests wait for slider quiet'),
  ('capacity-wrong-ratio','float viewport = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);','float viewport = Mathf.Clamp(wanted, 0.01f, 1f);','viewport uses requested scale divided by startup capacity'),
@@ -124,7 +132,13 @@ for name, before, after, expected in mutations:
 final = execute('production-final')
 if final.returncode or 'assertions passed' not in final.stdout:
     raise SystemExit('Final original-source restoration failed\n'+final.stdout+final.stderr)
+changed = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs
+           if hashlib.sha256(p.read_bytes()).hexdigest() != input_hashes[str(p)]}
+(run/'source-stability.json').write_text(json.dumps({'unchanged': not changed, 'changed': changed}, indent=2)+'\n')
+if changed:
+    raise SystemExit('RenderQuality source inputs changed during validation: '+str(run/'source-stability.json'))
 report={'result':'PASS','sourceBindings':14,'productionAssertions':int(re.search(r'(\d+) assertions passed',production.stdout).group(1)),
+        'inputSha256': input_hashes,
         'causalControls':results,'startupBoundaryControls':startup_controls,
         'sourceSha256':hashlib.sha256(original.encode()).hexdigest(),
         'bootstrapSha256':hashlib.sha256(bootstrap.encode()).hexdigest(),
