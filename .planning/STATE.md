@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Build628 integrated source; final dev validation pending, 2026-10-06: 1.1.0.**
+**Build628 integration complete, 2026-10-06: 1.1.0.**
 
 The maintainer authorized direct dev integration after confirming the main agent
 is idle. A fast-forward-only pull is current at Build627/a517; the reviewed
@@ -14,12 +14,33 @@ managed pre-cull callbacks and restored before native culling when invalid.
 Every compromise remains configurable; common PC/Frame code/assets, saved values,
 resolution, NPC behavior and wire/transport cadence remain unchanged.
 
-The reviewed worker tree passes all 14 source and 141 local suites, 308,358 final
-wire/golden assertions and strict Release/Debug with no warnings/errors. Complete
-validation must also run on final integrated Build628 before origin/dev is pushed.
+Final integrated source 686c85a3d passes all 14 source gates, strict Release and
+Debug with zero warnings/errors, bilingual docs, bundles, figure bank and 308,358
+final wire/golden assertions. The complete local attempt has 140 direct passes
+and one retained NPC623 Unity-startup timeout: loading took 375.623 seconds against
+the original 300-second limit. Continuing the exact unchanged compiled manifest
+in its warmed private project passes 1,161 production assertions and all eleven
+controls. No source/fixture/control change, recompile, timeout increase or exception
+suppression was introduced; the original full report remains FAIL. All 2,024
+tracked runtime/test/build inputs and report/log hashes remain unchanged. Successful
+unrelated scopes were not repeated. Private receipt/branch-stamp reader corrections
+retain their original failures and change no test or production behavior.
+
+The actual Build627-to-628 compiled comparison changes 25 types and adds four,
+with no removal or unexplained behavior: sixteen implementation owners, eight
+inlined ModBuild changes and one GitBranch stamp. Public surfaces are 670 config
+keys (+1), 217 literal patch registrations (+2), 4,790 unchanged log tokens;
+inventory is 190 classes/281 methods. The earlier unmodified NPC Material-cache
+exception remains unproven; worker baseline, independent and final proofs pass,
+with no cache change or suppression. All four new Frame worktrees are removed
+only after complete evidence verification; other agents' worktrees remain intact.
+
 No new Frame stereo/FPS or paired multiplayer outcome is established. See
 [FRAME-628-INTEGRATION.md](../docs/performance/FRAME-628-INTEGRATION.md) for
-behavior, source-proven safeguards, pending validation and next hardware checks.
+behavior, source-proven safeguards, exact validation/continuation boundaries and
+next hardware checks. Original integrated reports remain in
+`.planning/debug/frame628/validation-ledger.json`; verified worker archives and
+source bundle remain in `.planning/debug/frame-steady-handover-20261006/`.
 
 ---
 

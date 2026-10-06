@@ -55,11 +55,38 @@ bank checks. The exact Build627 compiled comparison has 16 intended changed and
 four new types, with no collateral types. Config keys grow 669 to 670, literal
 patch registrations 215 to 217, and all 4,790 log tokens remain.
 
-Final integrated Build628 validation is pending. The final dev tree must pass the
-complete local gate again before pushing; worker-only evidence is insufficient.
-Raw receipts, source manifests, verified source bundle, native pixels and
-retained earlier failures live in `.planning/debug/frame-steady-handover-20261006/`
-and the final integrated receipts in `.planning/debug/frame628/`.
+Final integrated source `686c85a3d` passes all 14 source gates, strict Release
+and Debug (zero warnings/errors), bilingual documents, the four pinned bundles,
+figure bank and the final 308,358 wire/golden assertions. The complete local
+attempt records all 141 scopes: 140 direct passes and one retained NPC623 Unity
+cold-start timeout. Native project loading took 375.623 seconds against the
+unchanged 300-second limit. The exact original compiled manifest subsequently
+passes its production case (1,161 assertions) and all eleven negative controls
+in the warmed private project. No source/fixture/control change, recompile,
+timeout increase or exception suppression was used. All 2,024 frozen tracked
+source/test/build inputs and all report/log hashes remain unchanged; successful
+unrelated scopes were not repeated. The original complete report remains FAIL;
+its exact continuation is recorded separately, not rewritten as a direct pass.
+
+Actual Build627-to-628 compiled output changes 25 types and adds four: sixteen
+reviewed behavior types, eight types containing only the new inlined ModBuild,
+and BuildInfo containing only the worker-to-dev GitBranch stamp. No type is
+removed or unexplained. The original guard exits at the local startup timeout;
+its remaining wire/bundle/surface/snapshot operations and the explicit compiled
+review pass afterward. A private receipt reader initially expected a colon after
+PASS production, and the private compiled reader initially flagged the branch
+stamp. Both reader corrections retain their initial logs; native fixtures and
+source are unchanged. Config/patch/log surfaces remain 670/217/4,790, with no
+removal. Inventory is 190 patch classes and 281 methods.
+
+Fresh integrated native proofs pass: terrain 290 assertions/37 negative controls;
+environment 11,372/76; idle 656/40; figure detail 146/30; mirror reads 661/11;
+shared UI 1,660 plus 1,659 unsupported-runtime fallback assertions/12; UI inventory
+1,021/5. Source manifests, actual callbacks/pixels, verified source bundle and
+retained worker failures live in `.planning/debug/frame-steady-handover-20261006/`;
+final integrated receipts and continuation boundaries live in
+`.planning/debug/frame628/validation-ledger.json`. Only subsequent Markdown
+changes reuse this unchanged validated source tree.
 
 One earlier worker attempt raised InvalidCastException in an unchanged NPC
 Material cache. All 70 production bindings and normalized production IL match a

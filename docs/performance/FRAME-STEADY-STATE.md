@@ -1,9 +1,11 @@
 # Loaded scenario performance follow-up
 
-This worker package starts from `dev` at `a517e0090` (ModBuild627). It targets
+The implementation was developed from `dev` at `a517e0090` (ModBuild627) in an
+isolated worker and is now integrated as common PC/Frame Build628. It targets
 continuous work after scenario preparation, following the maintainer's October6
-clarification that loading hitches are acceptable. It does not assign a new
-shared build number, merge the NPC integrator's branch or publish a release.
+clarification that loading hitches are acceptable. See
+[FRAME-628-INTEGRATION.md](FRAME-628-INTEGRATION.md) for final dev validation,
+retained timeout/continuation evidence and the source-proven hardware limits.
 
 ## Evidence and priorities
 
