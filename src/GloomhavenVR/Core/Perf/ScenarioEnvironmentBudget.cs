@@ -787,7 +787,8 @@ internal static class ScenarioEnvironmentBudget
                 Walk(loading ? 4096 : NodesPerFrame);
                 if (_buildPending && _pending.Count == 0) PrepareBatches();
                 DrainBatches(loading ? int.MaxValue : 2);
-                if (_reportPending && !_buildPending && !IsPreparingPresentation) Report();
+                if (_reportPending && !_buildPending && !IsPreparingPresentation)
+                { _reportPending = false; Report(); }
             }
             catch (Exception error) { StopAfterFailure(error); }
         }
@@ -825,6 +826,7 @@ internal static class ScenarioEnvironmentBudget
                 Walk(int.MaxValue);
                 PrepareBatches();
                 DrainBatches(int.MaxValue);
+                _reportPending = false;
                 Report();
             }
             catch (Exception error) { StopAfterFailure(error); }
@@ -1362,7 +1364,6 @@ internal static class ScenarioEnvironmentBudget
         }
         private void Report()
         {
-            _reportPending = false;
             if (!VRLog.Wants(VRLogLevel.Debug) || _reports >= 32) return;
             ++_reports;
             int batched = 0;
