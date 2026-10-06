@@ -80,7 +80,9 @@ def main():
              'Ambiguous native town-service texture requires an explicit binding: CoinIcon2_White'),
             ('original-ring-refused', 'TownServiceAssets.cs', '|| texture.name == "T_disc_ring"', '|| false && texture.name == "T_disc_ring"',
              'different borrow orders retain the original native effect identity'),
-            ('front-sprite-omitted', 'TownServiceBinding.cs', 'image.sprite = assets.Resolve<Sprite>(text[0]); image.overrideSprite = assets.Resolve<Sprite>(text[1]);',
+            ('front-sprite-omitted', 'TownServiceBinding.cs',
+             'image.sprite = GloomhavenVR.Cards.CardFaceMipBake.PresentationFor(assets.Resolve<Sprite>(text[0]));\n'
+             '                        image.overrideSprite = GloomhavenVR.Cards.CardFaceMipBake.PresentationFor(assets.Resolve<Sprite>(text[1]));',
              'image.sprite = null; image.overrideSprite = null;', 'public held item retains its complete original artwork sprite'),
         ]
     if not args.no_negative_controls and stock.is_file():
