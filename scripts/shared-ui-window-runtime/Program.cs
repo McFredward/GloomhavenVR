@@ -85,6 +85,8 @@ public static class InteractionProgram
         int independentMembers = Proof.RegistryMembers, independentGroups = Proof.GroupReads;
         Check(Proof.NativeCullCallbacks == 0, "direct native renderer ownership writes invoke no managed cull callback inside collection");
         Check(Proof.RegistryScans == 20 && independentMembers == 2000, "off path independently reads 100 native windows for each of 20 panels");
+        Check(PerfMonitor.Value("UI.WindowRegistryIndependentScans") == Proof.RegistryScans && PerfMonitor.Value("UI.WindowRegistryIndependentMembers") == Proof.RegistryMembers, "debug Off registry counters equal actual native iteration work");
+        Check(PerfMonitor.Value("UI.WindowRegistrySharedScans") == 0, "debug Off does not claim shared registry work");
         foreach (Image graphic in graphics) Check(graphic.canvasRenderer.cull && graphic.canvasRenderer.GetAlpha() == 0f, "off path catches hidden content before rendering");
         foreach (ConvertedPanel panel in panels) Release(panel);
         PerfConfig.SharedUiWindowReadsOn = true;
@@ -94,6 +96,9 @@ public static class InteractionProgram
         Check(Proof.NativeCullCallbacks == 0, "shared group observation spans no managed cull callback");
         Check(Proof.RegistryScans == (supported ? 1 : 20), "one exact shared registry distribution replaces 20 independent scans");
         Check(sharedMembers == (supported ? 100 : 2000), "shared pass reads each registry member once");
+        Check(PerfMonitor.Value("UI.WindowRegistrySharedScans") + PerfMonitor.Value("UI.WindowRegistryIndependentScans") == Proof.RegistryScans, "debug registry scan counts equal actual shared and fallback work");
+        Check(PerfMonitor.Value("UI.WindowRegistrySharedMembers") + PerfMonitor.Value("UI.WindowRegistryIndependentMembers") == Proof.RegistryMembers, "debug registry member counts equal actual shared and fallback work");
+        Check(PerfMonitor.Value("UI.WindowRegistryReusePanels") == (supported ? 19 : 0), "debug reuse counts only panels reusing an existing native distribution");
         Check(sharedGroups < independentGroups / 2, "shared pure group reads remove repeated native ancestor component reads");
         foreach (Image graphic in graphics) Check(graphic.canvasRenderer.cull && graphic.canvasRenderer.GetAlpha() == 0f, "shared path catches the same hidden content before rendering");
 
@@ -102,6 +107,14 @@ public static class InteractionProgram
         for (int repeat = 0; repeat < 40; repeat++) CanvasConversion.LateTick();
         Check(Proof.RegistryScans == (supported ? 40 : 800), "steady shared routing uses one registry scan per pass");
         Check(Proof.ComponentCaptures == 0, "steady unchanged topology allocates no replacement component inventory");
+        Check(PerfMonitor.Value("UI.WindowRegistrySharedScans") + PerfMonitor.Value("UI.WindowRegistryIndependentScans") == Proof.RegistryScans, "debug scan counters accumulate exact steady work across scoped passes");
+        Check(PerfMonitor.Value("UI.WindowRegistrySharedMembers") + PerfMonitor.Value("UI.WindowRegistryIndependentMembers") == Proof.RegistryMembers, "debug member counters accumulate exact steady work across scoped passes");
+        PerfMonitor.StepsActive = false; Proof.Reset(); CanvasConversion.LateTick();
+        Check(PerfMonitor.Counts.Count == 0 && Proof.RegistryScans > 0, "normal UI rendering performs native work without diagnostic reports");
+        PerfMonitor.StepsActive = true;
+        VRLog.WantsDebug = false; Proof.Reset(); CanvasConversion.LateTick();
+        Check(PerfMonitor.Counts.Count == 0 && Proof.RegistryScans > 0, "normal log level performs registry work without diagnostic sampling");
+        VRLog.WantsDebug = true;
         Check(ReferenceEquals(rootStorage, Field("SharedVeilRoots")) && ReferenceEquals(routeStorage, Field("SharedVeilRootHeads")), "warmed routing storage is reused");
         Check(((ICollection)Field("SharedVeilRoots")!).Count == 0 && ((IDictionary)Field("SharedVeilRootHeads")!).Count == 0 && Field("SharedVeilRegistry") == null, "shared pass releases all route and registry references");
 

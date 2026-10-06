@@ -81,6 +81,14 @@ def main():
     fixture = root / 'scripts/remote-mirror-read-runtime'
     mirror = root / 'src/GloomhavenVR/Net/Remote/RemoteWidgetMirror.cs'
     code = mirror.read_text()
+    sync = block(code, 'private void Sync()')
+    assert 'using var nativeReadWork = NativeMirrorReadWork.Begin();' in sync
+    work_path = root / 'src/GloomhavenVR/Net/Remote/NativeMirrorReadWork.cs'
+    monitor_path = root / 'src/GloomhavenVR/Core/Perf/PerfMonitor.cs'
+    tally_path = root / 'src/GloomhavenVR/Core/Perf/PerfMonitor.Counters.cs'
+    monitor = monitor_path.read_text()
+    counter_output = block(monitor, 'internal static void RegisterDebug(string name)') + '\n' + block(monitor, 'private static void LogCounters(float windowSeconds)')
+    counter_output = counter_output.replace('Scope0,', '"Perf",')
     pair = block(code, 'private struct Pair').replace('private struct Pair', 'internal struct Pair', 1)
     # Outer-class documentation references are outside this narrowly compiled fixture.
     pair = re.sub(r'^\s*///[^\n]*\n', '', pair, flags=re.MULTILINE)
@@ -96,6 +104,9 @@ def main():
     material_write = block(material, 'internal static void Material(Graphic target, Material material)')
     variants = [
         ('production', '', '', ''),
+        ('debug-read-undercount', '', '', 'debug counters equal evaluated nonvirtual source getters'),
+        ('debug-nested-flush', '', '', 'nested reads wait for outer mirror scope before reporting'),
+        ('debug-normal-log-leak', '', '', 'normal log level emits no diagnostic-only counter line'),
         ('repeated-native-getter', 'reuseNativeReads ? sourceAnchorMin : _srcRect.anchorMin',
          'false ? sourceAnchorMin : _srcRect.anchorMin', 'changed native getter read once'),
         ('off-ignored', 'PerfConfig.SharedUiWindowReadsOn', 'true', 'Off read/write/callback trace equals original Apply'),
@@ -123,7 +134,7 @@ def main():
     unity = Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity'))
     managed = unity.parent / 'Data/Managed'
     game = root / 'ressources/GH_Data/Managed'
-    proof_files = [mirror, material_path, root / 'scripts/check-mirror-dials.py', root / '.planning/refactor/MIRROR-DIALS.allow', root / 'src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs', Path(__file__).resolve(), *fixture.glob('*.*'), fixture / 'Editor/MirrorReadsRunner.cs',
+    proof_files = [mirror, work_path, monitor_path, tally_path, material_path, root / 'scripts/check-mirror-dials.py', root / '.planning/refactor/MIRROR-DIALS.allow', root / 'src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs', Path(__file__).resolve(), *fixture.glob('*.*'), fixture / 'Editor/MirrorReadsRunner.cs',
                    game / 'UnityEngine.UI.dll', game / 'Unity.TextMeshPro.dll',
                    game / 'UnityEngine.CoreModule.dll', game / 'UnityEngine.UIModule.dll']
     hashes = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in proof_files}
@@ -154,6 +165,19 @@ def main():
         generated_code = 'using System; using GloomhavenVR.Core; using TMPro; using UnityEngine; using UnityEngine.UI; namespace GloomhavenVR.Net { internal static class RemoteWidgetMirror {\n' + current + '\n}\n' + owner + '\ninternal static class NativePlaybackWrites {\n' + material_write + '\n}\n}'
         case = run / name; generated = case / 'production'; generated.mkdir(parents=True)
         (generated / 'Pair.cs').write_text(generated_code)
+        work_code = work_path.read_text()
+        if name == 'debug-read-undercount':
+            assert work_code.count('_reads++;') == 2
+            work_code = work_code.replace('_reads++;', '_reads += 0;', 1)
+        if name == 'debug-nested-flush':
+            assert work_code.count('if (!_active || --_depth != 0) return;') == 1
+            work_code = work_code.replace('if (!_active || --_depth != 0) return;', 'if (!_active) return; --_depth;', 1)
+        (generated / 'NativeMirrorReadWork.cs').write_text(work_code)
+        counter_code = counter_output
+        if name == 'debug-normal-log-leak':
+            counter_code = counter_code.replace('tally.DebugOnly = true;', 'tally.DebugOnly = false;', 1)
+        (generated / 'CounterOutput.cs').write_text('using System.Text; using UnityEngine; namespace GloomhavenVR.Core { internal static partial class PerfMonitor {' + counter_code + '}}')
+        (generated / 'Counters.cs').write_text(re.sub(r'^\s*///[^\n]*\n', '', tally_path.read_text(), flags=re.MULTILINE))
         shutil.copyfile(fixture / 'MirrorReads.csproj', case / 'MirrorReads.csproj')
         assembly = 'MirrorReads_' + name.replace('-', '_')
         command = [dotnet, 'build', str(case / 'MirrorReads.csproj'), '-c', 'Release', '--nologo', '--verbosity', 'quiet',

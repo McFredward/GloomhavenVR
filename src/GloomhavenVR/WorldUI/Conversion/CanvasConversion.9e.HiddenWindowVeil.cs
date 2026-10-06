@@ -398,8 +398,11 @@ internal static partial class CanvasConversion
         // for already inventoried entries; a newly registered window is admitted immediately.
         HashSet<UIWindow>? registered = UIWindow.GetWindows();
         if (registered == null) return;
+        bool countRegistryWork = PerfMonitor.StepsActive && VRLog.WantsDebug;
+        if (countRegistryWork) IndependentRegistryScans++;
         foreach (UIWindow window in registered)
         {
+            if (countRegistryWork) IndependentRegistryMembers++;
             if (window == null || state.WindowSet.Contains(window)
                 || !window.transform.IsChildOf(target)) continue;
             state.WindowSet.Add(window);

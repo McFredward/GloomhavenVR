@@ -42,6 +42,7 @@ internal static partial class CanvasConversion
     private static int SharedVeilHierarchyRevision;
     private static bool SharedVeilRootsDirty;
     private static bool SharedVeilReadPass;
+    private static long SharedRegistryScans, SharedRegistryMembers, IndependentRegistryScans, IndependentRegistryMembers, SharedRegistryReusePanels;
 
     private static AccessTools.FieldRef<HashSet<UIWindow>, int>? ResolveNativeWindowRegistryVersion()
     {
@@ -97,6 +98,14 @@ internal static partial class CanvasConversion
 
     private static void EndSharedVeilWindowReads()
     {
+        // Flush once per complete LateTick, never once per native window/graphic.
+        // These count executed membership visits, not hypothetical saved getters.
+        PerfMonitor.Count("UI.WindowRegistrySharedScans", SharedRegistryScans);
+        PerfMonitor.Count("UI.WindowRegistrySharedMembers", SharedRegistryMembers);
+        PerfMonitor.Count("UI.WindowRegistryIndependentScans", IndependentRegistryScans);
+        PerfMonitor.Count("UI.WindowRegistryIndependentMembers", IndependentRegistryMembers);
+        PerfMonitor.Count("UI.WindowRegistryReusePanels", SharedRegistryReusePanels);
+        SharedRegistryScans = SharedRegistryMembers = IndependentRegistryScans = IndependentRegistryMembers = SharedRegistryReusePanels = 0;
         SharedVeilReadPass = false;
         SharedVeilRegistry = null;
         SharedVeilRoots.Clear();
@@ -144,7 +153,11 @@ internal static partial class CanvasConversion
         bool registryChanged = !ReferenceEquals(registered, SharedVeilRegistry)
             || version != SharedVeilRegistryVersion;
         if (!registryChanged && !SharedVeilRootsDirty
-            && SharedVeilHierarchyRevision == UiHierarchyInventory.HierarchyRevision) return true;
+            && SharedVeilHierarchyRevision == UiHierarchyInventory.HierarchyRevision)
+        {
+            if (PerfMonitor.StepsActive && VRLog.WantsDebug) SharedRegistryReusePanels++;
+            return true;
+        }
 
         SharedVeilRootHeads.Clear();
         for (int i = 0; i < SharedVeilRoots.Count; i++)
@@ -174,8 +187,11 @@ internal static partial class CanvasConversion
             SharedVeilRoots[i] = entry;
             SharedVeilRootHeads[entry.Root] = i;
         }
+        bool countRegistryWork = PerfMonitor.StepsActive && VRLog.WantsDebug;
+        if (countRegistryWork) SharedRegistryScans++;
         foreach (UIWindow window in registered)
         {
+            if (countRegistryWork) SharedRegistryMembers++;
             if (window == null) continue;
             for (Transform? node = window.transform; node != null; node = node.parent)
             {
