@@ -87,6 +87,7 @@ internal static class TownServicePresentation
     internal static bool OwnsWindow(UIWindow window) => TownServicePalmConfirmation.Owns(window)
         || TownServiceConfirmationMask.Owns(window)
         || TownServiceWindowMask.OwnsRetiring(window)
+        || TownServiceQuietController.OwnsWindow(window)
         || WantsNativeController(window)
         || (_catalog != null || _ritual != null || _contextMask != null) && _window != null
         && (window == _window || window.transform.IsChildOf(_window.transform));

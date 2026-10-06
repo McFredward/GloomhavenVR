@@ -27,6 +27,9 @@ internal static class TownServiceQuietController
     private static RectTransform? _source;
     private static bool _sourceActive;
     private static ControllerChangedEvent? _ownershipChanged;
+    private static readonly PropertyInfo? SupplementaryToken = AccessTools.Property(typeof(GameAction), "SupplementaryDataToken");
+    private static float _nextPointsSample;
+    private static int _points = -1, _capacity = -1;
     internal static byte RequestedService
     {
         get
@@ -54,6 +57,8 @@ internal static class TownServiceQuietController
     internal static bool IsSourceBoundary(Transform source) => ReferenceEquals(source, _sourceFrame)
         || _source != null && ReferenceEquals(source, _source.parent)
         || _owner != null && ReferenceEquals(source, _owner.transform);
+    internal static bool OwnsWindow(UIWindow window) => _owner != null
+        && (ReferenceEquals(window, _owner) || _source != null && window.transform.IsChildOf(_source));
     internal static bool OriginalVisible(Transform source, UIWindow window, byte service)
     {
         if (!TownServicePresentation.IsQuietController(window, service)
@@ -89,7 +94,19 @@ internal static class TownServiceQuietController
             || slot.Service?.CharacterID != character.CharacterID) return false;
         object party = AdventureState.MapState.MapParty;
         if (ReferenceEquals(_owner, window) && ReferenceEquals(_party, party)
-            && ReferenceEquals(_character, character)) return true;
+            && ReferenceEquals(_character, character))
+        {
+            if (service == 3 && Time.unscaledTime >= _nextPointsSample
+                && window.GetComponent<UINewEnhancementWindow>() is UINewEnhancementWindow mage)
+            {
+                _nextPointsSample = Time.unscaledTime + .25f;
+                int points = mage.character.GetFreeEnhancementSlots();
+                int capacity = AdventureState.MapState.HeadquartersState.EnhancementSlots;
+                if (points != _points || capacity != _capacity)
+                { mage.CardsDisplay.UpdateEnhancementPoints(); _points = points; _capacity = capacity; }
+            }
+            return true;
+        }
         if (_owner != null) Release();
         try
         {
@@ -189,6 +206,28 @@ internal static class TownServiceQuietController
         }
     }
 
+    internal static void RefreshProxyEnhancement(UINewEnhancementWindow shop, GameAction action, bool valid, bool added)
+    {
+        // The native proxy commits the same validated game action while the window is closed,
+        // but intentionally skips its UI refresh. Refresh only this owner's quiet original
+        // sources after that successful callback; never rerun payment or another player's UI.
+        if (!valid || !ReferenceEquals(_owner, shop.GetComponent<UIWindow>())
+            || !TownServicePresentation.IsQuietController(_owner!, 3)
+            || SupplementaryToken?.GetValue(action, null) is not EnhancementToken token
+            || shop.character == null) return;
+        var assigned = (Dictionary<CAbilityCard, UIEnhanceCardSlot>)Field(shop.CardsDisplay, "assignedSlots")
+            .GetValue(shop.CardsDisplay)!;
+        foreach (CAbilityCard card in assigned.Keys)
+        {
+            if (card.ID != token.CardID) continue;
+            bool selected = shop.selectedCard != null && shop.selectedCard.AbilityCard.ID == card.ID;
+            if (added) shop.CardsDisplay.OnAddedEnhancement(card, selected);
+            else shop.CardsDisplay.OnRemovedEnhancement(card, selected);
+            if (selected) Method(shop, "RefreshSelectionAfterEnhance").Invoke(shop, new object[] { shop.selectedCard! });
+            return;
+        }
+    }
+
     internal static void Release()
     {
         UIWindow? owner = _owner; _owner = null;
@@ -206,6 +245,7 @@ internal static class TownServiceQuietController
         _sourceMask?.Dispose(); _sourceMask = null; _source = null;
         if (_sourceFrame != null) UnityEngine.Object.Destroy(_sourceFrame.gameObject);
         _sourceFrame = null; _party = _character = null;
+        _nextPointsSample = 0f; _points = _capacity = -1;
     }
     internal static void Reset() { Release(); _requested = 0; }
     private static FieldInfo Field(object owner, string name) => AccessTools.Field(owner.GetType(), name)
@@ -213,4 +253,18 @@ internal static class TownServiceQuietController
     private static MethodInfo Method(object owner, string name) => AccessTools.Method(owner.GetType(), name)
         ?? throw new MissingMethodException(owner.GetType().FullName, name);
     private static void Invoke(object owner, string name) => Method(owner, name).Invoke(owner, null);
+}
+
+[HarmonyPatch(typeof(UINewEnhancementWindow), nameof(UINewEnhancementWindow.ProxyBuyEnhancement))]
+internal static class QuietEnhancementBuyRefresh
+{
+    private static void Postfix(UINewEnhancementWindow __instance, GameAction action, bool actionValid)
+        => TownServiceQuietController.RefreshProxyEnhancement(__instance, action, actionValid, added: true);
+}
+
+[HarmonyPatch(typeof(UINewEnhancementWindow), nameof(UINewEnhancementWindow.ProxySellEnhancement))]
+internal static class QuietEnhancementSellRefresh
+{
+    private static void Postfix(UINewEnhancementWindow __instance, GameAction action, bool actionValid)
+        => TownServiceQuietController.RefreshProxyEnhancement(__instance, action, actionValid, added: false);
 }
