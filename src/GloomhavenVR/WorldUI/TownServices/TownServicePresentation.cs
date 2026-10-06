@@ -147,10 +147,14 @@ internal static class TownServicePresentation
         if (!WorldUIConfig.ImmersiveTownServices.Value || !TownServiceGrantSync.CanUseImmersive)
         {
             // Cancel samples before restoring their source widgets. Never close/reopen the
-            // native controller: its character, selection and pending confirmation stay intact.
+            // previously open native controller. A quiet controller must enter the ordinary
+            // native mode once when the player explicitly returns to original windows.
             UIWindow? restore = _window;
+            byte quietService = _quietService;
             Reset();
             _failedWindow = null;
+            if (restore != null && quietService != 0)
+                OpenOriginalWindow(restore, quietService, "original town windows selected");
             if (restore != null && restore.IsOpen)
                 ModalFallback.RestoreClassicTownService(restore);
             return;
@@ -394,16 +398,10 @@ internal static class TownServicePresentation
         Reset();
         if (quiet)
         {
-            // This exceptional recovery is the only quiet visit that opens the old window.
+            // Exceptional recovery and an explicit return to original-window mode are
+            // the only quiet routes that open the old window.
             // Clear the logical request so the next tick cannot immediately reclaim it.
-            TownServiceQuietController.Reset();
-            EGuildmasterMode mode = service == 1 ? EGuildmasterMode.Merchant
-                : service == 2 ? EGuildmasterMode.Temple : EGuildmasterMode.Enchantress;
-            NewPartyCharacterUI? selected = NewPartyDisplayUI.PartyDisplay?.SelectedUISlot;
-            if (!original.IsOpen) MapRoomDriver.PressGuildmasterMode(mode, reason, suppressNativeSound: true);
-            NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
-            if (selected != null && selected.State == PartySlotState.Assigned && display != null
-                && !ReferenceEquals(display.SelectedUISlot, selected)) selected.OnClick();
+            OpenOriginalWindow(original, service, reason);
         }
         original.onHidden.AddListener(OnFallbackHidden);
         ConvertedPanel? restored = ModalFallback.RestoreTownServiceContext(original,
@@ -558,18 +556,24 @@ internal static class TownServicePresentation
             // preparation every render frame. Ordinary immersive visits never dispatch a
             // map mode; this exact failed controller gets the existing native escape hatch.
             Reset();
-            TownServiceQuietController.Reset();
             _failedWindow = window;
             window.onHidden.AddListener(OnFallbackHidden);
-            EGuildmasterMode mode = service == 1 ? EGuildmasterMode.Merchant : EGuildmasterMode.Enchantress;
-            NewPartyCharacterUI? selected = NewPartyDisplayUI.PartyDisplay?.SelectedUISlot;
-            if (!window.IsOpen) MapRoomDriver.PressGuildmasterMode(mode, "quiet service preparation failed", suppressNativeSound: true);
-            NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
-            if (selected != null && selected.State == PartySlotState.Assigned && display != null
-                && !ReferenceEquals(display.SelectedUISlot, selected)) selected.OnClick();
-            VRLog.Warn("TownServices", "Original " + mode + " window restored after quiet preparation failed: " + error);
+            OpenOriginalWindow(window, service, "quiet service preparation failed");
+            VRLog.Warn("TownServices", "Original service " + service + " window restored after quiet preparation failed: " + error);
             return false;
         }
+    }
+
+    private static void OpenOriginalWindow(UIWindow original, byte service, string reason)
+    {
+        TownServiceQuietController.Reset();
+        EGuildmasterMode mode = service == 1 ? EGuildmasterMode.Merchant
+            : service == 2 ? EGuildmasterMode.Temple : EGuildmasterMode.Enchantress;
+        NewPartyCharacterUI? selected = NewPartyDisplayUI.PartyDisplay?.SelectedUISlot;
+        if (!original.IsOpen) MapRoomDriver.PressGuildmasterMode(mode, reason, suppressNativeSound: true);
+        NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
+        if (selected != null && selected.State == PartySlotState.Assigned && display != null
+            && !ReferenceEquals(display.SelectedUISlot, selected)) selected.OnClick();
     }
 
     private static void OnFallbackHidden()
