@@ -192,6 +192,7 @@ internal static class TownServiceQuietController
     private static void PrepareOriginalCardSlots(UINewEnhancementWindow shop)
     {
         UIPartyCharacterEnhancementAbilityCardsDisplay display = shop.CardsDisplay;
+        display.ShowWarningPoints(false);
         Field(display, "characterData").SetValue(display, shop.character);
         Action<AbilityCardUI> selected = card => shop.OnSelectedCardToEnhance(card);
         Field(display, "onAbilityCardSelected").SetValue(display, selected);
@@ -262,19 +263,37 @@ internal static class TownServiceQuietController
         UIWindow? owner = _owner; _owner = null;
         if (_ownershipChanged != null) ControllableRegistry.OnControllerChanged -= _ownershipChanged;
         _ownershipChanged = null;
-        if (owner != null && owner.GetComponent<UIShopItemWindow>() is UIShopItemWindow merchant)
-            Invoke(merchant, "ClearEvents");
-        if (owner != null && owner.GetComponent<UINewEnhancementWindow>() is UINewEnhancementWindow mage)
+        try
         {
-            mage.OnSelectedCardToEnhance(null);
-            mage.CardsDisplay.Deselect();
+            if (owner != null && owner.GetComponent<UIShopItemWindow>() is UIShopItemWindow merchant)
+                Invoke(merchant, "ClearEvents");
+            if (owner != null && owner.GetComponent<UINewEnhancementWindow>() is UINewEnhancementWindow mage)
+            {
+                mage.OnSelectedCardToEnhance(null);
+                mage.CardsDisplay.Deselect();
+            }
         }
-        // Native callback sources return to their exact original hierarchy and active state.
-        if (_source != null) _source.gameObject.SetActive(_sourceActive);
-        _sourceMask?.Dispose(); _sourceMask = null; _source = null;
-        if (_sourceFrame != null) UnityEngine.Object.Destroy(_sourceFrame.gameObject);
-        _sourceFrame = null; _party = _character = null;
-        _nextPointsSample = 0f; _points = _capacity = -1;
+        catch (Exception error)
+        {
+            if (owner != null) ReportProxyFailure(owner, error);
+        }
+        finally
+        {
+            // A scene/save teardown or a partly initialized original must still release
+            // its active source island even if a native cleanup callback has disappeared.
+            try
+            {
+                try { if (_source != null) _source.gameObject.SetActive(_sourceActive); }
+                finally { _sourceMask?.Dispose(); }
+            }
+            finally
+            {
+                _sourceMask = null; _source = null;
+                if (_sourceFrame != null) UnityEngine.Object.Destroy(_sourceFrame.gameObject);
+                _sourceFrame = null; _party = _character = null;
+                _nextPointsSample = 0f; _points = _capacity = -1;
+            }
+        }
     }
     internal static void Reset() { Release(); _requested = 0; }
     internal static void ReportProxyFailure(UnityEngine.Object source, Exception error)
