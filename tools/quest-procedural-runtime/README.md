@@ -63,3 +63,51 @@ POSIX `sh` or Git subprocess. This affects build provenance only, with the origi
 NDK LLVM executables with explicit targets, not Windows batch wrappers.
 
 The exact socket setup is visible in Wine's original [client setup_config_dir/init_server_dir](https://github.com/wine-mirror/wine/blob/wine-9.0/dlls/ntdll/unix/server.c) and [server create_server_dir](https://github.com/wine-mirror/wine/blob/wine-9.0/server/request.c).
+
+The B625 capture reaches Wine's `ntdll.so` but fails GNU `__errno_location`
+and `__assert_fail` binding on Bionic. `box64_bionic_abi.py` verifies the pinned
+complete `wrappedlibc.c` and private map before adding Android-only bindings.
+GNU errno maps to Bionic `__errno`; the assertion adapter preserves the GNU
+arguments and terminates through Bionic `__assert2`. GNU ctype accessors return
+thread-local pointers to 384-entry tables with GNU classification bit order,
+32-bit case values, signed-byte indexing and separate EOF. Linux source branches
+and maps remain unchanged. Tests include the complete pinned MIT source.
+
+The worker subprocess explicitly uses `C.UTF-8`. It ships no MO catalogs, so
+the font library's `dcgettext` adapter preserves the original diagnostic string.
+The GNU `initstate_r`/`random_r` adapters preserve caller-owned 48-byte structures,
+all state-size thresholds, 32-bit signed seed boundaries, state metadata and
+GNU output sequences. They do not use Bionic's process-global random generator.
+The host GNU oracle verifies every ctype entry and 245,760 generated values;
+actual NDK compilation verifies the Android helper's exports. Neither establishes
+successful Wine/original-engine execution on Quest.
+
+`abi_audit.py` reads actual ELF dynamic/version tables with no Python package
+dependency. Native builds retain SHA-bound copies of their compiled wrapper
+headers; staging checks those exact GO/GOM/GO2 targets against the actual Box64
+exports and public API29 Bionic dependencies. The fourteen required guest ELF
+files cover bootstrap, `win32u`/`ws2_32` reached by the original DLL's static PE
+imports, libgcc and the eight explicitly emulated font libraries. Guest-export
+bindings retain version/default-version semantics. Unknown required dependencies
+and strong imports fail before content delivery; unresolved weak imports remain
+legal. A real old B625 payload fails with 22 unresolved occurrences of the seven
+fixed names. `guest-abi-audit.json` records the final static check and keeps
+`androidExecutionVerified=false`.
+
+Other Unix Wine modules remain available as original data, but this gate does
+not establish their Android support. In particular the original `dnsapi.so`
+retains its unresolved GNU resolver-state dependencies; it is absent from the
+current worker's nineteen-DLL static import closure. No fake resolver state is
+provided. Dynamic DLL loading, a changed engine dependency graph, fresh prefix
+initialization, callbacks, sleep/resume and hardware performance still require
+runtime evidence; they must not be inferred from a passed symbol gate.
+
+Every launch starts `procedural-worker.log` with UTC, parent/child PID, spawn
+result and the native build input key. Only the previous attempt's last 256 KiB
+is retained in `procedural-worker.previous.log`. This avoids attributing an old
+failure to a new APK while keeping the existing collector's current-log path.
+
+ABI references: [GNU ctype layout](https://github.com/bminor/glibc/blob/glibc-2.39/ctype/ctype.h),
+[GNU reentrant random state](https://github.com/bminor/glibc/blob/glibc-2.39/stdlib/random_r.c),
+[Bionic errno](https://github.com/aosp-mirror/platform_bionic/blob/android-14.0.0_r1/libc/include/errno.h),
+and [Bionic assertion arguments](https://github.com/aosp-mirror/platform_bionic/blob/android-14.0.0_r1/libc/include/assert.h).

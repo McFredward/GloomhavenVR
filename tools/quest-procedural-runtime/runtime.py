@@ -88,6 +88,13 @@ def _glibc_guest_tools():
     return module
 
 
+def _abi_tools(name):
+    spec = importlib.util.spec_from_file_location("quest_procedural_" + name, HERE / (name + ".py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _wine_paths(payload):
     spec = importlib.util.spec_from_file_location("quest_procedural_wine_paths", HERE / "wine_paths.py")
     module = importlib.util.module_from_spec(spec)
@@ -122,7 +129,8 @@ def build(output_cache: Path, ndk: Path) -> tuple[Path, dict]:
     ndk = Path(ndk).resolve()
     key = hashlib.sha256((digest(ndk / "source.properties") + "".join(digest(path) for path in
                          (HERE / "runtime.py", HERE / "upstream.lock.json", HERE / "protocol.h", HERE / "worker.c",
-                          HERE / "bridge.c", HERE / "server_launcher.c", HERE / "box64_guest.py", HERE / "box64_host.py", HERE / "box64_glibc_guest.py"))).encode()).hexdigest()
+                          HERE / "bridge.c", HERE / "server_launcher.c", HERE / "box64_guest.py", HERE / "box64_host.py", HERE / "box64_glibc_guest.py",
+                          HERE / "box64_bionic_abi.py", HERE / "bionic_abi.c", HERE / "abi_audit.py"))).encode()).hexdigest()
     output = Path(output_cache).resolve() / "procedural-runtime" / key
     output.mkdir(parents=True, exist_ok=True)
     receipt_path = output / "native-build.json"
@@ -131,6 +139,10 @@ def build(output_cache: Path, ndk: Path) -> tuple[Path, dict]:
         if receipt.get("inputKey") != key or any(not (output / item["path"]).is_file() or
               digest(output / item["path"]) != item["sha256"] for item in receipt["artifacts"]):
             raise RuntimeError("Cached procedural native artifacts differ from their build receipt.")
+        headers = receipt.get("abiWrapperHeaders", [])
+        if not headers or any(not (output / "sources/abi-headers" / item["path"]).is_file() or
+                              digest(output / "sources/abi-headers" / item["path"]) != item["sha256"] for item in headers):
+            raise RuntimeError("Cached procedural ABI wrapper headers differ from their build receipt.")
         return output, receipt
     upstream = LOCK["box64"]
     archive = fetch(output / "downloads", "box64-source.tar.gz", upstream["url"], upstream["sha256"])
@@ -156,6 +168,8 @@ def build(output_cache: Path, ndk: Path) -> tuple[Path, dict]:
     _guest_patch(source)
     _host_patch(source, upstream["revision"])
     _glibc_guest_tools().apply(source)
+    _abi_tools("box64_bionic_abi").apply(source)
+    abi_headers = _abi_tools("abi_audit").freeze_headers(source, output / "sources/abi-headers")
     tools = _voice_tools()
     cmake = tools.cmake_command()
     command = [cmake, "-S", str(source), "-B", str(output / "box64-build"),
@@ -190,6 +204,7 @@ def build(output_cache: Path, ndk: Path) -> tuple[Path, dict]:
         shutil.copy2(box, output / "libquest_box64.so")
         run([clang, "--target=aarch64-linux-android29", "--sysroot=" + str(root.parent / "sysroot"),
              "-std=c11", "-O2", "-fPIC", "-shared", "-fvisibility=hidden", "-Wall", "-Wextra", "-Werror",
+             '-DGHPR_NATIVE_INPUT_KEY="' + key + '"',
              str(snapshot / "bridge.c"), "-Wl,--no-undefined", "-Wl,-soname,libQuestApparance.so", "-pthread",
              "-o", str(output / "libQuestApparance.so")])
         run([clang, "--target=aarch64-linux-android29", "--sysroot=" + str(root.parent / "sysroot"), "-std=c11", "-O2", "-fPIE", "-pie", "-Wall", "-Wextra", "-Werror",
@@ -213,11 +228,14 @@ def build(output_cache: Path, ndk: Path) -> tuple[Path, dict]:
         box_exports = {line.split()[-1] for line in box_symbols.splitlines() if line.split()}
         guest_entry = _glibc_guest_tools()
         guest_entry.require_exports(box_exports)
+        _abi_tools("box64_bionic_abi").require_exports(box_exports)
     names = ("libQuestApparance.so", "libquest_box64.so", "libquest_wineserver.so", "ApparanceWorker.exe")
     receipt = {"schema": 1, "inputKey": key, "box64": upstream, "ndkSha256": digest(ndk / "source.properties"),
                "artifacts": [dict(path=name, sha256=digest(output / name), size=(output / name).stat().st_size) for name in names],
                "box64GuestEntryExports": sorted(guest_entry.REQUIRED_EXPORTS),
                "box64DualGuestEntrySourceSha256": guest_entry.SOURCE_SHA256,
+               "abiWrapperHeaders": abi_headers,
+               "box64BionicAdapterExports": sorted(_abi_tools("box64_bionic_abi").REQUIRED_EXPORTS),
                "androidExecutionVerified": False}
     receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
     # Keep the verified final artifacts and provenance, not hundreds of MB of
@@ -330,9 +348,20 @@ def stage(output_cache: Path, ndk: Path, android_plugin_directory: Path,
     fonts = payload / "fontconfig"
     fonts.mkdir(exist_ok=True)
     (fonts / "fonts.conf").write_text('<?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd"><fontconfig><cachedir prefix="xdg">fontconfig</cachedir></fontconfig>\n')
+    # Validate actual interpreted Wine inputs against the tables used to compile
+    # this exact Android executable, after all forced guest dependencies exist.
+    abi = _abi_tools("abi_audit")
+    ndk_tools = ndk_bin(Path(ndk))
+    audit = abi.inspect(payload / "wine", output / "libquest_box64.so", output / "sources/abi-headers",
+                        native["abiWrapperHeaders"], tool(ndk_tools, "clang"),
+                        ndk_tools.parent / "sysroot/usr/lib/aarch64-linux-android/29")
+    (output / "guest-abi-audit.json").write_text(json.dumps(audit, indent=2) + "\n")
+    abi.require_passed(audit)
+    (payload / "guest-abi-audit.json").write_text(json.dumps(audit, indent=2) + "\n")
     # The guest ELF files are interpreted bytes. Box64's Android-specific recipe
     # permits readable guest input without requiring writable executable files.
     receipt = {"schema": 1, "native": native, "wine": wine, "winePathEdits": wine_path_edits, "guestPackages": LOCK["guestPackages"],
+               "guestAbiAuditSha256": digest(payload / "guest-abi-audit.json"),
                "guestLibraries": guest_records, "originalEngineSha256": digest(original),
                "originalEngineSource": "owner-provided-PC-game", "androidExecutionVerified": False,
                "files": [dict(path=path.relative_to(payload).as_posix(), sha256=digest(path), size=path.stat().st_size)

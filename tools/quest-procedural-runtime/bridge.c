@@ -113,6 +113,49 @@ static int response_i(Buffer data) { int value = 0; if (data.data && data.length
 static void response_void(Buffer data) { if (data.data && data.length) error("Original procedural worker void response differs."); free(data.data); }
 static int environment_key(const char *entry, const char *key) { size_t size = strlen(key); return !strncmp(entry, key, size) && entry[size] == '='; }
 static char *environment(const char *key, const char *value) { size_t size = strlen(key) + strlen(value) + 2; char *result = malloc(size); if (result) snprintf(result, size, "%s=%s", key, value); return result; }
+#ifndef GHPR_NATIVE_INPUT_KEY
+#define GHPR_NATIVE_INPUT_KEY "unbound-host-fixture"
+#endif
+static int begin_worker_log(const char *path) {
+    /* Every attempt starts a fresh, attributed log. Retain only the previous
+       attempt's bounded tail; the existing collector reads the current file. */
+    char previous[8220]; size_t length = strlen(path);
+    if (length >= 4 && !strcmp(path + length - 4, ".log"))
+        snprintf(previous, sizeof previous, "%.*s.previous.log", (int)(length - 4), path);
+    else snprintf(previous, sizeof previous, "%s.previous.log", path);
+    int old = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (old >= 0) {
+        struct stat state;
+        if (!fstat(old, &state) && S_ISREG(state.st_mode)) {
+            int copy = open(previous, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
+            if (copy >= 0) {
+                const off_t limit = 256 * 1024;
+                if (state.st_size > limit) lseek(old, state.st_size - limit, SEEK_SET);
+                char block[4096]; ssize_t got; off_t remaining = limit;
+                while (remaining > 0 && (got = read(old, block, remaining < (off_t)sizeof block ? (size_t)remaining : sizeof block)) > 0) {
+                    remaining -= got;
+                    ssize_t cursor = 0;
+                    while (cursor < got) {
+                        ssize_t wrote = write(copy, block + cursor, (size_t)(got - cursor));
+                        if (wrote <= 0) break;
+                        cursor += wrote;
+                    }
+                    if (cursor != got) break;
+                }
+                close(copy);
+            }
+        }
+        close(old);
+    }
+    int current = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (current >= 0) {
+        time_t now = time(0); struct tm utc; char timestamp[32] = "UTC-unavailable";
+        if (gmtime_r(&now, &utc)) strftime(timestamp, sizeof timestamp, "%Y-%m-%dT%H:%M:%SZ", &utc);
+        dprintf(current, "[GHPR] launch UTC=%s parentPID=%ld nativeInput=%s locale=C.UTF-8\n",
+                timestamp, (long)getpid(), GHPR_NATIVE_INPUT_KEY);
+    }
+    return current;
+}
 static int launch(void) {
     if (!configured) { error("Quest original procedural runtime was not configured."); return 0; }
     int sockets[2];
@@ -126,18 +169,20 @@ static int launch(void) {
     snprintf(prefix, sizeof prefix, "%s/wine-prefix", writable_dir);
     snprintf(library_path, sizeof library_path, "%s/wine/lib/wine/x86_64-unix:%s/wine/lib", payload_dir, payload_dir);
     snprintf(diagnostics, sizeof diagnostics, "%s/procedural-worker.log", writable_dir);
+    int diagnostics_fd = begin_worker_log(diagnostics);
+    if (diagnostics_fd < 0) { close(sockets[0]); close(sockets[1]); error("Cannot open attributed procedural worker log."); return 0; }
     char fonts[8192], cache[8192];
     snprintf(fonts, sizeof fonts, "%s/fontconfig", payload_dir);
     snprintf(cache, sizeof cache, "%s/cache", writable_dir);
-    const char *keys[] = {"WINEPREFIX", "WINEDEBUG", "WINESERVER", "WINELOADER", "BOX64_LD_LIBRARY_PATH", "BOX64_DYNACACHE", "GHPR_BOX64", "GHPR_WINESERVER", "WINEDLLOVERRIDES", "BOX64_NOBANNER", "BOX64_LOG", "BOX64_EMULATED_LIBS", "FONTCONFIG_PATH", "FONTCONFIG_FILE", "XDG_CACHE_HOME"};
+    const char *keys[] = {"WINEPREFIX", "WINEDEBUG", "WINESERVER", "WINELOADER", "BOX64_LD_LIBRARY_PATH", "BOX64_DYNACACHE", "GHPR_BOX64", "GHPR_WINESERVER", "WINEDLLOVERRIDES", "BOX64_NOBANNER", "BOX64_LOG", "BOX64_EMULATED_LIBS", "FONTCONFIG_PATH", "FONTCONFIG_FILE", "XDG_CACHE_HOME", "LC_ALL", "LANG"};
     const char *values[] = {prefix, "-all", server, wine, library_path, "0", box, server_guest,
         "mscoree,mshtml,winegstreamer,winebus,winevulkan,winemenubuilder=", "1", "0",
         "libfontconfig.so.1:libfreetype.so.6:libexpat.so.1:libpng16.so.16:libz.so.1:libbrotlidec.so.1:libbrotlicommon.so.1:libbz2.so.1.0",
-        fonts, "fonts.conf", cache};
+        fonts, "fonts.conf", cache, "C.UTF-8", "C.UTF-8"};
     const size_t key_count = sizeof keys / sizeof keys[0];
     size_t existing = 0; while (environ[existing]) existing++;
     char **env = calloc(existing + key_count + 1, sizeof *env);
-    if (!env) { close(sockets[0]); close(sockets[1]); error("Cannot allocate procedural worker environment."); return 0; }
+    if (!env) { close(diagnostics_fd); close(sockets[0]); close(sockets[1]); error("Cannot allocate procedural worker environment."); return 0; }
     size_t count = 0;
     for (size_t index = 0; index < existing; index++) {
         int replaced = 0;
@@ -149,7 +194,7 @@ static int launch(void) {
         env[count] = environment(keys[key], values[key]);
         if (!env[count]) {
             for (size_t index = allocated; index < count; index++) free(env[index]);
-            free(env); close(sockets[0]); close(sockets[1]);
+            free(env); close(diagnostics_fd); close(sockets[0]); close(sockets[1]);
             error("Cannot allocate original worker environment entry."); return 0;
         }
         count++;
@@ -160,7 +205,8 @@ static int launch(void) {
     posix_spawn_file_actions_adddup2(&actions, sockets[1], STDOUT_FILENO);
     posix_spawn_file_actions_addclose(&actions, sockets[0]);
     posix_spawn_file_actions_addclose(&actions, sockets[1]);
-    posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, diagnostics, O_WRONLY | O_CREAT | O_APPEND, 0600);
+    posix_spawn_file_actions_adddup2(&actions, diagnostics_fd, STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&actions, diagnostics_fd);
 #ifdef GHPR_HOST_PROOF
     char host_wine[8192]; snprintf(host_wine, sizeof host_wine, "%s/wine64", executable_dir);
     char *arguments[] = {host_wine, worker_path, 0};
@@ -171,9 +217,10 @@ static int launch(void) {
     char *arguments[] = {box, wine, worker_path, 0};
     int status = posix_spawn(&worker, box, &actions, 0, arguments, env);
 #endif
+    dprintf(diagnostics_fd, "[GHPR] childPID=%ld spawnStatus=%d\n", status ? 0L : (long)worker, status);
     posix_spawn_file_actions_destroy(&actions);
     for (size_t index = allocated; index < count; index++) free(env[index]);
-    free(env); close(sockets[1]);
+    free(env); close(diagnostics_fd); close(sockets[1]);
     if (status) { close(sockets[0]); worker = 0; error("Cannot launch APK-packaged original procedural worker."); return 0; }
     channel = sockets[0]; sequence = 0; return 1;
 }
