@@ -66,6 +66,10 @@ internal static class TownServiceQuietController
         || _owner != null && ReferenceEquals(source, _owner.transform);
     internal static bool OwnsWindow(UIWindow window) => _owner != null
         && (ReferenceEquals(window, _owner) || _source != null && window.transform.IsChildOf(_source));
+    internal static bool IsMerchantInventory(UIShopItemInventory inventory) => _owner != null
+        && TownServicePresentation.IsQuietController(_owner, 1)
+        && _owner.GetComponent<UIShopItemWindow>() is UIShopItemWindow merchant
+        && ReferenceEquals(merchant.ItemInventory, inventory);
     internal static bool OriginalVisible(Transform source, UIWindow window, byte service)
     {
         if (!TownServicePresentation.IsQuietController(window, service)
@@ -139,8 +143,10 @@ internal static class TownServiceQuietController
                 if (shop == null || shop.CardsDisplay == null) { Release(); return false; }
                 // Native entry bookkeeping is deliberate owner-side service use. The original
                 // implementation owns its new-stock/save semantics; observers never run it.
-                if (Field(shop, "shopService").GetValue(shop) is MapPartyEnhancementShopService nativeService)
-                    nativeService.OnEnterShop();
+                var nativeService = Field(shop, "shopService").GetValue(shop) as MapPartyEnhancementShopService;
+                if (nativeService == null || !ReferenceEquals(Field(nativeService, "party").GetValue(nativeService), party))
+                { nativeService = new MapPartyEnhancementShopService(); Field(shop, "shopService").SetValue(shop, nativeService); }
+                nativeService.OnEnterShop();
                 shop.character = slot.Service;
                 shop.enhancementShop.Clear();
                 shop.OnSelectedCardToEnhance(null);
@@ -279,4 +285,18 @@ internal static class QuietEnhancementSellRefresh
 {
     private static void Postfix(UINewEnhancementWindow __instance, GameAction action, bool actionValid)
         => TownServiceQuietController.RefreshProxyEnhancement(__instance, action, actionValid, added: false);
+}
+
+[HarmonyPatch(typeof(UIShopItemInventory), nameof(UIShopItemInventory.MPBuyItem))]
+internal static class QuietMerchantBuyRefresh
+{
+    private static void Prefix(UIShopItemInventory __instance, ref bool shopWindowOpen)
+    { if (TownServiceQuietController.IsMerchantInventory(__instance)) shopWindowOpen = true; }
+}
+
+[HarmonyPatch(typeof(UIShopItemInventory), nameof(UIShopItemInventory.MPSellItem))]
+internal static class QuietMerchantSellRefresh
+{
+    private static void Prefix(UIShopItemInventory __instance, ref bool shopWindowOpen)
+    { if (TownServiceQuietController.IsMerchantInventory(__instance)) shopWindowOpen = true; }
 }
