@@ -6,6 +6,7 @@ import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import sys
+import time
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -68,44 +69,63 @@ class Engine:
             manifest = ordinary(selected / "quest-builder-release.json")
             if manifest.is_file() and not (selected / ".git").exists(): release_identity = digest(manifest)
         return value_hash({**({"releaseIdentity": release_identity} if release_identity else {}), "choices": {name: state["choices"].get(name) for name in names}, "stage": stage, "pins": value_hash(provision.LOCK),
-                           "dependencies": {name: state.get("completed", {}).get(name, {}).get("key") for name in before}})
+                           **({"prerequisitePolicy": 2} if stage == "unity" else {}), "dependencies": {name: state.get("completed", {}).get(name, {}).get("key") for name in before}})
 
     def run(self, session):
         with file_lock(self.store.root / "run.lock"):
             state = self.store.load(session)
-            if value_hash(state["choices"]) != state["choicesKey"]: raise WizardError("choices_changed", "Saved choices changed; create a new session.")
-            self.store.clear_cancel(session); state["status"] = "running"; state["needsActions"] = []
-            supervisor = self.supervisor_factory(self.store, session)
-            self.store.event(state, "run_started")
-            for row in state["stages"]:
-                stage = row["id"]; key = self.key(state, stage)
-                try:
-                    self.store.check_cancel(session)
-                    prior = self.store.valid(session, stage, key)
-                    if prior:
-                        if stage == "tools" and not self.actions: self.qualify(state)
-                        row.update(status="complete", details=prior["details"])
-                        state.setdefault("completed", {})[stage] = {"key": prior["key"], "details": prior["details"]}
-                        self.emit(self.store.event(state, "stage_reused", stage)); continue
-                    row.update(status="running", attempts=row["attempts"] + 1)
-                    self.emit(self.store.event(state, "stage_started", stage))
-                    action = self.actions.get(stage) or getattr(self, "stage_" + stage)
-                    paths, details = action(state, supervisor)
-                    self.store.check_cancel(session)
-                    receipt = self.store.publish(session, stage, key, paths, details)
-                    state.setdefault("completed", {})[stage] = {"key": receipt["key"], "details": details}
-                    row.update(status="complete", details=details)
-                    self.emit(self.store.event(state, "stage_complete", stage))
-                except (Cancelled, WizardError) as error:
-                    row["status"] = "cancelled" if isinstance(error, Cancelled) else "blocked"
-                    state["status"] = row["status"]
-                    state["needsActions"] = [] if isinstance(error, Cancelled) else [{"code": error.code, "message": error.message, "parameters": error.parameters}]
-                    self.emit(self.store.event(state, error.code, stage, **error.parameters)); return state
-                except (OSError, ValueError, RuntimeError) as error:
-                    row["status"] = state["status"] = "failed"
+            with self.store.active(state):
+                return self._run(state, session)
+
+    def _run(self, state, session):
+        if value_hash(state["choices"]) != state["choicesKey"]:
+            raise WizardError("choices_changed", "Saved choices changed; create a new session.")
+        self.store.clear_cancel(session); state["status"] = "running"; state["needsActions"] = []
+        supervisor = self.supervisor_factory(self.store, session)
+        self.store.event(state, "run_started")
+        for row in state["stages"]:
+            stage = row["id"]; key = self.key(state, stage); started = time.monotonic()
+            try:
+                self.store.check_cancel(session)
+                prior = self.store.valid(session, stage, key, report_progress=True)
+                if prior:
+                    if stage == "tools" and not self.actions: self.qualify(state)
+                    row.update(status="complete", details=prior["details"], durationSeconds=round(time.monotonic() - started, 3))
+                    self.store.clear_waiting(session, stage)
+                    self.store.progress(session, stage, "complete", 1, 1, "stages", "Verified stage outputs reused.")
+                    state.setdefault("completed", {})[stage] = {"key": prior["key"], "details": prior["details"]}
+                    self.emit(self.store.event(state, "stage_reused", stage, durationSeconds=row["durationSeconds"], outputCount=len(prior["outputs"]))); continue
+                row.update(status="running", attempts=row["attempts"] + 1, startedAt=time.time())
+                if hasattr(supervisor, "set_stage"): supervisor.set_stage(stage)
+                self.store.progress(session, stage, "starting", detail="Starting stage; tool counters are not yet available.")
+                self.emit(self.store.event(state, "stage_started", stage))
+                action = self.actions.get(stage) or getattr(self, "stage_" + stage)
+                paths, details = action(state, supervisor)
+                self.store.check_cancel(session)
+                receipt = self.store.publish(session, stage, key, paths, details)
+                state.setdefault("completed", {})[stage] = {"key": receipt["key"], "details": details}
+                row.update(status="complete", details=details, durationSeconds=round(time.monotonic() - started, 3))
+                self.store.clear_waiting(session, stage)
+                self.store.progress(session, stage, "complete", 1, 1, "stages", "Stage outputs verified.")
+                self.emit(self.store.event(state, "stage_complete", stage, durationSeconds=row["durationSeconds"], outputCount=len(receipt["outputs"])))
+            except (Cancelled, WizardError) as error:
+                row["durationSeconds"] = round(time.monotonic() - started, 3)
+                row["status"] = "cancelled" if isinstance(error, Cancelled) else "blocked"
+                state["status"] = row["status"]
+                # Preserve an existing explicit wait and its retry action. A
+                # process update/error must never hide a required user action.
+                if isinstance(error, Cancelled):
+                    self.store.clear_waiting(session, stage); state["needsActions"] = []
+                elif not row.get("waiting"):
+                    state["needsActions"] = [{"code": error.code, "message": error.message, "parameters": error.parameters}]
+                self.emit(self.store.event(state, error.code, stage, **{**error.parameters, "durationSeconds": row["durationSeconds"]})); return state
+            except (OSError, ValueError, RuntimeError) as error:
+                row["durationSeconds"] = round(time.monotonic() - started, 3)
+                row["status"] = state["status"] = "failed"
+                if not row.get("waiting"):
                     state["needsActions"] = [{"code": "stage_failed", "message": {"en": str(error), "de": str(error)}}]
-                    self.emit(self.store.event(state, "stage_failed", stage)); return state
-            state["status"] = "complete"; self.emit(self.store.event(state, "run_complete")); return state
+                self.emit(self.store.event(state, "stage_failed", stage, durationSeconds=row["durationSeconds"])); return state
+        state["status"] = "complete"; self.emit(self.store.event(state, "run_complete")); return state
 
     def details(self, state, stage): return state["completed"][stage]["details"]
     def log(self, state, stage): return self.store.session_dir(state["session"]) / "logs" / (stage + ".log")
@@ -124,56 +144,8 @@ class Engine:
         return provision.source_checkout(self.store, state["session"], state["choices"], self.details(state, "tools"), supervisor, self.repo)
 
     def stage_unity(self, state, supervisor):
-        selected = state["choices"].get("unityEditor")
-        editors, hubs = discovery.unity_paths()
-        if not selected:
-            selected = next((row["path"] for row in editors if row["version"] == provision.LOCK["unity"]["version"] and row["androidSupport"]), None)
-        existing_editor = selected or next((row["path"] for row in editors if row["version"] == provision.LOCK["unity"]["version"]), None)
-        if not selected or not (Path(selected).parent / "Data/PlaybackEngines/AndroidPlayer/NDK/source.properties").is_file():
-            hub = state["choices"].get("unityHub") or next(iter(hubs), None)
-            if not state["choices"]["acceptUnityTerms"]:
-                raise WizardError("unity_terms_required", "Review Unity and Android module terms before installation.", "Vor der Installation die Bedingungen von Unity und den Android-Modulen bestätigen.")
-            if not hub:
-                if os.name != "nt": raise WizardError("windows_required", "Automatic Unity provisioning currently supports Windows.")
-                setup = provision.download(provision.LOCK["unityHub"], self.store.root / "tools/downloads/UnityHubSetup-3.22.2-x64.exe",
-                                           lambda: self.store.check_cancel(state["session"]))
-                try:
-                    # Unity documents the installer window, not an unattended
-                    # installation/license promise. Its verified setup is started
-                    # automatically; the user completes the displayed setup.
-                    supervisor.run([setup], self.log(state, "unity"))
-                except OSError as error:
-                    if getattr(error, "winerror", None) != 740: raise
-                    os.startfile(str(setup), "runas")
-                    raise WizardError("unity_hub_setup", "Complete the verified Unity Hub setup window, then continue.",
-                                      "Das Fenster der geprüften Unity-Hub-Installation abschließen, dann fortsetzen.",
-                                      installer=str(setup), requiresUserInteraction=True)
-                editors, hubs = discovery.unity_paths(); hub = next(iter(hubs), None)
-                if not hub: raise WizardError("unity_hub_setup", "Complete the Unity Hub setup window, then select its installed location.",
-                                              "Die Unity-Hub-Installation abschließen und ihren Installationsort wählen.", installer=str(setup))
-                raise WizardError("unity_login_required", "Sign in to Unity Hub and activate an eligible license, then continue. The Editor and Android modules will be installed automatically.",
-                                  "In Unity Hub anmelden und eine passende Lizenz aktivieren, dann fortsetzen. Editor und Android-Module werden automatisch installiert.",
-                                  url=provision.LOCK["unity"]["licenseUrl"])
-            help_log = self.store.session_dir(state["session"]) / "logs/unity-hub-help.log"
-            supervisor.run([hub, "--", "--headless", "help", "--errors"], help_log)
-            supported = help_log.read_text(encoding="utf-8", errors="replace")
-            if not re.search(r"\binstall\b", supported) or not re.search(r"\beditors\b", supported):
-                raise WizardError("unity_cli_unavailable", "This Hub has no supported archived-Editor CLI. Install Unity2021.3.5f1 and Android modules in its Installs screen, then continue.",
-                                  "Dieser Hub bietet keine unterstützte CLI für den archivierten Editor. Unity2021.3.5f1 mit Android-Modulen unter Installationen hinzufügen, dann fortsetzen.",
-                                  url=provision.LOCK["unity"]["installDocumentation"])
-            install = ["install-modules", "--version", "2021.3.5f1"] if existing_editor else ["install", "--version", "2021.3.5f1", "--changeset", "40eb3a945986"]
-            supervisor.run([hub, "--", "--headless", *install, "--module", "android", "--childModules", "--errors"], self.log(state, "unity"))
-            editors, _ = discovery.unity_paths()
-            selected = next((row["path"] for row in editors if row["version"] == "2021.3.5f1" and row["androidSupport"]), None)
-            if not selected: raise WizardError("unity_install_incomplete", "Unity installation has not produced the required Editor and Android modules.", "Die Unity-Installation enthält den benötigten Editor und die Android-Module noch nicht.")
-        supervisor.run([selected, "-version"], self.log(state, "unity"))
-        if "2021.3.5f1" not in self.log(state, "unity").read_text(encoding="utf-8"):
-            raise WizardError("unity_version", "Select Unity2021.3.5f1 with Android support.", "Bitte Unity2021.3.5f1 mit Android-Unterstützung wählen.")
-        android = Path(selected).parent / "Data/PlaybackEngines/AndroidPlayer"
-        if not (android / "NDK/source.properties").is_file(): raise WizardError("unity_android_required", "Install this Editor's Android Build Support, SDK/NDK and OpenJDK.")
-        receipt = self.store.session_dir(state["session"]) / "unity.json"
-        atomic_json(receipt, {"schema": 1, "unityEditor": selected, "version": "2021.3.5f1", "licenseVerified": False})
-        return [receipt, self.log(state, "unity")], {"unityEditor": selected, "licenseVerified": False}
+        from unity_setup import prepare
+        return prepare(self.store, state, supervisor)
 
     def stage_profile(self, state, supervisor):
         selected = state["choices"]; module = discovery.builder(self.details(state, "source")["sourceRoot"])
@@ -181,7 +153,8 @@ class Engine:
         if selected.get("steamLogo"):
             import shutil
             shutil.copyfile(selected["steamLogo"], logo)
-        else: provision.download(provision.LOCK["steamLogo"], logo, lambda: self.store.check_cancel(state["session"]))
+        else: provision.download(provision.LOCK["steamLogo"], logo, lambda: self.store.check_cancel(state["session"]),
+                                 progress=lambda done, total: self.store.progress(state["session"], "profile", "steam-logo-download", done, total, "bytes", "Steam logo"))
         _, logo_hash = module.read_logo(logo)
         if selected.get("profile"): profile = selected["profile"]
         elif selected["provider"] == "steam":
