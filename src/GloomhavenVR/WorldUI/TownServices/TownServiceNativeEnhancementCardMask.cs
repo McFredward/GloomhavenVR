@@ -32,7 +32,7 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
     private RectTransform? _nativeFrame;
     private RectTransform? _aura;
     private RectTransform? _auraBuy, _auraSell;
-    private Vector3 _auraOriginalScale;
+    private Vector3 _auraOriginalScale, _auraOriginalPosition;
     private Quaternion _auraOriginalRotation;
     private Quaternion _lastCorrectedAuraRotation;
     private Quaternion _nativeAuraRotation;
@@ -41,11 +41,15 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
     private Vector3 _lastCorrectedAuraScale;
     private bool _hasCorrectedAura;
     private bool _mappedPhysicalCard;
-    private float _lastPhysicalCardHeight;
+    private float _lastPhysicalCardHeight, _lastRootHeight;
     private readonly Vector3[] _auraCorners = new Vector3[4];
     private readonly Vector3[] _cardCorners = new Vector3[4];
     private readonly List<Graphic> _auraGraphics = new();
     private readonly Dictionary<RectTransform, Vector3> _inkOriginalScales = new();
+    private readonly Dictionary<RectTransform, Quaternion> _inkOriginalRotations = new();
+    private readonly Dictionary<RectTransform, Quaternion> _inkNativeRotations = new();
+    private readonly Dictionary<RectTransform, Quaternion> _inkCorrectedRotations = new();
+    private readonly List<UIEnhancementButtonHighlight> _areas = new();
     private RectTransform? _highlighterRect;
     private RectTransform? _nativePrint;
     private Vector3 _printRootPosition, _printRootScale;
@@ -54,7 +58,7 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
     private Vector3 _frameScale;
     private Quaternion _frameRotation;
     private Vector2 _frameSize;
-    private Vector2 _framePosition;
+    private Vector3 _framePosition;
     private bool _masked;
     private Rect _captureBounds;
     private bool _hasCaptureBounds;
@@ -131,6 +135,7 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
         if (_aura != null)
         {
             _auraOriginalScale = _aura.localScale;
+            _auraOriginalPosition = _aura.localPosition;
             _auraOriginalRotation = _nativeAuraRotation = _aura.localRotation;
             _auraGraphics.AddRange(_aura.GetComponentsInChildren<Graphic>(true));
         }
@@ -156,7 +161,7 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
             _frameScale = _nativeFrame.localScale;
             _frameRotation = _nativeFrame.localRotation;
             _frameSize = _nativeFrame.sizeDelta;
-            _framePosition = _nativeFrame.anchoredPosition;
+            _framePosition = _nativeFrame.anchoredPosition3D;
             foreach (Graphic graphic in _nativeFrame.GetComponentsInChildren<Graphic>(true))
             {
                 _frameGraphics.Add(graphic);
@@ -196,10 +201,14 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
             _nativeFrame.localScale = _frameScale;
             _nativeFrame.localRotation = _frameRotation;
             _nativeFrame.sizeDelta = _frameSize;
-            _nativeFrame.anchoredPosition = _framePosition;
+            _nativeFrame.anchoredPosition3D = _framePosition;
         }
         if (_aura != null)
-        { _aura.localScale = _auraOriginalScale; _aura.localRotation = _auraOriginalRotation; }
+        { _aura.localScale = _auraOriginalScale; _aura.localRotation = _auraOriginalRotation; _aura.localPosition = _auraOriginalPosition; }
+        foreach (KeyValuePair<RectTransform, Quaternion> ink in _inkOriginalRotations)
+            if (ink.Key != null) ink.Key.localRotation = ink.Value;
+        _inkOriginalRotations.Clear(); _inkNativeRotations.Clear(); _inkCorrectedRotations.Clear();
+        _areas.Clear();
         foreach (KeyValuePair<RectTransform, Vector3> ink in _inkOriginalScales)
             if (ink.Key != null) ink.Key.localScale = ink.Value;
         _inkOriginalScales.Clear();
@@ -215,7 +224,7 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
         _hasCorrectedAura = false;
         _phaseCaptured = false;
         _mappedPhysicalCard = false;
-        _lastPhysicalCardHeight = 0f;
+        _lastPhysicalCardHeight = _lastRootHeight = 0f;
         _auraGraphics.Clear();
         for (int i = 0; i < _art.Count; i++)
             if (_art[i] != null) _art[i].enabled = _wasEnabled[i];
@@ -226,13 +235,20 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
 
     private void AlignNativeEffects()
     {
+        // Read the original world-Z callback before fitting the print can move its
+        // sibling effect's parent. Handoff may already have saved this sample
+        // before surface placement; do not recapture that same local value after
+        // its parent's basis changes. This also covers late native tween writes.
+        CaptureNativeAuraRotation();
         AlignNativePrint();
+        AlignNativeAreas();
         if (_nativeFrame != null)
         {
             _nativeFrame.localScale = Vector3.one;
-            _nativeFrame.localRotation = Quaternion.identity;
+            _nativeFrame.localRotation = PhysicalPlane(_nativeFrame.parent);
             _nativeFrame.sizeDelta = Vector2.zero;
             _nativeFrame.anchoredPosition = Vector2.zero;
+            PlaceOnPhysicalCenter(_nativeFrame);
         }
 
         // Build 576's video exposes the transform-space error in the older fit:
@@ -261,7 +277,12 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
         // Once the physical card arrives, change only the mapping factor; do not
         // reapply the earlier 8% margin or flatten the native pulse.
         if (!nativeRootWrite && physicalNow && _mappedPhysicalCard)
-            correction = cardHeight / _lastPhysicalCardHeight;
+            // AlignNativePrint already scales the holder when the physical card
+            // changes size. Applying the raw physical ratio here scaled the aura
+            // twice (e.g. a .6 card size gave a .36 ring). Only the change of the
+            // physical-to-holder ratio remains, including legacy holders without
+            // an adopted print whose basis genuinely does not follow the card.
+            correction = cardHeight / rootHeight * _lastRootHeight / _lastPhysicalCardHeight;
         else if (!nativeRootWrite && physicalNow && !_mappedPhysicalCard)
             correction = cardHeight / rootHeight;
         float pulse = Mathf.Sqrt(Mathf.Abs(scale.x * scale.y));
@@ -286,8 +307,15 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
             if (!_phaseCaptured || Quaternion.Angle(_aura.localRotation, _capturedAuraRotation) > .05f)
                 CaptureNativeAuraRotation();
         }
-        Vector3 basisRight = parent.TransformVector(Vector3.right);
-        Vector3 basisUp = parent.TransformVector(Vector3.up);
+        // ObjectPool.SpawnCard resets the pooled card's scale and centre but its
+        // resetLocalRotation parameter remains false. AlignNativePrint therefore
+        // may turn the holder by inverse pooled-print yaw/tilt to fit the paper.
+        // Aura is a SIBLING of that print: using the holder's bare XY plane leaves
+        // it edge-on across an otherwise correctly facing card. Resolve the actual
+        // physical print's plane and centre before applying its native Z clock.
+        Quaternion plane = PhysicalPlane(parent);
+        Vector3 basisRight = parent.TransformVector(plane * Vector3.right);
+        Vector3 basisUp = parent.TransformVector(plane * Vector3.up);
         float gxx = Vector3.Dot(basisRight, basisRight);
         float gxy = Vector3.Dot(basisRight, basisUp);
         float gyy = Vector3.Dot(basisUp, basisUp);
@@ -303,13 +331,14 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
                 <= Mathf.Abs(Mathf.DeltaAngle(nativeAngle, principal + 90f))
                 ? principal : principal + 90f;
         }
-        Quaternion correctedRotation = Quaternion.Euler(0f, 0f, angle);
+        Quaternion correctedRotation = plane * Quaternion.Euler(0f, 0f, angle);
         Vector3 parentRight = parent.TransformVector(correctedRotation * Vector3.right);
         Vector3 parentUp = parent.TransformVector(correctedRotation * Vector3.up);
         float parentX = Mathf.Max(.00001f, parentRight.magnitude);
         float parentY = Mathf.Max(.00001f, parentUp.magnitude);
         float parentMean = Mathf.Sqrt(parentX * parentY);
         _aura.localRotation = correctedRotation;
+        PlaceOnPhysicalCenter(_aura);
         _aura.localScale = new Vector3(Mathf.Sign(scale.x) * uniform * parentMean / parentX,
             Mathf.Sign(scale.y) * uniform * parentMean / parentY, scale.z);
         _lastCorrectedAuraScale = _aura.localScale;
@@ -318,7 +347,30 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
         _phaseCaptured = false;
         _mappedPhysicalCard = physicalNow;
         _lastPhysicalCardHeight = cardHeight;
+        _lastRootHeight = rootHeight;
 
+        // A principal-axis correction must not discard the native rotation clock.
+        // The old fit chose a fixed principal angle, so the circle stayed round but
+        // its actual textured ink stopped turning. Carry the remaining phase into
+        // every original drawing transform after the now-isotropic Aura basis.
+        foreach (Graphic graphic in _auraGraphics)
+        {
+            if (graphic == null || graphic.rectTransform == null) continue;
+            RectTransform drawing = graphic.rectTransform;
+            Quaternion observed = drawing.localRotation;
+            if (!_inkOriginalRotations.ContainsKey(drawing))
+            {
+                _inkOriginalRotations.Add(drawing, observed);
+                _inkNativeRotations.Add(drawing, observed);
+            }
+            else if (!_inkCorrectedRotations.TryGetValue(drawing, out Quaternion prior)
+                || Quaternion.Angle(observed, prior) > .05f)
+                _inkNativeRotations[drawing] = observed;
+            Quaternion compensated = Quaternion.Euler(0f, 0f, nativeAngle - angle)
+                * _inkNativeRotations[drawing];
+            drawing.localRotation = compensated;
+            _inkCorrectedRotations[drawing] = compensated;
+        }
         RectTransform? ink = ActiveAuraInk();
         if (ink == null) return;
         ink.GetWorldCorners(_auraCorners);
@@ -375,7 +427,8 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
             float parentY = parent.TransformVector(_highlighterRect.localRotation * Vector3.up).magnitude;
             float fit = targetY / Mathf.Max(.000001f, relativeUp.magnitude);
             Vector3 scale = _highlighterRect.localScale;
-            Vector3 fitted = new(fit / Mathf.Max(.000001f, parentX), fit / Mathf.Max(.000001f, parentY), scale.z);
+            Vector3 fitted = new(fit / Mathf.Max(.000001f, parentX), fit / Mathf.Max(.000001f, parentY),
+                fit / Mathf.Max(.000001f, parent.TransformVector(_highlighterRect.localRotation * Vector3.forward).magnitude));
             if ((scale - fitted).sqrMagnitude > fitted.sqrMagnitude * .000000000001f)
                 _highlighterRect.localScale = fitted;
         }
@@ -405,9 +458,51 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
         Net.TownServices.TownServiceMirror.RegisterOfferedFrame(_highlighterRect, physical);
     }
 
+    private Quaternion PhysicalPlane(Transform parent)
+    {
+        RectTransform? physical = TownServiceEnhancementHandoff.PhysicalCardFace;
+        return physical != null ? Quaternion.Inverse(parent.rotation) * physical.rotation : Quaternion.identity;
+    }
+
+    private void PlaceOnPhysicalCenter(RectTransform drawing)
+    {
+        RectTransform? physical = TownServiceEnhancementHandoff.PhysicalCardFace;
+        if (physical == null) return;
+        physical.GetWorldCorners(_physicalCorners);
+        float height = Vector3.Distance(_physicalCorners[0], _physicalCorners[1]);
+        drawing.position = (_physicalCorners[0] + _physicalCorners[2]) * .5f
+            - physical.forward * (height * .0003f);
+    }
+
+    private void AlignNativeAreas()
+    {
+        if (_nativePrint == null) return;
+        _areas.Clear();
+        _nativePrint.GetComponentsInChildren(true, _areas);
+        foreach (UIEnhancementButtonHighlight area in _areas)
+        {
+            if (area == null || !area.gameObject.activeSelf) continue;
+            // The native HighlightButtons pool moves the original button with
+            // SetParent(target) (worldPositionStays=true). Highlight updates only
+            // pivot/size/position. In flat UI both parents share a basis; in a
+            // converted palm that preserves the previous flat world rotation and
+            // scale, stretching the button or turning it away from the print.
+            // The serialized original template has identity local rotation/scale.
+            // Restore that template basis on the actual original target, retaining
+            // its native dimensions, pivot, state, material and callbacks. Do not
+            // restore the stale world-basis artifact when the offer ends.
+            if (area.transform.localRotation != Quaternion.identity)
+                area.transform.localRotation = Quaternion.identity;
+            if (area.transform.localScale != Vector3.one)
+                area.transform.localScale = Vector3.one;
+        }
+    }
+
     private void CaptureNativeAuraRotation()
     {
-        if (_aura == null || _hasCorrectedAura
+        if (_aura == null || _phaseCaptured
+            && Quaternion.Angle(_aura.localRotation, _capturedAuraRotation) <= .05f
+            || _hasCorrectedAura
             && Quaternion.Angle(_aura.localRotation, _lastCorrectedAuraRotation) <= .05f) return;
         _nativeAuraRotation = Quaternion.Euler(0f, 0f, _aura.rotation.eulerAngles.z);
         _capturedAuraRotation = _aura.localRotation;

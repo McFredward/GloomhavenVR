@@ -145,6 +145,25 @@ public static class InteractionProgram
                 && Mathf.Abs(Diameter((RectTransform)ink.transform) - rotatedDiameter) < .001f,
                 "repeated render callbacks do not change a sheared-parent ring diameter");
         }
+        // A circle can pass every shape assertion yet its texture can stop turning.
+        // The original world-Z callback advances continuously, including when the
+        // parent requires principal-axis stretch correction. Check the actual ink,
+        // rather than only the group's (necessarily corrected) local Euler angle.
+        root.transform.rotation = Quaternion.Euler(17f, 41f, -12f);
+        float firstInkAngle = 0f;
+        for (int phase = 0; phase <= 360; phase += 15)
+        {
+            auraRect.localScale = Vector3.one;
+            ink.transform.localRotation = Quaternion.identity;
+            aura.transform.eulerAngles = new Vector3(0f, 0f, phase);
+            mask.SendMessage("OnBeforeCanvasRender");
+            Vector3 edge = ink.transform.TransformVector(Vector3.right).normalized;
+            float drawnAngle = Mathf.Atan2(Vector3.Dot(edge, root.transform.up),
+                Vector3.Dot(edge, root.transform.right)) * Mathf.Rad2Deg;
+            if (phase == 0) firstInkAngle = drawnAngle;
+            Check(Mathf.Abs(Mathf.DeltaAngle(drawnAngle - firstInkAngle, phase)) < .1f,
+                "original textured native aura retains continuous phase through a sheared parent");
+        }
         mask.Restore();
         Check(!TownServiceNativeEnhancementCardMask.TryAuraCaptureBounds((RectTransform)root.transform,
                 out _), "capture reservation ends with the physical offer");
@@ -314,7 +333,11 @@ public static class InteractionProgram
         slot.Selected = () => { shop.selectedCard = slot.AbilityCard; shop.cardHolder.Card = slot.AbilityCard; };
         shop.CardsDisplay.slotsPool.Add(slot);
         var area = new GameObject("Native selectable printed row", typeof(RectTransform), typeof(Image), typeof(UIEnhancementButtonHighlight));
-        area.transform.SetParent(nativeFace.transform, false);
+        // Match the actual HighlightButtons reuse path: the pooled original starts
+        // in the flat holder and SetParent(target) preserves its WORLD basis.
+        // The old fixture used false and silently pre-corrected the real defect.
+        area.transform.SetParent(fixture.transform, false);
+        area.transform.SetParent(nativeFace.transform);
         RectTransform nativeArea = (RectTransform)area.transform;
         nativeArea.anchorMin = nativeArea.anchorMax = new Vector2(.2f, .7f);
         nativeArea.pivot = new Vector2(.15f, .8f);
@@ -335,9 +358,10 @@ public static class InteractionProgram
             TownServiceNativeEnhancementCardMask mask = printed.GetComponent<TownServiceNativeEnhancementCardMask>();
             foreach (float scale in new[] { .05f, .5f, 1f, 2f })
             foreach (float angle in new[] { 0f, 37f, 118f })
-            foreach (float printRotation in new[] { 0f, 29f })
+            foreach (float printRotation in new[] { 0f, 29f, 90f })
             {
-                nativeRect.localRotation = Quaternion.Euler(0f, 0f, printRotation);
+                nativeRect.localRotation = printRotation == 90f
+                    ? Quaternion.Euler(11f, 90f, 7f) : Quaternion.Euler(0f, 0f, printRotation);
                 card.transform.SetPositionAndRotation(new Vector3(.17f, .8f, -.31f), Quaternion.Euler(14f, angle, -11f));
                 card.transform.localScale = Vector3.one * scale;
                 // Reproduce the real generic surface's nominal host placement,
