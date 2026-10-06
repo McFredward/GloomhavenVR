@@ -16,7 +16,7 @@ MAX_SECONDS = 366 * 24 * 3600
 MIN_RATE_SECONDS = 10.0
 MIN_BATCH_SECONDS = 30.0
 MAX_BATCH_HISTORY = 16
-FILE_PHASES = frozenset(("recovery-source-file-hash", "recovery-core-file-hash",
+FILE_PHASES = frozenset(("staging-copy-file", "recovery-asset-reference-file", "recovery-source-file-hash", "recovery-core-file-hash",
     "recovery-export-file-hash", "recovery-checkpoint-file-hash",
     "recovery-native-recipe-hash", "recovery-native-recipe-copy"))
 

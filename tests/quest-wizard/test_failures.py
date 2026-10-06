@@ -72,6 +72,15 @@ class FailureTests(unittest.TestCase):
         self.assertEqual(error.parameters['builderError'], cause)
         self.assertIn('19000000 bytes', error.parameters['cause'])
 
+    def test_post_export_helper_import_failure_names_builder_and_retains_actual_cause(self):
+        self.log.write_text("ModuleNotFoundError: No module named 'recover'")
+        atomic_json(self.root / 'build/last-failure.json', {
+            'schema': 1, 'stage': 'recovery', 'key': 'b' * 64, 'message': "No module named 'recover'"})
+        error = tool_failure(self.root, 'build', self.log, time.time() - 1, 'python.exe', 1)
+        self.assertIn('Hilfsmodul', error.message['de'])
+        self.assertIn('abgeschlossene Spieleexports bleiben erhalten', error.message['de'])
+        self.assertEqual(error.parameters['cause'], "ModuleNotFoundError: No module named 'recover'")
+
     def test_unexpected_stage_exception_retains_type_and_traceback(self):
         def fail(*_): raise ValueError("Invalid owned asset index")
         result = wizard.Engine(self.store, actions={"tools": fail}).run(self.session)

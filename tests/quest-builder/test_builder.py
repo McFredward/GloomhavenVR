@@ -276,6 +276,36 @@ class SafetyAndProcessTests(Temporary):
         self.assertEqual(builder.original_version(data), "2021.3.5f1")
 
 
+class RecoveryImportTests(Temporary):
+    def test_official_tmp_archive_imports_in_fresh_cli_without_recovery_path(self):
+        # Other recovery suites add their folder to sys.path. A real Wizard
+        # child starts cold, which exposed the post-export Windows failure.
+        code = r"""
+import sys
+from pathlib import Path
+from unittest.mock import patch
+sys.path.insert(0, str(Path(sys.argv[1]) / 'tools/quest-builder'))
+import builder
+assert 'recover' not in sys.modules
+with patch('dependencies.download_sdk', side_effect=RuntimeError('download reached')) as download:
+    try:
+        builder.owned_tmp_source_archive(Path(sys.argv[2]))
+    except RuntimeError as error:
+        assert str(error) == 'download reached', str(error)
+    else:
+        raise AssertionError('Expected intercepted archive download')
+assert Path(sys.modules['recover'].__file__).resolve() == Path(sys.argv[1]) / 'tools/quest-recovery/recover.py'
+assert download.call_args.args[0]['hash'] == '1ce172027b906a30be33cefe7b2ee46e1c8d35f729359b8b9785fc120d57b637'
+assert download.call_args.kwargs == {'algorithm': 'sha256'}
+print('Cold helper import reached pinned archive acquisition')
+"""
+        result = subprocess.run([sys.executable, '-I', '-B', '-c', code,
+                                 str(ROOT), str(self.root / 'cache')],
+                                cwd=self.root, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('Cold helper import', result.stdout)
+
+
 class ApkTests(Temporary):
     def setUp(self):
         super().setUp()
@@ -699,6 +729,20 @@ class DevelopmentAndDeploymentTests(Temporary):
         meta.unlink()
         with self.assertRaises(storage.BuildError):
             builder.deploy_woven_assemblies(staged, self.data, project)
+
+    def test_missing_staging_helper_fails_before_export_subprocess(self):
+        self.args.target = 'game'
+        self.args.dotnet = sys.executable
+        launcher = self.repo / 'tools/quest-recovery/full_recovery.py'
+        launcher.parent.mkdir(parents=True)
+        launcher.write_text('raise AssertionError("Export must not start")')
+        inputs = builder.inspect_inputs(self.args, self.repo, self.output, self.data)
+        with patch.object(builder.full_assets, '_modules', side_effect=ModuleNotFoundError("No module named 'recover'")), \
+                patch.object(builder, 'command') as child:
+            with self.assertRaisesRegex(storage.BuildError, 'helper import failed before game conversion'):
+                builder.prepare(self.args, inputs, self.output, self.repo, self.data)
+        child.assert_not_called()
+        self.assertFalse((self.output / 'cache/full-original-recovery').exists())
 
     def test_interrupted_derived_campaign_stage_retries_only_owned_output(self):
         launcher = self.repo / "tools/quest-recovery/full_recovery.py"

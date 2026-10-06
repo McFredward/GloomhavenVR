@@ -500,10 +500,10 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
     group_counter.finish()
     build_progress.event("recovery-section:references", detail="Qualifying recovered original asset references", status="start")
     if "assetReferences" not in progress:
-        build_progress.event("recovery-asset-references", detail="Auditing recovered original asset references", status="start")
+        # The auditor owns its file/byte counters and completion. Do not reset
+        # that actual total to a synthetic one-audit counter after it returns.
         progress["assetReferences"] = audit_asset_references(output)
         write_checkpoint(checkpoint, progress, proofs=proofs)
-        build_progress.event("recovery-asset-references", 1, 1, "audits", "Recovered asset references audited", status="complete")
     else:
         build_progress.event("recovery-asset-references", 1, 1, "audits", "Reusing the qualified recovered asset-reference audit", status="reuse")
     return progress

@@ -12,7 +12,8 @@ import math
 # Repeated counters (one batch, index or large file) occupy only their owner's
 # bounded share. Explicit recovery-section boundaries distinguish the same
 # source/checkpoint counter when it runs before and after bundle conversion.
-RECOVERY_SECTIONS = ("source", "core", "batches", "references", "source-recheck", "checkpoint", "cab-index")
+RECOVERY_SECTIONS = ("source", "core", "batches", "references", "source-recheck", "checkpoint", "cab-index", "staging")
+STAGING_STEPS = ("catalog", "canonical", "copy", "runtime", "guid", "layout", "native", "catalog-final", "index", "tmp", "bindings", "audit", "scenes", "report")
 CORE_STEPS = ("input-hash", "input-copy", "asset-load", "asset-export", "shader-recipes", "core-hash", "core-verify", "core-copy", "checkpoint")
 BATCH_STEPS = ("retained-export", "bundle-copy", "asset-load", "asset-export", "shader-recipes", "export-receipt", "checkpoint-verify", "collections", "native", "checkpoint", "commit-verify")
 NATIVE_STEPS = ("read", "recipes", "write")
@@ -28,6 +29,8 @@ RECOVERY_PHASES = {
     "recovery-checkpoint-write": "checkpoint",
 }
 FILE_CHILDREN = {
+    "recovery-asset-reference-file": ("recovery-asset-references",),
+    "staging-copy-file": ("staging-copy",),
     "recovery-source-file-hash": ("recovery-source-hash",),
     "recovery-core-file-hash": ("recovery-core-receipt-verify", "recovery-core-output-hash"),
     "recovery-export-file-hash": ("recovery-export-receipt-hash",),
@@ -52,7 +55,7 @@ PLANS = {
 # conversion/import their own useful spans and count each scheduled package
 # inside conversion. Only actual counters and successful boundaries advance it.
 BUILD_SHARES = dict(zip(PLANS["build"], (1, 1, 1, 1, 2, 1, 40, 1, 2, 2, 6, 2, 3, 2, 1, 18, 1, 4, 8, 2, 1)))
-WORK_REVISION = 3
+WORK_REVISION = 4
 
 
 def phase_operation(stage, phase, value):
@@ -226,6 +229,18 @@ def _recovery_fraction(plan, value):
                     step = "commit-verify"
                 _advance_work(child, BATCH_STEPS, step, measured)
             ratio = (batch["done"] + _work_fraction(child, BATCH_STEPS)) / batch["total"]
+    elif section == "staging":
+        if phase.startswith("staging-section:"):
+            step = phase.split(":", 1)[1]
+            if step in STAGING_STEPS:
+                _advance_work(work, STAGING_STEPS, step, _ratio(value))
+                if value.get("status") in ("complete", "reuse") or value.get("done") == value.get("total") == 1:
+                    work["completed"] = list(dict.fromkeys([*work["completed"], step]))
+        else:
+            effective, measured = _counter_fraction(work, value)
+            step = {"staging-copy": "copy", "staging-report-hash": "report"}.get(effective)
+            _advance_work(work, STAGING_STEPS, step, measured)
+        ratio = _work_fraction(work, STAGING_STEPS)
     elif section == "core":
         effective, measured = _counter_fraction(work, value)
         step = "core-verify" if effective == "recovery-checkpoint-verify" else RECOVERY_PHASES.get(effective)

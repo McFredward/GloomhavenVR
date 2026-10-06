@@ -48,6 +48,15 @@ MINIMAL_RECOVERY_FILES = {
 }
 OBSERVER_FILE = "tools/quest-recovery/recover.py"
 PREVIOUS_OBSERVER_SHA256 = "8502923f2cfc7d85c4f9fca29356c5b5f3bacf66b2def2379a01c3f68f52c9d1"
+# Shipped d4cc44eeb adds an exporter-log observer and invocation-local proof
+# caches. The current reference-audit update changes no raw export identities.
+# Preserve this exact whole profile as well as the previous shipped profiles.
+TIMED_RECOVERY_FILES = {
+    'tools/quest-recovery/bundle_recovery.py': 'd9acd494323b080785e868d6809b4935053fd852ece92b257d0ea64fcca3eada',
+    'tools/quest-recovery/full_recovery.py': '7c50355e648109232182f84ea271017603c12c87f70380cce76dbdca5ed23858',
+    'tools/quest-recovery/native_evidence.py': 'f272fd2db64f6b59a2d7e4c2fcc9eb130bc0996b9fb21fa20f7c82cb12ec8d62',
+    'tools/quest-recovery/recover.py': 'ff0e086e45e8ed1978f69bd0fea5d738aabe7ea59d260c28dbf69b08ef914b7f',
+}
 ORCHESTRATION_FILES = set(LEGACY_MERGE_FILES) | {OBSERVER_FILE}
 DERIVED_FILES = {"tools/quest-builder/full_assets.py", "tools/quest-builder/full_shaders.py"}
 MAX_MANIFESTS = 128
@@ -129,9 +138,10 @@ def _compatible(previous, current):
     if not changed: return True
     # Every exporter/config/capture source outside these exact four is still
     # identical. The child retains the full input/core/batch/journal hash gates.
-    return any(all(old[name]["sha256"] == expected for name, expected in profile.items())
-               for profile in ({**base, OBSERVER_FILE: PREVIOUS_OBSERVER_SHA256} for base in
-                               (LEGACY_MERGE_FILES, PREVIOUS_PROGRESS_FILES, NESTED_PROGRESS_FILES, MINIMAL_RECOVERY_FILES)))
+    profiles = [{**base, OBSERVER_FILE: PREVIOUS_OBSERVER_SHA256} for base in
+                (LEGACY_MERGE_FILES, PREVIOUS_PROGRESS_FILES, NESTED_PROGRESS_FILES, MINIMAL_RECOVERY_FILES)]
+    profiles.append(TIMED_RECOVERY_FILES)
+    return any(all(old[name]["sha256"] == expected for name, expected in profile.items()) for profile in profiles)
 
 
 def _manifest(path):

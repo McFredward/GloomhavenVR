@@ -38,6 +38,12 @@ NESTED_PROGRESS_BYTES = {
     "tools/quest-recovery/full_recovery.py": 13647,
     "tools/quest-recovery/native_evidence.py": 9023,
 }
+TIMED_RECOVERY_BYTES = {
+    "tools/quest-recovery/bundle_recovery.py": 32509,
+    "tools/quest-recovery/full_recovery.py": 14972,
+    "tools/quest-recovery/native_evidence.py": 14123,
+    "tools/quest-recovery/recover.py": 42700,
+}
 MINIMAL_RECOVERY_BYTES = {
     "tools/quest-recovery/bundle_recovery.py": 31883,
     "tools/quest-recovery/full_recovery.py": 14662,
@@ -99,7 +105,7 @@ class ResumeFixture(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def inputs(self, game_files, *, legacy=False, prior_progress=False, nested_progress=False, minimal_recovery=False):
+    def inputs(self, game_files, *, legacy=False, prior_progress=False, nested_progress=False, minimal_recovery=False, timed_recovery=False):
         files = storage.inventory(self.source)
         if legacy:
             for row in files:
@@ -121,6 +127,11 @@ class ResumeFixture(unittest.TestCase):
                 if row["path"] in recovery_resume.MINIMAL_RECOVERY_FILES:
                     row["sha256"] = recovery_resume.MINIMAL_RECOVERY_FILES[row["path"]]
                     row["size"] = MINIMAL_RECOVERY_BYTES[row["path"]]
+        if timed_recovery:
+            for row in files:
+                if row["path"] in recovery_resume.TIMED_RECOVERY_FILES:
+                    row["sha256"] = recovery_resume.TIMED_RECOVERY_FILES[row["path"]]
+                    row["size"] = TIMED_RECOVERY_BYTES[row["path"]]
         if legacy or prior_progress or nested_progress or minimal_recovery:
             for row in files:
                 if row["path"] == recovery_resume.OBSERVER_FILE:
@@ -188,10 +199,10 @@ class ResumeFixture(unittest.TestCase):
 
 
 class CompatibleMigrationTests(ResumeFixture):
-    def _check_shipped_progress_profile(self, *, prior_progress=False, nested_progress=False, minimal_recovery=False):
+    def _check_shipped_progress_profile(self, *, prior_progress=False, nested_progress=False, minimal_recovery=False, timed_recovery=False):
         old = self.workspace
         self.previous = self.inputs(self.previous["game"]["files"], prior_progress=prior_progress, nested_progress=nested_progress,
-                                    minimal_recovery=minimal_recovery)
+                                    minimal_recovery=minimal_recovery, timed_recovery=timed_recovery)
         self.old_key = recovery_resume.recipe_key(self.previous, 1)
         self.workspace = old.with_name(self.old_key)
         old.rename(self.workspace)
@@ -235,7 +246,7 @@ class CompatibleMigrationTests(ResumeFixture):
             value = plan.advance(row, event, event.get("operation"), event.get("status"))
             observed.append(value["stagePercent"])
             if event["phase"].startswith("recovery-section:"): sections.append(event["phase"].split(":", 1)[1])
-        self.assertEqual(sections, list(plan.RECOVERY_SECTIONS))
+        self.assertEqual(sections, list(plan.RECOVERY_SECTIONS[:-1]))
         self.assertEqual(observed, sorted(observed))
         self.assertGreater(len(set(observed)), 20)
         self.assertLess(max(observed), 100)
@@ -256,6 +267,14 @@ class CompatibleMigrationTests(ResumeFixture):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(original, target)
         self._check_shipped_progress_profile(minimal_recovery=True)
+
+    def test_timed_builder_update_retains_completed_export_and_reference_audit(self):
+        self._check_shipped_progress_profile(timed_recovery=True)
+        self.assertEqual(self.export_calls, 1)
+        with patch.object(bundles, 'audit_asset_references', side_effect=AssertionError('Audit must stay retained')):
+            result = self.finish(self.workspace)
+        self.assertTrue(result['fullOriginalCatalogRecovered'])
+        self.assertEqual(self.export_calls, 1)
 
     def test_minimal_recovery_migration_still_rejects_corrupted_retained_game_bytes(self):
         self._check_shipped_progress_profile(minimal_recovery=True)

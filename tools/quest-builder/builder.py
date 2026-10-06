@@ -378,6 +378,9 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             launcher = source / "tools/quest-recovery/full_recovery.py"
             if not launcher.is_file():
                 raise BuildError("The selected source does not contain the Quest recovery tool.")
+            # Import the post-export helpers before starting a potentially long
+            # conversion. A fresh Windows CLI has no recovery modules on sys.path.
+            recovery_helper_preflight()
             workspace = recovery_resume.select_workspace(output, inputs, source, game, RECIPE)
             raw_project = workspace / "RecoveredProject"
             python = dependencies.python_environment(output / "tool-cache", source)
@@ -389,6 +392,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             raw = json.loads((workspace / "full-recovery.json").read_text(encoding="utf-8"))
             if raw.get("fullOriginalCatalogRecovered") is not True:
                 raise BuildError("Full recovery did not finish the original catalog; inspect its bounded checkpoint.")
+            build_progress.event("recovery-section:staging", detail="Preparing the recovered full game project", status="start")
             archive = owned_tmp_source_archive(output / "tool-cache/official-tmp")
             stage_owner = recovered.parent / "stage-owner.json"
             expected_owner = {"schema": 1, "owner": "Quest recovered Campaign stage", "key": key,
@@ -639,13 +643,20 @@ def startup_shader_contracts(project: Path) -> list[Path]:
                   (path.suffix in (".compute", ".cginc") or path.name.endswith(".compute.meta")))
 
 
+def recovery_helper_preflight():
+    """Resolve the same local helpers used for staging before running exports."""
+    try:
+        return full_assets._modules()
+    except ImportError as error:
+        raise BuildError("Quest staging helper import failed before game conversion: " + str(error)) from error
+
+
 def owned_tmp_source_archive(cache: Path) -> Path:
     """Acquire only the pinned official shader source package, never game data."""
     import dependencies
-    module_path = Path(__file__).resolve().parents[1] / "quest-recovery/tmp_shaders.py"
-    spec = importlib.util.spec_from_file_location("quest_official_tmp_sources", module_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # The shared loader supplies recover/md4 and avoids depending on imports
+    # accidentally performed by another target or the test runner.
+    module = recovery_helper_preflight()[4]
     cache.mkdir(parents=True, exist_ok=True)
     archive = cache / "com.unity.textmeshpro-3.0.6.tgz"
     dependencies.download_sdk({"url": module.TMP_URL, "hash": module.TMP_SHA256}, archive, algorithm="sha256")

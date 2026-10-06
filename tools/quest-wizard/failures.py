@@ -42,7 +42,12 @@ def tool_failure(root, stage, log, started, executable, exit_code):
                 error_line = line.strip()[:2048]
     parameters["cause"] = error_line or parameters.get("builderError") or "No error summary was emitted; inspect the retained tool log."
     parameters["logs"] = [str(path) for path in logs]
-    if parameters["failureStage"] == "recovery" and "Recovery resume evidence" in parameters.get("builderError", ""):
+    import_failure = ("helper import failed before game conversion" in parameters.get("builderError", "")
+                      or "ModuleNotFoundError:" in parameters["cause"])
+    if parameters["failureStage"] == "recovery" and import_failure:
+        en = "The builder could not load its own staging helper. Keep the workspace: completed game exports remain available. Save the diagnostic package and resume with the corrected builder."
+        de = "Der Builder konnte ein eigenes Hilfsmodul für die Projektvorbereitung nicht laden. Arbeitsordner behalten: abgeschlossene Spieleexports bleiben erhalten. Diagnosepaket speichern und mit dem korrigierten Builder fortsetzen."
+    elif parameters["failureStage"] == "recovery" and "Recovery resume evidence" in parameters.get("builderError", ""):
         en = "The saved game export's evidence could not be read or verified. Keep the workspace and save the diagnostic package; it contains the file sizes and precise cause. Continue with the corrected builder."
         de = "Der Nachweis des gespeicherten Spieleexports konnte nicht gelesen oder geprüft werden. Arbeitsordner behalten und Diagnosepaket speichern; es enthält die Dateigrößen und genaue Ursache. Mit dem korrigierten Builder fortsetzen."
     elif parameters["failureStage"] == "recovery":

@@ -204,7 +204,7 @@ class StageProgressTests(unittest.TestCase):
         self.store.progress(self.session, 'build', 'recovery-section:source')
         self.assertIsNone(self.progress()['activeWork']['total'])
         self.store.progress(self.session, 'build', 'recovery-plan', 0, 16, 'batches')
-        self.assertEqual(self.progress()['activeWork']['total'], 22)
+        self.assertEqual(self.progress()['activeWork']['total'], 23)
         self.recovery_batch(done=4, total=16)
         self.assertEqual(self.progress()['activeWork']['done'], 6)
         self.assertEqual(self.progress()['activeWork']['operation'], 'recovery')
@@ -238,8 +238,26 @@ class StageProgressTests(unittest.TestCase):
         self.assertGreater(self.progress()['stagePercent'], 29.97)
         self.assertLess(self.progress()['stagePercent'], 100)
         self.assertEqual(self.progress()['activeWork']['done'], 6)
-        self.assertEqual(self.progress()['activeWork']['total'], 22)
+        self.assertEqual(self.progress()['activeWork']['total'], 23)
         self.assertEqual((self.progress()['recoveryNativeIndex'], self.progress()['recoveryNativeTotal']), (2, 2))
+
+    def test_reference_and_staging_counters_continue_after_all_raw_batches(self):
+        self.store.operation(self.session, 'build', 'recovery')
+        self.store.progress(self.session, 'build', 'recovery-plan', 0, 16, 'batches')
+        self.store.progress(self.session, 'build', 'recovery-batches', 16, 16, 'batches')
+        self.store.progress(self.session, 'build', 'recovery-section:references')
+        before = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'recovery-asset-references', 50, 100, 'files')
+        self.assertGreater(self.progress()['stagePercent'], before)
+        self.store.progress(self.session, 'build', 'recovery-section:staging')
+        self.store.progress(self.session, 'build', 'staging-section:copy', 0, 1, 'steps')
+        self.store.progress(self.session, 'build', 'staging-copy', 1, 100, 'files')
+        before = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'staging-copy', 80, 100, 'files')
+        self.assertGreater(self.progress()['stagePercent'], before)
+        self.assertEqual(self.progress()['activeWork']['done'], 22)
+        self.assertEqual(self.progress()['activeWork']['total'], 23)
+        self.assertLess(self.progress()['stagePercent'], 100)
 
     def test_unknown_schedule_never_counts_clock_time_as_conversion_progress(self):
         self.store.operation(self.session, 'build', 'recovery')
