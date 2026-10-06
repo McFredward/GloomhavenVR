@@ -1,5 +1,41 @@
 # State — where the project stands
 
+**Build632 integration validated, 2026-10-06: 1.1.0.**
+
+The actual paired hardware capture is Build629 on both peers. Its remote mage
+picture took 28.557 seconds for 44 required originals out of 66 prepared modules.
+Build632 losslessly pools exact original values before envelope compression and
+publishes the current visible census atomically with them. No image pixels,
+observer localization defaults, new bandwidth or gameplay authority are involved.
+Native offered-card descendants share the actual print frame; independent node
+clocks preserve continuous ring motion through unrelated updates.
+
+All three ordinary immersive NPC visits now prepare original transaction sources
+without opening hidden flat windows or changing map/party selection. Native rules,
+callbacks, payments, book/points display, multiplayer proxy refresh and original
+window mode remain. Temple purse focus is independent of flat-window lifetime;
+actual wrist reveal and native donation permission retain their separate roles.
+Bounded preparation failure and explicit option-off restore native windows once.
+
+The full 146-scope attempt retains 136 direct passes and ten failures; affected
+continuations resolve all ten without repeating successful unrelated scopes.
+All 14 source gates, strict Release zero warnings/errors, bundles/mesh bank,
+bilingual docs and the 18 runner tests (two platform skips) pass. Golden vectors
+pass 296,631 assertions: exactly 13,823 fewer delivery-iteration assertions than631
+because pooling completes the same simulations sooner; all 281,276 other checks
+are unchanged and 288 independent110 vectors were added. No case was removed.
+Compiled631-to632 review reconciles 30 intended differences, including unchanged
+order of all 56 previous WorldUI hooks plus five guarded quiet hooks.
+
+The source-bound native-prefab fixture measures cold0.45s ordinary/0.90s saturated
+and warm0.15s/0.45s; its equivalent editor TMP atlas/shader and smaller8.3KiB rows
+are explicit limits, not headset, network or Frame CPU acceptance. Hardware testing
+requires both peers on632. Details: [NPC-632-REVIEW.md](NPC-632-REVIEW.md),
+[NPC-632-FIRST-PICTURE.md](review-2026-10/NPC-632-FIRST-PICTURE.md), and
+`.planning/debug/npc632/validation-ledger.json`. No new release is established.
+
+---
+
 **Build631 integration validated, 2026-10-06: 1.1.0.**
 
 Native merchant distance filtering now uses economical exact sprite regions and

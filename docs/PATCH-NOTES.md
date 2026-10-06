@@ -26,6 +26,34 @@
 > rejected alternatives. `docs/PATCH-INVENTORY.md` lists all of them; `.planning/STATE.md` says
 > where the project stands.
 
+## Build632: native transactions without hidden flat-window visits
+
+Immersive merchant and enhancement visits prepare only their original transaction
+sources. The original shop services, ownership checks, slot callbacks, payments,
+enhancement rules and native confirmation actions remain authoritative. They do
+not require the flat window's entry, map destination or party selection lifecycle.
+The temple similarly retains its original blessing model, callbacks and book
+counters without entering its flat window. Repeated unchanged contexts reuse the
+prepared sources; source leases restore their original hierarchy on exit.
+
+`QuietMerchantBuyRefresh` and `QuietMerchantSellRefresh` scope the native
+inventory refresh flag to the exact immersive inventory. The native multiplayer
+purchase/sale still executes once. `QuietEnhancementBuyRefresh` and
+`QuietEnhancementSellRefresh` refresh original widgets only after a successful
+native proxy action, with its exact card token and owner. They skip an already
+visible original window, which has performed its own refresh. Original owner
+feedback is restored where the invisible-window branch would otherwise omit it.
+`QuietTempleProxyPresentation` preserves the original proxy and updates the exact
+physical book after its successful donation. All five hooks are registered once
+by WorldUI. Their presentation work catches failures and reports once per source;
+none retries a payment, suppresses native exceptions or skips game actions.
+
+Explicitly disabling immersive mode restores the current original flat window
+once. Failed optional preparation uses the bounded native-window escape path;
+ordinary successful visits never open a hidden flat service window. These paths
+are covered by production-bound lifecycle and controller fixtures. Automated
+evidence does not establish a successful headset or paired multiplayer test.
+
 ## Build625: native blessing audio at the shared donation clock
 
 The existing `TownServiceNativeAudioSilence` installer scopes
