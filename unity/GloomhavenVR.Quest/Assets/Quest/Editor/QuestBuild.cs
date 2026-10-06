@@ -202,6 +202,34 @@ namespace GloomhavenVR.Quest.Editor
             Debug.Log("[GloomhavenVR Quest] signed ARM64 IL2CPP " + target
                 + (target == "game" ? " player built: " : " diagnostic built: ") + apk);
         }
+        static void ConfigureFixedEyeMsaa()
+        {
+            // Before XR starts, keep every native quality-level switch at the
+            // same sample count. The shared mod never resizes live Vulkan eyes.
+#if GHVR_QUEST_GAME
+            int startupSamples = GloomhavenVR.Core.QuestStandalonePlatform.StandaloneMsaaDefault;
+#else
+            throw new InvalidOperationException("Full Quest Campaign requires the current mod's standalone defaults.");
+#endif
+#if GHVR_QUEST_GAME
+            var quality = new SerializedObject(Unsupported.GetSerializedAssetInterfaceSingleton("QualitySettings"));
+            var levels = quality.FindProperty("m_QualitySettings");
+            if (levels == null || !levels.isArray || levels.arraySize == 0)
+                throw new InvalidOperationException("Quest fixed MSAA requires original quality levels.");
+            for (int i = 0; i < levels.arraySize; i++)
+            {
+                var samples = levels.GetArrayElementAtIndex(i).FindPropertyRelative("antiAliasing");
+                if (samples == null)
+                    throw new InvalidOperationException("Quest quality level has no MSAA field.");
+                samples.intValue = startupSamples;
+            }
+            quality.ApplyModifiedPropertiesWithoutUndo();
+            AssetDatabase.SaveAssets();
+            Debug.Log("[QuestBuild] Vulkan eye allocation fixed: all native quality levels use standalone MSAA="
+                + startupSamples + " before XR startup.");
+#endif
+        }
+
         static void ConfigureAndroid(string package, bool originalStartup, bool configureSigning = true)
         {
             if (!EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Android, BuildTarget.Android))
@@ -237,6 +265,7 @@ namespace GloomhavenVR.Quest.Editor
             PlayerSettings.colorSpace = ColorSpace.Linear;
             PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
             bool fullCampaign = Environment.GetEnvironmentVariable("GHVR_QUEST_TARGET") == "game";
+            if (fullCampaign) ConfigureFixedEyeMsaa();
             // Original Windows DXBC embeds reversed-depth and top-origin UV math.
             // Unity's Vulkan branch has those same conventions; GLES does not.
             // Keep the existing diagnostic backends and desktop settings intact.

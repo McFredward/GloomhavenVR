@@ -87,6 +87,18 @@ namespace UnityEngine
         public static Rendering.GraphicsDeviceType graphicsDeviceType;
         public static string graphicsDeviceName = "fixture";
     }
+    public static class Mathf
+    {
+        public static float Abs(float value) => Math.Abs(value);
+        public static float Clamp(float value, float min, float max) => Math.Clamp(value, min, max);
+        public static int Max(int a, int b) => Math.Max(a, b);
+    }
+    public static class QualitySettings
+    {
+        public static int antiAliasing;
+        public static string[] names = { "Fastest" };
+        public static int GetQualityLevel() => 0;
+    }
     public enum RuntimeInitializeLoadType { AfterSceneLoad, BeforeSceneLoad, AfterAssembliesLoaded, BeforeSplashScreen, SubsystemRegistration }
     public class RuntimeInitializeOnLoadMethodAttribute : Attribute
     {
@@ -94,10 +106,25 @@ namespace UnityEngine
         public RuntimeInitializeOnLoadMethodAttribute(RuntimeInitializeLoadType type) { loadType = type; }
     }
 }
-namespace UnityEngine.Rendering { public enum GraphicsDeviceType { Direct3D11, OpenGLES3 } }
+namespace UnityEngine.Rendering { public enum GraphicsDeviceType { Direct3D11, OpenGLES3, Vulkan } }
 namespace UnityEngine.XR
 {
-    public class XRDisplaySubsystem { public bool running; }
+    public static class XRSettings
+    {
+        public static int eyeTextureWidth = 1680, eyeTextureHeight = 1760;
+        public static int AllocationWrites, ViewportWrites;
+        private static float allocation = 1f, viewport = 1f;
+        public static float eyeTextureResolutionScale { get => allocation; set { AllocationWrites++; allocation = value; } }
+        public static float renderViewportScale { get => viewport; set { ViewportWrites++; viewport = value; } }
+        public enum StereoRenderingMode { MultiPass, SinglePassInstanced }
+        public static StereoRenderingMode stereoRenderingMode;
+    }
+    public class XRDisplaySubsystem
+    {
+        public bool running;
+        public static int MsaaWrites;
+        public void SetMSAALevel(int samples) { MsaaWrites++; }
+    }
     public class XRInputSubsystem { public bool running; }
 }
 namespace UnityEngine.XR.Management
@@ -148,6 +175,15 @@ namespace UnityEngine.XR.OpenXR.Features.Interactions
     public class OculusTouchControllerProfile : UnityEngine.XR.OpenXR.Features.OpenXRFeature { }
     public class ValveIndexControllerProfile : UnityEngine.XR.OpenXR.Features.OpenXRFeature { }
     public class KHRSimpleControllerProfile : UnityEngine.XR.OpenXR.Features.OpenXRFeature { }
+}
+namespace BepInEx { public static class Paths { public static string BepInExRootPath = "fixture"; } }
+namespace GloomhavenVR
+{
+    internal static class FrameLaunchOptIn
+    {
+        internal static bool Marker;
+        internal static bool MarkerExists(string path) => Marker;
+    }
 }
 namespace GloomhavenVR.Rig { public static class VRRigDriver { public static UnityEngine.Camera HeadCamera; } }
 namespace GloomhavenVR.Core

@@ -30,6 +30,12 @@ public static class QuestStandalonePlatform
     public static Camera? HeadCamera => RigReady ? VRRigDriver.HeadCamera : null;
     public static int PresentationLayer => VRLayers.ModLayer;
     public static bool DebugLogging => Enabled && VRLog.Wants(VRLogLevel.Debug);
+    /// <summary>One shared mobile default, also used to configure the Player before XR starts.</summary>
+    public static int StandaloneMsaaDefault => FrameDefaults.MsaaLevel;
+    // B623 hardware: replacing active Vulkan/OpenXR swapchains crashes while
+    // Unity recreates an external image. Viewport changes retain the allocation.
+    internal static bool FixedEyeTextureAllocation => Enabled
+        && SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Vulkan;
     /// <summary>The generated player follows the current mod's proven stereo contract.</summary>
     public static bool RequiresMultiPassStereo => StereoModeConfig.Current == StereoModeConfig.Mode.MultiPass;
     internal static bool SharedStereoEyeRouting => Enabled && XRSettings.stereoRenderingMode != XRSettings.StereoRenderingMode.MultiPass;

@@ -13,17 +13,52 @@ def main():
     core = root / "src/GloomhavenVR/Core"
     sources = {
         "QuestStandalonePlatform.cs": core / "QuestStandalonePlatform.cs",
+        "QuestEyeResolution.cs": root / "src/GloomhavenVR/Rig/QuestEyeResolution.cs",
+        "FrameDefaults.cs": core / "Startup/FrameDefaults.cs",
         "RuntimeDepsLoader.cs": core / "Startup/RuntimeDepsLoader.cs",
         "OpenXRBootstrap.cs": core / "Startup/OpenXRBootstrap.cs",
         "CoreModule.cs": core / "CoreModule.cs",
         "IVRModule.cs": core / "IVRModule.cs",
     }
     original = {name: path.read_text() for name, path in sources.items()}
+    render_quality = (root / "src/GloomhavenVR/Rig/RenderQuality.cs").read_text()
+    methods = []
+    for signature in ("private static void ApplyMsaa()", "private static void ApplyEyeScale()"):
+        start = render_quality.index("    " + signature)
+        end = render_quality.index("\n    }", start) + len("\n    }")
+        methods.append(render_quality[start:end])
+    # Execute the actual current controller methods, not a second implementation.
+    original["RenderQualityAllocation.fixture"] = """using System.Collections.Generic;
+using GloomhavenVR.Core; using UnityEngine; using UnityEngine.XR;
+namespace GloomhavenVR.Rig;
+internal static class RenderQualityAllocationFixture {
+    internal sealed class Entry<T> { internal T Value; internal Entry(T value) { Value = value; } }
+    private static Entry<int> MsaaLevel = new(8);
+    private static Entry<float> EyeResolutionScale = new(1.5f);
+    internal static int SavedMsaa => MsaaLevel.Value;
+    private const float MinEyeScale = 0.5f, MaxEyeScale = 2f;
+    private const bool ViewportScaleFallback = true;
+    private static int _baseEyeWidth, _lastPushedDisplayMsaa = -1;
+    private static float _viewportScaleApplied = 1f, _lastLoggedEyeScale = -1f;
+    private static bool _eyeScaleAnnounced;
+    private static bool? _eyeScaleBinds;
+    private static readonly List<XRDisplaySubsystem> Displays = new();
+    private static int Sanitize(int value) => value;
+    private static void RequestEyeTargetDiagnostics(string reason) { }
+    private static void ReleaseViewportScale() { XRSettings.renderViewportScale = 1f; _viewportScaleApplied = 1f; }
+    private static bool ApplyViewportScale(float wanted, string reason) { XRSettings.renderViewportScale = wanted; _viewportScaleApplied = wanted; return true; }
+    internal static void Tick() { ApplyMsaa(); ApplyEyeScale(); }
+""" + "\n".join(methods) + "\n}\n"
     output = root / ".planning/debug/quest-platform"
     output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=output))
     cases = [("production", original, "")]
     for name, target, before, after, expected in (
+        ("vulkan-live-msaa-restored", "RenderQualityAllocation.fixture", "!QuestStandalonePlatform.FixedEyeTextureAllocation && wanted != _lastPushedDisplayMsaa", "wanted != _lastPushedDisplayMsaa", "vulkan-render-controller"),
+        ("quest-standalone-defaults-removed", "FrameDefaults.cs", "Core.QuestStandalonePlatform.Enabled\n        || ", "", "quest-mobile-defaults"),
+        ("vulkan-eye-cap-removed", "QuestEyeResolution.cs", "Mathf.Clamp(requested, 0.5f, 1f)", "requested", "vulkan-eye-cap"),
+        ("vulkan-eye-allocation-restored", "QuestEyeResolution.cs", "XRSettings.renderViewportScale = effective;", "XRSettings.eyeTextureResolutionScale = effective;", "vulkan-eye-viewport"),
+        ("vulkan-eye-log-unbounded", "QuestEyeResolution.cs", "if (changed || Mathf.Abs(effective - _lastViewport) > 0.0005f)", "if (true)", "vulkan-eye-bounded"),
         ("world-screen-desktop-gate-removed", "QuestStandalonePlatform.cs", "if (!Enabled) return desktopShader;", "if (Enabled && false) return desktopShader;", "desktop-screen"),
         ("android-dynamic-deps", "RuntimeDepsLoader.cs", "if (UnityEngine.Application.platform == UnityEngine.RuntimePlatform.Android)", "if (QuestStandalonePlatform.Enabled && UnityEngine.Application.platform == UnityEngine.RuntimePlatform.WindowsPlayer)", "android-deps"),
         ("owner-session-not-checked", "OpenXRBootstrap.cs", " || !QuestStandalonePlatform.SessionRunning", "", "owner-session-gate"),
@@ -45,6 +80,11 @@ def main():
     # This binding proves the tested clear-color implementation is the actual MR
     # camera authority, while full rendering/backing parity remains a Unity/HW gate.
     mixed_reality = core / "MixedReality/MixedReality.cs"
+    render_quality = (root / "src/GloomhavenVR/Rig/RenderQuality.cs").read_text()
+    eye_apply = render_quality.split("private static void ApplyEyeScale()", 1)[1].split("private static string VerifyEyeScaleBound()", 1)[0]
+    guard = "if (QuestEyeResolution.TryApply(wanted))\n            return;"
+    if guard not in eye_apply or eye_apply.index(guard) > eye_apply.index("XRSettings.eyeTextureResolutionScale = wanted;"):
+        raise SystemExit("FAIL original render controller must return before the native allocation setter on Quest Vulkan")
     if "Color key = QuestStandalonePlatform.MixedRealityClearColor(KeyColor.Value);" not in mixed_reality.read_text():
         raise SystemExit("FAIL actual MR Tick is not bound to the tested Quest clear policy")
     evidence = {"sources": {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in sources.items()},

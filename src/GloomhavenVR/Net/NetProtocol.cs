@@ -553,7 +553,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 623;
+    public const ushort ModBuild = 624;
+
+    // ModBuild 624 — B623 Quest capture isolates a native Vulkan/OpenXR crash
+    // during live eye-resolution replacement, before original game bootstrap.
+    // Retain the initial Quest Vulkan swapchain; use allocation-free viewport
+    // downscaling and explain unavailable supersampling without rewriting saved
+    // configuration. Quest uses the same fresh mobile defaults as Steam Frame,
+    // including its MSAA default configured before the first XR frame.
+    // Desktop and Quest GLES retain their existing render path.
+    // Preserve complete Campaign/DLC content; headset acceptance remains pending.
 
     // ModBuild 623 — complete standalone Quest Campaign package.
     // Recover every original scene, catalog object and native asset reference;

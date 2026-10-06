@@ -10,6 +10,12 @@ public static class QuestText
     {
         switch (key)
         {
+            case "fixedEyeMsaa": return german
+                ? "Quest Standalone übernimmt die MSAA-Vorgabe der Steam-Frame-Standalone-Version vor dem Start von VR. Live-Änderungen sind zum Schutz vor Abstürzen bei der Neuanlage von Vulkan-Augen-Texturen deaktiviert. Dein gespeicherter Wert bleibt erhalten."
+                : "Quest Standalone uses the Steam Frame standalone MSAA default before VR starts. Live changes are disabled to avoid crashes during Vulkan eye-texture replacement. Your saved value is preserved.";
+            case "fixedEyeResolution": return german
+                ? "Quest Standalone: Werte von 0,5 bis 1,0 ändern die Renderauflösung innerhalb der bestehenden Augen-Textur. Werte über 1,0 wirken derzeit wie 1,0; Supersampling ist deaktiviert, da die Live-Neuanlage der Vulkan-Augen-Texturen abstürzen kann. Dein gespeicherter Wert bleibt erhalten."
+                : "Quest Standalone: values from 0.5 to 1.0 change the rendered viewport within the existing eye texture. Values above 1.0 currently act as 1.0; supersampling is disabled because live Vulkan eye-texture replacement can crash. Your saved value is preserved.";
             case "title": return german ? "GloomhavenVR – Quest-Test" : "GloomhavenVR – Quest test";
             case "diagnostic": return german ? "Technischer Hardware-Test; noch kein spielbarer Port" : "Hardware diagnostic; not yet a playable port";
             case "dummy": return german ? "DUMMY-PROFIL · lokaler Entwicklungsbuild" : "DUMMY PROFILE · local development build";

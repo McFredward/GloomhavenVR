@@ -827,6 +827,9 @@ internal static class RenderQuality
     private static void ApplyMsaa()
     {
         int wanted = Sanitize(MsaaLevel!.Value);
+        // Keep the sample count negotiated at startup on Quest Vulkan as well.
+        if (QuestStandalonePlatform.FixedEyeTextureAllocation)
+            wanted = QuestEyeResolution.StartupMsaa;
 
         int current = QualitySettings.antiAliasing;
         if (current != wanted)
@@ -841,7 +844,7 @@ internal static class RenderQuality
         // Push to the live XR display once per value change — the built-in pipeline mirrors
         // QualitySettings into the eye-texture desc itself, but an explicit SetMSAALevel makes
         // the swapchain re-allocation deterministic (and covers any pipeline that doesn't).
-        if (wanted != _lastPushedDisplayMsaa)
+        if (!QuestStandalonePlatform.FixedEyeTextureAllocation && wanted != _lastPushedDisplayMsaa)
         {
             SubsystemManager.GetInstances(Displays);
             if (Displays.Count == 0)
@@ -876,6 +879,8 @@ internal static class RenderQuality
     private static void ApplyEyeScale()
     {
         float wanted = Mathf.Clamp(EyeResolutionScale!.Value, MinEyeScale, MaxEyeScale);
+        if (QuestEyeResolution.TryApply(wanted))
+            return;
 
         if (_baseEyeWidth == 0
             && Mathf.Abs(XRSettings.eyeTextureResolutionScale - 1f) < 0.0005f
@@ -957,6 +962,10 @@ internal static class RenderQuality
     private static string VerifyEyeScaleBound()
     {
         float wanted = Mathf.Clamp(EyeResolutionScale!.Value, MinEyeScale, MaxEyeScale);
+        if (QuestStandalonePlatform.FixedEyeTextureAllocation)
+            return $"Quest Vulkan retains its {XRSettings.eyeTextureWidth}x{XRSettings.eyeTextureHeight} "
+                + $"eye allocation; saved scale {wanted:F2}, effective viewport "
+                + $"{XRSettings.renderViewportScale:F2}; live supersampling is unavailable.";
         int actual = XRSettings.eyeTextureWidth;
 
         // "NOTHING TO VERIFY" WAS THE WHOLE PROBLEM. Thirty of these lines in the ModBuild 226 log
@@ -1481,7 +1490,8 @@ internal static class RenderQuality
     internal static string MsaaLabel()
     {
         Bind();
-        int v = Sanitize(MsaaLevel!.Value);
+        int v = QuestStandalonePlatform.FixedEyeTextureAllocation
+            ? QuestEyeResolution.StartupMsaa : Sanitize(MsaaLevel!.Value);
         return v == 0 ? "Off" : $"{v}x";
     }
 
@@ -1505,7 +1515,7 @@ internal static class RenderQuality
     internal static string EyeScaleLabel()
     {
         Bind();
-        return $"{Mathf.Clamp(EyeResolutionScale!.Value, MinEyeScale, MaxEyeScale):0.0}x";
+        return $"{QuestEyeResolution.EffectiveScale(Mathf.Clamp(EyeResolutionScale!.Value, MinEyeScale, MaxEyeScale)):0.0}x";
     }
 
     /// <summary>

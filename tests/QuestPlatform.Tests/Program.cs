@@ -1,5 +1,6 @@
 using System.Reflection;
 using GloomhavenVR.Core;
+using GloomhavenVR;
 using GloomhavenVR.Rig;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -24,6 +25,10 @@ internal static class Program
         string directory = Path.Combine(args[0], "owned mod resources"); Directory.CreateDirectory(directory);
         Application.platform = RuntimePlatform.WindowsPlayer;
         SystemInfo.graphicsDeviceType = GraphicsDeviceType.Direct3D11;
+        Check(!FrameDefaults.Active, "desktop-mobile-defaults: ordinary PC must keep its own defaults");
+        FrameLaunchOptIn.Marker = true;
+        Check(FrameDefaults.Active, "frame-mobile-defaults: opted-in standalone Frame retains its defaults");
+        FrameLaunchOptIn.Marker = false;
         Check(!QuestStandalonePlatform.Enabled && !QuestStandalonePlatform.ModRunning && !QuestStandalonePlatform.RigReady, "desktop-gate: unconfigured desktop unexpectedly enabled standalone");
         GloomhavenVR.WorldUI.FlatScreen.OwnedCamera = new Camera();
         Check(!QuestStandalonePlatform.IsFlatScreenVideoTarget(GloomhavenVR.WorldUI.FlatScreen.OwnedCamera), "desktop-video: configured capture must not enable Quest output");
@@ -85,6 +90,8 @@ internal static class Program
         Reject(() => QuestStandalonePlatform.Configure(directory, setNative, null!, () => ownerRunning), "resource-validation: null passthrough observer accepted");
         Check(!QuestStandalonePlatform.Enabled, "resource-validation: failed configuration partially enabled standalone");
         QuestStandalonePlatform.Configure(directory, setNative, () => nativeActive, () => ownerRunning, () => sessionGeneration);
+        Check(FrameDefaults.Active && QuestStandalonePlatform.StandaloneMsaaDefault == FrameDefaults.MsaaLevel,
+            "quest-mobile-defaults: Quest must share current Frame defaults without a desktop opt-in marker");
         Check(QuestStandalonePlatform.Enabled && QuestStandalonePlatform.ResourceDirectory == Path.GetFullPath(directory) && RuntimeDepsLoader.PluginDir == Path.GetFullPath(directory), "android-resource: player-owned resource root was not used");
         Check(QuestStandalonePlatform.SelectFlatScreenShader(desktopScreen) == Resources.ScreenShader,
             "quest-screen: enabled platform selects validated Tex2D world shader");
@@ -171,9 +178,38 @@ internal static class Program
         Check(ownerManager.Stops == 0 && ownerManager.Deinitializations == 0 && ownerManager.Starts == 0, "external-teardown: plugin stopped/reinitialized the player-owned XR manager");
         Check(!Object.Destroyed.Contains(ownerSettings) && !Object.Destroyed.Contains(ownerManager) && !Object.Destroyed.Contains(ownerLoader) && display.running && input.running, "external-teardown: plugin destroyed player settings/loader or stopped its running subsystems");
         Check(Loc.Stops == 1 && ExceptionTraces.Stops == 1 && PerfMonitor.Stops == 1, "core-teardown: original core module cleanup was bypassed");
+        Check(!QuestEyeResolution.TryApply(1.5f), "gles-eye-allocation: Quest GLES must retain the original render controller");
+        SystemInfo.graphicsDeviceType = GraphicsDeviceType.Vulkan;
+        float savedScale = 1.5f;
+        RenderQualityAllocationFixture.Tick();
+        Check(XRSettings.AllocationWrites == 0 && XRDisplaySubsystem.MsaaWrites == 0
+            && QualitySettings.antiAliasing == FrameDefaults.MsaaLevel && RenderQualityAllocationFixture.SavedMsaa == 8,
+            "vulkan-render-controller: actual render controller must keep startup eye allocation and sample count without rewriting config");
+        Check(QuestStandalonePlatform.FixedEyeTextureAllocation, "vulkan-eye-gate: configured Quest Vulkan must retain swapchain allocation");
+        Check(QuestEyeResolution.TryApply(savedScale) && savedScale == 1.5f
+            && QuestEyeResolution.EffectiveScale(savedScale) == 1f,
+            "vulkan-eye-cap: supersampling must not mutate saved configuration or resize the allocation");
+        Check(XRSettings.AllocationWrites == 0 && XRSettings.renderViewportScale == 1f,
+            "vulkan-eye-allocation: native resolution setter must not run");
+        int reports = VRLog.Lines.Count;
+        for (int i = 0; i < 1000; i++) QuestEyeResolution.TryApply(savedScale);
+        Check(VRLog.Lines.Count == reports && XRSettings.AllocationWrites == 0 && XRSettings.ViewportWrites == 0,
+            "vulkan-eye-bounded: unchanged saved setting must not repeat logs or native writes");
+        QuestEyeResolution.TryApply(0.7f);
+        Check(XRSettings.renderViewportScale == 0.7f && XRSettings.ViewportWrites == 1 && XRSettings.AllocationWrites == 0,
+            "vulkan-eye-viewport: downscaling must use only the allocation-free viewport setter");
+        QuestEyeResolution.TryApply(1f);
+        Check(XRSettings.renderViewportScale == 1f && XRSettings.ViewportWrites == 2 && XRSettings.AllocationWrites == 0,
+            "vulkan-eye-restore: native viewport must be restored without swapchain recreation");
         Application.platform = RuntimePlatform.WindowsPlayer;
         Check(!QuestStandalonePlatform.Enabled, "configured-desktop-gate: configured bridge stayed active outside Android");
+        Check(!QuestEyeResolution.TryApply(1.5f) && QuestEyeResolution.EffectiveScale(1.5f) == 1.5f,
+            "desktop-eye-allocation: desktop Vulkan must retain its original supersampling controller");
         Check(!QuestStandalonePlatform.SetPassthrough(true) && nativeCalls == 7, "configured-desktop-gate: desktop called the Android native bridge");
+        RenderQualityAllocationFixture.Tick();
+        Check(XRSettings.AllocationWrites == 1 && XRDisplaySubsystem.MsaaWrites == 1
+            && QualitySettings.antiAliasing == 8 && XRSettings.eyeTextureResolutionScale == 1.5f,
+            "desktop-render-controller: original live resolution and MSAA setters must remain reachable");
         Console.WriteLine("PASS Quest platform/core lifecycle: " + assertions + " assertions (XR/environment seams; not native rendering/AOT proof)");
     }
 }

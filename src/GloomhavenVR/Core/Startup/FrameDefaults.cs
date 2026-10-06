@@ -3,13 +3,14 @@ using BepInEx;
 namespace GloomhavenVR;
 
 /// <summary>
-/// Defaults for a fresh Steam Frame standalone VR configuration. BepInEx keeps every existing
+/// Shared defaults for fresh Steam Frame and Quest standalone VR configurations. BepInEx keeps every existing
 /// entry on Bind, so this profile never replaces a player's saved choices. The Frame setup
 /// marker is absent on Windows PC installs and on ordinary unmodified game installs.
 /// </summary>
 internal static class FrameDefaults
 {
-    internal static bool Active => FrameLaunchOptIn.MarkerExists(Paths.BepInExRootPath);
+    internal static bool Active => Core.QuestStandalonePlatform.Enabled
+        || FrameLaunchOptIn.MarkerExists(Paths.BepInExRootPath);
 
     // Build 592 standalone hardware run. 3408 pixels per eye was selected in SteamVR,
     // outside the mod; the mod's scale remains 1.00 and does not hard-code that resolution.
