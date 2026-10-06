@@ -43,9 +43,18 @@ internal static class Program
         Check(VRLog.Lines.Count(x=>x.StartsWith("Eye resolution live change requested:"))==1,"one committed resolution transition for slider burst");
         int writes=XRSettings.ViewportWrites; for(int i=0;i<100;i++) Tick(.6f+i*.02f);
         Check(XRSettings.ViewportWrites==writes,"stable setting never repeats viewport writes");
-        RenderQuality.EyeResolutionScale.Value=1; Tick(3); Tick(3.36f);
+        // Native scene/profile setup can reset a previously accepted viewport while
+        // the persisted request is unchanged, as observed in the Frame633 run.
+        XRSettings.renderViewportScale=1; writes=XRSettings.ViewportWrites;
+        Tick(2.7f); Near(XRSettings.renderViewportScale,.85f,"unchanged accepted viewport is restored after native reset");
+        Check(XRSettings.ViewportWrites==writes+1 && XRSettings.LiveAllocationWrites==0,
+            "viewport reset repair uses one viewport setter and no allocation");
+        XRSettings.renderViewportScale=1; writes=XRSettings.ViewportWrites;
+        Tick(2.8f); Check(XRSettings.ViewportWrites==writes,"repeated native viewport resets have bounded repair spacing");
+        Tick(3.71f); Near(XRSettings.renderViewportScale,.85f,"next spaced viewport repair restores unchanged request");
+        RenderQuality.EyeResolutionScale.Value=1; Tick(3.8f); Tick(4.16f);
         Near(XRSettings.renderViewportScale,1,"return to native releases reduced viewport");
-        RenderQuality.EyeResolutionScale.Value=1.5f; Tick(4); Tick(4.36f);
+        RenderQuality.EyeResolutionScale.Value=1.5f; Tick(4.3f); Tick(4.66f);
         Near(XRSettings.eyeTextureResolutionScale,1,"above-capacity request keeps live allocation");
         Near(XRSettings.renderViewportScale,1,"above-capacity request uses whole existing target");
         Near(RenderQuality.EyeResolutionScale.Value,1.5f,"above-capacity request persists for next VR start");
@@ -115,6 +124,11 @@ internal static class Program
         Check(XRSettings.ViewportWrites==writes,"provider refusal never causes per-frame setter storm");
         XRSettings.RefuseViewport=false; RenderQuality.EyeResolutionScale.Value=.75f; Tick(5); Tick(5.36f);
         Near(XRSettings.renderViewportScale,.75f,"new request can recover after provider refusal");
+        XRSettings.renderViewportScale=1; XRSettings.RefuseViewport=true;
+        Tick(7); writes=XRSettings.ViewportWrites;
+        for(int i=0;i<100;i++) Tick(7.1f+i*.02f);
+        Check(XRSettings.ViewportWrites==writes,"refused native reset repair disarms automatic retries");
+        Check(XRSettings.LiveAllocationWrites==0,"refused native reset repair retains session allocation");
 
         display=Start(1); RenderQuality.EyeResolutionScale!.Value=.8f; Tick(.1f); Tick(.5f);
         int allocations=XRSettings.AllocationWrites;
@@ -143,6 +157,11 @@ internal static class Program
         RenderQuality.EyeResolutionScale!.Value=.8f; Tick(.1f); Tick(.5f);
         Near(XRSettings.renderViewportScale,.8f,"refused startup allocation uses actual accepted capacity for later viewport");
         Check(XRSettings.LiveAllocationWrites==0,"startup refusal never schedules live allocation fallback");
+        display=Start(.8f); XRSettings.renderViewportScale=1; Camera.current=new();
+        Tick(.5f); Near(XRSettings.renderViewportScale,1,"unmarked camera call cannot repair a startup viewport reset");
+        FrameTick(.51f); Near(XRSettings.renderViewportScale,.8f,"accepted startup viewport reset is repaired by known Update");
+        Check(XRSettings.LiveAllocationWrites==0 && display.AllocationWrites==1,
+            "startup viewport reset repair retains the original session allocation");
         Console.WriteLine($"RenderQuality production lifecycle: {_assertions} assertions passed.");
     }
 }
