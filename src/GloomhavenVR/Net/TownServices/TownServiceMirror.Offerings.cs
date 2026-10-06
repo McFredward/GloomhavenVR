@@ -42,7 +42,7 @@ internal static partial class TownServiceMirror
         // Other lanes and returning cards have no native enhancement frame.
         ActiveOfferedFrames.Clear(); DeadOfferedFrames.Clear();
         foreach (var stale in OfferedFrames)
-            if (stale.Key == null || stale.Value == null) DeadOfferedFrames.Add(stale.Key);
+            if (stale.Key == null || stale.Value == null) DeadOfferedFrames.Add(stale.Key!);
         foreach (Transform stale in DeadOfferedFrames) OfferedFrames.Remove(stale);
         if (lane.Active && lane.Service == 3) foreach (var pair in OfferedFrames)
         {
@@ -59,7 +59,7 @@ internal static partial class TownServiceMirror
             // the copied widget towards its own head.
             entry.Numbers = ReadPose(pair.Key, pair.Value);
             Canvas? canvas = pair.Key.GetComponentInParent<Canvas>(true);
-            if (holder.Last.HasCanvasFrame && canvas != null && canvas.transform != pair.Key)
+            if (holder!.Last!.HasCanvasFrame && canvas != null && canvas.transform != pair.Key)
             {
                 if (!ValidMotionScale(canvas.transform.lossyScale)) continue;
                 entry.HasCanvasFrame = true; entry.CanvasPose = ReadPose(canvas.transform, pair.Value);
