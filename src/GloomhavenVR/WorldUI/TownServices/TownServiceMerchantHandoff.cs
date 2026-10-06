@@ -77,6 +77,7 @@ internal static class TownServiceMerchantHandoff
     internal static float SessionAge => Mathf.Max(0f, Time.unscaledTime - _started);
     internal static Transform? StationRoot => _station?.Root;
     internal static Transform? Zone => _zone;
+    internal static ItemsPile.ItemChip? PreparedPurchase => _fan?.PreparedMerchantPurchase;
     internal static IReadOnlyList<ItemsPile.ItemChip> OwnedChips => _fan != null
         ? _fan.InspectionChips : Array.Empty<ItemsPile.ItemChip>();
 
@@ -487,6 +488,9 @@ internal static class TownServiceMerchantHandoff
         if ((_pending == null && _tradeItem == null) || _seat == null) return;
         _offeredStock = token;
         token.ParkOffering(_seat, Reclaim);
+        CItem? stock = _pending ?? _tradeItem;
+        if (stock != null && !(_pending != null ? _selling : _tradeSelling) && token.PhysicalRoot != null)
+            _fan?.PrepareMerchantPurchase(stock, token.PhysicalRoot);
     }
 
     private static void TickConfirmation()
@@ -586,6 +590,7 @@ internal static class TownServiceMerchantHandoff
         // Use native ownership, never the confirmation button's visual state.
         // Cancel, swap, refusal and timeout still follow ReleaseOffering below.
         CompleteTradePresentation(sold, purchased);
+        _nextItems = 0f; // the next inspection Tick must observe the authoritative new ownership
         _tradeItem = null;
         TradeOwnedBefore.Clear();
         DetachTradeListener();
@@ -649,6 +654,7 @@ internal static class TownServiceMerchantHandoff
 
     private static void ReleaseOffering(bool preserveReservation = false)
     {
+        _fan?.CancelPreparedMerchantPurchase();
         ItemsPile.ItemChip? chip = _offeredChip; _offeredChip = null;
         TownServiceToken? stock = _offeredStock; _offeredStock = null;
         _offering = null;

@@ -15,6 +15,8 @@ internal sealed partial class ItemsPile
     private VRHand? _inspectionGateHand;
     private readonly List<ItemChip> _inspectionRetiring = new();
     private readonly List<ItemChip> _inspectionPublished = new();
+    private ItemChip? _inspectionPreparedPurchase;
+    internal ItemChip? PreparedMerchantPurchase => _inspectionPreparedPurchase;
     private readonly HashSet<CItem> _inspectionPresent = new();
     private readonly HashSet<CItem> _inspectionDesired = new();
     private readonly List<ItemChip> _inspectionNew = new();
@@ -194,12 +196,55 @@ internal sealed partial class ItemsPile
         RefreshInspectionPublished();
     }
 
+    /// <summary>Prepare one inert canonical native original while a borrowed stock
+    /// sample is offered. It is not owned, a fan member or an interactive card.</summary>
+    internal void PrepareMerchantPurchase(CItem stock, Transform sample)
+    {
+        if (_root == null || stock == null) return;
+        if (_inspectionPreparedPurchase != null && ReferenceEquals(_inspectionPreparedPurchase.Item, stock)) return;
+        CancelPreparedMerchantPurchase();
+        ItemChip prepared = ItemChip.Create(this, _root, stock);
+        prepared.PrepareMerchantPurchase(sample.position, sample.rotation);
+        _inspectionPreparedPurchase = prepared;
+    }
+    internal void CancelPreparedMerchantPurchase()
+    {
+        ItemChip? prepared = _inspectionPreparedPurchase; _inspectionPreparedPurchase = null;
+        if (prepared != null) UnityEngine.Object.DestroyImmediate(prepared.gameObject);
+    }
+
     /// <summary>Fly the actual newly owned copy from the purchased sample to its canonical wrist seat.</summary>
     internal void BeginMerchantPurchase(CItem purchased, Vector3 position, Quaternion rotation, float width)
     {
         if (_root == null || purchased == null) return;
-        ItemChip? chip = _chips.Find(candidate => candidate != null && ReferenceEquals(candidate.Item, purchased));
-        if (chip == null) { chip = ItemChip.Create(this, _root, purchased); _chips.Add(chip); }
+        ItemChip? chip = _inspectionPreparedPurchase;
+        if (chip != null && chip.Item?.ID == purchased.ID)
+        {
+            _inspectionPreparedPurchase = null;
+            // Native inventory refresh can have materialized its new copy earlier on
+            // this same Tick. The offered/prepared original owns this one flight.
+            for (int i = _chips.Count - 1; i >= 0; i--)
+                if (_chips[i] != null && ReferenceEquals(_chips[i].Item, purchased))
+                {
+                    ItemChip duplicate = _chips[i]; _chips.RemoveAt(i);
+                    _inspectionNew.Remove(duplicate); _inspectionTownReturns.Remove(duplicate);
+                    UnityEngine.Object.DestroyImmediate(duplicate.gameObject);
+                }
+            for (int i = _inspectionRetiring.Count - 1; i >= 0; i--)
+                if (_inspectionRetiring[i] != null && ReferenceEquals(_inspectionRetiring[i].Item, purchased))
+                {
+                    ItemChip duplicate = _inspectionRetiring[i]; _inspectionRetiring.RemoveAt(i);
+                    _inspectionNew.Remove(duplicate); _inspectionTownReturns.Remove(duplicate);
+                    UnityEngine.Object.DestroyImmediate(duplicate.gameObject);
+                }
+            chip.AdoptMerchantPurchase(purchased); _chips.Add(chip);
+        }
+        else
+        {
+            CancelPreparedMerchantPurchase();
+            chip = _chips.Find(candidate => candidate != null && ReferenceEquals(candidate.Item, purchased));
+            if (chip == null) { chip = ItemChip.Create(this, _root, purchased); _chips.Add(chip); }
+        }
         _inspectionNew.Remove(chip);
         Relayout();
         chip.BeginMerchantPurchase(_root, position, rotation, width);
@@ -264,7 +309,7 @@ internal sealed partial class ItemsPile
         }
         _inspectionNew.Clear(); _inspectionDesired.Clear(); _inspectionPresent.Clear();
         RefreshInspectionPublished();
-        return _inspectionPublished.Count != 0;
+        return _inspectionPublished.Count != 0 || _inspectionPreparedPurchase != null;
     }
 
     internal bool TickRetainedInspection(ItemChip? pending = null)
@@ -294,10 +339,11 @@ internal sealed partial class ItemsPile
             _inspectionTownReturns.Remove(chip!); _inspectionRetiring.RemoveAt(i);
         }
         RefreshInspectionPublished();
-        return _inspectionPublished.Count != 0;
+        return _inspectionPublished.Count != 0 || _inspectionPreparedPurchase != null;
     }
     internal void DestroyInspection()
     {
+        CancelPreparedMerchantPurchase();
         if (ReferenceEquals(InspectionCurrent, this)) InspectionCurrent = null;
         if (ReferenceEquals(InspectionOwner, this)) InspectionOwner = null;
         IsOpen = false; ClearHandSweep();

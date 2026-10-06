@@ -31,7 +31,8 @@ internal sealed partial class TownServiceSync
         bool moving = false;
         var abilityReturns = TownServiceEnhancementHandoff.Returning;
         var offeredAbility = TownServicePresentation.Service == 3 ? TownServicePresentation.Ritual?.Handoff : null;
-        bool preparing = TownServiceMerchantHandoff.HasParkedOffer || offeredAbility?.Card != null;
+        bool preparing = TownServiceMerchantHandoff.HasParkedOffer || offeredAbility?.Card != null
+            || TownServiceMerchantHandoff.PreparedPurchase != null;
         foreach (ItemsPile.ItemChip chip in TownServiceMerchantHandoff.OwnedChips)
             if (chip != null && (chip.Holder != null || !ItemsPile.InspectionUsesAvatarTransport(chip)))
             { preparing = true; break; }
@@ -68,6 +69,7 @@ internal sealed partial class TownServiceSync
         Visited.Clear(); Dynamic.Clear(); PriorityRoots.Clear();
         if (catalog != null) PublishStockEntries(catalog);
         PublishMerchantReturns();
+        if (TownServiceMerchantHandoff.PreparedPurchase is ItemsPile.ItemChip purchase) PublishPreparedMerchantReturn(purchase);
         foreach (ItemsPile.ItemChip chip in TownServiceMerchantHandoff.OwnedChips)
             if (chip != null && (chip.Holder != null || !ItemsPile.InspectionUsesAvatarTransport(chip))) PublishPreparedMerchantReturn(chip);
         if (offeredAbility?.Card != null && offeredAbility.OfferedCardId > 0 && offeredAbility.Face != null)

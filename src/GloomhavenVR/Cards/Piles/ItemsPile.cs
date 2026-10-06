@@ -6234,6 +6234,25 @@ internal sealed partial class ItemsPile
             if (++_townReturnRevision == 0) _townReturnRevision = 1;
         }
 
+        private bool _preparedMerchantPurchase;
+        internal void PrepareMerchantPurchase(Vector3 position, Quaternion rotation)
+        {
+            _preparedMerchantPurchase = true;
+            _emerging = _collapsing = false; _releaseGlide = 0f;
+            transform.SetPositionAndRotation(position, rotation);
+            transform.localScale = Vector3.zero;
+            if (_box != null) _box.enabled = false;
+        }
+        internal void AdoptMerchantPurchase(CItem purchased)
+        {
+            // Keep the same native widget, hierarchy and source identity. Only
+            // its authoritative model/state changes after actual inventory success.
+            Item = purchased; State = Classify(purchased);
+            if (_cardUI != null)
+            { _cardUI.item = purchased; _cardUI.UpdateState(purchased.SlotState, force: true); }
+            _preparedMerchantPurchase = false;
+        }
+
         internal void BeginMerchantPurchase(Transform fan, Vector3 position, Quaternion rotation, float width)
         {
             PrepareInspectionReturn(fan);
@@ -7024,6 +7043,7 @@ internal sealed partial class ItemsPile
             }
 
             TickFaceMaintenance(); // ITEM #1 (de-shimmer) + live usable-highlight frame — held or not
+            if (_preparedMerchantPurchase) return;
 
             if (TickInspectionArtArrival()) return;
 

@@ -116,13 +116,16 @@ internal static class TownServiceCardFlights
     {
         if (chip != null)
         { chip.TownOffering = false; chip.TownOfferingReclaimed = null; fan.ResumeInspection(chip); }
+        fan.CancelPreparedMerchantPurchase();
         stock?.ReturnOffering();
     }
 
     private static void RefreshPublished()
     {
         Published.Clear();
-        foreach (Retained entry in RetainedFans) Published.AddRange(entry.Fan.InspectionChips);
+        foreach (Retained entry in RetainedFans)
+        { Published.AddRange(entry.Fan.InspectionChips);
+          if (entry.Fan.PreparedMerchantPurchase != null) Published.Add(entry.Fan.PreparedMerchantPurchase); }
     }
     internal static void BeginPurchase(ItemsPile fan, CItem purchased, Transform sample)
     {
