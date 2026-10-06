@@ -130,7 +130,7 @@ and signing/publication remain single-owner operations.
 Every long counter must include an observed denominator, current file/container
 or package, accepted completion and bounded log activity. For opaque Unity work,
 show its actual Editor/import/build log phase and last activity; mark ETA unknown
-until observed rates exist. Elapsed time is not completion percentage. A exited
+until observed rates exist. Elapsed time is not completion percentage. An exited
 failed child must immediately leave the working presentation and show its cause
 and retained continuation action. Repeated substeps must identify their different
 owned files/batches; no completed step may silently restart.

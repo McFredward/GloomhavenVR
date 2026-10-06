@@ -51,11 +51,29 @@ work and further cache/parallelism proposals identified explicitly.
 
 A terminal build failure now has a prominent top-of-page alert with its stage,
 bounded concrete cause, retry and diagnostic-export actions. Valid status is
-rendered before fetching optional events, so a log request failure cannot retain
-an obsolete running display. Stale Unity waits, animation and cancel controls
+rendered independently of optional event/live-log reads, so failed or indefinitely
+pending log requests cannot retain an obsolete running display. Each optional
+endpoint owns one cancellable observer; retry/session changes abort old observers.
+Unity and other user actions receive no new timeout. Stale Unity waits, animation
+and cancel controls
 cannot conceal a confirmed failure. Active builds display the age of the last
 actual progress report; silence explicitly means activity is unconfirmed rather
 than falsely promising a running tool or advancing percentages with time.
+
+The final integrated tooling gate at `862e4f4f4` runs 539 cases: 537 pass and
+two existing optional recovery-binding cases skip. All 26 Node UI cases run,
+including ten genuine Chrome/loopback workflows. One holds both event and live
+log connections indefinitely after RUNNING, then observes continued status
+polling, the subsequent FAILED cause, same-session retry and cancellation of
+stale observers. Cold helper loading, actual raw-resume journals, streaming
+reference equivalence, 13-scene staging closure and source-mutation controls are
+covered. The subsequent commit changes only these three planning documents.
+Compact gate evidence is retained outside worker trees at
+`/home/claw/quest3-local/build/evidence/B627-wizard-failure-862e4f4f4/`.
+The published source ZIP requires its own extracted, Git-free HTTP/CLI/session
+qualification; the adjacent audit records the exact source/archive identity.
+No original game export, new host APK, exhaustive shader or unrelated wire gate
+was run. Whole Windows throughput and headset success still need hardware evidence.
 
 ## Actual conversion counts, scoped estimates and repeated native work
 

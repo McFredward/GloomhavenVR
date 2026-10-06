@@ -15,7 +15,8 @@ counters and removes duplicate reads/full YAML node graphs. Its equivalent
 explicit remaining section and fourteen actual operations, extending this
 installation's conversion task count from 22 to 23. Build failures show a top
 alert with actual cause, retry and diagnostic export. Status updates survive
-optional-log failures; stale waits and animation cannot obscure failed state.
+optional-log failures or indefinitely pending connections; session changes abort
+old observers and stale waits/animation cannot obscure failed state.
 Long tasks show the last actual progress age and only measured scoped estimates.
 All seven Wizard stages and 21 build operations are reviewed in the new performance
 note. Fresh staging copies/report proofs avoid redundant reads, direct callers
@@ -23,6 +24,13 @@ retain their closure gate, full staging omits its duplicate intermediate audit,
 and audio/texture container hashes and current public-source qualifications reuse
 actual invocation-owned hashes with mutation guards. Larger immutable handoff,
 derivative caching and bounded parallelism remain measured next-run priorities.
+The final integrated tooling gate at `862e4f4f4` passes 537 of 539 cases with
+two existing optional recovery skips; all 26 UI cases run, including ten actual
+Chrome workflows and never-ending event/live-log connections. The following
+planning-only commit does not change tested source. Publication qualifies the
+exact extracted game-free archive and retained session before replacement.
+Only the Quest feature branch is pushed; completed owned workers are removed
+after their external evidence and release qualification are retained.
 
 **Quest B627 observed export work, scoped timing and native merge speed, 2026-10-06 (tooling only).**
 
