@@ -19,7 +19,7 @@ graphics jobs enabled;26 confirms the installed display/input descriptors. This
 is an attempted VR launch, not an opt-in rejection or an absent mod/preloader.
 
 Frame28-31 select the existing `C:\openxr\wineopenxr64.json` default and then
-report a null active loader. Frame `Player.log`107-112 records three failed native
+report a null active loader. Frame `Player.log`105-110 records three failed native
 extension-enumeration calls and failed instance creation, all with
 `XR_ERROR_RUNTIME_UNAVAILABLE`. `LogOutput.log`33/43 then records the flat fallback.
 No mod display-quality setup or live resolution change was reached in this run.
