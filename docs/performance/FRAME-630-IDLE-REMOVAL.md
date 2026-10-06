@@ -74,4 +74,6 @@ single-wing angle-oracle failures remain in private evidence. A complete-skeleto
 read corrects the angle oracle: an authored turning point and Unity's
 `Quaternion.Angle` precision can yield zero despite live movement elsewhere.
 Original same-pose pixels, clocks, meshes, masks, materials and LOD checks remain.
-The extensive native actor-bar envelope suite is tracked separately.
+The complete native actor-bar envelope suite passes 1,615 production assertions
+and all 26 controls (27 variants), preserving the original sleeping/flying Drake,
+CaveBear, authored cycle bounds, native detail0 sources and bounded preparation.
