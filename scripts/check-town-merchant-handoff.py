@@ -129,7 +129,7 @@ def mutations():
         ("palm-bypass", "TownServiceMerchantHandoff.cs", "!Eligible(item, selling, cached: false) || !InOfferingZone(world)", "!Eligible(item, selling, cached: false)", "release outside palm cannot open merchant"),
         ("inventory-cap", "TownServiceMerchantHandoff.cs", "Items.AddRange(current);", "Items.AddRange(current.GetRange(0, 1));", "all equipped and bound copies become actual inspection cards"),
         ("stale-native", "TownServiceMerchantHandoff.cs", "!ReferenceEquals(inventory.character, _character)", "false", "native inventory for another character cannot receive offer"),
-        ("auto-approach", "TownServiceMerchantHandoff.cs", "_nextItems = 0f;", "_nextItems = 0f; MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Merchant, \"mutant\");", "approach never opens a native service"),
+        ("auto-approach", "TownServiceMerchantHandoff.cs", "MapRoomHand.SetMerchantInspection(true);\n            _nextItems = 0f;", "MapRoomHand.SetMerchantInspection(true);\n            _nextItems = 0f; MapRoomDriver.PressGuildmasterMode(EGuildmasterMode.Merchant, \"mutant\");", "approach never opens a native service"),
         ("return-dropped", "ItemsPile.Merchant.cs", "_inspectionPublished.AddRange(_inspectionRetiring);", "", "closing animation remains published until completion"),
         ("return-parent", "ItemsPile.Merchant.cs", "chip.PrepareInspectionReturn(_root);", "", "every free merchant return restores the item fan parent"),
         ("reclaim-parent", "ItemsPile.Merchant.cs", "chip.transform.SetParent(_root, true);", "", "reclaimed merchant item records the item fan as its release parent"),

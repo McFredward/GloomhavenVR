@@ -101,7 +101,8 @@ public static partial class MirrorProgram
         // lifecycle, whose geometry has a separate production-bound fixture.
         TownServiceSharedCue.LocalReady = true; TownServiceSharedCue.LocalStrength = 1f;
         TownServiceSync.Tick(author, author);
-        Check(TownServiceSync.Calls.Exists(call => call.Key == "face.62201" && call.Source == face
+        Check(TownServiceSync.HasPublishedSource(face)
+            && TownServiceSync.Calls.Exists(call => call.Key == "face.62201" && call.Source == face
             && call.Provenance == null && call.CloneOf == null && call.Prewarm),
             "offered physical face publishes without a recycled native source widget");
         ushort faceId = TownServiceSync.ModuleId(face), bodyId = TownServiceSync.ModuleId(body);

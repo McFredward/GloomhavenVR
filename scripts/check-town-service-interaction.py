@@ -227,7 +227,7 @@ def mutations():
         ("palm-book-clearance", "PalmConfirmation.cs", "Service == 3 ? 1.26f : 1.17f", "1.17f", "complete enhancement decision stays above the raised book throughout the visitor yaw sweep and map scales"),
         ("purse-return-before-payment", "Token.cs", "_physical.SetParent(_mat, true);", "_physical.SetParent(_homeParent, true);", "accepted purse waits at actual bowl instead of returning to moving hand before native payment"),
         ("purse-restart-completion", "Token.cs", "if (_settlementDecided) return;", "", "confirmed purse sinks and fades once at bowl without restarting on duplicate completion"),
-        ("paid-purse-never-returns", "Token.cs", "_physical.SetParent(_homeParent, false);", "_physical.SetParent(_mat, false);", "paid purse restores the inspectable fan prop only after its completed bowl sink"),
+        ("paid-purse-never-returns", "Token.cs", "_settledIdentity = _settledContext = null;\n                    _physical.SetParent(_homeParent, false);", "_settledIdentity = _settledContext = null;\n                    _physical.SetParent(_mat, false);", "paid purse restores the inspectable fan prop only after its completed bowl sink"),
         ("purse-own-hand", "Token.cs", "(_handAllowed?.Invoke(hand) ?? true)", "true", "unowned or unavailable purse cannot be grabbed or donated"),
         ("purse-visible-body", "Token.cs", "_physical.TransformPoint(_physicalBounds.center)", "_physical.TransformPoint(Vector3.up * .0625f)", "bowl release samples the original visible purse midpoint"),
         # The native bounds path uses TickPursePose; mutating its legacy OnGrab

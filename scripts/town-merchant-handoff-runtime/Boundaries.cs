@@ -152,7 +152,7 @@ namespace GloomhavenVR.Cards {
   internal void RefreshFanLayout() { if(IsOpen) Relayout(); }
   internal void OnChipReleased(ItemChip chip,Vector3 point,Hands.VRHand hand) { if(_inspectionRelease!=null){_inspectionCensusDirty=true;_inspectionRelease(chip,point,hand);if(!IsOpen&&!chip.TownOffering)chip.BeginCollapse(_root!=null?_root.position:point);} }
   private void Relayout() { LayoutCalls++; ProductionRelayout(); }
-  private void ClearChips() { foreach(var c in _chips) UnityEngine.Object.DestroyImmediate(c.gameObject); _chips.Clear(); }
+  private void ClearChips() { foreach(var c in _chips) if(c!=null) UnityEngine.Object.DestroyImmediate(c.gameObject); _chips.Clear(); }
   internal partial class ItemChip : GrabbableBehaviour {
    public enum Visual { Normal, Spent } public Visual State;
    private static Visual Classify(ScenarioRuleLibrary.CItem item)=>item.SlotState==ScenarioRuleLibrary.CItem.EItemSlotState.Spent?Visual.Spent:Visual.Normal;

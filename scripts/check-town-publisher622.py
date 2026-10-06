@@ -53,7 +53,7 @@ def main():
     parser.add_argument("--output-dir", type=Path, default=repo / ".planning/debug/town-publisher622")
     parser.add_argument("--unity", type=Path, default=Path(os.environ.get("UNITY_PATH", "/home/claw/unity-2021.3.5/Editor/Unity")))
     parser.add_argument("--no-negative-controls", action="store_true")
-    parser.add_argument("--only-mutation")
+    parser.add_argument("--only-mutation", action="append", help="Run production and the named controls only")
     parser.add_argument("--reuse-bank", type=Path, help="Reuse a previous bank only when every original shader/include hash still matches")
     args = parser.parse_args()
     root = args.source_root.resolve()
@@ -103,8 +103,9 @@ def main():
              "// late original motion root omitted", "late original offered face adopts the latest exact owner card position and orientation"),
         ]
     if args.only_mutation:
-        matches = [variant for variant in variants if variant[0] == args.only_mutation]
-        if len(matches) != 1 or args.only_mutation == "production":
+        requested = set(args.only_mutation)
+        matches = [variant for variant in variants if variant[0] in requested]
+        if requested != {variant[0] for variant in matches} or "production" in requested:
             parser.error("--only-mutation must select a negative control")
         variants = variants[:1] + matches
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
@@ -117,6 +118,13 @@ def main():
             if path == filename:
                 if content.count(before) != 1: raise RuntimeError("Production mutation binding drift: " + name)
                 content = content.replace(before, after, 1)
+                if name == "late-offer-motion":
+                    # The independent physical-root clock now owns offered cards;
+                    # omit both approved root writers in this old-motion control.
+                    offered = "ApplyOfferedRootMotion(module, composed, composed.Merged, now);"
+                    if content.count(offered) != 1:
+                        raise RuntimeError("Production mutation binding drift: " + name + " offered root")
+                    content = content.replace(offered, "{ /* late independent offered root omitted */ }", 1)
             (production / path).write_text(content)
         project = build / "Mirror.csproj"; shutil.copyfile(fixture / "Mirror.csproj", project)
         assembly = "TownPublisher622_" + name.replace("-", "_")
