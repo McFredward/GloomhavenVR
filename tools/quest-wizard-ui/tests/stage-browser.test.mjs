@@ -21,7 +21,8 @@ test('browser keeps a whole-stage total across phase resets and preserves the vi
     modSource:{kind:'bundled-release',modVersion:'1.1.0',modBuild:627,sourceCommit:'a'.repeat(40)},
     stages:stageIds.map((id,index)=>({id,status:mode===5||index<5?'complete':index===5?'running':'pending',
       progress:index===5?{stagePercent:[70,70.0001,70.01,71,71.5,100][mode],percent:[25,25.001,25.2,5,null,100][mode],
-        phase:['recovery-batches','recovery-batches','recovery-batches','stage:prepare','stage:build','complete'][mode],
+        phase:['recovery-resume-verify','recovery-batch-export-verify','recovery-batch-export-verify','stage:prepare','stage:build','complete'][mode],
+        ...(mode===1||mode===2?{recoveryBatchIndex:mode,recoveryBatchTotal:29}:{}),
         detail:mode===4?'Unity is importing the project.':''}:{stagePercent:index<5?100:0}})),
     progress:{completed:mode===5?7:5,total:7,phase:'build'},needsActions:[]});
   const server=createServer(async(request,response)=>{
@@ -70,6 +71,7 @@ test('browser keeps a whole-stage total across phase resets and preserves the vi
     await client.evaluate("document.querySelector('[data-language=de]').click()");
     await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
     assert.equal(await client.evaluate("document.getElementById('progress-track').getAttribute('aria-valuenow')"),'70');
+    assert.equal(await client.evaluate("document.getElementById('substep-label').textContent"),'Teilabschnitt: Gespeicherten Zwischenstand einmalig prüfen');
     assert.equal(await client.evaluate("document.getElementById('substep-track').getAttribute('aria-valuenow')"),'25');
     assert.equal(await client.evaluate("document.querySelectorAll('#stage-list progress')[5].value"),70);
     assert.equal(await client.evaluate("document.querySelectorAll('#gallery .art-card img').length"),6,'opening empty owned art preserves publisher slides');
@@ -80,11 +82,13 @@ test('browser keeps a whole-stage total across phase resets and preserves the vi
     mode=1;
     await client.wait("document.getElementById('progress-track').getAttribute('aria-valuenow')==='70.0001'");
     assert.equal(await client.evaluate("document.getElementById('progress-fill').style.width"),'70.0001%','bar precision is independent of the shorter percentage label');
+    assert.equal(await client.evaluate("document.getElementById('substep-label').textContent"),'Teilabschnitt: Erhaltenen Export des Datenpakets übernehmen · Datenpaket 1 / 29');
     assert.equal(await client.evaluate("document.getElementById('progress-count').textContent"),'70 %');
     mode=2;
     await client.wait("document.getElementById('progress-track').getAttribute('aria-valuenow')==='70.01'");
     assert.equal(await client.evaluate("document.getElementById('progress-count').textContent"),'70,01 %','small observed child progress remains visible in the whole-stage label');
     assert.equal(await client.evaluate("document.getElementById('progress-fill').style.width"),'70.01%');
+    assert.equal(await client.evaluate("document.getElementById('substep-label').textContent"),'Teilabschnitt: Erhaltenen Export des Datenpakets übernehmen · Datenpaket 2 / 29');
     assert.equal(await client.evaluate("document.querySelectorAll('#stage-list progress')[5].value"),70.01);
     assert.equal(await client.evaluate("document.getElementById('substep-track').getAttribute('aria-valuenow')"),'25.2');
     await delay(250);

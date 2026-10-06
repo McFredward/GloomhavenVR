@@ -89,6 +89,12 @@ function counters(value) {
   const key={files:'counterFiles',actions:'counterActions',checks:'counterChecks',batches:'counterBatches',steps:'counterSteps',variants:'counterVariants',objects:'counterObjects'}[value.unit]??'counterUnits';
   return t(key,{done:number(value.done),total:number(value.total)});
 }
+function substepLabel(value) {
+  const batch=value.recoveryBatchIndex,total=value.recoveryBatchTotal;
+  const context=Number.isSafeInteger(batch)&&Number.isSafeInteger(total)&&batch>0&&batch<=total
+    ?t('recoveryBatchContext',{index:batch,total}):'';
+  return t('substep',{phase:[phaseLabel(value.phase),context].filter(Boolean).join(' · ')});
+}
 function renderGames() {
   $('game-list').replaceChildren();
   const games=Array.isArray(discovery?.games) ? discovery.games : [];
@@ -163,10 +169,10 @@ function renderProgress() {
   track.setAttribute('aria-valuetext',$('progress-count').textContent);$('progress-fill').style.width=progress.width+'%';
   const sub=stageProgress(progress.current);
   const hasSubstep=!done&&sub.phase&&!['pending','starting','complete'].includes(sub.phase);
-  $('progress-detail').textContent=[!hasSubstep&&sub.phase?t('substep',{phase:phaseLabel(sub.phase)}):'',counters(sub),sub.detail??'',waiting?t('waitingSince',{seconds:Math.max(0,Math.floor(Date.now()/1000-waiting.since))}):''].filter(Boolean).join(' · ');
+  $('progress-detail').textContent=[!hasSubstep&&sub.phase?substepLabel(sub):'',counters(sub),sub.detail??'',waiting?t('waitingSince',{seconds:Math.max(0,Math.floor(Date.now()/1000-waiting.since))}):''].filter(Boolean).join(' · ');
   $('progress-completed').textContent=t('completedStages',progress);
   $('substep-progress').hidden=!hasSubstep;
-  $('substep-label').textContent=t('substep',{phase:phaseLabel(sub.phase)});
+  $('substep-label').textContent=substepLabel(sub);
   $('substep-count').textContent=sub.phasePercent===null?t('phaseUnknown'):t('phasePercent',{percent:percentText(sub.phasePercent)});
   const subtrack=$('substep-track');subtrack.classList.toggle('indeterminate',sub.phasePercent===null&&active&&!waiting);
   subtrack.setAttribute('aria-valuemin','0');subtrack.setAttribute('aria-valuemax','100');
@@ -177,7 +183,7 @@ function renderProgress() {
     const displayed=stageStatus(state,stage),li=document.createElement('li');li.className=displayed;
     const marker=document.createElement('span');marker.className='stage-marker';marker.textContent=displayed==='complete'?'✓':displayed==='running'?'·':['blocked','failed'].includes(displayed)?'!':'';
     const label=document.createElement('span');label.className='stage-content';const title=document.createElement('strong');title.textContent=t('stage_'+stage.id);label.append(title);
-    const measured=stageProgress(stage),detail=document.createElement('small');detail.textContent=[measured.phase?t('substep',{phase:phaseLabel(measured.phase)}):'',['pending','complete'].includes(stage.status)?'':counters(measured),measured.waiting?t('actionNeeded'):['pending','complete'].includes(stage.status)?'':measured.detail??''].filter(Boolean).join(' · ');label.append(detail);
+    const measured=stageProgress(stage),detail=document.createElement('small');detail.textContent=[measured.phase?substepLabel(measured):'',['pending','complete'].includes(stage.status)?'':counters(measured),measured.waiting?t('actionNeeded'):['pending','complete'].includes(stage.status)?'':measured.detail??''].filter(Boolean).join(' · ');label.append(detail);
     const bar=document.createElement('progress');bar.max=100;bar.setAttribute('aria-label',t('stage_'+stage.id)+' · '+t('stageTotal'));bar.value=measured.percent;label.append(bar);
     const status=document.createElement('span');status.className='stage-state';status.textContent=t('measuredPercent',{percent:percentText(measured.percent)})+' · '+t(measured.waiting?'blocked':displayed);li.append(marker,label,status);$('stage-list').append(li);
   }

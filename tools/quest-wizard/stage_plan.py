@@ -21,6 +21,7 @@ RECOVERY_PHASES = {
     "recovery-asset-load": "asset-load", "recovery-asset-export": "asset-export",
     "recovery-shader-recipes": "shader-recipes", "recovery-core-receipt-verify": "core-hash",
     "recovery-core-output-hash": "core-hash", "recovery-core-copy-hash": "core-copy",
+    "recovery-resume-verify": "core-copy", "recovery-rollback-verify": "core-copy",
     "recovery-batch-bundle-copy": "bundle-copy", "recovery-export-receipt-hash": "export-receipt",
     "recovery-batch-export-verify": "retained-export",
     "recovery-checkpoint-verify": "checkpoint-verify", "recovery-original-collection-merge": "collections",
@@ -30,7 +31,7 @@ FILE_CHILDREN = {
     "recovery-source-file-hash": ("recovery-source-hash",),
     "recovery-core-file-hash": ("recovery-core-receipt-verify", "recovery-core-output-hash"),
     "recovery-export-file-hash": ("recovery-export-receipt-hash",),
-    "recovery-checkpoint-file-hash": ("recovery-batch-export-verify", "recovery-checkpoint-verify", "recovery-core-copy-hash", "recovery-original-collection-merge"),
+    "recovery-checkpoint-file-hash": ("recovery-batch-export-verify", "recovery-checkpoint-verify", "recovery-resume-verify", "recovery-rollback-verify", "recovery-core-copy-hash", "recovery-original-collection-merge"),
     "recovery-native-recipe-hash": ("recovery-native-recipe-merge",),
     "recovery-native-recipe-copy": ("recovery-native-recipe-merge",),
 }
@@ -214,6 +215,8 @@ def _recovery_fraction(plan, value):
 
 
 def advance(row, value, operation=None, status=None):
+    for key in ("recoverySection", "recoveryBatchIndex", "recoveryBatchTotal"):
+        value.pop(key, None)
     plan = initialize(row); operations = PLANS[row["id"]]
     inferred, measured = phase_operation(row["id"], value["phase"], value)
     if row["id"] == "unity" and value["phase"] == "unity-prerequisites" and plan.get("current") != "prerequisites":
@@ -234,6 +237,15 @@ def advance(row, value, operation=None, status=None):
         nested = _recovery_fraction(plan, value)
         if nested is not None:
             plan["fractions"][current] = max(plan["fractions"].get(current, 0.), min(.99, nested))
+        recovery = plan.get("recovery", {})
+        section = recovery.get("work", {}).get("current")
+        if section in RECOVERY_SECTIONS:
+            value["recoverySection"] = section
+        batch = recovery.get("batch", {})
+        done, total = batch.get("done"), batch.get("total")
+        if (section == "batches" and value["phase"] != "recovery-batches"
+                and type(done) is int and type(total) is int and 0 <= done < total):
+            value.update(recoveryBatchIndex=done + 1, recoveryBatchTotal=total)
     # Ignore nested one-file hashes and incidental version commands. Only a
     # known aggregate counter or Unity's own task counter contributes a fraction.
     if current in operations and measured and (operation is None or operation == current) and value["percent"] is not None:

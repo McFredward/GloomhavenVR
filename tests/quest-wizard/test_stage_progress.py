@@ -102,6 +102,23 @@ class StageProgressTests(unittest.TestCase):
         self.store.progress(self.session, 'build', 'recovery-batches', done, total, 'batches')
         self.store.progress(self.session, 'build', 'recovery-batch', done, total, 'batches')
 
+    def test_recovery_context_identifies_distinct_batches_and_clears_after_section(self):
+        self.recovery_batch()
+        self.store.progress(self.session, 'build', 'recovery-batch-export-verify', 1, 10, 'files')
+        first = self.progress()
+        self.assertEqual((first['recoveryBatchIndex'], first['recoveryBatchTotal']), (1, 4))
+        reopened = state.Store(self.store.root)
+        self.assertEqual(reopened.load(self.session)['stages'][5]['progress']['recoveryBatchIndex'], 1)
+        self.store.progress(self.session, 'build', 'recovery-batches', 1, 4, 'batches')
+        self.assertNotIn('recoveryBatchIndex', self.progress())
+        self.store.progress(self.session, 'build', 'recovery-batch', 1, 4, 'batches')
+        self.assertEqual(self.progress()['recoveryBatchIndex'], 2)
+        self.store.progress(self.session, 'build', 'recovery-section:references')
+        self.assertNotIn('recoveryBatchTotal', self.progress())
+        self.assertEqual(self.progress()['recoverySection'], 'references')
+        self.store.operation(self.session, 'build', 'project-files')
+        self.assertNotIn('recoverySection', self.progress())
+
     def test_scoped_files_collections_and_checkpoints_move_total_before_completion(self):
         self.recovery_batch()
         for phase, unit in (('recovery-batch-bundle-copy', 'bundles'), ('recovery-export-receipt-hash', 'files'),
