@@ -580,6 +580,7 @@ def _remote_content_sizes(adb, address, root, rows):
             lines.append("test ! -L " + shlex.quote(parent))
         for index, row in enumerate(batch):
             target = shlex.quote(root + "/" + row["path"])
+            lines.append("test ! -L " + target)
             lines.append("if test -f " + target + " && ! test -L " + target + "; then printf '" + str(index)
                          + "\\t'; stat -c %s " + target + "; fi")
         raw = _content_shell(adb, address, lines, timeout=30)

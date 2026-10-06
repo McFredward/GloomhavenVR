@@ -264,6 +264,15 @@ class FileContentTests(unittest.TestCase):
         with self.assertRaises(installer.InstallError): self.install(repair=True)
         self.assertFalse(list(outside.iterdir()))
 
+    def test_symlink_file_target_cannot_replace_an_external_file(self):
+        self.install()
+        target = self.device.root / "quest-owned-game/StreamingAssets/Movies/intro.mp4"
+        target.unlink()
+        outside = self.root / "external.mp4"; outside.write_bytes(b"external preserved video")
+        target.symlink_to(outside)
+        with self.assertRaises(installer.InstallError): self.install(repair=True)
+        self.assertEqual(outside.read_bytes(), b"external preserved video")
+
     def test_receipt_roundtrip_and_checksum_corruption(self):
         manifest = self.manifest["game"]
         encoded = installer.encode_content_receipt(manifest, {row["path"]: row for row in manifest["files"]})
