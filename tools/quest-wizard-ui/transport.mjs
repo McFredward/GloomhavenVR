@@ -2,12 +2,12 @@ import {sessionId,stageIds} from './model.mjs';
 
 export class LocalApi {
   constructor(origin, token, fetcher = globalThis.fetch.bind(globalThis)) { this.origin = origin; this.token = token; this.fetcher = fetcher; }
-  async request(path, body) {
+  async request(path, body, signal) {
     if (!this.token) throw {code:'noToken'};
     let response;
     try { response = await this.fetcher(new URL(path,this.origin), {method:body === undefined ? 'GET' : 'POST',
       headers:{'X-Quest-Token':this.token,...(body === undefined ? {} : {'Content-Type':'application/json'})},
-      cache:'no-store', credentials:'same-origin', ...(body === undefined ? {} : {body:JSON.stringify(body)})}); }
+      cache:'no-store', credentials:'same-origin', ...(signal ? {signal} : {}), ...(body === undefined ? {} : {body:JSON.stringify(body)})}); }
     catch { throw {code:'offline'}; }
     let value;
     try { value = await response.json(); } catch { throw {code:'invalidReply'}; }
@@ -28,13 +28,13 @@ export class LocalApi {
   plan(choices, session) { if(session !== undefined && !sessionId(session))throw {code:'invalidReply'};return this.request('/api/plan',{choices,...(session?{session}:{})}); }
   run(session) { return this.request('/api/run',{session}); }
   cancel(session) { return this.request('/api/cancel',{session}); }
-  log(session,stage) { if(!sessionId(session)||!stageIds.includes(stage))throw {code:'invalidReply'};return this.request('/api/log?session='+encodeURIComponent(session)+'&stage='+stage); }
+  log(session,stage,signal) { if(!sessionId(session)||!stageIds.includes(stage))throw {code:'invalidReply'};return this.request('/api/log?session='+encodeURIComponent(session)+'&stage='+stage,undefined,signal); }
   gallery() {return this.request('/api/gallery');}
   action(session,action,nonce) {if(!sessionId(session)||!['unity-open','unity-check'].includes(action)||typeof nonce!=='string'||!/^[a-f0-9]{32}$/.test(nonce))throw {code:'invalidReply'};return this.request('/api/action',{session,action,nonce});}
   qualify(gameRoot) { return this.request('/api/qualify',{gameRoot}); }
   browse(kind) { return this.request('/api/browse',{kind}); }
   status(session) { if (!sessionId(session)) throw {code:'invalidReply'}; return this.request('/api/status?session='+encodeURIComponent(session)); }
-  events(session, after) { if(!sessionId(session))throw {code:'invalidReply'};return this.request('/api/events?session='+encodeURIComponent(session)+'&after='+(Number.isInteger(after)&&after>=0?after:0)); }
+  events(session, after,signal) { if(!sessionId(session))throw {code:'invalidReply'};return this.request('/api/events?session='+encodeURIComponent(session)+'&after='+(Number.isInteger(after)&&after>=0?after:0),undefined,signal); }
 }
 
 // Deliberate, visibly labelled design preview; never falls through to real tools.

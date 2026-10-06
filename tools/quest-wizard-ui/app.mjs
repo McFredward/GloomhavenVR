@@ -10,10 +10,10 @@ let language = (preview ? new URLSearchParams(location.search).get('lang') : nul
 if (!['de','en'].includes(language)) language='de';
 let page=0,selected=null,discovery=null,state=null,busy=false,after=0,log=[],loadedLog=null,pollTimer=null,canConnect=preview||Boolean(token),artworkKey='',artworkGeneration=0;
 let qualification=null,resumeFailed=null,restoredSession=null,sessionGeneration=0;
-let logUnavailable=false,lastFailureFocus='';
+let eventsUnavailable=false,stageLogUnavailable=false,lastFailureFocus='',eventsRequest=null,stageLogRequest=null;
 let publisherArtwork=[],ownedArtwork=[],artworkSource='';
 const reducedMotion=matchMedia('(prefers-reduced-motion:reduce)');
-let slides=[],slideIndex=0,slideTimer=null,slidePaused=reducedMotion.matches,artPollTimer=null,actionBusy=false,logBusy=false,logSelectionManual=false;
+let slides=[],slideIndex=0,slideTimer=null,slidePaused=reducedMotion.matches,artPollTimer=null,actionBusy=false,logSelectionManual=false;
 const blobUrls=[];
 const galleryTemplate=[...$('gallery').children].map(node=>node.cloneNode(true));
 function readStorage(key) { try { return localStorage.getItem(key); } catch { return null; } }
@@ -203,7 +203,7 @@ function renderProgress() {
   $('activity-status').hidden=!active||Boolean(waiting);
   $('activity-status').classList.toggle('quiet',activity?.quiet===true);
   $('activity-status').textContent=t(activity?.quiet?'activityQuiet':activity?'activityRecent':'activityUnknown',{duration:durationText(activity?.seconds??0)});
-  $('log-status').hidden=!logUnavailable;$('log-status').textContent=t('logUnavailable');
+  $('log-status').hidden=!eventsUnavailable&&!stageLogUnavailable;$('log-status').textContent=t('logUnavailable');
   $('substep-progress').hidden=!hasSubstep;
   $('substep-label').textContent=substepLabel(sub);
   $('substep-count').textContent=sub.phasePercent===null?t('phaseUnknown'):t('phasePercent',{percent:percentText(sub.phasePercent)});
@@ -280,13 +280,14 @@ function restoreChoices(choices) {
   selected=discovery?.games?.find(game=>game.gameRoot===choices.gameRoot&&game.provider===choices.provider)??null;
 }
 async function openSession(session) {
-  if(!sessionId(session)||busy)return false;clearError();busy=true;clearTimeout(pollTimer);sessionGeneration++;updateView();
+  if(!sessionId(session)||busy)return false;clearError();busy=true;clearTimeout(pollTimer);sessionGeneration++;stopOptionalReads();updateView();
   try {const result=await api.status(session);if(!result.state||result.state.session!==session)throw {code:'invalidReply'};
-    resetArtwork();clearLoadedLog();logUnavailable=false;state=result.state;resumeFailed=null;restoredSession=session;restoreChoices(state.choices);page=2;after=0;log=[];schedulePoll();return true;}
+    resetArtwork();clearLoadedLog();eventsUnavailable=false;stageLogUnavailable=false;state=result.state;resumeFailed=null;restoredSession=session;restoreChoices(state.choices);page=2;after=0;log=[];schedulePoll();return true;}
   catch(value){resumeFailed=session;error(value);return false;}finally{busy=false;renderGames();updateView();}
 }
 function schedulePoll() {clearTimeout(pollTimer);if(state?.session)pollTimer=setTimeout(poll,1000);}
 async function poll() {
+  clearTimeout(pollTimer);
   if(!state?.session)return;
   const session=state.session,generation=sessionGeneration;
   try {
@@ -295,20 +296,38 @@ async function poll() {
     // Status is authoritative. A failed/slow log endpoint used to discard a
     // successful status response and leave the screen claiming RUNNING.
     state=result.state;clearError();updateView();
-    try {
-      const events=await api.events(session,after);if(generation!==sessionGeneration||state?.session!==session)return;
-      for(const event of events.events??[])if(Number(event.sequence)>after) {log.push([event.time,event.stage,event.code,event.message?message(event.message):event.parameters?.message?message(event.parameters.message):event.parameters?.cause??event.parameters?.detail??''].filter(Boolean).join(' · '));after=Math.max(after,Number(event.sequence));}
-      log=log.slice(-50);logUnavailable=false;
-    }catch{if(generation!==sessionGeneration||state?.session!==session)return;logUnavailable=true;}
-    updateView();
-    if($('live-log').checked&&document.querySelector('#progress-page details').open)await refreshLog();
+    // Optional log connections may never finish. They own one cancellable
+    // request each and cannot postpone the next authoritative status poll or
+    // keep a primary action busy. No timeout is imposed on Unity/user actions.
+    void refreshEvents();
+    if($('live-log').checked&&document.querySelector('#progress-page details').open)void refreshLog();
   }catch(value){if(generation===sessionGeneration)error(value);}
-  if(isActive(state))schedulePoll();
+  if(generation===sessionGeneration&&state?.session===session&&isActive(state))schedulePoll();
+}
+function stopOptionalReads() {
+  eventsRequest?.controller.abort();stageLogRequest?.controller.abort();
+  eventsRequest=null;stageLogRequest=null;$('load-log').disabled=false;
+}
+function ownsRead(request,current) {
+  return request===current&&!request.controller.signal.aborted&&request.generation===sessionGeneration&&request.session===state?.session;
+}
+async function refreshEvents() {
+  if(eventsRequest||!state?.session)return;
+  const request={session:state.session,generation:sessionGeneration,controller:new AbortController()};eventsRequest=request;
+  try {
+    const events=await api.events(request.session,after,request.controller.signal);if(!ownsRead(request,eventsRequest))return;
+    for(const event of events.events??[])if(Number(event.sequence)>after) {log.push([event.time,event.stage,event.code,event.message?message(event.message):event.parameters?.message?message(event.parameters.message):event.parameters?.cause??event.parameters?.detail??''].filter(Boolean).join(' · '));after=Math.max(after,Number(event.sequence));}
+    log=log.slice(-50);eventsUnavailable=false;
+  }catch{if(ownsRead(request,eventsRequest))eventsUnavailable=true;}
+  finally{if(ownsRead(request,eventsRequest)){eventsRequest=null;updateView();}}
 }
 async function refreshLog() {
-  if(logBusy||!state?.session)return;logBusy=true;const session=state.session,generation=sessionGeneration;
-  try{const result=await api.log(session,$('log-stage').value);if(generation!==sessionGeneration||state?.session!==session)return;if(typeof result.text!=='string'||result.text.length>65536)throw {code:'invalidReply'};loadedLog=result;$('stage-log').textContent=result.text;$('stage-log').hidden=false;$('log-truncated').hidden=!result.truncated;}
-  catch(value){if(generation===sessionGeneration)error(value);}finally{logBusy=false;}
+  if(stageLogRequest||!state?.session)return;
+  const request={session:state.session,stage:$('log-stage').value,generation:sessionGeneration,controller:new AbortController()};stageLogRequest=request;
+  $('load-log').disabled=true;
+  try{const result=await api.log(request.session,request.stage,request.controller.signal);if(!ownsRead(request,stageLogRequest)||request.stage!==$('log-stage').value)return;if(typeof result.text!=='string'||result.text.length>65536)throw {code:'invalidReply'};loadedLog=result;$('stage-log').textContent=result.text;$('stage-log').hidden=false;$('log-truncated').hidden=!result.truncated;stageLogUnavailable=false;}
+  catch{if(ownsRead(request,stageLogRequest))stageLogUnavailable=true;}
+  finally{if(ownsRead(request,stageLogRequest)){stageLogRequest=null;$('load-log').disabled=false;updateView();}}
 }
 async function unityAction(action) {
   const waiting=state?.stages?.find(row=>row.waiting)?.waiting;if(!waiting||actionBusy)return;
@@ -327,7 +346,7 @@ async function primary() {
   if(page===0){busy=true;updateView();try{const selectedChoices=choicesFromForm(form(),language);
     if(discovery?.capabilities?.spaceEstimate===true){qualification=await api.qualify(selectedChoices.gameRoot);}
     page=1;updateView();const heading=document.querySelector('#setup-page h2');heading.setAttribute('tabindex','-1');heading.focus();}catch(value){error(typeof value?.message==='string'?{code:value.message}:value);}finally{busy=false;updateView();}return;}
-  busy=true;updateView();
+  busy=true;clearTimeout(pollTimer);sessionGeneration++;stopOptionalReads();updateView();
   try {
     if(page===1){const choices=choicesFromForm(form(),language);if(!choices.acceptUnityTerms)throw {code:'missingTerms'};
       const result=await api.plan(choices,state?.session);if(!sessionId(result.session)||!result.state)throw {code:'invalidReply'};clearLoadedLog();state=result.state;page=2;after=0;log=[];}
@@ -344,7 +363,7 @@ $('new-build').addEventListener('click',()=>{
   if(busy||isActive(state))return;
   // This is an explicit opt-out. Removing a UI selection never deletes the
   // backend session, completed receipts or owner recovery/download workspace.
-  clearTimeout(pollTimer);sessionGeneration++;state=null;resumeFailed=null;restoredSession=null;qualification=null;page=0;after=0;log=[];
+  clearTimeout(pollTimer);sessionGeneration++;stopOptionalReads();state=null;resumeFailed=null;restoredSession=null;qualification=null;page=0;after=0;log=[];
   restoreChoices({install:true});resetArtwork();clearLoadedLog();clearError();renderGames();
   if(discovery?.games?.length===1)selectGame(discovery.games[0]);
   updateView();$('game-root').focus();
@@ -362,13 +381,13 @@ $('failure-support').addEventListener('click',saveSupport);
 $('failure-retry').addEventListener('click',primary);
 $('log-stage').addEventListener('change',()=>{logSelectionManual=true;if($('live-log').checked)refreshLog();});
 document.querySelector('#progress-page details').addEventListener('toggle',()=>{if(document.querySelector('#progress-page details').open&&$('live-log').checked)refreshLog();});
-$('load-log').addEventListener('click',async()=>{const button=$('load-log');button.disabled=true;try{const result=await api.log(state.session,$('log-stage').value);if(typeof result.text!=='string'||result.text.length>65536)throw {code:'invalidReply'};loadedLog={stage:result.stage,text:result.text,truncated:result.truncated===true};$('stage-log').textContent=result.text;$('stage-log').hidden=false;$('log-truncated').hidden=!result.truncated;}catch(value){error(value);}finally{button.disabled=false;}});
+$('load-log').addEventListener('click',()=>void refreshLog());
 document.querySelector('.skip').addEventListener('click',event=>{event.preventDefault();$('workspace').focus();});
 $('browse-game').addEventListener('click',()=>browse('game'));$('browse-unity').addEventListener('click',()=>browse('unity'));
 $('cancel').addEventListener('click',async()=>{busy=true;updateView();try{await api.cancel(state.session);const result=await api.status(state.session);state=result.state;schedulePoll();}catch(value){error(value);}finally{busy=false;updateView();}});
 $('game-root').addEventListener('input',()=>{selected=null;resetArtwork();updateView();});$('provider').addEventListener('change',()=>{selected=null;resetArtwork();updateView();});$('profile-name').addEventListener('input',updateView);
 $('declare-dlc').addEventListener('change',()=>{$('dlc-declaration').hidden=!$('declare-dlc').checked;});
-window.addEventListener('beforeunload',()=>{clearTimeout(pollTimer);clearTimeout(slideTimer);clearTimeout(artPollTimer);blobUrls.forEach(url=>URL.revokeObjectURL(url));});
+window.addEventListener('beforeunload',()=>{clearTimeout(pollTimer);clearTimeout(slideTimer);clearTimeout(artPollTimer);stopOptionalReads();blobUrls.forEach(url=>URL.revokeObjectURL(url));});
 $('preview-notice').hidden=!preview;setLanguage(language);
 if(canConnect)pollGallery();
 busy=true;updateView();

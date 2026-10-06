@@ -130,6 +130,20 @@ test('transport retains bilingual blocked errors and rejects malformed API respo
   await assert.rejects(()=>new LocalApi('http://127.0.0.1:1234','token',async()=>({ok:true,json:async()=>({schema:2})})).discover(),error=>error.code==='invalidReply');
 });
 
+test('only optional log observers accept cancellation; user and Unity actions have no imposed timeout',async()=>{
+  const calls=[],controller=new AbortController();
+  const api=new LocalApi('http://127.0.0.1:1234','token',async(url,options)=>{
+    calls.push({url:String(url),options});return {ok:true,json:async()=>({schema:1,event:'fixture'})};
+  });
+  await api.events('session-123',0,controller.signal);await api.log('session-123','build',controller.signal);
+  assert.ok(calls.slice(0,2).every(call=>call.options.signal===controller.signal));
+  await api.status('session-123');await api.action('session-123','unity-check','a'.repeat(32));await api.browse('game');
+  assert.ok(calls.slice(2).every(call=>!('signal' in call.options)));
+  const pending=new LocalApi('http://127.0.0.1:1234','token',async(url,options)=>new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(Error('cancelled observer')),{once:true})));
+  const request=pending.events('session-123',0,controller.signal);controller.abort();
+  await assert.rejects(()=>request,error=>error.code==='offline');
+});
+
 test('preview can never report a completed real build or invoke external tools',async()=>{
   const api=new PreviewApi();const discovery=await api.discover();assert.equal(discovery.capabilities.browse,false);
   await api.plan({gameRoot:'preview'});await api.run();
