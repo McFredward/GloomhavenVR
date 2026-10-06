@@ -828,16 +828,18 @@ internal static class RenderQuality
     }
 
     /// <summary>
-    /// Select allocation/MSAA BEFORE OpenXR loader initialization. Only a stopped session may
-    /// write the allocation lever: startup capacity is max(1, saved request), not an automatic
-    /// 2x target. The display-side write follows Initialize but precedes StartSubsystems.
+    /// Select allocation/MSAA after successful OpenXR initialization, before StartSubsystems.
+    /// Only an initialized, stopped display receives resource setters in PrepareDisplays.
+    /// Capacity is max(1, saved request), never an automatic 2x target. No legacy XR setter
+    /// may run here: native runtime selection and initialization must precede quality writes.
     /// </summary>
     internal static void PrepareSession()
     {
         Bind();
         SubsystemManager.GetInstances(Displays);
-        if (Displays.Count > 0)
+        foreach (XRDisplaySubsystem display in Displays)
         {
+            if (!display.running) continue;
             AdoptRunningSession();
             return;
         }
@@ -845,18 +847,11 @@ internal static class RenderQuality
         _sessionPrepared = true;
         float wanted = WantedEyeScale();
         _sessionAllocationScale = Mathf.Max(1f, wanted);
-        // Legacy XR may reject a pre-loader write; the newly initialized display still gets
-        // its own startup request below. A validation refusal must not invalidate VR startup.
-        TryStartupSetting(() => XRSettings.eyeTextureResolutionScale = _sessionAllocationScale,
-            "legacy eye allocation");
         _viewportScaleApplied = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);
-        TryStartupSetting(() => XRSettings.renderViewportScale = _viewportScaleApplied,
-            "legacy eye viewport");
         _lastLoggedEyeScale = wanted;
         _pendingEyeScale = wanted;
         _committedMsaa = Sanitize(MsaaLevel!.Value);
         _pendingMsaa = _committedMsaa;
-        QualitySettings.antiAliasing = _committedMsaa;
     }
 
     /// <summary>Newly initialized displays only, before OpenXR StartSubsystems.</summary>
@@ -881,6 +876,7 @@ internal static class RenderQuality
             TryStartupSetting(() => display.SetMSAALevel(Mathf.Max(_committedMsaa, 1)),
                 "new display MSAA");
         }
+        if (Displays.Count > 0) QualitySettings.antiAliasing = _committedMsaa;
         if (Displays.Count > 0) _lastPushedDisplayMsaa = _committedMsaa;
     }
 

@@ -23,9 +23,32 @@ args = parser.parse_args()
 source = args.source_root/'src/GloomhavenVR'
 original = (source/'Rig/RenderQuality.cs').read_text()
 bootstrap = (source/'Core/Startup/OpenXRBootstrap.cs').read_text()
-assert bootstrap.index('RenderQuality.PrepareSession();') < bootstrap.index('        CreateSettings();')
+def validate_startup_boundary(text):
+    prepare = text.index('            RenderQuality.PrepareSession();')
+    assert prepare > text.index('            _generalSettings!.InitXRSDK();'), 'quality before loader initialization'
+    failed = text[text.index('            if (active == null)'):prepare]
+    assert 'return false;' in failed, 'failed loader reaches quality selection'
+    assert text.count('RenderQuality.PrepareSession();') == 1, 'duplicate startup quality selection'
+    assert prepare < text.index('            RenderQuality.PrepareDisplays();'), 'display setup before selection'
+
+validate_startup_boundary(bootstrap)
+startup_controls = []
+for name, anchor, expected in [
+    ('quality-before-initialize', '            _generalSettings!.InitXRSDK();', 'quality before loader initialization'),
+    ('quality-on-loader-failure', '                OpenXRDiagnostics.AppendReportToFile($"FAILED (loader Initialize)', 'failed loader reaches quality selection'),
+]:
+    changed = bootstrap.replace('            RenderQuality.PrepareSession();\n', '', 1)
+    changed = changed.replace(anchor, '            RenderQuality.PrepareSession();\n'+anchor, 1)
+    try:
+        validate_startup_boundary(changed)
+    except AssertionError as error:
+        if str(error) != expected: raise
+        startup_controls.append({'name':name, 'expected':expected, 'rejected':True})
+        print('RenderQuality startup boundary control rejected: '+name, flush=True)
+    else:
+        raise SystemExit('Startup boundary control survived: '+name)
 assert bootstrap.index('RenderQuality.PrepareDisplays();') < bootstrap.index('            _generalSettings.Start();')
-reuse = bootstrap[bootstrap.index('        if (DisplayExists())'):bootstrap.index('        RenderQuality.PrepareSession();')]
+reuse = bootstrap[bootstrap.index('        if (DisplayExists())'):bootstrap.index('        CreateSettings();')]
 assert 'RenderQuality.AdoptRunningSession();' in reuse
 stop = bootstrap[bootstrap.index('    internal static void Stop()'):]
 assert stop.index('StopAndDeinitQuiet();') < stop.index('RenderQuality.EndSession();')
@@ -76,7 +99,10 @@ mutations = [
  ('deferred-ignored','if (deferred)\n','if (deferred && head == null)\n','deferred camera cannot take unsupported viewport path'),
  ('provider-realloc-fallback','bool stuck = Mathf.Abs(XRSettings.renderViewportScale - wanted) < 0.005f;','bool stuck = Mathf.Abs(XRSettings.renderViewportScale - wanted) < 0.005f;\n        if (!stuck) XRSettings.eyeTextureResolutionScale = wanted;','provider refusal never uses hazardous allocation fallback'),
  ('hot-reload-allocation','float allocation = XRSettings.eyeTextureResolutionScale;','float allocation = XRSettings.eyeTextureResolutionScale;\n        XRSettings.eyeTextureResolutionScale = allocation;','hot reload adopts live allocation without setter'),
- ('startup-refusal-aborts', 'catch (System.Exception e) when (e is System.ArgumentException\n            || e is System.InvalidOperationException)', 'catch (System.Exception e) when (e is System.ArgumentException)', 'pre-loader allocation rejected'),
+ ('startup-refusal-aborts', 'catch (System.Exception e) when (e is System.ArgumentException\n            || e is System.InvalidOperationException)', 'catch (System.Exception e) when (e is System.ArgumentException)', 'startup display allocation rejected'),
+ ('early-legacy-allocation', '_sessionAllocationScale = Mathf.Max(1f, wanted);', '_sessionAllocationScale = Mathf.Max(1f, wanted);\n        TryStartupSetting(() => XRSettings.eyeTextureResolutionScale = _sessionAllocationScale, "legacy eye allocation");', 'quality selection never touches native resources before provider initialization'),
+ ('early-legacy-viewport', '_viewportScaleApplied = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);\n        _lastLoggedEyeScale = wanted;', '_viewportScaleApplied = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);\n        TryStartupSetting(() => XRSettings.renderViewportScale = _viewportScaleApplied, "legacy eye viewport");\n        _lastLoggedEyeScale = wanted;', 'quality selection never touches native resources before provider initialization'),
+ ('early-native-msaa', '_pendingMsaa = _committedMsaa;', '_pendingMsaa = _committedMsaa;\n        QualitySettings.antiAliasing = _committedMsaa;', 'native render resource touched before provider initialization'),
  ('startup-capacity-readback-ignored', 'if (ValidScale(acceptedAllocation)) _sessionAllocationScale = acceptedAllocation;', 'if (ValidScale(acceptedAllocation) && false) _sessionAllocationScale = acceptedAllocation;', 'refused startup allocation uses actual accepted capacity for later viewport'),
 ]
 results = []
@@ -92,8 +118,9 @@ for name, before, after, expected in mutations:
 final = execute('production-final')
 if final.returncode or 'assertions passed' not in final.stdout:
     raise SystemExit('Final original-source restoration failed\n'+final.stdout+final.stderr)
-report={'result':'PASS','sourceBindings':6,'productionAssertions':int(re.search(r'(\d+) assertions passed',production.stdout).group(1)),
-        'causalControls':results,'sourceSha256':hashlib.sha256(original.encode()).hexdigest(),
+report={'result':'PASS','sourceBindings':10,'productionAssertions':int(re.search(r'(\d+) assertions passed',production.stdout).group(1)),
+        'causalControls':results,'startupBoundaryControls':startup_controls,
+        'sourceSha256':hashlib.sha256(original.encode()).hexdigest(),
         'bootstrapSha256':hashlib.sha256(bootstrap.encode()).hexdigest(),
         'fixtureProgramSha256':hashlib.sha256((fixture/'Program.cs').read_bytes()).hexdigest(),
         'fixtureBoundarySha256':hashlib.sha256((fixture/'Boundary.cs').read_bytes()).hexdigest(),

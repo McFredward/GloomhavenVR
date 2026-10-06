@@ -51,7 +51,14 @@ namespace UnityEngine
     }
     public static class QualitySettings
     {
-        public static int antiAliasing;
+        private static int _antiAliasing;
+        public static int AntiAliasingWrites;
+        public static int antiAliasing
+        {
+            get => _antiAliasing;
+            set { XR.XRSettings.RecordResourceWrite(); AntiAliasingWrites++; _antiAliasing=value; }
+        }
+        public static void ResetAntiAliasing() { _antiAliasing=0; AntiAliasingWrites=0; }
         public static int pixelLightCount;
         public static string[] names = { "Fastest" };
         public static int GetQualityLevel() => 0;
@@ -85,21 +92,30 @@ namespace UnityEngine.XR
         public static string loadedDeviceName => "explicit provider model";
         public static int eyeTextureWidth = 3408, eyeTextureHeight = 3408;
         public static RenderTextureDescriptor eyeTextureDesc => new() { width=eyeTextureWidth,height=eyeTextureHeight,msaaSamples=1,colorFormat="ARGB32",dimension="Tex2D" };
-        public static bool Live, RefuseViewport, RejectStartupAllocation;
+        public static bool Live, RefuseViewport, ProviderInitialized;
+        public static int ResourceWritesBeforeInitialization;
         public static int AllocationWrites, LiveAllocationWrites, ViewportWrites;
         private static float _allocation=1f, _viewport=1f;
         public static float eyeTextureResolutionScale
         {
             get => _allocation;
-            set { AllocationWrites++; if (Live) LiveAllocationWrites++; if (!Live && RejectStartupAllocation) throw new InvalidOperationException("pre-loader allocation rejected"); _allocation=value; }
+            set { RecordResourceWrite(); AllocationWrites++; if (Live) LiveAllocationWrites++; _allocation=value; }
         }
         public static float renderViewportScale
         {
             get => _viewport;
-            set { ViewportWrites++; if (!RefuseViewport) _viewport=value; }
+            set { RecordResourceWrite(); ViewportWrites++; if (!RefuseViewport) _viewport=value; }
         }
+        public static void RecordResourceWrite()
+        {
+            if (ProviderInitialized) return;
+            ResourceWritesBeforeInitialization++;
+            throw new InvalidOperationException("native render resource touched before provider initialization");
+        }
+        public static void AcceptDisplayAllocation(float value) => _allocation=value;
+        public static void AcceptDisplayViewport(float value) => _viewport=value;
         public static void Reset()
-        { _allocation=1; _viewport=1; Live=false; RefuseViewport=false; RejectStartupAllocation=false; AllocationWrites=LiveAllocationWrites=ViewportWrites=0; }
+        { _allocation=1; _viewport=1; Live=false; RefuseViewport=false; ProviderInitialized=false; ResourceWritesBeforeInitialization=0; AllocationWrites=LiveAllocationWrites=ViewportWrites=0; QualitySettings.ResetAntiAliasing(); }
     }
     public sealed class XRDisplaySubsystem
     {
@@ -108,10 +124,10 @@ namespace UnityEngine.XR
         public int AllocationWrites, MsaaWrites, ViewportWrites;
         private float _allocation=1, _viewport=1;
         public float scaleOfAllRenderTargets
-        { get => _allocation; set { AllocationWrites++; if(running) throw new InvalidOperationException("live display allocation setter reached"); if(RejectStartupAllocation) throw new InvalidOperationException("startup display allocation rejected"); _allocation=value; } }
-        public float scaleOfAllViewports { get => _viewport; set { ViewportWrites++; _viewport=value; } }
+        { get => _allocation; set { XRSettings.RecordResourceWrite(); AllocationWrites++; if(running) throw new InvalidOperationException("live display allocation setter reached"); if(RejectStartupAllocation) throw new InvalidOperationException("startup display allocation rejected"); _allocation=value; XRSettings.AcceptDisplayAllocation(value); } }
+        public float scaleOfAllViewports { get => _viewport; set { XRSettings.RecordResourceWrite(); ViewportWrites++; _viewport=value; XRSettings.AcceptDisplayViewport(value); } }
         public int Samples;
-        public void SetMSAALevel(int value) { MsaaWrites++; Samples=value; }
+        public void SetMSAALevel(int value) { XRSettings.RecordResourceWrite(); MsaaWrites++; Samples=value; }
         public int GetRenderPassCount() => 2;
         public void GetRenderPass(int index, out XRRenderPass pass) { pass=new(); }
         public struct XRRenderParameter { public string viewport; }

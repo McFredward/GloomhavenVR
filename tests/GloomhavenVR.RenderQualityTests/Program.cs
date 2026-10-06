@@ -17,9 +17,15 @@ internal static class Program
         RenderQuality.EndSession(); XRSettings.Reset(); SubsystemManager.Displays.Clear(); VRLog.Lines.Clear();
         Camera.current=null; VRRigDriver.HeadCamera=new(); VRSession.IsRunning=false; Time.unscaledTime=0;
         RenderQuality.Bind(); RenderQuality.EyeResolutionScale!.Value=saved; RenderQuality.MsaaLevel!.Value=samples;
-        XRSettings.RejectStartupAllocation=rejectStartup;
+        // Selection is resource-free even if called without a provider. The bootstrap's
+        // actual successful-loader boundary is independently bound by the source checker.
         RenderQuality.PrepareSession();
+        Check(XRSettings.ResourceWritesBeforeInitialization==0 && XRSettings.AllocationWrites==0
+            && XRSettings.ViewportWrites==0 && QualitySettings.AntiAliasingWrites==0,
+            "quality selection never touches native resources before provider initialization");
+        XRSettings.ProviderInitialized=true;
         var display=new XRDisplaySubsystem { RejectStartupAllocation=rejectStartup }; SubsystemManager.Displays.Add(display);
+        RenderQuality.PrepareSession(); // selection after Initialize must recognize a fresh stopped display
         RenderQuality.PrepareDisplays(); display.running=true; XRSettings.Live=true; VRSession.IsRunning=true;
         return display;
     }
@@ -102,11 +108,15 @@ internal static class Program
         display.running=false; XRSettings.Live=false; SubsystemManager.Displays.Clear(); RenderQuality.EndSession();
         RenderQuality.EyeResolutionScale.Value=.8f; RenderQuality.PrepareSession();
         Near(XRSettings.eyeTextureResolutionScale,1,"new reduced session reserves native restoration capacity");
+        display=new XRDisplaySubsystem(); SubsystemManager.Displays.Add(display); RenderQuality.PrepareDisplays();
         Near(XRSettings.renderViewportScale,.8f,"saved reduction starts reduced without live allocation change");
+        Near(display.scaleOfAllViewports,.8f,"saved reduction reaches stopped provider before first start");
+        Check(display.AllocationWrites==1 && display.ViewportWrites==1 && !display.running,
+            "fresh initialized stopped display receives startup quality exactly once");
         Check(XRSettings.LiveAllocationWrites==0,"complete lifecycle has no live allocation setter");
         display=Start(1.5f, rejectStartup:true);
         Check(VRSession.IsRunning && display.running,"managed startup validation refusal does not abort valid VR session");
-        Check(VRLog.Lines.Count(x=>x.StartsWith("XR startup setting refused"))==2,"startup validation refusals are explicit and bounded");
+        Check(VRLog.Lines.Count(x=>x.StartsWith("XR startup setting refused"))==1,"startup validation refusals are explicit and bounded");
         Near(display.scaleOfAllRenderTargets,1,"refused startup allocation retains native display capacity");
         RenderQuality.EyeResolutionScale!.Value=.8f; Tick(.1f); Tick(.5f);
         Near(XRSettings.renderViewportScale,.8f,"refused startup allocation uses actual accepted capacity for later viewport");

@@ -18,6 +18,14 @@ receive that allocation, viewport and MSAA before `StartSubsystems`. Existing
 live displays are adopted without allocation writes. Capacity belongs to the XR
 session, not to scenario/menu/map rig replacement.
 
+The subsequent Build631 Frame startup report found `XR_ERROR_RUNTIME_UNAVAILABLE`
+at native extension enumeration/instance creation. The follow-up restores the
+pre630 initialization boundary: selection now runs only after successful loader
+initialization, and only initialized stopped displays receive startup setters.
+Both early legacy XR setters and early native MSAA assignment are removed. This
+removes the newly introduced startup interaction; the supplied capture alone
+does not establish why the native runtime was unavailable or prove hardware recovery.
+
 During play, the existing `Rig.RenderQuality` Update tail coalesces resolution
 requests after 0.35s without a new slider value. The latest request changes only
 `renderViewportScale = min(request / startup allocation, 1)`. No camera projection,

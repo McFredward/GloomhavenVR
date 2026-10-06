@@ -69,7 +69,6 @@ internal static class OpenXRBootstrap
             return true;
         }
 
-        RenderQuality.PrepareSession(); // allocation selection precedes loader/session creation
         CreateSettings();
 
         List<OpenXRRuntimeRegistry.RuntimeEntry> candidates;
@@ -325,13 +324,28 @@ internal static class OpenXRBootstrap
                 // mismatch, ...) went to Player.log; persist the diagnostics report so
                 // testers don't have to reproduce with debug logging on.
                 OpenXRDiagnostics.AppendReportToFile($"FAILED (loader Initialize) — candidate: {candidate}");
+                VRLog.Error("Core", "OpenXR loader initialization failed before VR render-quality setup. " +
+                                    "No mod eye-allocation, viewport or MSAA startup setter ran. " +
+                                    "If Player.log reports XR_ERROR_RUNTIME_UNAVAILABLE, the native OpenXR " +
+                                    "runtime could not be loaded/discovered; that result alone does not " +
+                                    "identify a bad graphics setting or a missing headset. " +
+                                    "On Steam Frame retain the Proton/SteamVR loader log together with " +
+                                    "LogOutput.log, Player.log and openxr-diagnostics.log.");
                 return false;
             }
 
             // Start → XRManagerSettings.StartSubsystems → OpenXRLoader.Start. NOTE: the
             // display subsystem may not be 'running' yet — StartInternal() defers until the
             // runtime reports XrReady (delivered via the onBeforeRender message pump).
+            // Build631 Frame fails at xrEnumerateInstanceExtensionProperties/xrCreateInstance
+            // with XR_ERROR_RUNTIME_UNAVAILABLE. Build630 newly touched legacy XR render
+            // settings before selecting/initializing the runtime. Restore the previous native
+            // initialization boundary: only the successfully initialized, stopped provider may
+            // receive startup quality writes. The capture locates the failure; it does not prove
+            // that those early writes caused the native loader failure.
+            RenderQuality.PrepareSession();
             RenderQuality.PrepareDisplays(); // new display allocation/MSAA before its first start
+            VRLog.Info("Core", "VR startup quality applied to the initialized provider; starting XR subsystems.");
             _generalSettings.Start();        // publicized private
             VRLog.Debug("Core", "  phase 3/4: Start (StartSubsystems) returned.");
 
