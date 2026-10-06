@@ -74,6 +74,22 @@ class StageProgressTests(unittest.TestCase):
             self.assertLess(self.progress()['stagePercent'], 100)
         self.assertEqual(self.progress()['percent'], .2)
 
+    def test_recovery_total_counts_committed_batches_and_not_last_collection(self):
+        self.store.operation(self.session, 'build', 'recovery')
+        initial = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'recovery-original-collection-merge', 2761, 2761, 'collections')
+        self.assertEqual(self.progress()['stagePercent'], initial)
+        self.store.progress(self.session, 'build', 'recovery-batches', 1, 4, 'batches')
+        measured = self.progress()['stagePercent']
+        self.assertGreater(measured, initial)
+        for phase in ('recovery-native-recipe-merge', 'recovery-checkpoint-write'):
+            self.store.progress(self.session, 'build', phase, 1, 100, 'files')
+            self.assertEqual(self.progress()['stagePercent'], measured)
+        self.store.progress(self.session, 'build', 'recovery-batches', 4, 4, 'batches')
+        self.assertLess(self.progress()['stagePercent'], 100)
+        self.store.operation(self.session, 'build', 'project-files')
+        self.assertGreaterEqual(self.progress()['stagePercent'], measured)
+
     def test_nested_one_file_or_version_command_cannot_finish_a_parent_operation(self):
         self.store.operation(self.session, 'build', 'game-inputs')
         for phase in ('file-hash', 'tool:unity-version', 'tool:compiler'):

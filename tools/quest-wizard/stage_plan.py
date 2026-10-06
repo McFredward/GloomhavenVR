@@ -41,6 +41,9 @@ def phase_operation(stage, phase, value):
                    "source-snapshot-verify": "source-snapshot", "game-snapshot": "game-snapshot",
                    "game-snapshot-verify": "game-snapshot", "game-snapshot-source-verify": "snapshot-check"}
         if phase in mapping: return mapping[phase], True
+        # Only the complete batch schedule describes recovery as a whole.
+        # One finished collection/recipe/hash remains a resetting substep.
+        if stage == "build" and phase == "recovery-batches": return "recovery", True
         # Bee starts a new DAG when native compilation/linking changes. Its
         # reset affects only the secondary counter, never the stage high-water.
         if phase.startswith("bee-actions:"): return None, True

@@ -71,7 +71,7 @@ function phaseLabel(phase='') {
     return value===key?t('phase_starting'):value;
   }
   const unityKey='phase_'+phase;
-  if(phase.startsWith('unity-')&&t(unityKey)!==unityKey)return t(unityKey);
+  if(t(unityKey)!==unityKey)return t(unityKey);
   const exact={'pending':'pending','starting':'starting','complete':'complete','receipt-verify':'receiptVerify','output-verify':'outputVerify','source-copy':'sourceCopy','unity-prerequisites':'unityPrerequisites','unity-hub-download':'unityDownload','unity-editor-install':'unityInstall','unity-window-open':'unityWindow','unity-editor-version':'unityVersion','unity-license-probe':'unityLicense'};
   const key=exact[phase]??(phase.startsWith('tool-download-')?'download':phase.startsWith('tool-extract-')?'extract':phase.startsWith('bee-actions:')?'native':phase.startsWith('stage:')?null:phase.includes('hash')?(phase.includes('game')?'gameHash':'sourceHash'):phase.includes('snapshot')?'snapshot':phase.includes('recover')||phase.includes('export')?'recovery':phase.includes('dependenc')||phase.includes('python')?'dependencies':null);
   if(phase.startsWith('stage:'))return t('phase_stage_'+phase.slice(6));

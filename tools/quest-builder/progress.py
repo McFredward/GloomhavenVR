@@ -1,5 +1,6 @@
 """Opt-in measured builder counters; no elapsed-time or guessed percentages."""
 from __future__ import annotations
+from contextlib import contextmanager
 import json
 import math
 import os
@@ -9,6 +10,7 @@ import time
 
 ENV = "GHVRQ_WIZARD_PROGRESS"
 PREFIX = "GHVRQ_PROGRESS "
+_last_event_at = 0.
 
 
 def enabled(): return os.environ.get(ENV) == "1"
@@ -30,8 +32,58 @@ def event(phase, done=None, total=None, unit=None, detail=None, *, status="progr
         if not isinstance(operation, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,79}", operation):
             raise ValueError("Invalid planned operation.")
         value["operation"] = operation
-    if enabled(): print(PREFIX + json.dumps(value, ensure_ascii=False, separators=(",", ":")), file=stream or sys.stdout, flush=True)
+    if enabled():
+        global _last_event_at
+        print(PREFIX + json.dumps(value, ensure_ascii=False, separators=(",", ":")), file=stream or sys.stdout, flush=True)
+        _last_event_at = time.monotonic()
     return value
+
+
+@contextmanager
+def silence_diagnostics(*, quiet_seconds=120., limit=3, stream=None):
+    """Record bounded stacks during quiet recovery work; never impose a timeout.
+
+    Native exporter/file calls can block between measured events. A later
+    support export needs the actual stack, not an inferred failed asset name.
+    This observer is private to the opt-in wizard process and stops on exit.
+    """
+    if not enabled():
+        yield
+        return
+    if type(quiet_seconds) not in (int, float) or not math.isfinite(quiet_seconds) or quiet_seconds <= 0 or type(limit) is not int or not 1 <= limit <= 10:
+        raise ValueError("Invalid quiet recovery diagnostic bounds.")
+    import faulthandler
+    import threading
+    stopped = threading.Event()
+    started = time.monotonic()
+    output = stream or sys.stderr
+
+    def observe():
+        reports, next_report = 0, started
+        while not stopped.wait(min(5., max(.01, quiet_seconds / 4))):
+            now = time.monotonic()
+            quiet = now - max(started, _last_event_at)
+            if quiet < quiet_seconds or now < next_report:
+                continue
+            try:
+                print("GHVRQ_DIAGNOSTIC " + json.dumps({"schema": 1, "kind": "recovery-silence",
+                      "quietSeconds": round(quiet, 1), "report": reports + 1,
+                      "timeout": False}), file=output, flush=True)
+                faulthandler.dump_traceback(file=output, all_threads=True)
+            except (OSError, ValueError, RuntimeError):
+                return  # An optional diagnostic cannot fail conversion.
+            reports += 1
+            if reports >= limit:
+                return
+            next_report = now + quiet_seconds
+
+    watcher = threading.Thread(target=observe, name="quest-recovery-diagnostics", daemon=True)
+    watcher.start()
+    try:
+        yield
+    finally:
+        stopped.set()
+        watcher.join(timeout=1.)
 
 
 def operation(name, *, complete=False, detail=None):
