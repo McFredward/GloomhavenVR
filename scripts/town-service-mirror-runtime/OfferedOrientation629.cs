@@ -200,6 +200,17 @@ public static partial class MirrorProgram
             CheckOfferedCorners629(physical, area.rectTransform, face.Root, remoteArea,
                 "native print layout replacement preserves exact source pivots corners and offsets");
         }
+        LogOfferedRingBoundary636("before final settle", physical, ring.rectTransform, face.Root, remoteRing);
+        // Layout replacement also changes the native ink's compensated phase.
+        // Its independent pure-spin clock lasts 130ms * 1.1 = 143ms; the earlier
+        // +120ms area check is an intermediate picture, not its exact endpoint.
+        // Keep those intermediate checks and compare the final static pixels
+        // only after the already-received drawing target finishes interpolating.
+        clock += .2f; // Finish the independently sampled native drawing target.
+        OfferedRender629(clock);
+        LogOfferedRingBoundary636("after final settle", physical, ring.rectTransform, face.Root, remoteRing);
+        CheckOfferedCorners629(physical, ring.rectTransform, face.Root, remoteRing,
+            "final native drawing target settles exactly before owner and observer pixel equality");
         Color32[] ownerInk = RenderOffered629(canvasFrame, print, ring.rectTransform, area.rectTransform, 8, "offered-orientation-629-owner");
         Color32[] observerInk = RenderOffered629(holder.Root.parent, remotePrint, remoteRing, remoteArea, 9, "offered-orientation-629-observer");
         long error = 0; int painted = 0;
@@ -280,6 +291,38 @@ public static partial class MirrorProgram
         Check(registry.Count == 0, "a disposed pooled holder cannot retain an unbounded strong transform registry entry");
         TownServiceEnhancementHandoff.PhysicalCardFace = null;
         TownServiceMirror.Shutdown(); UnityEngine.Object.DestroyImmediate(owner.gameObject); UnityEngine.Object.DestroyImmediate(observer.gameObject);
+    }
+
+    private static void LogOfferedRingBoundary636(string stage, RectTransform physical, RectTransform ring,
+        Transform remotePhysical, RectTransform remoteRing)
+    {
+        var source = new Vector3[4]; var observed = new Vector3[4];
+        ring.GetWorldCorners(source); remoteRing.GetWorldCorners(observed);
+        string message = stage + " sourcePhase=" + (Quaternion.Inverse(physical.rotation) * ring.rotation).eulerAngles
+            + " remotePhase=" + (Quaternion.Inverse(remotePhysical.rotation) * remoteRing.rotation).eulerAngles
+            + " sourceLocalScale=" + ring.localScale.ToString("F8") + " remoteLocalScale=" + remoteRing.localScale.ToString("F8")
+            + " sourceLocalRotation=" + ring.localRotation.ToString("F8") + " remoteLocalRotation=" + remoteRing.localRotation.ToString("F8") + "\n";
+        var peers = (IDictionary)typeof(TownServiceMirror).GetField("Remote", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        object module = ((IDictionary)peers[1]!)[(ushort)10]!;
+        var motion = (TownServiceMotion)module.GetType().GetField("Motion", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(module)!;
+        var nodes = (Array)typeof(TownServiceMotion).GetField("_nodes", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
+        var targets = (Array)typeof(TownServiceMotion).GetField("_to", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
+        var starts = (float[])typeof(TownServiceMotion).GetField("_nodeStarted", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
+        var durations = (float[])typeof(TownServiceMotion).GetField("_nodeDuration", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
+        var samples = (float[])typeof(TownServiceMotion).GetField("_nodeSampleTime", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(motion)!;
+        for (int node = 0; node < nodes.Length; node++)
+        {
+            object identity = nodes.GetValue(node)!;
+            if (!ReferenceEquals(identity.GetType().GetField("Transform", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(identity), remoteRing)) continue;
+            object target = targets.GetValue(node)!;
+            message += "native drawing node=" + node + " started=" + starts[node] + " duration=" + durations[node]
+                + " sample=" + samples[node] + " targetScale=" + target.GetType().GetField("Scale", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(target)
+                + " targetRotation=" + target.GetType().GetField("Rotation", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(target) + "\n";
+        }
+        for (int corner = 0; corner < 4; corner++)
+            message += "corner=" + corner + " errorM=" + Vector3.Distance(
+                remotePhysical.TransformPoint(physical.InverseTransformPoint(source[corner])), observed[corner]) + "\n";
+        System.IO.File.AppendAllText(System.IO.Path.Combine(_output, "offered-final-clock636.log"), message);
     }
     private static Color32[] RenderOffered629(Transform canvas, RectTransform print, RectTransform ring,
         RectTransform area, int layer, string name)

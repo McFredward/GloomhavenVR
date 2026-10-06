@@ -193,7 +193,10 @@ def main():
     native_purse = run / 'native-purse.json'
     subprocess.run([str(native_python), str(fixture.parent / 'town-purse-runtime/export-native.py'),
         str(args.source_root), str(native_purse)], check=True)
-    (run / "source-hashes.json").write_text(json.dumps({"root": str(args.source_root.resolve()), "sha256": hashes}, indent=2) + "\n")
+    fixture_hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                      for path in fixture.glob("*.cs")}
+    (run / "source-hashes.json").write_text(json.dumps({"root": str(args.source_root.resolve()), "sha256": hashes,
+        "fixture": str(fixture), "fixture_sha256": fixture_hashes}, indent=2) + "\n")
     manifest = {"result": str(run / "results.txt"), "evidence": str(run), "suite": args.suite, "cases": []}
     variants = [("production", None, None, None, "")]
     if not args.no_negative_controls:
@@ -326,6 +329,10 @@ def main():
         variants = [("production", None, None, None, "")]
         if not args.no_negative_controls:
             variants += [
+                ("offered-unsettled-final-picture", "fixture/OfferedOrientation629.cs",
+                 "        clock += .2f; // Finish the independently sampled native drawing target.",
+                 "        /* causal probe: compare the final picture before its drawing endpoint */",
+                 "final native drawing target settles exactly before owner and observer pixel equality"),
                 ("offered-no-print-relation", "TownServiceMirror.Motion.cs", "        ApplyOfferedFrames(now);", "        /* independent overlay and physical root clocks */", "native area stays in the same owner-authored print frame during a hover turn"),
                 ("offered-wrong-print-binding", "TownServiceMirror.Offerings.cs", "int printIndex = Array.IndexOf(physical.Binding.Bindings, relation.OfferedBinding);", "int printIndex = -1;", "native area stays in the same owner-authored print frame during a hover turn"),
                 ("offered-observer-facing", "TownServiceMirror.Offerings.cs", "target.rotation = print.rotation * rotation;", "target.rotation = GloomhavenVR.Rig.VRRigDriver.HeadCamera.transform.rotation * rotation;", "independent offered print and native overlays share the same intermediate owner rotation"),
@@ -419,6 +426,14 @@ def main():
         variants = selected if args.skip_production else variants[:1] + selected
     for name, filename, before, after, expected in variants:
         build = run / name; production = build / "production"; production.mkdir(parents=True)
+        case_fixture = fixture
+        if filename is not None and filename.startswith("fixture/"):
+            case_fixture = build / "fixture"
+            shutil.copytree(fixture, case_fixture)
+            target = case_fixture / filename.split("/", 1)[1]
+            text = target.read_text()
+            if text.count(before) != 1: raise RuntimeError("Fixture mutation binding drift: " + name)
+            target.write_text(text.replace(before, after, 1))
         for path, text in bound.items():
             if path == filename:
                 if text.count(before) != 1: raise RuntimeError("Production mutation binding drift: " + name)
@@ -427,13 +442,15 @@ def main():
         project = build / "Mirror.csproj"; shutil.copyfile(fixture / "Mirror.csproj", project)
         assembly = "TownMirror_" + name.replace("-", "_")
         command = [dotnet, "build", str(project), "-c", "Release", "--nologo", "--verbosity", "quiet",
-                   f"-p:CaseName={assembly}", f"-p:FixtureDir={fixture}", f"-p:ProductionDir={production}",
+                   f"-p:CaseName={assembly}", f"-p:FixtureDir={case_fixture}", f"-p:ProductionDir={production}",
                    f"-p:UnityManaged={args.unity.parent / 'Data/Managed'}",
                    f"-p:UnityUi={managed / 'UnityEngine.UI.dll'}", f"-p:UnityTmp={managed / 'Unity.TextMeshPro.dll'}"]
         result = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         (build / "build.log").write_text(result.stdout)
         if result.returncode: print(result.stdout); raise SystemExit("FAIL compilation: " + name)
-        manifest["cases"].append({"name": name, "dll": str(build / "bin/Release/netstandard2.1" / (assembly + ".dll")), "expected": expected})
+        manifest["cases"].append({"name": name, "dll": str(build / "bin/Release/netstandard2.1" / (assembly + ".dll")), "expected": expected,
+            "fixture_sha256": {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                               for path in case_fixture.glob("*.cs")}})
         print("Compiled " + name, flush=True)
     project = run / "unity"; (project / "Assets/Editor").mkdir(parents=True)
     (project / "Packages").mkdir(); (project / "ProjectSettings").mkdir()
