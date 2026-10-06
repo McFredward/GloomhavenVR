@@ -86,9 +86,16 @@ test('native browser: bilingual setup, consent, cancellation, choice edits and r
     assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth'),true,'mobile has no horizontal clipping');
     await picture('game-en-mobile');
   }finally{
+    // Register before signalling: Chrome can exit before a later listener is attached.
+    const stopped=child.exitCode!==null||child.signalCode!==null
+      ?Promise.resolve():new Promise(resolve=>child.once('exit',resolve));
     socket?.close();child.kill('SIGTERM');
-    await Promise.race([new Promise(resolve=>child.once('exit',resolve)),delay(1000)]);
-    if(child.exitCode===null)child.kill('SIGKILL');
-    await new Promise(resolve=>server.close(resolve));await rm(profile,{recursive:true,force:true});
+    await Promise.race([stopped,delay(1000)]);
+    if(child.exitCode===null&&child.signalCode===null){
+      child.kill('SIGKILL');await Promise.race([stopped,delay(1000)]);
+    }
+    await new Promise(resolve=>server.close(resolve));
+    // Renderer shutdown may briefly finish writing after the browser process exits.
+    await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100});
   }
 });

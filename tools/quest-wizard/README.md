@@ -78,6 +78,18 @@ copying is still required. Final Android color/API settings are serialized befor
 the first Editor start. No faster import time is claimed without a measured run.
 Signing keys and device saves are never reset by this workflow.
 
+The native compiler policy derives concurrency from measured CPU, physical RAM
+and (on Windows) available commit headroom. It reserves 32 GiB for the first
+compiler and 28 GiB for each additional one, plus Unity/OS headroom. A user job
+setting is an upper bound. If physical RAM is insufficient but known Windows
+commit headroom covers the full one-job budget, exactly one paging-assisted job
+is admitted; unknown or insufficient headroom stops before Player-build output
+changes. Accepted warm native results bypass this fresh-compilation admission.
+Resource records expose the chosen budget and paging requirement, without
+claiming that Windows paging speed has been measured. The private .NET apphost
+routes only this Editor process to the original Bee backend with the thread
+option before its target; the installed Unity tools are not edited.
+
 New shader caches use `tool-cache/cs/<owned-game-hash>/o`; prior longer cache trees
 are preserved. Original shader asset names and GUIDs remain unchanged. The shader
 producer checks the actual Windows output roots before writing: a sufficiently

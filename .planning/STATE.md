@@ -1,5 +1,37 @@
 # State — where the project stands
 
+**Quest B625 delivered, 2026-10-06: final agent-host APK and Windows builder.**
+
+The signed Campaign/Guildmaster/purchased-DLC hardware archive has passed actual
+Player, native program, catalog, member CRC and nested APK/content readback.
+Runtime is frozen at `bdb7c4aec`; APK SHA begins `3d32aeb6232f`, Windows archive
+SHA begins `b4318631c22b`. Matching native debug symbols are retained. Headset
+engine execution, menu visibility, generation time, saves and cross-platform
+sessions still need hardware evidence; a successful build does not close them.
+See [B625 handoff and hardware procedure](QUEST3-HARDWARE-625.md).
+
+The separate game-free Windows source release launches with `Quest-Builder.cmd`,
+uses owned Steam/GOG/Epic files, provisions pinned local tools/Python, preserves
+verified stages and exports bounded/redacted build logs. Resource-aware native
+jobs use measured 32/28-GiB compiler budgets and known Windows commit headroom;
+actual paging speed is unverified. Fresh conversion disk demand is estimated
+before downloads. Focused integrated checks pass: 426 builder, 50 Wizard, six
+voice and nine UI/browser checks, with one optional browser skip. Actual exported
+Git-free inventory/resume/reference checks pass; the first full Windows build,
+fresh XR dependency compilation and guided Unity licensing remain user tests.
+No further APK build on this host is authorized by the current instruction.
+
+**Quest build host decision, 2026-10-06: B625 is the final agent-host APK build.**
+
+Finish and deliver this Windows hardware package first. Future APK builds run on
+the maintainer's stronger Windows PC through the builder/wizard. Deliver builder
+sources/tools instead of repeating agent-host APK builds. Detect CPU/RAM and
+choose bounded compiler concurrency, retain valid completed content/import caches,
+resume interrupted stages and export useful build logs/support evidence for review.
+The full Windows toolchain path must be verified separately from the already
+working Windows installer; no Linux-only prerequisite may remain an implicit
+requirement for novice users.
+
 **Quest B625 corrections prepared,2026-10-06: full Campaign/Guildmaster scope.**
 
 Verified B624 hardware startup installed5,897 remaining full-game files on the
