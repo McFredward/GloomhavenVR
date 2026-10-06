@@ -87,7 +87,48 @@ internal static class StandaloneGuildmaster
         load.Body.MaxStackSize = Math.Max(load.Body.MaxStackSize, 2);
         report.Modifications.Add("Quest-only Guildmaster host admission rejected before privileges/save transfer: " + connected.FullName);
         report.Modifications.Add("Quest-only Guildmaster load denied before save mutation; imported bytes retained: " + load.FullName);
-        return new[] { client.FullName, save.FullName };
+        string validationType = SkipExcludedSaveValidation(module, guildmaster, report);
+        return new[] { client.FullName, save.FullName, validationType };
+    }
+
+    static string SkipExcludedSaveValidation(ModuleDefinition module, int guildmaster, StandaloneReport report)
+    {
+        TypeDefinition global = RequireType(module, "GlobalData");
+        MethodDefinition validate = RequireMethod(global, "ValidateSaves", "System.Collections.IEnumerator", "EGameMode",
+            "System.Collections.Generic.List`1<System.String>");
+        Instruction[] native = validate.Body.Instructions.ToArray();
+        MethodReference construct = (MethodReference)Unique(native, i => i.OpCode == OpCodes.Newobj
+            && i.Operand is MethodReference method && method.Name == ".ctor"
+            && method.DeclaringType.DeclaringType?.FullName == global.FullName,
+            "original save-validation coroutine allocation").Operand;
+        FieldReference[] captures = native.Where(i => i.OpCode == OpCodes.Stfld).Select(i => (FieldReference)i.Operand).ToArray();
+        if (validate.Body.ExceptionHandlers.Count != 0 || native.Any(i => i.OpCode.FlowControl == FlowControl.Cond_Branch)
+            || construct.Parameters.Count != 1 || construct.Parameters[0].ParameterType.FullName != "System.Int32"
+            || captures.Length != 3 || captures.Any(f => f.DeclaringType.FullName != construct.DeclaringType.FullName)
+            || captures.Count(f => f.FieldType.FullName == global.FullName) != 1
+            || captures.Count(f => f.FieldType.FullName == validate.Parameters[0].ParameterType.FullName) != 1
+            || captures.Count(f => f.FieldType.FullName == validate.Parameters[1].ParameterType.FullName) != 1
+            || native.Last().OpCode != OpCodes.Ret)
+            throw new InvalidDataException("Original save-validation coroutine captures or entry changed.");
+        MethodDefinition enumerator = module.TypeSystem.Object.Resolve().Module.GetType("System.Array").Methods.SingleOrDefault(m =>
+            m.Name == "GetEnumerator" && !m.IsStatic && m.Parameters.Count == 0
+            && m.ReturnType.FullName == validate.ReturnType.FullName)
+            ?? throw new InvalidDataException("Original core-library empty enumerator ABI is absent.");
+        ILProcessor il = validate.Body.GetILProcessor();
+        Instruction original = native[0];
+        // B624 spent about twenty seconds parsing the excluded Guildmaster and
+        // its Shared rules solely because startup validates that mode BEFORE
+        // checking for saves. Keep every save byte and Campaign validation;
+        // skip only this unavailable mode before its coroutine can load rules.
+        // This seam exists solely in the Quest-woven GH.Runtime assembly.
+        foreach (Instruction instruction in new[] {
+            il.Create(OpCodes.Ldarg_1), il.Create(OpCodes.Ldc_I4, guildmaster), il.Create(OpCodes.Bne_Un, original),
+            il.Create(OpCodes.Ldc_I4_0), il.Create(OpCodes.Newarr, module.TypeSystem.Object),
+            il.Create(OpCodes.Callvirt, module.ImportReference(enumerator)), il.Create(OpCodes.Ret) })
+            il.InsertBefore(original, instruction);
+        validate.Body.MaxStackSize = Math.Max(validate.Body.MaxStackSize, 2);
+        report.Modifications.Add("Quest-only excluded Guildmaster startup/save validation yields no work; Campaign coroutine and all save bytes retained: " + validate.FullName);
+        return global.FullName;
     }
 
     static TypeDefinition RequireType(ModuleDefinition module, string name) => module.GetType(name)
