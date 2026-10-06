@@ -1,5 +1,30 @@
 # State — where the project stands
 
+**Quest B626 prepared, 2026-10-06: Windows-builder source update.**
+
+Verified B625 capture `quest-capture-20261006T142146Z-7d6d0267.zip` and its screenshot
+confirm fast, correctly oriented intros, then a rotating thin red spinner and a
+black interactive menu. Delivered native sprite/atlas data are intact. Explicit
+ordinary 2D copies now preserve crop/RGBA independently of XR matrices across
+spinner, retained movie, shared eye-copy and evidence paths. Only old Quest
+spinner copy receipts are rejected. Real GL/Vulkan fixtures and the actual
+separate Quest/mod assembly compilation pass; headset rendering remains open.
+
+Current Wine bootstrap has missing GNU/Bionic bindings, not the historical B624
+entry failure. Android-only adapters preserve tested GNU random/table/thread
+contracts. Actual required guest ELF/native wrapper binding validation now gates
+staging. Fresh attributed current/one bounded previous worker logs distinguish
+attempts. Two bounded native menu/actual-right-target samples export tiny PNGs
+through the matching current-log collector without additional ADB work.
+
+See [B626 evidence and hardware procedure](QUEST3-HARDWARE-626.md). No agent-host
+APK/Player build or unrelated NPC/wire/exhaustive shader gate is run. The maintainer
+explicitly authorized starting the evaluated Android ARM64EC Wine/Proton and FEX
+implementation immediately after this checkpoint; this bounded correction stays
+available as comparison/fallback.
+Neither backend change nor engine failure is a proven black-menu cause. Only
+the Quest feature branch is published with McFredward attribution.
+
 **Quest Windows builder/installer corrections, 2026-10-06: source-only update.**
 
 The first Windows support archive `quest-build-support-20261006T132558Z-aaa7aca6.zip`

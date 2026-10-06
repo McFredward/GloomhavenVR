@@ -553,7 +553,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 625;
+    public const ushort ModBuild = 626;
+
+    // ModBuild 626 — verified B625 capture reaches immediate, correctly oriented
+    // intros but retains a black interactive menu and a thin rotating spinner.
+    // Use explicit ordinary 2D copies independent of XR camera matrices for
+    // spinner art, retained movie captures, shared eye shifts and pixel probes.
+    // Reject only older Quest spinner copy receipts; desktop paths are unchanged.
+    // Retain bounded native canvas/alpha/pose and actual right-target evidence;
+    // matching current-log thumbnails are decoded by the existing collector.
+    // Supply the seven audited GNU/Bionic Wine import adapters, preserving
+    // caller-owned random state, thread-local errno and GNU C.UTF-8 tables.
+    // Check actual required guest ELF imports against compiled wrapper bindings
+    // before staging; identify each worker attempt in a fresh attributed log.
+    // This is a Windows-builder source update, not an agent-host APK. Headset
+    // engine execution and exact black-menu causal closure remain unverified.
 
     // ModBuild 625 — B624 first full-content hardware startup installed almost
     // 11 GB on-headset. Move resumable expanded-file installation to the PC;
