@@ -6,7 +6,15 @@ namespace HarmonyLib
 {
     [AttributeUsage(AttributeTargets.Class)]
     internal sealed class HarmonyPatch : Attribute { internal HarmonyPatch(Type type, string name) { } }
-    internal sealed class Harmony { internal readonly HashSet<Type> Patched = new(); internal void PatchAll(Type type) { Patched.Add(type); } }
+    internal sealed class Harmony
+    {
+        internal readonly HashSet<Type> Patched = new();
+        internal static Action<Type>? PatchObserver = null;
+        internal static Action? UnpatchObserver = null;
+        internal int PatchCalls;
+        internal void PatchAll(Type type) { PatchCalls++; Patched.Add(type); PatchObserver?.Invoke(type); }
+        internal void UnpatchSelf() => UnpatchObserver?.Invoke();
+    }
 }
 
 public class ProceduralBase : MonoBehaviour { public void NotifyContentPlacementComplete() { } }
@@ -45,7 +53,7 @@ namespace GloomhavenVR.Core
     internal static class VRSession
     {
         internal static bool IsRunning;
-        internal static readonly HarmonyLib.Harmony Harmony = new HarmonyLib.Harmony();
+        internal static HarmonyLib.Harmony Harmony = new HarmonyLib.Harmony();
     }
     internal static class BankFixtureAssets { internal static Func<string, TextAsset?> Provider = _ => null; internal static TextAsset? Resolve(string path) => Provider(path); }
     internal static class BankFixturePaths { internal static string streamingAssetsPath => Environment.GetEnvironmentVariable("GHVR_ENVIRONMENT_STREAMING_ASSETS")!; }

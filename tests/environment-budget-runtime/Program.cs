@@ -12,6 +12,7 @@ public static partial class EnvironmentProgram
     private static int count;
     private static int materialReads;
     private static int bankReadRequests;
+    public static LightProbes? NativeProbeFixture;
     // The source binder adds only this counter at the complete production
     // CompatibleMaterial entry; all actual Unity shader/property reads still execute.
     public static void RecordMaterialRead() => materialReads++;
@@ -1061,7 +1062,7 @@ public static partial class EnvironmentProgram
         {
             PresentationPreparationVisibility(); ScopeAndMaterials(); AmbientScopes(); ShaderRendering(); BatchesAndFallback(); ChunkPopulation(); IncrementalAndUnsafeMeshes(); NativeCompletionSurvivesPreparationFault(); StructuralChunks(); NativeWallChannelsAndRenderedClock();
             int sharedStart = count;
-            SharedOriginalMaterialValidation(); SharedReadOptionToggle(); VerifiedEnvironmentBank(); UnreadableExactChunks(); ExplicitCameraInstances(); MultipleSubmeshInstances(); RevealedClonePixels(); SupplementaryNativeGeometry(); NativeObjectLighting(); ProbeRejectionSkipsPrivateGeometry(); NativeMaterialLoadStart();
+            SharedOriginalMaterialValidation(); SharedReadOptionToggle(); VerifiedEnvironmentBank(); UnreadableExactChunks(); ExplicitCameraInstances(); MultipleSubmeshInstances(); RevealedClonePixels(); SupplementaryNativeGeometry(); NativeCameraBoundaryLifecycle(); NativeCameraBoundaryOrder(); CommonAbsentLighting(); LateNativeLightingFlags(); LateNativeCommandBufferConsumer(); LivePreparationReport(); DetailedPreparationRefusals(); NativeObjectLighting(); ProbeRejectionSkipsPrivateGeometry(); NativeMaterialLoadStart();
             Debug.Log("Shared-material validation assertions=" + (count - sharedStart));
             NativeHighHistoricalDelivery();
             NativeHighHistoricalDelivery(toggleNative:true);

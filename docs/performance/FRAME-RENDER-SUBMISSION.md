@@ -1,10 +1,70 @@
 # Private environment render submission
 
-This worker starts at `01503d4c` (`dev`, Build625) and carries preparation commits
-for the earlier camera-local material reads and independent shared-binary config
-contracts. It does not integrate or push. The maintainer explicitly requested a
-reviewable worker delivery before handover, and later authorized configurable 3D
-compromises, with no 2.5D board and no resolution-default change.
+The current steady-state worker starts at `a517e009` (`dev`, Build627). The earlier
+Build625 submission history remains below. The maintainer prioritizes fully
+loaded scenario rendering; loading hitches are acceptable. All options remain
+independently configurable in the same PC/Frame binary, without a 2.5D board or a
+resolution-default change. Workers deliver reviewed commits to the integrator
+and do not push.
+
+## Build627 live lighting admission
+
+The authored Crypt renderers generally use `BlendProbes`, even where the original
+asset review found no baked probes. Authored flags and offline absence alone
+cannot establish live lighting equivalence. Exact chunks now admit the native
+common ambient/sky fallback only when actual `LightmapSettings.lightProbes` is
+absent or has zero probes, the source uses ordinary `BlendProbes` without a proxy
+volume override, and the actual source and aggregate renderer reflection query
+contains no local probe. Native flags, anchors, meshes, material slots and
+original template children remain unchanged. Explicit instancing retains its
+earlier stricter probe/shadow contract.
+
+Any globally active local `ReflectionProbe` keeps probe-consuming chunks native,
+even if the probe currently misses their bounds. Unity's registration event
+covers addition/removal and activation, but cannot prove every later volume,
+position or texture write. This conservative refusal protects moved and rebaked
+probes. Add/enable events immediately return current render leases. Populated
+light probes, custom-provided SH and proxy-volume lighting remain native.
+
+The shared `ScenarioCameraCullBoundary` installs an actual HarmonyX postfix on
+Unity2021's managed `Camera.FireOnPreCull`. It runs after component callbacks and
+the whole `Camera.onPreCull` listener list, before native culling. Restoration in
+`onPreRender` is too late: masked originals have already left the native cull
+list. The final boundary checks the live light-probe source/count, camera
+depth/path, foreign command-buffer identities, and cheap lighting usage/volume
+override flags on currently masked chunk members. It revokes obsolete geometry
+and restores originals before native culling. Stable cameras perform no second
+material/geometry/transform sweep. `EnvironmentBudget.FinalPreCull` measures this
+additional work. Every subscriber owns a fail-open exception guard. Installation
+is pinned to the current Harmony instance, so a new plugin owner in the same
+managed domain reinstalls after the old owner's patches are removed.
+
+Known native loader, wall-property and clone writes retain synchronous recovery.
+Arbitrary unhooked material or non-lighting renderer writes by a later camera
+listener are still revalidated at the next camera invocation; this change does
+not claim universal interception of native setters.
+
+Bounded Debug preparation reports now follow live settings rebuilds as well as
+loading. They expose candidates, material/scope/wall-channel refusals and native
+terrain ownership, MPB, lightmap, LOD, shadow, geometry and probe observations.
+The fields explicitly overlap and are not unique renderer counts. Discovery
+counts visits since the previous report. At most 32 report episodes occur per
+scene, with no repeating steady-frame report; normal logging skips the detailed
+sampling and formatting. The integrator's Debug counter registry publishes zero
+applied chunk/instance entries as well, so prepared membership can be compared
+with masks surviving actual camera completion.
+
+Native-camera validation binds the exact shared postfix through the production
+HarmonyX/MonoMod versions. It compares actual original and chunk pixels for
+common ambient/sky changes, local probe appearance/enable/movement/rebake, late
+light-probe installation and late foreign `DrawRenderer` consumers. A native
+engine-baked light-probe fixture uses actual hull positions, distinct CPU
+`GetInterpolatedProbe` samples and distinct original shader pixels through
+separate anchors. Removing the final seam, live registry, flag check or native
+consumer check is tested causally. Plugin owner teardown/replacement is tested
+against the actual patched Unity method. The fixture uses an explicit GL native
+lighting shader; original game Windows shaders, live three-room admission,
+Frame FPS and multiplayer headroom remain hardware measurements.
 
 ## Historical failure is a contract
 
@@ -63,9 +123,10 @@ completion before restitution; late revoked draws contribute zero source savings
 `Environment.NativeBufferFallback` counts camera invocations which retained
 originals because a foreign/native command buffer consumed their identities.
 Counters sum camera invocations, including both MultiPass eyes and nested cameras;
-they are not unique scene renderer totals or measured GPU draw calls. Zero entries
-are omitted by the existing counter stream. No per-frame information log or scene
-census is added, and mask-count traversal is skipped when attribution is Off.
+they are not unique scene renderer totals or measured GPU draw calls. The older
+Build625 stream omitted zero entries; Build627's integration registry reports
+the selected applied zeros at Debug. No per-frame information log or scene census
+is added, and mask-count traversal is skipped when attribution is Off.
 
 ## Mesh bank and source provenance
 
