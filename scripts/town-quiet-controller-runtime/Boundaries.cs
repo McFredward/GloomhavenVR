@@ -143,7 +143,7 @@ public class UIPartyCharacterEnhancementAbilityCardsDisplay : MonoBehaviour
     public void OnRemovedEnhancement(CAbilityCard card,bool selected){Removes++;LastSelected=selected;}
 }
 public sealed class NativeEnhancementShop { public int Clears; public void Clear(){Clears++;} }
-public sealed class NativeBuyTab { public GameObject gameObject=null!;public bool interactable;public int Activations;public Action? Active; public void Activate(){Activations++;Active?.Invoke();} }
+public sealed class NativeBuyTab { public GameObject gameObject=null!;public bool interactable,isOn;public int Activations;public Action? Active; public void Activate(){Activations++;if(!isOn){isOn=true;Active?.Invoke();}} }
 public class UINewEnhancementWindow : MonoBehaviour
 {
     private MapPartyEnhancementShopService? shopService;

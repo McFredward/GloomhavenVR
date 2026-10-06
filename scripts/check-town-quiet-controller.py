@@ -47,7 +47,7 @@ def mutations():
         ("merchant-event-release", "TownServiceQuietController.cs", "            if (owner != null && owner.GetComponent<UIShopItemWindow>() is UIShopItemWindow merchant)\n                Invoke(merchant, \"ClearEvents\");", "            /* missing original merchant event teardown */", "merchant release unregisters every exact original bus callback"),
         ("mage-current-party", "TownServiceQuietController.cs", "nativeService == null || !ReferenceEquals(Field(nativeService, \"party\").GetValue(nativeService), party)", "nativeService == null", "mage entry uses the current adventure party after save switch"),
         ("mage-original-slots", "TownServiceQuietController.cs", "            assigned.Add(cards[i], pool[i]);", "            /* omitted native assigned slot */", "every owned ability keeps its original assigned slot callback"),
-        ("mage-original-mode", "TownServiceQuietController.cs", "                shop.buyButton.Activate();", "                /* skipped original buy tab */", "mage buy mode and original tab are activated without a flat open"),
+        ("mage-original-mode", "TownServiceQuietController.cs", "                if (shop.buyButton.isOn) Invoke(shop, \"ShowBuyOptions\");\n                else shop.buyButton.Activate();", "                /* skipped original buy tab and mode callback */", "mage buy mode and original tab are activated without a flat open"),
         ("mage-last-shown", "TownServiceQuietController.cs", "                Field(shop, \"lastShowedCard\").SetValue(shop, null);", "                /* retained old native shown card */", "mage entry clears stale native shown card before its original buy tab callback"),
         ("mage-sell-tab", "TownServiceQuietController.cs", "                shop.sellButton.gameObject.SetActive(nativeService.IsSellAvailable);", "                /* retained old native sell tab */", "mage entry restores original selling and buy-tab availability from its current native service"),
         ("mage-buy-tab", "TownServiceQuietController.cs", "                shop.buyButton.interactable = nativeService.IsSellAvailable;", "                /* retained old native buy tab interactivity */", "mage entry restores original selling and buy-tab availability from its current native service"),
@@ -59,7 +59,7 @@ def mutations():
     ]
 
 
-def main():
+def main(fixture_dir=None):
     repo = Path(__file__).resolve().parent.parent
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-root", type=Path, default=repo)
@@ -69,7 +69,7 @@ def main():
     parser.add_argument("--no-negative-controls", action="store_true")
     parser.add_argument("--negative-control", action="append", default=[])
     args = parser.parse_args()
-    fixture = repo / "scripts/town-quiet-controller-runtime"
+    fixture = fixture_dir or repo / "scripts/town-quiet-controller-runtime"
     ui = args.unity_ui or next((path for path in [args.source_root / "unity/GloomhavenVR.Assets/Library/ScriptAssemblies/UnityEngine.UI.dll", args.source_root / "ressources/GH_Data/Managed/UnityEngine.UI.dll"] if path.is_file()), None)
     if not args.unity.is_file() or ui is None:
         parser.error("Unity 2021.3.5 and its real UnityEngine.UI.dll are required")
@@ -111,7 +111,10 @@ def main():
     (project / "Assets/Editor").mkdir(parents=True)
     (project / "Packages").mkdir()
     (project / "ProjectSettings").mkdir()
-    shutil.copyfile(fixture / "Editor/InteractionRunner.cs", project / "Assets/Editor/InteractionRunner.cs")
+    runner = fixture / "Editor/InteractionRunner.cs"
+    if not runner.is_file():
+        runner = repo / "scripts/town-quiet-controller-runtime/Editor/InteractionRunner.cs"
+    shutil.copyfile(runner, project / "Assets/Editor/InteractionRunner.cs")
     (project / "Packages/manifest.json").write_text('{"dependencies":{"com.unity.ugui":"1.0.0"}}\n')
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
     done = subprocess.run([str(args.unity), "-batchmode", "-nographics", "-projectPath", str(project), "-executeMethod", "InteractionRunner.Start", "-interactionManifest", str(path), "-logFile", str(run / "unity.log")], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=240)

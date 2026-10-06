@@ -155,7 +155,12 @@ internal static class TownServiceQuietController
                 Field(shop, "lastShowedCard").SetValue(shop, null);
                 // Keep the original mode transition and tab value coherent. OnSelectedSlot
                 // reads mode, while the visible native options retain their original state.
-                shop.buyButton.Activate();
+                // UITab.Activate only changes an off toggle. The original EnterShop
+                // explicitly restores buy mode when the serialized tab is already on;
+                // omitting that branch leaves mode NONE (or a previous SELL visit) and
+                // native HighlightButtons excludes every empty enhancement area.
+                if (shop.buyButton.isOn) Invoke(shop, "ShowBuyOptions");
+                else shop.buyButton.Activate();
                 shop.sellButton.gameObject.SetActive(nativeService.IsSellAvailable);
                 shop.buyButton.interactable = nativeService.IsSellAvailable;
                 ActivateSource(shop.CardsDisplay.transform);
