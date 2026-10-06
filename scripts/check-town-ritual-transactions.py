@@ -374,7 +374,8 @@ def sources(root):
     controller_source = "using ICharacter=FakeCharacter;\n" + controller_raw[:controller_raw.index("\n/// <summary>Keep native book animation")].replace(
         "using HarmonyLib;\n", "").replace("internal static class TownServiceTempleController", "internal static class BoundTempleController")
     proxy_source = "using System;using UnityEngine;using UnityEngine.UI;using GloomhavenVR.Core;namespace GloomhavenVR.WorldUI { internal static class BoundQuietTempleProxyPresentation {private static UITempleWindow? _reported;" + (
-        method(controller_raw, "private static void Prefix(") + method(controller_raw, "private static void Postfix(")).replace("private static void", "internal static void") + "} }"
+        method(controller_raw, "private static void Prefix(") + method(controller_raw, "private static void Postfix(")
+        + method(controller_raw, "private static void Report(")).replace("private static void", "internal static void") + "} }"
     native_path = root / "decompiled/GH.Runtime/UITempleWindow.cs"
     if not native_path.is_file() and (root / "ressources").is_symlink():
         native_path = (root / "ressources").resolve().parent / "decompiled/GH.Runtime/UITempleWindow.cs"
@@ -432,7 +433,10 @@ def mutations():
         ("temple-quiet-native-permission", "TempleQuietController.cs", "|| !temple.service.CanBuy(character.CharacterID, slot.Blessing)", "|| false", "observer without native ownership cannot invoke original selection"),
         ("temple-quiet-proxy-missing", "TempleQuietProxy.cs", "TownServiceTempleController.AnimateProxy(__instance, __state);", "/* no original book animation */", "quiet native proxy commits once and animates original book after invisible window branch"),
         ("temple-quiet-proxy-double-buy", "TempleQuietProxy.cs", "TownServiceTempleController.AnimateProxy(__instance, __state);", "__instance.service.Buy(__instance.character.CharacterID, __instance.service.Blessings[0]);TownServiceTempleController.AnimateProxy(__instance, __state);", "quiet native proxy commits once and animates original book after invisible window branch"),
-        ("temple-quiet-proxy-foreign", "TempleQuietProxy.cs", "if (__state < 0 || !TownServicePresentation.IsQuietTemple(__instance.GetComponent<UIWindow>())) return;", "if (__state < 0) return;", "retired quiet context cannot animate an unrelated native proxy"),
+        ("temple-quiet-proxy-foreign", "TempleQuietProxy.cs", "if (!TownServicePresentation.IsQuietTemple(__instance.GetComponent<UIWindow>())) return;", "/* no quiet context guard */", "retired quiet context cannot animate an unrelated native proxy"),
+        ("temple-quiet-proxy-prefix-throw", "TempleQuietProxy.cs", "__state = __instance.service.DevotionLevel;\n        }\n        catch (Exception error) { Report(__instance, error); }", "__state = __instance.service.DevotionLevel;\n        }\n        catch (Exception error) { Report(__instance, error); throw; }", "quiet presentation fault cannot prevent original native donation"),
+        ("temple-quiet-proxy-postfix-throw", "TempleQuietProxy.cs", "TownServiceTempleController.AnimateProxy(__instance, __state);\n        }\n        catch (Exception error) { Report(__instance, error); }", "TownServiceTempleController.AnimateProxy(__instance, __state);\n        }\n        catch (Exception error) { Report(__instance, error); throw; }", "quiet presentation fault cannot interrupt completed native donation"),
+        ("temple-quiet-proxy-unbounded-warn", "TempleQuietProxy.cs", "if (ReferenceEquals(_reported, temple)) return;", "if (temple == null) return;", "quiet presentation faults warn once per exact native controller"),
         ("temple-quiet-restore-sibling", "TempleQuietController.cs", "Source.SetSiblingIndex(_sibling);", "Source.SetSiblingIndex(0);", "quiet counter lease restores exact original parent sibling rect and nested canvas state"),
         ("temple-close-missing", "TempleExit.cs", "ModalFallback.CloseFloatedWindow(_window);", "", "physical departure closes native temple before visiting another resident"),
         ("repeat-donation", "RitualTransactions.cs", "_submittedOfferings.Add(offering);", "", "a delayed online stock refresh never permits a duplicate donation"),

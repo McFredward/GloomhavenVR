@@ -238,18 +238,29 @@ internal static class QuietTempleProxyPresentation
     private static UITempleWindow? _reported;
     private static void Prefix(UITempleWindow __instance, out int __state)
     {
-        __state = TownServicePresentation.IsQuietTemple(__instance.GetComponent<UIWindow>())
-            && !__instance.GetComponent<UIWindow>().IsVisible ? __instance.service.DevotionLevel : -1;
+        __state = -1;
+        try
+        {
+            UIWindow window = __instance.GetComponent<UIWindow>();
+            if (TownServicePresentation.IsQuietTemple(window) && !window.IsVisible)
+                __state = __instance.service.DevotionLevel;
+        }
+        catch (Exception error) { Report(__instance, error); }
     }
     private static void Postfix(UITempleWindow __instance, int __state)
     {
-        if (__state < 0 || !TownServicePresentation.IsQuietTemple(__instance.GetComponent<UIWindow>())) return;
-        try { TownServiceTempleController.AnimateProxy(__instance, __state); }
-        catch (Exception error)
+        if (__state < 0) return;
+        try
         {
-            if (ReferenceEquals(_reported, __instance)) return;
-            _reported = __instance;
-            VRLog.Warn("TownServices", "Original quiet temple transaction completed, but book animation failed: " + error);
+            if (!TownServicePresentation.IsQuietTemple(__instance.GetComponent<UIWindow>())) return;
+            TownServiceTempleController.AnimateProxy(__instance, __state);
         }
+        catch (Exception error) { Report(__instance, error); }
+    }
+    private static void Report(UITempleWindow temple, Exception error)
+    {
+        if (ReferenceEquals(_reported, temple)) return;
+        _reported = temple;
+        VRLog.Warn("TownServices", "Quiet temple book presentation failed; original donation callback remains unchanged: " + error);
     }
 }

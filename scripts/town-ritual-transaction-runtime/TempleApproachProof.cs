@@ -81,7 +81,11 @@ public static class TownServicePopulation
     public static TownServiceStation? Acquire(int service)=>service==1?MerchantStation:service==3?EnchantressStation:Station;
 }
 public static class TownServicePresentation
-{ public static TownServiceRitual? Ritual; public static UIWindow? QuietWindow; public static bool IsQuietTemple(UIWindow window)=>window!=null&&ReferenceEquals(window,QuietWindow); }
+{
+    public static TownServiceRitual? Ritual;public static UIWindow? QuietWindow;public static bool ThrowQuietGate;
+    public static bool IsQuietTemple(UIWindow window)
+    {if(ThrowQuietGate)throw new InvalidOperationException("injected quiet gate failure");return window!=null&&ReferenceEquals(window,QuietWindow);}
+}
 namespace GloomhavenVR.Core.Events
 {
     public enum VRMode { TableIdle, ModalUI }

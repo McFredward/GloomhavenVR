@@ -193,6 +193,31 @@ internal static class TempleQuietControllerProof
             Check(BoundTempleController.Prepare(window) && temple.Shop.Refreshes==2
                 && temple.totalDonatedGold.Sets==1 && temple.devotionProgress.Sets==1,
                 "native donation model refresh preserves its already-running original counter animation");
+
+            int warningsBefore=GloomhavenVR.Core.VRLog.Warnings;
+            TownServicePresentation.ThrowQuietGate=true;
+            bool prefixCompleted=true;
+            previousLevel=-1;
+            try{BoundQuietTempleProxyPresentation.Prefix(temple,out previousLevel);}
+            catch{prefixCompleted=false;}
+            if(prefixCompleted)nativeProxy.ProxyBuyBlessing(temple.character.CharacterID,temple.service.Blessings[0]);
+            Check(prefixCompleted && previousLevel==-1 && temple.service.Buys==2,
+                "quiet presentation fault cannot prevent original native donation");
+            bool postfixCompleted=true;
+            try{BoundQuietTempleProxyPresentation.Postfix(temple,0);}
+            catch{postfixCompleted=false;}
+            Check(postfixCompleted && temple.service.Buys==2,
+                "quiet presentation fault cannot interrupt completed native donation");
+            TownServicePresentation.ThrowQuietGate=false;
+            FakeGoldCounter originalCounter=temple.totalDonatedGold;
+            temple.totalDonatedGold=null!;
+            try{BoundQuietTempleProxyPresentation.Postfix(temple,0);}
+            catch{postfixCompleted=false;}
+            temple.totalDonatedGold=originalCounter;
+            Check(postfixCompleted && temple.service.Buys==2,
+                "missing native book widget cannot interrupt completed native donation");
+            Check(GloomhavenVR.Core.VRLog.Warnings==warningsBefore+1,
+                "quiet presentation faults warn once per exact native controller");
             BoundTempleController.Reset();
             Check(ReferenceEquals(gold.transform.parent,root.transform) && goldRect.GetSiblingIndex()==sibling
                 && goldRect.anchorMin==min && goldRect.anchorMax==max && goldRect.pivot==pivot && goldRect.sizeDelta==size
