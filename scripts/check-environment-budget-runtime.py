@@ -84,6 +84,8 @@ def main():
     source_path = args.source_root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentBudget.cs'
     boundary_path = args.source_root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentBudget.CameraBoundary.cs'
     boundary = boundary_path.read_text()
+    ambient_path = args.source_root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentAmbientEffects.cs'
+    ambient = ambient_path.read_text()
     shader_path = args.source_root/'unity/GloomhavenVR.Assets/Assets/Bundle/Environments/ScenarioSimpleEnvironment.shader'
     repair_path = args.source_root/'src/GloomhavenVR/Core/MaterialLoaderHeal.cs'
     floor_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallFloorTile.cs'
@@ -103,7 +105,7 @@ def main():
     delivery = delivery.replace('\n} }\n',native_prop+'\n} }\n')
     assert '_nativeTransitionMaps' not in wall + dissolve, 'Retired square-mask bank must not return'
     assert 'Shader.PropertyToID("_EnableOcclusionMap")' in wall, 'Original native enable binding must remain explicit'
-    clock_variants, delivery_variants, trace_variants, boundary_variants = {}, {}, {}, {}
+    clock_variants, delivery_variants, trace_variants, boundary_variants, ambient_variants = {}, {}, {}, {}, {}
     wall_writes = []
     for path in (args.source_root/'src/GloomhavenVR/Core/WallFade').glob('WallSegmentFade*.cs'):
         text = path.read_text()
@@ -155,6 +157,10 @@ def main():
             ('foreign-actor-admitted','node.GetComponent<ActorBehaviour>() != null','false','foreign actor/UI/held/water/foliage/dissolve/native scope exclusions retain original rendering: CV_Floor_Base_Actor',2),
             ('ambient-loop-is-enough','AmbientIdentity(node, tile.transform)','true','combat effects never become ambience merely because they loop',1),
             ('ambient-never-paused','System.Pause(false);','/* injected: solver kept playing */','zero ambient budget pauses exact native families',1),
+            ('ambient-static-mesh-scope-reused','ProceduralMapTile? tile = ScenarioEnvironmentAmbientEffects.Scope(node);','ProceduralMapTile? tile = TileScope(node, out _);','decorative doorway and prop smoke uses emitter scope independent of static mesh vetoes',1),
+            ('ambient-static-walk-pruned','if (_effects >= 100 && (node.GetComponent<ProceduralProp>() != null','if ((node.GetComponent<ProceduralProp>() != null','decorative doorway and prop smoke uses emitter scope independent of static mesh vetoes',1),
+            ('ambient-late-doorway-ready-missing','{ AdoptAmbient(renderer.transform); return; }','{ return; }','late material readiness adopts decorative smoke below native doorway mesh exclusions',1),
+            ('ambient-native-stop-restarted','if (_paused && System != null && System.isPaused) System.Play(false);','if (_paused && System != null) System.Play(false);','ambient restoration respects a native stop while suppressed',1),
             ('native-material-not-restored','if (IsApplied()) Renderer.sharedMaterials = Original;','if (IsApplied()) Renderer.sharedMaterials = Applied!;','owned native material restore takes effect immediately',1),
             ('unknown-native-clone-not-restored','RestoreClonedMaterials();','/* injected: unknown native clones skipped */','unannounced native clone restores its original material',2),
             ('new-multi-material-not-validated','_materialScratch.Count == 1','true','real camera pre-cull rejects newly multi-material originals',1),
@@ -250,6 +256,16 @@ def main():
             assert bank_source.count(before) == 1, 'Bank causal binding drift: '+name
             variants.append((name,source,expected)); bank_variants[name] = bank_source.replace(before,after)
     if not args.production_only:
+        for name, before, after, expected in (
+            ('ambient-numbered-family-missed','name = name.Substring(0, open);','return name;','authored numbered torch family is paused at zero environment budget'),
+            ('ambient-pooled-parent-veto-missing','if (Family(name)) family = true;','if (Family(name)) return true;','pooled combat parent vetoes even an exact decorative torch leaf'),
+            ('ambient-collision-paused','!system.collision.enabled','true','decorative collision callbacks keep native particle simulation under zero FX'),
+            ('ambient-trigger-paused','!system.trigger.enabled','true','decorative trigger callbacks keep native particle simulation under zero FX'),
+            ('ambient-stop-callback-paused','system.main.stopAction == ParticleSystemStopAction.None','true','decorative stop callbacks keep native particle simulation under zero FX'),
+        ):
+            assert ambient.count(before) == 1, 'Ambient causal binding drift: '+name
+            variants.append((name,source,expected)); ambient_variants[name] = ambient.replace(before,after)
+    if not args.production_only:
         variants.append(('native-camera-callback-failure-swallowed',source,
             'actual native camera callback assertions propagate after Render into the runner process status'))
     if args.case:
@@ -279,7 +295,7 @@ def main():
         (swallowed_fixture/'Program.cs').write_text(program.replace(guard,
             'if (callbackFailure != null && bool.Parse("false")) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(callbackFailure).Throw();'))
     manifest = {'result':str(run/'results.txt'),'cases':[]}
-    bound_sources = {source_path:source,boundary_path:boundary,shader_path:shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,trace_path:trace,occlusion_path:occlusion,dissolve_path:dissolve}
+    bound_sources = {source_path:source,boundary_path:boundary,ambient_path:ambient,shader_path:shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,trace_path:trace,occlusion_path:occlusion,dissolve_path:dissolve}
     for bank_file in ('ScenarioEnvironmentMeshBank.cs','ScenarioEnvironmentMeshStream.cs'):
         bank_path = args.source_root/'src/GloomhavenVR/Core/Perf'/bank_file
         bound_sources[bank_path] = bank_path.read_text()
@@ -305,6 +321,7 @@ def main():
         (production/'Environment.cs').write_text(value.replace(read_entry,
             read_entry + '\n        global::EnvironmentProgram.RecordMaterialRead();'))
         (production/'CameraBoundary.cs').write_text(boundary_variants.get(name,boundary))
+        (production/'AmbientEffects.cs').write_text(ambient_variants.get(name,ambient))
         (production/'WallFloorTile.cs').write_text(floor)
         (production/'WallDelivery.cs').write_text(delivery_variants.get(name,delivery))
         (production/'WallClock.cs').write_text(clock_variants.get(name,clock))

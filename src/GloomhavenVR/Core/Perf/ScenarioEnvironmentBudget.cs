@@ -242,21 +242,7 @@ internal static class ScenarioEnvironmentBudget
 
     private static bool AmbientIdentity(Transform leaf, Transform tile)
     {
-        // These exact native prefab families are environment-owned and independent of
-        // combat/condition particle lifetimes. Looping alone never establishes ambience.
-        for (Transform? node = leaf; node != null && node != tile; node = node.parent)
-        {
-            string name = AuthoredName(node.name);
-            if (name.StartsWith("p_Moths_", StringComparison.Ordinal)
-                || name.StartsWith("Candle_Fire_FX_", StringComparison.Ordinal)
-                || name == "p_fire_torch" || name == "p_fire_torch_blue"
-                || name == "p_fireflies" || name == "p_Fireflies") return true;
-            if (name.StartsWith("P_", StringComparison.Ordinal)
-                || name.IndexOf("attack", StringComparison.OrdinalIgnoreCase) >= 0
-                || name.IndexOf("condition", StringComparison.OrdinalIgnoreCase) >= 0
-                || name.IndexOf("heal", StringComparison.OrdinalIgnoreCase) >= 0) return false;
-        }
-        return false;
+        return ScenarioEnvironmentAmbientEffects.Identity(leaf, tile);
     }
 
     private sealed class Surface
@@ -295,17 +281,20 @@ internal static class ScenarioEnvironmentBudget
         private bool _paused, _masked;
         internal void Apply(bool hidden)
         {
-            if (System == null || Renderer == null) return;
-            if (hidden)
-            {
-                if (System.isPlaying) { System.Pause(false); _paused = true; }
-            }
-            else
+            if (!hidden)
             {
                 Unmask();
-                if (_paused && System.isPaused) System.Play(false);
+                if (_paused && System != null && System.isPaused) System.Play(false);
                 _paused = false;
+                return;
             }
+            if (System == null || Renderer == null) return;
+            // Rendering can be optional while collision/trigger/stop callbacks are not.
+            // Retain their native simulation, never Stop/Clear, and never pause children.
+            bool mayPause = ScenarioEnvironmentAmbientEffects.CanPause(System);
+            if (!mayPause && _paused)
+            { if (System.isPaused) System.Play(false); _paused = false; }
+            if (mayPause && System.isPlaying) { System.Pause(false); _paused = true; }
         }
         internal void Mask(bool hidden)
         {
@@ -756,9 +745,10 @@ internal static class ScenarioEnvironmentBudget
         internal void MaterialReady(Renderer renderer)
         {
             if (renderer == null || !VRSession.IsRunning || !(PerfConfig.StaticScenarioBatchesOn
-                || StructuralEnabled || PerfConfig.EnvironmentDrawInstancingOn || PerfConfig.SimpleEnvironmentShadingOn || PerfConfig.EnvironmentEffectsDensityPercent < 100)
-                || TileScope(renderer.transform, out _) == null) return;
+                || StructuralEnabled || PerfConfig.EnvironmentDrawInstancingOn || PerfConfig.SimpleEnvironmentShadingOn || PerfConfig.EnvironmentEffectsDensityPercent < 100)) return;
             Settings();
+            if (TileScope(renderer.transform, out _) == null)
+            { AdoptAmbient(renderer.transform); return; }
             int id = renderer.GetInstanceID();
             InvalidateBatch(id);
             if (_surfaces.TryGetValue(id, out Surface old))
@@ -839,8 +829,12 @@ internal static class ScenarioEnvironmentBudget
                 if (node == null) continue;
                 _queued.Remove(node.gameObject.GetInstanceID());
                 if (node.name.StartsWith("GloomhavenVR", StringComparison.Ordinal)
-                    || node.GetComponent<ActorBehaviour>() != null || node.GetComponent<ProceduralProp>() != null
-                    || node.GetComponent<Canvas>() != null || node.GetComponent<Animator>() != null) continue;
+                    || node.GetComponent<ActorBehaviour>() != null || node.GetComponent<Canvas>() != null) continue;
+                // Static mesh eligibility still rejects every prop/animated descendant in
+                // TileScope. The independently owned ambience budget must nevertheless
+                // discover decorative fire below those containers when it is enabled.
+                if (_effects >= 100 && (node.GetComponent<ProceduralProp>() != null
+                    || node.GetComponent<Animator>() != null)) continue;
                 Adopt(node);
                 for (int i = 0; i < node.childCount; i++)
                 {
@@ -852,6 +846,7 @@ internal static class ScenarioEnvironmentBudget
 
         private void Adopt(Transform node)
         {
+            AdoptAmbient(node);
             ProceduralMapTile? tile = TileScope(node, out bool floor);
             if (tile == null) return;
             MeshRenderer renderer = node.GetComponent<MeshRenderer>();
@@ -908,7 +903,14 @@ internal static class ScenarioEnvironmentBudget
                     _buildPending = true;
                 }
             }
+        }
+
+        private void AdoptAmbient(Transform node)
+        {
             ParticleSystem system = node.GetComponent<ParticleSystem>();
+            if (system == null || _ambient.ContainsKey(system.GetInstanceID())) return;
+            ProceduralMapTile? tile = ScenarioEnvironmentAmbientEffects.Scope(node);
+            if (tile == null) return;
             ParticleSystemRenderer particleRenderer = node.GetComponent<ParticleSystemRenderer>();
             if (system != null && particleRenderer != null && system.main.loop
                 && AmbientIdentity(node, tile.transform) && !_ambient.ContainsKey(system.GetInstanceID()))
