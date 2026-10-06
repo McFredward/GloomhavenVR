@@ -11,6 +11,9 @@ param([string]$StateRoot, [switch]$NoBrowser)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 try {
+    if (-not [Environment]::Is64BitOperatingSystem -or $env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
+        throw "The Quest builder requires Windows x64 for Unity and its native toolchain."
+    }
     $sourceDirectory = Split-Path $PSScriptRoot -Parent
     $bootstrapDirectory = Join-Path $sourceDirectory "tools/quest-installer"
     $wizardScript = Join-Path $sourceDirectory "tools/quest-wizard/wizard.py"

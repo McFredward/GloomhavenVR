@@ -76,3 +76,17 @@ test('preview can never report a completed real build or invoke external tools',
   await api.cancel();assert.equal(api.state.status,'cancelled');
   assert.ok(api.state.stages.every(row=>row.status!=='running'));
 });
+
+
+test('support transport downloads a token-protected ZIP and rejects foreign content',async()=>{
+  let call;
+  const blob=new Blob(['fixture']);
+  const api=new LocalApi('http://127.0.0.1:1234','token',async(url,options)=>{
+    call={url:String(url),options};return {ok:true,headers:new Map([['Content-Type','application/zip'],['Content-Disposition','attachment; filename="quest-build-support.zip"']]),blob:async()=>blob};
+  });
+  const result=await api.support('session-123');assert.equal(result.blob,blob);assert.equal(result.name,'quest-build-support.zip');
+  assert.equal(call.options.headers['X-Quest-Token'],'token');assert.deepEqual(JSON.parse(call.options.body),{session:'session-123'});
+  await assert.rejects(()=>api.support('../private'),error=>error.code==='invalidReply');
+  const bad=new LocalApi('http://127.0.0.1:1234','token',async()=>({ok:true,headers:new Map([['Content-Type','text/html']])}));
+  await assert.rejects(()=>bad.support('session-123'),error=>error.code==='invalidReply');
+});

@@ -31,6 +31,23 @@ def _builder(repo):
         else: sys.modules[spec.name] = prior
 
 
+def local_support_module(repo, name):
+    """Load release/support tools without altering cached application modules."""
+    if name not in ("release", "support"): raise WizardError("local_module", "Unsupported local helper.")
+    with _LOADER_LOCK:
+        missing = object(); names = ["storage", "release"] + (["support"] if name == "support" else [])
+        previous = {item: sys.modules.get(item, missing) for item in names}
+        try:
+            for item in names:
+                spec = importlib.util.spec_from_file_location(item, Path(repo) / "tools/quest-builder" / (item + ".py"))
+                module = importlib.util.module_from_spec(spec); sys.modules[item] = module; spec.loader.exec_module(module)
+            return module
+        finally:
+            for item, value in previous.items():
+                if value is missing: sys.modules.pop(item, None)
+                else: sys.modules[item] = value
+
+
 def unity_paths():
     editors, hubs = [], []
     program = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
@@ -109,4 +126,4 @@ def discover(repo, store):
     if (store.root / "latest-session.json").is_file(): latest = read_json(store.root / "latest-session.json")["session"]
     return {"schema": 1, "event": "discovery", "games": games, "unityEditors": editors, "unityHubs": hubs,
             "recentSessions": recent[:8], "latestSession": latest,
-            "capabilities": {"browse": os.name == "nt", "artwork": False, "logs": True, "capture": False, "cleanCache": False}}
+            "capabilities": {"browse": os.name == "nt", "artwork": False, "logs": True, "support": True, "capture": False, "cleanCache": False}}

@@ -92,3 +92,71 @@ authoritative installation and activation contracts.
 
 Focused source fixtures: `python -B -m unittest discover -s tests/quest-wizard`.
 They do not download tools, import Unity projects or assert hardware outcomes.
+
+## Complete Windows source release
+
+The installer-only hardware handoff is not a builder distribution. Assemble the
+full game-free builder from a committed integration checkout with:
+
+```sh
+python -I -B scripts/package-quest-builder.py --output /private/output/GloomhavenVR-Quest-Builder.zip
+```
+
+The assembler inventories tracked mod source, authored Unity project assets,
+weaver, recovery, native/procedural source, Wizard/UI, launchers and tool pins.
+The explicit public converter ZIP includes pinned open-source binaries,
+corresponding upstream sources and license notices. Original-derived prebuilt
+figure meshes, reference/game DLLs, decompiled game code, credentials, local
+Unity licenses, caches, APKs and savegames are excluded. The release manifest
+contains exact relative paths, sizes, hashes and the actual source commit/build;
+assembly independently extracts and verifies the ZIP before publishing its audit.
+Future tracked mod files inside declared source roots enter the next release.
+New root families or binary dependencies require an explicit inventory review.
+
+Extract into a fresh folder and double-click `Quest-Builder.cmd`. No Git
+checkout or installed Python is required. The launcher bootstraps pinned local
+CPython/venv, then starts the existing browser Wizard. Portable Git is still
+provisioned for public XR package sources; it is not needed to identify the
+shipped mod. The separately owned build state defaults to `%USERPROFILE%\.ghvrq`.
+Do not overlay different source release archives: unlisted source files are
+rejected. Moving/replacing the release folder does not remove user build caches
+or signing keys. A changed release manifest invalidates source and downstream
+stage identities while portable tools remain reusable. Each release gets its
+own resumable source-copy directory; old source workspaces remain untouched.
+Generated compile-time XR assemblies are derived from the user's game files and
+are inventoried separately from shipped source.
+
+Before downloads the backend checks Windows x64, a short workspace root and a
+4 GiB **setup-only** free-space floor. This is not a full-game space estimate:
+Unity imports and recovered content require substantially more free disk space,
+and the check records `fullBuildSpaceVerified:false`. Unity Hub setup/sign-in and
+activation of an eligible license remain guided manual steps. The backend never
+reads or exports license contents and does not infer license validity from the
+Editor version. Real Windows provisioning/conversion and headset outcomes still
+require user testing; a package audit establishes only its delivered inputs.
+
+## Shareable build diagnostic package
+
+The EN/DE **Save diagnostic package** button downloads a local support ZIP,
+including after failure or while a build runs. Nothing is uploaded. CLI users can
+run `python -I -B scripts/export-quest-build-support.py` for the latest session,
+or select `--state-root`, `--session`, and a new `--output` destination. The
+Wizard CLI also exposes `support --state-root ROOT --session ID [--output FILE]`.
+Token/origin-protected POST `/api/support {session}` returns `application/zip`;
+there is no arbitrary filesystem-path download endpoint.
+
+The ZIP contains bounded stage/error context, mod/source/input/build identities,
+host CPU/architecture, and the resource policy/events/metrics produced under
+`build/evidence/`. These records supply memory, chosen jobs, stage timings and
+outcomes when present. Only direct known stage/build logs and the three named
+resource records are eligible: no recursive project/cache/game traversal occurs.
+Profile and DLC JSON, environment files, license files, signing credentials,
+game assets and saves are excluded. Known profile/path values, authorization,
+token/password/serial fields, signed URL queries, JWTs and key blocks are
+redacted. Structured resource objects receive separate key redaction; oversized
+structured records are omitted rather than exporting unparsed secret fields.
+Each log retains bounded beginning/end context (2 MiB/file, 24 MiB total,
+64 files); the manifest records truncation, omissions and exported hashes.
+The export reads saved state directly and leaves running/interrupted workflow
+status and receipts unchanged. An export is a diagnostic snapshot, not proof
+that its APK was installed or that the headset picture is correct.

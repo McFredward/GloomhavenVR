@@ -6,6 +6,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import shutil
 import sys
+import discovery
 import urllib.request
 import zipfile
 
@@ -182,7 +183,43 @@ def derive_runtime_dependencies(checkout, game_root, details, supervisor, logs, 
     return manifest
 
 
+def release_source(store, session, choices, details, supervisor, source):
+    """Copy only verified release inputs; keep immutable per-release workspaces."""
+    release = discovery.local_support_module(source, "release")
+    records, commit, dirty = release.verified_source_inventory(source)
+    if choices.get("sourceCommit") and choices["sourceCommit"] != commit:
+        raise WizardError("source_changed", "Selected commit differs from the shipped release.")
+    identity = value_hash(records)
+    checkout = ordinary(store.root / "source" / (session + "-" + identity[:16]))
+    owner = checkout.with_name(checkout.name + ".owner.json")
+    expected = {"schema": 1, "session": session, "releaseHash": identity, "commit": commit}
+    if owner.exists():
+        if read_json(owner) != expected: raise WizardError("unowned_source", "Release workspace ownership differs.")
+    elif checkout.exists(): raise WizardError("unowned_source", "Release workspace has no ownership record.")
+    else: atomic_json(owner, expected)
+    checkout.mkdir(parents=True, exist_ok=True)
+    for row in records:
+        store.check_cancel(session)
+        target = ordinary(checkout / row["path"]); target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.is_file() or target.stat().st_size != row["size"] or digest(target) != row["sha256"]:
+            shutil.copyfile(source / row["path"], target)
+        if digest(target) != row["sha256"]: raise WizardError("source_changed", "A release input changed while copied.")
+    derived = derive_runtime_dependencies(checkout, choices["gameRoot"], details, supervisor,
+                                          store.session_dir(session) / "logs", lambda: store.check_cancel(session))
+    # The builder validates shipped sources and adds local derived references
+    # separately. No game or license files are copied into the release itself.
+    current_records, current, _ = discovery.builder(checkout).source_inventory(checkout)
+    receipt = store.session_dir(session) / "source.json"
+    atomic_json(receipt, {"schema": 1, "sourceRoot": str(checkout), "commit": current, "dirty": False,
+                          "sourceHash": value_hash(current_records), "releaseHash": identity})
+    return [receipt, owner, derived, *(checkout / row["path"] for row in current_records)], {
+        "sourceRoot": str(checkout), "commit": current, "sourceHash": value_hash(current_records), "releaseHash": identity}
+
+
 def source_checkout(store, session, choices, details, supervisor, repo):
+    source = ordinary(Path(choices.get("sourceRoot") or repo))
+    if (source / "quest-builder-release.json").is_file() and not (source / ".git").exists():
+        return release_source(store, session, choices, details, supervisor, source)
     checkout = ordinary(store.root / "source" / session)
     git = details["git"]; env = environment(details)
     log_root = store.session_dir(session) / "logs"

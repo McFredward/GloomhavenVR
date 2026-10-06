@@ -15,6 +15,15 @@ export class LocalApi {
     if (value?.schema !== 1) throw {code:'invalidReply'};
     return value;
   }
+  async support(session) {
+    if (!sessionId(session) || !this.token) throw {code:'invalidReply'};
+    const response = await this.fetcher(new URL('/api/support',this.origin), {method:'POST',
+      headers:{'X-Quest-Token':this.token,'Content-Type':'application/json'},
+      cache:'no-store',credentials:'same-origin',body:JSON.stringify({session})});
+    if (!response.ok) { let value; try { value=await response.json(); } catch { throw {code:'invalidReply'}; } throw value; }
+    if (response.headers.get('Content-Type') !== 'application/zip') throw {code:'invalidReply'};
+    return {blob:await response.blob(),name:response.headers.get('Content-Disposition')?.match(/filename="([A-Za-z0-9_.-]+)"/)?.[1]??'quest-build-support.zip'};
+  }
   discover() { return this.request('/api/discover'); }
   plan(choices, session) { if(session !== undefined && !sessionId(session))throw {code:'invalidReply'};return this.request('/api/plan',{choices,...(session?{session}:{})}); }
   run(session) { return this.request('/api/run',{session}); }

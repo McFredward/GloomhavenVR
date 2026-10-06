@@ -107,6 +107,7 @@ function renderProgress() {
   const result=state.result??state.stages?.find(stage=>stage.id==='build')?.details??{};
   $('result-path').textContent=[result.apk,result.handoff,result.outputRoot].filter(value=>typeof value==='string').join('\n')||t('footerNote');
   $('session-detail').textContent=t('session',{session:state.session??''});$('event-log').textContent=log.slice(-50).join('\n');
+  $('save-support').hidden=preview||discovery?.capabilities?.support!==true;$('save-support').disabled=!sessionId(state?.session);
   $('stage-log-controls').hidden=!preview&&discovery?.capabilities?.logs!==true;
   loadArtwork(state.artwork);
 }
@@ -172,7 +173,12 @@ async function browse(kind) {
 document.querySelectorAll('[data-language]').forEach(node=>node.addEventListener('click',()=>setLanguage(node.dataset.language)));
 $('primary').addEventListener('click',primary);$('back').addEventListener('click',()=>{page=0;clearError();updateView();});
 $('edit-choices').addEventListener('click',()=>{if(isActive(state))return;clearTimeout(pollTimer);restoreChoices(state?.choices);page=0;clearError();updateView();$('game-root').focus();});
-$('save-log').addEventListener('click',()=>{const data=JSON.stringify({schema:1,kind:'quest-wizard-ui-log',session:state?.session,status:state?.status,progress:state?.progress,stages:state?.stages,events:log.slice(-50),loadedLog},null,2);const url=URL.createObjectURL(new Blob([data],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='quest-wizard-'+(sessionId(state?.session)??'local')+'.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
+$('save-support').addEventListener('click',async()=>{
+  $('save-support').disabled=true;
+  try {const result=await api.support(state.session);const url=URL.createObjectURL(result.blob);
+    const link=document.createElement('a');link.href=url;link.download=result.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }catch(value){error(value);}finally{$('save-support').disabled=false;}
+});
 $('load-log').addEventListener('click',async()=>{const button=$('load-log');button.disabled=true;try{const result=await api.log(state.session,$('log-stage').value);if(typeof result.text!=='string'||result.text.length>65536)throw {code:'invalidReply'};loadedLog={stage:result.stage,text:result.text,truncated:result.truncated===true};$('stage-log').textContent=result.text;$('stage-log').hidden=false;$('log-truncated').hidden=!result.truncated;}catch(value){error(value);}finally{button.disabled=false;}});
 document.querySelector('.skip').addEventListener('click',event=>{event.preventDefault();$('workspace').focus();});
 $('browse-game').addEventListener('click',()=>browse('game'));$('browse-unity').addEventListener('click',()=>browse('unity'));

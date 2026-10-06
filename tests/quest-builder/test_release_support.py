@@ -1,0 +1,137 @@
+"""Release completeness/tampering and support export's actual privacy boundaries."""
+import importlib.util
+import json
+import os
+import shutil
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest import mock
+import zipfile
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'tools/quest-builder'))
+import release
+import support
+from storage import BuildError, record_file, write_json
+
+
+class ReleaseTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name) / 'repo'; self.root.mkdir()
+        for name in release.REQUIRED | {'src/GloomhavenVR/Net/NetProtocol.cs', 'tools/quest-wizard/tools.lock.json'}:
+            path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True)
+            if name in release.PUBLIC_PACKAGES: shutil.copyfile(ROOT / name, path); continue
+            path.write_text('public const ushort ModBuild = 625;' if name.endswith('NetProtocol.cs') else 'public fixture source')
+        self.manifest()
+    def tearDown(self): self.temp.cleanup()
+    def manifest(self):
+        names = sorted(str(path.relative_to(self.root)) for path in self.root.rglob('*') if path.is_file() and path.name != release.MANIFEST)
+        value = {'schema': 1, 'kind': 'GloomhavenVR game-free Windows builder', 'sourceCommit': 'a' * 40,
+                 'modBuild': 625, 'files': [record_file(self.root / name, name) for name in names],
+                 'localDependencyRoots': list(release.LOCAL_DEPENDENCIES)}
+        write_json(self.root / release.MANIFEST, value); return value
+    def test_git_free_inventory_keeps_manifest_and_rejects_tamper(self):
+        rows, commit, dirty = release.verified_source_inventory(self.root)
+        self.assertEqual(commit, 'a' * 40); self.assertFalse(dirty)
+        self.assertIn(release.MANIFEST, {row['path'] for row in rows})
+        (self.root / 'tools/quest-wizard/wizard.py').write_text('tampered')
+        with self.assertRaises(BuildError): release.verified_source_inventory(self.root)
+    def test_unlisted_code_binary_and_generated_exceptions(self):
+        derived = self.root / 'libs/RuntimeDeps/Unity.XR.dll'; derived.parent.mkdir(parents=True); derived.write_bytes(b'owner-derived')
+        release.verified_source_inventory(self.root)
+        for name in ('tools/quest-builder/extra.py', 'Directory.Build.targets', 'libs/RefAsm/Assembly-CSharp.dll'):
+            path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text('unlisted')
+            with self.assertRaises(BuildError): release.verified_source_inventory(self.root)
+            path.unlink()
+    def test_manifest_traversal_duplicate_and_case_alias(self):
+        for name in ('../outside.py', 'C:/outside.py', 'tools\\extra.py', 'src/NUL.cs'):
+            value = self.manifest(); value['files'][0]['path'] = name; write_json(self.root / release.MANIFEST, value)
+            with self.assertRaises(BuildError): release.verified_source_inventory(self.root)
+        value = self.manifest(); value['files'].append(dict(value['files'][0], path=value['files'][0]['path'].upper()))
+        write_json(self.root / release.MANIFEST, value)
+        with self.assertRaises(BuildError): release.verified_source_inventory(self.root)
+    @unittest.skipIf(os.name == 'nt', 'symlink privilege varies')
+    def test_symlink_is_rejected_without_following_it(self):
+        path = self.root / 'tools/quest-builder/builder.py'; data = path.read_bytes(); path.unlink()
+        target = self.root.parent / 'private'; target.write_bytes(data); path.symlink_to(target)
+        with self.assertRaises(BuildError): release.verified_source_inventory(self.root)
+    def test_actual_assembled_archive_excludes_even_tracked_private_payloads(self):
+        for name in ('libs/RefAsm/Assembly-CSharp.dll', 'prebuilt/ghvr-figure-meshes-mobile-1.bundle', 'ressources/Game/secret.txt', '.env'):
+            path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text('DO NOT SHIP')
+        (self.root / release.MANIFEST).unlink()
+        def git(*args): subprocess.run(['git', '-C', str(self.root), *args], check=True, capture_output=True)
+        git('init', '-q'); git('add', '.'); git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture')
+        output = self.root.parent / 'builder.zip'; report = release.assemble(self.root, output)
+        self.assertFalse(report['windowsEndToEndVerified'])
+        with zipfile.ZipFile(output) as archive:
+            self.assertTrue(any(name.endswith('quest-builder-wizard.cmd') for name in archive.namelist()))
+            self.assertFalse(any('RefAsm' in name or 'ghvr-figure-meshes' in name or '/ressources/' in name or name.endswith('/.env') for name in archive.namelist()))
+            archive.extractall(self.root.parent / 'extracted')
+        release.verified_source_inventory(self.root.parent / 'extracted/GloomhavenVR-Quest-Builder')
+
+
+class SupportTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name); self.session = 'b' * 32
+        self.directory = self.root / 'sessions' / self.session; self.directory.mkdir(parents=True)
+        write_json(self.root / 'wizard-owner.json', {'schema': 1, 'owner': 'GloomhavenVR.QuestWizard'})
+        self.state = {'schema': 1, 'session': self.session, 'status': 'running', 'choices': {'gameRoot': 'C:\\PrivateOwnedGame'},
+                      'stages': [{'id': 'build', 'status': 'failed', 'attempts': 1, 'details': {'inputKey': 'd' * 64, 'displayName': 'SecretName'}}],
+                      'events': [{'time': 123, 'code': 'failed', 'parameters': {'private': 'must not ship'}}],
+                      'needsActions': [{'code': 'failure', 'message': {'en': 'Owned game C:\\PrivateOwnedGame failed'}}]}
+        write_json(self.directory / 'state.json', self.state)
+        write_json(self.directory / 'profile.json', {'schema': 1, 'displayName': 'SecretName', 'steamId': '76561198000000001'})
+        (self.directory / 'logs').mkdir()
+    def tearDown(self): self.temp.cleanup()
+    def export(self):
+        result = support.export_support(self.root, self.session)
+        with zipfile.ZipFile(result['path']) as archive:
+            return result, {name: archive.read(name).decode() for name in archive.namelist()}
+    def test_failed_running_support_has_identity_errors_and_no_assets_credentials_or_savegame(self):
+        log = self.directory / 'logs/build.log'
+        log.write_text('Source SecretName 76561198000000001 C:\\PrivateOwnedGame\nAuthorization: Bearer super-secret\naccess_token="another secret"\nMY_SECRET=private-env-value\nCookie: private-cookie\nclientSecret: private-client-secret\nError: missing native entrypoint\n')
+        for name in ('build/logs/profile.json', 'build/signing/local-key.json', 'build/game/texture.png', 'build/saves/save.dat', '.env'):
+            path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text('MUST NEVER SHIP')
+        evidence = self.root / 'build/evidence'; evidence.mkdir()
+        write_json(evidence / 'resource-policy.json', {'schema': 1, 'physicalMemoryBytes': 32000000000, 'jobs': 2, 'accessToken': 'secret'})
+        before = (self.directory / 'state.json').read_bytes(); result, rows = self.export()
+        all_text = '\n'.join(rows.values())
+        for forbidden in ('MUST NEVER SHIP', 'SecretName', '76561198000000001', 'super-secret', 'another secret', 'C:\\PrivateOwnedGame', 'must not ship', 'private-env-value', 'private-cookie', 'private-client-secret'):
+            self.assertNotIn(forbidden, all_text)
+        self.assertIn('missing native entrypoint', all_text); self.assertIn('32000000000', all_text)
+        self.assertIn('d' * 64, all_text); self.assertEqual((self.directory / 'state.json').read_bytes(), before)
+        self.assertEqual(result['fileCount'], 3)
+    def test_archive_caps_preserve_log_header_and_final_error(self):
+        path = self.directory / 'logs/build.log'; path.write_text('start\n' + 'x' * 20000 + '\nFINAL ERROR\n')
+        with mock.patch.object(support, 'MAX_FILE_BYTES', 1024), mock.patch.object(support, 'MAX_TOTAL_BYTES', 2048): _, rows = self.export()
+        self.assertLessEqual(len(rows['wizard/build.log'].encode()), 1024)
+        self.assertIn('start', rows['wizard/build.log']); self.assertIn('FINAL ERROR', rows['wizard/build.log'])
+        self.assertTrue(json.loads(rows['diagnostic.json'])['files'][0]['truncated'])
+    def test_oversized_structured_resources_do_not_bypass_secret_redaction(self):
+        evidence = self.root / 'build/evidence'; evidence.mkdir(parents=True)
+        write_json(evidence / 'resource-policy.json', {'schema': 1, 'huge': 'x' * 4000, 'password': 'DO NOT LEAK'})
+        with mock.patch.object(support, 'MAX_FILE_BYTES', 1024): _, rows = self.export()
+        self.assertNotIn('DO NOT LEAK', '\n'.join(rows.values()))
+        self.assertIn('exceeds diagnostic size', rows['resources/resource-policy.json'])
+
+    def test_explicit_destination_never_overwrites_file(self):
+        output = self.root / 'existing.zip'; output.write_bytes(b'keep')
+        with self.assertRaises(FileExistsError): support.export_support(self.root, self.session, output)
+        self.assertEqual(output.read_bytes(), b'keep')
+    def test_unknown_build_logs_and_nested_files_are_excluded(self):
+        logs = self.root / 'build/logs'; logs.mkdir(parents=True)
+        (logs / 'unity-build-abc.log').write_text('accepted')
+        (logs / 'account-export.log').write_text('private')
+        (logs / 'nested').mkdir(); (logs / 'nested/unity-build.log').write_text('private')
+        _, rows = self.export(); self.assertIn('build/unity-build-abc.log', rows)
+        self.assertFalse(any('account-export' in name or 'nested' in name for name in rows))
+    @unittest.skipIf(os.name == 'nt', 'symlink privilege varies')
+    def test_symlink_logs_are_rejected(self):
+        target = self.root / 'private'; target.write_text('secret')
+        (self.directory / 'logs/build.log').symlink_to(target)
+        with self.assertRaises(BuildError): self.export()
+
+if __name__ == '__main__': unittest.main()

@@ -141,6 +141,10 @@ class LocalServer(ThreadingHTTPServer):
         self.server_close()
 
 
+class Download:
+    def __init__(self, path): self.path = ordinary(path)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "QuestWizard/1"
     def log_message(self, *_): pass  # Request URLs and private selections never enter console logs.
@@ -153,6 +157,14 @@ class Handler(BaseHTTPRequestHandler):
     def send_raster(self, raw):
         self.send_response(200); self.common_headers(); self.send_header("Content-Type", "image/png")
         self.send_header("Content-Length", str(len(raw))); self.end_headers(); self.wfile.write(raw)
+
+    def send_download(self, download):
+        path = download.path
+        self.send_response(200); self.common_headers(); self.send_header("Content-Type", "application/zip")
+        self.send_header("Content-Disposition", 'attachment; filename="' + path.name + '"')
+        self.send_header("Content-Length", str(path.stat().st_size)); self.end_headers()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(65536), b""): self.wfile.write(chunk)
 
     def common_headers(self):
         self.send_header("Cache-Control", "no-store")
@@ -187,12 +199,13 @@ class Handler(BaseHTTPRequestHandler):
             parsed = urlsplit(self.path)
             if parsed.path.startswith("/api/"):
                 self.authorize(); value = self.api(parsed)
-                if isinstance(value, bytes): self.send_raster(value)
+                if isinstance(value, Download): self.send_download(value)
+                elif isinstance(value, bytes): self.send_raster(value)
                 else: self.send_json(value)
                 return
             if self.command != "GET": raise WizardError("route", "Unsupported local route.")
             self.static(parsed.path)
-        except (WizardError, OSError, ValueError, KeyError) as error:
+        except (WizardError, OSError, ValueError, KeyError, RuntimeError) as error:
             if not isinstance(error, WizardError): error = WizardError("request_failed", "The local request could not be completed.")
             self.send_json({"schema": 1, "event": "error", "code": error.code, "message": error.message, "parameters": error.parameters},
                            403 if error.code in ("request_token", "request_origin") else 400)
@@ -243,6 +256,10 @@ class Handler(BaseHTTPRequestHandler):
                 return {"schema": 1, "event": "browse", "path": path}
             if set(value) != {"session"}: raise WizardError("request_body", "Expected only the session ID.")
             session = value["session"]
+            if parsed.path == "/api/support":
+                support = discovery.local_support_module(REPO, "support")
+                result = support.export_support(self.server.store.root, session)
+                return Download(result["path"])
             if parsed.path == "/api/run":
                 self.server.run_session(session); return {"schema": 1, "event": "started", "session": session}
             if parsed.path == "/api/cancel":
@@ -265,6 +282,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(store, ui_root, *, port=0, open_browser=False):
+    from qualification import qualify
+    qualify(store.root)
+    if (REPO / "quest-builder-release.json").is_file() and not (REPO / ".git").exists():
+        discovery.local_support_module(REPO, "release").verified_source_inventory(REPO)
     server = LocalServer(store, ui_root, port=port)
     print(json.dumps({"schema": 1, "event": "server", "url": server.url}), flush=True)
     if open_browser: webbrowser.open(server.url, new=2)

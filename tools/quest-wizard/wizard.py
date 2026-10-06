@@ -62,7 +62,12 @@ class Engine:
                  "unity": ("unityEditor", "unityHub", "acceptUnityTerms"),
                  "profile": ("provider", "steamRoot", "steamId", "profile", "steamLogo"),
                  "inspect": ("gameRoot", "ownedDlc"), "build": (), "install": ("install",)}[stage]
-        return value_hash({"choices": {name: state["choices"].get(name) for name in names}, "stage": stage, "pins": value_hash(provision.LOCK),
+        release_identity = None
+        if stage == "source":
+            selected = Path(state["choices"].get("sourceRoot") or self.repo)
+            manifest = ordinary(selected / "quest-builder-release.json")
+            if manifest.is_file() and not (selected / ".git").exists(): release_identity = digest(manifest)
+        return value_hash({**({"releaseIdentity": release_identity} if release_identity else {}), "choices": {name: state["choices"].get(name) for name in names}, "stage": stage, "pins": value_hash(provision.LOCK),
                            "dependencies": {name: state.get("completed", {}).get(name, {}).get("key") for name in before}})
 
     def run(self, session):
@@ -104,7 +109,10 @@ class Engine:
     def details(self, state, stage): return state["completed"][stage]["details"]
     def log(self, state, stage): return self.store.session_dir(state["session"]) / "logs" / (stage + ".log")
 
-    def stage_tools(self, state, supervisor): return provision.tools(self.store, state["session"], supervisor)
+    def stage_tools(self, state, supervisor):
+        from qualification import qualify
+        qualify(self.store.root)
+        return provision.tools(self.store, state["session"], supervisor)
     def stage_source(self, state, supervisor):
         return provision.source_checkout(self.store, state["session"], state["choices"], self.details(state, "tools"), supervisor, self.repo)
 
@@ -260,9 +268,10 @@ class Engine:
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for command in ("plan", "status", "run", "cancel", "discover", "serve"):
+    for command in ("plan", "status", "run", "cancel", "discover", "serve", "support"):
         part = sub.add_parser(command); part.add_argument("--state-root", type=Path, required=True)
-        if command in ("status", "run", "cancel"): part.add_argument("--session", required=True)
+        if command in ("status", "run", "cancel", "support"): part.add_argument("--session", required=True)
+        if command == "support": part.add_argument("--output", type=Path)
         if command == "plan":
             part.add_argument("--choices-file", type=Path, required=True); part.add_argument("--session")
         if command == "serve":
@@ -271,10 +280,13 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         store = Store(args.state_root)
-        if args.command == "serve":
+        if args.command == "support":
+            support = discovery.local_support_module(REPO, "support")
+            result = support.export_support(store.root, args.session, args.output)
+        elif args.command == "serve":
             from server import serve
             serve(store, args.ui_root, port=args.port, open_browser=args.open_browser); return 0
-        if args.command == "plan":
+        elif args.command == "plan":
             selected = choices(json.loads(args.choices_file.read_text(encoding="utf-8-sig")))
             state = store.amend(args.session, selected) if args.session else store.create(selected)
             result = {"schema": 1, "event": "planned", "session": state["session"], "state": state}
@@ -287,7 +299,7 @@ def main(argv=None):
         else: result = {"schema": 1, "event": "status", "session": args.session, "state": store.load(args.session)}
         print(json.dumps(result, ensure_ascii=False), flush=True)
         return 0 if result.get("state", {}).get("status") not in ("failed", "blocked", "cancelled") else 1
-    except (WizardError, OSError, ValueError) as error:
+    except (WizardError, OSError, ValueError, RuntimeError) as error:
         if not isinstance(error, WizardError): error = WizardError("wizard_error", str(error))
         print(json.dumps({"schema": 1, "event": "error", "code": error.code, "message": error.message, "parameters": error.parameters}), flush=True)
         return 1
