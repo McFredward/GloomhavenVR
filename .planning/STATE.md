@@ -1,5 +1,28 @@
 # State — where the project stands
 
+**Build628 integrated source; final dev validation pending, 2026-10-06: 1.1.0.**
+
+The maintainer authorized direct dev integration after confirming the main agent
+is idle. A fast-forward-only pull is current at Build627/a517; the reviewed
+7239e2e0d package merges without conflicts. Fully loaded three-room performance
+is the goal; loading hitches are accepted. Additional exact Crypt wall/pillar
+coverage, compatible environment probe admission and native-LOD visible idle
+sampling address the inactive paths observed in the offline PC627 capture.
+Disabled-clothing approximation is separately adjustable: fresh PC false,
+fresh Frame true; active cloth remains native. Camera leases are checked after
+managed pre-cull callbacks and restored before native culling when invalid.
+Every compromise remains configurable; common PC/Frame code/assets, saved values,
+resolution, NPC behavior and wire/transport cadence remain unchanged.
+
+The reviewed worker tree passes all 14 source and 141 local suites, 308,358 final
+wire/golden assertions and strict Release/Debug with no warnings/errors. Complete
+validation must also run on final integrated Build628 before origin/dev is pushed.
+No new Frame stereo/FPS or paired multiplayer outcome is established. See
+[FRAME-628-INTEGRATION.md](../docs/performance/FRAME-628-INTEGRATION.md) for
+behavior, source-proven safeguards, pending validation and next hardware checks.
+
+---
+
 **Build627 integration complete, 2026-10-06: 1.1.0.**
 
 The separately approved Build625 Frame candidate is integrated only after NPC626
