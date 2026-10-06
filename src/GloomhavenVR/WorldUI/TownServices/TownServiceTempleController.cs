@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
+using HarmonyLib;
 using GloomhavenVR.WorldUI.MapRoom;
 using MapRuleLibrary.YML.Locations;
 using UnityEngine;
@@ -60,6 +61,7 @@ internal static class TownServiceTempleController
     private static readonly List<CounterLease> Counters = new();
     private static UITempleWindow? _counterOwner;
     private static UITempleWindow? _temple;
+    private static CounterLease? _tooltipLease;
     private static object? _character;
     private static readonly List<TempleYML.TempleBlessingDefinition> Blessings = new();
     private static readonly List<bool> Available = new(), Affordable = new();
@@ -154,6 +156,7 @@ internal static class TownServiceTempleController
 
     internal static bool SelectOriginal(UITempleWindow temple, UITempleShopSlot slot)
     {
+        if (temple == null || slot == null) return false;
         UIWindow window = temple.GetComponent<UIWindow>();
         var character = MapRoomHand.OwnedMerchantCharacter();
         if (!OriginalVisible(slot.transform, window) || character == null
@@ -167,6 +170,46 @@ internal static class TownServiceTempleController
         return true;
     }
 
+    internal static void HoverOriginal(UITempleWindow temple, UITempleShopSlot slot, bool shown)
+    {
+        if (_tooltipLease != null)
+        {
+            // Hide while its original popup is still active; an inactive ancestor would
+            // make UIWindow.Hide refuse the close and leave a stale shown native tooltip.
+            temple.Shop.tooltip.Hide();
+            _tooltipLease.Dispose(); _tooltipLease = null;
+        }
+        // Populate the exact original modifier, warning and quantity through its own hover.
+        // Inactive native Selectables do not receive EventSystem pointer-enter messages.
+        temple.Shop.OnHovered(shown, slot);
+        if (!shown) return;
+        _tooltipLease = new CounterLease(temple.Shop.tooltip);
+        UIWindow? tooltipWindow = temple.Shop.tooltip.GetComponent<UIWindow>();
+        if (tooltipWindow != null) tooltipWindow.Show();
+    }
+
+    internal static void AnimateProxy(UITempleWindow temple, int previousLevel)
+    {
+        // ProxyBuyBlessing already executed service.Buy. A closed native window intentionally
+        // skips this presentation in flat; the immersive book still owns these exact widgets.
+        temple.totalDonatedGold.CountTo(temple.service.CalculateTotalGoldDonated());
+        temple.devotionLevel.SetArguments(temple.service.DevotionLevel.ToString());
+        int maxProgress = temple.service.NextDevotionLevelAmount;
+        int progress = temple.service.DevotionCurrentProgress;
+        if (temple.service.DevotionLevel > previousLevel)
+        {
+            int previousMaximum = temple.service.CalculateDevotionTotalProgress(previousLevel);
+            temple.devotionProgress.PlayProgressTo(previousMaximum, previousMaximum, () =>
+            {
+                temple.devotionProgress.SetAmount(0f, maxProgress);
+                if (progress > 0)
+                    temple.devotionProgress.PlayProgressTo(temple.service.DevotionCurrentProgress, maxProgress);
+            });
+        }
+        else temple.devotionProgress.PlayProgressTo(progress, maxProgress);
+        _nextSample = 0f;
+    }
+
     private static void ReleaseCounters()
     {
         // Restore in reverse order because both originals can share a pooled parent.
@@ -176,8 +219,37 @@ internal static class TownServiceTempleController
 
     internal static void Reset()
     {
+        if (_tooltipLease != null)
+        {
+            if (_temple != null) _temple.Shop.tooltip.Hide();
+            _tooltipLease.Dispose(); _tooltipLease = null;
+        }
         ReleaseCounters();
         _temple = null; _character = null; _language = null; _nextSample = 0f;
         Blessings.Clear(); Available.Clear(); Affordable.Clear();
+    }
+}
+
+/// <summary>Keep native book animation on the logical temple, without claiming its hidden
+/// window is visible or replaying the native service transaction.</summary>
+[HarmonyPatch(typeof(UITempleWindow), "ProxyBuyBlessing", typeof(string), typeof(TempleYML.TempleBlessingDefinition))]
+internal static class QuietTempleProxyPresentation
+{
+    private static UITempleWindow? _reported;
+    private static void Prefix(UITempleWindow __instance, out int __state)
+    {
+        __state = TownServicePresentation.IsQuietTemple(__instance.GetComponent<UIWindow>())
+            && !__instance.GetComponent<UIWindow>().IsVisible ? __instance.service.DevotionLevel : -1;
+    }
+    private static void Postfix(UITempleWindow __instance, int __state)
+    {
+        if (__state < 0 || !TownServicePresentation.IsQuietTemple(__instance.GetComponent<UIWindow>())) return;
+        try { TownServiceTempleController.AnimateProxy(__instance, __state); }
+        catch (Exception error)
+        {
+            if (ReferenceEquals(_reported, __instance)) return;
+            _reported = __instance;
+            VRLog.Warn("TownServices", "Original quiet temple transaction completed, but book animation failed: " + error);
+        }
     }
 }

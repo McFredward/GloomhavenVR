@@ -1,5 +1,6 @@
 using System;
 using GloomhavenVR.Cards;
+using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.Rig;
@@ -75,7 +76,12 @@ internal sealed class TownServiceTempleOffering : IDisposable
     {
         // Focus is local and physical. Presentation prepares the exact native model without
         // EnterTemple/Window.Show; a foreign flat destination cannot suppress this wrist.
-        _approachInside = WantsPurseFocus && MapRoomHand.OwnedMerchantCharacter() != null;
+        bool inside = WantsPurseFocus && MapRoomHand.OwnedMerchantCharacter() != null;
+        if (inside != _approachInside && VRLog.WantsDebug)
+            VRLog.Debug("TownServices", "Temple wrist focus=" + inside
+                + " nativeDestination=" + GuildmasterDestinations.CurrentDestinationMode()
+                + " ownedCharacter=" + MapRoomHand.OwnedMerchantCharacter()?.CharacterID);
+        _approachInside = inside;
         MapRoomHand.SetTempleInspection(_approachInside);
     }
 

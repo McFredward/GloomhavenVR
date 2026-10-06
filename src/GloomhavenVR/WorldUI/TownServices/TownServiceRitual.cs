@@ -218,7 +218,9 @@ internal sealed class TownServiceRitual : IDisposable
             {
                 _hovering = held;
                 var pointer = new PointerEventData(EventSystem.current);
-                if (held) ExecuteEvents.Execute(_button.gameObject, pointer, ExecuteEvents.pointerEnterHandler);
+                if (Source is UITempleShopSlot slot && TownServicePresentation.IsQuietTemple(_owner._window))
+                    TownServiceTempleController.HoverOriginal(_owner._window.GetComponent<UITempleWindow>(), slot, held);
+                else if (held) ExecuteEvents.Execute(_button.gameObject, pointer, ExecuteEvents.pointerEnterHandler);
                 else ExecuteEvents.Execute(_button.gameObject, pointer, ExecuteEvents.pointerExitHandler);
             }
             if (!held) { _details?.SetShown(false); return; }
@@ -761,7 +763,7 @@ internal sealed class TownServiceRitual : IDisposable
                 && pendingEligible() && button != null
                 && ReferenceEquals(context, _context()) && ReferenceEquals(selected, identity()), completed);
         bool clicked = quietTemple
-            ? TownServiceTempleController.SelectOriginal((UITempleWindow)controller, button.GetComponentInParent<UITempleShopSlot>())
+            ? TownServiceTempleController.SelectOriginal((UITempleWindow)controller, button.GetComponentInParent<UITempleShopSlot>(true))
             : Click(button);
         if (!clicked) return false;
         // The native selection synchronously installs its callback. Refusal or an unrelated
