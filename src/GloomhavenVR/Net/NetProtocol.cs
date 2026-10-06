@@ -153,6 +153,9 @@ internal static class NetProtocol
     public const byte ExtIdTownVisibleCensus = 108;
     /// <summary>Exact owner-declared offered native overlay frame against its original physical print.</summary>
     public const byte ExtIdTownOfferedFrame = 109;
+    /// <summary>Exact native module bundle with shared original property values.
+    /// Reduces repeated metadata without substituting observer defaults or image pixels.</summary>
+    public const byte ExtIdTownOriginalValuePool = 110;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -589,7 +592,7 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 631;
+    public const ushort ModBuild = 632;
 
     // ModBuild 631 — native merchant card minification, on top of the complete
     // Frame630 integration. Supplied paired logs are Build627: the host exhausted
