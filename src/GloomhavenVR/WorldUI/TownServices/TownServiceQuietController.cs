@@ -30,6 +30,7 @@ internal static class TownServiceQuietController
     private static readonly PropertyInfo? SupplementaryToken = AccessTools.Property(typeof(GameAction), "SupplementaryDataToken");
     private static float _nextPointsSample;
     private static int _points = -1, _capacity = -1;
+    private static UnityEngine.Object? _proxyFailureReported;
     internal static byte RequestedService
     {
         get
@@ -231,6 +232,7 @@ internal static class TownServiceQuietController
         // sources after that successful callback; never rerun payment or another player's UI.
         if (!valid || !ReferenceEquals(_owner, shop.GetComponent<UIWindow>())
             || !TownServicePresentation.IsQuietController(_owner!, 3)
+            || _owner!.IsVisible
             || SupplementaryToken?.GetValue(action, null) is not EnhancementToken token
             || shop.character == null) return;
         var assigned = (Dictionary<CAbilityCard, UIEnhanceCardSlot>)Field(shop.CardsDisplay, "assignedSlots")
@@ -238,6 +240,12 @@ internal static class TownServiceQuietController
         foreach (CAbilityCard card in assigned.Keys)
         {
             if (card.ID != token.CardID) continue;
+            // The original proxy's invisible-window branch also skips its owned transaction
+            // feedback. Restore that exact configured native cue only after the same successful
+            // action; an already visible original has played it and refreshed itself above.
+            if (_character is CMapCharacter owner && owner.IsUnderMyControl)
+                AudioControllerUtils.PlaySound((string)Field(shop,
+                    added ? "audioItemBuyEnhancement" : "audioItemSellEnhancement").GetValue(shop)!);
             bool selected = shop.selectedCard != null && shop.selectedCard.AbilityCard.ID == card.ID;
             if (added) shop.CardsDisplay.OnAddedEnhancement(card, selected);
             else shop.CardsDisplay.OnRemovedEnhancement(card, selected);
@@ -266,6 +274,14 @@ internal static class TownServiceQuietController
         _nextPointsSample = 0f; _points = _capacity = -1;
     }
     internal static void Reset() { Release(); _requested = 0; }
+    internal static void ReportProxyFailure(UnityEngine.Object source, Exception error)
+    {
+        // These callbacks execute under the game's action processor. A cosmetic refresh
+        // failure must never become its desynchronization exception or replay a payment.
+        if (ReferenceEquals(_proxyFailureReported, source)) return;
+        _proxyFailureReported = source;
+        VRLog.Warn("TownServices", "Original quiet service transaction retained; presentation refresh failed: " + error);
+    }
     private static FieldInfo Field(object owner, string name) => AccessTools.Field(owner.GetType(), name)
         ?? throw new MissingFieldException(owner.GetType().FullName, name);
     private static MethodInfo Method(object owner, string name) => AccessTools.Method(owner.GetType(), name)
@@ -277,26 +293,38 @@ internal static class TownServiceQuietController
 internal static class QuietEnhancementBuyRefresh
 {
     private static void Postfix(UINewEnhancementWindow __instance, GameAction action, bool actionValid)
-        => TownServiceQuietController.RefreshProxyEnhancement(__instance, action, actionValid, added: true);
+    {
+        try { TownServiceQuietController.RefreshProxyEnhancement(__instance, action, actionValid, added: true); }
+        catch (Exception error) { TownServiceQuietController.ReportProxyFailure(__instance, error); }
+    }
 }
 
 [HarmonyPatch(typeof(UINewEnhancementWindow), nameof(UINewEnhancementWindow.ProxySellEnhancement))]
 internal static class QuietEnhancementSellRefresh
 {
     private static void Postfix(UINewEnhancementWindow __instance, GameAction action, bool actionValid)
-        => TownServiceQuietController.RefreshProxyEnhancement(__instance, action, actionValid, added: false);
+    {
+        try { TownServiceQuietController.RefreshProxyEnhancement(__instance, action, actionValid, added: false); }
+        catch (Exception error) { TownServiceQuietController.ReportProxyFailure(__instance, error); }
+    }
 }
 
 [HarmonyPatch(typeof(UIShopItemInventory), nameof(UIShopItemInventory.MPBuyItem))]
 internal static class QuietMerchantBuyRefresh
 {
     private static void Prefix(UIShopItemInventory __instance, ref bool shopWindowOpen)
-    { if (TownServiceQuietController.IsMerchantInventory(__instance)) shopWindowOpen = true; }
+    {
+        try { if (TownServiceQuietController.IsMerchantInventory(__instance)) shopWindowOpen = true; }
+        catch (Exception error) { TownServiceQuietController.ReportProxyFailure(__instance, error); }
+    }
 }
 
 [HarmonyPatch(typeof(UIShopItemInventory), nameof(UIShopItemInventory.MPSellItem))]
 internal static class QuietMerchantSellRefresh
 {
     private static void Prefix(UIShopItemInventory __instance, ref bool shopWindowOpen)
-    { if (TownServiceQuietController.IsMerchantInventory(__instance)) shopWindowOpen = true; }
+    {
+        try { if (TownServiceQuietController.IsMerchantInventory(__instance)) shopWindowOpen = true; }
+        catch (Exception error) { TownServiceQuietController.ReportProxyFailure(__instance, error); }
+    }
 }

@@ -81,6 +81,11 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(TownServiceTutorialSequencePatch));
         VRSession.Harmony?.PatchAll(typeof(TownServiceTutorialShopExitPatch));
         VRSession.Harmony?.PatchAll(typeof(TownServiceTutorialShopHiddenPatch));
+        VRSession.Harmony?.PatchAll(typeof(QuietMerchantBuyRefresh));
+        VRSession.Harmony?.PatchAll(typeof(QuietMerchantSellRefresh));
+        VRSession.Harmony?.PatchAll(typeof(QuietEnhancementBuyRefresh));
+        VRSession.Harmony?.PatchAll(typeof(QuietEnhancementSellRefresh));
+        VRSession.Harmony?.PatchAll(typeof(QuietTempleProxyPresentation));
         VRSession.Harmony?.PatchAll(typeof(Compat.MerchantTutorialExitMessagePatch));
         VRSession.Harmony?.PatchAll(typeof(Compat.MerchantTutorialExitTitlePatch));
         VRSession.Harmony?.PatchAll(typeof(Compat.MerchantTutorialExitPagePatch));
