@@ -41,6 +41,7 @@ namespace GloomhavenVR.Core {
  internal static Entry<bool> FrameSplit=new(true); internal static Entry<bool> Enabled=new(true); internal static Entry<bool> SceneCensus=new(true); internal static bool SceneProfileOn=true;
  internal static int ScenarioSceneryDensityPercentValue=0, ScenarioDecorationDensityPercentValue=0, ScenarioVegetationDensityPercentValue=0, PlayerFigureDetailPercent=0,EnemyFigureDetailPercent=0, EnvironmentEffectsDensityPercent=0,HeadMaskDropMask=0;
  internal static int TerrainCameraSourceLimit=64, WorldMaterialQualityMode=2;
+ internal static float WorldMaterialAmbientWeight=1f;
  internal static bool FigureClothSimulationEnabled=false,StaticScenarioBatchesOn=false,SimpleEnvironmentShadingOn=false,ReducedScenarioGenerationOn=false,SharedWallReadCacheOn=false,LightStabiliserWorkCacheOn=false;
  }
 }

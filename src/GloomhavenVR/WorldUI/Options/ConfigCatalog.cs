@@ -920,6 +920,7 @@ internal static class ConfigCatalog
                                      || key == "ScenarioExplicitEnvironmentInstancing"
                                      || key == "ScenarioCheapWallShading"
                                      || key == "WorldMaterialQualityModeCount"
+                                     || key == "WorldMaterialAmbientPercent"
                                      || key == "ScenarioTerrainDetailPercent"
                                      || key == "ScenarioDistantTerrainDetailPercent"
                                      || key == "ScenarioTerrainDistanceMeters"

@@ -1268,6 +1268,7 @@ internal static partial class PerfSceneProfile
           .Append(" simpleFloorShading=").Append(PerfConfig.SimpleEnvironmentShadingOn)
           .Append(" terrainCameraSourceLimit=").Append(PerfConfig.TerrainCameraSourceLimit)
           .Append(" worldMaterialMode=").Append(PerfConfig.WorldMaterialQualityMode)
+          .Append(" worldMaterialAmbient=").Append(PerfConfig.WorldMaterialAmbientWeight * 100f).Append('%')
           .Append(" environmentEffects=").Append(PerfConfig.EnvironmentEffectsDensityPercent).Append('%')
           .Append(" reducedGenerationNextLoad=").Append(PerfConfig.ReducedScenarioGenerationOn)
           .Append(" sharedWallReadCache=").Append(PerfConfig.SharedWallReadCacheOn)
