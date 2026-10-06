@@ -40,7 +40,7 @@ HTTP uses GET `/api/discover`, `/api/status?session=ID`,
 `/api/action {session,action:unity-open|unity-check,nonce}`. The last route accepts
 only an action currently declared by the running Unity stage. Closing a Hub or
 installer window keeps the wait visible; reopening it does not complete the stage. Native browse is Windows
-only. GET `/api/gallery` exposes six hash-pinned public publisher character/enemy
+only. GET `/api/gallery` exposes twelve hash-pinned public publisher character/enemy
 images bundled with the source release. An optional repair uses the exact official
 announcement CDN pins anonymously in a private local cache. No account or platform
 service is used, and an unavailable picture does not block conversion. GET

@@ -83,18 +83,114 @@
     },
     {
       "id": "bandit-archer",
-      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/d5c4696fbc7c9c8baab084e5fa9fa02b05934072.jpg",
-      "sha256": "1d3d522f3b4be449ef3f3b2fb4f1c687f07bada487db5b0fc52b9e4b27041ac1",
-      "size": 732660,
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/93dd9a981723ad43aaa93108c8eac0827e169965.jpg",
+      "sha256": "f8f59f43adb6333edfe9961e64b8e4ff2792d6c5d92e407122f19f7a4923ee04",
+      "size": 704461,
       "dimensions": [
         1767,
-        995
+        994
       ],
-      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements",
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
       "localPath": "assets/promo/bandit-archer.jpg",
       "caption": {
         "en": "Bandit Archer",
         "de": "Bandit Archer"
+      }
+    },
+    {
+      "id": "living-bones",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/0989b551f14e700a13a7d44a7b0afa813e805730.jpg",
+      "sha256": "220ab5a1c05449e0517dcac53032752943e4a957a251f166945de18dc954048b",
+      "size": 502741,
+      "dimensions": [
+        1764,
+        988
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/living-bones.jpg",
+      "caption": {
+        "en": "Living Bones",
+        "de": "Living Bones"
+      }
+    },
+    {
+      "id": "living-corpse",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/b19de380d06c5886f2569c682a042fc9e5f43020.jpg",
+      "sha256": "3a9217fd856ca615289355b201cc42cee516ecf3a3c725eccb75c541a717b089",
+      "size": 129759,
+      "dimensions": [
+        1757,
+        988
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/living-corpse.jpg",
+      "caption": {
+        "en": "Living Corpse",
+        "de": "Living Corpse"
+      }
+    },
+    {
+      "id": "living-spirit",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/b8b2a6af509dffd26503c2b9b924ee8b525c2ece.jpg",
+      "sha256": "5c45932c0ece544bf529ed8d73ba5a6567506b4f5128854101cd27c2767662f4",
+      "size": 668187,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/living-spirit.jpg",
+      "caption": {
+        "en": "Living Spirit",
+        "de": "Living Spirit"
+      }
+    },
+    {
+      "id": "cultist",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/cd840f6195e309893b52f07fb7f06da7a418cf30.jpg",
+      "sha256": "e3d164b950ff0cb350c5df7c9e203e8b50fabf235bcd479e5d2fa252ea4e9718",
+      "size": 659702,
+      "dimensions": [
+        1769,
+        988
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/cultist.jpg",
+      "caption": {
+        "en": "Cultist",
+        "de": "Cultist"
+      }
+    },
+    {
+      "id": "sun-demon",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/88588502b296106e77c3ce95c3674d8ff914608b.jpg",
+      "sha256": "cad3fb54e8901dff6f827ef7accdb945ddbf2b6bcf692883bb32144d0b4d2631",
+      "size": 932835,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/sun-demon.jpg",
+      "caption": {
+        "en": "Sun Demon",
+        "de": "Sun Demon"
+      }
+    },
+    {
+      "id": "night-demon-elite",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/97257a6a78c5e27b6081ccbce2cc96832c817e84.jpg",
+      "sha256": "7d604da72008a295260ef9a3248c4f91f192888ce6416ee98c9449e160c02067",
+      "size": 930195,
+      "dimensions": [
+        1768,
+        988
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/night-demon-elite.jpg",
+      "caption": {
+        "en": "Night Demon (Elite)",
+        "de": "Night Demon (Elite)"
       }
     }
   ]

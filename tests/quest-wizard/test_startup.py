@@ -27,7 +27,7 @@ original_profile = sys.modules['profile']
 store = state.Store(workspace)
 with mock.patch('urllib.request.OpenerDirector.open', side_effect=AssertionError('offline startup used network')):
     local = server.LocalServer(store, repo / 'tools/quest-wizard-ui', promotional=True)
-assert len(local.promo.visible()) == 6, 'bundled pictures unavailable before first request'
+assert len(local.promo.visible()) == len(json.loads((repo / 'tools/quest-wizard-ui/promo-artwork.json').read_text())['images']), 'bundled pictures unavailable before first request'
 thread = threading.Thread(target=local.serve_forever, daemon=True)
 thread.start()
 try:
@@ -54,11 +54,23 @@ try:
         assert len(raw) == pins[row['id']]['size']
         assert hashlib.sha256(raw).hexdigest() == row['sha256']
     assert not local.promo.diagnostics
+    branding = json.loads((repo / 'tools/quest-wizard-ui/assets/provenance.json').read_text())['assets']
+    for row in branding:
+        connection = http.client.HTTPConnection(*local.server_address, timeout=10)
+        connection.request('GET', '/assets/' + row['path'])
+        response = connection.getresponse()
+        raw = response.read()
+        connection.close()
+        assert response.status == 200, row['path']
+        assert hashlib.sha256(raw).hexdigest() == row['sha256'], row['path']
+        if row['path'].endswith('.svg'):
+            assert response.getheader('Content-Type').startswith('image/svg+xml')
     assert sys.path == paths, 'discovery changed import search paths'
     assert sys.modules['profile'] is original_profile
     assert 'native_plugins' not in sys.modules
     print(json.dumps({'discoveryStatus': response.status, 'stdlibProfilePreserved': True,
-                      'offlinePublisherImages': len(pins), 'displayedModBuild': value['modSource']['modBuild']}))
+                      'offlinePublisherImages': len(pins), 'brandingAssets': len(branding),
+                      'displayedModBuild': value['modSource']['modBuild']}))
 finally:
     local.shutdown()
     local.close_owned()

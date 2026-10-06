@@ -147,14 +147,15 @@ class Images(unittest.TestCase):
 
 
 class ActualPublisherBundle(unittest.TestCase):
-    def test_all_six_shipped_publisher_pictures_available_offline_before_start(self):
+    def test_all_shipped_publisher_pictures_available_offline_before_start(self):
         with tempfile.TemporaryDirectory() as temporary:
             def offline(*a, **k): self.fail('The actual publisher bundle contacted the network.')
             ui = ROOT / 'tools/quest-wizard-ui'
             cache = Path(temporary) / 'empty-cache'
             gallery = promotional.Gallery(ui, cache, opener=offline)
             self.assertEqual([row['id'] for row in gallery.visible()],
-                             ['cragheart', 'spellweaver', 'brute', 'scoundrel', 'bandit-guard', 'bandit-archer'])
+                             ['cragheart', 'spellweaver', 'brute', 'scoundrel', 'bandit-guard', 'bandit-archer',
+                              'living-bones', 'living-corpse', 'living-spirit', 'cultist', 'sun-demon', 'night-demon-elite'])
             for pin, visible in zip(gallery.pins, gallery.visible()):
                 raw = gallery.read(pin)
                 self.assertEqual(len(raw), pin['size'])
@@ -165,7 +166,7 @@ class ActualPublisherBundle(unittest.TestCase):
                 self.assertTrue(visible['source'].startswith('https://store.steampowered.com/news/'))
             gallery.start(); gallery.thread.join(3)
             self.assertFalse(gallery.thread.is_alive())
-            self.assertEqual(len(gallery.visible()), 6)
+            self.assertEqual(len(gallery.visible()), len(gallery.pins))
             self.assertEqual(gallery.diagnostics, [])
             self.assertFalse(cache.exists())
 

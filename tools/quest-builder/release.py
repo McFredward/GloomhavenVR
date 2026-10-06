@@ -34,7 +34,8 @@ GENERATED_PARTS = {'bin', 'obj', 'Library', 'Temp', 'Logs', 'Builds', '__pycache
 LOCAL_DEPENDENCIES = ('libs/RuntimeDeps/', 'libs/Natives/', 'tools/RuntimeDepsBuild/sources/',
                       'scripts/.quest-venv/', 'scripts/.quest-python/')
 PROMOTIONAL_ASSETS = {'tools/quest-wizard-ui/assets/promo/' + name for name in (
-    'cragheart.png', 'spellweaver.png', 'brute.jpg', 'scoundrel.png', 'bandit-guard.jpg', 'bandit-archer.jpg')}
+    'cragheart.png', 'spellweaver.png', 'brute.jpg', 'scoundrel.png', 'bandit-guard.jpg', 'bandit-archer.jpg',
+    'living-bones.jpg', 'living-corpse.jpg', 'living-spirit.jpg', 'cultist.jpg', 'sun-demon.jpg', 'night-demon-elite.jpg')}
 REQUIRED = set(PUBLIC_PACKAGES) | {'Quest-Builder.cmd', 'QUEST-BUILDER-START.txt', 'scripts/quest-builder-wizard.cmd', 'scripts/quest-builder-wizard.ps1', 'scripts/build-quest.py',
             'tools/quest-wizard/wizard.py', 'tools/quest-wizard-ui/index.html', 'tools/quest-installer/bootstrap.ps1',
             'tools/quest-builder/builder.py', 'tools/quest-builder/release.py',
@@ -47,6 +48,8 @@ REQUIRED = set(PUBLIC_PACKAGES) | {'Quest-Builder.cmd', 'QUEST-BUILDER-START.txt
             'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs',
             'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestNativePluginContract.cs'}
 REQUIRED |= PROMOTIONAL_ASSETS | {'tools/quest-wizard-ui/promo-artwork.json',
+    'tools/quest-wizard-ui/assets/meta-quest-logo.svg',
+    'tools/quest-wizard-ui/assets/provenance.json',
     'tools/quest-builder/recovery_resume.py',
     'tools/quest-wizard/stage_plan.py',
     'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestWizardProgress.cs'}
