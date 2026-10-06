@@ -24,6 +24,8 @@ def main():
     original = runtime.read_text()
     world_shader = ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestWorldScreen.shader"
     world_original = world_shader.read_text()
+    glass_shader = ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestWorldScreenGlass.shader"
+    glass_original = glass_shader.read_text()
     platform = (ROOT / "src/GloomhavenVR/Core/QuestStandalonePlatform.cs").read_text()
     shader_start = platform.index('    internal const string FlatScreenShaderName =')
     shader_end = platform.index('    /// <summary>Quest output adapters', shader_start)
@@ -53,11 +55,14 @@ def main():
         ("unrendered-snapshot-shown", "if (farOutput && snapshotGeneration < 0) return;", "if (farOutput && snapshotGeneration < -1) return;", "head before producer never samples an unrendered retained target"),
         ("render-target-projection-ignored", "if (gpuProjection.m11 * projection.m11 < 0f)", "if (gpuProjection.m11 * projection.m11 < -100000f)", "camera-plane samples retain Vulkan camera orientation"),
         ("automatic-mips-generated-explicitly", "if (captured.useMipMap && !captured.autoGenerateMips) captured.GenerateMips();", "if (captured.useMipMap) captured.GenerateMips();", "automatic mip chains never invoke rejected explicit generation"),
+        ("glass-alpha-multiplied-twice", "", "", "glass consumes native captured RGB without multiplying alpha twice"),
+        ("glass-forced-opaque", "", "", "untouched glass pixels retain native background transparency"),
     ]
     graphics = os.environ.get("QUEST_VIDEO_TEST_GRAPHICS_API", "glcore")
     if graphics not in ("glcore", "vulkan"):
         raise RuntimeError("Unknown real Unity graphics API fixture selection.")
-    vulkan_controls = {"render-target-projection-ignored", "automatic-mips-generated-explicitly"}
+    vulkan_controls = {"render-target-projection-ignored", "automatic-mips-generated-explicitly",
+        "glass-alpha-multiplied-twice", "glass-forced-opaque"}
     variants = [entry for entry in variants if entry[0] == "production"
         or (entry[0] in vulkan_controls) == (graphics == "vulkan")]
     selected = os.environ.get("QUEST_VIDEO_TEST_CASES")
@@ -98,6 +103,13 @@ def main():
         # accidentally reuse the production variant loaded by a previous case.
         screen_source = screen_source.replace("Hidden/GloomhavenVR/QuestWorldScreen", "Hidden/GloomhavenVR/QuestWorldScreen/" + name)
         (case / "QuestWorldScreen.shader").write_text(screen_source)
+        glass_source = glass_original
+        if name == "glass-alpha-multiplied-twice":
+            glass_source = glass_source.replace("return tex2D(_MainTex, input.uv);", "float4 color = tex2D(_MainTex, input.uv); color.rgb *= color.a; return color;")
+        elif name == "glass-forced-opaque":
+            glass_source = glass_source.replace("return tex2D(_MainTex, input.uv);", "return float4(tex2D(_MainTex, input.uv).rgb, 1.0);")
+        glass_source = glass_source.replace("Hidden/GloomhavenVR/QuestWorldScreenGlass", "Hidden/GloomhavenVR/QuestWorldScreenGlass/" + name)
+        (case / "QuestWorldScreenGlass.shader").write_text(glass_source)
         case_material_bridge = material_bridge
         if name == "world-screen-mono-reset-omitted":
             mono_start = case_material_bridge.index("    internal static void SetFlatScreenMono(")
@@ -106,6 +118,7 @@ def main():
             no_reset = mono_body[:mono_body.index("        if (!Enabled")] + "        return;\n    }\n\n"
             case_material_bridge = case_material_bridge[:mono_start] + no_reset + case_material_bridge[mono_end:]
         bridge_source = case_material_bridge.replace('Resources.Load<Shader>("QuestWorldScreen")', 'Resources.Load<Shader>("QuestWorldScreen_' + name + '")').replace('Hidden/GloomhavenVR/QuestWorldScreen"', 'Hidden/GloomhavenVR/QuestWorldScreen/' + name + '"')
+        bridge_source = bridge_source.replace('Resources.Load<Shader>("QuestWorldScreenGlass")', 'Resources.Load<Shader>("QuestWorldScreenGlass_' + name + '")').replace('Hidden/GloomhavenVR/QuestWorldScreenGlass"', 'Hidden/GloomhavenVR/QuestWorldScreenGlass/' + name + '"')
         (production / "MaterialBridge.cs").write_text(bridge_source)
         (production / "Bridge.cs").write_text(bridge)
         (production / "Routing.cs").write_text(routing)
@@ -152,9 +165,11 @@ def main():
     shutil.copyfile(ROOT / "scripts/desktop-render-runtime/Editor/InteractionRunner.cs", editor / "InteractionRunner.cs")
     shader = ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestCameraVideo.shader"
     shutil.copyfile(shader, resources / shader.name)
+    shutil.copyfile(fixture / "UiRgbFixture.shader", resources / "UiRgbFixture.shader")
     for case in manifest["cases"]:
         name = case["name"]
         shutil.copyfile(run / name / "QuestWorldScreen.shader", resources / ("QuestWorldScreen_" + name + ".shader"))
+        shutil.copyfile(run / name / "QuestWorldScreenGlass.shader", resources / ("QuestWorldScreenGlass_" + name + ".shader"))
     (project / "Packages").mkdir(); (project / "ProjectSettings").mkdir()
     (project / "Packages/manifest.json").write_text('{"dependencies":{}}\n')
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
@@ -163,6 +178,7 @@ def main():
     (run / "source-hashes.json").write_text(json.dumps({"runtime": hashlib.sha256(runtime.read_bytes()).hexdigest(),
         "shader": hashlib.sha256(shader.read_bytes()).hexdigest(),
         "worldShader": hashlib.sha256(world_shader.read_bytes()).hexdigest(),
+        "glassShader": hashlib.sha256(glass_shader.read_bytes()).hexdigest(),
         "worldMaterialBridge": hashlib.sha256(material_bridge.encode()).hexdigest(),
         "captureOwnership": hashlib.sha256(bridge.encode()).hexdigest(), "actualCaptureRouting": hashlib.sha256(routing.encode()).hexdigest(),
         "sharedStereoSampling": hashlib.sha256(per_eye[consumer_start:consumer_end].encode()).hexdigest(),

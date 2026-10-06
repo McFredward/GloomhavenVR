@@ -80,6 +80,81 @@ public static class InteractionProgram
             pixels[y * 16 + x] = new Color(x < 8 ? 1 : 0, y < 4 ? 1 : 0, .25f, 1);
         texture.SetPixels(pixels); texture.Apply(); return texture;
     }
+    static void GlassCapturePixels()
+    {
+        var ui = new GameObject("native-UI-camera").AddComponent<Camera>();
+        ui.orthographic = true; ui.orthographicSize = 32; ui.nearClipPlane = .1f; ui.farClipPlane = 200;
+        ui.cullingMask = 1 << 5; ui.clearFlags = CameraClearFlags.SolidColor; ui.backgroundColor = Color.clear;
+        ui.targetTexture = new RenderTexture(128, 64, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        Check(ui.targetTexture.Create(), "native Canvas producer capture created");
+        var canvas = new GameObject("original-menu-Canvas", typeof(RectTransform), typeof(Canvas)).GetComponent<Canvas>();
+        canvas.gameObject.layer = 5; canvas.renderMode = RenderMode.ScreenSpaceCamera;
+        canvas.worldCamera = ui; canvas.planeDistance = 2;
+        var widget = new GameObject("native-widget", typeof(RectTransform), typeof(CanvasRenderer)); widget.layer = 5;
+        widget.transform.SetParent(canvas.transform, false);
+        var mesh = new Mesh();
+        mesh.vertices = new[] { new Vector3(-32,-16,0),new Vector3(32,-16,0),new Vector3(32,16,0),new Vector3(-32,16,0) };
+        mesh.uv = new[] { Vector2.zero, Vector2.right, Vector2.one, Vector2.up };
+        mesh.colors = Enumerable.Repeat(Color.red, 4).ToArray(); mesh.triangles = new[] {0,1,2,0,2,3};
+        var producer = widget.GetComponent<CanvasRenderer>(); producer.SetMesh(mesh); producer.SetColor(Color.white);
+        var uiMaterial = new Material(Shader.Find("UI/Default"));
+        producer.materialCount = 1; producer.SetMaterial(uiMaterial, 0); producer.SetTexture(Texture2D.whiteTexture);
+        var head = new GameObject("owned-head-camera").AddComponent<Camera>();
+        head.orthographic = true; head.orthographicSize = 1; head.nearClipPlane = .1f; head.farClipPlane = 20;
+        head.cullingMask = 1 << 27; head.clearFlags = CameraClearFlags.SolidColor; head.backgroundColor = Color.blue;
+        head.targetTexture = new RenderTexture(128,64,24,RenderTextureFormat.ARGB32,RenderTextureReadWrite.Linear); head.targetTexture.Create();
+        var glass = GameObject.CreatePrimitive(PrimitiveType.Quad); glass.layer = 27;
+        glass.transform.position = new Vector3(0,0,2); glass.transform.localScale = new Vector3(4,2,1);
+        Shader desktop = Shader.Find("Sprites/Default");
+        QuestStandalonePlatform.Enabled = false;
+        Check(QuestStandalonePlatform.SelectFlatScreenGlassShader(desktop) == desktop, "desktop glass shader choice remains unchanged");
+        QuestStandalonePlatform.Enabled = true;
+        var material = new Material(QuestStandalonePlatform.SelectFlatScreenGlassShader(desktop)) { mainTexture = ui.targetTexture };
+        glass.GetComponent<Renderer>().sharedMaterial = material;
+        try
+        {
+            Canvas.ForceUpdateCanvases(); ui.Render(); head.Render();
+            Debug.Log("Glass fixture actual API=" + SystemInfo.graphicsDeviceType + " producer=" + Pixel(ui.targetTexture,64,32)
+                + " head=" + Pixel(head.targetTexture,64,32));
+            Close(Pixel(ui.targetTexture,64,32).r, 1, "native Canvas producer emits current UI pixels");
+            Close(Pixel(head.targetTexture,64,32).r, 1, "opaque native UI capture reaches owned head camera");
+            Close(Pixel(head.targetTexture,4,4).b, 1, "untouched glass pixels retain native background transparency");
+            // Real UI/Default blending premultiplies the stored RGB. Its alpha
+            // uses the authored UI blend factors and remains untouched here.
+            mesh.colors = Enumerable.Repeat(new Color(1,0,0,.5f),4).ToArray(); producer.SetMesh(mesh);
+            Canvas.ForceUpdateCanvases(); ui.Render(); head.Render();
+            Color captured = Pixel(ui.targetTexture,64,32), sampled = Pixel(head.targetTexture,64,32);
+            Close(captured.r, .5f, "native producer already alpha-composes widget RGB");
+            Close(sampled.r, captured.r, "glass consumes native captured RGB without multiplying alpha twice");
+            Close(sampled.b, 1-captured.a, "glass retains captured alpha for background composition");
+            var rgbMaterial = new Material(Shader.Find("Hidden/GloomhavenVR/FixtureUiRgb"));
+            producer.SetMaterial(rgbMaterial, 0); Canvas.ForceUpdateCanvases(); ui.Render(); head.Render();
+            Color rgbOnly = Pixel(ui.targetTexture,64,32);
+            Close(rgbOnly.a, 0, "original RGB-only UI pass leaves capture alpha untouched");
+            Close(Pixel(head.targetTexture,64,32).r, rgbOnly.r, "RGB-only native UI content is never erased by capture alpha");
+            var old = new Material(desktop) { mainTexture = ui.targetTexture };
+            glass.GetComponent<Renderer>().sharedMaterial = old; head.Render();
+            Close(Pixel(head.targetTexture,64,32).r, 0, "historical sprite consumer reproduces blank RGB-only UI");
+            UnityEngine.Object.DestroyImmediate(old);
+            UnityEngine.Object.DestroyImmediate(rgbMaterial);
+            glass.GetComponent<Renderer>().sharedMaterial = material;
+            var hand = GameObject.CreatePrimitive(PrimitiveType.Quad); hand.layer = 27;
+            hand.transform.position = new Vector3(0,0,1); hand.transform.localScale = new Vector3(.25f,.25f,1);
+            var handMaterial = new Material(Shader.Find("Unlit/Color")) { color = Color.green };
+            hand.GetComponent<Renderer>().sharedMaterial = handMaterial; head.Render();
+            Close(Pixel(head.targetTexture,64,32).g, 1, "Quest glass retains native closer-hand depth occlusion");
+            Close(Pixel(head.targetTexture,64,32).r, 0, "Quest glass never paints UI over closer native hand geometry");
+            UnityEngine.Object.DestroyImmediate(hand); UnityEngine.Object.DestroyImmediate(handMaterial);
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(material); UnityEngine.Object.DestroyImmediate(uiMaterial);
+            UnityEngine.Object.DestroyImmediate(mesh); UnityEngine.Object.DestroyImmediate(glass);
+            UnityEngine.Object.DestroyImmediate(canvas.gameObject); UnityEngine.Object.DestroyImmediate(ui.targetTexture);
+            UnityEngine.Object.DestroyImmediate(head.targetTexture); UnityEngine.Object.DestroyImmediate(head.gameObject);
+            UnityEngine.Object.DestroyImmediate(ui.gameObject);
+        }
+    }
     static void ScreenStereoPixels()
     {
         var camera = new GameObject("real-world-screen-camera").AddComponent<Camera>();
@@ -237,6 +312,7 @@ public static class InteractionProgram
             UnityEngine.Object.DestroyImmediate(texture); UnityEngine.Object.DestroyImmediate(camera.gameObject);
             FlatScreen.ClearFixture();
         }
+        GlassCapturePixels();
         return checks;
     }
     public static int Run()

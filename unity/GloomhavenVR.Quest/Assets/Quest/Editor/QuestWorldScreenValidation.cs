@@ -26,6 +26,7 @@ namespace GloomhavenVR.Quest.Editor
         private const bool VulkanBackend = false;
 #endif
         public const string SourcePath = "Assets/Quest/Resources/QuestWorldScreen.shader";
+        public const string GlassSourcePath = "Assets/Quest/Resources/QuestWorldScreenGlass.shader";
         public const string ReceiptPath = "QuestStartupEvidence/world-screen.android-validation.json";
         [Serializable] public sealed class Bank
         {
@@ -40,6 +41,9 @@ namespace GloomhavenVR.Quest.Editor
             public bool androidAssetsBuilt, allGlesPassStagesCompiled, allVulkanPassStagesCompiled, hardwareVisualsVerified;
             public bool multiPassTextureRouting;
             public Bank[] banks;
+            public string glassSourceSha256;
+            public int glassCompiledStages;
+            public Bank[] glassBanks;
         }
 
         public static void Validate(bool androidAssetsBuilt)
@@ -112,9 +116,55 @@ namespace GloomhavenVR.Quest.Editor
                 hardwareVisualsVerified = false, banks = banks.ToArray()
             };
 #endif
+            receipt.glassBanks = ValidateGlass();
+            receipt.glassCompiledStages = receipt.glassBanks.Length * 2;
+            receipt.glassSourceSha256 = Hash(File.ReadAllBytes(GlassSourcePath));
             Directory.CreateDirectory(Path.GetDirectoryName(ReceiptPath));
             File.WriteAllText(ReceiptPath, JsonUtility.ToJson(receipt, true) + "\n");
             Debug.Log("[GloomhavenVR Quest] world-screen " + CompilerPlatform + " programs verified: stages=" + receipt.compiledStages + ", stereo=" + receipt.stereoRenderingPath + "");
+        }
+
+        static Bank[] ValidateGlass()
+        {
+            var shader = AssetDatabase.LoadAssetAtPath<Shader>(GlassSourcePath);
+            if (shader == null || shader.name != "Hidden/GloomhavenVR/QuestWorldScreenGlass" || shader.GetPropertyCount() != 1
+                || shader.FindPropertyIndex("_MainTex") < 0 || shader.GetPropertyType(0) != ShaderPropertyType.Texture
+                || shader.GetPropertyTextureDimension(0) != TextureDimension.Tex2D)
+                throw new InvalidOperationException("Quest transparent UI capture shader ABI differs.");
+            var data = ShaderUtil.GetShaderData(shader);
+            if (data == null || data.SubshaderCount != 1 || data.GetSubshader(0).PassCount != 1)
+                throw new InvalidOperationException("Quest transparent UI capture shader pass count differs.");
+            var banks = new List<Bank>();
+#if GHVR_QUEST_GAME
+            var compiled = QuestVulkanShaderValidation.Compile(shader, 0, 0, new string[0], GraphicsTier.Tier2);
+            QuestVulkanShaderValidation.RequireColorOutput(compiled);
+            QuestVulkanShaderValidation.RequirePlain2D(compiled, "_MainTex");
+            banks.Add(new Bank {
+                keyword = "", compiledSha256 = compiled.bankSha256,
+                compiledBytes = compiled.vertex.Length + compiled.fragment.Length,
+                vertexSha256 = compiled.vertexSha256, fragmentSha256 = compiled.fragmentSha256,
+                plainCaptureSamplers = true, stereoEyeRouting = false
+            });
+#else
+            var pass = data.GetSubshader(0).GetPass(0);
+            foreach (string keyword in new[] { "", "STEREO_INSTANCING_ON", "STEREO_MULTIVIEW_ON" })
+            {
+                var compiled = pass.CompileVariant(ShaderType.Vertex,
+                    keyword.Length == 0 ? new string[0] : new[] { keyword }, ShaderCompilerPlatform.GLES3x, BuildTarget.Android);
+                if (!compiled.Success || compiled.ShaderData == null || compiled.ShaderData.Length == 0
+                    || (compiled.Messages ?? new ShaderMessage[0]).Any(message => message.severity == ShaderCompilerMessageSeverity.Error))
+                    throw new InvalidOperationException("Quest transparent UI capture GLES compilation failed: " + keyword);
+                string[] stages = QuestUiAssetValidation.VerifiedGlesSections(compiled.ShaderData);
+                if (!Regex.IsMatch(stages[1], @"\bsampler2D\s+_MainTex\b") || stages[1].Contains("sampler2DArray"))
+                    throw new InvalidOperationException("Quest transparent UI capture must sample ordinary 2D pixels.");
+                banks.Add(new Bank {
+                    keyword = keyword, compiledSha256 = Hash(compiled.ShaderData), compiledBytes = compiled.ShaderData.Length,
+                    vertexSha256 = Hash(Encoding.UTF8.GetBytes(stages[0])), fragmentSha256 = Hash(Encoding.UTF8.GetBytes(stages[1])),
+                    plainCaptureSamplers = true, stereoEyeRouting = false
+                });
+            }
+#endif
+            return banks.ToArray();
         }
 
         internal static string[] VerifiedBank(byte[] bytes, string keyword)

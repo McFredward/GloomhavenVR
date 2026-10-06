@@ -442,6 +442,8 @@ internal sealed partial class FlatScreen
     private void OnSceneLoaded(Core.Events.SceneLoadedEvent e)
     {
         ReleaseStack();
+        _questEvidenceSceneHandle = -1;
+        _questEvidenceSamples = 0;
         // A rescue is asked for by a watchdog watching ONE stuck flow in ONE scene. A scene load
         // ends that flow's world, so the latch is dropped here rather than trusted to a requester
         // that may itself have been destroyed with the scene. This can never strand the player:
@@ -498,9 +500,13 @@ internal sealed partial class FlatScreen
             Hide();
 
         if (!_visible)
+        {
+            TickQuestPresentationEvidence(want);
             return;
+        }
 
         CaptureStack();
+        TickQuestPresentationEvidence(want);
 
         FollowHead();
         TickPointer();

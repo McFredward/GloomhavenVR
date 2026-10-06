@@ -30,7 +30,7 @@ public static class QuestLegacyVulkanProbe
                 "Assets/Shader/Hidden_BlendForBloom.shader", "Assets/Shader/Hidden_BrightPassFilter2.shader",
                 "Assets/Shader/Hidden_BlurAndFlares.shader", "Assets/Shader/Splash Screen Shader.shader",
                 "Assets/Shader/UI_Dissolve mask.shader", "Assets/Shader/Custom_SimpleGrabPassBlur.shader",
-                QuestVideoValidation.SourcePath, QuestWorldScreenValidation.SourcePath
+                QuestVideoValidation.SourcePath, QuestWorldScreenValidation.SourcePath, QuestWorldScreenValidation.GlassSourcePath
             } }
         }, BuildAssetBundleOptions.ForceRebuildAssetBundle, BuildTarget.Android);
         Require(bundle != null && File.Exists("ProbeBundles/audited-legacy-shaders") &&
@@ -56,7 +56,10 @@ public static class QuestLegacyVulkanProbe
             world.compiledStages == 2 && world.banks.Length == 1 && !world.banks[0].stereoEyeRouting &&
             world.banks[0].plainCaptureSamplers && world.multiPassTextureRouting && world.stereoRenderingPath == "MultiPass",
             "world:1-native-multipass-bank");
-        // The shader count is eight, with twenty-seven actual keyword/pass banks.
+        Require(world.glassCompiledStages == 2 && world.glassBanks.Length == 1
+            && world.glassBanks[0].plainCaptureSamplers && !world.glassBanks[0].stereoEyeRouting
+            && world.glassSourceSha256.Length == 64, "glass:1-native-premultiplied-bank");
+        // Nine narrow shaders, with twenty-eight actual keyword/pass banks.
         Require(!world.hardwareVisualsVerified && !video.hardwareVisualsVerified && !ui.originalPixelParityVerified &&
             !blur.originalPixelParityVerified && !bloom.originalPixelParityVerified, "evidence-scope");
         Mutate("Assets/Shader/Hidden_BlendForBloom.shader", "// changed source\n", () => QuestPostEffectValidation.Validate(true), "bloom-source-sha");
@@ -78,7 +81,10 @@ public static class QuestLegacyVulkanProbe
         QuestVideoValidation.Validate(true);
         QuestWorldScreenValidation.Validate(true);
         File.WriteAllText("ProbeOutput/results.json", JsonUtility.ToJson(new Result {
-            actualBanks = 27, actualStages = 54, defectControls = 7,
+            actualBanks = bloom.combinedProgramCount + ui.vulkanPrograms.Length + blur.vulkanPrograms.Length
+                + 1 + world.banks.Length + world.glassBanks.Length,
+            actualStages = bloom.compiledStageSections + ui.vulkanPrograms.Length * 2 + blur.vulkanPrograms.Length * 2
+                + video.compiledStages + world.compiledStages + world.glassCompiledStages, defectControls = 7,
             unityVersion = Application.unityVersion, hardwareVerified = false, androidAssetsBuilt = true, cases = Cases.ToArray()
         }, true) + "\n");
     }

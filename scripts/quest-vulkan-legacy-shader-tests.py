@@ -60,7 +60,7 @@ def main():
         copy_owned(editor / (name + ".cs"), "Assets/Quest/Editor/" + name + ".cs")
     copy_owned(args.vulkan_helper, "Assets/Quest/Editor/QuestVulkanShaderValidation.cs")
     copy_owned(args.vulkan_helper.with_name("QuestSmolvDecoder.cs"), "Assets/Quest/Editor/QuestSmolvDecoder.cs")
-    for name in ("QuestCameraVideo", "QuestWorldScreen"):
+    for name in ("QuestCameraVideo", "QuestWorldScreen", "QuestWorldScreenGlass"):
         path = root / "unity/GloomhavenVR.Quest/Assets/Quest/Resources" / (name + ".shader")
         copy_owned(path, "Assets/Quest/Resources/" + path.name)
     copy_owned(root / "tests/QuestLegacyVulkan.Tests/Probe.cs", "Assets/Quest/Editor/Probe.cs")
@@ -78,7 +78,7 @@ def main():
     if result.returncode:
         raise SystemExit("Actual legacy Vulkan gate fixture failed: " + str(run / "unity.log"))
     evidence = json.loads((project / "ProbeOutput/results.json").read_text())
-    if evidence["actualBanks"] != 27 or evidence["actualStages"] != 54 or evidence["defectControls"] != 7:
+    if evidence["actualBanks"] != 28 or evidence["actualStages"] != 56 or evidence["defectControls"] != 7:
         raise SystemExit("Actual legacy Vulkan gate fixture evidence is incomplete.")
     # A helper may be under development in another isolated worker. Its copied
     # snapshot is fingerprinted below; the owned prepared inputs must stay exact.
@@ -90,7 +90,7 @@ def main():
         {path: hashlib.sha256(data).hexdigest() for path, data in before.items()}, indent=2) + "\n")
     for cache in ("Library", "Temp"):
         shutil.rmtree(project / cache, ignore_errors=True)
-    print("PASS Quest legacy Vulkan: 27 actual banks, 54 stages, 7 targeted defects")
+    print("PASS Quest legacy Vulkan: 28 actual banks, 56 stages, 7 targeted defects")
 
 
 if __name__ == "__main__":

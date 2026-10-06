@@ -49,6 +49,7 @@ public static class QuestStandalonePlatform
         Enabled && WorldUI.FlatScreen.OwnsVideoCapture(camera);
 
     internal const string FlatScreenShaderName = "Hidden/GloomhavenVR/QuestWorldScreen";
+    internal const string FlatScreenGlassShaderName = "Hidden/GloomhavenVR/QuestWorldScreenGlass";
 
     /// <summary>
     /// Unity's internal screen-space blit shader changes its source sampler to an
@@ -62,6 +63,16 @@ public static class QuestStandalonePlatform
         Shader shader = Resources.Load<Shader>("QuestWorldScreen");
         if (shader == null || shader.name != FlatScreenShaderName || !shader.isSupported)
             throw new InvalidOperationException("Validated Quest world screen shader is unavailable.");
+        return shader;
+    }
+
+    /// <summary>Consume already-composed transparent UI without sprite tinting or a second alpha multiplication.</summary>
+    internal static Shader? SelectFlatScreenGlassShader(Shader? desktopShader)
+    {
+        if (!Enabled) return desktopShader;
+        Shader shader = Resources.Load<Shader>("QuestWorldScreenGlass");
+        if (shader == null || shader.name != FlatScreenGlassShaderName || !shader.isSupported)
+            throw new InvalidOperationException("Validated Quest world-screen glass shader is unavailable.");
         return shader;
     }
 
