@@ -13,6 +13,11 @@ import importlib.util, sys, time
 spec = importlib.util.spec_from_file_location('quiet_progress', sys.argv[1])
 progress = importlib.util.module_from_spec(spec); spec.loader.exec_module(progress)
 mode = sys.argv[2]
+if mode == 'observer-unavailable':
+    import threading
+    def unavailable(self):
+        raise RuntimeError('thread creation unavailable')
+    threading.Thread.start = unavailable
 def original_conversion_call():
     time.sleep(.6)
 with progress.silence_diagnostics(quiet_seconds=.1, limit=2):
@@ -62,6 +67,12 @@ class QuietChildTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, '')
         self.assertEqual(result.stdout, 'conversion returned successfully\n')
+
+    def test_optional_observer_failure_cannot_abort_original_conversion(self):
+        result = self.run_child('observer-unavailable')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, '')
+        self.assertIn('conversion returned successfully', result.stdout)
 
 
 if __name__ == '__main__': unittest.main()

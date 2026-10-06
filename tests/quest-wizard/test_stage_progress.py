@@ -146,6 +146,28 @@ class StageProgressTests(unittest.TestCase):
         self.assertTrue(all(row['progress']['stagePercent'] == 100 for row in done['stages']))
         self.assertTrue(all(row['progress']['stagePercent'] == 100 for row in engine.run(self.session)['stages']))
 
+    def test_replacing_default_release_uses_new_source_and_keeps_tool_setup(self):
+        release = Path(self.temp.name) / 'Builder'
+        release.mkdir()
+        manifest = release / 'quest-builder-release.json'
+        state.atomic_json(manifest, {'schema': 1, 'sourceCommit': 'a' * 40})
+        calls = []
+        def action(stage):
+            def run(saved, supervisor):
+                calls.append(stage)
+                path = self.store.session_dir(self.session) / (stage + '.txt')
+                path.write_text(manifest.read_text() if stage == 'source' else stage)
+                return [path], {}
+            return run
+        engine = wizard.Engine(self.store, release, actions={name: action(name) for name in state.STAGES})
+        self.assertEqual(engine.run(self.session)['status'], 'complete')
+        self.assertEqual(calls, list(state.STAGES))
+        state.atomic_json(manifest, {'schema': 1, 'sourceCommit': 'b' * 40})
+        calls.clear()
+        self.assertEqual(engine.run(self.session)['status'], 'complete')
+        self.assertEqual(calls, list(state.STAGES[1:]))
+        self.assertIn('b' * 40, (self.store.session_dir(self.session) / 'source.txt').read_text())
+
 
 class UnityObservationTests(unittest.TestCase):
     def test_api_counter_and_boundary_preserve_raw_fields(self):

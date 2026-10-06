@@ -78,7 +78,11 @@ def silence_diagnostics(*, quiet_seconds=120., limit=3, stream=None):
             next_report = now + quiet_seconds
 
     watcher = threading.Thread(target=observe, name="quest-recovery-diagnostics", daemon=True)
-    watcher.start()
+    try:
+        watcher.start()
+    except (OSError, RuntimeError):
+        yield  # Observation must remain optional when a host cannot create threads.
+        return
     try:
         yield
     finally:

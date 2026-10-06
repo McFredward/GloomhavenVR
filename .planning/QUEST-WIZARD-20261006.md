@@ -57,14 +57,58 @@ hashes for consistent working copies and safe cache identity. It does not run
 the exhaustive shader gate. Retain `%USERPROFILE%\.ghvrq` and script-local Python
 when updating the complete release to preserve completed setup and usable caches.
 
+## Reported recovery pause and resumable update
+
+The new Windows support export
+`quest-build-support-20261006T171014Z-7c1c9fa2.zip` identifies source
+`5bb804393db6b60652b663677b46799c0b3a3e65` / B627. Both core and batch-000
+exporters finished post-export. The final measured event is collection merge
+2761/2761, `Portrait_Jekserah.asset`, at 17:04:17.718 UTC; capture creation is
+17:10:12.833 UTC. The current recovery log contains no failure. This establishes
+355 seconds without activity reports, not a proven deadlock or broken portrait.
+The next source operation is native evidence merging, followed by checkpoint
+serialization and complete file verification.
+
+Native merging now streams indexes, verifies each distinct retained/incoming
+recipe once, retains unchanged copies and hashes new bytes during atomic copy.
+Checkpoint serialization streams records instead of allocating an additional
+complete formatted JSON string. Collection lookup uses an indexed GUID map.
+Index/file/byte/record counters and phase durations expose these completion
+operations; full journal rollback and checkpoint hash verification remain.
+Only the complete committed-batch counter advances the recovery fraction of
+the whole build stage. Finishing one collection or recipe never closes it.
+
+The opt-in recovery scope captures actual Python stacks after 120 seconds
+without progress, at most three times. It does not terminate conversion or
+infer failure from elapsed time. The observer stops when the scope exits.
+Atomic temporary files survive an OS force-kill in the same way as the earlier
+JSON writer; they are never accepted as completed receipt outputs. No broad
+unowned-file cleanup is introduced.
+
+An audited raw-export migration keeps the earlier absolute recovery workspace
+when the owned-game inventory, exporter instrumentation/configuration and
+known prior post-export recipe identities agree. The original source, core,
+batch, exporter and pending journal are independently checked by the recovery
+process before replay. Derived Android outputs keep the complete new recipe
+key and are rebuilt when needed. Unknown export contracts are not adopted.
+Replacing the default release changes its source identity while retaining tool
+setup; a resumed build uses the updated source rather than its old bugged copy.
+
 ## Evidence and limits
 
-- Integrated Python checks: 127 wizard, 42 builder, 15 release/support and
-  64 installer tests passed.
+- Final integrated Python checks: 129 wizard, 42 builder, 15 release/support,
+  64 installer, 16 raw-export resume and four quiet-diagnostic tests passed.
+  The focused recovery suite ran 132 cases with two optional skips. Together
+  with the 14 UI cases this is 416 tests, 414 passed and two skipped.
 - All 14 Node UI tests passed, including four real Chrome/loopback workflows,
   with no browser skips. Witnesses cover raw 100-to-5 resets while stage totals
   continue, unknown Unity counters, wait/retry/failure logs, consent, keyboard,
   bilingual strings, slideshow races and mobile layout.
+- Real interrupted-batch fixtures restore the actual merge journal, verify
+  retained core and bundle files, and reach the new derived Android stage
+  without repeating either exporter. Quiet subprocess fixtures capture an
+  actual blocked call stack, remain successful, stop their observer on scope
+  exit and tolerate an unavailable diagnostic thread.
 - The actual installed Unity 2021.3.5f1 Editor compiled the observer and emitted
   real public task counters 3/10 and 4/10. The real log parser accepted both;
   this was an import/observer smoke, not a Player or APK build.

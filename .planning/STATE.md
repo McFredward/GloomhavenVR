@@ -1,5 +1,33 @@
 # State — where the project stands
 
+**Quest B627 recovery finalization and resumed Windows build, 2026-10-06 (tooling only).**
+
+The new Windows support capture ends after all 2761 collections merge, then
+records 355 seconds without another event. Exporters completed; no current
+recovery error or proven deadlock is present. The next native-evidence merge
+previously repeated retained YAML hashes/copies without progress. It now keeps
+unchanged files, streams indexes and hashes each distinct input once. Atomic
+checkpoint serialization streams measured records; integrity checks and merge
+rollback remain complete. Index/file/byte/checkpoint activity is localized in
+the UI. A bounded opt-in stack observer records actual quiet recovery locations
+without enforcing a timeout or claiming a failed asset.
+
+An audited recipe migration retains the prior absolute raw workspace and its
+verified core/bundle exports. Original game, exporter/config/instrumentation,
+core, completed exports and pending journals must still qualify. Derived Android
+outputs retain the current complete recipe key. Resume fixtures exercise actual
+builder preparation and interrupted journal replay without repeating the core or
+bundle exporter; unknown/corrupt evidence stays preserved and fails visibly.
+
+Final focused evidence: 129 wizard, 42 builder, 15 release/support, 64 installer,
+14 browser/UI, 16 raw-resume and four quiet-diagnostic cases pass. The recovery
+suite runs 132 cases with two optional skips (416 total, 414 passed). Existing
+actual Unity Progress observer evidence remains matched to its unchanged source
+hash. No unrelated runtime/wire/full-shader gate or Player/APK build is run.
+Windows throughput and the reported pause still require the maintainer's retest.
+See [wizard and recovery evidence](QUEST-WIZARD-20261006.md). Publish only the
+source Builder ZIP and Quest feature branch; preserve the owner workspace.
+
 **Quest B627 wizard progress/presentation update, 2026-10-06 (tooling only).**
 
 Each of the seven wizard stages now has a durable total percentage for its
