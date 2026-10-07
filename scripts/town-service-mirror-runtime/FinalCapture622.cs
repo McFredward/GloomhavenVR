@@ -12,6 +12,14 @@ using UnityEngine;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
+// The full WorldUI registration also contains the independent retirement owner.
+// This town publication fixture retains that step verbatim and substitutes only
+// its unrelated map lifecycle API; the retirement suite executes its real owner.
+namespace GloomhavenVR.WorldUI.MapRoom
+{
+    internal static partial class MapRetirementPrompt { internal static void Tick(bool mapActive) { } }
+}
+
 // Unrelated surfaces/samplers and the native handoff writer are explicit adapters.
 // Registration, dispatch, use-bar finally, town Late sequencing, source discovery,
 // publication, capture, completion, codec, motion and inert observer are production.
