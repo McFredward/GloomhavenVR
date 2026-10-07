@@ -59,8 +59,12 @@ internal sealed class TownServiceTempleOffering : IDisposable
             // using it here can reject this visitor on the first reveal and restore
             // ordinary ability cards until the attention/pose changes. Use the stable
             // station footprint, just as the other local handoff approach gates do.
+            // The visitor requested a smaller wrist activation area in the build 638 hardware
+            // review. Keep this local hysteresis independent of the broader 2.6 m NPC
+            // attention/committed-donation gate: an existing held/parked purse retains
+            // its transaction above, while merely passing the stand keeps normal cards.
             bool templeNear = TownServiceOfferingPose.VisitorWithin(station.Root,
-                _purseFocus ? 2.6f : 2.4f);
+                _purseFocus ? 1.65f : 1.45f);
             // A parked transaction at another resident is not a reason to hide the
             // priestess's local hand. The actual destination and palm position elect
             // this fan; each resident's transaction ownership is independent.

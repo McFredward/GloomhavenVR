@@ -117,14 +117,16 @@ internal static class TempleApproachProof
         MapRoomDriver.TemplePresses=0;
         // This is the paired-log failure: the native Temple closes while the priestess
         // still watches the visitor. Actual head geometry, not the current flat mode,
-        // must retain the purse at 2.1m (the old exit threshold was only 1.65m).
-        head.transform.position=root.transform.TransformPoint(Vector3.forward*2.1f);
+        // must retain the purse for a valid close visitor independently of that mode.
+        // The build 638 review explicitly shrinks the wrist radius again; shared
+        // attention may remain broader without taking normal cards away at 2.1m.
+        head.transform.position=root.transform.TransformPoint(Vector3.forward*1.3f);
         VRHands.Right.PalmGate.IsOpen=false;
         VRHands.Right.Rig.PalmCenter.position=head.transform.position;
         GuildmasterDestinations.Mode=EGuildmasterMode.Temple;
         BoundTempleApproach.TickApproach();
         Check(BoundTempleApproach.WantsPurseFocus && MapRoomHand.TempleInspection,
-            "attention-range visitor retains purse when original temple closes");
+            "close visitor retains purse when original temple closes");
         GuildmasterDestinations.Mode=EGuildmasterMode.WorldMap;
         BoundTempleApproach.TickApproach();
         Check(BoundTempleApproach.WantsPurseFocus && MapRoomHand.TempleInspection,
@@ -135,6 +137,25 @@ internal static class TempleApproachProof
             && ReferenceEquals(NewPartyDisplayUI.PartyDisplay.SelectedUISlot,selected),
             "foreign native mode cannot switch the visitor's selected character or temple hand");
         Check(MapRoomDriver.TemplePresses==0,"temple inspection never opens the old native window");
+
+        // Wrist activation is intentionally narrower than shared NPC attention.
+        // Use actual inverse-transform distances at several world scales; a pure
+        // attention pose or another visitor must not elect this player's local fan.
+        foreach(float scale in new[]{.7f,1f,198.12f})
+        {
+            root.transform.localScale=Vector3.one*scale;
+            BoundTempleApproach.ResetFocus();
+            VRHands.Right.PalmGate.IsOpen=false;
+            foreach(var sample in new[]{(1.50f,false),(1.40f,true),(1.60f,true),(1.70f,false),(2.10f,false)})
+            {
+                head.transform.position=root.transform.TransformPoint(new Vector3(0f,1.7f,sample.Item1));
+                VRHands.Right.Rig.PalmCenter.position=head.transform.position;
+                BoundTempleApproach.TickApproach();
+                Check(MapRoomHand.TempleInspection==sample.Item2,
+                    "local purse radius respects close entry hysteresis without broad shared attention");
+            }
+        }
+        root.transform.localScale=Vector3.one;
 
         var merchant=new GameObject("Merchant counter");merchant.transform.position=Vector3.right*2f;
         TownServicePopulation.MerchantStation=new TownServiceStation{Root=merchant.transform};
@@ -199,7 +220,7 @@ internal static class TempleApproachProof
         head.transform.position=root.transform.position+Vector3.forward*2.8f;
         BoundTempleApproach.TickApproach();
         Check(!MapRoomHand.TempleInspection,"leaving priestess attention restores ordinary map hand");
-        head.transform.position=root.transform.position+Vector3.forward*2.1f;
+        head.transform.position=root.transform.position+Vector3.forward*1.3f;
         BoundTempleApproach.TickApproach();
         Check(MapRoomHand.TempleInspection && MapRoomDriver.TemplePresses==0,
             "repeated priestess visits need no flat destination reopen or cooldown");
