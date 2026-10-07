@@ -40,12 +40,9 @@ namespace GloomhavenVR.Net;
 /// </summary>
 internal static unsafe class AvatarSerializer
 {
-    /// <summary>Upper bound on an encoded rig packet: header 12 + head 20 + 2 hands (20+5) +
-    /// held-figure block (4+20) + hand-style byte + held-card pose (20) = 127, rounded up to
-    /// 159 including held-face/actor/map TLVs, plus 27 for the atomic board pose
-    /// and 3 for optional wrist control visibility.</summary>
-    // Includes the complete optional second-card rig TLV; remains one compact
-    // unfragmented packet even with both item addresses and the atomic board.
+    /// <summary>Upper bound on an encoded rig packet: legacy prefix127 + primary
+    /// face/source/board TLVs57 + complete secondary held-item TLV43 =227 bytes.
+    /// Rounded up for headroom; both cards and wrists remain in one compact packet.</summary>
     public const int MaxSize = 256;
 
     private const float QuatScale = 32767f;

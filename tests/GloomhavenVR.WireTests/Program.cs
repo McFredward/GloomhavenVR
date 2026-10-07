@@ -10,6 +10,8 @@ internal static class Program
         string repoRoot = args.Length > 0 ? args[0] : FindRepoRoot();
 
         var t = new Harness();
+        if (args.Length > 1 && args[1] == "second-held-card638")
+        { SecondHeldCardAtomicVectors.Run(t); return t.Report(); }
         if (args.Length > 1 && args[1] == "town-first-picture632")
         { TownServiceTransportVectors.Run(t); return t.Report(); }
         if (args.Length > 1 && args[1] == "town-visible-census")
@@ -39,6 +41,7 @@ internal static class Program
             DamageDecisionPreviewVectors.Run(t);
             HeldFaceAtomicVectors.Run(t);
             TownItemHeldVectors.Run(t);
+            SecondHeldCardAtomicVectors.Run(t);
             CardFaceLifecycleVectors.Run(t, repoRoot);
             CardProvenanceVectors.Run(t, repoRoot);
             CardAppearanceVectors.Run(t, repoRoot);
