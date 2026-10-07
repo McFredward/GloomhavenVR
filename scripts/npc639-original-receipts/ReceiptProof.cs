@@ -203,7 +203,7 @@ internal static class ReceiptProof
 
     private static void ActualReceiptAdmissionAndBatching()
     {
-        TownServiceMirror.Fresh(); var original = Full();
+        TownServiceMirror.Fresh(); Peers(2); var original = Full();
         TownServiceMirror.RecordOriginalReceipt(2, original);
         Check(TownServiceMirror.PendingCount == 0, "unstored original cannot create receipt");
         Check(Capture().Count == 0, "unprepared original sends no acknowledgement");
@@ -261,6 +261,37 @@ internal static class ReceiptProof
         Check(Capture().Count == 0, "network reset clears queued receipt");
     }
 
+    private static void AwaitCompatibleOwner()
+    {
+        TownServiceMirror.Fresh(); var original = Full();
+        TownServiceMirror.Store(2, original); TownServiceMirror.RecordOriginalReceipt(2, original);
+        Check(TownServiceMirror.PendingCount == 1, "real complete original retained before handshake");
+        Check(Capture().Count == 0 && TownServiceMirror.PendingCount == 1,
+            "absent compatibility collector retains unsent receipt");
+        Peers(3);
+        Check(Capture().Count == 0 && TownServiceMirror.PendingCount == 1,
+            "unknown owner keeps pending receipt until compatibility handshake");
+        TownServiceMirror.CollectOriginalReceiptPeers = _ => throw new Exception("handshake unavailable");
+        Check(Capture().Count == 0 && TownServiceMirror.PendingCount == 1,
+            "failed compatibility discovery retains unsent receipt");
+        Peers(2, 3);
+        List<byte[]> packets = Capture();
+        Check(packets.Count == 1 && TownServiceMirror.PendingCount == 0,
+            "compatible owner releases pending real receipt exactly once");
+        Check(TownServiceOriginalReceiptCodec.TryRead(packets[0], packets[0].Length, out var decoded)
+            && decoded!.OriginPeer == 2 && decoded.Entries.Length == 1
+            && decoded.Entries[0].Module == 3 && decoded.Entries[0].Sequence == 111,
+            "deferred receipt preserves owner and exact retained full identity");
+        Check(Capture().Count == 0, "released compatible receipt never reappears spontaneously");
+        // Receipt admission remains strict even if an original is already local.
+        TownServiceMirror.Install(original); Peers(3);
+        Check(!Receive(2, Receipt()) && !TownServiceMirror.Has(3),
+            "unknown receipt sender cannot credit owner baseline after deferred publication");
+        Peers(2);
+        Check(Receive(2, Receipt()) && TownServiceMirror.Has(3),
+            "actual compatible sender exact receipt establishes readiness");
+    }
+
     private static void RepeatTransaction()
     {
         TownServiceMirror.Fresh(); Peers(2, 3);
@@ -300,7 +331,7 @@ internal static class ReceiptProof
         for (ushort module = 0; module < TownServiceFrame.MaxModules; module++) TownServiceMirror.ForgetLocal(module);
         TownServiceMirror.Install(Full(5000)); Receive(2, Receipt(module: 5000));
         Check(TownServiceMirror.ReceiptCount == 1 && TownServiceMirror.Has(5000), "retired source receipts pruned before admitting new widget");
-        TownServiceMirror.Fresh();
+        TownServiceMirror.Fresh(); Peers(Enumerable.Range(2, 25).ToArray());
         for (int owner = 2; owner <= 26; owner++)
         { var frame = Full(); TownServiceMirror.Store(owner, frame); TownServiceMirror.RecordOriginalReceipt(owner, frame); }
         Check(TownServiceMirror.PendingCount == 24, "pending owners bounded24 against unknown owner growth");
@@ -311,7 +342,7 @@ internal static class ReceiptProof
     {
         try
         {
-            CodecVectors(); SourceIdentityAndPeers(); ActualReceiptAdmissionAndBatching(); RepeatTransaction(); BoundedLifetimes();
+            CodecVectors(); SourceIdentityAndPeers(); AwaitCompatibleOwner(); ActualReceiptAdmissionAndBatching(); RepeatTransaction(); BoundedLifetimes();
             Console.WriteLine("PASS " + _assertions + " assertions: exact original receipt codec and real metadata state; no render/gameplay inference.");
             return 0;
         }

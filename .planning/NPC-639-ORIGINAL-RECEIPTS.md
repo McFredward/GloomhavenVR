@@ -48,3 +48,23 @@ first-control evidence was retained. The script supports `--case` for focused re
 This is not a new complete wire-gate pass, a full game/Photon run, a render proof or a
 claim of a measured one-second headset outcome. Integration still needs the actual
 capture/receive lifecycle and transport proof, followed by paired hardware evidence.
+
+## Compatibility handshake ordering repair
+
+Checkpoint `c02fabc59` retains pending real receipts until compatible-peer discovery
+succeeds and includes their original owner. Originals may arrive before the build
+handshake completes; publishing and discarding a one-shot receipt during that gap can
+lose the only acknowledgement when the owner rejects an unknown sender. Missing or
+failed discovery and an absent owner now preserve the pending metadata. Once the
+owner becomes compatible, the next capture publishes the exact retained identities
+once. Incoming receipt compatibility validation is unchanged.
+
+The revised actual-code production proof passes **375 assertions** in
+`.planning/debug/npc639/receipts/run-dagag2p0/production/result.log`. Its fourth
+compiled causal control removes owner-membership gating and fails at the intended
+unknown-owner pending-retention assertion. Only revised production plus this new
+control ran; the preceding three unaffected controls retain their recorded evidence.
+The complete native-picture proof's role fixture already supplies compatible owner
+IDs before receipt capture; this small prelude does not require repeating its passing
+timing cases. These metadata checks do not independently prove remote handshake or
+Photon callback ordering.
