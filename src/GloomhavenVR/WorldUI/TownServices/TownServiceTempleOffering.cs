@@ -84,9 +84,20 @@ internal sealed class TownServiceTempleOffering : IDisposable
         // EnterTemple/Window.Show; a foreign flat destination cannot suppress this wrist.
         bool inside = WantsPurseFocus && MapRoomHand.OwnedMerchantCharacter() != null;
         if (inside != _approachInside && VRLog.WantsDebug)
-            VRLog.Debug("TownServices", "Temple wrist focus=" + inside
+        {
+            VRHand? hand = VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left;
+            Camera? head = VRRigDriver.HeadCamera;
+            // BepInEx normally filters LogDebug even when the mod's Debug setting is
+            // enabled. Keep this bounded transition at LogInfo behind WantsDebug,
+            // so hardware reports contain the actual local wrist election facts.
+            VRLog.Info("TownServices", "Temple wrist focus=" + inside
                 + " nativeDestination=" + GuildmasterDestinations.CurrentDestinationMode()
-                + " ownedCharacter=" + MapRoomHand.OwnedMerchantCharacter()?.CharacterID);
+                + " ownedCharacter=" + MapRoomHand.OwnedMerchantCharacter()?.CharacterID
+                + " frame=" + Time.frameCount
+                + " head=" + (head != null ? head.transform.position.ToString("F3") : "none")
+                + " palmOpen=" + (hand?.PalmGate.IsOpen == true)
+                + " fanHandHeld=" + (hand?.Grabber.Held != null));
+        }
         _approachInside = inside;
         MapRoomHand.SetTempleInspection(_approachInside);
     }
