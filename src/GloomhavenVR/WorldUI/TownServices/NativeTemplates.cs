@@ -49,7 +49,8 @@ internal static partial class NativeTemplates
         {
             // Network teardown may clear descriptors while the original native template bank
             // survives. Restore immutable identities before another capture/preload can run.
-            if (_assetGeneration != TownServiceMirror.Assets.Generation) BindOriginalBackdrops();
+            if (_assetGeneration != TownServiceMirror.Assets.Generation)
+            { BindOriginalBackdrops(); TownServiceMirror.Assets.PreparePackedSprites(); TownServiceMirror.Assets.Scan(); }
             PrepareEnhancementOriginals();
             return true;
         }
@@ -133,6 +134,11 @@ internal static partial class NativeTemplates
         // Discover the complete immutable canonical hierarchy only after all logical roots are
         // known, so sections and pooled rows cannot accidentally be duplicated in their parent.
         BindOriginalBackdrops();
+        // Prepare dormant original atlas members while the native bank loads.
+        // Resources' Sprite census alone does not materialize packed Poison/Disarm.
+        // Deferring their original descriptors until a remote offer both blocked
+        // Build638's entire picture and moved this finite work onto the first draw.
+        TownServiceMirror.Assets.PreparePackedSprites(); TownServiceMirror.Assets.Scan();
         foreach (var entry in Entries) Freeze(entry.Key, entry.Value);
         TownServiceMirror.ResolveTemplate = Resolve;
         TownServiceMirror.PrepareInertGeometry = PrepareInertGeometry;

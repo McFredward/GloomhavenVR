@@ -19,7 +19,9 @@ def bind_delivery_transport(root, bound, loader):
     # Non-town encoders are outside this UI proof; their existing stream queues
     # receive bounded noise directly, with actual production capacity constants.
     raw = (root / 'src/GloomhavenVR/Net/ExtrasSendQueue.cs').read_text()
-    scheduler = raw[raw.index('internal sealed class ExtrasSendScheduler'):]
+    declaration = re.search(r'internal sealed (?:partial )?class ExtrasSendScheduler', raw)
+    if declaration is None: raise RuntimeError('Production scheduler declaration binding drift')
+    scheduler = raw[declaration.start():]
     enqueue = loader.method(scheduler, 'internal void Enqueue(byte[] snapshot, int length, int nativeSlot = -1, object? identity = null)')
     town_end = enqueue.index('        else if (type == _animationType)')
     scheduler = scheduler.replace(enqueue, enqueue[:town_end] + '\n    }', 1)
@@ -52,6 +54,9 @@ def bind_delivery_transport(root, bound, loader):
         scheduler = re.sub(r'\bNetProtocol\.' + constant + r'\b', value, scheduler)
         batch = re.sub(r'\bNetProtocol\.' + constant + r'\b', value, batch)
     bound['ActualScheduler629.cs'] = 'using System; namespace GloomhavenVR.Net;\n' + scheduler
+    receipt_scheduler = root / 'src/GloomhavenVR/Net/ExtrasSendScheduler.OriginalReceipts.cs'
+    if receipt_scheduler.exists():
+        bound[receipt_scheduler.name] = receipt_scheduler.read_text()
     serializer = (root / 'src/GloomhavenVR/Net/Avatar/AvatarSerializer.cs').read_text()
     bound['BatchSerializer629.cs'] = 'namespace GloomhavenVR.Net; internal static class AvatarSerializer {\n' + loader.method(serializer, 'internal static void WriteU32(byte[] b, ref int i, uint v)') + '\n}'
     bound['PresentationBatch.cs'] = batch

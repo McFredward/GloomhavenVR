@@ -18,10 +18,27 @@ internal sealed partial class NetAvatarDriver
     private float _nextFaceSend, _nextTownCapture;
     private int _townCaptureFrame = -1;
     private Func<byte[], int, bool, bool>? _merchantControlSender;
+    private Action<List<int>>? _originalReceiptPeers;
+    private void CollectOriginalReceiptPeers(List<int> peers) =>
+        VersionGuard.CollectContinuationPeers(peers, _transport.LocalPlayerId);
     private bool SendMerchantControl(byte[] bytes, int length, bool hostOnly) =>
         _transport is FfsNetTransport ffs && ffs.SendTownControl(bytes, length, hostOnly);
     private void SendTownServices()
     {
+        TownServiceMirror.CollectOriginalReceiptPeers = _originalReceiptPeers ??= CollectOriginalReceiptPeers;
+        if (_transport.IsOnline)
+        {
+            try { TownServiceMirror.CaptureOriginalReceipts((bytes, length) =>
+            {
+                if (_transport is FfsNetTransport ffs)
+                {
+                    if (!ffs.TrySendTownOriginalReceipt(bytes, length))
+                        throw new System.IO.IOException("Exact town-original receipt queue declined admission.");
+                }
+                else _transport.Send(bytes, length);
+            }); }
+            catch (Exception error) { LogPhaseError("Queue exact town-original receipts", error); }
+        }
         TownServiceGrantSync.Tick(_transport, UnityEngine.Time.unscaledTime);
         TownMerchantControlSync.SendReliable = _merchantControlSender ??= SendMerchantControl;
         TownMerchantControlSync.Tick(_transport, UnityEngine.Time.unscaledTime);
