@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -167,10 +168,112 @@ class JournalTests(unittest.TestCase):
         stamp = resume._stamp(target)
         target.write_bytes(b"modified")
         actual_stamp = resume._stamp
-        def disguised(path): return stamp if path == target else actual_stamp(path)
-        with patch.object(resume, "_stamp", disguised):
+        disguising = True
+        def disguised(path): return stamp if path == target and disguising else actual_stamp(path)
+        original_copy = resume.copy_changed
+        def actual_writer(*args, **kwargs):
+            nonlocal disguising
+            disguising = False
+            return original_copy(*args, **kwargs)
+        with patch.object(resume, "_stamp", disguised), patch.object(resume, "copy_changed", actual_writer):
             second = self.journal(); second.copy(source, target); second.close()
         self.assertEqual(target.read_bytes(), b"original")
+
+    def test_retained_copy_mutation_during_read_is_not_published_as_reuse(self):
+        source = self.root / "source"; source.write_bytes(b"original")
+        target = self.put("Assets/copied", b"original")
+        opening = Path.open
+        class MutatingReader:
+            def __init__(self, stream): self.stream, self.mutated = stream, False
+            def __enter__(self): return self
+            def __exit__(self, *args): self.stream.close()
+            def read(self, count):
+                value = self.stream.read(count)
+                if value and not self.mutated:
+                    self.mutated = True
+                    with opening(target, "wb") as writer: writer.write(b"modified")
+                return value
+        def open_file(path, mode="r", *args, **kwargs):
+            stream = opening(path, mode, *args, **kwargs)
+            return MutatingReader(stream) if path == target and mode == "rb" else stream
+        accepted = []
+        with patch.object(Path, "open", open_file), self.assertRaisesRegex(storage.BuildError, "target changed while qualifying"):
+            resume.copy_changed(source, target, observed=accepted.append)
+        self.assertEqual(accepted, [])
+        self.assertEqual(target.read_bytes(), b"modified")
+
+    def test_replaced_copy_mutation_cannot_receive_streamed_source_proof(self):
+        source = self.root / "source"; source.write_bytes(b"original")
+        target = self.put("Assets/copied", b"previous")
+        replace = os.replace
+        def mutate_after_replace(original, destination):
+            replace(original, destination)
+            Path(destination).write_bytes(b"modified")
+        accepted = []
+        with patch.object(os, "replace", mutate_after_replace), self.assertRaisesRegex(storage.BuildError, "target changed while publishing"):
+            resume.copy_changed(source, target, observed=accepted.append)
+        self.assertEqual(accepted, [])
+        self.assertEqual(target.read_bytes(), b"modified")
+        self.assertEqual(list(target.parent.glob("*.quest-prepare-copy")), [])
+
+    def test_source_mutation_during_copystat_preserves_previous_target(self):
+        source = self.root / "source"; source.write_bytes(b"original")
+        target = self.put("Assets/copied", b"previous")
+        copystat = shutil.copystat
+        def mutate_after_copystat(original, destination):
+            copystat(original, destination)
+            Path(original).write_bytes(b"modified")
+        accepted = []
+        with patch.object(shutil, "copystat", mutate_after_copystat), self.assertRaisesRegex(storage.BuildError, "source changed before publishing"):
+            resume.copy_changed(source, target, observed=accepted.append)
+        self.assertEqual(accepted, [])
+        self.assertEqual(target.read_bytes(), b"previous")
+        self.assertEqual(list(target.parent.glob("*.quest-prepare-copy")), [])
+
+    def test_two_killed_destructive_attempts_reuse_native_audio_and_library(self):
+        original = self.put("Assets/Texture.png", b"original image")
+        library = self.put("Library/imported", b"retained Unity import")
+        with_source = self.root / "original-game"; with_source.write_bytes(b"untouched source")
+        first = self.journal()
+        for name in ("native", "audio"):
+            with first.operation(name, 1):
+                first.run(name, name, lambda name=name: self.put("Assets/" + name, name.encode()), ["Assets/" + name])
+        first.close()
+        native_stamp = (self.project / "Assets/native").stat()
+        script = """
+import os,sys
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
+from prepare_resume import Preparation
+root=Path(sys.argv[2]); project=root/'projects/fixture'
+journal=Preparation(root,project,input_key='a'*64,target='game',recipe=1)
+for name in ('native','audio'):
+    with journal.operation(name,1):
+        journal.run(name,name,lambda: (_ for _ in ()).throw(AssertionError('completed producer reran')),['Assets/'+name])
+def killed():
+    assert (project/'Assets/Texture.png').read_bytes()==b'original image'
+    (project/'Assets/Texture.png').unlink()
+    (project/'Assets/Texture.asset').write_bytes(b'incomplete derived image')
+    os._exit(int(sys.argv[3]))
+with journal.operation('textures',1):
+    journal.run('texture','textures',killed,['Assets/Texture.asset'],mutations=['Assets/Texture.png','Assets/Texture.asset'])
+"""
+        for returncode in (17, 18):
+            child = subprocess.run([sys.executable, "-c", script, str(ROOT / "tools/quest-builder"), str(self.root), str(returncode)], capture_output=True, text=True)
+            self.assertEqual(child.returncode, returncode, child.stderr)
+            self.assertFalse(original.exists())
+        last = self.journal()
+        self.assertEqual(original.read_bytes(), b"original image")
+        self.assertFalse((self.project / "Assets/Texture.asset").exists())
+        for name in ("native", "audio"):
+            with last.operation(name, 1):
+                last.run(name, name, lambda: self.fail("completed producer reran"), ["Assets/" + name])
+        with last.operation("textures", 1):
+            last.run("texture", "textures", lambda: self.put("Assets/Texture.asset", b"accepted derived image"), ["Assets/Texture.asset"], mutations=["Assets/Texture.png", "Assets/Texture.asset"])
+        last.finish(); last.close()
+        self.assertEqual((self.project / "Assets/native").stat().st_ino, native_stamp.st_ino)
+        self.assertEqual(library.read_bytes(), b"retained Unity import")
+        self.assertEqual(with_source.read_bytes(), b"untouched source")
 
     def test_copy_cold_consumes_only_target_once_then_retains_current_proof(self):
         source = self.root / "source"; source.write_bytes(b"original")

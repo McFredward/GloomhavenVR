@@ -84,6 +84,99 @@ class ResumeTests(unittest.TestCase):
         with self.journal() as journal, mock.patch.object(full_assets,"_copy_recovered",side_effect=AssertionError("unnecessary copy")):
             full_assets._resume_copy(original,self.output/"uncommitted",row,journal.proofs,journal)
 
+    def test_two_killed_copy_attempts_retain_catalog_and_complete_uncommitted_files(self):
+        rows = []
+        for index in range(4):
+            path = self.original / ("asset-" + str(index)); path.write_bytes(("owned asset " + str(index)).encode())
+            rows.append({"path": path.name, "bytes": path.stat().st_size, "sha256": sha(path.read_bytes())})
+        with self.journal() as journal:
+            journal.run("catalog", 0, lambda: {"ownedEntries": 4})
+            journal.run("canonical", 1, lambda: {"mapped": 4})
+        script = """
+import os,sys,json
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
+from staging_resume import Journal
+from full_assets import _StageProofs,_resume_copy
+output=Path(sys.argv[2]); identity=json.loads(sys.argv[3]); rows=json.loads(sys.argv[4]); stop=int(sys.argv[5])
+opening=Path.open
+def observed(path,mode='r',*args,**kwargs):
+    if mode=='rb' and path.parent==Path(identity['source']) and int(path.name.split('-')[-1])<stop-1:
+        raise AssertionError('completed original was recopied')
+    return opening(path,mode,*args,**kwargs)
+Path.open=observed
+with Journal(output,identity,_StageProofs()) as journal:
+    assert journal.run('catalog',0,lambda: (_ for _ in ()).throw(AssertionError('catalog reran')))=={'ownedEntries':4}
+    assert journal.run('canonical',1,lambda: (_ for _ in ()).throw(AssertionError('canonical reran')))=={'mapped':4}
+    def killed():
+        for index,row in enumerate(rows):
+            _resume_copy(Path(identity['source'])/row['path'],output/row['path'],row,journal.proofs,journal)
+            if index+1==stop:
+                (output/rows[index+1]['path']).write_bytes(b'partial unfinished bytes')
+                os._exit(16+stop)
+    journal.run('copy',2,killed,copy=True)
+"""
+        retained = {}
+        for stop in (1, 2):
+            child = subprocess.run([sys.executable, "-c", script, str(ROOT / "tools/quest-builder"), str(self.output),
+                                    json.dumps(self.identity), json.dumps(rows), str(stop)], capture_output=True, text=True)
+            self.assertEqual(child.returncode, 16 + stop, child.stderr)
+            retained[rows[stop - 1]["path"]] = (self.output / rows[stop - 1]["path"]).stat().st_ino
+        opening, read_sources = Path.open, []
+        def observed(path, mode="r", *args, **kwargs):
+            if mode == "rb" and path.parent == self.original: read_sources.append(path.name)
+            return opening(path, mode, *args, **kwargs)
+        with mock.patch.object(Path, "open", observed), self.journal() as journal:
+            self.assertEqual(journal.run("catalog", 0, lambda: self.fail("catalog reran")), {"ownedEntries": 4})
+            self.assertEqual(journal.run("canonical", 1, lambda: self.fail("canonical reran")), {"mapped": 4})
+            def finish_copy():
+                for row in rows:
+                    full_assets._resume_copy(self.original / row["path"], self.output / row["path"], row, journal.proofs, journal)
+                return {"copied": 4}
+            journal.run("copy", 2, finish_copy, copy=True)
+        self.assertEqual(read_sources, ["asset-2", "asset-3"])
+        for row in rows:
+            self.assertEqual((self.output / row["path"]).read_bytes(), (self.original / row["path"]).read_bytes())
+        for relative, inode in retained.items(): self.assertEqual((self.output / relative).stat().st_ino, inode)
+
+    def test_two_killed_later_transforms_keep_prior_guid_writer_and_phase_contexts(self):
+        original = self.original / "game-data"; original.write_bytes(b"read-only original")
+        self.baseline()
+        with self.journal() as journal:
+            def guid():
+                (self.output / "asset.meta").write_bytes(b"completed canonical GUID")
+                return {"guidApplied": True}
+            journal.run("guid", 1, guid)
+        script = """
+import os,sys,json
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
+from staging_resume import Journal
+from full_assets import _StageProofs
+output=Path(sys.argv[2]); identity=json.loads(sys.argv[3])
+with Journal(output,identity,_StageProofs()) as journal:
+    assert journal.run('copy',0,lambda: (_ for _ in ()).throw(AssertionError('raw copy reran')),copy=True)=={'complete':True}
+    assert journal.run('guid',1,lambda: (_ for _ in ()).throw(AssertionError('GUID reran')))=={'guidApplied':True}
+    def killed():
+        assert (output/'asset.meta').read_bytes()==b'completed canonical GUID'
+        (output/'asset.meta').write_bytes(b'unfinished native transform')
+        (output/'asset').rename(output/'moved')
+        os._exit(int(sys.argv[4]))
+    journal.run('native',2,killed)
+"""
+        for returncode in (17, 18):
+            child = subprocess.run([sys.executable, "-c", script, str(ROOT / "tools/quest-builder"), str(self.output),
+                                    json.dumps(self.identity), str(returncode)], capture_output=True, text=True)
+            self.assertEqual(child.returncode, returncode, child.stderr)
+        with self.journal() as journal:
+            self.assertEqual((self.output / "asset.meta").read_bytes(), b"completed canonical GUID")
+            self.assertEqual((self.output / "asset").read_bytes(), b"original")
+            self.assertFalse((self.output / "moved").exists())
+            journal.run("copy", 0, lambda: self.fail("raw copy reran"), copy=True)
+            journal.run("guid", 1, lambda: self.fail("GUID reran"))
+            journal.run("native", 2, lambda: {"nativeApplied": True})
+        self.assertEqual(original.read_bytes(), b"read-only original")
+
     def test_checkpoint_bytes_takes_precedence_and_invalid_size_is_rejected(self):
         original = self.original / "asset"; original.write_bytes(b"bytes receipt")
         row = {"path":"asset", "bytes":len(original.read_bytes())+1,"size":len(original.read_bytes()),"sha256":sha(original.read_bytes())}

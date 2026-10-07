@@ -55,6 +55,7 @@ def copy_changed(source, target, *, observed=None):
     before = _stamp(source)
     if not source.is_file(): raise BuildError("Preparation source is not an ordinary file: " + source.name)
     if target.exists() and target.is_file() and target.stat().st_size == before[2]:
+        retained = _stamp(target)
         with source.open("rb") as left, target.open("rb") as right:
             same = True
             checksum = hashlib.sha256()
@@ -64,6 +65,8 @@ def copy_changed(source, target, *, observed=None):
                 checksum.update(a)
                 if not a: break
         if before != _stamp(source): raise BuildError("Preparation source changed during copy: " + source.name)
+        if retained != _stamp(target):
+            raise BuildError("Preparation target changed while qualifying its retained bytes: " + target.name)
         if same:
             if observed: observed(checksum.hexdigest())
             return str(target)
@@ -82,7 +85,16 @@ def copy_changed(source, target, *, observed=None):
         if size != before[2] or before != _stamp(source) or temporary.stat().st_size != size:
             raise BuildError("Preparation source changed during copy: " + source.name)
         shutil.copystat(source, temporary)
+        published = _stamp(temporary)
+        if before != _stamp(source):
+            raise BuildError("Preparation source changed before publishing its copy: " + source.name)
         os.replace(temporary, target)
+        # Rename can update ctime, but the accepted writer's identity, size and
+        # final mtime must survive publication. Capture these only after closing
+        # the writer, including on Windows. Never attach the streamed source hash
+        # to a concurrent replacement/mutation of the destination.
+        if _stamp(target)[:4] != published[:4]:
+            raise BuildError("Preparation target changed while publishing its copy: " + target.name)
         if observed: observed(checksum.hexdigest())
     finally:
         temporary.unlink(missing_ok=True)
