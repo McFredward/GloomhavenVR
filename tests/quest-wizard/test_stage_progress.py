@@ -79,6 +79,23 @@ class StageProgressTests(unittest.TestCase):
         self.assertIn('player', remaining)
         self.assertEqual(remaining[0], 'startup-content')
 
+    def test_preparation_copy_counts_advance_total_without_publishing_parent_success(self):
+        self.store.operation(self.session, 'build', 'project-files')
+        first = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'prepare-project-copy', 25, 100, 'files')
+        middle = self.progress()['stagePercent']
+        self.assertGreater(middle, first)
+        self.store.progress(self.session, 'build', 'prepare-project-copy', 80, 100, 'files')
+        self.assertGreater(self.progress()['stagePercent'], middle)
+        row = {'id': 'build', 'status': 'running'}
+        value = stage_plan.advance(row, {'phase': 'prepare-project-copy', 'done': 100, 'total': 100,
+                                        'unit': 'files', 'percent': 100, 'updatedAt': 1}, status='complete')
+        self.assertNotIn('project-files', row['progressPlan']['completed'])
+        self.assertEqual(value['buildOverview']['active'], 'project-files')
+        stage_plan.advance(row, {'phase': 'operation:project-files', 'done': 1, 'total': 1,
+                                'unit': 'operations', 'percent': 100, 'updatedAt': 2}, 'project-files', 'complete')
+        self.assertIn('project-files', row['progressPlan']['completed'])
+
     def test_raw_section_reuse_cannot_complete_recovery_before_staging(self):
         self.store.operation(self.session, 'build', 'recovery')
         self.store.progress(self.session, 'build', 'recovery-plan', 16, 16, 'batches', status='reuse')

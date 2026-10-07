@@ -86,6 +86,7 @@ def phase_operation(stage, phase, value):
                    "source-snapshot-verify": "source-snapshot", "game-snapshot": "game-snapshot",
                    "game-snapshot-verify": "game-snapshot", "game-snapshot-source-verify": "snapshot-check"}
         if phase in mapping: return mapping[phase], True
+        if stage == "build" and phase == "prepare-project-copy": return "project-files", True
         if stage == "build" and (phase == "recovery-batches" or phase in {"recovery-section:" + name for name in RECOVERY_SECTIONS}):
             return "recovery", False
         # Bee starts a new DAG when native compilation/linking changes. Its
@@ -386,7 +387,7 @@ def advance(row, value, operation=None, status=None):
     status = status or value.get("operationStatus")
     if status is not None: value["operationStatus"] = status
     child_boundary = (value["phase"].startswith(("recovery-section:", "staging-section:", "prepare-substage:"))
-                      or value["phase"] in ("recovery-batches", "recovery-raw-reuse", "recovery-plan"))
+                      or value["phase"] in ("recovery-batches", "recovery-raw-reuse", "recovery-plan", "prepare-project-copy"))
     parent_status = "progress" if child_boundary else status
     if value["phase"].startswith("prepare-substage:") and operation in operations: measured = True
     if operation in operations:
