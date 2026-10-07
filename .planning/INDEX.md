@@ -1,7 +1,7 @@
 # Planning index
 
-Updated 2026-10-08 for Build640: NPC639 native assets, received-original receipts,
-coherent delivery and visit repairs, plus the checked Frame camera/viewport follow-up.
+Updated 2026-10-08 for Build641: native Flat/VR quest selection, readiness,
+departure recovery and optional retirement reachability on the NPC639/Frame640 tree.
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
 status; it is not the player manual.
@@ -14,6 +14,10 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [CROSSPLAY-QUEST-REVIEW.md](CROSSPLAY-QUEST-REVIEW.md) | Crossplay source repairs, integrated validation and outstanding mixed-session HMD matrix |
+| [CROSSPLAY-FLOW-AUDIT.md](CROSSPLAY-FLOW-AUDIT.md) | Native mixed-session mission and continuation audit, including departure and retirement |
+| [CROSSPLAY-QUEST-SELECTION.md](CROSSPLAY-QUEST-SELECTION.md) | Native proposal/popup identity and private/publicized causal regression proof |
+| [CROSSPLAY-QUEST-READY.md](CROSSPLAY-QUEST-READY.md) | Native client prompt and departure/explicit Cancel proof |
 | [../docs/performance/FRAME-640-INTEGRATION.md](../docs/performance/FRAME-640-INTEGRATION.md) | Checked camera/viewport integration, unchanged NPC639 proofs and inherited evidence |
 | [NPC-639-REVIEW.md](NPC-639-REVIEW.md) | Current paired-log causes, repair, 1:1 review and focused validation limits |
 | [NPC-639-PROOF-AUDIT.md](NPC-639-PROOF-AUDIT.md) | Actual first-render deadline and why prior tests missed the failures |

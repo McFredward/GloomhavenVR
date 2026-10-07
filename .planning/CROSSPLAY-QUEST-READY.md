@@ -165,3 +165,22 @@ The departure fixture follows the same portable policy. Its default .NET 8
 proof needs neither installed game references nor Mono/Harmony packages. The
 optional actual registration mode is a separate receipt and uses private build
 outputs, preserving the regular CPU harness.
+
+## Guarded native-state follow-up, 2026-10-08
+
+Five departure seams now guard all native state probes. Unavailable or throwing
+state cannot grant withdrawal permission or alter the original initialization
+argument. Failed probes clear only mod authorization; finalizers return the exact
+original input/progress exception. The pure CancelProgress/Reset seams only write
+mod fields. The desync ledger records five SELF-GUARDED and two CANNOT-THROW rows.
+Actual probe exceptions report once per Initialize/Reset lifetime through the
+normal-level Alert; logger exceptions cannot change consent or continuation.
+
+Focused worker execution passed 160 departure assertions (the original 63 plus
+97 failure/logger/original-exception checks), all 15 causal production controls
+and all 22 native source pins. Twelve native getter boundaries are fault-injected,
+including reflection roster/player ID and progress state. Optional actual
+HarmonyX 2.7.0 under Unity Mono passed 169 assertions through the production
+seven-target registration without manual seam dispatch. Compiler: zero warnings
+and errors. The unchanged prompt/claim receipt is 224 assertions, seven controls
+and 25 layouts; this follow-up alone is not a new complete integration gate.

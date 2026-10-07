@@ -1,8 +1,9 @@
 # Flat/VR crossplay quest and continuation review
 
-Review started 2026-10-07 from `dev` `819a9a9ee` / ModBuild 638. Integration is
-coordinated after the NPC and Steam Frame changes; final build and validation
-receipts are recorded below when that common tree has been checked.
+Review started 2026-10-07 from `dev` `819a9a9ee` / ModBuild 638. The worker
+checkpoints were reviewed and rebased onto the released NPC639/Frame640 `dev`
+`5c82989180a11707aad5be086b5f5cbaf83ffa52`; the private compiled/surface baseline
+comes from that exact commit. The final crossplay candidate is ModBuild 641.
 
 The report describes two VR and two Flat players, a VR host with no reachable
 mission-start control, and a subsequent Flat host whose proposal briefly exposed
@@ -47,6 +48,11 @@ Unready action carries it to the Flat host's original validation. Scope ends at
 that withdrawal; proposal/controller/phase changes, reset, commitment and cancelled
 progress invalidate it. An asynchronous native cancel animation retains only its
 own original input authorization. No automatic vote or separate quorum is added.
+Every native-state probe in the five departure seams is guarded; failed probes
+discard only mod authorization and leave native arguments/continuation intact.
+Finalizers forward the original exception unchanged. Unexpected probe failures
+report once per initialization/reset lifetime at the normal log level; a failed
+logger cannot change native input or confirmation.
 
 Optional observer retirement now presents the original HUD widget in 3D. Its
 pending native promise advances only after an actual player press. A mod-owned
@@ -56,6 +62,9 @@ layers. A temporarily refused hierarchy restore retries without deleting the
 original. A real conversion failure requests the original desktop HUD for this
 prompt's lifetime, including the console layout's guarded explicit-click adapter.
 The original retirement confirmation and ready-up remain native.
+Missing original widgets and real conversion failures retain bounded normal-level
+failure context. Expected hierarchy-restore deferral remains at Debug. Reporter
+failure cannot interrupt the original prompt, fallback, tween or native promise.
 
 ## Review coverage and practical limits
 
@@ -100,11 +109,12 @@ implemented boundaries have these focused receipts:
 | Fixture | Executed checks | Causal controls |
 |---|---|---|
 | Native map selection and popup identity | 358 original/private + 358 publicized assertions; 18 native bindings | 9 |
-| Native client quest readiness and departure | 224 prompt assertions + 63 departure assertions; 25 readiness layouts; 10 + 22 verbatim native bodies | 7 + 7 |
+| Native client quest readiness and departure | 224 prompt assertions + 160 departure assertions; 25 readiness layouts; 10 + 22 verbatim native bodies; injected native getter, logger and original-exception cases | 7 + 15 |
 | Current quest window and shared pose routing | 160 production-linked assertions | 4 |
 | Original quest-card placement | 45 assertions | 3 |
-| Native optional retirement prompt and animation | 198 checks; 32 role/presenter cases; original promise/retirement flow, actual conversion-frame reassertion and native scale animation | 10 |
-| Optional real HarmonyX 2.7.0 / Unity Mono | 72 assertions; all seven production departure targets and both scoped-state pairs installed; no manual seam dispatch | Not a portable CI requirement |
+| Native optional retirement prompt and animation | 207 checks; 32 role/presenter cases; original promise/retirement flow, actual conversion-frame reassertion and native scale animation; failing reporter recovery | 10 |
+| Desync ledger inventory ownership | 4 regressions; nested names, continuation ownership and independently required verdicts | Previous dotted-name parser loses the new seam ownership |
+| Optional real HarmonyX 2.7.0 / Unity Mono | 169 assertions; all seven production departure targets and both scoped-state pairs installed; no manual seam dispatch | Not a portable CI requirement |
 
 Selection and readiness execute with tracked native fixtures when the read-only
 game reference is unavailable; workers verified both reference-present and

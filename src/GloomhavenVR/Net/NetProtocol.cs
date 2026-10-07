@@ -598,7 +598,29 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 640;
+    public const ushort ModBuild = 641;
+
+    // ModBuild641 — restore native quest selection and continuation in Flat/VR crossplay.
+    // User report: with two VR/two Flat players, a VR host could not reach quest start;
+    // a Flat host's selection showed Accept briefly, then only lobby rejoin restored it.
+    // The map observer now follows the original HostSelectedQuest/selected location,
+    // independently of VR record20 or the client's browsing marker. Native measured
+    // cancellation remains distinct from an unknown/rebuilding controller. The actual
+    // popup-manager subject owns confirmation, ready-toggle parking and shared pose;
+    // the multiplayer hover and ordinary accepted popup are separate original windows.
+    // Capture the native client preview before map entry and consume it once even if
+    // the ready toggle already retained visibility. Actual desktop answers expire it.
+    // Enable the existing native quest departure option on VR hosts. Under an unchanged
+    // Flat host, only a genuine blocked native Cancel input can admit one original
+    // unready action after departure; preserve native permission, quorum and state ACKs.
+    // Original optional retirement widgets remain reachable in 3D, with their native
+    // tween rect/promise/buttons intact and desktop fallback after conversion failure.
+    // Native-body fixtures and causal controls cover role/display/lifetime transitions;
+    // actual HarmonyX/Unity Mono proves the seven departure targets and scoped states.
+    // Guard mod native-state probes and retain bounded normal failure context. No new
+    // gameplay action, automatic vote, wire layout, default or environment-bank change.
+    // Inherits NPC639 and Frame640. VR peers install641; Flat peers remain native.
+    // Final receipts and outstanding HMD matrix: .planning/CROSSPLAY-QUEST-REVIEW.md.
 
     // ModBuild640 — integrate the separately checked Frame camera/viewport follow-up.
     // Native MainMenuVideo's unrestricted mask could capture mod screen geometry

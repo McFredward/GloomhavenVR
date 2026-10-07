@@ -236,24 +236,24 @@ runtime, which is why a runtime audit could never do this job (see
 | `InputManager_AssignGamepadBindings_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Grab/InputModeGuard.cs:95</sub> | `InputManager.AssignGamepadBindingsToPlayerActions()` *(private)* | prefix | `WorldUIModule`:80 |
 | `VrGamepadConnectionActivateGuard`<br/><sub>src/GloomhavenVR/WorldUI/Grab/VrGamepadConnectionGuard.cs:20</sub> | `GamepadConnectionBox.Activate()` | prefix | `WorldUIModule`:81 |
 | `VrGamepadConnectionUpdateGuard`<br/><sub>src/GloomhavenVR/WorldUI/Grab/VrGamepadConnectionGuard.cs:44</sub> | `GamepadConnectionBox.Update()` *(private)* | prefix | `WorldUIModule`:82 |
-| `MapQuestDepartureValidation.InitializeSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestDepartureValidation.cs:129</sub> | `UIReadyToggle.Initialize()` | prefix | `MapQuestDepartureValidation`:118 |
-| `MapQuestDepartureValidation.PlayerLeftSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestDepartureValidation.cs:149</sub> | `UIReadyToggle.OnPlayerLeft()` *(private)* | prefix | `MapQuestDepartureValidation`:119 |
+| `MapQuestDepartureValidation.InitializeSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestDepartureValidation.cs:149</sub> | `UIReadyToggle.Initialize()` | prefix | `MapQuestDepartureValidation`:138 |
+| `MapQuestDepartureValidation.PlayerLeftSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestDepartureValidation.cs:178</sub> | `UIReadyToggle.OnPlayerLeft()` *(private)* | prefix | `MapQuestDepartureValidation`:139 |
 | &nbsp; | `UIReadyToggle.OnPlayerLeft()` *(private)* | postfix | &nbsp; |
-| `MapQuestDepartureValidation.ExplicitInputSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestDepartureValidation.cs:175</sub> | `UIReadyToggle.InputToggle()` *(private)* | prefix | `MapQuestDepartureValidation`:120 |
+| `MapQuestDepartureValidation.ExplicitInputSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestDepartureValidation.cs:215</sub> | `UIReadyToggle.InputToggle()` *(private)* | prefix | `MapQuestDepartureValidation`:140 |
 | &nbsp; | `UIReadyToggle.InputToggle()` *(private)* | finalizer | &nbsp; |
-| `MapQuestDepartureValidation.ProgressEndSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestDepartureValidation.cs:200</sub> | `UIReadyToggle.OnEndAnimationProgressBar()` *(private)* | prefix | `MapQuestDepartureValidation`:121 |
+| `MapQuestDepartureValidation.ProgressEndSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestDepartureValidation.cs:253</sub> | `UIReadyToggle.OnEndAnimationProgressBar()` *(private)* | prefix | `MapQuestDepartureValidation`:141 |
 | &nbsp; | `UIReadyToggle.OnEndAnimationProgressBar()` *(private)* | finalizer | &nbsp; |
-| `MapQuestDepartureValidation.CancelProgressSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestDepartureValidation.cs:224</sub> | `UIReadyToggle.CancelProgress()` *(private)* | prefix | `MapQuestDepartureValidation`:122 |
-| `MapQuestDepartureValidation.ReadyUpSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestDepartureValidation.cs:235</sub> | `UIReadyToggle.ReadyUp(bool, bool)` | prefix | `MapQuestDepartureValidation`:123 |
-| `MapQuestDepartureValidation.ResetSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestDepartureValidation.cs:259</sub> | `UIReadyToggle.Reset()` | postfix | `MapQuestDepartureValidation`:124 |
+| `MapQuestDepartureValidation.CancelProgressSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestDepartureValidation.cs:287</sub> | `UIReadyToggle.CancelProgress()` *(private)* | prefix | `MapQuestDepartureValidation`:142 |
+| `MapQuestDepartureValidation.ReadyUpSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestDepartureValidation.cs:298</sub> | `UIReadyToggle.ReadyUp(bool, bool)` | prefix | `MapQuestDepartureValidation`:143 |
+| `MapQuestDepartureValidation.ResetSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestDepartureValidation.cs:338</sub> | `UIReadyToggle.Reset()` | postfix | `MapQuestDepartureValidation`:144 |
 | `MapQuestReadyPress`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestReadyRoster.cs:1862</sub> | `UIReadyToggle.ReadyUp(bool, bool)` | postfix | `MapTravelConfirm`:874 |
-| `MapQuestReadyUp.ClientQuestPromptSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestReadyUp.cs:1327</sub> | `UIGuildmasterConfirmActionButtonPresenter.ShowQuestSelectedAction()` | postfix | `MapQuestReadyUp`:345 |
+| `MapQuestReadyUp.ClientQuestPromptSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestReadyUp.cs:1322</sub> | `UIGuildmasterConfirmActionButtonPresenter.ShowQuestSelectedAction()` | postfix | `MapQuestReadyUp`:345 |
 | &nbsp; | `UIGuildmasterConfirmActionPopupPresenter.ShowQuestSelectedAction()` | postfix | &nbsp; |
 | &nbsp; | `UIGuildmasterConfirmActionButton.OnClicked()` *(private)* | postfix | &nbsp; |
 | &nbsp; | `UIGuildmasterConfirmActionPopup.Confirm()` *(private)* | postfix | &nbsp; |
-| `RetirementPromptShownPatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapRetirementPrompt.cs:197</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `MapRetirementPrompt`:46 |
+| `RetirementPromptShownPatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapRetirementPrompt.cs:266</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `MapRetirementPrompt`:49 |
 | &nbsp; | *(resolved at runtime by `TargetMethod`)* | postfix | &nbsp; |
-| `RetirementPromptReplacedPatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapRetirementPrompt.cs:211</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `MapRetirementPrompt`:47 |
+| `RetirementPromptReplacedPatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapRetirementPrompt.cs:280</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `MapRetirementPrompt`:50 |
 | `MapSelectionTransition`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapSelectionTransition.cs:25</sub> | `NewPartyDisplayUI.DisableMapOptions()` | prefix | `WorldUIModule`:229 |
 | &nbsp; | `NewPartyDisplayUI.DisableMapOptions()` | finalizer | &nbsp; |
 | &nbsp; | `NewPartyDisplayUI.EnableMapOptions()` | prefix | &nbsp; |
