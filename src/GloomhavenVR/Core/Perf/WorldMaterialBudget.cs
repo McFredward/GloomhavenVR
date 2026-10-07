@@ -37,7 +37,8 @@ internal static partial class WorldMaterialBudget
         catch (Exception error) { _driver.Fail(error); }
         foreach (string counter in new[] { "WorldMaterial.Candidates", "WorldMaterial.VariantSlots",
             "WorldMaterial.NativeSlots", "WorldMaterial.MaterialRefreshes", "WorldMaterial.ScopeRefusals",
-            "WorldMaterial.ShaderRefusals", "WorldMaterial.EffectRefusals", "WorldMaterial.FactoryVariantRefreshes" }) PerfMonitor.RegisterDebug(counter);
+            "WorldMaterial.ShaderRefusals", "WorldMaterial.EffectRefusals", "WorldMaterial.FactoryVariantRefreshes",
+            "WorldMaterial.PropRootReads", "WorldMaterial.ScopeNodeReads", "WorldMaterial.InactiveCandidates" }) PerfMonitor.RegisterDebug(counter);
     }
     internal static void Shutdown()
     {
@@ -53,7 +54,7 @@ internal static partial class WorldMaterialBudget
     internal static void MaterialReady(Renderer renderer)
     { if (renderer is MeshRenderer mesh) _driver?.Adopt(mesh); }
     internal static void BeforeNativeRendererWrite(Renderer renderer)
-    { if (renderer != null) _driver?.RestoreRenderer(renderer); }
+    { if (renderer != null) _driver?.BeforeRendererWrite(renderer); }
     internal static void BeforeNativeContentChange() => _driver?.RestoreBindings();
     // Deliberately does not call _canonicalSource: root composes this reverse map
     // with the older environment reverse map, so doing so here would recurse.
@@ -132,12 +133,22 @@ internal static partial class WorldMaterialBudget
             // Existing references still need transition/consumer reads until their
             // owner restores them. A settled Off path has nothing to refresh.
             if (!Requested && _originalByVariant.Count == 0) return EmptyPass.Instance;
-            if (_passDepth++ == 0) { _prepared.Clear(); _scopes.Clear(); _sceneScopes.Clear(); _refreshes = 0; }
+            if (_passDepth++ == 0)
+            {
+                _prepared.Clear(); _scopes.Clear(); _sceneScopes.Clear(); _refreshes = 0;
+                _metadata.Clear(); _shareReads = PerfConfig.SharedEnvironmentMaterialReadsOn;
+                _passAmbient = _shareReads ? _ambientWeight?.Invoke() ?? 1f : 1f;
+                _propRootReads = 0; _scopeNodeReads = 0;
+            }
+            // A nested producer/material-ready boundary can register or reparent
+            // an interactive visual. Never reuse its earlier ancestry verdict.
+            InvalidateScopeReads();
             return new ReadPass(this);
         }
         internal void EndPass()
         {
-            if (--_passDepth == 0) { _prepared.Clear(); _scopes.Clear(); _sceneScopes.Clear(); }
+            if (--_passDepth == 0)
+            { _prepared.Clear(); _metadata.Clear(); _scopes.Clear(); _sceneScopes.Clear(); InvalidateScopeReads(); }
         }
         private void Settings()
         {
@@ -148,7 +159,7 @@ internal static partial class WorldMaterialBudget
             if (mode > 0) Seed();
         }
         internal void RegisterWorldRoot(GameObject root)
-        { _worldRoots.Add(root.transform); QueueRoot(root); }
+        { _worldRoots.Add(root.transform); InvalidateScopeReads(); QueueRoot(root); }
         private void Seed()
         {
             _worldRoots.RemoveWhere(root => root == null);
@@ -212,21 +223,29 @@ internal static partial class WorldMaterialBudget
                 if (_mode == 0 || !isActiveAndEnabled) return;
                 using IDisposable timing = PerfMonitor.Scope("WorldMaterial.PreCull");
                 using IDisposable pass = BeginPass();
-                int candidates = 0, changed = 0, native = 0, scopeRefusals = 0, shaderRefusals = 0, effectRefusals = 0;
+                int candidates = 0, changed = 0, native = 0, scopeRefusals = 0, shaderRefusals = 0, effectRefusals = 0, inactive = 0;
                 foreach (KeyValuePair<int, Surface> pair in _surfaces)
                 {
                     Surface surface = pair.Value;
                     if (surface.Renderer == null) { _dead.Add(pair.Key); continue; }
                     MeshRenderer renderer = surface.Renderer;
+                    candidates++;
+                    // A native closed room does not need mesh/component reads.
+                    // Restore owned slots immediately; on its first active render
+                    // re-read the mesh identity and all current ownership guards.
+                    if (!renderer.enabled || !renderer.gameObject.activeInHierarchy
+                        || renderer.forceRenderingOff && _substituteOwnership?.Invoke(renderer) != true)
+                    {
+                        bool restored = RestoreRenderer(renderer);
+                        if (restored || !surface.Refused) _changedSources.Add(renderer);
+                        surface.Refused = true; scopeRefusals++; inactive++; continue;
+                    }
                     MeshFilter filter = renderer.GetComponent<MeshFilter>();
                     Mesh mesh = filter != null ? filter.sharedMesh : null!;
                     bool geometryChanged = surface.Filter != filter || surface.Mesh != mesh;
                     surface.Filter = filter; surface.Mesh = mesh;
                     if (geometryChanged) RestoreRenderer(renderer);
-                    candidates++;
-                    if (!renderer.enabled || !renderer.gameObject.activeInHierarchy
-                        || renderer.forceRenderingOff && _substituteOwnership?.Invoke(renderer) != true
-                        || filter == null || filter.sharedMesh == null || !InWorld(renderer))
+                    if (filter == null || mesh == null || !InWorld(renderer))
                     {
                         bool restored = RestoreRenderer(renderer);
                         if (restored || geometryChanged || !surface.Refused) _changedSources.Add(renderer);
@@ -243,7 +262,7 @@ internal static partial class WorldMaterialBudget
                         Material current = _slots[slot], original = Source(current);
                         Material next = original;
                         bool effect = RendererEffect(renderer, slot, original, blocks);
-                        if (original != null && !effect) next = VariantFor(original);
+                        if (original != null && !effect) next = Prepare(original);
                         else effectRefusals++;
                         if (IsVariant(next)) changed++;
                         else { native++; refused = true; if (original != null && !effect) shaderRefusals++; }
@@ -271,6 +290,9 @@ internal static partial class WorldMaterialBudget
                     PerfMonitor.Count("WorldMaterial.ScopeRefusals", scopeRefusals);
                     PerfMonitor.Count("WorldMaterial.ShaderRefusals", shaderRefusals);
                     PerfMonitor.Count("WorldMaterial.EffectRefusals", effectRefusals);
+                    PerfMonitor.Count("WorldMaterial.PropRootReads", _propRootReads);
+                    PerfMonitor.Count("WorldMaterial.ScopeNodeReads", _scopeNodeReads);
+                    PerfMonitor.Count("WorldMaterial.InactiveCandidates", inactive);
                     if (Time.unscaledTime >= _nextDebug)
                     {
                         _nextDebug = Time.unscaledTime + 10f;
@@ -283,6 +305,8 @@ internal static partial class WorldMaterialBudget
             }
             catch (Exception error) { Fail(error); }
         }
+        internal void BeforeRendererWrite(Renderer renderer)
+        { InvalidateScopeReads(); _prepared.Clear(); _metadata.Clear(); RestoreRenderer(renderer); }
         internal bool RestoreRenderer(Renderer renderer)
         {
             if (_originalByVariant.Count == 0) return false;
@@ -299,6 +323,7 @@ internal static partial class WorldMaterialBudget
         }
         internal void RestoreBindings()
         {
+            InvalidateScopeReads(); _prepared.Clear(); _metadata.Clear();
             foreach (Surface surface in _surfaces.Values)
                 if (surface.Renderer != null) RestoreRenderer(surface.Renderer);
         }
@@ -340,7 +365,7 @@ internal static partial class WorldMaterialBudget
                 foreach (Material material in _variants.Values) if (material != null) UnityEngine.Object.Destroy(material);
                 _variants.Clear(); _originalByVariant.Clear();
             }
-            _prepared.Clear(); _scopes.Clear(); _sceneScopes.Clear();
+            _prepared.Clear(); _metadata.Clear(); _scopes.Clear(); _sceneScopes.Clear(); InvalidateScopeReads();
             _shader = null;
             _changedSources.Clear();
             _surfaces.Clear(); _pending.Clear(); _queued.Clear();

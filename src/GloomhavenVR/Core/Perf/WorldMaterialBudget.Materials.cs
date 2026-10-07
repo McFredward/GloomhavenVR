@@ -15,6 +15,22 @@ internal static partial class WorldMaterialBudget
         "_USEEMISSIVEMAP_ON", "_DIFFUSE_EMISSIVE_ON_ON", "_USE_TEXTURE_EMISSION", "_FRESNEL_ON_ON",
         "_MOSSTEXTURE_ON_ON", "_MOSSTEXTURE_NOISE_ON_ON", "_EMISSION", "_DETAIL_MULX2", "_PARALLAXMAP" };
     private static readonly string[] StandardStateProperties = { "_Mode", "_SrcBlend", "_DstBlend", "_ZWrite" };
+    private static readonly int[] EffectPropertyIds = PropertyIds(EffectProperties);
+    private static readonly int[] StandardStatePropertyIds = PropertyIds(StandardStateProperties);
+    private static readonly int MainTextureId = Shader.PropertyToID("_MainTex");
+    private static int[] PropertyIds(string[] names)
+    {
+        int[] ids = new int[names.Length];
+        for (int i = 0; i < names.Length; i++) ids[i] = Shader.PropertyToID(names[i]);
+        return ids;
+    }
+    private sealed class MaterialMetadata
+    {
+        internal readonly int Route;
+        private string[]? _keywords;
+        internal MaterialMetadata(Material original) => Route = ShaderRoute(original);
+        internal string[] Keywords(Material original) => _keywords ??= original.shaderKeywords;
+    }
     private static bool NativePassesEnabled(Material original)
     {
         // Pass enablement is mutable native presentation. CopyProperties does not
@@ -29,13 +45,13 @@ internal static partial class WorldMaterialBudget
         // CUSTOM_SHADOW_PASS. Explicitly disabled fallback/caster remains native.
         return original.GetShaderPassEnabled("ShadowCaster") && original.GetShaderPassEnabled("CUSTOM_SHADOW_PASS");
     }
-    private static bool ProvenProgram(Material material, int route)
+    private static bool ProvenProgram(string[] keywords, int route)
     {
         // Intersection, not union: native objects with the SAME shader name have
         // stripped program tables despite identical properties/pass/keyword schemas.
         // Material keywords therefore need one jointly proven albedo/clip branch.
         int features = 0;
-        foreach (string keyword in material.shaderKeywords)
+        foreach (string keyword in keywords)
         {
             int bit = keyword switch
             {
@@ -78,9 +94,9 @@ internal static partial class WorldMaterialBudget
         "Legacy Shaders/Diffuse" => 10,
         _ => -1,
     };
-    private static int Route(Material original)
+    private static int Route(Material original, MaterialMetadata metadata)
     {
-        int route = ShaderRoute(original);
+        int route = metadata.Route;
         if (route < 0 || original.renderQueue > 2500 || !NativePassesEnabled(original)) return -1;
         string shader = original.shader.name;
         foreach (string property in EffectProperties)
@@ -97,13 +113,22 @@ internal static partial class WorldMaterialBudget
         if (shader == "Standard" && (original.GetFloat("_Mode") != 0f
             || original.GetFloat("_SrcBlend") != 1f || original.GetFloat("_DstBlend") != 0f
             || original.GetFloat("_ZWrite") != 1f || original.GetColor("_EmissionColor").maxColorComponent > 0f)) return -1;
-        return ProvenProgram(original, route) ? route : -1;
+        return ProvenProgram(metadata.Keywords(original), route) ? route : -1;
     }
     private sealed partial class Driver
     {
         private readonly Dictionary<Material, Material> _variants = new();
         private readonly Dictionary<Material, Material> _originalByVariant = new();
         private readonly Dictionary<Material, Material> _prepared = new();
+        private readonly Dictionary<Material, MaterialMetadata> _metadata = new();
+        private float _passAmbient;
+        private MaterialMetadata Metadata(Material original)
+        {
+            if (!_shareReads) return new MaterialMetadata(original);
+            if (!_metadata.TryGetValue(original, out MaterialMetadata metadata))
+            { metadata = new MaterialMetadata(original); _metadata.Add(original, metadata); }
+            return metadata;
+        }
         // Native MPB construction is forbidden in a MonoBehaviour field initializer.
         // Awake runs on Unity's main thread after the component has been created.
         private MaterialPropertyBlock _block = null!, _slotBlock = null!;
@@ -117,12 +142,13 @@ internal static partial class WorldMaterialBudget
             return original != null ? _canonicalSource?.Invoke(original) ?? original : original!;
         }
         internal Material VariantFor(Material input)
+        { Settings(); return Prepare(Source(input)); }
+        private Material Prepare(Material original)
         {
-            Material original = Source(input);
-            Settings();
             if (original == null || _mode == 0 || _failed || !isActiveAndEnabled) return original!;
             if (_prepared.TryGetValue(original, out Material prepared)) return prepared;
-            int route = Route(original);
+            MaterialMetadata metadata = Metadata(original);
+            int route = Route(original, metadata);
             if (route < 0) { _prepared[original] = original; return original; }
             if (_ensureAssets?.Invoke() == false) { _prepared[original] = original; return original; }
             _shader ??= BundleShaders.Resolve(ShaderName, "Perf", "World material shader available.",
@@ -139,13 +165,13 @@ internal static partial class WorldMaterialBudget
             // intact, including their distinction between the HIGH and LOW families.
             variant.CopyPropertiesFromMaterial(original);
             variant.shader = _shader;
-            variant.shaderKeywords = original.shaderKeywords;
+            variant.shaderKeywords = metadata.Keywords(original);
             variant.renderQueue = original.renderQueue;
             variant.SetOverrideTag("RenderType", original.GetTag("RenderType", false, ""));
             variant.enableInstancing = original.enableInstancing;
             variant.SetFloat("_GHVRWorldMaterialMode", _mode);
             variant.SetFloat("_GHVRWorldNativeRoute", route);
-            float ambient = _ambientWeight?.Invoke() ?? 1f;
+            float ambient = _shareReads ? _passAmbient : _ambientWeight?.Invoke() ?? 1f;
             variant.SetFloat("_GHVRWorldAmbientWeight", float.IsNaN(ambient) || float.IsInfinity(ambient)
                 ? 1f : Mathf.Clamp01(ambient));
             _refreshes++;
@@ -158,23 +184,24 @@ internal static partial class WorldMaterialBudget
         }
         private bool RendererEffect(MeshRenderer renderer, int slot, Material original, bool blocks)
         {
-            if (!blocks) return false;
-            int route = ShaderRoute(original);
+            if (!blocks || original == null) return false;
+            int route = _shareReads ? Metadata(original).Route : ShaderRoute(original);
             if (route < 0) return false;
             renderer.GetPropertyBlock(_slotBlock, slot);
-            if (_block.HasTexture("_MainTex") && _block.GetTexture("_MainTex") is RenderTexture
-                || _slotBlock.HasTexture("_MainTex") && _slotBlock.GetTexture("_MainTex") is RenderTexture) return true;
-            foreach (string property in EffectProperties)
+            if (_block.HasTexture(MainTextureId) && _block.GetTexture(MainTextureId) is RenderTexture
+                || _slotBlock.HasTexture(MainTextureId) && _slotBlock.GetTexture(MainTextureId) is RenderTexture) return true;
+            for (int index = 0; index < EffectPropertyIds.Length; index++)
             {
                 // A native spelling can have a different type in another family.
                 // In particular Standard's _EmissionMap is a texture, not AMP's
                 // float switch. Typed MPB presence also avoids absent-value reads.
-                if (route == 9 && property == "_EmissionMap") continue;
+                if (route == 9 && EffectProperties[index] == "_EmissionMap") continue;
+                int property = EffectPropertyIds[index];
                 if (_block.HasFloat(property) && _block.GetFloat(property) != 0f
                     || _slotBlock.HasFloat(property) && _slotBlock.GetFloat(property) != 0f) return true;
             }
             if (route == 9)
-                foreach (string property in StandardStateProperties)
+                foreach (int property in StandardStatePropertyIds)
                     if (_block.HasFloat(property) && _block.GetFloat(property) != original.GetFloat(property)
                         || _slotBlock.HasFloat(property) && _slotBlock.GetFloat(property) != original.GetFloat(property)) return true;
             return false;

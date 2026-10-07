@@ -167,6 +167,18 @@ internal static class PropGrab
         return false;
     }
 
+    /// <summary>Append the exact current registered visual roots for a synchronous
+    /// scenery read pass. This does not resolve, discover or change any prop. The
+    /// caller owns its scratch list and must rebuild it at each render boundary.</summary>
+    internal static void CopyVisualRoots(List<GameObject> destination)
+    {
+        foreach (GrabbableProp prop in Registry.Values)
+        {
+            GameObject visual = prop.Visual;
+            if (visual != null) destination.Add(visual);
+        }
+    }
+
     /// <summary>The nearest registered prop whose pick volume contains <paramref name="hand"/>'s
     /// pinch point, or null. Pure; the registry is small (single digits to a few dozen), so this is
     /// one ClosestPoint per prop per call and it is called only from the capture test's edge.</summary>

@@ -9,7 +9,7 @@ namespace GloomhavenVR.Core;
 
 internal static partial class WorldMaterialBudget
 {
-    private struct WorldScope { internal bool Valid, Generated, Scenario, Registered; }
+    private struct WorldScope { internal bool Valid, Generated, Scenario, Registered, Prop; }
     private static bool NativeWorldCoordinator(Component component)
     {
         // All 15 shipped procedural maps and 114 editor maps carry the exact
@@ -31,9 +31,41 @@ internal static partial class WorldMaterialBudget
         private readonly List<Transform> _ancestry = new();
         private readonly List<Component> _components = new();
         private readonly Dictionary<int, bool> _sceneScopes = new();
+        private readonly HashSet<Transform> _propRoots = new();
+        private readonly List<GameObject> _propVisuals = new();
+        private bool _propRootsReady, _shareReads;
+        private int _propRootReads, _scopeNodeReads;
+        private void InvalidateScopeReads()
+        { _scopes.Clear(); _sceneScopes.Clear(); _propRoots.Clear(); _propVisuals.Clear(); _propRootsReady = false; }
+        private void ReadPropRoots()
+        {
+            if (_propRootsReady) return;
+            long timing = PerfMonitor.StepsActive && VRLog.Level >= VRLogLevel.Debug ? PerfMonitor.BeginStep() : 0L;
+            try { ReadCurrentPropRoots(); }
+            finally { PerfMonitor.EndStep("WorldMaterial.PropRoots", timing); }
+        }
+        private void ReadCurrentPropRoots()
+        {
+            // Build once from current exact visuals, never from names, GUIDs or
+            // yesterday's hierarchy. The five-room638 log visits255 candidates
+            // per frame; the former guard scanned every grabbable prop at EVERY
+            // ancestor before it could use the world-scope memo. Fold exact root
+            // membership into that same synchronous ancestry walk instead.
+            PropGrab.CopyVisualRoots(_propVisuals);
+            NetHeldProps.CopyVisualRoots(_propVisuals);
+            for (int slot = 0; slot < HeldProps.Count; slot++)
+                if (HeldProps.TryGetSlot(slot, out _, out GameObject visual, out _, out _)) _propVisuals.Add(visual);
+            foreach (GameObject visual in _propVisuals)
+            {
+                _propRootReads++;
+                if (visual != null) _propRoots.Add(visual.transform);
+            }
+            _propVisuals.Clear(); _propRootsReady = true;
+        }
         private bool InWorld(MeshRenderer renderer)
         {
-            if (HeldProps.OwnsRendererOf(renderer.transform) || PropGrab.OwnsRendererOf(renderer.transform)) return false;
+            if (!_shareReads && (HeldProps.OwnsRendererOf(renderer.transform) || PropGrab.OwnsRendererOf(renderer.transform))) return false;
+            if (_shareReads) ReadPropRoots();
             _ancestry.Clear();
             WorldScope scope = new() { Valid = true };
             for (Transform? node = renderer.transform; node != null; node = node.parent)
@@ -44,6 +76,7 @@ internal static partial class WorldMaterialBudget
             for (int i = _ancestry.Count - 1; i >= 0; i--)
             {
                 Transform node = _ancestry[i];
+                _scopeNodeReads++;
                 node.GetComponents(_components);
                 bool allowed = node.name != "Preview";
                 foreach (Component component in _components)
@@ -72,6 +105,7 @@ internal static partial class WorldMaterialBudget
                 scope.Valid &= allowed;
                 scope.Generated |= node.name == "Generated Content";
                 scope.Registered |= _worldRoots.Contains(node);
+                scope.Prop |= _shareReads && _propRoots.Contains(node);
                 _scopes[node] = scope;
             }
             _ancestry.Clear();
@@ -87,7 +121,7 @@ internal static partial class WorldMaterialBudget
                 }
                 scope.Scenario = scenario;
             }
-            return scope.Valid && (scope.Registered || scope.Generated && scope.Scenario);
+            return !scope.Prop && scope.Valid && (scope.Registered || scope.Generated && scope.Scenario);
         }
     }
 }

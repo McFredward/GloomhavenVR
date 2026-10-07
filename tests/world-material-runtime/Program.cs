@@ -8,6 +8,9 @@ using GloomhavenVR.Core;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Object=UnityEngine.Object;
+using Props=GloomhavenVR.Board.FigureGrab.PropGrab;
+using LocalProps=GloomhavenVR.Board.FigureGrab.HeldProps;
+using RemoteProps=GloomhavenVR.Board.FigureGrab.NetHeldProps;
 
 public static class WorldMaterialProgram
 {
@@ -112,8 +115,8 @@ public static class WorldMaterialProgram
         Check(source.sharedMaterial==first,"live native animated style retains original rendering while required static tile generators are admitted");
         style.AnimateStyle=false;Center(camera);
         Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterial),"actual tile required generator and static style boundary regains world material ownership");
-        GloomhavenVR.Board.FigureGrab.HeldProps.Held=true;Center(camera);
-        Check(source.sharedMaterial==first,"current held native world prop retains original material ownership");GloomhavenVR.Board.FigureGrab.HeldProps.Held=false;Center(camera);
+        GloomhavenVR.Board.FigureGrab.HeldProps.Visuals.Add(source.gameObject);Center(camera);
+        Check(source.sharedMaterial==first,"current held native world prop retains original material ownership");GloomhavenVR.Board.FigureGrab.HeldProps.Visuals.Clear();Center(camera);
         Object.DestroyImmediate(source.GetComponent<MeshFilter>());Center(camera);
         Check(source.sharedMaterial==first,"missing current native mesh filter restores world-owned references before culling");
         source.gameObject.AddComponent<MeshFilter>().sharedMesh=originalMesh;Center(camera);
@@ -150,6 +153,7 @@ public static class WorldMaterialProgram
         NativeScenarioScopes(host,room,source,first,second,camera);
         MapScopes(host,originalMesh,first,camera);
         Scale(host,room,source,first,second,camera);
+        PropGuards(host,room,source,first,second,camera);
         LateChanges(host,source,first,second,camera);
         bool prepared=false;WorldMaterialBudget.ConfigureAssetPreparation(()=>{prepared=true;return false;});Center(camera);
         Check(prepared&&source.sharedMaterial==first,"cold asset preparation refusal keeps native source materials valid");WorldMaterialBudget.ConfigureAssetPreparation(()=>true);
@@ -339,6 +343,70 @@ public static class WorldMaterialProgram
             "live per-slot effect remains authoritative with shared renderer-wide block reads");
         source.SetPropertyBlock(null);source.SetPropertyBlock(null,1);foreach(var clone in copies)clone.SetPropertyBlock(null);
         foreach(var clone in copies)Object.DestroyImmediate(clone.gameObject);
+    }
+    private static void PropGuards(GameObject host,GameObject room,MeshRenderer source,Material first,Material second,Camera camera)
+    {
+        source.sharedMaterials=new[]{first,second};
+        var registered=new GameObject("Registered original prop");registered.transform.SetParent(room.transform,false);
+        var other=new GameObject("Same-count replacement visual");other.transform.SetParent(room.transform,false);
+        foreach(bool shared in new[]{true,false})
+        {
+            PerfConfig.SharedEnvironmentMaterialReadsOn=shared;Center(camera);
+            Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterial),"current noninteractive scenery stays eligible with shared reads="+shared);
+            object key=Props.Register(registered);source.transform.SetParent(registered.transform,false);Center(camera);
+            Check(source.sharedMaterial==first,"registered unheld prop subtree remains native with shared reads="+shared);
+            source.transform.SetParent(room.transform,false);Center(camera);
+            Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterial),"reparent away from registered visual regains safe ownership with shared reads="+shared);
+            Props.Registry[key].Visual=source.gameObject;Center(camera);
+            Check(source.sharedMaterial==first,"same-count registered visual replacement is current at next eye with shared reads="+shared);
+            Props.Registry.Remove(key);Center(camera);
+            Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterial),"unregistered original visual regains world shading with shared reads="+shared);
+            RemoteProps.Visuals.Add(source.gameObject);Center(camera);
+            Check(source.sharedMaterial==first,"remote held original visual remains native with shared reads="+shared);
+            RemoteProps.Visuals[0]=other;Center(camera);
+            Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterial),"same-count remote held visual replacement is current with shared reads="+shared);
+            RemoteProps.Visuals.Clear();LocalProps.Visuals.Add(registered);source.transform.SetParent(registered.transform,false);Center(camera);
+            Check(source.sharedMaterial==first,"local held ancestor visual remains native with shared reads="+shared);
+            LocalProps.Visuals.Clear();source.transform.SetParent(room.transform,false);Center(camera);
+            Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterial),"local release and current reparent restore safe scenery with shared reads="+shared);
+            object? lateKey=null;Camera.CameraCallback late=cam=>{if(cam==camera)lateKey=Props.Register(source.gameObject);};Camera.onPreCull+=late;
+            Center(camera);Camera.onPreCull-=late;
+            Check(source.sharedMaterial==first,"final native boundary observes same-camera late prop registration with shared reads="+shared);
+            Props.Registry.Remove(lateKey!);Center(camera);
+        }
+        PerfConfig.SharedEnvironmentMaterialReadsOn=true;
+        var visuals=new List<GameObject>();var keys=new List<object>();var copies=new List<MeshRenderer>();
+        for(int i=0;i<128;i++){var visual=new GameObject("Registered visual "+i);visual.transform.SetParent(room.transform,false);visuals.Add(visual);keys.Add(Props.Register(visual));}
+        for(int i=0;i<63;i++){var clone=Object.Instantiate(source.gameObject);clone.transform.SetParent(room.transform,false);copies.Add(clone.GetComponent<MeshRenderer>());WorldMaterialBudget.MaterialReady(copies[copies.Count-1]);}
+        NativeWriteObserver.PropCopies=0;NativeWriteObserver.RegistryVisits=0;Center(camera);
+        int sharedVisits=NativeWriteObserver.RegistryVisits;
+        Check(NativeWriteObserver.PropCopies==1&&sharedVisits==128,"64-source pass enumerates 128 exact grabbable roots once instead of per ancestor");
+        Check(PerfMonitor.Counts["WorldMaterial.PropRootReads"]==128&&PerfMonitor.Counts["WorldMaterial.ScopeNodeReads"]>=64,
+            "Debug operation counts expose exact prop roots and memoized ancestry work");
+        PerfConfig.SharedEnvironmentMaterialReadsOn=false;NativeWriteObserver.PropCopies=0;NativeWriteObserver.RegistryVisits=0;Center(camera);
+        int unsharedVisits=NativeWriteObserver.RegistryVisits;
+        Check(NativeWriteObserver.PropCopies==0&&unsharedVisits>sharedVisits*64,"configurable unshared path retains fresh original registry guard while shared path removes repeated work");
+        Check(copies.All(copy=>WorldMaterialBudget.IsOwnedVariant(copy.sharedMaterial)),"shared and original guard paths retain complete room renderer material coverage");
+        Debug.Log("World ownership scaling: sources=64 roots=128; sharedRegistryVisits="+sharedVisits+"; unsharedRegistryVisits="+unsharedVisits);
+        foreach(object key in keys)Props.Registry.Remove(key);foreach(GameObject visual in visuals)Object.DestroyImmediate(visual);foreach(MeshRenderer copy in copies)Object.DestroyImmediate(copy.gameObject);
+        PerfConfig.SharedEnvironmentMaterialReadsOn=true;
+        int ambientReads=0;WorldMaterialBudget.ConfigureAmbientWeight(()=>{ambientReads++;return .42f;});Center(camera);
+        Check(ambientReads==1&&source.sharedMaterials.All(m=>Mathf.Approximately(m.GetFloat("_GHVRWorldAmbientWeight"),.42f)),"one synchronous pass reads current ambient config once for all originals");
+        WorldMaterialBudget.ConfigureAmbientWeight(()=>1f);
+        using(IDisposable pass=WorldMaterialBudget.BeginMaterialReadPass())
+        {
+            Material initial=WorldMaterialBudget.VariantFor(first);first.SetColor("_Tint",Color.cyan);
+            WorldMaterialBudget.BeforeNativeRendererWrite(source);Material refreshed=WorldMaterialBudget.VariantFor(first);
+            Check(initial==refreshed&&refreshed.GetColor("_Tint")==Color.cyan,"native writer boundary invalidates prepared material reads within an outer pass");
+            Center(camera);LocalProps.Visuals.Add(source.gameObject);Center(camera);
+            Check(source.sharedMaterial==first,"nested actual camera boundary refreshes current local held roots and cached ancestry");
+            LocalProps.Visuals.Clear();Center(camera);
+            Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterial),"nested actual camera boundary observes current local release without waiting for outer pass disposal");
+        }
+        Object.DestroyImmediate(registered);Object.DestroyImmediate(other);
+        Center(camera);NativeWriteObserver.MeshReads=0;room.SetActive(false);Center(camera);
+        Check(NativeWriteObserver.MeshReads==0&&source.sharedMaterial==first,"inactive native candidates restore original slots without reading mesh filters");
+        room.SetActive(true);Center(camera);Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterial),"reactivated native room checks current mesh and restores complete shading immediately");
     }
     private static void LateChanges(GameObject host,MeshRenderer source,Material first,Material second,Camera camera)
     {

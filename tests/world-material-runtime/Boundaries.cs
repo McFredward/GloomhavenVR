@@ -35,7 +35,7 @@ namespace GloomhavenVR.Core
         internal static bool IsRunning=true;
         internal static Harmony Harmony=new("world.material."+typeof(VRSession).Assembly.GetName().Name);
     }
-    internal static class PerfConfig { internal static int WorldMaterialQualityMode=2; }
+    internal static class PerfConfig { internal static int WorldMaterialQualityMode=2; internal static bool SharedEnvironmentMaterialReadsOn=true; }
     internal static class VRLog
     {
         internal static VRLogLevel Level=VRLogLevel.Debug;
@@ -60,20 +60,46 @@ namespace GloomhavenVR.Core
         internal static void RegisterDebug(string name){ }
         internal static void Count(string name,int value=1)=>Counts[name]=value;
         internal static IDisposable Scope(string name)=>new Quiet();
+        internal static long BeginStep()=>0L;
+        internal static void EndStep(string name,long begin){ }
     }
     internal static class NativeWriteObserver
     {
-        internal static int MaterialCopies,ArrayWrites,MaterialReads,MapInventories,RendererBlockReads,SlotBlockReads;
+        internal static int MaterialCopies,ArrayWrites,MaterialReads,MapInventories,RendererBlockReads,SlotBlockReads,PropCopies,RegistryVisits,MeshReads;
         internal static void Copy(Material target,Material source){MaterialCopies++;target.CopyPropertiesFromMaterial(source);}
         internal static void Slots(Renderer renderer,Material[] slots){ArrayWrites++;renderer.sharedMaterials=slots;}
         internal static void Read(Renderer renderer,List<Material> slots){MaterialReads++;renderer.GetSharedMaterials(slots);}
         internal static MapChoreographer[] FindMaps(){MapInventories++;return UnityEngine.Object.FindObjectsOfType<MapChoreographer>(true);}
         internal static void RendererBlock(Renderer renderer,MaterialPropertyBlock block){RendererBlockReads++;renderer.GetPropertyBlock(block);}
         internal static void SlotBlock(Renderer renderer,MaterialPropertyBlock block,int slot){SlotBlockReads++;renderer.GetPropertyBlock(block,slot);}
+        internal static MeshFilter ReadMesh(MeshRenderer renderer){MeshReads++;return renderer.GetComponent<MeshFilter>();}
     }
 }
 namespace GloomhavenVR.Board.FigureGrab
 {
-    internal static class HeldProps { internal static bool Held=false; internal static bool OwnsRendererOf(Transform node)=>Held; }
-    internal static class PropGrab { internal static bool Held=false; internal static bool OwnsRendererOf(Transform node)=>Held; }
+    // Local/remote gameplay registries are explicit boundaries. Native Unity
+    // visual identity/ancestry is real; PropGrab's two pure readers are extracted
+    // unmodified from production and execute against this small registry model.
+    internal static class HeldProps
+    {
+        internal static readonly List<GameObject> Visuals=new();
+        internal static int Count=>Visuals.Count;
+        internal static bool OwnsRendererOf(Transform? node)=>Owns(Visuals,node)||NetHeldProps.OwnsRendererOf(node);
+        internal static bool Owns(List<GameObject> roots,Transform? node)
+        {for(Transform? cur=node;cur!=null;cur=cur.parent)foreach(GameObject visual in roots)if(visual!=null&&ReferenceEquals(visual.transform,cur))return true;return false;}
+        internal static bool TryGetSlot(int slot,out object prop,out GameObject visual,out int side,out float scale)
+        {prop=null!;visual=Visuals[slot];side=0;scale=1;return visual!=null;}
+    }
+    internal static class NetHeldProps
+    {
+        internal static readonly List<GameObject> Visuals=new();
+        internal static void CopyVisualRoots(List<GameObject> target){foreach(GameObject visual in Visuals)if(visual!=null)target.Add(visual);}
+        internal static bool OwnsRendererOf(Transform? node)=>HeldProps.Owns(Visuals,node);
+    }
+    internal sealed class GrabbableProp {internal GameObject Visual=null!;}
+    internal static partial class PropGrab
+    {
+        internal static readonly Dictionary<object,GrabbableProp> Registry=new();
+        internal static object Register(GameObject visual){var key=new object();Registry.Add(key,new GrabbableProp{Visual=visual});return key;}
+    }
 }

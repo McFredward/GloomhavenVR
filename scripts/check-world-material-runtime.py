@@ -19,6 +19,13 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 
 
+def pure_method(source,signature):
+    start=source.index(signature);body=source.index('{',start);depth=1;end=body+1
+    while depth:
+        depth+=(source[end]=='{')-(source[end]=='}');end+=1
+    return source[start:end]
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root',type=Path,default=ROOT)
@@ -31,6 +38,12 @@ def main():
     paths=sorted((root/'src/GloomhavenVR/Core/Perf').glob('WorldMaterialBudget*.cs'))
     paths.append(root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentBudget.CameraBoundary.cs')
     sources={p.name:p.read_text() for p in paths}
+    prop_path=root/'src/GloomhavenVR/Board/FigureGrab/PropGrab.cs'
+    prop_source=prop_path.read_text()
+    prop_methods=[pure_method(prop_source,signature) for signature in (
+        'internal static bool OwnsRendererOf(Transform? t)',
+        'internal static void CopyVisualRoots(List<GameObject> destination)')]
+    sources['PropGrab.VisualRoots.cs']='using System;\nusing System.Collections.Generic;\nusing UnityEngine;\nnamespace GloomhavenVR.Board.FigureGrab { internal static partial class PropGrab {\n'+'\n'.join(prop_methods)+'\n} }\n'
     combined='\n'.join(sources.values())
     assert 'StaticBatchingUtility' not in combined and 'SetStaticBatchInfo' not in combined
     assert 'new Mesh' not in combined and 'SetPropertyBlock(' not in combined and 'forceRenderingOff =' not in combined
@@ -39,8 +52,8 @@ def main():
         ('mode-ignored',[('WorldMaterialBudget.Materials.cs','variant.SetFloat("_GHVRWorldMaterialMode", _mode);','variant.SetFloat("_GHVRWorldMaterialMode", 1);',1)],'actual private material binds independently requested mode'),
         ('native-material-shader-mutated',[('WorldMaterialBudget.Materials.cs','variant.shader = _shader;','original.shader = _shader;',2)],'private world shader never mutates original native material'),
         ('native-copy-omitted',[('WorldMaterialBudget.Materials.cs','variant.CopyPropertiesFromMaterial(original);','/* injected stale material properties */',1)],'between-eye native in-place material edits'),
-        ('material-pass-cross-eye-stale',[('WorldMaterialBudget.cs','_prepared.Clear();','/* injected cross-eye reuse */',3)],'between-eye native in-place material edits'),
-        ('scope-cross-eye-stale',[('WorldMaterialBudget.cs','_scopes.Clear();','/* injected cross-eye scope verdict */',3)],'current added native interaction between eyes'),
+        ('material-pass-cross-eye-stale',[('WorldMaterialBudget.cs','_prepared.Clear();','/* injected cross-eye reuse */',5)],'between-eye native in-place material edits'),
+        ('scope-cross-eye-stale',[('WorldMaterialBudget.cs','_scopes.Clear();','/* injected cross-eye scope verdict */',3),('WorldMaterialBudget.Scope.cs','_scopes.Clear();','/* injected cross-eye scope verdict */',1)],'current added native interaction between eyes'),
         ('foreign-slot-overwritten',[('WorldMaterialBudget.cs','original = Canonical(current);','original = Source(_slots[0]);',1)],'conditional restoration preserves same-count foreign slot replacement'),
         ('native-clone-boundary-missing',[('WorldMaterialBudget.cs','internal static void BeforeNativeContentChange() => _driver?.RestoreBindings();','internal static void BeforeNativeContentChange() { }',1)],'native content boundary restores original slot composition'),
         ('proxy-only-refusal-not-notified',[('WorldMaterialBudget.cs','if (restored || geometryChanged || !surface.Refused) _changedSources.Add(renderer);','if (restored) _changedSources.Add(renderer);',1)],'late native scope refusal revokes an earlier proxy-only variant'),
@@ -54,17 +67,17 @@ def main():
         ('native-render-tag-dropped',[('WorldMaterialBudget.Materials.cs','variant.SetOverrideTag("RenderType", original.GetTag("RenderType", false, ""));','/* injected replacement render route loss */',1)],'native replacement-camera render type and queue'),
         ('native-tile-required-generator-vetoed',[('WorldMaterialBudget.Scope.cs','&& component is not ProceduralStyle','&& component is not UnknownNativeAnimation',1)],'requested world stage produces a private variant'),
         ('animated-style-veto-lost',[('WorldMaterialBudget.Scope.cs','if (component is ProceduralStyle style && style.AnimateStyle) allowed = false;','/* injected animated native style admission */',1)],'live native animated style retains original rendering'),
-        ('held-source-veto-lost',[('WorldMaterialBudget.Scope.cs','if (HeldProps.OwnsRendererOf(renderer.transform) || PropGrab.OwnsRendererOf(renderer.transform)) return false;','/* injected held source admission */',1)],'current held native world prop retains original material ownership'),
+        ('held-source-veto-lost',[('WorldMaterialBudget.Scope.cs','scope.Prop |= _shareReads && _propRoots.Contains(node);','scope.Prop |= false;',1)],'current held native world prop retains original material ownership'),
         ('current-meshfilter-not-read',[('WorldMaterialBudget.cs','MeshFilter filter = renderer.GetComponent<MeshFilter>();\n                    Mesh mesh','MeshFilter filter = surface.Filter!;\n                    Mesh mesh',1)],'replacement native mesh filter is read again and can regain safe world shading'),
         ('native-mesh-reference-ignored',[('WorldMaterialBudget.cs',' || surface.Mesh != mesh','',1)],'live native mesh-reference swap notifies earlier consumers'),
         ('empty-slots-not-refused',[('WorldMaterialBudget.cs','refused = _slots.Count == 0;','refused = false;',1)],'empty native material slots revoke an earlier factory-only draw'),
-        ('joint-program-contract-unrestricted',[('WorldMaterialBudget.Materials.cs','return ProvenProgram(original, route) ? route : -1;','return route;',1)],'unproven native worldspace alpha program combination retains original shader'),
+        ('joint-program-contract-unrestricted',[('WorldMaterialBudget.Materials.cs','return ProvenProgram(metadata.Keywords(original), route) ? route : -1;','return route;',1)],'unproven native worldspace alpha program combination retains original shader'),
         ('standard-mpb-render-mode-unchecked',[('WorldMaterialBudget.Materials.cs','if (route == 9)\n                foreach','if (route == 10)\n                foreach',1)],'native MPB blend mode override remains original'),
         ('native-map-provenance-missing',[('WorldMaterialBudget.cs','if (map.worldMap != null) _worldRoots.Add(map.worldMap.transform);','/* injected missing native map scope */',1)],'actual native MapChoreographer worldMap field establishes positive map decoration scope'),
         ('disabled-native-pass-admitted',[('WorldMaterialBudget.Materials.cs',' || !NativePassesEnabled(original)','',1)],'live disabled native material pass remains original: FORWARD'),
         ('disabled-native-fallback-caster-admitted',[('WorldMaterialBudget.Materials.cs','return original.GetShaderPassEnabled("ShadowCaster") && original.GetShaderPassEnabled("CUSTOM_SHADOW_PASS");','return original.GetShaderPassEnabled("CUSTOM_SHADOW_PASS");',1)],'live disabled native material pass remains original: ShadowCaster'),
         ('disabled-native-low-caster-admitted',[('WorldMaterialBudget.Materials.cs','return original.GetShaderPassEnabled("ShadowCaster") && original.GetShaderPassEnabled("CUSTOM_SHADOW_PASS");','return original.GetShaderPassEnabled("ShadowCaster");',1)],'live disabled native material pass remains original: CUSTOM_SHADOW_PASS'),
-        ('video-mpb-admitted',[('WorldMaterialBudget.Materials.cs','if (_block.HasTexture("_MainTex") && _block.GetTexture("_MainTex") is RenderTexture\n                || _slotBlock.HasTexture("_MainTex") && _slotBlock.GetTexture("_MainTex") is RenderTexture) return true;','/* injected animated texture admission */',1)],'current per-slot native video/render texture remains original'),
+        ('video-mpb-admitted',[('WorldMaterialBudget.Materials.cs','if (_block.HasTexture(MainTextureId) && _block.GetTexture(MainTextureId) is RenderTexture\n                || _slotBlock.HasTexture(MainTextureId) && _slotBlock.GetTexture(MainTextureId) is RenderTexture) return true;','/* injected animated texture admission */',1)],'current per-slot native video/render texture remains original'),
         ('off-read-pass-allocates',[('WorldMaterialBudget.cs','if (!Requested && _originalByVariant.Count == 0) return EmptyPass.Instance;','/* injected allocating Off pass */',1)],'settled Off reuses a no-op read pass'),
         ('off-renderer-material-read',[('WorldMaterialBudget.cs','if (_originalByVariant.Count == 0) return false;','/* injected unused native Off slot read */',1)],'settled Off performs no native renderer slot reads'),
         ('off-scene-inventory',[('WorldMaterialBudget.cs','private void SceneLoaded(Scene scene, LoadSceneMode mode) { if (Requested) Seed(); }','private void SceneLoaded(Scene scene, LoadSceneMode mode) { if (VRSession.IsRunning) Seed(); }',1)],'settled Off additive scene loading performs no scene material inventory'),
@@ -74,8 +87,15 @@ def main():
         ('native-placement-coordinator-vetoed',[('WorldMaterialBudget.Scope.cs','type == typeof(ProceduralPlacementNotifierHandler)','false',1)],'exact original ProcGen root and native map coordinator tuple'),
         ('native-shadow-coordinator-vetoed',[('WorldMaterialBudget.Scope.cs','type == typeof(LightShadowsModifierController)','false',1)],'exact original ProcGen root and native map coordinator tuple'),
         ('native-coordinator-subclass-admitted',[('WorldMaterialBudget.Scope.cs','type == typeof(ApparanceMap)','component is ApparanceMap',1)],'unreviewed subclass never inherits permission'),
-        ('ambient-weight-ignored',[('WorldMaterialBudget.Materials.cs','_ambientWeight?.Invoke() ?? 1f','1f',1)],'actual private material binds independently requested ambient weight'),
+        ('ambient-weight-ignored',[('WorldMaterialBudget.cs','_passAmbient = _shareReads ? _ambientWeight?.Invoke() ?? 1f : 1f;','_passAmbient = 1f;',1)],'actual private material binds independently requested ambient weight'),
         ('renderer-mpb-read-per-slot',[('WorldMaterialBudget.Materials.cs','renderer.GetPropertyBlock(_slotBlock, slot);','renderer.GetPropertyBlock(_block);\n            renderer.GetPropertyBlock(_slotBlock, slot);',1)],'settled 64-source two-slot MPBs read renderer-wide blocks once per source'),
+        ('registered-root-enumeration-lost',[('WorldMaterialBudget.Scope.cs','PropGrab.CopyVisualRoots(_propVisuals);','/* injected omitted registered props */',1)],'registered unheld prop subtree remains native'),
+        ('remote-root-enumeration-lost',[('WorldMaterialBudget.Scope.cs','NetHeldProps.CopyVisualRoots(_propVisuals);','/* injected omitted remote held props */',1)],'remote held original visual remains native'),
+        ('prop-roots-cross-eye-stale',[('WorldMaterialBudget.Scope.cs','_propRoots.Clear(); _propVisuals.Clear(); _propRootsReady = false;','/* injected stale exact prop roots */',1)],'current held native world prop retains original material ownership'),
+        ('registry-work-repeated',[('WorldMaterialBudget.Scope.cs','if (_propRootsReady) return;','if (_propRootsReady && bool.Parse("false")) return;',1)],'64-source pass enumerates 128 exact grabbable roots once'),
+        ('ambient-read-repeated',[('WorldMaterialBudget.Materials.cs','_shareReads ? _passAmbient : _ambientWeight?.Invoke() ?? 1f','_ambientWeight?.Invoke() ?? 1f',1)],'one synchronous pass reads current ambient config once'),
+        ('native-writer-read-invalidation-lost',[('WorldMaterialBudget.cs','InvalidateScopeReads(); _prepared.Clear(); _metadata.Clear(); RestoreRenderer(renderer);','InvalidateScopeReads(); RestoreRenderer(renderer);',1)],'native writer boundary invalidates prepared material reads within an outer pass'),
+        ('nested-prop-reads-stale',[('WorldMaterialBudget.cs','InvalidateScopeReads();\n            return new ReadPass(this);','if (_passDepth == 1) InvalidateScopeReads();\n            return new ReadPass(this);',1)],'nested actual camera boundary refreshes current local held roots'),
     ]
     variants=[('production',sources,'')]
     if not args.production_only:
@@ -100,7 +120,7 @@ def main():
         'harmonyx/2.7.0/lib/net45/0Harmony.dll','monomod.runtimedetour/21.12.13.1/lib/net452/MonoMod.RuntimeDetour.dll',
         'monomod.utils/21.12.13.1/lib/net452/MonoMod.Utils.dll','mono.cecil/0.11.4/lib/net40/Mono.Cecil.dll')]
     assert all(p.is_file() for p in deps),'pinned production HarmonyX dependencies must exist'
-    inputs=paths+bridge_paths+[Path(__file__).resolve()]+sorted(p for p in fixture.rglob('*') if p.is_file() and '__pycache__' not in p.parts)+deps
+    inputs=paths+[prop_path]+bridge_paths+[Path(__file__).resolve()]+sorted(p for p in fixture.rglob('*') if p.is_file() and '__pycache__' not in p.parts)+deps
     hashes={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
     manifest={'result':str(run/'results.txt'),'cases':[]}
     dotnet=shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
@@ -115,6 +135,11 @@ def main():
                 text=text.replace('renderer.sharedMaterials = _slots.ToArray();','NativeWriteObserver.Slots(renderer, _slots.ToArray());')
                 text=text.replace('renderer.GetSharedMaterials(_slots);','NativeWriteObserver.Read(renderer, _slots);')
                 text=text.replace('UnityEngine.Object.FindObjectsOfType<MapChoreographer>(true)','NativeWriteObserver.FindMaps()')
+                text=text.replace('MeshFilter filter = renderer.GetComponent<MeshFilter>();\n                    Mesh mesh',
+                                  'MeshFilter filter = NativeWriteObserver.ReadMesh(renderer);\n                    Mesh mesh')
+            if filename=='PropGrab.VisualRoots.cs':
+                text=text.replace('foreach (GrabbableProp g in Registry.Values)\n            {','foreach (GrabbableProp g in Registry.Values)\n            {\n                GloomhavenVR.Core.NativeWriteObserver.RegistryVisits++;')
+                text=text.replace('foreach (GrabbableProp prop in Registry.Values)\n        {','GloomhavenVR.Core.NativeWriteObserver.PropCopies++;\n        foreach (GrabbableProp prop in Registry.Values)\n        {\n            GloomhavenVR.Core.NativeWriteObserver.RegistryVisits++;')
             (production/filename).write_text(text)
         project=case/'World.csproj';shutil.copyfile(fixture/'World.csproj',project)
         assembly='WorldMaterial_'+name.replace('-','_')
