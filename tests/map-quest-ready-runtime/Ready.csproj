@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>$(NoWarn);CS0649;CS0414</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(FixtureDir)/*.cs" />
+    <Compile Include="$(ProductionDir)/MapQuestReadyUp.cs" />
+    <Compile Include="$(ProductionDir)/ReadyToggleParkClaim.cs" />
+    <Compile Include="$(NativeSource)" />
+  </ItemGroup>
+</Project>
