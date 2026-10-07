@@ -70,8 +70,16 @@ public sealed class TownServiceStation
 {
     public Transform Root=null!;
     public bool Near=true;
-    public bool IsLocalVisitorNear(bool alreadyNear)=>Near;
+    public BoundTempleFace? Face;
+    public bool IsLocalVisitorNear(bool alreadyNear)=>Face?.IsLocalVisitorNear(alreadyNear)??Near;
 }
+public sealed class TempleEyeBoundary
+{
+    public Transform Eye=null!;
+    public Vector3 EyePosition=>Eye.position;
+    public Quaternion OpticalRotation=>Eye.rotation;
+}
+namespace GloomhavenVR.Core { public static class VRLayers { public const int ModLayer=29; } }
 public static class TownServicePopulation
 {
     public static TownServiceStation? Station;
@@ -147,6 +155,47 @@ internal static class TempleApproachProof
         VRHands.Right.Grabber.Held=null;
         BoundTempleApproach.TickApproach();
         Check(MapRoomHand.TempleInspection,"returning from merchant immediately restores the purse context");
+
+        // Bind the production eye-origin/optical-space attention gate, rather than the
+        // old constant Near=true station stub. Another visitor owns the shared gaze;
+        // this local wrist remains immediately usable on its very first reveal.
+        var eye=new GameObject("Shared priestess eye");
+        eye.transform.position=root.transform.position+Vector3.up*1.5f;
+        eye.transform.rotation=Quaternion.Euler(0f,180f,0f);
+        TownServicePopulation.Station!.Face=new BoundTempleFace(root.transform,new TempleEyeBoundary{Eye=eye.transform});
+        head.transform.position=root.transform.position+new Vector3(0f,1.5f,1f);
+        BoundTempleApproach.ResetFocus();
+        MapRoomHand.TempleInspection=false;
+        CardsDriver.OffScenarioFanCards=new object();CardsDriver.OffScenarioFanIsOpen=false;
+        VRHands.Right.PalmGate.IsOpen=true;
+        Check(!TownServicePopulation.Station.IsLocalVisitorNear(false),
+            "production eye gate rejects local visitor when shared eye faces another visitor");
+        BoundTempleApproach.TickApproach();
+        Check(MapRoomHand.TempleInspection&&CardsDriver.OffScenarioFanCards==null,
+            "first wrist reveal selects purse independently of another visitor's animated eye");
+        Check(BoundTempleRenderedFocus.InspectionNear(),
+            "rendered purse and approach use the same local focus despite shared eye rejection");
+        int published=MapRoomHand.AbilityPublishes;
+        using(var old=new BoundTempleWristCleanup())old.Dispose();
+        Check(MapRoomHand.TempleInspection&&CardsDriver.OffScenarioFanCards==null
+            &&MapRoomHand.AbilityPublishes==published,
+            "ritual replacement cannot republish ability cards midway through first wrist reveal");
+        CardsDriver.OffScenarioFanCards=new object();
+        BoundTempleApproach.TickApproach();
+        Check(CardsDriver.OffScenarioFanCards==null,
+            "late native hand refresh is suppressed again while local purse focus remains active");
+        MapRoomHand.Selected=null;BoundTempleApproach.TickApproach();
+        Check(!MapRoomHand.TempleInspection,"unassigned online visitor has no private purse hand");
+        MapRoomHand.Selected=selected.Data;BoundTempleApproach.TickApproach();
+        Check(MapRoomHand.TempleInspection,"assigned character obtains purse on first following reveal");
+        WorldUIConfig.ImmersiveTownServices.Value=false;
+        using(var old=new BoundTempleWristCleanup())old.Dispose();
+        Check(!MapRoomHand.TempleInspection&&CardsDriver.OffScenarioFanCards!=null,
+            "disabling immersive NPCs restores normal ability fan during ritual cleanup");
+        WorldUIConfig.ImmersiveTownServices.Value=true;BoundTempleApproach.TickApproach();
+        Check(MapRoomHand.TempleInspection,"reenabling immersive NPCs elects purse without native window");
+        Object.DestroyImmediate(eye);TownServicePopulation.Station.Face=null;
+
         head.transform.position=root.transform.position+Vector3.forward*2.8f;
         BoundTempleApproach.TickApproach();
         Check(!MapRoomHand.TempleInspection,"leaving priestess attention restores ordinary map hand");

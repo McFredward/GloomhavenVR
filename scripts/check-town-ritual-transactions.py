@@ -361,7 +361,39 @@ def sources(root):
     approach += method(offering_raw, "private static bool NearestTempleForHead(")
     approach += method(offering_raw, "private static bool WantsMerchantFanAtCounter(")
     approach += method(offering_raw, "internal static bool WantsPurseFocus")
-    approach_source = "using UnityEngine;using GloomhavenVR.Core;using VRHand=FakeHand;namespace GloomhavenVR.WorldUI { internal static class BoundTempleApproach { private static bool _approachInside,_purseFocus;" + approach + "} }"
+    approach_source = "using UnityEngine;using GloomhavenVR.Core;using VRHand=FakeHand;namespace GloomhavenVR.WorldUI { internal static class BoundTempleApproach { private static bool _approachInside,_purseFocus;internal static void ResetFocus(){_approachInside=_purseFocus=false;}" + approach + "} }"
+    # Exercise the original inspection-state mutation, not the previous boolean
+    # SetTempleInspection stub. Its release/rebuild endpoints are counted explicit
+    # boundaries; production methods decide whether a normal hand is republished.
+    map_hand_raw = (root / "src/GloomhavenVR/WorldUI/MapRoom/MapRoomHand.5.Merchant.cs").read_text()
+    map_hand = ("public sealed partial class MapRoomHand {"
+                "private bool _merchantInspection,_templeInspection,_townInspectionFanWasOpen;"
+                "private bool TownInspection=>_merchantInspection||_templeInspection;"
+                + method(map_hand_raw, "internal static void SetTempleInspection(")
+                + method(map_hand_raw, "private void SetTownInspectionFan(") + "}")
+    face_raw = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceFace.cs").read_text()
+    eye_gate = method(face_raw, "internal bool IsLocalVisitorNear(").replace(
+        "GloomhavenVR.Rig.VRRigDriver", "VRRigDriver")
+    face_bound = ("using UnityEngine;public sealed class BoundTempleFace {"
+                  "private const float VisitorReachMetres=2.4f;private readonly Transform _root;"
+                  "private readonly TempleEyeBoundary _rig;"
+                  "public BoundTempleFace(Transform root,TempleEyeBoundary rig){_root=root;_rig=rig;}"
+                  + eye_gate + "}")
+    rendered = method(offering_raw, "internal void Tick(bool input)")
+    start = rendered.index("        var selected = MapRoomHand.OwnedMerchantCharacter();")
+    end = rendered.index("        // Native modal focus", start)
+    rendered_focus = ("using UnityEngine;using GloomhavenVR.WorldUI;using VRHand=FakeHand;"
+                      "internal sealed class BoundTempleRenderedFocus {"
+                      "internal static bool InspectionNear(){bool _inspectionNear=false;"
+                      + rendered[start:end].replace("&& WantsPurseFocus;", "&& BoundTempleApproach.WantsPurseFocus;")
+                      + "return _inspectionNear;}}")
+    cleanup = method(offering_raw, "public void Dispose()").replace(
+        "TickApproach();", "BoundTempleApproach.TickApproach();")
+    wrist_cleanup = ("using System;using UnityEngine;using GloomhavenVR.WorldUI;"
+                     "internal sealed class BoundTempleWristCleanup:IDisposable {private bool _disposed;"
+                     "internal Transform Root=new GameObject(\"Retiring purse\").transform;"
+                     "internal Transform DropFrame=new GameObject(\"Retiring bowl\").transform;"
+                     + cleanup + "}")
     _, received, frame, physical, address, _ = purse_visitor_sources(mirror_raw)
     # Preserve the exact received-frame predicate and production classifiers. Only
     # their surrounding loop/session objects are adapted to explicit parameters.
@@ -392,6 +424,8 @@ def sources(root):
     native_proxy_source = "using System.Linq;using MapRuleLibrary.Party;using MapRuleLibrary.YML.Locations;internal sealed class BoundNativeTempleProxy {private readonly UIWindow window;private readonly FakeTempleService service;private readonly System.Action<string,TempleYML.TempleBlessingDefinition> _visibleBuy;private string audioItemBless=\"native-bless\";internal BoundNativeTempleProxy(UIWindow source,FakeTempleService model,System.Action<string,TempleYML.TempleBlessingDefinition> visibleBuy){window=source;service=model;_visibleBuy=visibleBuy;}private void BuyBlessing(string id,TempleYML.TempleBlessingDefinition blessing)=>_visibleBuy(id,blessing);" + native_proxy + "}"
     bound = {"RitualTransactions.cs": text, "RitualGuard.cs": guard, "TempleExit.cs": exit_source,
              "TempleApproach.cs": approach_source, "TemplePurseVisitor.cs": visitor_source,
+             "TempleMapHand.cs": map_hand, "TempleEyeGate.cs": face_bound,
+             "TempleRenderedFocus.cs": rendered_focus, "TempleWristCleanup.cs": wrist_cleanup,
              "TempleQuietController.cs": controller_source, "TempleQuietProxy.cs": proxy_source,
              "NativeTempleProxy.cs": native_proxy_source}
     hashes = {"TownServiceRitual.cs": hashlib.sha256(raw.encode()).hexdigest(),
@@ -399,6 +433,8 @@ def sources(root):
               "native-boundary/UITempleWindow.ProxyBuyBlessing:" + native_origin: hashlib.sha256(native_proxy.encode()).hexdigest(),
               "TownServiceRitualConfirmationGuard.cs": hashlib.sha256(guard_raw.encode()).hexdigest(),
               "TownServiceTempleOffering.cs": hashlib.sha256(offering_raw.encode()).hexdigest(),
+              "MapRoom/MapRoomHand.5.Merchant.cs": hashlib.sha256(map_hand_raw.encode()).hexdigest(),
+              "TownServiceFace.cs": hashlib.sha256(face_raw.encode()).hexdigest(),
               "Net/TownServices/TownServiceMirror.cs": hashlib.sha256(mirror_raw.encode()).hexdigest(),
               "TownServiceSync.cs": hashlib.sha256(sync_raw.encode()).hexdigest(),
               "NativeTemplates.cs": hashlib.sha256(templates_raw.encode()).hexdigest()}
@@ -424,6 +460,17 @@ def mutations():
         ("purse-visitor-image-leak", "TemplePurseVisitor.cs", '|| frame.Service == 2 && frame.TemplateAddress == "ritual.purse|" && PhysicalPurse(frame.Nodes);', '|| frame.Service == 2 && frame.TemplateAddress == "ritual.purse|";', "cumulative purse delta reaches expansion without repeating its native mesh"),
         ("temple-commit-release", "RitualTransactions.cs", "TownServiceMirror.SetLocalTransactionActive(2, false);\n        if (!committed)", "/* retain priestess reservation */\n        if (!committed)", "successful donation retires its short native commit reservation before the shared blessing finishes"),
         ("temple-attention-too-narrow", "TempleApproach.cs", "_purseFocus ? 2.6f : 2.4f", "_purseFocus ? 1.65f : 1.4f", "attention-range visitor retains purse when original temple closes"),
+        ("temple-shared-eye-wrist-coupling", "TempleApproach.cs",
+         "bool templeNear = TownServiceOfferingPose.VisitorWithin(station.Root,",
+         "bool templeNear = station.IsLocalVisitorNear(_purseFocus) && TownServiceOfferingPose.VisitorWithin(station.Root,",
+         "first wrist reveal selects purse independently of another visitor's animated eye"),
+        ("temple-shared-eye-render-coupling", "TempleRenderedFocus.cs",
+         "selected != null && priest != null && BoundTempleApproach.WantsPurseFocus;",
+         "selected != null && priest != null && priest.IsLocalVisitorNear(_inspectionNear) && BoundTempleApproach.WantsPurseFocus;",
+         "rendered purse and approach use the same local focus despite shared eye rejection"),
+        ("temple-retiring-wrist-false", "TempleWristCleanup.cs",
+         "BoundTempleApproach.TickApproach();", "MapRoomHand.SetTempleInspection(false);",
+         "ritual replacement cannot republish ability cards midway through first wrist reveal"),
         ("temple-native-destination-coupling", "TempleApproach.cs", "_purseFocus = deliberate || templeNear", "_purseFocus = GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Temple && deliberate || GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.Temple && templeNear", "native five-frame close cannot restore the normal ability fan at priestess"),
         ("temple-quiet-window-open", "TempleQuietController.cs", "temple.Shop.Display(blessings, temple.service);", "window.Show(); temple.Shop.Display(blessings, temple.service);", "quiet temple never opens or activates the flat window"),
         ("temple-quiet-source-hidden-row", "TempleQuietController.cs", "if (!current.gameObject.activeSelf) return false;", "if (current == null) return false;", "a hidden native row ancestor is never exposed by quiet admission"),

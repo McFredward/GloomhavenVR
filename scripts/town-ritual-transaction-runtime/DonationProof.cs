@@ -8,7 +8,23 @@ using GloomhavenVR.WorldUI;
 using GloomhavenVR.Net.TownServices;
 
 public sealed class FakeCharacter { public string CharacterID="owned"; }
-public static class MapRoomHand { public static FakeCharacter? Selected; public static FakeCharacter? OwnedMerchantCharacter()=>Selected;public static bool TempleInspection;public static void SetTempleInspection(bool value)=>TempleInspection=value; }
+public sealed partial class MapRoomHand
+{
+    public static FakeCharacter? Selected;
+    public static FakeCharacter? OwnedMerchantCharacter()=>Selected;
+    internal static readonly MapRoomHand s_live=new();
+    internal bool _engaged=true;
+    public static bool TempleInspection { get=>s_live._templeInspection; set=>s_live._templeInspection=value; }
+    public static int AbilityPublishes,AbilityReleases;
+    private void ReleaseFan(string reason){AbilityReleases++;CardsDriver.OffScenarioFanCards=null;}
+    private void RebuildFan(){if(!TownInspection){AbilityPublishes++;CardsDriver.OffScenarioFanCards=new object();}}
+}
+public static class CardsDriver
+{
+    public static object? OffScenarioFanCards;
+    public static bool OffScenarioFanIsOpen;
+    public static void SuppressNextOffScenarioFanEdgeSound(bool open){}
+}
 public sealed class FakeTempleInventory
 {
     public CanvasGroup slotsCanvasGroup=null!;public readonly System.Collections.Generic.List<UITempleShopSlot> slots=new();

@@ -53,8 +53,14 @@ internal sealed class TownServiceTempleOffering : IDisposable
                 || VRHands.Left?.Grabber.Held is ItemsPile.ItemChip || VRHands.Right?.Grabber.Held is ItemsPile.ItemChip)
             { _purseFocus = false; return false; }
             bool deliberate = WantsPurseAtBowl(station.Root);
-            bool templeNear = station.IsLocalVisitorNear(_purseFocus)
-                && TownServiceOfferingPose.VisitorWithin(station.Root, _purseFocus ? 2.6f : 2.4f);
+            // Wrist ownership is a local spatial choice, not the resident's shared gaze.
+            // IsLocalVisitorNear measures from the animated eyeball and its optical
+            // rotation. In multiplayer that eye can be looking at another visitor;
+            // using it here can reject this visitor on the first reveal and restore
+            // ordinary ability cards until the attention/pose changes. Use the stable
+            // station footprint, just as the other local handoff approach gates do.
+            bool templeNear = TownServiceOfferingPose.VisitorWithin(station.Root,
+                _purseFocus ? 2.6f : 2.4f);
             // A parked transaction at another resident is not a reason to hide the
             // priestess's local hand. The actual destination and palm position elect
             // this fan; each resident's transaction ownership is independent.
@@ -155,10 +161,7 @@ internal sealed class TownServiceTempleOffering : IDisposable
         var selected = MapRoomHand.OwnedMerchantCharacter();
         TownServiceStation? priest = TownServicePopulation.Acquire(2);
         bool holdingCard = VRHands.Left?.Grabber.Held is VRCard || VRHands.Right?.Grabber.Held is VRCard;
-        _inspectionNear = selected != null && priest != null
-            && priest.IsLocalVisitorNear(_inspectionNear)
-            && TownServiceOfferingPose.VisitorWithin(_station, _inspectionNear ? 2.6f : 2.4f)
-            && WantsPurseFocus;
+        _inspectionNear = selected != null && priest != null && WantsPurseFocus;
         // Native modal focus temporarily disables ritual input. That must not rebuild
         // the ordinary ability-card fan over the physical purse and shared bowl.
         // A card already held by a hand retains its normal return path first.
@@ -226,7 +229,12 @@ internal sealed class TownServiceTempleOffering : IDisposable
     public void Dispose()
     {
         if (_disposed) return;
-        _disposed = true; MapRoomHand.SetTempleInspection(false);
+        _disposed = true;
+        // Presentation replacement can dispose the old ritual after approach already
+        // elected this wrist. A blind false write then rebuilt the ability fan in
+        // the middle of the first reveal. Re-evaluate current local context instead;
+        // leaving the area, disabling NPCs or reaching story commitment still clears it.
+        TickApproach();
         if (Root != null) UnityEngine.Object.Destroy(Root.gameObject);
         if (DropFrame != null) UnityEngine.Object.Destroy(DropFrame.gameObject);
     }
