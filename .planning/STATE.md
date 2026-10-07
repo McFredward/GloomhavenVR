@@ -1,5 +1,40 @@
 # State — where the project stands
 
+**Quest Windows retry with current ModBuild 640, 2026-10-08 (Builder only).**
+
+Quest stays on `feature/quest3-standalone`. Seven unpublished repair commits were
+rebased onto a reviewed integration of committed dev `5c8298918`; published
+history remains intact. Capture 215452 reused all 16 original packages, then
+failed during canonical conversion because the installer Python lacked UnityPy.
+Prepare/build now execute in the pinned build interpreter, including child tools.
+Compatible per-file copies and completed transforms survive interruptions;
+current retry rows clear historical failures before prerequisite checks.
+
+The current mod's environment geometry is rebuilt from the owner's game into a
+separate resumable Android bank; original-derived Git payloads are excluded from
+the public Builder. Completed producers and the mod's Unity Library remain reusable.
+Actual source/mesh progress advances the open mod-bank operation. Installation
+and startup admit all four current banks; legacy signed three-bank packages are
+still installable. The environment header opens before dependent mod assets.
+
+The affected integrated gate at `71d211aeb` passes 717/719 cases in 26 suites
+(two existing optional skips), including 29 UI cases and 12 Chrome workflows.
+Strict Release/Debug 0/0, source 15/15, platform 3081/17 controls, bundle recipe
+111, managed startup 313/21 controls and logging 57/11 controls pass. Current Frame camera capture guards and bounded viewport reset repairs are
+composed with Quest ownership. Their source-bound renderer checks pass 99
+assertions/24 controls plus two startup controls; menu ownership passes 26/8.
+The final 640 composition receives fresh strict compilation, source15 and Quest
+platform checks; unchanged tooling and authored-bundle evidence is inherited.
+Exact extracted archive/retained-session qualification precedes publication;
+completed owned workers and obsolete host caches are removed afterwards.
+No host Player/APK, Unity import, full game conversion, exhaustive shader sweep
+or complete Windows/headset success is claimed. Keep existing state/work folders
+and resume the same Wizard session. See [cause, continuation and proof limits](QUEST-BUILD-RETRY-20261008.md).
+
+---
+
+
+
 **Build640 integration, 2026-10-08: 1.1.0 development candidate.**
 
 All NPC639 repairs are retained. The separately checked Frame camera/viewport
