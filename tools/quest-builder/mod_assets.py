@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 from pathlib import Path
 
 from storage import BuildError, record_file, verify_files
@@ -9,6 +10,9 @@ from storage import BuildError, record_file, verify_files
 MAIN = "gloomhavenvr.bundle"
 TOWN = "ghvr-town.bundle"
 VOICES = "ghvr-town-voices.bundle"
+ENVIRONMENT = "ghvr-environment.bundle"
+ENVIRONMENT_ROOT = "Assets/Bundle/EnvironmentMeshes/"
+ENVIRONMENT_SHADERS = ("Assets/Bundle/Environments/ScenarioCheapTerrain.shader", "Assets/Bundle/Environments/WorldSimpleMaterial.shader")
 TOWN_ROOT = "Assets/Bundle/TownServices/"
 REQUIRED_TOWN = (
     TOWN_ROOT + "Prefabs/TownMerchant.prefab", TOWN_ROOT + "Prefabs/TownPriestess.prefab",
@@ -38,14 +42,14 @@ def bundle_records(receipt: dict) -> list[dict]:
     if not isinstance(values, list) or not values or not all(isinstance(row, dict) for row in values):
         raise BuildError("Authored Android bundle receipt is empty or invalid.")
     names = [row.get("path") for row in values]
-    if any(name not in (MAIN, TOWN, VOICES) for name in names) or len(names) != len(set(names)) or names[0] != MAIN:
+    if any(name not in (MAIN, TOWN, VOICES, ENVIRONMENT) for name in names) or len(names) != len(set(names)) or names[0] != MAIN:
         raise BuildError("Authored Android bundle filenames are unexpected, duplicated or out of loader order.")
     if values[0] != receipt.get("bundle"):
         raise BuildError("Legacy main-bank receipt differs from the declared bundle set.")
     return values
 
 
-def validate_bundle_set(folder: Path, authored: Path, source_files: list[dict], *, full_game: bool = False) -> dict:
+def validate_bundle_set(folder: Path, authored: Path, source_files: list[dict], *, full_game: bool = False, generated: dict | None = None) -> dict:
     """Verify bank bytes, exact source selection, shader includes and native contract."""
     try:
         receipt = json.loads((folder / "quest-mod-bundles.json").read_text(encoding="utf-8"))
@@ -54,13 +58,20 @@ def validate_bundle_set(folder: Path, authored: Path, source_files: list[dict], 
     contract = {"schema": 1, "target": "Android", "unityVersion": "2021.3.5f1", "bundleName": MAIN,
                 "graphicsApi": "Vulkan" if full_game else "OpenGLES3", "colorSpace": "Linear", "stereoRenderingPath": "SinglePass",
                 "typeTreesEnabled": True, "chunkBasedCompression": True, "townBanksIncluded": full_game}
+    if full_game: contract.update(environmentBankIncluded=True, environmentVariantsKept=True)
     if not isinstance(receipt, dict) or any(receipt.get(name) != value for name, value in contract.items()):
         raise BuildError("Authored mod banks have an unsupported Android rendering/full-game contract.")
     records = bundle_records(receipt)
-    expected = [MAIN, TOWN, VOICES] if full_game else [MAIN]
+    expected = [MAIN, TOWN, VOICES, ENVIRONMENT] if full_game else [MAIN]
     if [row["path"] for row in records] != expected:
-        raise BuildError("Full Campaign requires its complete main, town art and town voice Android bank set.")
+        raise BuildError("Full Campaign requires its complete main, town art, town voice and owned environment Android bank set.")
     known = {row["path"]: row for row in source_files}
+    if full_game:
+        if any(path.startswith(ENVIRONMENT_ROOT) for path in known):
+            raise BuildError("Original-derived desktop environment assets cannot be standalone source inputs.")
+        spec = importlib.util.spec_from_file_location("quest_mod_environment", Path(__file__).with_name("environment_bank.py"))
+        environment = importlib.util.module_from_spec(spec); spec.loader.exec_module(environment)
+        known.update({row["path"]: row for row in environment.validated_records(authored, generated)})
     declared = receipt.get("sourceFiles")
     if not isinstance(declared, list) or not declared or not all(isinstance(row, dict) for row in declared):
         raise BuildError("Authored mod bank compiler-input receipt is empty or invalid.")
@@ -103,12 +114,13 @@ def validate_bundle_set(folder: Path, authored: Path, source_files: list[dict], 
                 or any(dependency not in expected or dependency == name for dependency in dependencies)):
             raise BuildError("Authored Android bank requires an unshipped or invalid dependency: " + name)
         if name == MAIN:
-            if any(asset.startswith(TOWN_ROOT) for asset in assets) or dependencies:
-                raise BuildError("Main Android mod bank unexpectedly depends on a town bank.")
+            if any(asset.startswith((TOWN_ROOT, ENVIRONMENT_ROOT)) or asset in ENVIRONMENT_SHADERS for asset in assets) or any(dependency != ENVIRONMENT for dependency in dependencies):
+                raise BuildError("Main Android mod bank contains separate-bank art or unexpected dependencies.")
             if assets != receipt.get("assetNames") or required != receipt.get("requiredAssetNames"):
                 raise BuildError("Legacy main-bank source selection differs from the bank set.")
             if full_game:
                 selected = {path for path in known if path.startswith("Assets/Bundle/") and not path.startswith(TOWN_ROOT)
+                            and not path.startswith(ENVIRONMENT_ROOT) and path not in ENVIRONMENT_SHADERS
                             and Path(path).suffix.lower() not in (".md", ".txt", ".gitkeep", ".meta", ".cginc")
                             and not Path(path).name.startswith(".") and path + ".meta" in known}
                 if not selected.issubset(assets):
@@ -120,10 +132,17 @@ def validate_bundle_set(folder: Path, authored: Path, source_files: list[dict], 
                         or path == TOWN_ROOT + "town-facial-rig-contract.json")}
             if not set(REQUIRED_TOWN).issubset(required) or set(assets) != selected:
                 raise BuildError("Town Android art bank omits its original authored prefab/shader/facial selection.")
-        else:
+        elif name == VOICES:
             selected = {path for path in known if path.startswith(TOWN_ROOT + "Audio/") and Path(path).suffix.lower() in (".wav", ".json")}
             if set(assets) != selected or set(required) != selected or not any(path.lower().endswith(".wav") for path in assets) or not any(path.lower().endswith(".json") for path in assets):
                 raise BuildError("Town Android voice bank omits its original clips or metadata selection.")
+        else:
+            selected = {path for path in known if path.startswith(ENVIRONMENT_ROOT) and Path(path).suffix.lower() in (".bytes", ".json")}
+            selected.update(ENVIRONMENT_SHADERS)
+            if (set(assets) != selected or set(required) != selected or dependencies
+                    or not {ENVIRONMENT_ROOT + "index.json", ENVIRONMENT_ROOT + "quest-owned-sources.json"}.issubset(assets)
+                    or not any(path.endswith(".bytes") for path in assets)):
+                raise BuildError("Owned environment Android bank omits its original streams, provenance or required shaders.")
         assets_by_bank[name] = set(assets)
     for index, name in enumerate(expected):
         if any(assets_by_bank[name] & assets_by_bank[other] for other in expected[:index]):

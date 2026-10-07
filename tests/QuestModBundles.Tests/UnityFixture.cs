@@ -5,6 +5,7 @@ namespace UnityEngine
     public class Object { public string name; }
     public sealed class AudioClip : Object { }
     public sealed class TextAsset : Object { }
+    public sealed class Shader : Object { }
     public sealed class Mesh : Object { }
     public sealed class MeshFilter : Object { public Mesh sharedMesh = new Mesh(); }
     public sealed class Transform : Object
@@ -59,12 +60,36 @@ namespace UnityEditor
         public static string extraDependency;
         public static readonly Dictionary<string, UnityEngine.Object> imported = new(StringComparer.Ordinal);
         public static readonly Dictionary<string, string[]> dependencies = new(StringComparer.Ordinal);
+        public static UnityEngine.Object[] LoadAllAssetsAtPath(string path) => new[] { new UnityEngine.Object() };
         public static T LoadAssetAtPath<T>(string path) where T : UnityEngine.Object =>
             File.Exists(path) && imported.TryGetValue(path, out var value) ? value as T : null;
         public static string AssetPathToGUID(string path) => File.Exists(path) ? "audited-imported-asset" : "";
         public static string[] GetDependencies(string[] assets, bool recursive) => assets.Concat(new[] { "Resources/unity_builtin_extra" })
             .Concat(assets.SelectMany(asset => dependencies.TryGetValue(asset, out var values) ? values : Array.Empty<string>()))
             .Concat(extraDependency == null ? Array.Empty<string>() : new[] { extraDependency }).Distinct(StringComparer.Ordinal).ToArray();
+    }
+    public enum SerializedPropertyType { Boolean, Enum }
+    public sealed class SerializedProperty
+    {
+        public SerializedPropertyType propertyType;
+        public string[] enumNames;
+        public int enumValueIndex;
+        public bool boolValue;
+    }
+    public sealed class SerializedObject
+    {
+        public static readonly Dictionary<string, SerializedProperty> properties = new();
+        public static void Reset()
+        {
+            properties.Clear();
+            properties["m_InstancingStripping"] = new() { propertyType = SerializedPropertyType.Enum, enumNames = new[] { "Strip Unused", "Strip All", "Keep All" } };
+            properties["m_FogStripping"] = new() { propertyType = SerializedPropertyType.Enum, enumNames = new[] { "Automatic", "Custom" } };
+            foreach (string name in new[] { "m_FogKeepLinear", "m_FogKeepExp", "m_FogKeepExp2" })
+                properties[name] = new() { propertyType = SerializedPropertyType.Boolean };
+        }
+        public SerializedObject(UnityEngine.Object target) { }
+        public SerializedProperty FindProperty(string name) => properties.GetValueOrDefault(name);
+        public bool ApplyModifiedPropertiesWithoutUndo() => true;
     }
     public static class BuildPipeline
     {
@@ -79,7 +104,8 @@ namespace UnityEditor
         {
             ["gloomhavenvr.bundle"] = new byte[] { 1, 2, 3, 4 },
             ["ghvr-town.bundle"] = new byte[] { 5, 6, 7 },
-            ["ghvr-town-voices.bundle"] = new byte[] { 8, 9 }
+            ["ghvr-town-voices.bundle"] = new byte[] { 8, 9 },
+            ["ghvr-environment.bundle"] = new byte[] { 10, 11, 12 }
         };
         public static AssetBundleManifest BuildAssetBundles(string output, AssetBundleBuild[] builds, BuildAssetBundleOptions options, BuildTarget target)
         {

@@ -13,6 +13,9 @@ void Check(bool value, string message) { checks++; if (!value) throw new Excepti
 string[] required = (string[])typeof(QuestModBundles).GetField("RequiredAssets", BindingFlags.NonPublic | BindingFlags.Static).GetValue(null);
 string[] requiredTown = (string[])typeof(QuestModBundles).GetField("RequiredTownAssets", BindingFlags.NonPublic | BindingFlags.Static).GetValue(null);
 const string Town = "Assets/Bundle/TownServices";
+const string EnvironmentRoot = "Assets/Bundle/EnvironmentMeshes";
+string[] environment = { EnvironmentRoot + "/fixture-100.bytes", EnvironmentRoot + "/index.json", EnvironmentRoot + "/quest-owned-sources.json",
+    "Assets/Bundle/Environments/ScenarioCheapTerrain.shader", "Assets/Bundle/Environments/WorldSimpleMaterial.shader" };
 string[] voices = { Town + "/Audio/Greeting.WAV", Town + "/Audio/de/Greeting.wav", Town + "/Audio/voices.json" };
 void WriteAsset(string path)
 {
@@ -38,6 +41,7 @@ void Setup(string name, bool fullGame = false)
 {
     string project = Path.Combine(root, name, "project"); Directory.CreateDirectory(project); Directory.SetCurrentDirectory(project);
     AssetDatabase.imported.Clear(); AssetDatabase.dependencies.Clear(); BuildPipeline.bundleDependencies.Clear();
+    SerializedObject.Reset();
     foreach (string path in required.Concat(requiredTown).Concat(voices))
     {
         WriteAsset(path);
@@ -47,6 +51,11 @@ void Setup(string name, bool fullGame = false)
             else if (path.EndsWith(".wav", StringComparison.OrdinalIgnoreCase)) AssetDatabase.imported[path] = new AudioClip();
             else if (path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) AssetDatabase.imported[path] = new TextAsset();
         }
+    }
+    foreach (string path in environment)
+    {
+        WriteAsset(path);
+        AssetDatabase.imported[path] = path.EndsWith(".shader", StringComparison.Ordinal) ? new Shader() : new TextAsset();
     }
     // Current mod additions must enter their proper bank without editing the recipe.
     string extra = Town + "/Prefabs/TownNewNpc.prefab"; WriteAsset(extra); AssetDatabase.imported[extra] = Prefab(extra);
@@ -87,7 +96,7 @@ void Common(JsonElement receipt, GraphicsDeviceType api)
         && BuildPipeline.lastOptions.HasFlag(BuildAssetBundleOptions.ForceRebuildAssetBundle), "Bundle recipe lost type trees, LZ4, clean rebuilding or strict failures.");
     var main = BuildPipeline.lastBuilds.Single(bank => bank.assetBundleName == "gloomhavenvr.bundle");
     Check(required.All(main.assetNames.Contains) && main.assetNames.Contains("Assets/Bundle/NewAuthoredHand.prefab"), "Main bank omitted required/new authored assets.");
-    Check(!main.assetNames.Any(p => p.Contains("TownServices") || p.EndsWith(".meta") || p.EndsWith(".md") || p.EndsWith(".txt") || p.EndsWith(".cginc") || Path.GetFileName(p).StartsWith('.')), "Bookkeeping or town bank entered main bundle.");
+    Check(!main.assetNames.Any(p => environment.Contains(p) || p.Contains("TownServices") || p.EndsWith(".meta") || p.EndsWith(".md") || p.EndsWith(".txt") || p.EndsWith(".cginc") || Path.GetFileName(p).StartsWith('.')), "Bookkeeping or separate bank entered main bundle.");
     Check(File.ReadAllText("Build/Bundles/gloomhavenvr.bundle") == "immutable-desktop-bank", "Android recipe overwrote desktop output.");
     string[] sources = receipt.GetProperty("sourceFiles").EnumerateArray().Select(item => item.GetProperty("path").GetString()).ToArray();
     Check(sources.Contains("Assets/Bundle/Helper.cginc") && sources.Any(p => p.EndsWith(".meta")), "Shader input or GUID bytes lack hash provenance.");
@@ -115,8 +124,15 @@ try
     using (var document = Receipt())
     {
         JsonElement receipt = document.RootElement; Common(receipt, GraphicsDeviceType.Vulkan);
-        Check(BuildPipeline.lastBuilds.Length == 3 && receipt.GetProperty("townBanksIncluded").GetBoolean()
-            && receipt.GetProperty("bundles").GetArrayLength() == 3, "Campaign did not ship all three banks.");
+        Check(BuildPipeline.lastBuilds.Length == 4 && receipt.GetProperty("townBanksIncluded").GetBoolean()
+            && receipt.GetProperty("environmentBankIncluded").GetBoolean() && receipt.GetProperty("environmentVariantsKept").GetBoolean()
+            && receipt.GetProperty("bundles").GetArrayLength() == 4, "Campaign did not ship all four banks.");
+        var bank = BuildPipeline.lastBuilds.Single(candidate => candidate.assetBundleName == "ghvr-environment.bundle");
+        Check(bank.assetNames.OrderBy(path => path, StringComparer.Ordinal).SequenceEqual(environment.OrderBy(path => path, StringComparer.Ordinal)), "Environment bank omitted streams/provenance/shaders.");
+        Check(SerializedObject.properties["m_InstancingStripping"].enumValueIndex == 2
+            && SerializedObject.properties["m_FogStripping"].enumValueIndex == 1
+            && new[] { "m_FogKeepLinear", "m_FogKeepExp", "m_FogKeepExp2" }.All(name => SerializedObject.properties[name].boolValue),
+            "Environment runtime instancing or fog modes were stripped.");
         var art = BuildPipeline.lastBuilds.Single(bank => bank.assetBundleName == "ghvr-town.bundle");
         var voice = BuildPipeline.lastBuilds.Single(bank => bank.assetBundleName == "ghvr-town-voices.bundle");
         Check(requiredTown.All(art.assetNames.Contains) && art.assetNames.Contains(Town + "/Prefabs/TownNewNpc.prefab")
@@ -142,7 +158,7 @@ try
         Reject(mutation);
         Check(File.ReadAllText("Build/Bundles/gloomhavenvr.bundle") == "immutable-desktop-bank", "Rejected recipe touched desktop bank: " + mutation);
     }
-    foreach (string mutation in new[] { "invalid-mode", "missing-town", "no-voices", "no-voice-metadata", "voice-import", "metadata-import", "prefab-import", "missing-mesh", "missing-furniture", "oversized-furniture", "runner-count", "script-source-change", "manifest-bank-missing", "unshipped-bank-dependency" })
+    foreach (string mutation in new[] { "invalid-mode", "missing-town", "no-voices", "no-voice-metadata", "voice-import", "metadata-import", "prefab-import", "missing-mesh", "missing-furniture", "oversized-furniture", "runner-count", "script-source-change", "manifest-bank-missing", "unshipped-bank-dependency", "no-environment-stream", "no-environment-provenance", "environment-shader-import", "environment-text-import", "variant-setting-drift" })
     {
         Setup("campaign-" + mutation, true);
         var priestess = (GameObject)AssetDatabase.imported[Town + "/Prefabs/TownPriestess.prefab"];
@@ -160,6 +176,11 @@ try
         if (mutation == "script-source-change") BuildPipeline.duringBuild = () => File.WriteAllText("Assets/Scripts/TownActor.cs", "concurrent script change");
         if (mutation == "manifest-bank-missing") BuildPipeline.manifestOverride = new[] { "gloomhavenvr.bundle", "ghvr-town.bundle" };
         if (mutation == "unshipped-bank-dependency") BuildPipeline.bundleDependencies["ghvr-town.bundle"] = new[] { "unshipped.bundle" };
+        if (mutation == "no-environment-stream") File.Delete(environment[0]);
+        if (mutation == "no-environment-provenance") File.Delete(environment[2]);
+        if (mutation == "environment-shader-import") AssetDatabase.imported.Remove(environment[3]);
+        if (mutation == "environment-text-import") AssetDatabase.imported[environment[0]] = new AudioClip();
+        if (mutation == "variant-setting-drift") SerializedObject.properties.Remove("m_FogKeepExp2");
         Reject(mutation);
         Check(File.ReadAllText("Build/Bundles/gloomhavenvr.bundle") == "immutable-desktop-bank", "Campaign rejection changed desktop bank: " + mutation);
     }

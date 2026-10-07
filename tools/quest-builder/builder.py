@@ -8,7 +8,7 @@ keys and APKs remain in the marked local output directory.
 from __future__ import annotations
 
 import argparse
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 import hashlib
 import importlib.util
 import json
@@ -163,6 +163,8 @@ def source_inventory(repo: Path) -> tuple[list[dict], str, bool]:
         if not raw:
             continue
         relative = raw.decode("utf-8")
+        if _release is not None and _release.owned_derived_source(relative):
+            continue
         if Path(relative).suffix.lower() in (".env", ".alf", ".ulf", ".keystore", ".jks", ".p12", ".pem", ".key"):
             continue
         if relative.startswith(("src/", "unity/", "tools/", "scripts/", "prebuilt/", "libs/RefAsm/")) or (
@@ -904,7 +906,11 @@ def package_startup_content(project: Path, input_key: str, *, retain_sources=Fal
 def validate_mod_bundle(folder: Path, authored: Path, source_files: list[dict], *, full_game=False) -> dict:
     """Verify native Android art and all declared compiler inputs on cache reuse."""
     if full_game:
-        return mod_assets.validate_bundle_set(folder, authored, source_files, full_game=True)
+        try:
+            generated = json.loads((authored / "quest-owned-environment.json").read_text())
+        except (OSError, ValueError) as error:
+            raise BuildError("Owned environment compiler-input owner is missing or unreadable.") from error
+        return mod_assets.validate_bundle_set(folder, authored, source_files, full_game=True, generated=generated)
     receipt = json.loads((folder / "quest-mod-bundles.json").read_text(encoding="utf-8"))
     contract = {"schema": 1, "target": "Android", "unityVersion": "2021.3.5f1",
                 "bundleName": "gloomhavenvr.bundle", "graphicsApi": "OpenGLES3",
@@ -940,6 +946,44 @@ def validate_mod_bundle(folder: Path, authored: Path, source_files: list[dict], 
     return receipt
 
 
+@contextmanager
+def _mod_bank_workspace(output: Path, root: Path, key: str, files: list[dict]):
+    """Regenerate only this keyed mod project while retaining its imported Library.
+
+    Publish ownership before the first Library rename. A killed copy or compiler
+    leaves its backup beside the project, so the next retry restores the same
+    imports without relaxing the ordinary Player-project lifecycle contract.
+    """
+    output, root = _ordinary_owned(output), _ordinary_owned(root)
+    if root != output / "cache/mod-bundle" / key or not re.fullmatch(r"[0-9a-f]{64}", key):
+        raise BuildError("Unexpected authored Android mod workspace identity.")
+    authored, backup = _ordinary_owned(root / "project"), _ordinary_owned(root / "Library")
+    library, marker = _ordinary_owned(authored / "Library"), _ordinary_owned(root / "project-owner.json")
+    expected = {"schema": 1, "owner": "Quest authored Android mod project", "key": key, "files": files}
+    if marker.exists():
+        if json.loads(marker.read_text()) != expected:
+            raise BuildError("Authored Android mod project owner differs; retained for inspection.")
+    else:
+        # The previous recipe used snapshot ownership. Only that exact completed
+        # snapshot can establish ownership of a pre-existing project/Library.
+        if root.exists() and any(root.iterdir()):
+            snapshot_owner = authored / ".snapshot.json"
+            if backup.exists() or not snapshot_owner.is_file() or json.loads(snapshot_owner.read_text()).get("files") != files:
+                raise BuildError("Existing authored Android mod workspace has no matching owner.")
+        write_json(marker, expected)
+    if backup.exists() and library.exists():
+        raise BuildError("Two retained authored Android Unity Libraries exist; neither was deleted.")
+    if library.exists(): os.replace(library, backup)
+    try:
+        if authored.exists(): shutil.rmtree(authored)
+        yield
+    finally:
+        if backup.exists():
+            authored.mkdir(parents=True, exist_ok=True)
+            if library.exists(): raise BuildError("Authored preparation created a second Unity Library; retained both.")
+            os.replace(backup, library)
+
+
 def package_mod_content(project: Path, inputs: dict, output: Path, source: Path, editor: Path) -> dict:
     """Build current authored mod art independently of changing gameplay code."""
     prefix = "unity/GloomhavenVR.Assets/"
@@ -949,16 +993,20 @@ def package_mod_content(project: Path, inputs: dict, output: Path, source: Path,
     if not any(row["path"] == "Assets/Editor/QuestModBundles.cs" for row in files):
         raise BuildError("The selected source is missing the authored Android mod bundle recipe.")
     full_game = inputs.get("target") == "game"
-    key = value_hash({"files": files, "editorSha256": digest(editor), "fullGame": full_game, "recipe": RECIPE})
+    environment = _local_helper("environment_bank") if full_game else None
+    environment_plan = environment.plan(inputs["game"], inputs["mod"]["files"]) if environment else None
+    key = value_hash({"files": files, "editorSha256": digest(editor), "fullGame": full_game, "recipe": RECIPE,
+                      "ownedEnvironment": environment_plan})
     root = output / "cache/mod-bundle" / key
     authored, bundles = root / "project", root / "bundles"
 
     def compile_art():
-        # These paths are exclusively owned generated cache, never the source tree.
-        for path in (authored, bundles):
-            if path.exists():
-                shutil.rmtree(path)
-        snapshot(source / prefix, files, authored)
+        with _mod_bank_workspace(output, root, key, files):
+            if bundles.exists(): shutil.rmtree(_ordinary_owned(bundles))
+            snapshot(source / prefix, files, authored)
+            if environment:
+                environment.stage(source, output / "inputs/game" / inputs["game"]["key"], authored, output,
+                                  inputs["game"], inputs["mod"]["files"])
         env = dict(os.environ)
         env["GHVR_QUEST_MOD_BUNDLE_OUTPUT"] = str(bundles)
         env["GHVR_QUEST_MOD_FULL_GAME"] = "1" if full_game else "0"

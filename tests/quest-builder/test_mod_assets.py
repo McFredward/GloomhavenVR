@@ -9,6 +9,28 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/quest-builder"))
 import mod_assets
 import storage
+import environment_bank
+
+
+def generated_fixture(authored):
+    """Controlled owner records; this fixture does not establish native geometry."""
+    root = authored / mod_assets.ENVIRONMENT_ROOT
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "fixture-100.bytes").write_bytes(b"GHEM1 controlled geometry")
+    storage.write_json(root / "index.json", {"format": 1, "entries": [{"fixture": True}]})
+    sources = [{"path": environment_bank.PCG_ROOT + "controlled.bundle", "size": 123, "sha256": "1" * 64}]
+    index_hash = storage.digest(root / "index.json")
+    origins = {"schema": 1, "association": environment_bank.ASSOCIATION, "gameKey": "2" * 64,
+               "indexSha256": index_hash,
+               "sources": [{**row, "path": row["path"][len(environment_bank.SOURCE_ROOT):]} for row in sources]}
+    storage.write_json(root / environment_bank.ORIGINS, origins)
+    for name in ("fixture-100.bytes", "index.json", environment_bank.ORIGINS):
+        (root / (name + ".meta")).write_text("controlled generated import GUID:" + name)
+    generated = {"schema": 1, "association": environment_bank.ASSOCIATION, "gameKey": "2" * 64,
+                 "producerKey": "3" * 64, "indexSha256": index_hash, "sources": sources,
+                 "files": [{**row, "path": mod_assets.ENVIRONMENT_ROOT + row["path"]} for row in storage.inventory(root)]}
+    storage.write_json(authored / "quest-owned-environment.json", generated)
+    return generated
 
 
 class AuthoredBankTests(unittest.TestCase):
@@ -20,10 +42,13 @@ class AuthoredBankTests(unittest.TestCase):
         self.art = list(mod_assets.REQUIRED_TOWN)
         self.voices = [mod_assets.TOWN_ROOT + "Audio/merchant-greet.wav", mod_assets.TOWN_ROOT + "Audio/merchant-greet.json"]
         self.include = mod_assets.TOWN_ROOT + "Shaders/TownPracticalLighting.cginc"
-        for path in self.main + self.art + self.voices + [self.include]:
+        for path in self.main + self.art + self.voices + [self.include] + list(mod_assets.ENVIRONMENT_SHADERS):
             self.write(self.authored / path, ("immutable:" + path).encode())
             self.write(self.authored / (path + ".meta"), ("original-import:" + path).encode())
         self.files = storage.inventory(self.authored)
+        self.generated = generated_fixture(self.authored)
+        self.environment = [row["path"] for row in self.generated["files"] if not row["path"].endswith(".meta")]
+        self.environment += list(mod_assets.ENVIRONMENT_SHADERS)
         self.full = self.receipt(True)
         self.original_files = storage.inventory(self.authored)
 
@@ -40,7 +65,7 @@ class AuthoredBankTests(unittest.TestCase):
         banks = []
         selections = [(mod_assets.MAIN, self.main)]
         if full:
-            selections += [(mod_assets.TOWN, self.art), (mod_assets.VOICES, self.voices)]
+            selections += [(mod_assets.TOWN, self.art), (mod_assets.VOICES, self.voices), (mod_assets.ENVIRONMENT, self.environment)]
         for name, assets in selections:
             path = self.bundles / name
             self.write(path, b"UnityFS\0controlled-" + name.encode())
@@ -48,10 +73,11 @@ class AuthoredBankTests(unittest.TestCase):
             records.append(row)
             banks.append({"bundleName": name, "assetNames": list(assets), "requiredAssetNames": list(assets),
                           "dependencies": [], "bundle": row})
-        declared = self.files if full else [row for row in self.files if not row["path"].startswith(mod_assets.TOWN_ROOT)]
+        declared = self.files + self.generated["files"] if full else [row for row in self.files if not row["path"].startswith(mod_assets.TOWN_ROOT)]
         result = {"schema": 1, "target": "Android", "unityVersion": "2021.3.5f1", "bundleName": mod_assets.MAIN,
                   "graphicsApi": "Vulkan" if full else "OpenGLES3", "colorSpace": "Linear", "stereoRenderingPath": "SinglePass",
                   "typeTreesEnabled": True, "chunkBasedCompression": True, "townBanksIncluded": full,
+                  "environmentBankIncluded": full, "environmentVariantsKept": full,
                   "assetNames": list(self.main), "requiredAssetNames": list(self.main),
                   "bundle": records[0], "bundles": records, "banks": banks, "sourceFiles": declared}
         self.store(result)
@@ -63,12 +89,13 @@ class AuthoredBankTests(unittest.TestCase):
     def validate(self, receipt=None, full=True):
         if receipt is not None:
             self.store(receipt)
-        return mod_assets.validate_bundle_set(self.bundles, self.authored, self.files, full_game=full)
+        return mod_assets.validate_bundle_set(self.bundles, self.authored, self.files, full_game=full,
+                                             generated=self.generated if full else None)
 
     def test_full_bank_set_exact_bytes_and_loader_order(self):
         self.assertEqual(self.validate(), self.full)
         self.assertEqual([row["path"] for row in mod_assets.bundle_records(self.full)],
-                         [mod_assets.MAIN, mod_assets.TOWN, mod_assets.VOICES])
+                         [mod_assets.MAIN, mod_assets.TOWN, mod_assets.VOICES, mod_assets.ENVIRONMENT])
         self.assertEqual(storage.inventory(self.authored), self.original_files)
 
     def test_legacy_startup_receipt_stays_single_bank_compatible(self):
@@ -83,6 +110,8 @@ class AuthoredBankTests(unittest.TestCase):
         controls = (
             ("desktop", lambda receipt: receipt.update(target="StandaloneWindows64")),
             ("startup only", lambda receipt: receipt.update(townBanksIncluded=False)),
+            ("environment missing", lambda receipt: receipt.update(environmentBankIncluded=False)),
+            ("environment variants stripped", lambda receipt: receipt.update(environmentVariantsKept=False)),
             ("no type trees", lambda receipt: receipt.update(typeTreesEnabled=False)),
             ("wrong GPU", lambda receipt: receipt.update(graphicsApi="OpenGLES3")),
             ("wrong stereo", lambda receipt: receipt.update(stereoRenderingPath="MultiPass")),
@@ -100,6 +129,8 @@ class AuthoredBankTests(unittest.TestCase):
             ("missing audio metadata", lambda receipt: receipt["banks"][2]["assetNames"].pop()),
             ("foreign dependency", lambda receipt: receipt["banks"][1]["dependencies"].append("pc-library.bundle")),
             ("main town dependency", lambda receipt: receipt["banks"][0]["dependencies"].append(mod_assets.TOWN)),
+            ("environment shader omitted", lambda receipt: receipt["banks"][3]["assetNames"].remove(mod_assets.ENVIRONMENT_SHADERS[0])),
+            ("environment provenance omitted", lambda receipt: receipt["banks"][3]["assetNames"].remove(mod_assets.ENVIRONMENT_ROOT + environment_bank.ORIGINS)),
             ("voice path escape", lambda receipt: receipt["banks"][2]["assetNames"].append("Assets/Bundle/TownServices/Audio/../secret.wav")),
             ("Windows path", lambda receipt: receipt["banks"][1]["assetNames"].append("Assets/Bundle/TownServices\\secret.prefab")),
             ("changed legacy main", lambda receipt: receipt["assetNames"].pop()),
@@ -118,17 +149,29 @@ class AuthoredBankTests(unittest.TestCase):
             with self.subTest(asset=path):
                 self.write(self.authored / path, b"ordinary future authored asset")
                 self.write(self.authored / (path + ".meta"), b"ordinary source GUID")
-                self.files = storage.inventory(self.authored)
+                self.files = [row for row in storage.inventory(self.authored)
+                              if not row["path"].startswith(mod_assets.ENVIRONMENT_ROOT)
+                              and row["path"] != "quest-owned-environment.json"]
                 with self.assertRaises(storage.BuildError):
                     self.validate(self.full)
                 updated = copy.deepcopy(self.full)
-                updated["sourceFiles"] = self.files
+                updated["sourceFiles"] = self.files + self.generated["files"]
                 updated["banks"][index]["assetNames"].append(path)
                 updated["banks"][index]["requiredAssetNames"].append(path)
                 if index == 0:
                     updated["assetNames"].append(path); updated["requiredAssetNames"].append(path)
                 self.assertEqual(self.validate(updated), updated)
                 self.full = updated
+
+    def test_owned_environment_proof_is_required_and_main_can_reference_its_shader_bank(self):
+        with self.assertRaises(storage.BuildError):
+            mod_assets.validate_bundle_set(self.bundles, self.authored, self.files, full_game=True)
+        with self.assertRaisesRegex(storage.BuildError, "desktop environment"):
+            mod_assets.validate_bundle_set(self.bundles, self.authored, self.files + self.generated["files"],
+                                           full_game=True, generated=self.generated)
+        updated = copy.deepcopy(self.full)
+        updated["banks"][0]["dependencies"] = [mod_assets.ENVIRONMENT]
+        self.assertEqual(self.validate(updated), updated)
 
     def test_shader_include_and_import_guid_inputs_cannot_disappear(self):
         for path in (self.include, self.art[0] + ".meta"):

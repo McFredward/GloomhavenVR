@@ -17,6 +17,11 @@ namespace GloomhavenVR
         const string TownRoot = ContentRoot + "/TownServices";
         const string TownBundleName = "ghvr-town.bundle";
         const string VoiceBundleName = "ghvr-town-voices.bundle";
+        const string EnvironmentBundleName = "ghvr-environment.bundle";
+        const string EnvironmentRoot = ContentRoot + "/EnvironmentMeshes";
+        static readonly string[] EnvironmentShaders = {
+            ContentRoot + "/Environments/ScenarioCheapTerrain.shader", ContentRoot + "/Environments/WorldSimpleMaterial.shader"
+        };
         static readonly string[] ExcludedExtensions = { ".md", ".txt", ".gitkeep", ".meta", ".cginc" };
         // These are the authored assets required by the real menu's hand/controller,
         // board and bundled-shader paths. The original main bank also contains the
@@ -60,6 +65,7 @@ namespace GloomhavenVR
             public string target = "Android", unityVersion, bundleName = BundleName;
             public string graphicsApi = "OpenGLES3", colorSpace = "Linear", stereoRenderingPath = "SinglePass";
             public bool typeTreesEnabled = true, chunkBasedCompression = true, townBanksIncluded = false;
+            public bool environmentBankIncluded, environmentVariantsKept;
             public string[] assetNames, requiredAssetNames, builtinDependencies;
             public FileReceipt bundle;
             public FileReceipt[] bundles;
@@ -114,6 +120,7 @@ namespace GloomhavenVR
             {
                 string path = file.Replace('\\', '/');
                 if (path.StartsWith(ContentRoot + "/TownServices/", StringComparison.Ordinal)
+                    || path.StartsWith(EnvironmentRoot + "/", StringComparison.Ordinal) || EnvironmentShaders.Contains(path)
                     || ExcludedExtensions.Contains(Path.GetExtension(path).ToLowerInvariant()) || Path.GetFileName(path).StartsWith(".")
                     || AssetDatabase.AssetPathToGUID(path) == string.Empty) continue;
                 assets.Add(path);
@@ -130,6 +137,23 @@ namespace GloomhavenVR
             };
             if (fullGame)
             {
+                string[] environment = Directory.GetFiles(EnvironmentRoot, "*", SearchOption.TopDirectoryOnly)
+                    .Select(path => path.Replace('\\', '/')).Where(path => path.EndsWith(".bytes", StringComparison.Ordinal)
+                        || path.EndsWith(".json", StringComparison.Ordinal)).Concat(EnvironmentShaders)
+                    .OrderBy(path => path, StringComparer.Ordinal).ToArray();
+                if (!environment.Contains(EnvironmentRoot + "/index.json")
+                    || !environment.Contains(EnvironmentRoot + "/quest-owned-sources.json")
+                    || !environment.Any(path => path.EndsWith(".bytes", StringComparison.Ordinal)))
+                    throw new InvalidOperationException("Generate owned original environment streams and provenance before compiling Android banks.");
+                foreach (string path in environment)
+                {
+                    if (!File.Exists(path) || AssetDatabase.AssetPathToGUID(path) == string.Empty)
+                        throw new InvalidOperationException("Owned environment compiler input is unavailable: " + path);
+                    if (EnvironmentShaders.Contains(path) ? AssetDatabase.LoadAssetAtPath<Shader>(path) == null
+                        : AssetDatabase.LoadAssetAtPath<TextAsset>(path) == null)
+                        throw new InvalidOperationException("Owned environment input failed Android import: " + path);
+                }
+                PreserveEnvironmentVariants();
                 // Match BuildTownServices.BuildBundle's authored selection exactly.
                 // Authoring/rebuilding furniture or actors is ordinary mod development;
                 // the Quest builder compiles their current immutable snapshot only.
@@ -173,6 +197,7 @@ namespace GloomhavenVR
                 }
                 builds.Add(new AssetBundleBuild { assetBundleName = TownBundleName, assetNames = art });
                 builds.Add(new AssetBundleBuild { assetBundleName = VoiceBundleName, assetNames = voices });
+                builds.Add(new AssetBundleBuild { assetBundleName = EnvironmentBundleName, assetNames = environment });
             }
             string[] dependencies = AssetDatabase.GetDependencies(builds.SelectMany(build => build.assetNames).ToArray(), true);
             var sourcePaths = new SortedSet<string>(dependencies.Where(File.Exists), StringComparer.Ordinal);
@@ -229,7 +254,8 @@ namespace GloomhavenVR
                 unityVersion = Application.unityVersion, assetNames = assets.ToArray(), requiredAssetNames = RequiredAssets,
                 sourceFiles = sources, builtinDependencies = dependencies.Where(p => !File.Exists(p)).OrderBy(p => p, StringComparer.Ordinal).ToArray(),
                 bundle = banks[0].bundle, bundles = banks.Select(bank => bank.bundle).ToArray(), banks = banks,
-                townBanksIncluded = fullGame, graphicsApi = graphicsApi.ToString()
+                townBanksIncluded = fullGame, graphicsApi = graphicsApi.ToString(),
+                environmentBankIncluded = fullGame, environmentVariantsKept = fullGame
             };
             receipt.bundle.path = BundleName;
             File.WriteAllText(Path.Combine(output, "quest-mod-bundles.json"), JsonUtility.ToJson(receipt, true));
@@ -244,6 +270,31 @@ namespace GloomhavenVR
             using (var stream = File.OpenRead(path))
             using (var sha = SHA256.Create()) hash = BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
             return new FileReceipt { path = path.Replace('\\', '/'), size = new FileInfo(path).Length, sha256 = hash };
+        }
+
+        static void PreserveEnvironmentVariants()
+        {
+            // The private Android project remains Linear. A bank without scenes
+            // cannot witness runtime regular instancing and every fog mode via
+            // Unity's automatic scene-based stripping rules.
+            var graphics = new SerializedObject(AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/GraphicsSettings.asset").Single());
+            foreach (var setting in new[] { new[] { "m_InstancingStripping", "Keep All" }, new[] { "m_FogStripping", "Custom" } })
+            {
+                SerializedProperty property = graphics.FindProperty(setting[0]);
+                if (property == null || property.propertyType != SerializedPropertyType.Enum)
+                    throw new InvalidOperationException("Required Android environment shader setting unavailable: " + setting[0]);
+                int index = Array.IndexOf(property.enumNames, setting[1]);
+                if (index < 0) throw new InvalidOperationException("Required Android environment shader enum unavailable: " + setting[0]);
+                property.enumValueIndex = index;
+            }
+            foreach (string name in new[] { "m_FogKeepLinear", "m_FogKeepExp", "m_FogKeepExp2" })
+            {
+                SerializedProperty property = graphics.FindProperty(name);
+                if (property == null || property.propertyType != SerializedPropertyType.Boolean)
+                    throw new InvalidOperationException("Required Android environment fog setting unavailable: " + name);
+                property.boolValue = true;
+            }
+            graphics.ApplyModifiedPropertiesWithoutUndo();
         }
     }
 }

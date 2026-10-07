@@ -1,5 +1,9 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Json;
+using System.Security.Cryptography;
 using GloomhavenVR.Rig;
 using UnityEngine;
 using UnityEngine.XR;
@@ -25,6 +29,52 @@ public static class QuestStandalonePlatform
 
     public static bool Enabled => Application.platform == RuntimePlatform.Android && _resourceDirectory != null;
     public static string ResourceDirectory => Enabled ? _resourceDirectory! : throw new InvalidOperationException("Quest standalone platform is not configured.");
+    internal static string EnvironmentBundleDirectory => Enabled ? ResourceDirectory
+        : Path.GetDirectoryName(typeof(QuestStandalonePlatform).Assembly.Location) ?? string.Empty;
+
+    /// <summary>The Android builder witnessed original PC bundles before repacking.
+    /// Bind that bank-local provenance to the exact generated index. Quest has no
+    /// StandaloneWindows64 files; desktop keeps its existing on-disk source proof.
+    /// The content installer has already qualified this bank's delivered bytes.
+    /// </summary>
+    internal static HashSet<string> OwnedEnvironmentSources(byte[] index, byte[] provenance)
+    {
+        if (!Enabled) throw new InvalidOperationException("Owned environment provenance requires Quest standalone.");
+        if (provenance.Length > 8 * 1024 * 1024) throw new InvalidDataException("owned environment provenance bound");
+        using var input = new MemoryStream(provenance, false);
+        var manifest = new DataContractJsonSerializer(typeof(EnvironmentSources)).ReadObject(input) as EnvironmentSources
+            ?? throw new InvalidDataException("missing owned environment provenance");
+        using var sha = SHA256.Create();
+        string indexHash = BitConverter.ToString(sha.ComputeHash(index)).Replace("-", string.Empty).ToLowerInvariant();
+        if (manifest.schema != 1 || manifest.association != "owned-PC-original-static-environment-GHEM1"
+            || manifest.indexSha256 != indexHash || !EnvironmentHash(manifest.gameKey)
+            || manifest.sources == null || manifest.sources.Length < 1 || manifest.sources.Length > 8192)
+            throw new InvalidDataException("owned environment index/source association");
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        foreach (EnvironmentSource source in manifest.sources)
+        {
+            if (source == null || source.path == null || !source.path.StartsWith("pcg_databases_assets_assets/pcg/", StringComparison.Ordinal)
+                || !source.path.EndsWith(".bundle", StringComparison.Ordinal) || source.path.Contains("..")
+                || source.path.Contains("\\") || source.path.Contains(":") || Path.IsPathRooted(source.path)
+                || !EnvironmentHash(source.sha256) || !result.Add(source.path + ":" + source.sha256))
+                throw new InvalidDataException("owned environment source identity");
+        }
+        return result;
+    }
+    private static bool EnvironmentHash(string? hash)
+    {
+        if (hash == null || hash.Length != 64) return false;
+        foreach (char value in hash) if (!(value >= '0' && value <= '9') && !(value >= 'a' && value <= 'f')) return false;
+        return true;
+    }
+    [DataContract] private sealed class EnvironmentSources
+    {
+        [DataMember] public int schema = 0;
+        [DataMember] public string association = string.Empty, gameKey = string.Empty, indexSha256 = string.Empty;
+        [DataMember] public EnvironmentSource[] sources = Array.Empty<EnvironmentSource>();
+    }
+    [DataContract] private sealed class EnvironmentSource
+    { [DataMember] public string path = string.Empty, sha256 = string.Empty; }
     public static bool ModRunning => Enabled && VRSession.IsRunning;
     public static bool RigReady => ModRunning && VRRigDriver.HeadCamera != null && VRRigDriver.HeadCamera.isActiveAndEnabled;
     public static Camera? HeadCamera => RigReady ? VRRigDriver.HeadCamera : null;
