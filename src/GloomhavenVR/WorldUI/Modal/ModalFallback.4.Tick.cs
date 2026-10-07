@@ -3152,8 +3152,9 @@ internal static partial class ModalFallback
         // Screen policy: full composite for style=screen; for style=window only the
         // windows that FAILED to convert raise it (per-window automatic fallback).
         // The manual chord path forces the screen inside FlatScreen regardless.
-        ScreenWanted = wantLock && (!WorldUIConfig.ModalWindowStyle || Failed.Count > 0
-                                    || ErrorScreenWanted); // part 10: unfloatable error box
+        ScreenWanted = (wantLock && (!WorldUIConfig.ModalWindowStyle || Failed.Count > 0
+                                     || ErrorScreenWanted)) // part 10: unfloatable error box
+                       || MapRoom.MapRetirementPrompt.ScreenFallbackWanted;
         VRModeStateMachine.SetAuxModal(wantLock); // ModalUI only for genuine blockers (item 3b)
 
         // ---- close the measurement out (see the SUB-STEP ATTRIBUTION block) ------------------

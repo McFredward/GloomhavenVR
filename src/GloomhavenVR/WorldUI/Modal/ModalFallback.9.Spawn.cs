@@ -2346,6 +2346,7 @@ internal static partial class ModalFallback
         // handle together before the teardown sweep, rather than leaving a live movie
         // capable of recreating chrome after the WorldUI module has shut down.
         NativeVideoWindow.Shutdown();
+        MapRoom.MapRetirementPrompt.Reset();
         // WINDOW MATERIALISE. Scenario exit / VR off. Five windows dissolving into a scene that is
         // being torn down is not a nicer teardown, it is a slower one — and this path does not run
         // through the prune loop, so it never STARTS an effect itself. This only ENDS effects that
@@ -4101,6 +4102,7 @@ internal static partial class ModalFallback
             // the handles at a new pose. Keep the orphan check about ownership, not membership
             // in just the UIWindow list; genuinely abandoned holders still get collected.
             bool owned = NativeVideoWindow.OwnsGrab(holder) || TownServicePresentation.OwnsGrab(holder)
+                || MapRoom.MapRetirementPrompt.OwnsGrab(holder)
                 || (_errorPanel != null && _errorPanel.IsAlive && ReferenceEquals(_errorGrab, holder));
             for (int j = 0; j < Converted.Count; j++)
             {

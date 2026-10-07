@@ -51,6 +51,7 @@ internal sealed class WorldUIModule : IVRModule
         // A flat host may select while the VR map room is still entering; installing from
         // MapRoomDriver.Engage alone misses that native edge and leaves Accept unreachable.
         MapRoom.MapQuestReadyUp.Install();
+        MapRoom.MapRetirementPrompt.Install();
 
         // The town bank is large and optional. Start its Unity async requests while
         // the player is still in the menu, before the first map frame can create NPCs.
@@ -256,6 +257,7 @@ internal sealed class WorldUIModule : IVRModule
         TownServicePopulation.Reset();
         TownServiceSync.Shutdown();
         TownServiceAssets.Reset();
+        MapRoom.MapRetirementPrompt.Reset();
         ModalFallback.Detach();
         NonDominantHold.Reset();
 
@@ -402,6 +404,7 @@ internal sealed class WorldUIModule : IVRModule
                 ("TownServiceAssets", TownServiceAssets.Tick),
                 ("TownServiceSync.Prepare", TownServiceSync.Prepare), // preserve original template roots before handoff
                 ("TownPalmConfirmation", TownServicePalmConfirmation.Tick), // restore/position owned native controls before fallback scans
+                ("MapRetirementPrompt", () => MapRoom.MapRetirementPrompt.Tick(MapRoom.MapRoomDriver.Active)),
                 ("ModalFallback", ModalFallback.Tick),      // before the flat screen reads ScreenWanted
                 ("TownTempleApproach", TownServiceTempleOffering.TickApproach),
                 ("TownServicePresentation", TownServicePresentation.Tick),
@@ -458,6 +461,7 @@ internal sealed class WorldUIModule : IVRModule
                 ("ActorBars.Late", ActorBars.LateTick),
                 ("WorldTooltips.Late", _tooltips.LateTick),
                 ("CanvasConversion.Late", CanvasConversion.LateTick), // test #21: 2D flatten after the game's tween writers
+                ("MapRetirementPrompt.Late", MapRoom.MapRetirementPrompt.LateTick),
                 // ModBuild 191: the LOCAL tooltip family (item card hints and friends) hangs inside
                 // floated windows, which ModalFallback converts WITHOUT flatten2D — so a pooled item
                 // card's leftover local rotation renders as literal 3D. Rotation + local z only; the
@@ -596,6 +600,7 @@ internal sealed class WorldUIModule : IVRModule
         /// </summary>
         private void OnDestroy()
         {
+            TickGuard.Run("WorldUI.Shutdown.MapRetirementPrompt", MapRoom.MapRetirementPrompt.Reset, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.TownService", TownServicePresentation.Reset, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.TownPopulation", TownServicePopulation.Reset, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.CameraInventory", CameraInventory.Detach, "WorldUI");

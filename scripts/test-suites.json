@@ -488,6 +488,54 @@
       "weight": 94
     },
     {
+      "id": "map-quest-selection-runtime",
+      "command": [
+        "bash",
+        "scripts/check-map-quest-selection-runtime.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "map-quest-ready-runtime",
+      "command": [
+        "bash",
+        "scripts/check-map-quest-ready-runtime.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "quest-window",
+      "command": [
+        "bash",
+        "scripts/quest-window-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 36
+    },
+    {
+      "id": "map-retirement",
+      "command": [
+        "bash",
+        "scripts/map-retirement-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 42
+    },
+    {
       "id": "map-button",
       "command": [
         "bash",
@@ -791,6 +839,7 @@
         "scripts/quest-seat-tests.sh"
       ],
       "groups": [
+        "local",
         "ci"
       ],
       "weight": 36

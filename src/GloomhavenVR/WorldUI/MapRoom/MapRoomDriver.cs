@@ -778,6 +778,7 @@ internal static class MapRoomDriver
         // Hand the game's travel options back before the room disappears under them — a container
         // left parented into a host we are about to destroy would take the Reisen button with it.
         MapTravelConfirm.Reset();
+        MapRetirementPrompt.Reset();
         // AND THE ROOM'S WINDOWS GO WITH THE ROOM (ModBuild 226, user report 16: "Als ich dann zu
         // einem Szenario gejoint bin, habe ich dort zwei Fenster gesehen, die dort NICHT hingehören
         // … Beides Fenster aus der 3D-Map-Umgebung"). Deliberately AFTER MapTravelConfirm.Reset —
