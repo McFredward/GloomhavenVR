@@ -1,5 +1,37 @@
 # State — where the project stands
 
+**Build639 integration, 2026-10-08: 1.1.0 development candidate.**
+
+Both hardware peers were638. The mage received all33 originals but remained
+invisible because its exact zero-pivot Poison member was not materialized from
+the native packed atlas. Loading prepares the actual TMP dependency chain and
+all895 original packed members with exact mesh/UV identity. First offers reserve
+a finite existing-budget transport share; repeat/card replacements preserve
+required originals without obsolete send debt. Additive112/message28 requires
+actual compatible-peer receipt before exact baseline reuse.
+
+The replacement native first-render proof checks the full print, original ring,
+areas,14 distinct full native option rows and confirmation through actual capture,
+contended scheduler, driver, native application and camera readback. Final mage
+0.874–0.961s, merchant0.351s; true full no-ACK repeat0.841s. Exact old638 stays
+incomplete past5s; omission controls fail at1.520/2.615s. An earlier1.065s repeat
+failure and invalid early-edge measurements are retained/explained, not hidden.
+These are local editor results with explicit real network/headset limits.
+
+Purse wrist context is smaller (1.45m/1.65m), donation permission unchanged.
+Initial/recenter map eyes retain taller poses and gain minimum0.70m tabletop
+clearance for low tracked origins, without clamping subsequent movement.
+
+Native assets4492 assertions, transport18,308/four controls, receipts375/four
+controls, map2403/three controls and purse402/four controls pass. Final golden
+299,713, source15/15, strict Release/Debug0/0, docs5 pairs and compiled scope
+checks pass; untouched638 evidence is inherited. Focused validation is not a
+new complete local-suite or headset pass. See [the639 review](NPC-639-REVIEW.md)
+and [the prior-proof audit](NPC-639-PROOF-AUDIT.md).
+Both peers must install639. No bundle, saved setting or release changes.
+
+---
+
 **Build638 integration, 2026-10-07: 1.1.0 development candidate.**
 
 Paired637 evidence distinguishes original packet assembly from the missing named
