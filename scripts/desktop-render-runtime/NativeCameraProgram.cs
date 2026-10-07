@@ -38,6 +38,7 @@ public static class NativeCameraProgram
         var panel = new GameObject("SuspendFixture.Panel", typeof(RectTransform));
         var flat = new FlatScreen();
         VRSession.IsRunning = true; GloomhavenVR.Rig.VRRigDriver.HeadCamera = head;
+        var previousOwner = VRSession.Harmony;
         VRSession.Harmony = new HarmonyLib.Harmony("ghvr.camera-budget." + typeof(NativeCameraProgram).Assembly.GetName().Name);
         try
         {
@@ -146,7 +147,7 @@ public static class NativeCameraProgram
         }
         finally
         {
-            flat.End(); NativeCameraRenderBudget.Shutdown(); VRSession.Harmony.UnpatchSelf(); VRSession.Harmony = null;
+            flat.End(); NativeCameraRenderBudget.Shutdown(); VRSession.Harmony.UnpatchSelf(); VRSession.Harmony = previousOwner;
             PerfConfig.UnusedCamerasSuspended = false; VRSession.IsRunning = true;
             preview.targetTexture = null; target.Release(); UnityEngine.Object.DestroyImmediate(target);
             foreach (GameObject go in new[] { native.gameObject, ui.gameObject, head.gameObject,

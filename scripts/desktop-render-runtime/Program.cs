@@ -18,6 +18,14 @@ public static class InteractionProgram
     }
     public static int Run()
     {
+        var previous = VRSession.Harmony;
+        var owner = new HarmonyLib.Harmony("ghvr.desktop-render." + typeof(InteractionProgram).Assembly.GetName().Name);
+        VRSession.Harmony = owner;
+        try { return RunOwned(); }
+        finally { owner.UnpatchSelf(); VRSession.Harmony = previous; }
+    }
+    private static int RunOwned()
+    {
         count = 0;
         VRSession.IsRunning = true;
         var native = Make("DesktopFixture.Native");
@@ -125,6 +133,6 @@ public static class InteractionProgram
             UnityEngine.Object.DestroyImmediate(preview.gameObject);
             GloomhavenVR.Rig.VRRigDriver.HeadCamera = null;
         }
-        return count + ConversionMeasureProgram.Run() + NativeCameraProgram.Run();
+        return count + ConversionMeasureProgram.Run() + NativeCameraProgram.Run() + MenuCaptureProgram.Run();
     }
 }

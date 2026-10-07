@@ -28,6 +28,8 @@ internal sealed partial class FlatScreen
         if (_rt == null)
             return;
 
+        SetCaptureRenderGuard(true);
+
         TickSplitLifecycle();
 
         Camera? head = Rig.VRRigDriver.HeadCamera;
@@ -39,6 +41,7 @@ internal sealed partial class FlatScreen
             Camera cam = cams[i];
             if (cam == null || (head != null && cam == head))
                 continue;
+            Core.VRCameraPolicy.ExcludeStereo(cam, "screen capture");
             if (CapturedSet.TryGetValue(cam, out CapturedCamera known))
             {
                 RenderTexture? want = TargetFor(known);
@@ -535,6 +538,7 @@ internal sealed partial class FlatScreen
     /// <summary>Undo everything <see cref="CaptureStack"/> did and drop all references.</summary>
     private void ReleaseStack()
     {
+        SetCaptureRenderGuard(false);
         // Mirrors shadow captured cameras — they die with the stack and are rebuilt
         // by the next capture sweep (the stereo RT/hook lifecycle stays with Hide).
         _stereo.ReleaseMirrors();

@@ -36,10 +36,14 @@ def main():
     desktop = (flat/'FlatScreen.3.Desktop.cs').read_text()
     core = (flat/'FlatScreen.1.Core.cs').read_text()
     lifecycle = (flat/'FlatScreen.4.Lifecycle.cs').read_text()
+    stack = (flat/'FlatScreen.2.CameraStack.cs').read_text()
     fields = core[core.index('    private bool DesktopMirrorLeftEye'):core.index('    // ---- ITEM 1: hands')]
     end = method(lifecycle, '    public void OnEndOfFrame()\n')
     show = method(lifecycle, '    private void Show()\n')
     assert show.index('ReleaseDesktopScrub("flat screen capture begins");') < show.index('CaptureStack();'), 'Show must hand scrubbed cameras to capture in the same frame'
+    assert 'SetCaptureRenderGuard(true);' in method(stack, '    private void CaptureStack()\n'), 'Visible native capture must own its final render guard'
+    assert 'SetCaptureRenderGuard(false);' in method(stack, '    private void ReleaseStack()\n'), 'Native capture release must restore render guard ownership'
+    assert 'Core.VRCameraPolicy.ExcludeStereo(cam, "screen capture");' in stack, 'Late native capture must not wait for the periodic stereo sweep'
     assert 'Graphics.Blit(_rt' not in end, 'Native menu must never composite to the spectator'
     assert 'UnityEngine.XR.XRMirrorViewBlitMode.None' in desktop and 'display.SetPreferredMirrorBlitMode(desired)' in desktop, 'Off must address the shipped OpenXR provider API'
     assert 'RenderPipelineManager.beginCameraRendering += OnScrubBeginCameraRendering' in desktop and 'RenderPipelineManager.endCameraRendering -= OnScrubEndCameraRendering' in desktop, 'SRP callback ownership must be paired and reversible'
@@ -48,6 +52,9 @@ def main():
         'Cadence.cs': (args.source_root/'src/GloomhavenVR/WorldUI/Conversion/PanelMaintenanceCadence.cs').read_text(),
         'Desktop.cs': desktop,
         'Policy.cs': (flat/'FrameDesktopPolicy.cs').read_text(),
+        'StereoPolicy.cs': (args.source_root/'src/GloomhavenVR/Core/VRCameraPolicy.cs').read_text(),
+        'CaptureRender.cs': (flat/'FlatScreen.7.CaptureRender.cs').read_text(),
+        'CullBoundary.cs': (args.source_root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentBudget.CameraBoundary.cs').read_text(),
         'Lifecycle.cs': 'using GloomhavenVR.Core;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class FlatScreen\n{\n'+fields+end+'}\n',
     }
     fit = (args.source_root/'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.3.Fit.cs').read_text()
@@ -89,6 +96,12 @@ internal static bool Measure(ConvertedPanel panel, Graphic graphic, out Vector2 
         + 'private const int SweepIntervalFrames = 16;\n' + resolver + '\n}\n')
     variants = [
         ('production', '', '', '', ''),
+        ('captured-menu-feedback', 'CaptureRender.cs', 'camera.cullingMask = mask & ~VRLayers.ModLayerMask;', 'camera.cullingMask = mask;', 'captured native menu cannot redraw the floating screen'),
+        ('captured-target-write-leak', 'CaptureRender.cs', 'camera.targetTexture = target;', '{ /* injected: late native target reset survives */ }', 'render-time capture routing repairs a late native target reset'),
+        ('captured-stereo-write-leak', 'CaptureRender.cs', 'VRCameraPolicy.ExcludeStereo(camera, "screen capture render");', '/* injected: late native stereo reset survives */', 'render-time capture excludes native stereo without waiting for a periodic sweep'),
+        ('captured-mask-left-filtered', 'CaptureRender.cs', '_captureMaskedCamera.cullingMask = _captureMask;', '_captureMaskedCamera.cullingMask = 0;', 'native current mask is restored after each captured render'),
+        ('captured-final-seam-lost', 'CaptureRender.cs', 'ScenarioCameraCullBoundary.Subscribe(OnCapturePreCull);', 'Camera.onPreCull += OnCapturePreCull;', 'render-time capture routing repairs a late native target reset'),
+        ('captured-stereo-log-flood', 'StereoPolicy.cs', '        if (first)\n        {\n            Camera? head = AllowedHead;', '        if (true)\n        {\n            Camera? head = AllowedHead;', 'repeated native stereo corrections keep normal logging bounded'),
         ('camera-not-disabled', 'Budget.cs', 'if (camera.enabled) camera.enabled = false;', 'if (camera.enabled) camera.enabled = true;', 'unused native and UI cameras leave Unity'),
         ('native-projection-lost', 'Budget.cs', 'return _main;', 'return Camera.main;', 'projection resolver preserves exact original camera identity'),
         ('scenario-mask-lookup-lost', 'RigScenario.cs', 'int count = NativeCameraRenderBudget.GetProjectionCamerasNonAlloc(out Camera[] all);', 'Camera[] all = Camera.allCameras; int count = all.Length;', 'scenario mask lookup retains the suspended original camera'),

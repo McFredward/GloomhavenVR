@@ -73,23 +73,39 @@ internal static class VRCameraPolicy
         for (int i = 0; i < count; i++)
         {
             Camera cam = cams[i];
-            if (cam == null || (head != null && cam == head))
-                continue;
-            if (cam.stereoTargetEye == StereoTargetEyeMask.None)
-                continue;
-
-            if (!Originals.ContainsKey(cam))
-                Originals.Add(cam, cam.stereoTargetEye);
-            cam.stereoTargetEye = StereoTargetEyeMask.None;
-            XRDevice.DisableAutoXRCameraTracking(cam, true);
-            forced++;
-            VRLog.Info("Core", $"Stereo policy: '{cam.name}' forced to StereoTargetEyeMask.None ({reason}; " +
-                               $"{(head != null ? $"head '{head.name}' keeps the HMD" : "no rig head — game cameras never stereo")}).");
+            if (ExcludeStereo(cam, reason))
+                forced++;
         }
 
         if (forced > 0)
             VRLog.Info("Core", $"Stereo policy sweep ({reason}): forced None on {forced} camera(s), " +
                                $"{Originals.Count} tracked total, head={(head != null ? $"'{head.name}'" : "NONE")}.");
+    }
+
+    /// <summary>
+    /// Apply the same sole-owner policy to a camera discovered between periodic sweeps.
+    /// FlatScreen must not capture a newly enabled MainMenuVideo with stereo=Both and
+    /// wait up to 30 frames for the rig's next census. Originals still belong here.
+    /// </summary>
+    internal static bool ExcludeStereo(Camera? cam, string reason)
+    {
+        if (!VRSession.IsRunning || cam == null || cam == AllowedHead
+            || cam.stereoTargetEye == StereoTargetEyeMask.None)
+            return false;
+        bool first = !Originals.ContainsKey(cam);
+        if (first)
+            Originals.Add(cam, cam.stereoTargetEye);
+        cam.stereoTargetEye = StereoTargetEyeMask.None;
+        XRDevice.DisableAutoXRCameraTracking(cam, true);
+        if (first)
+        {
+            Camera? head = AllowedHead;
+            VRLog.Info("Core", $"Stereo policy: '{cam.name}' forced to StereoTargetEyeMask.None ({reason}; " +
+                               $"{(head != null ? $"head '{head.name}' keeps the HMD" : "no rig head — game cameras never stereo")}).");
+        }
+        // Native writers may restore Both every frame. Correct each write, but the
+        // normal diagnostic and Sweep summary count only the first owned correction.
+        return first;
     }
 
     /// <summary>Drop bookkeeping for cameras destroyed by scene unloads (called on scene-load sweeps).
