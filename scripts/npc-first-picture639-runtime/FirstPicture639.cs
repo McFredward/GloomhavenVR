@@ -299,7 +299,7 @@ public static partial class MirrorProgram
         NetAvatarDriver receiver,System.Diagnostics.Stopwatch watch,Queue<byte[]> motion)
     {
         ushort printId=originals.First(x=>x.Source==physical).Id;
-        PictureOriginal639 aura=originals.First(x=>ring.IsChildOf(x.Source)&&x.Source!=physical);
+        PictureOriginal639 aura=originals.First(x=>x.Source==ring.parent);
         var values=new System.Text.StringBuilder("actual post-admission owner animation/hover and original mount\n");
         float began=Time.unscaledTime,next=began;int checks=0;float remoteRingTravel=0,lastRing=0;
         bool sampled=false;

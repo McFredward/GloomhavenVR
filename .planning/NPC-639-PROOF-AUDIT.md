@@ -82,3 +82,38 @@ GPU stream dependency.
 Further omission controls, continuous pose/hover and merchant results will be
 recorded here before integration. No complete-gate or headset pass is
 claimed by this focused proof.
+
+## Focused runs and causal controls
+
+The actual old638 source control (`actual638-control/run-n3gg8xr2`) compiled and
+assembled all33 exact originals, then stayed incomplete for the entire5-second
+observation. Its native asset blocker names the same zero-pivot Poison descriptor
+as the supplied hardware logs. The control therefore reproduces the actual
+missing-atlas member, rather than failing compilation or an unrelated assertion.
+
+Omitting only the candidate's actual loading scan
+(`no-asset-prewarm/run-207rnuzr`) gives a1.347066s complete-render failure, with
+receiver apply0.6911643s. Keeping the loading scan reduces that apply to about
+0.094s. This isolates why merely improving admission or send order was
+insufficient while resolving895 native packed members at first interaction.
+
+The native merchant original/card/confirmation run
+(`merchant/run-c_f8dz_6`) passes57 assertions with actual render0.3504428s,
+first assembly0.1921181s,6 contended events and4515 wire bytes. Its different
+observer defaults must also be replaced by the owner's complete output.
+
+Default local invocation generates and hashes the exact original native atlas;
+manual bank arguments are only reuse/diagnostic options:
+
+```sh
+python3 scripts/npc-first-picture639-runtime/run.py --service mage
+python3 scripts/npc-first-picture639-runtime/run.py --service merchant
+python3 scripts/npc-first-picture639-runtime/run.py --cold-observer --expect-incomplete
+```
+
+`--source-root`, `--output-dir` and `--native-dir` isolate worker evidence and
+reuse read-only hierarchy exports. A cached atlas is accepted only when the
+export helper and original assets/stream hashes match its input receipt and
+the generated bank matches its retained provenance hash. The suite requires
+Unity2021.3.5, Xvfb, .NET, UnityPy and the original read-only full game reference.
+It belongs to the local Unity group, never the source-only hosted CI group.
