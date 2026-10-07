@@ -159,6 +159,32 @@ class StagingTests(unittest.TestCase):
             full_assets._copy_recovered(self.source, self.target, digest(self.raw), expected_size=len(self.raw)+1)
         self.assertFalse(self.target.exists())
 
+    def test_windows_path_creation_ctime_and_descriptor_change_ctime_are_comparable(self):
+        proof = full_assets._StageProofs()
+        fstat = os.fstat
+        def descriptor(fd):
+            value = fstat(fd)
+            # Reproduce CPython 3.14.8 Windows fstat ChangeTime versus the
+            # unchanged path stat creation time without hiding any real field.
+            return types.SimpleNamespace(st_dev=value.st_dev, st_ino=value.st_ino,
+                st_size=value.st_size, st_mtime_ns=value.st_mtime_ns, st_ctime_ns=value.st_ctime_ns + 123456)
+        with mock.patch.object(os, 'fstat', side_effect=descriptor):
+            full_assets._copy_recovered(self.source, self.target, digest(self.raw), proofs=proof)
+        self.assertEqual(proof.published(self.target), digest(self.raw))
+        self.assertEqual(proof.published(self.source), digest(self.raw))
+
+    def test_descriptor_ctime_mutation_is_still_rejected_on_windows_bridge(self):
+        fstat = os.fstat; first = {}
+        def descriptor(fd):
+            value = fstat(fd)
+            changed = 1 if fd in first else 0
+            first[fd] = True
+            return types.SimpleNamespace(st_dev=value.st_dev, st_ino=value.st_ino,
+                st_size=value.st_size, st_mtime_ns=value.st_mtime_ns, st_ctime_ns=value.st_ctime_ns + changed)
+        with mock.patch.object(os, 'fstat', side_effect=descriptor), self.assertRaisesRegex(BuildError, 'changed while staging'):
+            full_assets._copy_recovered(self.source, self.target, digest(self.raw))
+        self.assertFalse(self.target.exists())
+
     def test_section_failure_never_finishes_or_restarts_completed_work(self):
         with contextlib.redirect_stdout(self.stream):
             with full_assets._section('catalog'): pass
@@ -233,6 +259,70 @@ class StagingTests(unittest.TestCase):
         self.assertFalse((output/'Assets/Resources/srdebugger/unused.txt').exists())
         final={row['path']:row for row in report['files']}
         self.assertEqual(final[scene_paths[0]]['sha256'],digest((output/scene_paths[0]).read_bytes()))
+        # The completed stage has latest native hashes, not its old copy hashes.
+        # A cold second invocation reads each retained file once and executes
+        # none of its fourteen finished phases.
+        retained_open = Path.open; reads = {}
+        def observe_retained(path, mode='r', *args, **kwargs):
+            if mode == 'rb' and output in path.parents:
+                reads[path] = reads.get(path, 0) + 1
+            return retained_open(path, mode, *args, **kwargs)
+        reuse_stream = io.StringIO()
+        with contextlib.redirect_stdout(reuse_stream), mock.patch.object(Path, 'open', observe_retained), \
+             mock.patch.object(catalogs,'associate',side_effect=AssertionError('completed catalog replay')), \
+             mock.patch.object(canonical_contracts,'witness',side_effect=AssertionError('completed witness replay')), \
+             mock.patch.object(canonical,'apply',side_effect=AssertionError('completed GUID replay')), \
+             mock.patch.object(layouts,'restore',side_effect=AssertionError('completed layout replay')), \
+             mock.patch.object(native_stage,'restore',side_effect=AssertionError('completed native replay')), \
+             mock.patch.object(tmp,'restore',side_effect=AssertionError('completed TMP replay')):
+            reused=full_assets.stage(project,game,output,self.root/'unused-tmp.zip',managed_types=project/'QuestRecovery/managed-types.json',cab_bundles=owners,unitypy=types.SimpleNamespace())
+        self.assertEqual(reused,report)
+        self.assertTrue(reads and all(count == 1 for count in reads.values()))
+        self.assertEqual([(row['phase'].split(':')[1],row['status']) for row in events(reuse_stream) if row['phase'].startswith('staging-section:')],[(name,'reuse') for name in full_assets.STAGING_SECTIONS])
+
+        interrupted=self.root/'interrupted-native-stage'
+        workspace=interrupted.with_name(interrupted.name+'-native-restoration')
+        def interrupted_native(*args,**kwargs):
+            workspace.mkdir(); (workspace/'partial-overlay').write_bytes(b'owned scratch')
+            (interrupted/scene_paths[0]).write_bytes(b'broken native output')
+            (interrupted/(scene_paths[1]+'.meta')).rename(interrupted/'moved.meta')
+            (interrupted/(scene_paths[2]+'.meta')).unlink()
+            raise RuntimeError('native interrupted after actual writes')
+        parameters={'managed_types':project/'QuestRecovery/managed-types.json','cab_bundles':owners,'unitypy':types.SimpleNamespace()}
+        with contextlib.redirect_stdout(io.StringIO()), \
+             mock.patch.object(catalogs,'associate',return_value=catalog_manifest), \
+             mock.patch.object(canonical_contracts,'witness',return_value=proof), \
+             mock.patch.object(layouts,'restore',return_value={'repairedObjectCount':0}), \
+             mock.patch.object(native_stage,'restore',side_effect=interrupted_native):
+            with self.assertRaisesRegex(RuntimeError,'native interrupted'):
+                full_assets.stage(project,game,interrupted,self.root/'unused-tmp.zip',**parameters)
+        self.assertFalse(workspace.exists())
+        self.assertFalse((interrupted/'moved.meta').exists())
+        for relative in (scene_paths[0],scene_paths[1]+'.meta',scene_paths[2]+'.meta'):
+            self.assertEqual((interrupted/relative).read_bytes(),before[relative])
+        # Native succeeds on retry, then bindings fails. The following retry
+        # must retain this now completed native edit instead of copying raw.
+        with contextlib.redirect_stdout(io.StringIO()), \
+             mock.patch.object(full_assets,'_modules',return_value=modules), \
+             mock.patch.object(full_assets,'_copy_recovered',side_effect=AssertionError('completed copies replayed')), \
+             mock.patch.object(catalogs,'associate',return_value=catalog_manifest), \
+             mock.patch.object(canonical_contracts,'witness',side_effect=AssertionError('witness replayed')), \
+             mock.patch.object(layouts,'restore',side_effect=AssertionError('layout replayed')), \
+             mock.patch.object(native_stage,'restore',side_effect=native), \
+             mock.patch.object(tmp,'restore',return_value=[]), \
+             mock.patch.object(startup,'binding_manifest',side_effect=RuntimeError('binding failure')):
+            with self.assertRaisesRegex(RuntimeError,'binding failure'):
+                full_assets.stage(project,game,interrupted,self.root/'unused-tmp.zip',**parameters)
+        self.assertIn('NativeRestored',(interrupted/scene_paths[0]).read_text())
+        with contextlib.redirect_stdout(io.StringIO()), \
+             mock.patch.object(full_assets,'_copy_recovered',side_effect=AssertionError('completed copies replayed')), \
+             mock.patch.object(native_stage,'restore',side_effect=AssertionError('completed native replayed')):
+            final_resume=full_assets.stage(project,game,interrupted,self.root/'unused-tmp.zip',**parameters)
+        self.assertEqual(len(final_resume['selectedScenes']),13)
+        self.assertEqual(final_resume['missingReferences']['missingGuidCount'],0)
+        resumed_files={row['path']:row for row in final_resume['files']}
+        self.assertEqual(resumed_files[scene_paths[0]]['sha256'],digest((interrupted/scene_paths[0]).read_bytes()))
+        self.assertEqual({row['path']:(project/row['path']).read_bytes() for row in records},before)
         # Deferring the intermediate native audit must never remove the last
         # closure gate. Simulate a later font edit introducing a duplicate GUID.
         broken = self.root / 'broken-font-stage'
