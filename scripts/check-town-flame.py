@@ -35,10 +35,16 @@ for bundle,name in [('pcg_materials_assets_cr_st_candleflame.bundle','CandleAnim
 """
     subprocess.run([str(python), '-c', extractor, str(args.source_root), str(run)], check=True)
     base = args.source_root / 'src/GloomhavenVR/Net/TownServices'
+    asset_parts = sorted(base.glob('TownServiceAssets*.cs'))
+    (run / 'asset-source-hashes.json').write_text(json.dumps({
+        str(path.relative_to(args.source_root)): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in asset_parts}, indent=2) + '\n')
     sources = {name: (base / name).read_text().replace('Time.unscaledTime', 'FlameTestClock.Now') for name in (
         'TownServiceAssets.cs', 'TownServiceFrame.cs', 'TownRackState.cs', 'TownCatalogLayout.cs',
         'TownCatalogBank.cs', 'TownCatalogBank.Headers.cs', 'TownServiceCodec.cs', 'TownServiceCodec.OriginalValuePool.cs', 'TownServiceDelta.cs', 'TownServiceMaterial.cs',
         'TownServiceBinding.cs', 'TownServiceFlameClock.cs')}
+    for path in asset_parts:
+        sources[path.name] = path.read_text().replace('Time.unscaledTime', 'FlameTestClock.Now')
     # Frame/Delta retain the real optional original bank. Link its codec rather
     # than replacing Copy with a fixture-only no-op; wire vectors pin these IDs.
     sources['ProtocolBoundary.cs'] = (args.source_root /
