@@ -35,8 +35,8 @@ def main():
     assert 'StaticBatchingUtility' not in source+geometry and 'SetStaticBatchInfo' not in source+geometry
     assert not re.search(r'(?<![\w])(?:Filter\.sharedMesh|Renderer\.sharedMaterials)\s*=(?!=)', source+geometry), 'native cloning sources must stay unchanged'
     controls=[
-        ('world-refusal-falls-through', 'supported &= !world || _worldOwns?.Invoke(next) == true;', 'supported &= true;', 'world shader refusal retains whole native source without falling through to legacy cheap shader', source, 1),
-        ('world-variant-owner-bypassed', 'world ? _worldVariant?.Invoke(original) ?? original', 'world ? CheapMaterial(original)', 'terrain world bridge submits the global owner variant on private geometry', source, 1),
+        ('world-refusal-falls-through', 'supported &= !world || _worldOwns?.Invoke(next) == true;', 'supported &= true;', 'changed world variant refusal between actual eyes keeps every repeated terrain source native', source, 1),
+        ('world-variant-owner-bypassed', 'world ? CurrentWorldVariant(original, shared)', 'world ? CheapMaterial(original)', 'shared world terrain variants preserve every admitted native source', source, 1),
         ('floorhex-veto-missing','AuthoredName(mesh.name).IndexOf("Floor", StringComparison.OrdinalIgnoreCase) >= 0','false','complete floor identity veto recognizes FloorHex',source,1),
         ('bank-identity-veto-missing','!StructuralIdentity(filter.sharedMesh) ? 2','false ? 2','eligible non-floor terrain has private proxies while floors remain native',source,1),
         ('wall-owner-veto-missing','if (component is ProceduralWall) role |= ComponentRole.Structural;','if (component is ProceduralWall or ProceduralMapTile) role |= ComponentRole.Structural;','eligible non-floor terrain has private proxies while floors remain native',admission,1),
@@ -110,8 +110,8 @@ def main():
     # map, pow and simplex work. Pixel/native-route controls below prove its result.
     assert shader.index('if (ToggleWallFade == 0)') < shader.index('float4 occlusion = tex2D(_TilesOcclusionMap, uv);'), 'inactive native dissolve early-out occurs before texture work'
     controls += [
-        ('terrain-cap-ignored','if (limit > 0 && candidates >= limit)','if (limit < 0 && candidates >= limit)',
-         'terrain CPU cap admits only bounded private substitutes',source,1),
+        ('terrain-cap-ignored','limit > 0 && candidates >= limit','limit < 0 && candidates >= limit',
+         'terrain CPU cap admits only bounded private substitutes',source,2),
         ('terrain-frustum-ignored','if (OutsideFrustum(surface.Renderer))','if (OutsideFrustum(surface.Renderer) && limit < 0)',
          'actual current camera frustum rejects offscreen substitute work',source,1),
         ('terrain-classification-cross-type-stale','if (shared && Roles.TryGetValue(type, out ComponentRole cached)) return cached;',
@@ -127,6 +127,26 @@ def main():
         ('inactive-shader-clip-lost','if (_GHVRTerrainNativeRoute >= 1.5) clip(1. - _Cutoff);',
          '/* injected high authored-cutoff bypass */',
          'inactive HIGH and toggle-native clip retain original authored cutoff',shader,1),
+    ]
+    controls += [
+        ('terrain-exhausted-cap-still-reads','if (shared && limit > 0 && candidates >= limit)',
+         'if (false && shared && limit > 0 && candidates >= limit)',
+         'exhausted shared terrain cap skips all native visibility reads',source,1),
+        ('terrain-pre-cull-lease-recovery-lost','RecoverLeases();\n                if (camera == null',
+         '/* injected prior camera lease leak */\n                if (camera == null',
+         'narrowed next-eye terrain budget releases wider previous leases',source,1),
+        ('terrain-canonical-memo-bypassed','if (_canonicalThisCamera.TryGetValue(material, out Material original)) return original;',
+         'Material original; /* injected repeated native original lookup */',
+         'ninety-six repeated terrain sources resolve canonical world material and variant exactly once',source,1),
+        ('terrain-world-variant-memo-bypassed','if (shared && _worldVariantsThisCamera.TryGetValue(original, out Material cached)) return cached;',
+         '/* injected repeated world variant lookup */',
+         'ninety-six repeated terrain sources resolve canonical world material and variant exactly once',source,1),
+        ('terrain-world-variant-cross-eye-stale','_worldVariantsThisCamera.Clear();',
+         '/* injected stale next-eye world variant */',
+         'shared terrain material maps expire before the next actual eye',source,1),
+        ('terrain-canonical-cross-eye-stale','_canonicalThisCamera.Clear();',
+         '/* injected stale next-eye native original */',
+         'shared terrain material maps expire before the next actual eye',source,1),
     ]
     variants=[('production',source,geometry,admission,shader,'')]
     if not args.production_only:
@@ -179,6 +199,14 @@ def main():
             assert before in src, 'actual production primitive observer binding drift: '+before
             src=src.replace(before,after)
         src=src.replace('surface.Renderer.GetSharedMaterials(_materialScratch);', 'TerrainWriteObserver.MaterialReads++; surface.Renderer.GetSharedMaterials(_materialScratch);')
+        for before,after in (
+            ('surface.Renderer.enabled', 'TerrainReadObserver.Enabled(surface.Renderer)'),
+            ('surface.Renderer.gameObject.activeInHierarchy', 'TerrainReadObserver.Active(surface.Renderer)'),
+            ('surface.Renderer.forceRenderingOff', 'TerrainReadObserver.Mask(surface.Renderer)'),
+        ):
+            expected_count=0 if name=='native-visibility-bypass' and before=='surface.Renderer.enabled' else 1
+            assert src.count(before)==expected_count, 'actual production visibility observer binding drift: '+before
+            src=src.replace(before,after)
         (production/'Terrain.cs').write_text(src); (production/'Geometry.cs').write_text(observed_geometry)
         (production/'Admission.cs').write_text(admit)
         (production/'MeshStream.cs').write_text(paths[4].read_text())

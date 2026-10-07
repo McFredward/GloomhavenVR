@@ -390,19 +390,49 @@ public static partial class TerrainProgram
         GloomhavenVR.Hands.VRHands.Left=null; GloomhavenVR.Hands.VRHands.Right=null;
         Object.DestroyImmediate(left.gameObject); Object.DestroyImmediate(right.gameObject);
         PerfConfig.SharedEnvironmentMaterialReadsOn=true;
-        PerfConfig.TerrainCameraSourceLimit=12; TerrainWriteObserver.MaterialReads=0;
+        PerfConfig.TerrainCameraSourceLimit=12; TerrainWriteObserver.MaterialReads=0; TerrainReadObserver.Reset();
         Check(DuringRender(camera,()=>clones.FindAll(renderer=>renderer.forceRenderingOff).Count
             +(original.forceRenderingOff?1:0)==12),"terrain CPU cap admits only bounded private substitutes while every remaining original stays native");
         int cappedReads=TerrainWriteObserver.MaterialReads;
-        Check(cappedReads==12&&PerfMonitor.Counts["Terrain.CameraCandidates"]==12
-            &&PerfMonitor.Counts["Terrain.CameraBudgetFallback"]==84,
+        Check(cappedReads==12&&PerfMonitor.Counts["Terrain.CameraCandidates"]==12,
             "actual per-eye native material reads scale with terrain CPU cap instead of all prepared sources");
+        Check(TerrainReadObserver.EnabledReads==12&&TerrainReadObserver.ActiveReads==12&&TerrainReadObserver.MaskReads==12,
+            "exhausted shared terrain cap skips all native visibility reads for its untouched prepared remainder");
         Check(clones.TrueForAll(renderer=>renderer.enabled&&!renderer.forceRenderingOff)
             && original.enabled&&!original.forceRenderingOff,"budget fallback preserves every original room source after render");
         int[] chosen=null!;
         DuringRender(camera,()=>{chosen=clones.FindAll(renderer=>renderer.forceRenderingOff).ConvertAll(renderer=>renderer.GetInstanceID()).ToArray();return true;});
         Check(DuringRender(camera,()=>clones.FindAll(renderer=>renderer.forceRenderingOff).ConvertAll(renderer=>renderer.GetInstanceID()).ToArray().SequenceEqual(chosen)),
             "settled terrain CPU selection is stable across genuine successive camera invocations");
+        var deferred=clones.First(renderer=>!chosen.Contains(renderer.GetInstanceID()));
+        deferred.gameObject.SetActive(false); Render(camera);
+        Check(PerfMonitor.Counts["ScenarioTerrain.BudgetDeferred"]==84&&PerfMonitor.Counts["Terrain.CameraBudgetFallback"]==0,
+            "unexamined inactive terrain remainder is deferred preparation and never claimed as examined active fallback");
+        deferred.gameObject.SetActive(true);
+        PerfConfig.SharedEnvironmentMaterialReadsOn=false; TerrainReadObserver.Reset(); Render(camera);
+        Check(TerrainReadObserver.EnabledReads==96&&TerrainReadObserver.ActiveReads==96&&TerrainReadObserver.MaskReads==96
+            &&PerfMonitor.Counts["Terrain.CameraBudgetFallback"]==84&&PerfMonitor.Counts["ScenarioTerrain.BudgetDeferred"]==0,
+            "shared-read off retains exact examined active fallback counts and its complete legacy visibility path");
+        PerfConfig.SharedEnvironmentMaterialReadsOn=true;
+        // A prior eye with a wider budget cannot leave a lease behind when the
+        // following eye now rejects that exact source before any native read.
+        PerfConfig.TerrainCameraSourceLimit=0;
+        // Execute the genuine entry without its paired post-render to represent
+        // an interrupted prior camera. The next actual Render must release ALL
+        // previous leases, including sources now deferred without native reads.
+        Component owner=Driver(host);
+        owner.GetType().GetMethod("HandlePreCull",BindingFlags.NonPublic|BindingFlags.Instance)!
+            .Invoke(owner,new object[]{camera});
+        bool wider=deferred.forceRenderingOff&&Proxies(host).FindAll(proxy=>proxy.enabled).Count==96;
+        PerfConfig.TerrainCameraSourceLimit=12;
+        Check(wider&&DuringRender(camera,()=>!deferred.forceRenderingOff
+            &&Proxies(host).FindAll(proxy=>proxy.enabled).Count==12),
+            "narrowed next-eye terrain budget releases wider previous leases before deferring untouched native sources");
+        deferred.forceRenderingOff=true;
+        Check(DuringRender(camera,()=>deferred.forceRenderingOff),
+            "foreign mask on a deferred source survives the following capped terrain eye");
+        Check(deferred.forceRenderingOff,"post-render does not recover a deferred foreign native mask");
+        deferred.forceRenderingOff=false;
         // Same-count replace, rename and live source edits occur between actual eyes.
         var edited=clones.First(renderer=>chosen.Contains(renderer.GetInstanceID()));
         var script=edited.gameObject.AddComponent<CInteractable>(); Render(camera);
@@ -421,6 +451,7 @@ public static partial class TerrainProgram
         Check(TerrainReadObserver.PropertyGuards==96&&TerrainReadObserver.PropertyReads==0
             &&TerrainReadObserver.EffectReads==0&&TerrainReadObserver.PropertyWrites==0,
             "ninety-six empty native terrain blocks retain per-eye guards without repeated copies or private writes");
+        SharedWorldMaterialReads(host,original,camera,clones);
         edited.transform.localPosition=new Vector3(100,0,0); TerrainWriteObserver.MaterialReads=0;
         Check(!DuringRender(camera,()=>edited.forceRenderingOff)&&TerrainWriteObserver.MaterialReads==95,
             "actual current camera frustum rejects offscreen substitute work while preserving native source");
@@ -442,6 +473,63 @@ public static partial class TerrainProgram
         foreach(var clone in clones)Object.DestroyImmediate(clone.gameObject);
         Tick(host);
         Debug.Log("Terrain source-bound scaling: capped material reads="+cappedReads+"/96; native source output retained.");
+    }
+    private static void SharedWorldMaterialReads(GameObject host,MeshRenderer original,Camera camera,List<MeshRenderer> clones)
+    {
+        Material native=original.sharedMaterial;
+        var variant=new Material(native) {name="Fixture.SharedWorldVariant"};
+        var alias=new Material(native) {name="Fixture.SharedCanonicalAlias"};
+        int canonicalReads=0,variantReads=0,modeReads=0;
+        bool allowed=true;
+        ScenarioTerrainBudget.ConfigureCanonicalMaterial(material=>
+        { canonicalReads++;return material==alias?native:material; });
+        ScenarioTerrainBudget.ConfigureWorldMaterialIntegration(material=>
+        { variantReads++; variant.CopyPropertiesFromMaterial(material); return allowed?variant:material; },
+            ()=>new MaterialPass(),()=>{modeReads++;return true;},material=>material==variant);
+        try
+        {
+            original.sharedMaterial=alias;
+            foreach(MeshRenderer clone in clones)clone.sharedMaterial=alias;
+            Check(DuringRender(camera,()=>original.forceRenderingOff&&clones.TrueForAll(clone=>clone.forceRenderingOff)),
+                "shared world terrain variants preserve every admitted native source with an exact original alias");
+            Check(canonicalReads==1&&variantReads==1&&modeReads==1&&MaterialPass.Open==0,
+                "ninety-six repeated terrain sources resolve canonical world material and variant exactly once within one camera pass");
+            canonicalReads=variantReads=modeReads=0;
+            Color previous=native.GetColor("_Tint"); native.SetColor("_Tint",Color.cyan);
+            Check(DuringRender(camera,()=>Proxies(host).FindAll(proxy=>proxy.enabled)
+                .TrueForAll(proxy=>proxy.sharedMaterial==variant&&proxy.sharedMaterial.GetColor("_Tint")==Color.cyan))
+                &&canonicalReads==1&&variantReads==1,
+                "shared terrain material maps expire before the next actual eye and copy its changed native artwork");
+            native.SetColor("_Tint",previous);
+            allowed=false; canonicalReads=variantReads=0;
+            Check(DuringRender(camera,()=>!original.forceRenderingOff&&clones.TrueForAll(clone=>!clone.forceRenderingOff))
+                &&canonicalReads==1&&variantReads==1,
+                "changed world variant refusal between actual eyes keeps every repeated terrain source native");
+            allowed=true;
+            // The public alias is stable, but its current canonical original
+            // changes to an unsupported native queue at the next actual eye.
+            alias.renderQueue=3000;
+            ScenarioTerrainBudget.ConfigureCanonicalMaterial(material=>alias);
+            Check(!DuringRender(camera,()=>original.forceRenderingOff),
+                "changed canonical native material mapping between actual eyes revokes the old world variant route");
+            alias.renderQueue=native.renderQueue;
+            ScenarioTerrainBudget.ConfigureCanonicalMaterial(material=>
+            { canonicalReads++;return material==alias?native:material; });
+            PerfConfig.SharedEnvironmentMaterialReadsOn=false; canonicalReads=variantReads=modeReads=0;
+            Check(DuringRender(camera,()=>original.forceRenderingOff&&clones.TrueForAll(clone=>clone.forceRenderingOff))
+                &&canonicalReads==192&&variantReads==96&&modeReads==1,
+                "shared-read off restores repeated canonical and world factory calls for the complete legacy terrain path");
+        }
+        finally
+        {
+            ScenarioTerrainBudget.ConfigureWorldMaterialIntegration(material=>material,()=>new MaterialPass(),()=>false,_=>false);
+            ScenarioTerrainBudget.ConfigureCanonicalMaterial(material=>material);
+            original.sharedMaterial=native;
+            foreach(MeshRenderer clone in clones)clone.sharedMaterial=native;
+            ScenarioTerrainBudget.BeforeNativeContentChange();
+            PerfConfig.SharedEnvironmentMaterialReadsOn=true;
+            Object.DestroyImmediate(variant); Object.DestroyImmediate(alias);
+        }
     }
     private static void PropertyBridgeChannels(GameObject host,GameObject scenario,Material material)
     {

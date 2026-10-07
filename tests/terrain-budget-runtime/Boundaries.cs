@@ -28,6 +28,10 @@ namespace GloomhavenVR.Core
     internal static class TerrainReadObserver
     {
         internal static int HeadPositions, HeadScales, HandPositions, PropertyGuards, PropertyReads, PropertyWrites, EffectReads;
+        internal static int EnabledReads, ActiveReads, MaskReads;
+        internal static bool Enabled(Renderer renderer) { EnabledReads++; return renderer.enabled; }
+        internal static bool Active(Renderer renderer) { ActiveReads++; return renderer.gameObject.activeInHierarchy; }
+        internal static bool Mask(Renderer renderer) { MaskReads++; return renderer.forceRenderingOff; }
         internal static Vector3 HeadPosition(Transform head) { HeadPositions++; return head.position; }
         internal static float HeadScale(Transform head) { HeadScales++; return head.lossyScale.x; }
         internal static Vector3 HandPosition(GloomhavenVR.Hands.VRHand hand) { HandPositions++; return hand.transform.position; }
@@ -42,7 +46,8 @@ namespace GloomhavenVR.Core
         { PropertyWrites++; renderer.SetPropertyBlock(block, slot); }
         internal static float Effect(MaterialPropertyBlock block, string key) { EffectReads++; return block.GetFloat(key); }
         internal static void Reset()
-        { HeadPositions=HeadScales=HandPositions=PropertyGuards=PropertyReads=PropertyWrites=EffectReads=0; }
+        { HeadPositions=HeadScales=HandPositions=PropertyGuards=PropertyReads=PropertyWrites=EffectReads=0;
+            EnabledReads=ActiveReads=MaskReads=0; }
     }
     internal static class VRSession { internal static bool IsRunning = true; }
     internal static class PerfConfig

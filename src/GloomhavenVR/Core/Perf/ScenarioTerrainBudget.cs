@@ -61,6 +61,7 @@ internal static partial class ScenarioTerrainBudget
         PerfMonitor.RegisterDebug("Terrain.CameraSubstitutes");
         PerfMonitor.RegisterDebug("Terrain.CameraBudgetFallback");
         PerfMonitor.RegisterDebug("Terrain.CameraFrustumFallback");
+        PerfMonitor.RegisterDebug("ScenarioTerrain.BudgetDeferred");
     }
     internal static void Shutdown()
     {
@@ -224,6 +225,8 @@ internal static partial class ScenarioTerrainBudget
         private readonly Dictionary<Material, Material> _cheap = new();
         private readonly HashSet<Material> _readThisCamera = new();
         private readonly Dictionary<Material, int> _routesThisCamera = new();
+        private readonly Dictionary<Material, Material> _canonicalThisCamera = new();
+        private readonly Dictionary<Material, Material> _worldVariantsThisCamera = new();
         private readonly HashSet<int> _discovered = new();
         private readonly int[] _refusals = new int[4];
         private readonly List<Surface> _leases = new();
@@ -426,12 +429,18 @@ internal static partial class ScenarioTerrainBudget
         internal void ReleaseLease(Renderer renderer)
         {
             if (_surfaces.TryGetValue(renderer.GetInstanceID(), out Surface surface)) surface.Unmask();
+            ClearMaterialReads();
         }
         internal void RecoverLeases()
         {
             foreach (Surface surface in _leases) surface.Unmask();
-            _leases.Clear(); _leaseCamera = null; _readThisCamera.Clear(); _routesThisCamera.Clear();
+            _leases.Clear(); _leaseCamera = null; ClearMaterialReads();
             ClearValidation();
+        }
+        private void ClearMaterialReads()
+        {
+            _readThisCamera.Clear(); _routesThisCamera.Clear();
+            _canonicalThisCamera.Clear(); _worldVariantsThisCamera.Clear();
         }
         private void HandlePostRender(Camera camera)
         {
@@ -470,15 +479,27 @@ internal static partial class ScenarioTerrainBudget
                     Matrix4x4 ownerPose = shared ? transform.localToWorldMatrix : default;
                     Vector3 ownerScale = shared ? transform.lossyScale : default;
                     int limit = PerfConfig.TerrainCameraSourceLimit;
-                    int candidates = 0, budgetFallback = 0, frustumFallback = 0;
-                    foreach (Surface surface in _priority)
+                    bool substitute = Enabled;
+                    bool world = _worldEnabled?.Invoke() == true;
+                    bool cheap = PerfConfig.CheapWallShadingOn;
+                    int candidates = 0, budgetFallback = 0, budgetDeferred = 0, frustumFallback = 0;
+                    for (int index = 0; index < _priority.Count; index++)
                     {
+                        // Build638 still reads native visibility for ~455 sources/frame
+                        // AFTER the 64-candidate cap has exhausted its admission budget.
+                        // None can acquire a lease in this invocation. RecoverLeases above
+                        // already released every previous proxy, so leave the untouched
+                        // remainder native without crossing Unity for each rejected source.
+                        // This is a prepared-source count, NOT an examined active fallback.
+                        if (shared && limit > 0 && candidates >= limit)
+                        { budgetDeferred = _priority.Count - index; break; }
+                        Surface surface = _priority[index];
                         // Prepared surfaces include unopened rooms. Reject their native
                         // disabled/inactive renderers before bank/material/proxy work.
                         // No admission verdict survives this camera invocation.
                         if (surface.Renderer == null || !surface.Renderer.enabled
                             || !surface.Renderer.gameObject.activeInHierarchy || surface.Renderer.forceRenderingOff
-                            || !surface.WantsSubstitute(Enabled)) continue;
+                            || !surface.WantsSubstitute(substitute)) continue;
                         // Bound full guard/copy work, not merely successful masks. Rejected
                         // candidates also cost CPU; budget fallback keeps original output.
                         if (limit > 0 && candidates >= limit) { budgetFallback++; continue; }
@@ -490,16 +511,15 @@ internal static partial class ScenarioTerrainBudget
                         surface.Renderer.GetSharedMaterials(_materialScratch);
                         if (_materialScratch.Count != surface.Original.subMeshCount) continue;
                         bool supported = true;
-                        foreach (Material material in _materialScratch) supported &= CurrentMaterialRoute(CanonicalMaterial(material)) >= 0;
+                        foreach (Material material in _materialScratch) supported &= CurrentMaterialRoute(CurrentCanonicalMaterial(material, shared)) >= 0;
                         if (!supported) continue;
                         // Never mask until ALL required slot submissions have valid materials.
                         surface.EnsureSlots(_materialScratch.Count);
-                        bool world = _worldEnabled?.Invoke() == true;
                         for (int slot = 0; slot < _materialScratch.Count; slot++)
                         {
-                            Material original = CanonicalMaterial(_materialScratch[slot]);
-                            Material next = world ? _worldVariant?.Invoke(original) ?? original
-                                : PerfConfig.CheapWallShadingOn ? CheapMaterial(original) : _materialScratch[slot];
+                            Material original = CurrentCanonicalMaterial(_materialScratch[slot], shared);
+                            Material next = world ? CurrentWorldVariant(original, shared)
+                                : cheap ? CheapMaterial(original) : _materialScratch[slot];
                             // A global shader refusal must keep the whole native source.
                             // The older cheap shader cannot substitute unknown world effects.
                             supported &= !world || _worldOwns?.Invoke(next) == true;
@@ -507,7 +527,7 @@ internal static partial class ScenarioTerrainBudget
                         }
                         if (!supported || Array.Exists(surface.Materials, material => material == null)) continue;
                         if (!surface.PrepareProxy(shared, ownerPose, ownerScale)) continue;
-                        surface.CheapLease = world || PerfConfig.CheapWallShadingOn;
+                        surface.CheapLease = world || cheap;
                         surface.Mask(); _leases.Add(surface);
                     }
                     if (PerfMonitor.StepsActive && VRLog.Level >= VRLogLevel.Debug)
@@ -516,11 +536,29 @@ internal static partial class ScenarioTerrainBudget
                         PerfMonitor.Count("Terrain.CameraSubstitutes", _leases.Count);
                         PerfMonitor.Count("Terrain.CameraBudgetFallback", budgetFallback);
                         PerfMonitor.Count("Terrain.CameraFrustumFallback", frustumFallback);
+                        PerfMonitor.Count("ScenarioTerrain.BudgetDeferred", budgetDeferred);
                     }
                 }
-                _readThisCamera.Clear();
+                ClearMaterialReads();
             }
             catch (Exception error) { RecoverLeases(); FailOpen(error); }
+        }
+        private Material CurrentCanonicalMaterial(Material material, bool shared)
+        {
+            if (material == null) return material!;
+            if (!shared) return CanonicalMaterial(material);
+            if (_canonicalThisCamera.TryGetValue(material, out Material original)) return original;
+            original = CanonicalMaterial(material); _canonicalThisCamera[material] = original; return original;
+        }
+        private Material CurrentWorldVariant(Material original, bool shared)
+        {
+            if (shared && _worldVariantsThisCamera.TryGetValue(original, out Material cached)) return cached;
+            // One outer read pass owns this synchronous loop. Native writes restore
+            // leases, and the next eye starts with empty maps; mutable native shader,
+            // texture, keyword and ownership verdicts never survive that boundary.
+            Material next = _worldVariant?.Invoke(original) ?? original;
+            if (shared) _worldVariantsThisCamera.Add(original, next);
+            return next;
         }
         private int CurrentMaterialRoute(Material material)
         {
