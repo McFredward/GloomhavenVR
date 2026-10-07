@@ -59,7 +59,7 @@ internal static partial class PerfConfig
             new ConfigDescription("Viewing distance in VR metres beyond which the distant wall and pillar detail cap applies. Native game and room visibility remain unchanged.", new AcceptableValueRange<float>(.1f, 10f)));
         SharedEnvironmentMaterialReads = file.Bind("Optimize", "SharedEnvironmentMaterialReads",
             FrameDefaults.Active ? FrameDefaults.SharedEnvironmentMaterialReads : Defaults.SharedEnvironmentMaterialReads,
-            "Reuse exact unchanged original-material reads within one camera invocation. Off repeats the original per-surface validation for A/B comparison. Every renderer and later camera retains live native state.");
+            "Reuse exact current scenery, ownership and material checks within one synchronous pass, and stop redundant terrain preparation after its configured camera limit. Each later pass reads native changes again. Off repeats independent checks for A/B comparison; geometry, appearance and animation remain the same.");
         ScenarioTerrainCameraSourceLimitCount = file.Bind("Optimize", "ScenarioTerrainCameraSourceLimitCount",
             FrameDefaults.Active ? FrameDefaults.ScenarioTerrainCameraSourceLimitCount : Defaults.ScenarioTerrainCameraSourceLimitCount,
             new ConfigDescription("Maximum eligible 3D wall/pillar substitutes per eye: 0 is unlimited; lower positive limits reduce substitute preparation CPU work. Remaining surfaces keep their original 3D geometry and shading, which can increase rendering cost. No room is hidden. Works live; fresh Frame/Standalone profiles use 64.", new AcceptableValueRange<int>(0, 2048)));
