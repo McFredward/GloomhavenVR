@@ -50,6 +50,64 @@ Frame captures must not be attributed to the reporting user's session.
    native `PlayerConfirmRetirement`; automatically resolving it would skip the
    optional choice. This audit lane owns the repair.
 
+4. **A participant departure can leave a fully ready quest barrier unstarted.**
+   Native `NetworkPlayer.Detached` (190–232) reassigns/releases controllables,
+   removes the departed player from `AllPlayers`, then invokes `OnPlayerLeft`.
+   `InitializeSelectQuestReadyUp` (3575–3632) passes
+   `validateReadyUpOnPlayerLeft: false` in both native roles. `UIReadyToggle`'s
+   original departure handler (792–821) removes ready/ACK/awaited entries, then
+   returns before quorum/ACK validation when that option is false. With a ready
+   host and one ready remaining participant, an unready third participant's
+   departure creates a full remaining quorum without starting its ACK coroutine.
+   MapChoreographer's departure/ownership handlers only adjust interactability;
+   the host remains interactable while at least two players remain. The native
+   multiplayer controller's automatic unready-on-departure applies only to
+   `MapLoadoutScreen`, not quest selection. Ordinary `ReadyUp(false)` also returns
+   at the now-full participant count (630–638), and `OnReady(true)` hides the
+   separate HUD cancel button (349). Thus ordinary toggle cancellation cannot be
+   assumed to recover this state. The root/ready-up lanes own a narrow VR-only
+   correction of the original quest Initialize option, preserving the original
+   departure/quorum/ACK implementation. An unmodded Flat host remains native;
+   client presentation must never pretend to run that host's ACK continuation.
+
+## Retirement repair and evidence
+
+`MapRetirementPrompt` captures the exact native desktop or console retirement
+widget at the original presenters' Show edge. It floats that live object through
+the ordinary reversible converter, preserving its icon, text, tooltip, original
+button listeners, native animation and lifetime. Hide/replacement invalidates
+the capture. Room/conversion standdown restores the original hierarchy while
+retaining a still-standing capture, so re-enabling does not require replaying
+Show or resolving a promise.
+
+The native console widget contains a hotkey/long-press adapter and no uGUI
+button. A transparent hit surface calls its original private `Confirm` only on
+an actual player click, after checking the same original navigation blocker,
+the exact callback identity, ESC, current presentation and same-frame duplicate
+dispatch. Original keyboard/gamepad registration remains enabled. It stays
+usable after the widget has been restored to the original desktop HUD.
+
+An actual conversion failure, including a missing WorldUI camera in an already
+active room, is reported once for the native opening. `ScreenFallbackWanted`
+requests the existing native map desktop until the original prompt ends,
+replacement occurs, or map presentation stops. It retains the native pending
+choice and console adapter, and never resolves a callback or writes readiness.
+The root must wire this property into `ModalFallback.ScreenWanted`; the worker
+does not own integration wiring.
+
+Focused worker evidence: `scripts/map-retirement-tests.sh` passes 180 checks and
+32 role/presenter cases, and rejects nine causal negative controls. It executes
+the production bridge with the actual original desktop/console widget and
+presenter bodies, original `CallbackPromise`, `ConfirmRetirement` and
+`MPConfirmRetire`. These fixtures are compared with the read-only native source
+in the main checkout. The host display-mode permutation shares the same native
+method because the optional prompt has no host display-mode branch; this does
+not simulate native transport. Unity scene/render/conversion dependencies and
+native ready-vote transport are substitutes. Harmony seam methods are exercised
+as fixture seams; hardware still must verify actual patch ordering, picture,
+poke geometry, animated opening and native network/ACK behavior. The Release
+plugin/preloader build passes with zero errors and zero warnings.
+
 ## Authority and continuation trace
 
 | Flow | Native continuation and quorum | VR boundary reviewed |

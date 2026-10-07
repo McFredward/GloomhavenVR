@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RetirementSource Condition="'$(RetirementSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/MapRetirementPrompt.cs</RetirementSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(RetirementSource)" Link="Production/MapRetirementPrompt.cs" />
+  </ItemGroup>
+</Project>
