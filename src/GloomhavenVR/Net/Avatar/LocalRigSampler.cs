@@ -101,10 +101,25 @@ internal static class LocalRigSampler
             state.HeldCardPose.Position = acp;
             state.HeldCardPose.Rotation = acr;
             SampleHeldCardFaces(out state.HeldFaceCode, out state.HeldFaceCount,
-                out state.SecondHeldFaceCode, out state.SecondHeldFaceCount, out state.HeldFaceActorId, out _);
+                out state.SecondHeldFaceCode, out state.SecondHeldFaceCount, out state.HeldFaceActorId, out state.SecondHeldFaceActorId);
             state.HasHeldCardFace = true;
             state.HeldTownItem = SampleHeldTownItem(1);
             state.HasHeldMapCard = SampleHeldMapCard(1, out state.HeldMapKey, out state.HeldMapPoolSeat, out state.HeldMapPoolCount, out state.HeldMapArcSeat);
+        }
+
+        // Keep both card poses, addresses and grip rules on the wrists' delivery clock.
+        // Slot2 previously rode the large fragmented extras snapshot; its nominal
+        // 15Hz sampling did not give it the compact primary card's arrival cadence.
+        state.HasSecondHeldCardState = true;
+        state.HeldCardGripMask = SampleHeldCardGripMask();
+        state.HasSecondHeldCard = state.HasHeldCard && TrySampleSecondHeldCard(out cp, out cr);
+        if (state.HasSecondHeldCard)
+        {
+            anchor.ToAnchor(cp, cr, out state.SecondHeldCardPose.Position, out state.SecondHeldCardPose.Rotation);
+            state.HasSecondHeldCardFace = true;
+            state.SecondHeldTownItem = SampleHeldTownItem(2);
+            state.HasSecondHeldMapCard = SampleHeldMapCard(2, out state.SecondHeldMapKey,
+                out state.SecondHeldMapPoolSeat, out state.SecondHeldMapPoolCount, out state.SecondHeldMapArcSeat);
         }
 
         // Nothing to say if we have neither a head nor a tracked hand.

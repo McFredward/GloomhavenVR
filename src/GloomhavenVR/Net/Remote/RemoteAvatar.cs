@@ -227,6 +227,7 @@ internal sealed class RemoteAvatar
     private byte _heldCardGripMask;
     private bool _loggedHeldCardRigid;
     private RigPose _secondHeldCardPose;
+    private bool _hasAtomicSecondHeldCardState;
 
     /// <summary>Seconds since the last accepted packet (staleness bookkeeping).</summary>
     public float TimeSinceUpdate { get; private set; }
@@ -1617,6 +1618,7 @@ internal sealed class RemoteAvatar
     public void SetTarget(in AvatarState state)
     {
         _target = state;
+        AcceptSecondHeldCardRig(in state);
         _boardPose.AcceptRig(in state);
         _heldTownItem = state.HasHeldCard ? state.HeldTownItem : null;
         _heldMapKey = state.HasHeldCard && state.HasHeldMapCard ? state.HeldMapKey : 0;
@@ -1673,6 +1675,42 @@ internal sealed class RemoteAvatar
         }
     }
 
+    private void AcceptSecondHeldCardRig(in AvatarState state)
+    {
+        if (!state.HasSecondHeldCardState) return;
+        _hasAtomicSecondHeldCardState = true;
+        _hasSecondHeldCard = state.HasSecondHeldCard;
+        _heldCardGripMask = state.HeldCardGripMask;
+        _secondHeldCardPose = state.SecondHeldCardPose;
+        _secondHeldTownItem = state.HasSecondHeldCard ? state.SecondHeldTownItem : null;
+        _secondHeldFaceAddressReady = state.HasSecondHeldCard && (state.HasSecondHeldCardFace
+            || state.HasSecondHeldMapCard || state.SecondHeldTownItem.HasValue);
+        _secondHeldFaceActorId = state.SecondHeldFaceActorId;
+        _secondHeldMapKey = state.HasSecondHeldCard && state.HasSecondHeldMapCard ? state.SecondHeldMapKey : 0;
+        _secondHeldMapArcSeat = state.SecondHeldMapArcSeat;
+        _secondHeldMapPoolSeat = state.SecondHeldMapPoolSeat;
+        _secondHeldMapPoolCount = state.SecondHeldMapPoolCount;
+        _secondHeldFaceCode = state.HasSecondHeldCardFace ? state.SecondHeldFaceCode : (byte)0;
+        _secondHeldFaceCount = state.HasSecondHeldCardFace ? state.SecondHeldFaceCount : (byte)0;
+    }
+
+    private void AcceptSecondHeldCardExtras(in PresenceState p)
+    {
+        if (_hasAtomicSecondHeldCardState) return;
+        _hasSecondHeldCard = p.HasSecondHeldCard;
+        _heldCardGripMask = p.HasHeldCardGrip ? p.HeldCardGripMask : (byte)0;
+        if (p.HasSecondHeldCard) _secondHeldCardPose = p.SecondHeldCardPose;
+        _secondHeldTownItem = p.HasSecondHeldCard ? p.HeldTownItem : null;
+        _secondHeldFaceAddressReady = p.HasSecondHeldCard && (p.HasHeldCardFace || p.HasHeldMapCard || p.HeldTownItem.HasValue);
+        _secondHeldFaceActorId = p.SecondHeldFaceActorId;
+        _secondHeldMapKey = p.HasSecondHeldCard && p.HasHeldMapCard ? p.HeldMapKey : 0;
+        _secondHeldMapArcSeat = p.HeldMapArcSeat;
+        _secondHeldMapPoolSeat = p.HeldMapPoolSeat;
+        _secondHeldMapPoolCount = p.HeldMapPoolCount;
+        _secondHeldFaceCode = p.HasHeldCardFace ? p.SecondHeldFaceCode : (byte)0;
+        _secondHeldFaceCount = p.HasHeldCardFace ? p.SecondHeldFaceCount : (byte)0;
+    }
+
     /// <summary>Accept a freshly-decoded EXTRAS packet (board pose + hand count + dominant hand).
     /// Poses are already in world frame (converted by the driver).</summary>
     public void SetExtras(in PresenceState p)
@@ -1709,20 +1747,9 @@ internal sealed class RemoteAvatar
             SecondHeldFigureActorId = 0;
         }
 
-        // SECOND HELD CARD (extension record 10): the card in the sender's other hand while both
-        // hold one, rendered by the same slab machinery the rig packet's held card uses
-        // (UpdateCardSlab in Tick). Absent ⇒ at most one card held — which is also exactly what a
-        // peer predating the record (or on build 49's documented compromise) sends — so a plain
-        // reset is right in both cases: the slab hides, and the FIRST card's slab (rig packet) is
-        // untouched.
-        _hasSecondHeldCard = p.HasSecondHeldCard;
-        // Record 34, and the absence of it is meaningful: a packet without the record says both
-        // held cards billboard. Written unconditionally from the parsed state for that reason -
-        // latching the last non-zero mask would leave a card frozen mid-turn after its owner let
-        // the grip go.
-        _heldCardGripMask = p.HasHeldCardGrip ? p.HeldCardGripMask : (byte)0;
-        if (p.HasSecondHeldCard)
-            _secondHeldCardPose = p.SecondHeldCardPose;
+        // Legacy slot2 remains available until this peer sends its compact atomic
+        // rig state. Later fragmented presence cannot rewind either held card.
+        AcceptSecondHeldCardExtras(in p);
 
         // Head-mask SIZE: the sender's own multiplier rides the wire (trailing-block byte A bit 4),
         // so their mask is the same size on every client — the project's standing MP rule that what
@@ -1866,21 +1893,6 @@ internal sealed class RemoteAvatar
         // WITHOUT the record says "nothing is playable here", and latching the last non-zero mask
         // would leave a mirrored arc pulsing for a board whose turn has ended.
         ItemUsableMask = p.HasItemUsable ? p.ItemUsableMask : (ushort)0;
-
-        // HELD-CARD FACE (extension record 36): which card each held-card POSE SLOT is showing, as
-        // a source-list id plus a POSITION in a list this client already holds. Written
-        // unconditionally for the same reason as the grip mask beside it: the ABSENCE of the record
-        // is the statement "these slabs name nothing", and a latched code would keep a front on a
-        // card its owner has already put down.
-        // Slot 1 belongs to the rig pose; slower extras must never overwrite its address.
-        _secondHeldTownItem = p.HasSecondHeldCard ? p.HeldTownItem : null;
-        _secondHeldFaceAddressReady = p.HasSecondHeldCard && (p.HasHeldCardFace || p.HasHeldMapCard || p.HeldTownItem.HasValue);
-        _secondHeldFaceActorId = p.SecondHeldFaceActorId;
-        _secondHeldMapKey = p.HasSecondHeldCard && p.HasHeldMapCard ? p.HeldMapKey : 0;
-        _secondHeldMapArcSeat = p.HeldMapArcSeat;
-        _secondHeldMapPoolSeat = p.HeldMapPoolSeat; _secondHeldMapPoolCount = p.HeldMapPoolCount;
-        _secondHeldFaceCode = p.HasHeldCardFace ? p.SecondHeldFaceCode : (byte)0;
-        _secondHeldFaceCount = p.HasHeldCardFace ? p.SecondHeldFaceCount : (byte)0;
 
         // SHORT-REST SACRIFICE SEAT (extension record 39): which round recess holds the sender's
         // sacrifice and where that card sits in their discard arc. Written unconditionally for the
@@ -2576,10 +2588,9 @@ internal sealed class RemoteAvatar
             UpdateHeldCard(k);
         }
 
-        // SECOND held-card slab (extras extension record 10): driven off the EXTRAS stream, so it
-        // ticks OUTSIDE the rig-target guard — the record can legitimately arrive before the first
-        // rig packet, and the slab must not wait for one. Same machinery as the first slab; the
-        // head billboard inside simply keeps the transmitted rotation until a synced head exists.
+        // Slot2 shares the rig clock with slot1. Tick outside the target guard only
+        // for legacy record10, which may arrive before a peer's first rig packet.
+        // Both cards keep the same existing size, easing, face and billboard path.
         UpdateCardSlab(ref _secondCardHolder, "HeldCard2",
                        _hasSecondHeldCard, in _secondHeldCardPose, k,
                        HeldCardSizing.OwnerHeldCard,
