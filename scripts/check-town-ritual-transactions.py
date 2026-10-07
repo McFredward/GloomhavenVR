@@ -459,7 +459,9 @@ def mutations():
         # that same fence rejects image-only modules after expansion.
         ("purse-visitor-image-leak", "TemplePurseVisitor.cs", '|| frame.Service == 2 && frame.TemplateAddress == "ritual.purse|" && PhysicalPurse(frame.Nodes);', '|| frame.Service == 2 && frame.TemplateAddress == "ritual.purse|";', "cumulative purse delta reaches expansion without repeating its native mesh"),
         ("temple-commit-release", "RitualTransactions.cs", "TownServiceMirror.SetLocalTransactionActive(2, false);\n        if (!committed)", "/* retain priestess reservation */\n        if (!committed)", "successful donation retires its short native commit reservation before the shared blessing finishes"),
-        ("temple-attention-too-narrow", "TempleApproach.cs", "_purseFocus ? 2.6f : 2.4f", "_purseFocus ? 1.65f : 1.4f", "attention-range visitor retains purse when original temple closes"),
+        # The current wrist range is deliberately narrower than shared attention.
+        # This control rejects an invalid restriction of the valid 1.3m close visit.
+        ("temple-attention-too-narrow", "TempleApproach.cs", "_purseFocus ? 1.65f : 1.45f", "_purseFocus ? 1.1f : 1.0f", "close visitor retains purse when original temple closes"),
         ("temple-shared-eye-wrist-coupling", "TempleApproach.cs",
          "bool templeNear = TownServiceOfferingPose.VisitorWithin(station.Root,",
          "bool templeNear = station.IsLocalVisitorNear(_purseFocus) && TownServiceOfferingPose.VisitorWithin(station.Root,",
