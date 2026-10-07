@@ -47,6 +47,11 @@ internal sealed class WorldUIModule : IVRModule
             return;
         }
 
+        // Capture the game's quest-preview callback before the first map proposal can arrive.
+        // A flat host may select while the VR map room is still entering; installing from
+        // MapRoomDriver.Engage alone misses that native edge and leaves Accept unreachable.
+        MapRoom.MapQuestReadyUp.Install();
+
         // The town bank is large and optional. Start its Unity async requests while
         // the player is still in the menu, before the first map frame can create NPCs.
         if (WorldUIConfig.ImmersiveTownServices.Value) TownServiceAssets.BeginPreload();

@@ -760,7 +760,7 @@ internal static partial class RemoteMapStory
     /// window that exists in world space.</summary>
     private static UIQuestPopup? QuestPopup()
     {
-        UIWindow? w = ModalFallback.FloatedWindowWithId(UIWindowID.QuestPopup);
+        UIWindow? w = ModalFallback.FloatedQuestConfirmationWindow();
         return w != null ? w.GetComponent<UIQuestPopup>() : null;
     }
 
@@ -769,8 +769,8 @@ internal static partial class RemoteMapStory
     ///
     /// <para>A LOCALIZATION KEY, never a translated title — two players in different languages must
     /// compute the same value. It is read off the popup's own <c>quest</c> field, so the host's copy
-    /// (<c>selectedQuestPopup</c>) and the client's copy (<c>multiplayerQuestPopup</c>) key
-    /// identically: both wrap the same <c>CQuestState</c>.</para>
+    /// and each client's selected copy key identically: both wrap the same <c>CQuestState</c>.
+    /// The manager's separate multiplayer hover preview is not an accepted selection.</para>
     /// </summary>
     private static uint QuestKey(UIQuestPopup? popup)
     {

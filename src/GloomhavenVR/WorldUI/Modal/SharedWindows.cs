@@ -149,7 +149,7 @@ internal enum SharedWindowKind : byte
     /// through.</para></summary>
     MapStory = 2,
 
-    /// <summary>The quest-confirmation popup, <c>UIWindowID.QuestPopup</c>.</summary>
+    /// <summary>The current native quest-confirmation popup, identified by its manager subject.</summary>
     QuestConfirm = 3,
 
     /// <summary>
@@ -208,7 +208,7 @@ internal static class SharedWindows
     /// What kind of shared window this is, INDEPENDENT of whether this client currently
     /// participates in its sync.
     ///
-    /// <para>A pure lookup against two singletons, one static field and one <c>UIWindowID</c>: it
+    /// <para>A pure lookup against native singleton subjects and the composed-host field: it
     /// never converts, places or releases anything, so the predicate cannot change which windows
     /// float or when. Both story windows are identified by INSTANCE COMPARE against their singleton
     /// and not by id, because the id is scene-serialized and the enum has no Story member at all —
@@ -278,7 +278,8 @@ internal static class SharedWindows
                 return SharedWindowKind.Encounter;
         }
 
-        return window.ID == UIWindowID.QuestPopup ? SharedWindowKind.QuestConfirm : SharedWindowKind.None;
+        return MapRoom.NativeMapQuestSelection.IsConfirmationWindow(window)
+            ? SharedWindowKind.QuestConfirm : SharedWindowKind.None;
     }
 
     /// <summary>
@@ -517,8 +518,11 @@ internal static class SharedWindows
                 UIEventPanel ep = Singleton<UIEventPanel>.Instance;
                 return ep != null ? ep.GetComponent<UIWindow>() : null;
 
+            case SharedWindowKind.QuestConfirm:
+                return MapRoom.NativeMapQuestSelection.ConfirmationWindow;
+
             default:
-                return null;   // QuestConfirm is found by id on the float list, not by a singleton
+                return null;
         }
     }
 
@@ -536,9 +540,6 @@ internal static class SharedWindows
     {
         if (kind == SharedWindowKind.Video)
             return NativeVideoWindow.TryGetGrab(out grab);
-        if (kind == SharedWindowKind.QuestConfirm)
-            return ModalFallback.TryGetGrabById(UIWindowID.QuestPopup, out grab);
-
         return ModalFallback.TryGetGrabFor(WindowOf(kind), out grab);
     }
 }

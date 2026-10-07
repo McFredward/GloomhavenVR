@@ -453,6 +453,17 @@ internal static partial class ModalFallback
             return false;
         if (wp.Window.GetComponent<UIQuestPopup>() == null)
             return false;
+        // The manager owns two separate subjects: accepted/local selection and the
+        // host-proposal hover. Ending one must release that original popup even while
+        // the other still names a quest. In mixed lobbies a native cancellation has
+        // no VR record20, so the manager's measured subject lifetime is authoritative.
+        if (MapRoom.NativeMapQuestSelection.TryHasSubject(wp.Window, out bool hasSubject)
+            && !hasSubject)
+        {
+            why = "this original quest popup's own manager subject has ended; another selected "
+                  + "quest or multiplayer hover cannot keep this separate view sticky";
+            return true;
+        }
         if (!MapRoom.MapLocationInteractor.QuestSelectionCleared(out string cleared))
         {
             why = cleared;

@@ -714,7 +714,7 @@ internal static class MapRoomDriver
         // The game's own Reisen/Abbrechen buttons ride the floated quest window (phase 4b) — they
         // live in the flat map HUD, which this room does not draw, so without this they exist and
         // cannot be reached. Level-triggered; see MapTravelConfirm.
-        MapTravelConfirm.Reconcile(ModalFallback.FloatedWindowWithId(UIWindowID.QuestPopup));
+        MapTravelConfirm.Reconcile(ModalFallback.FloatedQuestConfirmationWindow());
         // "No character selected" is not a state on the map either (user ruling 2026-08-15, "Auch in
         // der Map soll gelten…"). Level-triggered and self-cadenced — two float compares on all but
         // every fourth frame — and entirely self-guarding, so it never throws into this call. It must

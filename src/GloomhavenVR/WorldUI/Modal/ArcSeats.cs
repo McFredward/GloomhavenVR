@@ -5537,33 +5537,12 @@ internal static partial class ModalFallback
             SharedWindowKind kind = SharedKinds[i];
             if (!SharedWindows.ParticipatesHere(kind))
                 continue;
-            UIWindow? window = kind == SharedWindowKind.QuestConfirm
-                ? QuestPopupWindow()
-                : SharedWindows.WindowOf(kind);
+            UIWindow? window = SharedWindows.WindowOf(kind);
             if (window == null)
                 continue;
             if (ReferenceEquals(target.gameObject, window.gameObject)
                 || target.IsChildOf(window.transform))
                 return window;
-        }
-        return null;
-    }
-
-    /// <summary>The quest popup has no singleton — its identity IS its id, the same rule
-    /// <c>SharedWindows.TryGetGrab</c> applies to it. Found on the OPEN set rather than by a scene
-    /// sweep ([[findobjectsoftype-is-the-default-suspect]]).</summary>
-    private static UIWindow? QuestPopupWindow()
-    {
-        for (int i = 0; i < Converted.Count; i++)
-        {
-            UIWindow w = Converted[i].Window;
-            if (w != null && w.ID == UIWindowID.QuestPopup)
-                return w;
-        }
-        foreach (UIWindow w in Open)
-        {
-            if (w != null && w.ID == UIWindowID.QuestPopup)
-                return w;
         }
         return null;
     }

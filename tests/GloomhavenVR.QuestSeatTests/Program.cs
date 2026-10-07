@@ -17,8 +17,14 @@ namespace UnityEngine
         }
     }
 }
-internal enum UIWindowID { QuestPopup, QuestLog, Other }
-internal sealed class UIWindow { internal UIWindowID ID; }
+internal enum UIWindowID { QuestPopup, QuestLog, Other, None }
+internal sealed class UIQuestPopup { }
+internal sealed class UIWindow
+{
+    internal UIWindowID ID;
+    internal UIQuestPopup? QuestPopup;
+    internal T? GetComponent<T>() where T : class => QuestPopup as T;
+}
 namespace GloomhavenVR.WorldUI
 {
     internal sealed class TargetStub
@@ -55,7 +61,8 @@ namespace GloomhavenVR.WorldUI
                     return false;
             return true;
         }
-        private static ConvertedPanel Panel(UIWindowID id) => new() { Target = new() { Window = new() { ID = id } } };
+        private static ConvertedPanel Panel(UIWindowID id) => new() { Target = new() { Window = new()
+            { ID = id, QuestPopup = id == UIWindowID.QuestPopup ? new UIQuestPopup() : null } } };
         private static void Check(bool value, string why)
         {
             _checks++;
@@ -95,6 +102,12 @@ namespace GloomhavenVR.WorldUI
             _arcArrivingPanel = Panel(UIWindowID.Other);
             Check(!TryQuestSelectionPreferredSeat(0f, 28f, 12f, out _), "unrelated windows retain ordinary search");
             Check(!QuestPopupTakesRightCorner(_arcArrivingPanel), "unrelated windows cannot steal quest corner");
+            Setup();
+            _arcArrivingPanel!.Target!.Window.ID = UIWindowID.None;
+            Check(TryQuestSelectionPreferredSeat(0f, 28f, 12f, out _), "native quest popup with no authored ID retains centre placement");
+            Setup();
+            _arcArrivingPanel!.Target!.Window.QuestPopup = null;
+            Check(!TryQuestSelectionPreferredSeat(0f, 28f, 12f, out _), "a shared authored ID does not make an unrelated window a quest popup");
             Setup();
             _arcClaims[0].Panel = null;
             Check(QuestPopupTakesRightCorner(_arcArrivingPanel), "private selection retains right corner when log hidden");
