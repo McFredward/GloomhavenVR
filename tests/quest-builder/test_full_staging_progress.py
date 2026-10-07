@@ -185,6 +185,42 @@ class StagingTests(unittest.TestCase):
             full_assets._copy_recovered(self.source, self.target, digest(self.raw))
         self.assertFalse(self.target.exists())
 
+    def test_windows_delayed_write_time_publishes_the_stamp_after_writer_close(self):
+        proof = full_assets._StageProofs()
+        original = Path.lstat
+        calls = 0
+        def path_stat(path, *args, **kwargs):
+            nonlocal calls
+            value = original(path, *args, **kwargs)
+            if path != self.target: return value
+            calls += 1
+            if calls != 1: return value
+            # Win32 path timestamps can remain stale while a writer is open.
+            return types.SimpleNamespace(st_dev=value.st_dev, st_ino=value.st_ino,
+                st_size=value.st_size, st_mode=value.st_mode, st_nlink=value.st_nlink,
+                st_mtime_ns=value.st_mtime_ns - 123456, st_ctime_ns=value.st_ctime_ns)
+        with mock.patch.object(full_assets, 'WINDOWS_FILE_TIMES', True), mock.patch.object(Path, 'lstat', path_stat):
+            full_assets._copy_recovered(self.source, self.target, digest(self.raw), proofs=proof)
+        self.assertEqual(proof.published(self.target), digest(self.raw))
+        self.assertEqual(proof.files[self.target.absolute()][0], full_assets._stamp(self.target.lstat()))
+
+    def test_windows_writer_close_does_not_accept_replaced_output_identity(self):
+        original = Path.lstat
+        calls = 0
+        def replaced(path, *args, **kwargs):
+            nonlocal calls
+            value = original(path, *args, **kwargs)
+            if path != self.target: return value
+            calls += 1
+            if calls != 2: return value
+            return types.SimpleNamespace(st_dev=value.st_dev, st_ino=value.st_ino + 1,
+                st_size=value.st_size, st_mode=value.st_mode, st_nlink=value.st_nlink,
+                st_mtime_ns=value.st_mtime_ns, st_ctime_ns=value.st_ctime_ns)
+        with mock.patch.object(full_assets, 'WINDOWS_FILE_TIMES', True), mock.patch.object(Path, 'lstat', replaced), \
+             self.assertRaisesRegex(BuildError, 'changed before publication'):
+            full_assets._copy_recovered(self.source, self.target, digest(self.raw))
+        self.assertFalse(self.target.exists())
+
     def test_section_failure_never_finishes_or_restarts_completed_work(self):
         with contextlib.redirect_stdout(self.stream):
             with full_assets._section('catalog'): pass

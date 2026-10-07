@@ -25,6 +25,7 @@ STAGING_SECTIONS = ("catalog", "canonical", "copy", "runtime", "guid", "layout",
                     "native", "catalog-final", "index", "tmp", "bindings", "audit", "scenes", "report")
 COPY_CHUNK = 1024 * 1024
 LARGE_FILE = 8 * COPY_CHUNK
+WINDOWS_FILE_TIMES = sys.platform == "win32"
 
 
 @contextmanager
@@ -52,6 +53,12 @@ def _identity_stamp(value):
     # Compare these APIs only on common identity/size/mtime; each API retains
     # its own full pre/post timestamp guard, including ctime.
     return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns
+
+
+def _written_identity(value):
+    # Win32 guarantees final write timestamps only after the writer closes.
+    # Identity/size are already comparable while that owned handle is open.
+    return value.st_dev, value.st_ino, value.st_size
 
 
 class _StageProofs:
@@ -141,11 +148,17 @@ def _copy_recovered(original, target, expected=None, *, expected_size=None, proo
                 if written.st_size != count:
                     raise BuildError("Staged copy write size differs: " + str(target))
                 sealed = target.lstat()
-                if (_identity_stamp(sealed) != _identity_stamp(written) or
+                if (_written_identity(sealed) != _written_identity(written) or
                         _stamp(os.fstat(destination.fileno())) != _stamp(written)):
                     raise BuildError("Staged copy changed while being sealed: " + str(target))
-        if _stamp(target.lstat()) != _stamp(sealed):
+        closed = target.lstat()
+        changed = (_written_identity(closed) != _written_identity(sealed) or
+                   closed.st_ctime_ns != sealed.st_ctime_ns) if WINDOWS_FILE_TIMES else _stamp(closed) != _stamp(sealed)
+        if changed:
             raise BuildError("Staged copy changed before publication: " + str(target))
+        # Retain the path API's final stamp after writer closure; using the
+        # pre-close last-write time would invalidate a correct Windows proof.
+        sealed = closed
         if proofs is not None:
             proofs.remember(target, actual, _stamp(sealed))
             proofs.remember(original, actual, _stamp(before))
