@@ -22,7 +22,8 @@ internal sealed class TownServiceLaneSendQueue
     private int _priorityCursor, _priorityTurns;
     private ushort? _normalActive, _priorityActive;
     private readonly HashSet<ushort> _priority = new();
-    private readonly HashSet<ushort> _coldPriority = new();
+    private readonly Dictionary<ushort, ulong> _coldPriority = new();
+    private readonly Dictionary<ushort, TownServiceFrame> _latestOriginals = new();
     private byte[]? _manifestBytes;
     private TownServiceFrame? _manifestFrame;
     private TownServiceFrame? _sentManifest;
@@ -35,6 +36,9 @@ internal sealed class TownServiceLaneSendQueue
     private readonly HashSet<ushort> _promotedBundle = new();
     private uint _session;
     private byte _service;
+    private bool _openingPending;
+    private int _openingPages;
+    private double _openingStarted;
     internal TownServiceLaneSendQueue(ulong seed)
     {
         _seed = seed;
@@ -62,6 +66,12 @@ internal sealed class TownServiceLaneSendQueue
         }
         if (frame.Module == TownServiceFrame.ManifestModule)
         {
+            // Reserve the first finite coherent picture of a physical offer, not
+            // every subsequent hover, repair or session heartbeat.
+            bool before = _manifestFrame?.TransactionActive ?? _sentManifest?.TransactionActive ?? false;
+            if (frame.TransactionActive && !before && !frame.PublicCatalog && !frame.VisitorStock && frame.Service is 1 or 3)
+            { _openingPending = true; _openingPages = 0; _openingStarted = double.NaN; }
+            if (!frame.TransactionActive) _openingPending = false;
             // Keep one newest census, not four repeated 8 KiB heartbeats in front of
             // every item. The current fragmented census still finishes atomically.
             _manifestBytes = new byte[length]; Buffer.BlockCopy(bytes, 0, _manifestBytes, 0, length);
@@ -71,7 +81,7 @@ internal sealed class TownServiceLaneSendQueue
             {
                 ushort id = _order[i];
                 if (id == TownServiceFrame.ManifestModule || Array.BinarySearch(frame.Modules, id) >= 0 || _catalogOriginals.Contains(id)) continue;
-                _sequences[id] = _queues[id].Sequence; _queues[id].Clear(); _queues.Remove(id); _order.RemoveAt(i); _priority.Remove(id); _coldPriority.Remove(id);
+                _sequences[id] = _queues[id].Sequence; _queues[id].Clear(); _queues.Remove(id); _order.RemoveAt(i); _priority.Remove(id); _coldPriority.Remove(id); _latestOriginals.Remove(id);
                 if (_clocks.TryGetValue(id, out var clock)) { _sequences[id] = Math.Max(_sequences[id], clock.Sequence); clock.Clear(); _clocks.Remove(id); }
             }
         }
@@ -135,17 +145,64 @@ internal sealed class TownServiceLaneSendQueue
             if (frame.HighPriority)
             {
                 _priority.Add(frame.Module);
-                if (frame.BaseSequence == 0) _coldPriority.Add(frame.Module);
-                // A just-grabbed card may have its first baseline inside a cold bundle.
-                // Deliver that exact immutable dependency urgently before its pose delta.
-                if (_bundleBytes.TryGetValue(frame.Module, out byte[]? baselineBytes) && _promotedBundle.Add(frame.Module))
+                if (frame.BaseSequence == 0)
+                {
+                    // Replacing an already offered card can keep the same lease
+                    // and active census. It still starts a finite new picture;
+                    // the previous completed offer cannot leave its expired timer.
+                    if (_coldPriority.Count == 0 && !frame.PublicCatalog && !frame.VisitorStock
+                        && frame.Service is 1 or 3
+                        && (_manifestFrame?.TransactionActive ?? _sentManifest?.TransactionActive ?? false))
+                    { _openingPending = true; _openingPages = 0; _openingStarted = double.NaN; }
+                    if (!_coldPriority.TryGetValue(frame.Module, out ulong newest) || frame.Sequence > newest)
+                        _coldPriority[frame.Module] = frame.Sequence;
+                    if (!frame.PublicCatalog && !frame.VisitorStock)
+                    {
+                        if (!_latestOriginals.TryGetValue(frame.Module, out var previous) || frame.Sequence > previous.Sequence)
+                            _latestOriginals[frame.Module] = frame;
+                        queue.SupersedeTownOriginal(frame);
+                    }
+                }
+                // Only a delta needs the exact old original inside a cold bundle.
+                // Promoting it before a complete replacement doubled first-picture
+                // traffic and replayed an obsolete hidden picture at every offer.
+                if (frame.BaseSequence != 0 && _bundleBytes.TryGetValue(frame.Module, out byte[]? baselineBytes) && _promotedBundle.Add(frame.Module))
                     foreach (TownServiceFrame baseline in _bundleFrames)
-                        if (baseline.Module == frame.Module && baseline.BaseSequence == 0)
-                        { _coldPriority.Add(frame.Module); queue.Enqueue(baselineBytes, baselineBytes.Length, baseline); break; }
+                        if (baseline.Module == frame.Module && baseline.BaseSequence == 0 && baseline.Sequence == frame.BaseSequence)
+                        { if (!_coldPriority.ContainsKey(frame.Module)) _coldPriority[frame.Module] = baseline.Sequence; queue.Enqueue(baselineBytes, baselineBytes.Length, baseline); break; }
             }
             else { _priority.Remove(frame.Module); _coldPriority.Remove(frame.Module); }
             queue.Enqueue(bytes, length, frame);
         }
+        SupersedeUrgentBundle();
+    }
+
+    private void SupersedeUrgentBundle()
+    {
+        if (!_urgentBundle.HasInFlight || _urgentBundleFrames.Count == 0) return;
+        foreach (TownServiceFrame older in _urgentBundleFrames)
+        {
+            TownServiceFrame? current = older.Module == TownServiceFrame.ManifestModule ? _manifestFrame
+                : _latestOriginals.TryGetValue(older.Module, out var latest) ? latest : null;
+            if (current == null || !ExtrasSendQueue.CanSupersedeTownOriginal(older, current)
+                || _queues.TryGetValue(older.Module, out var queue) && queue.HasTownDelta(older.Sequence)) return;
+        }
+        // No old member or dependent delta remains current. A new fragmented
+        // sequence replaces this obsolete assembly without losing a baseline.
+        _urgentBundle.Clear(); _urgentBundleFrames.Clear();
+    }
+    internal byte[]? NextOpening(double now)
+    {
+        if (!_openingPending) return null;
+        if (_coldPriority.Count == 0) return null;
+        if (double.IsNaN(_openingStarted)) _openingStarted = now;
+        if (_openingPages >= 16 || now - _openingStarted >= 1)
+        { _openingPending = false; return null; }
+        // Current complete originals do not depend on the old hidden bundle.
+        // Its independent background assembly remains retained and still finishes.
+        byte[]? page = Take(now, true);
+        if (page != null) _openingPages++;
+        return page;
     }
     internal byte[]? NextUrgent(double now)
     {
@@ -345,14 +402,19 @@ internal sealed class TownServiceLaneSendQueue
         }
         byte[]? page=bundle.Next(now);
         if(page!=null&&!bundle.HasInFlight)
-        { foreach(TownServiceFrame frame in frames) { if (frame.BaseSequence == 0) _coldPriority.Remove(frame.Module); TownServiceDelivery.Completed?.Invoke(frame); } frames.Clear();
+        { foreach(TownServiceFrame frame in frames) { CompleteCold(frame); TownServiceDelivery.Completed?.Invoke(frame); } frames.Clear();
           if(!urgent){_bundleBytes.Clear();_promotedBundle.Clear();} }
         return page;
     }
     private void Completed(ExtrasSendQueue queue)
     {
         if (!queue.HasInFlight && queue.CompletedIdentity is TownServiceFrame frame)
-        { if (frame.BaseSequence == 0) _coldPriority.Remove(frame.Module); TownServiceDelivery.Completed?.Invoke(frame); }
+        { CompleteCold(frame); TownServiceDelivery.Completed?.Invoke(frame); }
+    }
+    private void CompleteCold(TownServiceFrame frame)
+    {
+        if (frame.BaseSequence == 0 && _coldPriority.TryGetValue(frame.Module, out ulong newest)
+            && newest == frame.Sequence) _coldPriority.Remove(frame.Module);
     }
     internal void RetireSources(bool publicCatalog, bool visitorStock)
     {
@@ -365,7 +427,7 @@ internal sealed class TownServiceLaneSendQueue
             if (_clocks.TryGetValue(id, out var clock))
             { _sequences[id] = Math.Max(_sequences[id], clock.Sequence); clock.Clear(); _clocks.Remove(id); }
             _catalogBases.Remove(id); _catalogBaseKeys.Remove(id); _catalogQueuedKeys.Remove(id); _catalogRepairs.Remove(id);
-            _catalogOriginals.Remove(id); _priority.Remove(id); _coldPriority.Remove(id);
+            _catalogOriginals.Remove(id); _priority.Remove(id); _coldPriority.Remove(id); _latestOriginals.Remove(id);
             _bundleBytes.Remove(id); _promotedBundle.Remove(id);
             if (_normalActive == id) _normalActive = null;
             if (_priorityActive == id) _priorityActive = null;
@@ -389,8 +451,9 @@ internal sealed class TownServiceLaneSendQueue
     { foreach (var pair in _queues) { _sequences[pair.Key] = pair.Value.Sequence; pair.Value.Clear(); }
         foreach (var pair in _clocks) { _sequences[pair.Key] = Math.Max(_sequences.TryGetValue(pair.Key, out var sequence) ? sequence : 0, pair.Value.Sequence); pair.Value.Clear(); }
         _clocks.Clear(); _catalogOriginals.Clear(); _catalogBases.Clear(); _catalogBaseKeys.Clear(); _catalogQueuedKeys.Clear(); _catalogRepairs.Clear(); _clockCursor = 0; _clockRepairDue = false;
-        _bundle.Clear(); _urgentBundle.Clear(); _bundleFrames.Clear(); _urgentBundleFrames.Clear(); _bundleBytes.Clear(); _promotedBundle.Clear(); _queues.Clear(); _order.Clear(); _priority.Clear(); _coldPriority.Clear(); _cursor = _priorityCursor = _priorityTurns = 0;
-        _normalActive = _priorityActive = null; _manifestBytes = null; _manifestFrame = _sentManifest = null; _nextManifest = 0; }
+        _bundle.Clear(); _urgentBundle.Clear(); _bundleFrames.Clear(); _urgentBundleFrames.Clear(); _bundleBytes.Clear(); _promotedBundle.Clear(); _queues.Clear(); _order.Clear(); _priority.Clear(); _coldPriority.Clear(); _latestOriginals.Clear(); _cursor = _priorityCursor = _priorityTurns = 0;
+        _normalActive = _priorityActive = null; _manifestBytes = null; _manifestFrame = _sentManifest = null; _nextManifest = 0;
+        _openingPending = false; _openingPages = 0; _openingStarted = double.NaN; }
     internal static bool SameIdentity(TownServiceFrame a, TownServiceFrame b) => a.VisitorStock == b.VisitorStock && a.PublicCatalog == b.PublicCatalog && a.PublicClaim == b.PublicClaim && a.Session == b.Session
         && a.Service == b.Service && a.Module == b.Module && a.Template == b.Template && a.TemplateAddress == b.TemplateAddress && a.Structure == b.Structure
         && a.Visible == b.Visible && (a.BaseSequence == 0 ? a.Sequence : a.BaseSequence) == (b.BaseSequence == 0 ? b.Sequence : b.BaseSequence);
@@ -464,6 +527,8 @@ internal sealed class TownServiceSendQueue
     // Cold visible originals get a bounded direct turn in the existing global
     // scheduler. The public, private and stock lanes retain equal arbitration;
     // this never bypasses their manifests or starts a separate send clock.
+    internal byte[]? NextOpening(double now)
+    { ApplyRetirements(); return _private.NextOpening(now); }
     internal byte[]? NextUrgent(double now)
     {
         ApplyRetirements();
