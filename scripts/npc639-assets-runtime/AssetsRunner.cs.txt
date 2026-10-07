@@ -1,0 +1,15 @@
+using System;using System.Collections;using System.IO;using System.Reflection;using UnityEditor;using UnityEngine;
+public static class AssetsRunner {
+ private static IEnumerator run;private static float until;private static bool started;
+ public static void Start(){EditorSettings.enterPlayModeOptionsEnabled=true;EditorSettings.enterPlayModeOptions=EnterPlayModeOptions.DisableDomainReload|EnterPlayModeOptions.DisableSceneReload;EditorApplication.update+=Tick;EditorApplication.EnterPlaymode();}
+ private static void Tick(){
+ if(!EditorApplication.isPlaying||Time.realtimeSinceStartup<until)return;
+ try {
+  if(!started){started=true;var args=Environment.GetCommandLineArgs();string Arg(string x)=>args[Array.IndexOf(args,x)+1];
+   run=(IEnumerator)Assembly.LoadFile(Arg("-assetsDll")).GetType("AssetsProof").GetMethod("Run").Invoke(null,new object[]{Arg("-assetsBank"),Arg("-assetsOutput")});}
+  if(!run.MoveNext()){EditorApplication.Exit(0);return;}
+  if(run.Current is WaitForSecondsRealtime wait)until=Time.realtimeSinceStartup+wait.waitTime;
+  else if(run.Current!=null)throw new Exception("Unknown fixture coroutine wait");
+ }catch(Exception e){while(e is TargetInvocationException&&e.InnerException!=null)e=e.InnerException;Debug.LogException(e);EditorApplication.Exit(1);}
+ }
+}
