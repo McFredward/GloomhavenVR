@@ -148,8 +148,10 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 // us call a callback closed over a `hostSelectedLocation` that is already null. The test is the
 // game's own PUBLIC `UIMapMultiplayerController.HostSelectedQuest` (:34, literally
 // `hostSelectedLocation?.LocationQuest`) compared by reference against the quest the prompt was
-// raised for. Idempotent for the same reason plus one more: a pending drive is dropped the moment
-// the toggle is already visible, so nothing can run `PreviewQuest` twice.
+// raised for. A callback is consumed once. Toggle visibility is NOT proof that this prompt was
+// answered: UIReadyToggle.Initialize(show:false) retains _requestVisible, and its following native
+// SetInteractable(true) can reveal a previous/early request before PreviewQuest runs. Skipping the
+// registered callback in that state skips the selected quest card and cancel control too.
 //
 // NOTHING GOES ON THE WIRE FROM HERE. This file sends no action, opens no channel and writes no
 // replicated state. It presses a button on this client that the flat game draws and the room does
@@ -210,9 +212,16 @@ internal static class MapQuestReadyUp
     /// answered, or null. THIS IS THE GAME'S OWN DELEGATE, stored and invoked — never rebuilt.</summary>
     private static Action? _pendingConfirm;
 
-    /// <summary>The quest the pending prompt was raised for, compared by REFERENCE against
-    /// <c>UIMapMultiplayerController.HostSelectedQuest</c> immediately before the drive.</summary>
+    /// <summary>The quest the pending prompt was raised for, compared by stable quest ID against
+    /// <c>UIMapMultiplayerController.HostSelectedQuest</c> on the same native controller immediately
+    /// before the drive. The native callback reads that controller's current host location.</summary>
     private static CQuestState? _pendingQuest;
+
+    // A room rebuild may retain a valid native prompt; a scene/controller replacement may not.
+    // The callback closes over the native controller, so its identity is part of its validity.
+    private static UIMapMultiplayerController? _pendingController;
+    private static Action? _lastDrivenConfirm;
+    private static UIMapMultiplayerController? _lastDrivenController;
 
     /// <summary>Which presenter raised it — printed, because which one is in the scene is a SCENE
     /// fact (the console layout uses the popup, the desktop layout the marker button) and cannot be
@@ -325,9 +334,8 @@ internal static class MapQuestReadyUp
     // ---- installation ------------------------------------------------------------------------------
 
     /// <summary>
-    /// Register the two postfixes exactly once. Called from <see cref="MapTravelConfirm.Install"/>,
-    /// which the map room's engage path already runs — for the same reason that class states for not
-    /// registering from <c>WorldUIModule</c>: other lanes own that file.
+    /// Register the prompt and native-click postfixes exactly once. The WorldUI startup registers
+    /// before any native proposal; <see cref="MapTravelConfirm.Install"/> is an idempotent fallback.
     /// </summary>
     internal static void Install()
     {
@@ -366,9 +374,24 @@ internal static class MapQuestReadyUp
             return;
         if (_driving)
             return;
+        UIMapMultiplayerController? controller = Singleton<UIMapMultiplayerController>.IsInitialized
+            ? Singleton<UIMapMultiplayerController>.Instance : null;
+        if (ReferenceEquals(onConfirm, _lastDrivenConfirm)
+            && ReferenceEquals(controller, _lastDrivenController))
+            return;
         _pendingConfirm = onConfirm;
         _pendingQuest = quest;
         _pendingSeam = seam;
+        _pendingController = controller;
+    }
+
+    private static void ConsumeNativeAnswer(Action? answered)
+    {
+        if (answered == null || !ReferenceEquals(answered, _pendingConfirm))
+            return;
+        _lastDrivenConfirm = answered;
+        _lastDrivenController = _pendingController;
+        Drop("the player already answered this exact registered prompt through its native click handler");
     }
 
     /// <summary>
@@ -391,15 +414,22 @@ internal static class MapQuestReadyUp
         if (!MapRoomDriver.Active)
             return;
 
+        if (!FFSNetwork.IsOnline || !FFSNetwork.IsClient || StoryComposite.PointOfNoReturn)
+        {
+            Drop("this is no longer an online client's uncommitted quest proposal");
+            return;
+        }
+
         CQuestState? live = null;
+        UIMapMultiplayerController? controller = null;
         try
         {
-            if (Singleton<UIMapMultiplayerController>.IsInitialized)
-            {
-                UIMapMultiplayerController mp = Singleton<UIMapMultiplayerController>.Instance;
-                if (mp != null)
-                    live = mp.HostSelectedQuest;
-            }
+            if (!Singleton<UIMapMultiplayerController>.IsInitialized)
+                return; // The native map is not available yet; absence is not cancellation.
+            controller = Singleton<UIMapMultiplayerController>.Instance;
+            if (controller == null)
+                return;
+            live = controller.HostSelectedQuest;
         }
         catch (Exception e)
         {
@@ -408,20 +438,24 @@ internal static class MapQuestReadyUp
             return;
         }
 
-        if (!ReferenceEquals(live, _pendingQuest))
+        if (!ReferenceEquals(controller, _pendingController)
+            || live == null || !string.Equals(live.ID, _pendingQuest?.ID, StringComparison.Ordinal))
         {
-            Drop("the host's selection is no longer the quest this prompt was raised for "
+            Drop("the native controller or host's selection is no longer the one this prompt was raised for "
                  + "(UIMapMultiplayerController.HostSelectedQuest changed between the prompt and this "
                  + "tick — he cancelled or picked another one). Answering it would invoke a callback "
                  + "closed over a location the game has already cleared");
             return;
         }
 
-        if (ReadyToggleIsUp())
+        if (!Singleton<UIReadyToggle>.IsInitialized)
+            return;
+        UIReadyToggle? toggle = Singleton<UIReadyToggle>.Instance;
+        if (toggle == null)
+            return;
+        if (toggle.readyUpToggleState != EReadyUpToggleStates.Quests)
         {
-            Drop("the quest ready-up is ALREADY visible — PreviewQuest has run for this selection, so "
-                 + "there is nothing left to advance. This is the idempotence gate; seeing it is "
-                 + "normal when two prompts arrive for one selection");
+            Drop("the native singleton is now serving another readiness decision, not Quests");
             return;
         }
 
@@ -436,6 +470,9 @@ internal static class MapQuestReadyUp
         CQuestState quest = _pendingQuest!;
         _pendingConfirm = null;
         _pendingQuest = null;
+        _pendingController = null;
+        _lastDrivenConfirm = confirm;
+        _lastDrivenController = controller;
 
         bool linked = ChoosingLinkedQuestOption();
         VRLog.Info(Scope, $"MAP QUEST READY-UP: client confirm DRIVEN for quest '{QuestName(quest)}' "
@@ -491,20 +528,10 @@ internal static class MapQuestReadyUp
     {
         _pendingConfirm = null;
         _pendingQuest = null;
+        _pendingController = null;
         VRLog.Info(Scope, $"MAP QUEST READY-UP: client confirm NOT driven — {why}. The seam that "
                           + $"raised it was {_pendingSeam}.ShowQuestSelectedAction.");
         _pendingSeam = "<none>";
-    }
-
-    /// <summary>Is the game's ready toggle on screen right now? <c>UIReadyToggle.IsVisible</c> is
-    /// literally <c>window.IsOpen</c> (decompiled UIReadyToggle.cs:138), which is the only honest
-    /// test — a UIWindow hide is a CanvasGroup fade and need not deactivate the GameObject.</summary>
-    private static bool ReadyToggleIsUp()
-    {
-        if (!Singleton<UIReadyToggle>.IsInitialized)
-            return false;
-        UIReadyToggle toggle = Singleton<UIReadyToggle>.Instance;
-        return toggle != null && toggle.IsVisible;
     }
 
     /// <summary>The game's own linked-quest predicate, read only so the drive line can PRINT it. The
@@ -564,7 +591,8 @@ internal static class MapQuestReadyUp
                                    GameObject? parkedToggle, UIWindow? host,
                                    bool questCardFloated, bool parkingStoodDown)
     {
-        bool parked = parkedToggle != null && host != null;
+        bool parked = parkedToggle != null && host != null
+                      && ReferenceEquals(parkedToggle, questConfirmToggle);
         bool ours = MapRoomDriver.Active && questConfirmToggle != null && !parkingStoodDown;
 
         if (!ours)
@@ -720,13 +748,14 @@ internal static class MapQuestReadyUp
         ReadyToggleParkClaim.Set(null, "MapTravelConfirm is not presenting the quest confirm");
     }
 
-    /// <summary>Forget everything — the map room stood down. Called from
+    /// <summary>Release room presentation — the map room stood down. Called from
     /// <see cref="MapTravelConfirm.Reset"/>, which <c>MapRoomDriver.StandDown</c> already runs.</summary>
     internal static void Reset()
     {
-        _pendingConfirm = null;
-        _pendingQuest = null;
-        _pendingSeam = "<none>";
+        // The native map/controller may survive a VR room rebuild or the first map activation.
+        // Preserve its unconsumed prompt until TickPendingClientPrompt validates it against the
+        // current native controller and proposal. Discarding it here made rejoining the lobby the
+        // only way to obtain a new prompt. Scene replacement/cancellation still drops it there.
         _driving = false;
         _claimState = ClaimState.None;
         _claimed = null;
@@ -1296,16 +1325,56 @@ internal static class MapQuestReadyUp
     [HarmonyPatch]
     internal static class ClientQuestPromptSeam
     {
+        private static readonly FieldInfo? DesktopButton =
+            AccessTools.Field(typeof(UIGuildmasterConfirmActionButtonPresenter), "_button");
+        private static readonly FieldInfo? DesktopConfirm =
+            AccessTools.Field(typeof(UIGuildmasterConfirmActionButton), "_onConfirmCallback");
+        private static readonly FieldInfo? PopupConfirm =
+            AccessTools.Field(typeof(UIGuildmasterConfirmActionPopup), "_onConfirmCallback");
+
         [HarmonyPostfix]
         [HarmonyPatch(typeof(UIGuildmasterConfirmActionButtonPresenter),
                       nameof(UIGuildmasterConfirmActionButtonPresenter.ShowQuestSelectedAction))]
-        private static void AfterButtonPrompt(CQuestState quest, Action onConfirmCallback) =>
-            CapturePrompt("UIGuildmasterConfirmActionButtonPresenter", quest, onConfirmCallback);
+        private static void AfterButtonPrompt(UIGuildmasterConfirmActionButtonPresenter __instance,
+                                              CQuestState quest, Action onConfirmCallback)
+        {
+            // The desktop presenter installs a wrapper, not the bare argument: it closes its
+            // hover-only multiplayer preview before invoking PreviewQuest. Use the exact native
+            // click delegate so a hovered proposal cannot leave a second stale quest card behind.
+            Action? clicked = DesktopButton?.GetValue(__instance) is object button
+                ? DesktopConfirm?.GetValue(button) as Action : null;
+            if (clicked == null)
+            {
+                // Optional private metadata may change. Preserve the native presentation cleanup
+                // with its public API before the original continuation; never reflect PreviewQuest
+                // or manufacture its selection/readiness callbacks.
+                clicked = () =>
+                {
+                    if (Singleton<UIQuestPopupManager>.IsInitialized)
+                        Singleton<UIQuestPopupManager>.Instance.HideMultiplayerPreview();
+                    onConfirmCallback();
+                };
+            }
+            CapturePrompt("UIGuildmasterConfirmActionButtonPresenter", quest, clicked);
+        }
 
         [HarmonyPostfix]
         [HarmonyPatch(typeof(UIGuildmasterConfirmActionPopupPresenter),
                       nameof(UIGuildmasterConfirmActionPopupPresenter.ShowQuestSelectedAction))]
         private static void AfterPopupPrompt(CQuestState quest, Action onConfirmCallback) =>
             CapturePrompt("UIGuildmasterConfirmActionPopupPresenter", quest, onConfirmCallback);
+
+        // A captured prompt can be answered normally while the 3D room is inactive. Observe that
+        // exact native click instead of guessing from toggle visibility or quest-card content.
+        // Entering/rebuilding the room must never replay a prompt the player already answered.
+        [HarmonyPostfix]
+        [HarmonyPatch(typeof(UIGuildmasterConfirmActionButton), "OnClicked")]
+        private static void AfterNativeButtonClick(UIGuildmasterConfirmActionButton __instance) =>
+            ConsumeNativeAnswer(DesktopConfirm?.GetValue(__instance) as Action);
+
+        [HarmonyPostfix]
+        [HarmonyPatch(typeof(UIGuildmasterConfirmActionPopup), "Confirm")]
+        private static void AfterNativePopupClick(UIGuildmasterConfirmActionPopup __instance) =>
+            ConsumeNativeAnswer(PopupConfirm?.GetValue(__instance) as Action);
     }
 }
