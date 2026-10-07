@@ -102,7 +102,8 @@ internal static class MapRetirementPrompt
                 RestorePresentation(keepHit: true);
                 _failed = true;
                 VRLog.Warn("MapRoom", "MAP RETIREMENT PROMPT: original presentation conversion failed: "
-                    + error.GetType().Name + "; native optional callback remains pending.");
+                    + error.GetType().Name + ": " + error.Message
+                    + "; original desktop fallback requested, native optional callback remains pending.");
                 if (_source?.transform is RectTransform original) AddConsoleHit(original);
             }
         }
