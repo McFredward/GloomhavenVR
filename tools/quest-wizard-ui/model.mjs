@@ -64,7 +64,10 @@ export function publisherSourceUrl(value) {
 }
 export function stageProgress(stage) {
   const value=stage?.progress??{},raw=value.stagePercent;
-  const percent=stage?.status==='complete'?100:stage?.status==='pending'?0:
+  // A retry queues a previously failed stage before its prerequisite receipts
+  // finish. Its compatible retained work is still real; pending is a live
+  // status, not a reason to discard the backend's saved whole-stage percentage.
+  const percent=stage?.status==='complete'?100:
     typeof raw==='number'&&Number.isFinite(raw)&&raw>=0&&raw<=100?Math.min(99.9,raw):0;
   const phaseRaw=value.percent;
   const phasePercent=typeof phaseRaw==='number'&&Number.isFinite(phaseRaw)&&phaseRaw>=0&&phaseRaw<=100?phaseRaw:null;

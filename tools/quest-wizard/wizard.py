@@ -83,7 +83,8 @@ class Engine:
         # Remember the explicitly continued run, including an older selection.
         # Read-only discovery/status never changes this restart preference.
         atomic_json(self.store.root / "latest-session.json", {"schema": 1, "session": session})
-        self.store.clear_cancel(session); state["status"] = "running"; state["needsActions"] = []
+        self.store.clear_cancel(session)
+        self.store.begin_run(session)
         supervisor = self.supervisor_factory(self.store, session)
         self.store.event(state, "run_started")
         for row in state["stages"]:

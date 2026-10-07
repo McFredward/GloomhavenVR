@@ -272,6 +272,23 @@ class Store:
                              1 if complete else None, "operations", detail,
                              operation=name, status="complete" if complete else "start")
 
+    def begin_run(self, session):
+        """Clear old failures/live work before checking prerequisite receipts.
+
+        Stage input keys are still qualified by begin_stage: a replaced source
+        cannot inherit incompatible progress. This boundary only separates the
+        explicitly continued attempt from accepted, compatible old work.
+        """
+        with self._lock:
+            state = self._state(session)
+            state.update(status="running", needsActions=[])
+            for row in state["stages"]:
+                if row["status"] != "complete": row["status"] = "pending"
+                row.pop("waiting", None)
+                row["progress"] = stage_progress("complete", 1, 1) if row["status"] == "complete" else stage_progress()
+                stage_plan.begin_attempt(row, row["progress"]["updatedAt"])
+            self.save(state)
+
     def progress(self, session, stage, phase, done=None, total=None, unit=None, detail=None, *, operation=None, status=None):
         value = stage_progress(phase, done, total, unit, detail)
         if status is not None and status not in ("start", "progress", "complete", "reuse", "failed"):

@@ -133,6 +133,44 @@ def initialize(row):
     return plan
 
 
+def begin_attempt(row, boundary):
+    """Separate retained work evidence from the new runner's live position.
+
+    Capture 215452 exposed two independent retry leaks: the previous failed
+    build row stayed red while earlier stage receipts were being checked, and
+    recovery inherited its last live staging step/counter when it reopened.
+    Fractions and closed operations are the compatible owner's high-water;
+    pointers, counters and open codec scopes describe only one attempt. Clear
+    the latter at an actual runner boundary, never while polling status.
+    """
+    plan = initialize(row)
+    plan["attemptBoundary"] = boundary
+    plan["operationProofs"] = {name: "retained" for name in plan["completed"]}
+    plan["liveOperation"] = None
+    plan.pop("liveStatus", None)
+    plan["liveFractions"] = {}
+    plan["preparationScopes"] = {}
+    recovery = plan.get("recovery", {})
+    recovery.pop("liveSection", None)
+
+    def retained_work(work):
+        if not isinstance(work, dict): return
+        work["proofs"] = {name: "retained" for name in work.get("completed", [])}
+        for key in ("current", "live", "liveStatus", "counter"):
+            work.pop(key, None)
+        # Closed steps remain retained; an unfinished counter is merely the
+        # previous attempt's observation. Overall high-water stays in plan.
+        work["fractions"] = {}
+        # A previous native reader's index belongs to that package invocation;
+        # accepting an earlier package on retry must open its own native scope.
+        work.pop("native", None)
+
+    retained_work(recovery.get("work"))
+    for work in recovery.get("sections", {}).values(): retained_work(work)
+    retained_work(recovery.get("batch", {}).get("work"))
+    return plan
+
+
 def _ratio(value):
     done, total = value.get("done"), value.get("total")
     if done is None or total is None: return None
@@ -281,6 +319,7 @@ def _recovery_fraction(plan, value):
         if phase.startswith("staging-section:"):
             step = phase.split(":", 1)[1]
             if step in STAGING_STEPS:
+                if work.get("live") != step: work.pop("counter", None)
                 _advance_work(work, STAGING_STEPS, step, _ratio(value), value.get("operationStatus"))
                 if value.get("operationStatus") in ("complete", "reuse") or value.get("done") == value.get("total") == 1:
                     work["completed"] = list(dict.fromkeys([*work["completed"], step]))
@@ -332,10 +371,10 @@ def _active_work(plan, current):
     elif current in plan.get("preparationScopes", {}):
         scope = plan["preparationScopes"][current]
         done, total = scope["done"], scope["total"]
-        fraction = 1. if current in plan["completed"] else plan["fractions"].get(current, 0.)
+        fraction = 1. if current in plan["completed"] else plan.get("liveFractions", plan["fractions"]).get(current, 0.)
     else:
         done, total = (int(current in plan["completed"]), 1)
-        fraction = 1. if done else plan["fractions"].get(current, 0.)
+        fraction = 1. if done else plan.get("liveFractions", plan["fractions"]).get(current, 0.)
     return {"operation": current, "done": done, "total": total, "unit": "steps",
             "percent": None if fraction is None else round(100 * fraction, 6)}
 
@@ -373,7 +412,7 @@ def _build_overview(row, plan):
     """
     active = plan.get("liveOperation", plan.get("current"))
     if row["status"] == "complete": active = None
-    operations = _overview_rows(PLANS["build"], plan["completed"], plan["fractions"], active,
+    operations = _overview_rows(PLANS["build"], plan["completed"], plan.get("liveFractions", plan["fractions"]), active,
                                plan.get("operationProofs"), row["status"] == "failed", plan.get("liveStatus"))
     groups = []
     for name, names in BUILD_GROUPS.items():
@@ -398,7 +437,7 @@ def _build_overview(row, plan):
     return {"schema": 1, "done": sum(item["closed"] for item in operations), "total": len(operations),
             "active": active, "groups": groups, "recovery": {"sections": sections,
             "batches": {"done": done, "total": total}, "staging": steps,
-            "section": section, "stagingCounter": staging.get("counter")}}
+            "section": section, "stagingCounter": staging.get("counter") if section == "staging" else None}}
 
 
 def advance(row, value, operation=None, status=None):
@@ -408,13 +447,7 @@ def advance(row, value, operation=None, status=None):
     # One observed attempt boundary, never a status read, marks old completion
     # as retained. Later explicit completion/reuse restores current evidence.
     if value["phase"] == "starting" and value.get("updatedAt") != plan.get("attemptBoundary"):
-        plan["attemptBoundary"] = value.get("updatedAt")
-        plan["operationProofs"] = {name: "retained" for name in plan["completed"]}
-        plan["liveOperation"] = None
-        plan["preparationScopes"] = {}
-        recovery = plan.get("recovery", {})
-        for work in [recovery.get("work", {}), *recovery.get("sections", {}).values()]:
-            work["proofs"] = {name: "retained" for name in work.get("completed", [])}
+        begin_attempt(row, value.get("updatedAt"))
     inferred, measured = phase_operation(row["id"], value["phase"], value)
     if row["id"] == "unity" and value["phase"] == "unity-prerequisites" and plan.get("current") != "prerequisites":
         measured = False
@@ -436,6 +469,7 @@ def advance(row, value, operation=None, status=None):
         value["reportedOperation"] = operation
         plan["liveOperation"] = operation
         plan["liveStatus"] = parent_status or "progress"
+        if parent_status == "start": plan.setdefault("liveFractions", {})[operation] = 0.
         if parent_status in ("complete", "reuse"):
             plan.setdefault("operationProofs", {})[operation] = parent_status
             plan["completed"] = list(dict.fromkeys([*plan["completed"], operation]))
@@ -452,6 +486,7 @@ def advance(row, value, operation=None, status=None):
     if preparation_counter:
         fraction = _preparation_fraction(plan, operation, value)
         if fraction is not None:
+            plan.setdefault("liveFractions", {})[operation] = min(.99, fraction)
             plan["fractions"][operation] = max(plan["fractions"].get(operation, 0.), min(.99, fraction))
     elif row["id"] == "build" and value["phase"].startswith("operation:") and operation in operations:
         plan.get("preparationScopes", {}).pop(operation, None)
@@ -461,6 +496,7 @@ def advance(row, value, operation=None, status=None):
             # A retry's live recovery may precede a later historical frontier.
             # Its counters own only recovery, never unfinished Player/import work.
             plan["fractions"]["recovery"] = max(plan["fractions"].get("recovery", 0.), min(.999999, nested))
+            plan.setdefault("liveFractions", {})["recovery"] = min(.999999, nested)
         recovery = plan.get("recovery", {})
         section = recovery.get("work", {}).get("current")
         if section in RECOVERY_SECTIONS:
@@ -479,6 +515,9 @@ def advance(row, value, operation=None, status=None):
     if current in operations and measured and (operation is None or operation == current) and value["percent"] is not None:
         fraction = min(.99, _ratio(value))
         plan["fractions"][current] = max(plan["fractions"].get(current, 0.), fraction)
+    live = plan.get("liveOperation", current)
+    if live in operations and measured and (operation is None or operation == live) and value["percent"] is not None:
+        plan.setdefault("liveFractions", {})[live] = min(.99, _ratio(value))
     if row["status"] == "complete":
         plan["completed"] = list(operations)
         plan["current"] = operations[-1]
@@ -498,7 +537,7 @@ def advance(row, value, operation=None, status=None):
     number = min(99.9, round(number, 6))
     plan["percent"] = max(plan["percent"], number)
     value.update(stagePercent=100. if row["status"] == "complete" else plan["percent"],
-                 stageOperation=current, stageDone=round(done, 3), stageTotal=len(operations))
+                 stageOperation=plan.get("liveOperation", current), stageDone=round(done, 3), stageTotal=len(operations))
     live = plan.get("liveOperation", current)
     if live in operations: value["activeWork"] = _active_work(plan, live)
     if row["id"] == "build": value["buildOverview"] = _build_overview(row, plan)

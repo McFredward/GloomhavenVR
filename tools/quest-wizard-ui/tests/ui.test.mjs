@@ -118,6 +118,7 @@ test('measured phases remain separate from planned whole-stage progress and prer
   assert.equal(stageProgress(stage).percent,37.5);assert.equal(stageProgress(stage).phasePercent,75);assert.equal(stageProgress(stage).waiting.nonce,'a'.repeat(32));
   assert.equal(stageProgress({...stage,progress:{phase:'unity-install',stagePercent:38,percent:null}}).percent,38);assert.equal(stageProgress({...stage,progress:{phase:'unity-install',percent:null}}).phasePercent,null);
   assert.equal(stageProgress({status:'complete'}).percent,100);assert.equal(stageProgress({status:'pending'}).percent,0);
+  assert.equal(stageProgress({status:'pending',progress:{stagePercent:37.5,phase:'pending'}}).percent,37.5,'queued retry retains compatible observed whole-stage work');
   const calls=[],api=new LocalApi('http://127.0.0.1:1234','token',async(url,options)=>{calls.push({url:String(url),options});return {ok:true,json:async()=>({schema:1,event:'action_requested'})};});
   await api.action('session-123','unity-open','a'.repeat(32));assert.deepEqual(JSON.parse(calls[0].options.body),{session:'session-123',action:'unity-open',nonce:'a'.repeat(32)});
   assert.throws(()=>api.action('session-123','cmd.exe','a'.repeat(32)));assert.throws(()=>api.action('session-123','unity-check','old-nonce'));
