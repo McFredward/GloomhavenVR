@@ -880,6 +880,12 @@ internal static partial class TownServiceMirror
                         float alpha = ReadRackAlpha(module);
                         if (frame.RackMember.Alpha != alpha) { frame.RackMember = frame.RackMember.Copy(); frame.RackMember.Alpha = alpha; }
                     }
+                    // Reuse an exact owner baseline only after every currently
+                    // compatible observer acknowledges retaining it. Sending or
+                    // preparing a viewer prefab does not prove this dependency.
+                    bool originalReceived = module.NeedsOriginal && _local.RequiredMounts.Contains(module.Id)
+                        && HasReceivedOriginal(module);
+                    if (originalReceived) module.NeedsOriginal = false;
                     bool openingOriginal = module.NeedsOriginal && _local.RequiredMounts.Contains(module.Id);
                     if (!openingOriginal && frame.CatalogBank == null && FastMotionCaptureEnabled && module.Last != null && module.Baseline != null
                         && now < module.NextBaseline && module.WasPriority == module.HighPriority
@@ -1054,6 +1060,7 @@ internal static partial class TownServiceMirror
             { baselines = new Dictionary<ushort, TownServiceFrame>(); ReceivedBaselines.Add(peer, baselines); }
             if (!baselines.TryGetValue(frame.Module, out TownServiceFrame? before) || frame.Sequence > before.Sequence)
                 baselines[frame.Module] = frame;
+            if (peer > 0 && !frame.VisitorStock && !frame.PublicCatalog) RecordOriginalReceipt(peer, frame);
         }
         if (!pending.TryGetValue(frame.Module, out TownServiceFrame? old) || frame.Sequence > old.Sequence)
             { StageChangingPublicRack(peer, frame); pending[frame.Module] = frame; ObserveMerchantOffering(peer, frame); }
@@ -1069,7 +1076,8 @@ internal static partial class TownServiceMirror
             // Independent module lanes can overtake an older census/close packet. Keep
             // newer complete baselines until their own census arrives; TickRemote still
             // gates rendering by the current session and module membership.
-            if (!RackRetains(peer, pair.Key) && pair.Value.Sequence <= manifest.Sequence && (!manifest.Visible
+            if (!RackRetains(peer, pair.Key) && pair.Value.Sequence <= manifest.Sequence && ((!manifest.Visible
+                    && (!ReferenceEquals(store, ReceivedBaselines) || peer <= 0))
                 || pair.Value.Service != manifest.Service || pair.Value.Session != manifest.Session
                 || Array.BinarySearch(manifest.Modules, pair.Key) < 0)) removed.Add(pair.Key);
         foreach (ushort module in removed) modules.Remove(module);
@@ -1475,7 +1483,7 @@ internal static partial class TownServiceMirror
         canvas.sortingOrder = frame.CanvasSortingOrder; canvas.sortingLayerID = frame.CanvasSortingLayer;
     }
     internal static void RemovePeer(int peer)
-    { ForgetUnpreparedNativePeer(peer); ForgetPublicPicture(-peer); MerchantOfferings.Remove(peer); ClearVoicePeer(peer); ClearRemoteModules(peer); Pending.Remove(peer); ReceivedBaselines.Remove(peer); Sessions.Remove(peer); VisitorSessions.Remove(peer);
+    { RemoveOriginalReceiptPeer(peer); ForgetUnpreparedNativePeer(peer); ForgetPublicPicture(-peer); MerchantOfferings.Remove(peer); ClearVoicePeer(peer); ClearRemoteModules(peer); Pending.Remove(peer); ReceivedBaselines.Remove(peer); Sessions.Remove(peer); VisitorSessions.Remove(peer);
       ClearRemoteModules(-peer); Pending.Remove(-peer); ReceivedBaselines.Remove(-peer); Sessions.Remove(-peer);
       RemoveStockPeer(peer); ForgetDonationCommits(peer); ForgetRemoteMotion(peer); }
     private static void ForgetDonationCommits(int peer)
@@ -1500,6 +1508,7 @@ internal static partial class TownServiceMirror
       foreach (LocalModule module in StockLane.Modules.Values) yield return module; }
     internal static void ResetNetwork()
     {
+        ResetOriginalReceipts();
         ResetNativeTemplateState();
         ResetMotionNetwork();
         ResetPublicPicture();

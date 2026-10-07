@@ -28,6 +28,18 @@ def sources(root):
     names = ["TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta",
              "TownServiceFrame", "TownCatalogBank", "TownCatalogBank.Headers", "TownCatalogClock", "TownServiceMirror.CatalogBank", "TownServiceMirror.CatalogWarm", "TownServiceMirror.NativeTemplateState", "TownServiceMirror.NativePublication", "TownRackState", "TownCatalogLayout", "TownCassetteMotion", "TownServiceMirror.Racks", "TownServiceMirror.PublicVisibility", "TownServiceMirror.Offerings", "TownServiceMirror.Voice", "TownServiceMaterial", "TownServiceFlameClock", "TownServiceMirror"]
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
+    for path in sorted((base / "Net/TownServices").glob("TownServiceAssets.*.cs")):
+        bound[path.name] = path.read_text()
+    for name in ("TownServiceOriginalReceiptCodec.cs", "TownServiceMirror.OriginalReceipts.cs"):
+        path = base / "Net/TownServices" / name
+        if path.exists():
+            text = path.read_text()
+            protocol = (base / "Net/NetProtocol.cs").read_text()
+            for constant in ("MsgTownOriginalReceipt", "ExtIdTownOriginalReceipt"):
+                value = re.search(r"public const byte " + constant + r" = (\d+);", protocol)
+                if value is None: raise RuntimeError("Town original-receipt protocol binding drift: " + constant)
+                text = re.sub(r"\bNetProtocol\." + constant + r"\b", value[1], text)
+            bound[name] = text
     bound['NativePurse.cs'] = (root / 'scripts/town-purse-runtime/NativePurse.cs').read_text()
     bound['TownServicePursePresentation.cs'] = (base / 'WorldUI/TownServices/TownServicePursePresentation.cs').read_text()
     bound['BundleShaders.cs'] = (base / 'Core/BundleShaders.cs').read_text()

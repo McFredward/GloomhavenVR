@@ -4134,6 +4134,11 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                 if (parsed) VersionGuard.NotePacket(senderId);
                 break;
 
+            case NetProtocol.MsgTownOriginalReceipt:
+                parsed = TownServices.TownServiceMirror.ReceiveOriginalReceipt(senderId, buffer, length);
+                if (parsed) VersionGuard.NotePacket(senderId);
+                break;
+
             case NetProtocol.MsgExtras:
                 if (PresenceSerializer.TryRead(buffer, length, out PresenceState extras))
                 {

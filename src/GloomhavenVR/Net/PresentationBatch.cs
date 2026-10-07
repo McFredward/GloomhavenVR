@@ -9,6 +9,7 @@ internal static class PresentationBatch
 {
     internal const int MaxSize = ExtrasFragments.MaxDatagramBytes;
     internal static bool ChildType(int type) => type == NetProtocol.MsgExtras
+        || type == NetProtocol.MsgTownOriginalReceipt
         || type == TownServices.TownServiceCodec.FragmentType || type == NetProtocol.MsgExtrasFragments || type == NetProtocol.MsgUseBarAnimationFragments
         || type == NetProtocol.MsgCardPlumeFragments || type == NetProtocol.MsgNativeUseBarFragments
         || type == NetProtocol.MsgNativeBoardFragments || type == NetProtocol.MsgCardAppearanceFragments || type == NetProtocol.MsgNativeDecisionPromptFragments || type == NetProtocol.MsgItemAppearance || type == NetProtocol.MsgItemAppearanceFragments || type == NetProtocol.MsgPresentationCompression
@@ -83,7 +84,8 @@ internal static class PresentationBatch
         if (buffer[start] != 0x31 || buffer[start + 1] != 0x52 || buffer[start + 2] != 0x56
             || buffer[start + 3] != 0x47 || buffer[start + 4] != NetProtocol.Version) return false;
         int type = buffer[start + 5];
-        if (type == TownServices.TownServiceCodec.FragmentType || type == TownServices.TownServiceCodec.MessageType)
+        if (type == TownServices.TownServiceCodec.FragmentType || type == TownServices.TownServiceCodec.MessageType
+            || type == NetProtocol.MsgTownOriginalReceipt)
             return true;
         if (type != NetProtocol.MsgPresentationCompression) return false;
         int end = start + length; bool found = false;

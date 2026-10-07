@@ -270,6 +270,14 @@ internal sealed class FfsNetTransport : INetTransport
         catch { return false; } // The caller retains its baseline and reports one bounded capture failure.
     }
 
+    internal bool TrySendTownOriginalReceipt(byte[] payload, int length)
+    {
+        if (_degraded || !_installed || _sendSideAction == null || _customDataCtor == null || !IsOnline
+            || !TownServices.TownServiceOriginalReceiptCodec.TryRead(payload, length, out _)) return false;
+        try { _extrasQueue.Enqueue(payload, length); return true; }
+        catch { return false; } // Admission failure leaves the exact pending receipt retryable.
+    }
+
     public void Send(byte[] payload, int length, object? presentationIdentity = null)
     {
         if (_degraded || !_installed || _sendSideAction == null || _customDataCtor == null || !IsOnline)
@@ -278,7 +286,7 @@ internal sealed class FfsNetTransport : INetTransport
         {
             if (length < 6 || length > payload.Length) return;
             int type = NetPacket.PeekType(payload, length);
-            if (type == NetProtocol.MsgExtras || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume || type == NetProtocol.MsgNativeBoard || type == NetProtocol.MsgCardAppearance || type == NetProtocol.MsgNativeDecisionPrompt || type == NetProtocol.MsgItemAppearance || type == NetProtocol.MsgMapButtonTooltip || type == TownServices.TownServiceCodec.MessageType)
+            if (type == NetProtocol.MsgTownOriginalReceipt || type == NetProtocol.MsgExtras || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume || type == NetProtocol.MsgNativeBoard || type == NetProtocol.MsgCardAppearance || type == NetProtocol.MsgNativeDecisionPrompt || type == NetProtocol.MsgItemAppearance || type == NetProtocol.MsgMapButtonTooltip || type == TownServices.TownServiceCodec.MessageType)
             {
                 // Native writers already hold the immutable snapshot which produced these bytes.
                 // Re-decoding it here allocated a second complete card/widget graph per send.

@@ -113,6 +113,37 @@ internal sealed class ExtrasSendQueue
         bytes=_pending[0].Bytes;identity=_pending[0].Identity;_pending.RemoveAt(0);return true;
     }
 
+    // Only complete cumulative originals may supersede an older complete
+    // original from this exact source. A waiting delta still needs its named
+    // baseline; native animation streams never enter this method.
+    internal void SupersedeTownOriginal(TownServices.TownServiceFrame current)
+    {
+        if (current.BaseSequence != 0) return;
+        for (int i = _pending.Count - 1; i >= 0; i--)
+            if (_pending[i].Identity is TownServices.TownServiceFrame older
+                && CanSupersedeTownOriginal(older, current) && !HasTownDelta(older.Sequence))
+                _pending.RemoveAt(i);
+        if (_activeIdentity is TownServices.TownServiceFrame active
+            && CanSupersedeTownOriginal(active, current) && !HasTownDelta(active.Sequence))
+        { _pages = null; _page = 0; _activeIdentity = null; }
+    }
+
+    internal bool HasTownDelta(ulong baseline)
+    {
+        if (_activeIdentity is TownServices.TownServiceFrame active && active.BaseSequence == baseline) return true;
+        foreach (Pending pending in _pending)
+            if (pending.Identity is TownServices.TownServiceFrame frame && frame.BaseSequence == baseline) return true;
+        return false;
+    }
+
+    internal static bool CanSupersedeTownOriginal(TownServices.TownServiceFrame older, TownServices.TownServiceFrame current) =>
+        older.BaseSequence == 0 && current.BaseSequence == 0 && older.Sequence < current.Sequence
+        && older.VisitorStock == current.VisitorStock && older.PublicCatalog == current.PublicCatalog
+        && older.PublicClaim == current.PublicClaim && older.Session == current.Session
+        && older.Service == current.Service && older.Module == current.Module
+        && older.Template == current.Template && older.TemplateAddress == current.TemplateAddress
+        && older.Structure == current.Structure && older.Visible == current.Visible;
+
     internal byte[]? Next(double now)
     {
         if (_sequenceExhausted || now < _next) return null;
@@ -152,7 +183,7 @@ internal sealed class ExtrasSendQueue
 /// Small pages share an event; larger pages retain the same cap. Weighted stream turns and
 /// round-robin auxiliary slots prevent starvation. A slow frame never causes a catch-up burst.
 /// </summary>
-internal sealed class ExtrasSendScheduler
+internal sealed partial class ExtrasSendScheduler
 {
     private readonly ExtrasSendQueue _presence;
     private readonly ExtrasSendQueue _animation;
@@ -167,7 +198,7 @@ internal sealed class ExtrasSendScheduler
     private readonly ExtrasSendQueue[] _native = new ExtrasSendQueue[32];
     private readonly byte _animationType;
     private double _next;
-    private int _turn, _urgentTownTurn, _urgentTownDebt, _nativeCursor = 8;
+    private int _turn, _urgentTownTurn, _urgentTownDebt, _openingTownTurns, _nativeCursor = 8;
 
     internal ExtrasSendScheduler(ulong sequence, byte animationType, byte animationEnvelope)
     {
@@ -198,7 +229,8 @@ internal sealed class ExtrasSendScheduler
         if (snapshot == null || length < 6 || length > snapshot.Length)
             throw new ArgumentException("Invalid presentation snapshot.", nameof(snapshot));
         int type = NetPacket.PeekType(snapshot, length);
-        if (type == TownServices.TownServiceCodec.MessageType)
+        if (type == NetProtocol.MsgTownOriginalReceipt) EnqueueOriginalReceipt(snapshot, length);
+        else if (type == TownServices.TownServiceCodec.MessageType)
         {
             if (identity is not TownServices.TownServiceFrame town)
             { if (!TownServices.TownServiceCodec.TryRead(snapshot, length, out TownServices.TownServiceFrame? decoded)) return; town = decoded!; }
@@ -274,7 +306,19 @@ internal sealed class ExtrasSendScheduler
 
     private byte[]? TakeNext(double now, byte[]? announcement = null)
     {
-        byte[]? result = announcement;
+        byte[]? result = announcement ?? TakeOriginalReceipt(now);
+        bool ordinaryTurn = false;
+        // A transaction's first exact original picture is finite. It may borrow
+        // at most16 existing page turns to complete within the first second,
+        // with one ordinary-stream turn after every four opening pages. This
+        // independent finite reservation never adds an event, byte budget, or
+        // catch-up send clock, and never waits on a previous offer's repair debt.
+        bool openingBackground = _openingTownTurns >= 4;
+        if (result == null && !openingBackground)
+        {
+            result = _town.NextOpening(now);
+            if (result != null) _openingTownTurns++;
+        }
         // Build614 cold original item/purse/confirmation output otherwise waits
         // through 21 global turns and another three NPC lanes before the first
         // front can exist. Reserve at most one of three page turns for urgent
@@ -283,7 +327,7 @@ internal sealed class ExtrasSendScheduler
         // reduce the original streams' 32-second maximum-frame completion share.
         // The event cap,
         // 50 ms clock, immutable asset descriptors and no-catch-up rule stay exact.
-        if (result == null && _urgentTownTurn++ % 3 == 0 && _urgentTownDebt < 6)
+        if (result == null && !openingBackground && _urgentTownTurn++ % 3 == 0 && _urgentTownDebt < 6)
         {
             result = _town.NextUrgent(now);
             if (result != null) _urgentTownDebt++;
@@ -299,6 +343,7 @@ internal sealed class ExtrasSendScheduler
         {
             int turn = _turn;
             _turn = (_turn + 1) % 21;
+            if (openingBackground && turn >= 18) continue;
             if (turn >= 18 && _urgentTownDebt > 0) { _urgentTownDebt--; continue; }
             result = turn >= 18 ? _town.Next(now) : turn < 2 ? _animation.Next(now)
                 : turn == 2 || turn == 13 ? _presence.Next(now)
@@ -306,6 +351,14 @@ internal sealed class ExtrasSendScheduler
                 : turn == 7 || turn == 8 || turn == 10 ? _appearance.Next(now)
                 : turn == 11 || turn == 12 || turn == 14 ? _itemAppearance.Next(now)
                 : turn == 9 ? _prompt.Next(now) : turn == 17 ? _mapTooltip.Next(now) : NextNative(now);
+            ordinaryTurn = result != null && turn < 18;
+        }
+        if (openingBackground)
+        {
+            // One genuine ordinary-stream turn after at most four opening pages.
+            // There is no debt from a previous offer that can postpone this one.
+            if (ordinaryTurn) _openingTownTurns = 0;
+            else if (result == null) { result = _town.NextOpening(now); if (result != null) _openingTownTurns = 1; }
         }
         return result;
     }
@@ -326,7 +379,8 @@ internal sealed class ExtrasSendScheduler
     {
         _presence.Clear(); _animation.Clear(); _plumes.Clear(); _board.Clear(); _appearance.Clear(); _prompt.Clear(); _itemAppearance.Clear(); _mapTooltip.Clear(); _heldPage = null;
         _town.Clear();
+        ClearOriginalReceipts();
         for (int i = 8; i < _native.Length; i++) _native[i].Clear();
-        _next = 0; _turn = _urgentTownTurn = _urgentTownDebt = 0; _nativeCursor = 8;
+        _next = 0; _turn = _urgentTownTurn = _urgentTownDebt = _openingTownTurns = 0; _nativeCursor = 8;
     }
 }
