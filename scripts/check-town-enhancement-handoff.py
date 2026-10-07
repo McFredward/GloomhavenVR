@@ -343,7 +343,7 @@ def mutations():
         ("aura-rotated-parent", "TownServiceNativeEnhancementCardMask.cs",
          "_aura.localScale = new Vector3(Mathf.Sign(scale.x) * uniform * parentMean / parentX,",
          "_aura.localScale = new Vector3(Mathf.Sign(scale.x) * uniform,",
-         "repeated render callbacks do not change a sheared-parent ring diameter"),
+         "rotated native ink remains a world-space circle around the physical card"),
         ("aura-group-instead-of-ink", "TownServiceNativeEnhancementCardMask.cs",
          "return ink;", "return branch;",
          "native aura reserves its full width beyond CardHilight's narrow host for panel capture"),
