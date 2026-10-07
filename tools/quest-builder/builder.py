@@ -22,6 +22,11 @@ import subprocess
 import sys
 import zipfile
 
+# The CLI handoff uses -I: retain only this captured tool directory, never the
+# launcher's current directory or an inherited PYTHONPATH, for local helpers.
+if __name__ == "__main__":
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import startup
 import shaders as post_effects
 import dlcs
@@ -358,11 +363,18 @@ def toolchain(args, output: Path) -> dict:
     return selected
 
 
-def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
+def prepare(args, inputs: dict, output: Path, source: Path, game: Path, *, conversion_python: Path | None = None) -> Path:
     build_progress.operation("recovery", detail="Recovering or reusing the complete original scene and asset catalog")
     stages = Stages(output)
     recovered = None
     recovered_copy_count = None
+    def conversion_environment():
+        nonlocal conversion_python
+        if conversion_python is None:
+            import dependencies
+            conversion_python = dependencies.python_environment(output / "tool-cache", source,
+                                                                 procedural=args.target == "game")
+        return conversion_python
     if args.target == "startup":
         if not inputs.get("startupProject"):
             raise BuildError("No validated original startup closure was selected.")
@@ -387,8 +399,11 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             workspace = recovery_resume.select_workspace(output, inputs, source, game, RECIPE, qualifications=qualifications)
             raw_project = workspace / "RecoveredProject"
             raw = recovery_resume.completed_raw(workspace, inputs, game, qualifications=qualifications)
+            # Capture 215452 reused all16 raw packages, then failed immediately
+            # in canonical_contracts because the launcher contains no UnityPy.
+            # Raw reuse skips exporter work, never its staging dependencies.
+            python = conversion_environment()
             if raw is None:
-                python = dependencies.python_environment(output / "tool-cache", source)
                 recovery_dotnet = dependencies.dotnet10(output / "tool-cache", source, getattr(args, "recovery_dotnet", None))
                 command([str(python), str(launcher), "--game-data", str(game), "--workspace", str(workspace),
                          "--output-project", str(raw_project), "--tool-cache", str(output / "tool-cache/full-recovery"),
@@ -457,6 +472,10 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
         stages.path("prepare", key).unlink(missing_ok=True)
 
     def generate_files(resume):
+        if args.target in ("startup", "game"):
+            # A retained complete recovery receipt skips recover() above. This
+            # first real preparation work still needs the same private packages.
+            conversion_environment()
         resources = project / "Assets/Quest/Resources"
         cab_owners = None
         def owners():
@@ -491,8 +510,6 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
                 shutil.copytree(recovered, project, dirs_exist_ok=True, copy_function=resume.copy, ignore=shutil.ignore_patterns("Library", "Temp", "Logs", ".git", ".snapshot.json"))
                 if inputs.get("campaignProject"):
                     campaign.verify_copy(project, inputs["campaignProject"])
-                    import dependencies
-                    dependencies.python_environment(output / "tool-cache", source)
                     full_assets.repair_reused_stage(project)
             else:
                 project.mkdir(parents=True, exist_ok=True)
@@ -615,7 +632,6 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path) -> Path:
             if args.target == "game":
                 import dependencies, campaign_native, campaign_shaders, full_audio, full_textures, full_texture2d, campaign_compute
                 def native_runtime():
-                    dependencies.python_environment(output / "tool-cache", source)
                     selected = toolchain(args, output)
                     return campaign_native.stage(source, project, game, output / "tool-cache/campaign-native", Path(selected["androidNdk"]), backend=inputs["proceduralBackend"])
                 def native_contracts(_):
@@ -1764,7 +1780,8 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parser().parse_args(argv)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    args = parser().parse_args(arguments)
     try:
         repo = args.repo_root.resolve()
         if args.command in ("inspect", "prepare", "build") and not args.game_root:
@@ -1775,6 +1792,40 @@ def main(argv: list[str] | None = None) -> int:
             raise BuildError("--startup-project belongs only to the explicitly diagnostic --target startup.")
         data = game_data(args.game_root) if args.game_root else None
         output = ensure_output(args.output_root or repo / ".planning/quest3-local", repo, data)
+        conversion_python = None
+        if args.command in ("prepare", "build") and args.target in ("startup", "game"):
+            # The Windows launcher intentionally installs no conversion wheels.
+            # Do not merely add private site-packages to that process: its later
+            # compute, codec and Unity shader-gate children use sys.executable.
+            # Provision under the output lock, release it, and hand off before
+            # acquiring the actual run lock. Both fresh and retained exports run
+            # inside the exact private ABI. Read-only discovery/inspect stays
+            # stdlib-only, and an already handed-off CLI never launches itself.
+            import dependencies
+            with output_lock(output):
+                failure = output / "last-failure.json"
+                failure.unlink(missing_ok=True)
+                try:
+                    python = dependencies.python_environment(output / "tool-cache", repo,
+                                                             procedural=args.target == "game", activate=False)
+                except BaseException as exc:
+                    write_json(failure, {"schema": 1, "stage": "builder-python", "error": type(exc).__name__, "message": str(exc)})
+                    raise
+            if os.path.normcase(os.path.abspath(sys.executable)) != os.path.normcase(os.path.abspath(python)):
+                build_progress.event("builder-python-handoff", detail="Running conversion in isolated build Python", status="start")
+                child = subprocess.Popen([str(python), "-I", "-B", "-X", "utf8", str(Path(__file__).resolve()), *arguments])
+                try:
+                    result = child.wait()
+                except BaseException:
+                    # Keep the supervised launcher alive until its build child
+                    # exits; interruption must not leave an unobserved build.
+                    child.terminate()
+                    child.wait()
+                    raise
+                build_progress.event("builder-python-handoff", 1, 1, "commands", "Isolated build Python exited",
+                                     status="complete" if result == 0 else "failed")
+                return result
+            conversion_python = python
         with output_lock(output), host_resources.resource_context(output, args.jobs):
             failure = output / "last-failure.json"
             if args.command != "report":
@@ -1794,7 +1845,7 @@ def main(argv: list[str] | None = None) -> int:
                     os.environ[host_resources.INPUT_ENV] = inputs["inputKey"]
                     if args.command != "inspect":
                         source, game = snapshot_inputs(inputs, output, repo, data, args.probe_assets, args.startup_project)
-                        project = prepare(args, inputs, output, source, game)
+                        project = prepare(args, inputs, output, source, game, conversion_python=conversion_python)
                         print("prepare: " + str(project), flush=True)
                         if args.command == "build":
                             build(args, inputs, output, source, game, project)

@@ -631,11 +631,13 @@ class DevelopmentAndDeploymentTests(Temporary):
         inputs["startupProject"] = {"key": "a" * 64}
         (self.output / "inputs/startup" / inputs["startupProject"]["key"] / "Assets").mkdir(parents=True)
         with patch.object(builder.startup, "inspect_project") as inspect, \
+                patch("dependencies.python_environment", return_value=Path(sys.executable)) as environment, \
                 patch.object(builder.post_effects, "restore_post_effects", side_effect=storage.BuildError("shader-adapter-boundary")) as restore, \
                 patch.object(builder.startup, "stage_startup_movies") as movies:
             with self.assertRaisesRegex(storage.BuildError, "shader-adapter-boundary"):
                 builder.prepare(self.args, inputs, self.output, source, game)
             inspect.assert_called_once()
+            environment.assert_called_once_with(self.output / "tool-cache", source, procedural=False)
             self.assertTrue(inspect.call_args.kwargs["snapshot_receipt"])
             restore.assert_called_once()
             self.assertEqual(restore.call_args.args[1], self.output / "tool-cache/legacy-post-effects")

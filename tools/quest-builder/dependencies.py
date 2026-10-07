@@ -96,7 +96,12 @@ def requirements_key(paths):
     return hashlib.sha256("\n".join(sorted(p.name + ":" + h for p,h in seen.items())).encode()).hexdigest()
 
 
-def python_environment(cache, source, *, procedural=True):
+def python_environment(cache, source, *, procedural=True, activate=True):
+    """Provision the exact ABI; optionally expose its packages to an API caller.
+
+    The CLI passes activate=False before handing off to this executable. Wizard
+    discovery never calls this function, so its stdlib-only process stays small.
+    """
     if sys.version_info[:2] < (3, 11):
         raise BuildError("The full Campaign builder requires Python 3.11 or later; use the Windows local Python launcher.")
     requirements = [source / "tools/quest-builder/requirements.txt"]
@@ -159,15 +164,16 @@ def python_environment(cache, source, *, procedural=True):
             state["requirementsKey"] = key
             write_json(marker, state)
             build_progress.event("builder-python-packages", 1, 1, "commands", "Pinned build requirements installed", status="complete")
-    if os.name == "nt": paths = [root / "Lib/site-packages"]
-    else: paths = list((root / "lib").glob("python*/site-packages"))
-    if len(paths) != 1: raise BuildError("Builder Python has no unique isolated site-packages directory.")
-    # The venv uses this exact interpreter ABI. Import its verified packages
-    # locally without modifying the player's system Python or environment.
-    if str(paths[0]) in sys.path:
-        sys.path.remove(str(paths[0]))
-    sys.path.insert(0, str(paths[0]))
-    site.addsitedir(str(paths[0]))
+    if activate:
+        if os.name == "nt": paths = [root / "Lib/site-packages"]
+        else: paths = list((root / "lib").glob("python*/site-packages"))
+        if len(paths) != 1: raise BuildError("Builder Python has no unique isolated site-packages directory.")
+        # Direct API callers use this exact interpreter ABI. The actual CLI
+        # executes the returned venv, including every later Python child tool.
+        if str(paths[0]) in sys.path:
+            sys.path.remove(str(paths[0]))
+        sys.path.insert(0, str(paths[0]))
+        site.addsitedir(str(paths[0]))
     return executable
 
 

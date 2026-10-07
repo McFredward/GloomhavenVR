@@ -110,12 +110,14 @@ class CompletedRawTests(unittest.TestCase):
             return self.workspace
         with patch.object(builder.recovery_resume, 'select_workspace', side_effect=select), \
              patch.object(builder, 'recovery_helper_preflight'), \
+             patch('dependencies.python_environment', return_value=Path(sys.executable)) as environment, \
              patch.object(builder, 'command', side_effect=AssertionError('closed export orchestration replayed')), \
              patch.object(builder, 'owned_tmp_source_archive', return_value=self.root / 'public-tmp.zip'), \
              patch.object(builder.full_assets, 'stage', side_effect=RuntimeError('actual derived consumer reached')) as stage:
             with self.assertRaisesRegex(RuntimeError, 'actual derived consumer reached'):
                 builder.prepare(args, self.inputs, self.root / 'output', source, self.game)
         self.assertEqual(stage.call_args.args[:2], (self.raw, self.game))
+        environment.assert_called_once_with(self.root / 'output/tool-cache', source, procedural=True)
         self.assertEqual(stage.call_args.kwargs['resume_owner']['gameKey'], self.inputs['game']['key'])
         self.assertEqual(self.asset.read_bytes(), b'actual retained raw asset')
 
