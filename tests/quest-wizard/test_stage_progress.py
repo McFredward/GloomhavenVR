@@ -170,6 +170,93 @@ class StageProgressTests(unittest.TestCase):
         self.assertEqual(current['progress']['buildOverview']['active'], 'recovery')
         self.assertNotIn('player', current['progressPlan']['completed'])
 
+    def test_preparation_items_share_only_the_opened_real_checkpoint(self):
+        self.store.operation(self.session, 'build', 'textures')
+        self.store.progress(self.session, 'build', 'prepare-substage:native-texture2d', 2, 3, 'checkpoints',
+                            operation='textures', status='start')
+        before = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'prepare-items:native-texture2d', 250, 1000, 'items', status='complete')
+        row = self.store.load(self.session)['stages'][5]
+        self.assertEqual(row['progressPlan']['fractions']['textures'], 2.25 / 3)
+        self.assertGreater(row['progress']['stagePercent'], before)
+        scope = row['progressPlan']['preparationScopes']['textures']
+        self.assertEqual(scope['itemFraction'], .25)
+        self.assertEqual(scope['items'], {'done': 250, 'total': 1000})
+        self.assertEqual(row['progress']['activeWork'], {'operation': 'textures', 'done': 2, 'total': 3,
+                                                       'unit': 'steps', 'percent': 75.0})
+        self.assertNotIn('textures', row['progressPlan']['completed'])
+        self.store.progress(self.session, 'build', 'prepare-items:native-texture2d', 1000, 1000, 'items', status='complete')
+        self.assertNotIn('textures', self.store.load(self.session)['stages'][5]['progressPlan']['completed'])
+        self.store.progress(self.session, 'build', 'prepare-substage:native-texture2d', 3, 3, 'checkpoints',
+                            operation='textures', status='complete')
+        self.assertNotIn('textures', self.store.load(self.session)['stages'][5]['progressPlan']['completed'])
+        self.store.operation(self.session, 'build', 'textures', complete=True)
+        self.assertIn('textures', self.store.load(self.session)['stages'][5]['progressPlan']['completed'])
+
+    def test_preparation_next_checkpoint_resets_only_its_secondary_counter(self):
+        self.store.operation(self.session, 'build', 'textures')
+        self.store.progress(self.session, 'build', 'prepare-substage:native-cubemaps', 0, 3, 'checkpoints',
+                            operation='textures', status='start')
+        self.store.progress(self.session, 'build', 'prepare-items:native-cubemaps', 90, 100, 'items')
+        previous = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'prepare-substage:native-cubemaps', 1, 3, 'checkpoints',
+                            operation='textures', status='complete')
+        self.store.progress(self.session, 'build', 'prepare-substage:ordinary-texture-audit', 1, 3, 'checkpoints',
+                            operation='textures', status='start')
+        self.store.progress(self.session, 'build', 'prepare-items:ordinary-texture-audit', 0, 1000, 'items')
+        self.assertEqual(self.progress()['percent'], 0)
+        self.assertGreaterEqual(self.progress()['stagePercent'], previous)
+        self.assertEqual(self.store.load(self.session)['stages'][5]['progressPlan']['fractions']['textures'], 1 / 3)
+        self.store.progress(self.session, 'build', 'prepare-items:ordinary-texture-audit', 250, 1000, 'items')
+        self.assertEqual(self.store.load(self.session)['stages'][5]['progressPlan']['fractions']['textures'], 1.25 / 3)
+
+    def test_preparation_unopened_mismatched_and_nested_platform_items_cannot_add_credit(self):
+        self.store.operation(self.session, 'build', 'textures')
+        before = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'prepare-items:native-cubemaps', 99, 100, 'items', status='complete')
+        self.assertEqual(self.progress()['stagePercent'], before)
+        self.store.progress(self.session, 'build', 'prepare-substage:native-cubemaps', 0, 3, 'checkpoints',
+                            operation='textures', status='start')
+        for phase in ('prepare-items:platform-images', 'prepare-items:native-texture2d', 'arbitrary-nested'):
+            self.store.progress(self.session, 'build', phase, 100, 100, 'items', operation='textures',
+                                status='complete' if phase.startswith('prepare-items:') else None)
+            self.assertEqual(self.progress()['stagePercent'], before, phase)
+        self.assertNotIn('textures', self.store.load(self.session)['stages'][5]['progressPlan']['completed'])
+
+    def test_earlier_preparation_replay_never_credits_later_player_frontier(self):
+        self.store.begin_stage(self.session, 'build', 'same-input')
+        self.store.operation(self.session, 'build', 'player')
+        self.store.progress(self.session, 'build', 'unity-progress', 20, 100, 'tasks')
+        previous = self.progress()['stagePercent']
+        self.store.begin_stage(self.session, 'build', 'same-input')
+        self.store.progress(self.session, 'build', 'starting')
+        self.store.operation(self.session, 'build', 'textures')
+        self.store.progress(self.session, 'build', 'prepare-substage:native-texture2d', 2, 3, 'checkpoints',
+                            operation='textures', status='start')
+        self.store.progress(self.session, 'build', 'prepare-items:native-texture2d', 250, 1000, 'items')
+        row = self.store.load(self.session)['stages'][5]
+        self.assertEqual(row['progressPlan']['fractions']['player'], .2)
+        self.assertEqual(row['progressPlan']['fractions']['textures'], .75)
+        self.assertEqual(row['progress']['stagePercent'], previous)
+        self.assertNotIn('player', row['progressPlan']['completed'])
+
+    def test_preparation_closed_checkpoint_and_new_attempt_drop_stale_item_ownership(self):
+        self.store.begin_stage(self.session, 'build', 'same-input')
+        self.store.operation(self.session, 'build', 'audio')
+        self.store.progress(self.session, 'build', 'prepare-substage:bundled-audio', 0, 1, 'checkpoints',
+                            operation='audio', status='start')
+        self.store.progress(self.session, 'build', 'prepare-items:bundled-audio', 20, 100, 'items')
+        before = self.progress()['stagePercent']
+        self.store.begin_stage(self.session, 'build', 'same-input')
+        self.store.progress(self.session, 'build', 'starting')
+        self.store.progress(self.session, 'build', 'prepare-items:bundled-audio', 99, 100, 'items')
+        self.assertEqual(self.progress()['stagePercent'], before)
+        self.store.progress(self.session, 'build', 'prepare-substage:bundled-audio', 1, 2, 'checkpoints',
+                            operation='audio', status='complete')
+        before = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'prepare-items:bundled-audio', 99, 100, 'items')
+        self.assertEqual(self.progress()['stagePercent'], before)
+
     def test_bee_new_dags_reset_secondary_progress_only(self):
         self.store.operation(self.session, 'build', 'player')
         parser = ProgressParser()

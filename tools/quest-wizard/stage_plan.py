@@ -62,6 +62,9 @@ BUILD_GROUPS = {"inputs": PLANS["build"][:6], "recovery": ("recovery",),
                 "import": ("unity-import", "unity-validation"),
                 "export": ("content-bank", "player", "delivery", "output-verify")}
 WORK_REVISION = 5
+PREPARATION_ITEMS = {"bundled-audio": "audio", "native-cubemaps": "textures",
+                     "ordinary-texture-audit": "textures", "native-texture2d": "textures",
+                     "native-sprites": "startup-content"}
 
 
 def phase_operation(stage, phase, value):
@@ -134,6 +137,33 @@ def _ratio(value):
     done, total = value.get("done"), value.get("total")
     if done is None or total is None: return None
     return 1. if total == 0 else min(1., done / total)
+
+
+def _preparation_fraction(plan, operation, value):
+    """Only observed items inside the currently opened checkpoint add credit.
+
+    A checkpoint's completed/total counter owns the parent denominator. Its
+    item counter contributes at most the next checkpoint, never another work
+    unit or a nested platform-image conversion inside that same item.
+    """
+    phase = value["phase"]
+    if phase.startswith("prepare-substage:"):
+        ratio = _ratio(value)
+        if ratio is None or operation not in PLANS["build"]: return None
+        plan.setdefault("preparationScopes", {})[operation] = {
+            "name": phase.split(":", 1)[1], "done": value["done"], "total": value["total"],
+            "open": value.get("operationStatus") == "start", "itemFraction": 0.}
+        return ratio
+    if not phase.startswith("prepare-items:"): return None
+    name = phase.split(":", 1)[1]
+    if PREPARATION_ITEMS.get(name) != operation: return None
+    scope = plan.get("preparationScopes", {}).get(operation, {})
+    if not scope.get("open") or scope.get("name") != name or not scope.get("total"): return None
+    ratio = _ratio(value)
+    if ratio is None: return None
+    scope["itemFraction"] = ratio
+    scope["items"] = {"done": value["done"], "total": value["total"]}
+    return min(1., (scope["done"] + min(.99, ratio)) / scope["total"])
 
 
 def _work():
@@ -299,6 +329,10 @@ def _recovery_work(recovery):
 def _active_work(plan, current):
     if current == "recovery":
         done, total, fraction = _recovery_work(plan.get("recovery", {}))
+    elif current in plan.get("preparationScopes", {}):
+        scope = plan["preparationScopes"][current]
+        done, total = scope["done"], scope["total"]
+        fraction = 1. if current in plan["completed"] else plan["fractions"].get(current, 0.)
     else:
         done, total = (int(current in plan["completed"]), 1)
         fraction = 1. if done else plan["fractions"].get(current, 0.)
@@ -377,6 +411,7 @@ def advance(row, value, operation=None, status=None):
         plan["attemptBoundary"] = value.get("updatedAt")
         plan["operationProofs"] = {name: "retained" for name in plan["completed"]}
         plan["liveOperation"] = None
+        plan["preparationScopes"] = {}
         recovery = plan.get("recovery", {})
         for work in [recovery.get("work", {}), *recovery.get("sections", {}).values()]:
             work["proofs"] = {name: "retained" for name in work.get("completed", [])}
@@ -386,10 +421,17 @@ def advance(row, value, operation=None, status=None):
     operation = operation or inferred or value.get("reportedOperation")
     status = status or value.get("operationStatus")
     if status is not None: value["operationStatus"] = status
-    child_boundary = (value["phase"].startswith(("recovery-section:", "staging-section:", "prepare-substage:"))
+    if row["id"] == "build" and value["phase"].startswith("prepare-items:"):
+        # Counter producers need no duplicated parent argument. The actual
+        # opened checkpoint, not a historical frontier, establishes ownership.
+        owner = PREPARATION_ITEMS.get(value["phase"].split(":", 1)[1])
+        scope = plan.get("preparationScopes", {}).get(owner, {})
+        if scope.get("open") and scope.get("name") == value["phase"].split(":", 1)[1]:
+            operation = owner
+    child_boundary = (value["phase"].startswith(("recovery-section:", "staging-section:", "prepare-substage:", "prepare-items:"))
                       or value["phase"] in ("recovery-batches", "recovery-raw-reuse", "recovery-plan", "prepare-project-copy"))
     parent_status = "progress" if child_boundary else status
-    if value["phase"].startswith("prepare-substage:") and operation in operations: measured = True
+    preparation_counter = row["id"] == "build" and value["phase"].startswith(("prepare-substage:", "prepare-items:"))
     if operation in operations:
         value["reportedOperation"] = operation
         plan["liveOperation"] = operation
@@ -407,6 +449,12 @@ def advance(row, value, operation=None, status=None):
             if parent_status in ("complete", "reuse"):
                 plan["completed"] = list(dict.fromkeys([*plan["completed"], operation]))
     current = plan.get("current")
+    if preparation_counter:
+        fraction = _preparation_fraction(plan, operation, value)
+        if fraction is not None:
+            plan["fractions"][operation] = max(plan["fractions"].get(operation, 0.), min(.99, fraction))
+    elif row["id"] == "build" and value["phase"].startswith("operation:") and operation in operations:
+        plan.get("preparationScopes", {}).pop(operation, None)
     if row["id"] == "build" and plan.get("liveOperation", current) == "recovery":
         nested = _recovery_fraction(plan, value)
         if nested is not None:
