@@ -2284,6 +2284,128 @@
         "local"
       ],
       "weight": 30
+    },
+    {
+      "id": "npc639-original-receipts",
+      "command": [
+        "python3",
+        "scripts/check-npc639-original-receipts.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 15
+    },
+    {
+      "id": "npc639-native-packed-assets",
+      "command": [
+        "python3",
+        "scripts/check-npc639-assets.py",
+        "--controls"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "npc639-map-seat",
+      "command": [
+        "python3",
+        "scripts/check-npc639-visit-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "npc639-temple-wrist",
+      "command": [
+        "python3",
+        "scripts/check-npc639-purse-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "npc639-mage-first-render",
+      "command": [
+        "python3",
+        "scripts/npc-first-picture639-runtime/run.py",
+        "--service",
+        "mage"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "npc639-merchant-first-render",
+      "command": [
+        "python3",
+        "scripts/npc-first-picture639-runtime/run.py",
+        "--service",
+        "merchant"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "npc639-mage-unacknowledged-reoffer",
+      "command": [
+        "python3",
+        "scripts/npc-first-picture639-runtime/run.py",
+        "--without-receipts"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "npc639-mage-inflight-replacement",
+      "command": [
+        "python3",
+        "scripts/npc-first-picture639-runtime/run.py",
+        "--prior-inflight"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "npc639-mage-loading-control",
+      "command": [
+        "python3",
+        "scripts/npc-first-picture639-runtime/run.py",
+        "--cold-observer",
+        "--expect-incomplete"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "npc639-mage-opening-control",
+      "command": [
+        "python3",
+        "scripts/npc-first-picture639-runtime/run.py",
+        "--without-opening-reservation",
+        "--expect-incomplete"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
     }
   ]
 }

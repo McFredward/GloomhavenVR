@@ -598,7 +598,42 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 638;
+    public const ushort ModBuild = 639;
+
+    // ModBuild639 — resolve the exact native atlas blocker and prove rendered NPC openings.
+    // Both supplied peers were638. All33 mage originals arrived after roughly4s,
+    // but the picture remained inadmissible forever: the native zero-pivot Poison
+    // sprite was a dormant member of BattleOverlayCanvas, absent from Resources'
+    // loaded-Sprite census. The original atlas contains895 members, duplicate
+    // names/pivots and distinct packed geometry. Materialize its exact originals
+    // during native map preparation; retain native UV/mesh provenance in cached
+    // descriptor keys. No generated replacement artwork or game UI activation.
+    // Complete merchant/mage openings get a finite16-page reservation on the
+    // existing864B/50ms event clock, with ordinary-stream progress every4 pages.
+    // Repeated offers cannot inherit old send debt or obsolete fragmented card
+    // originals. Supersession preserves unchanged required exact bytes, declared
+    // baseline dependencies, fragment sequence monotonicity and source identities.
+    // Additive112/message28 acknowledges only actually retained full originals.
+    // All current compatible peers must affirm the exact source/session/module/
+    // sequence/object before cumulative delta reuse; preparation and local send
+    // completion cannot establish receipt. Pending receipts share ReliableOrdered
+    // event admission and survive unknown-owner handshake and admission failure.
+    // Original numeric card/ring/hover motion and rig clocks remain independent;
+    // visitor-local pre-drop guides retain their explicitly approved exception.
+    // The previous fixtures omitted dormant atlas members/full native TMP state,
+    // counted simulated/admitted output and initially ignored an inactive owner's
+    // transaction edge. The replacement follows actual producer/scheduler/driver/
+    // native application plus Camera.Render/readback, full33/59 census, distinct
+    // original options, true re-offers and genuinely fragmented prior offers.
+    // Strict1s local-render results and retained timing failures/causal controls
+    // are documented in NPC-639-PROOF-AUDIT.md; arbitrary network/HMD latency is
+    // not guaranteed. Merchant/native mage values are metadata, never image pixels.
+    // Temple wrist context contracts to1.45m entry/1.65m exit without changing
+    // native donation permission or2.6m NPC attention. Initial map/recenter keeps
+    // taller standing origins and lifts only low eyes to0.70m above the parchment,
+    // accounting for current zoom; ordinary head movement is never clamped.
+    // Both peers must install639. No bundle or saved/default config changes.
+    // Focused evidence/inherited unchanged coverage: .planning/NPC-639-REVIEW.md.
 
     // ModBuild638 — repair NPC first-picture dependencies, not just queue size.
     // Both hardware peers were637. The observer assembled15 enhancement members
