@@ -76,6 +76,7 @@ try:
     assert sys.path == paths, 'discovery changed import search paths'
     assert sys.modules['profile'] is original_profile
     assert 'native_plugins' not in sys.modules
+    assert 'staging_resume' not in sys.modules
     print(json.dumps({'discoveryStatus': response.status, 'stdlibProfilePreserved': True,
                       'offlinePublisherImages': len(pins), 'brandingAssets': branding_images,
                       'displayedModBuild': value['modSource']['modBuild']}))
