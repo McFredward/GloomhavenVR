@@ -94,6 +94,26 @@ hardware result must be recorded with both build banners and paired logs.
 
 ## Final integration evidence
 
-Pending the coordinated final integration tree and complete local gate. Focused
-worker receipts are recorded in [selection](CROSSPLAY-QUEST-SELECTION.md) and
-[readiness](CROSSPLAY-QUEST-READY.md); these are not a new complete-gate pass.
+Pending the coordinated final integration tree and complete local gate. The
+implemented boundaries have these focused receipts:
+
+| Fixture | Executed checks | Causal controls |
+|---|---|---|
+| Native map selection and popup identity | 358 original/private + 358 publicized assertions; 18 native bindings | 9 |
+| Native client quest readiness and departure | 224 prompt assertions + 63 departure assertions; 25 readiness layouts; 10 + 22 verbatim native bodies | 7 + 7 |
+| Current quest window and shared pose routing | 160 production-linked assertions | 4 |
+| Original quest-card placement | 45 assertions | 3 |
+| Native optional retirement prompt and animation | 198 checks; 32 role/presenter cases; original promise/retirement flow, actual conversion-frame reassertion and native scale animation | 10 |
+| Optional real HarmonyX 2.7.0 / Unity Mono | 72 assertions; all seven production departure targets and both scoped-state pairs installed; no manual seam dispatch | Not a portable CI requirement |
+
+Selection and readiness execute with tracked native fixtures when the read-only
+game reference is unavailable; workers verified both reference-present and
+reference-absent execution. The integrated readiness, window and retirement
+boundaries also passed focused root runs. Strict root Debug and Release builds
+reported zero errors and zero warnings. The source group passed 15/15 before the
+final departure addition; docs i18n passed all five language pairs. Final source,
+golden and complete local evidence must still be recorded against the common
+641 tree. These receipts are not a new complete-gate pass.
+
+Detailed worker receipts are in [selection](CROSSPLAY-QUEST-SELECTION.md),
+[readiness](CROSSPLAY-QUEST-READY.md) and [the broader flow audit](CROSSPLAY-FLOW-AUDIT.md).
