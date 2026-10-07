@@ -271,8 +271,8 @@ def select_workspace(output, inputs, source, game, recipe, *, qualifications=Non
 def completed_raw(workspace, inputs, game, *, qualifications=None):
     """Adopt a genuinely closed raw result; qualify bytes at their consumer.
 
-    The 2026-10-07/440b Windows witness re-exported no packages but spent 441 s
-    rehashing 189,737 raw files, before staging would hash the same bytes during
+    The 2026-10-07/440b Windows witness re-exported no packages but spent 1,012 s
+    rehashing 189,737 raw files (both rotated logs), before staging would hash the same bytes during
     copying. A successful full-recovery result and its complete, source/core/
     catalog-bound checkpoint can retain those exports without launching the
     exporter orchestration again. Staging must still qualify EVERY consumed
