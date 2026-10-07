@@ -18,7 +18,7 @@ AUTHORED_LINKS = {
 PUBLIC_PACKAGES = {'prebuilt/quest-converters-win64-v1.zip': '61f7d664384b12663fb4fb799ffb8566bf11e99e15ce72c7afb00d5b62199f2d'}
 ROOT_FILES = {'Quest-Builder.cmd', 'QUEST-BUILDER-START.txt', 'LICENSE', 'Directory.Build.props', 'GloomhavenVR.sln', 'global.json', 'nuget.config', '.editorconfig'}
 TOOL_ROOTS = {'QuestCampaignInventory', 'QuestProceduralExport', 'QuestWeaver', 'RuntimeDepsBuild',
-              'ShaderOcclusionPatcher', 'quest-builder', 'quest-campaign-audit', 'quest-compute',
+              'ShaderOcclusionPatcher', 'environment-mesh', 'quest-builder', 'quest-campaign-audit', 'quest-compute',
               'quest-installer', 'quest-native', 'quest-network', 'quest-procedural',
               'quest-procedural-runtime', 'quest-recovery', 'quest-shaders', 'quest-wizard', 'quest-wizard-ui'}
 UNITY_ROOTS = {'GloomhavenVR.Assets', 'GloomhavenVR.Quest', 'GloomhavenVR.FigureMeshes'}
@@ -26,13 +26,25 @@ SCRIPTS = {'build-quest.py', 'build-quest-native.py', 'recover-quest.py', 'build
            'quest-builder-wizard.cmd', 'quest-builder-wizard.ps1', 'package-quest-builder.py',
            'export-quest-build-support.py', 'install-quest-wireless.cmd', 'install-quest-wireless.ps1',
            'install-quest-wireless.py', 'collect-quest-logs.cmd', 'collect-quest-logs.ps1',
-           'collect-quest-logs.py', 'quest-saves.cmd', 'quest-saves.ps1', 'quest-saves.py'}
+           'collect-quest-logs.py', 'quest-saves.cmd', 'quest-saves.ps1', 'quest-saves.py', 'generate-environment-meshes.py'}
 SECRET_SUFFIXES = {'.dll', '.exe', '.apk', '.bundle', '.zip', '.ulf', '.alf', '.keystore', '.jks', '.p12', '.pem', '.key'}
 GENERATED_PARTS = {'bin', 'obj', 'Library', 'Temp', 'Logs', 'Builds', '__pycache__', '.git', 'node_modules'}
 # Tool source checkouts and compiled reference DLLs are derived on the owner's PC;
 # they are not release inputs and the builder inventories declared DLLs separately.
 LOCAL_DEPENDENCIES = ('libs/RuntimeDeps/', 'libs/Natives/', 'tools/RuntimeDepsBuild/sources/',
                       'scripts/.quest-venv/', 'scripts/.quest-python/')
+# The current Frame mod tracks its offline original-derived environment bank.
+# A source Builder recreates those streams from the player's immutable game;
+# original geometry and its derived receipt never become public ZIP inputs.
+OWNED_DERIVED_ROOTS = ('unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/',)
+OWNED_DERIVED_FILES = {'tools/environment-mesh/bank.json', 'tools/environment-mesh/manifest.json'}
+
+
+def owned_derived_source(name):
+    """One exclusion boundary shared by Git and released Builder inventories."""
+    return name.startswith(OWNED_DERIVED_ROOTS) or name in OWNED_DERIVED_FILES
+
+
 PROMOTIONAL_ASSETS = {'tools/quest-wizard-ui/assets/promo/' + name for name in (
     'cragheart.png', 'spellweaver.png', 'brute.jpg', 'scoundrel.png', 'bandit-guard.jpg', 'bandit-archer.jpg',
     'living-bones.jpg', 'living-corpse.jpg', 'living-spirit.jpg', 'cultist.jpg', 'sun-demon.jpg', 'night-demon-elite.jpg',
@@ -57,6 +69,9 @@ REQUIRED |= PROMOTIONAL_ASSETS | {'tools/quest-wizard-ui/promo-artwork.json',
     'tools/quest-wizard-ui/assets/octicons-LICENSE.txt',
     'tools/quest-wizard-ui/assets/provenance.json',
     'tools/quest-builder/recovery_resume.py',
+    'tools/quest-builder/environment_bank.py',
+    'tools/environment-mesh/export-native.py',
+    'scripts/generate-environment-meshes.py',
     'tools/quest-wizard/stage_plan.py',
     'tools/quest-wizard/timing.py',
     'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestWizardProgress.cs'}
@@ -77,6 +92,7 @@ def safe_name(name):
 def selected(name):
     parts = safe_name(name).parts
     if name in PUBLIC_PACKAGES: return True
+    if owned_derived_source(name): return False
     if any(part in GENERATED_PARTS for part in parts) or any(part.startswith('.env') for part in parts): return False
     if Path(name).suffix.lower() in SECRET_SUFFIXES or 'evidence' in parts or 'decompiled' in parts: return False
     if len(parts) == 1: return name in ROOT_FILES
@@ -195,7 +211,7 @@ def assemble(repo, destination):
     report = {'schema': 1, 'sourceCommit': commit, 'modBuild': manifest['modBuild'], 'fileCount': len(records),
               'sourceBytes': sum(row['size'] for row in records), 'archiveSha256': digest(destination),
               'promotionalArtworkFiles': sorted(PROMOTIONAL_ASSETS),
-              'excluded': ['owned game/decompiled code', 'reference DLLs', 'original-derived figure mesh banks',
+              'excluded': ['owned game/decompiled code', 'reference DLLs', 'original-derived figure/environment mesh banks',
                            'generated APKs/caches', 'credentials/licenses/savegames'], 'materializedAuthoredLinks': [name for name in names if (repo / name).is_symlink()],
               'windowsEndToEndVerified': False}
     write_json(Path(str(destination) + '.audit.json'), report)

@@ -33,6 +33,36 @@ class ReleaseTests(unittest.TestCase):
                  'modBuild': 625, 'files': [record_file(self.root / name, name) for name in names],
                  'localDependencyRoots': list(release.LOCAL_DEPENDENCIES)}
         write_json(self.root / release.MANIFEST, value); return value
+    def test_actual_archive_excludes_owned_environment_data_and_keeps_its_generator(self):
+        generated = {
+            'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/static-100.bytes': b'GHEM1 ORIGINAL FIXTURE GEOMETRY',
+            'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/static-100.bytes.meta': b'original mesh importer fixture',
+            'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/index.json': b'{"format":1,"entries":["private original"]}',
+            'tools/environment-mesh/manifest.json': b'private original derivatives receipt',
+            'tools/environment-mesh/bank.json': b'private original native bank receipt',
+        }
+        for name, content in generated.items():
+            path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(content)
+        shader = self.root / 'unity/GloomhavenVR.Assets/Assets/Bundle/Environments/ScenarioCheapTerrain.shader'
+        shader.parent.mkdir(parents=True, exist_ok=True); shader.write_text('authored Shader fixture')
+        (self.root / release.MANIFEST).unlink()
+        subprocess.run(['git', 'init', '--quiet', str(self.root)], check=True)
+        subprocess.run(['git', '-C', str(self.root), 'add', '.'], check=True)
+        subprocess.run(['git', '-C', str(self.root), '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                        'commit', '--quiet', '-m', 'Source and owned originals fixture'], check=True)
+        archive = Path(self.temp.name) / 'source-builder.zip'
+        report = release.assemble(self.root, archive)
+        with zipfile.ZipFile(archive) as zipped:
+            names = {name.removeprefix('GloomhavenVR-Quest-Builder/') for name in zipped.namelist()}
+            manifest = json.loads(zipped.read('GloomhavenVR-Quest-Builder/' + release.MANIFEST))
+        self.assertFalse(names.intersection(generated))
+        self.assertFalse({row['path'] for row in manifest['files']}.intersection(generated))
+        self.assertIn(shader.relative_to(self.root).as_posix(), names)
+        for name in ('tools/quest-builder/environment_bank.py', 'tools/environment-mesh/export-native.py',
+                     'scripts/generate-environment-meshes.py'):
+            self.assertIn(name, names)
+        self.assertIn('original-derived figure/environment mesh banks', report['excluded'])
+
     def test_git_free_inventory_keeps_manifest_and_rejects_tamper(self):
         rows, commit, dirty = release.verified_source_inventory(self.root)
         self.assertEqual(commit, 'a' * 40); self.assertFalse(dirty)
