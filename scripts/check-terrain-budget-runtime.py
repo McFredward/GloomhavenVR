@@ -139,7 +139,7 @@ def main():
          'Material original; /* injected repeated native original lookup */',
          'ninety-six repeated terrain sources resolve canonical world material and variant exactly once',source,1),
         ('terrain-world-variant-memo-bypassed','if (shared && _worldVariantsThisCamera.TryGetValue(original, out Material cached)) return cached;',
-         '/* injected repeated world variant lookup */',
+         'if (shared) _worldVariantsThisCamera.Remove(original); /* injected repeated world variant lookup */',
          'ninety-six repeated terrain sources resolve canonical world material and variant exactly once',source,1),
         ('terrain-world-variant-cross-eye-stale','_worldVariantsThisCamera.Clear();',
          '/* injected stale next-eye world variant */',
