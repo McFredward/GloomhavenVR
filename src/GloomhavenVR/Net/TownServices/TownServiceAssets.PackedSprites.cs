@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
+using TMPro;
 using UnityEngine;
 using UnityEngine.U2D;
 using Object = UnityEngine.Object;
@@ -17,7 +18,16 @@ internal sealed partial class TownServiceAssets
     /// <summary>Load-time native dependency preparation, independent of the general
     /// font/texture census interval. Existing preparation can discover an atlas
     /// arriving after its first scan without scanning unrelated assets again.</summary>
-    internal void PreparePackedSprites() => ScanPackedSprites();
+    internal void PreparePackedSprites()
+    {
+        // The shipped TMP Settings fallback chain retains the original
+        // BattleOverlayCanvas atlas. Access its native resource dependency before
+        // the loaded-object census: the atlas is not a direct Resources root,
+        // so LoadAll<SpriteAtlas> cannot discover a cold, unloaded instance.
+        // No native window or gameplay controller is activated by this lookup.
+        _ = TMP_Settings.instance;
+        ScanPackedSprites();
+    }
 
     /// <summary>Build638 delivered all33 required originals, but the observer never
     /// admitted them: Poison/Disarm belonged to dormant BattleOverlayCanvas members.
