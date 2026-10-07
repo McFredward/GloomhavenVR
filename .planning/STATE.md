@@ -1,5 +1,39 @@
 # State — where the project stands
 
+**Build641 integration, 2026-10-08: 1.1.0 development candidate.**
+
+Native Flat-host quest proposals now drive the current VR quest confirmation
+independently of mod selection records. The original popup manager owns window
+identity/lifetime and ready-toggle placement. Early native preview capture survives
+delayed map entry and retained toggle visibility; actual desktop answers prevent
+replay. Original Accept/Cancel, host permissions and native readiness/ACK remain.
+
+VR quest hosts enable the game's existing departure validation. Under an unchanged
+Flat host, a genuinely blocked original Cancel may authorize one explicit native
+withdrawal after departure. Native-state probe failures discard only mod scope and
+preserve native arguments/exceptions. Optional observer retirement presents its
+original animated widget/promise in 3D, with original desktop fallback if needed.
+Unexpected failures retain bounded normal-level context; logger failure cannot
+change consent or continuation. NPC639 and Frame640 are retained unchanged.
+
+The complete local inventory executed 170/170: 167 passed initially, three older
+fixtures required bounded test-only repairs and focused successful reruns. This
+combined coverage is not a new green 170-suite single run. Source16/16, golden299713,
+strict Debug/Release with zero warnings/errors, five bilingual-doc pairs, bundles
+and surface checks pass. Actual HarmonyX/Unity Mono passes 169 assertions through
+all seven installed departure targets. Compiled comparison retains 1231 types,
+adds six, changes only eight intended runtime types/eight numeric build consumers/
+generated branch metadata; 1214 remain
+byte-identical. All initial failures and final receipts are retained. See
+[the crossplay641 review](CROSSPLAY-QUEST-REVIEW.md) for exact scope and causal controls.
+
+The reported two-VR/two-Flat session has no supplied paired banners/logs/screenshots.
+Actual Campaign/Guildmaster HMD pictures, interaction and transport still require
+the review's mixed-host matrix. VR peers install641; unmodded Flat peers remain native.
+No default, environment bank, wire layout or release change.
+
+---
+
 **Build640 integration, 2026-10-08: 1.1.0 development candidate.**
 
 All NPC639 repairs are retained. The separately checked Frame camera/viewport

@@ -98,10 +98,13 @@ active room, is reported once for the native opening. `ScreenFallbackWanted`
 requests the existing native map desktop until the original prompt ends,
 replacement occurs, or map presentation stops. It retains the native pending
 choice and console adapter, and never resolves a callback or writes readiness.
-The root must wire this property into `ModalFallback.ScreenWanted`; the worker
-does not own integration wiring.
+The integrated central Update ticks this owner before `ModalFallback`; the latter
+includes its fallback request outside the ordinary modal-lock condition. Late
+reassertion follows canvas conversion, and room/window/module shutdown restores
+the native widget before destroying mod presentation. The orphan sweep recognizes
+its independent live grab ownership.
 
-Focused worker evidence: `scripts/map-retirement-tests.sh` passes 198 checks and
+Integrated evidence: `scripts/map-retirement-tests.sh` passes 207 checks and
 32 role/presenter cases, and rejects ten causal negative controls. It executes
 the production bridge with the actual original desktop/console widget and
 presenter bodies, original `CallbackPromise`, `ConfirmRetirement` and
@@ -116,7 +119,10 @@ not simulate native transport. Unity scene/render/conversion dependencies and
 native ready-vote transport are substitutes. Harmony seam methods are exercised
 as fixture seams; hardware still must verify actual patch ordering, picture,
 poke geometry, animated opening and native network/ACK behavior. The Release
-plugin/preloader build passes with zero errors and zero warnings.
+plugin/preloader build passes with zero errors and zero warnings. Missing original
+widgets and conversion failures report once at the normal level; expected restore
+deferral remains Debug. Failing reporters preserve native continuation/fallback.
+The final inventory/limited-repair evidence is in [the641 review](CROSSPLAY-QUEST-REVIEW.md).
 
 ## Authority and continuation trace
 

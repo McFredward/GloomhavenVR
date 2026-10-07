@@ -103,8 +103,10 @@ hardware result must be recorded with both build banners and paired logs.
 
 ## Final integration evidence
 
-Pending the coordinated final integration tree and complete local gate. The
-implemented boundaries have these focused receipts:
+The integrated source candidate `09e85ac5eb5f2e503b18f1c43b945ee8d4984584`
+completed the 16-suite source group and executed the complete 170-suite local
+inventory. The subsequent repairs change test fixtures/control matchers only;
+the pinned production source is unchanged. The implementation has these receipts:
 
 | Fixture | Executed checks | Causal controls |
 |---|---|---|
@@ -118,12 +120,43 @@ implemented boundaries have these focused receipts:
 
 Selection and readiness execute with tracked native fixtures when the read-only
 game reference is unavailable; workers verified both reference-present and
-reference-absent execution. The integrated readiness, window and retirement
-boundaries also passed focused root runs. Strict root Debug and Release builds
-reported zero errors and zero warnings. The source group passed 15/15 before the
-final departure addition; docs i18n passed all five language pairs. Final source,
-golden and complete local evidence must still be recorded against the common
-641 tree. These receipts are not a new complete-gate pass.
+reference-absent execution. All new crossplay suites passed the integrated local
+run, and the root executed the guarded actual HarmonyX/Mono proof separately.
+
+The first umbrella attempt stopped before local execution because the discovery
+test still expected Build638's 154 suites. Explicit local/CI/source expectations
+now require 170/93/16; its 18 checks pass (two optional environment cases skip).
+The subsequent complete local run recorded 170/170 in 2005.2 seconds: 167 passed
+and three older fixtures failed. These failures and intermediate repairs remain
+in the evidence; they are not reported as a green 170-suite single run.
+
+| Limited fixture repair | Final affected evidence |
+|---|---|
+| `native-video` lacked the independent retirement ownership API in its extracted real orphan sweep | 68 assertions and seven causal controls pass, including live retirement ownership and collection after its end. |
+| `town-final-capture` lacked the argument-taking retirement Tick adapter in the complete real WorldUI registration | Actual Unity production run and five causal controls pass; registration and town capture remain verbatim production. |
+| `town-native-state623` warm-priority mutant iterated the NPC639 dictionary as the older set | Production and 16 unchanged controls passed after adapting `.Keys`; production plus the warm-priority control then pass with its exact earlier original fairness assertion. No production or gameplay assertion changes. |
+
+The three affected checks were rerun as bounded repairs; the other 167 passing
+local receipts are reused. This covers the complete required inventory while
+remaining distinct from a newly green complete single run. The original umbrella
+stopped before its later steps; those remaining checks were executed separately:
+299,713 wire-golden assertions pass, all bundles/figure bank are game-compatible,
+and the surface comparison removes no config key, patch registration or log
+marker. Config remains 671 keys; patch census 221→232 and log tokens 4791→4795.
+Strict integrated Debug and Release builds report zero errors/warnings; docs i18n
+passes five pairs. No default, bundle or native gameplay protocol was changed.
+
+The private exact640 compiled baseline retains all 1,231 original types and adds
+six intended crossplay types (1,237 current). Eight existing runtime types change;
+eight additional differences are exclusively numeric build640→641 consumers and
+one is generated branch metadata. The other 1,214 types are byte-identical. The
+guard's expected behavior-difference exit is reviewed, not a test failure; its
+snapshot/classification bodies were executed separately after the limited repairs.
+
+Complete source/local results, failed and successful affected receipts, source
+hashes, actual Harmony proof, build/golden/bundle/surface logs and the private
+compiled snapshots are preserved in the main checkout's gitignored
+`.planning/debug/crossplay641/`. Real HMD/network acceptance remains open as above.
 
 Detailed worker receipts are in [selection](CROSSPLAY-QUEST-SELECTION.md),
 [readiness](CROSSPLAY-QUEST-READY.md) and [the broader flow audit](CROSSPLAY-FLOW-AUDIT.md).
