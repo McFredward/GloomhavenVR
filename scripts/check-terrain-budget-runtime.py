@@ -129,6 +129,9 @@ def main():
          'inactive HIGH and toggle-native clip retain original authored cutoff',shader,1),
     ]
     controls += [
+        ('terrain-current-lease-native-mask-dependent','internal bool HasCurrentRenderLease => _masked && Renderer != null;',
+         'internal bool HasCurrentRenderLease => IsMasked;',
+         'terrain current lease survives late native mask edits until explicit owner release',geometry,1),
         ('terrain-exhausted-cap-still-reads','if (shared && limit > 0 && candidates >= limit)',
          'if (false && shared && limit > 0 && candidates >= limit)',
          'exhausted shared terrain cap skips all native visibility reads',source,1),

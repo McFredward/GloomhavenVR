@@ -112,6 +112,12 @@ public static partial class TerrainProgram
         Check(!ScenarioTerrainBudget.OwnsRenderSubstitute(anonymous)&&!ScenarioTerrainBudget.OwnsRenderSubstitute(foundation),
             "bank provenance alone never admits anonymous geometry or floor foundation slabs");
         Check(!ScenarioTerrainBudget.OwnsRenderSubstitute(tileWall),"audited wall name under map tile without ProceduralWall stays native");
+        Check(ScenarioTerrainBudget.OwnsRenderSubstitute(wall)&&!ScenarioTerrainBudget.HasCurrentRenderLease(wall),
+            "prepared terrain ownership is distinct from a current unacquired camera lease");
+        Check(DuringRender(camera,()=>ScenarioTerrainBudget.HasCurrentRenderLease(wall)),
+            "terrain current lease is observable during its actual camera draw");
+        Check(!ScenarioTerrainBudget.HasCurrentRenderLease(wall),
+            "terrain current lease ends after its paired post-render recovery");
         Check(Visible(Pixels(camera))>100,"cheap terrain submits actual nonempty camera pixels");
         Check(!wall.forceRenderingOff&&!floor.forceRenderingOff&&Proxies(host).TrueForAll(r=>!r.enabled),"post-render restores every native source and disables private proxies");
         Check(wall.sharedMaterials[0]==slots[0]&&wall.GetComponent<MeshFilter>().sharedMesh==original&&collider.sharedMesh==original,"native source mesh materials and collision are untouched");
@@ -200,16 +206,22 @@ public static partial class TerrainProgram
         Check(DuringRender(camera,()=>Proxies(host).Find(r=>r.transform.position==wall.transform.position)!.renderingLayerMask==2u),
             "native rendering layer edit remains live between terrain camera invocations");
         wall.renderingLayerMask=1u;
-        bool leased=false,restored=false;
+        bool leased=false,restored=false,leaseBeforeMaskEdit=false,leaseAfterMaskEdit=false,leaseAfterRelease=true;
         Camera.CameraCallback inspect=cam=>
         {
             if(cam!=camera)return;
             leased=wall.forceRenderingOff;
+            leaseBeforeMaskEdit=ScenarioTerrainBudget.HasCurrentRenderLease(wall);
+            wall.forceRenderingOff=false;
+            leaseAfterMaskEdit=ScenarioTerrainBudget.HasCurrentRenderLease(wall);
             ScenarioTerrainBudget.BeforeNativeRendererWrite(wall);
             restored=!wall.forceRenderingOff&&Proxies(host).Find(r=>r.transform.position==wall.transform.position)!.enabled==false;
+            leaseAfterRelease=ScenarioTerrainBudget.HasCurrentRenderLease(wall);
         };
         Camera.onPreCull+=inspect; Render(camera); Camera.onPreCull-=inspect;
         Check(leased&&restored,"native pre-cull write synchronously revokes an already prepared proxy");
+        Check(leaseBeforeMaskEdit&&leaseAfterMaskEdit&&!leaseAfterRelease,
+            "terrain current lease survives late native mask edits until explicit owner release");
         Check(PerfMonitor.Counts["Terrain.OriginalTriangles"]==0&&PerfMonitor.Counts["Terrain.CheapSurfaces"]==0,
             "revoked native-write camera leases are absent from terrain completion counters");
         material.EnableKeyword("_WALLFADE_ON_ON"); material.SetFloat("_WallFade_On",1f); Pixels(camera);
@@ -410,6 +422,10 @@ public static partial class TerrainProgram
         Check(DuringRender(camera,()=>clones.FindAll(renderer=>renderer.forceRenderingOff).ConvertAll(renderer=>renderer.GetInstanceID()).ToArray().SequenceEqual(chosen)),
             "settled terrain CPU selection is stable across genuine successive camera invocations");
         var deferred=clones.First(renderer=>!chosen.Contains(renderer.GetInstanceID()));
+        Check(DuringRender(camera,()=>ScenarioTerrainBudget.OwnsRenderSubstitute(deferred)
+            &&!ScenarioTerrainBudget.HasCurrentRenderLease(deferred)
+            &&clones.Where(renderer=>renderer.forceRenderingOff).All(ScenarioTerrainBudget.HasCurrentRenderLease)),
+            "prepared cap-deferred terrain source has no current lease while admitted sources retain theirs");
         deferred.gameObject.SetActive(false); Render(camera);
         Check(PerfMonitor.Counts["ScenarioTerrain.BudgetDeferred"]==84&&PerfMonitor.Counts["Terrain.CameraBudgetFallback"]==0,
             "unexamined inactive terrain remainder is deferred preparation and never claimed as examined active fallback");

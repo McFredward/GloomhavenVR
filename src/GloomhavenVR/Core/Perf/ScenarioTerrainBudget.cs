@@ -79,6 +79,11 @@ internal static partial class ScenarioTerrainBudget
     { if (_driver != null && renderer != null) _driver.ReleaseLease(renderer); }
     internal static bool OwnsRenderSubstitute(Renderer renderer) =>
         _driver != null && renderer != null && _driver.OwnsRenderSubstitute(renderer);
+    // Prepared membership selects the terrain owner before culling. Revocation
+    // instead needs an actual owned lease, even if a later native callback has
+    // already overwritten the physical renderer mask. Keep the two readers apart.
+    internal static bool HasCurrentRenderLease(Renderer renderer) =>
+        _driver != null && renderer != null && _driver.HasCurrentRenderLease(renderer);
 
     private static void FailOpen(Exception error)
     {
@@ -426,6 +431,8 @@ internal static partial class ScenarioTerrainBudget
 
         internal bool OwnsRenderSubstitute(Renderer renderer) => _surfaces.TryGetValue(renderer.GetInstanceID(), out Surface surface)
             && surface.WantsSubstitute(_active);
+        internal bool HasCurrentRenderLease(Renderer renderer) => _surfaces.TryGetValue(renderer.GetInstanceID(), out Surface surface)
+            && surface.HasCurrentRenderLease;
         internal void ReleaseLease(Renderer renderer)
         {
             if (_surfaces.TryGetValue(renderer.GetInstanceID(), out Surface surface)) surface.Unmask();
