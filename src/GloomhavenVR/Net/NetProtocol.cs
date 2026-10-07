@@ -598,7 +598,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 639;
+    public const ushort ModBuild = 640;
+
+    // ModBuild640 — integrate the separately checked Frame camera/viewport follow-up.
+    // Native MainMenuVideo's unrestricted mask could capture mod screen geometry
+    // back into its own menu texture. Exclude only the dedicated mod layer during
+    // actual captured-camera rendering; restore current native masks on completion,
+    // interruption and teardown, and keep the shared native UI-layer fallback.
+    // The existing final pre-cull seam repairs late native target/stereo writes;
+    // VRCameraPolicy remains the sole stereo owner and corrects late cameras at
+    // discovery without recurring normal-log floods. Head and previews stay intact.
+    // Frame638 accepted .80 then reverted to1.00 across58 viewport repair writes.
+    // Limit a continuous provider reset to three spaced allocation-free repairs;
+    // retained viewport/new user request/session rearms it. Saved values remain.
+    // Byte-identical reviewed worker evidence: actual native desktop120 assertions/
+    // 25 controls, RenderQuality90/22 plus two startup controls. Integrated source,
+    // strict builds and compiled comparison retain all NPC639 runtime fixes.
+    // No bank/default/wire-layout change. Both peers install640; cold-start Frame
+    // video appearance and actual FPS remain hardware-open. See FRAME-640-INTEGRATION.md.
 
     // ModBuild639 — resolve the exact native atlas blocker and prove rendered NPC openings.
     // Both supplied peers were638. All33 mage originals arrived after roughly4s,
