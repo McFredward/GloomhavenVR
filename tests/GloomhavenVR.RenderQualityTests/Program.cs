@@ -162,6 +162,30 @@ internal static class Program
         FrameTick(.51f); Near(XRSettings.renderViewportScale,.8f,"accepted startup viewport reset is repaired by known Update");
         Check(XRSettings.LiveAllocationWrites==0 && display.AllocationWrites==1,
             "startup viewport reset repair retains the original session allocation");
+
+        // Model an Android-player-owned running display. Execute the complete
+        // merged controller and the actual Quest viewport helper, while desktop
+        // lifecycle/provider controls above remain unchanged.
+        display=Start(1,2); QuestStandalonePlatform.FixedEyeTextureAllocation=true;
+        RenderQuality.MsaaLevel!.Value=8; RenderQuality.EyeResolutionScale!.Value=1.5f;
+        RenderQuality.AdoptRunningSession();
+        int questAllocations=display.AllocationWrites, questMsaa=display.MsaaWrites;
+        FrameTick(.1f); FrameTick(.5f);
+        Check(display.AllocationWrites==questAllocations && display.MsaaWrites==questMsaa
+            && XRSettings.LiveAllocationWrites==0,
+            "Quest Vulkan never resizes the player-owned running swapchain or MSAA surfaces");
+        Check(QualitySettings.antiAliasing==2 && RenderQuality.MsaaLevel.Value==8,
+            "Quest Vulkan retains startup mobile MSAA without rewriting the saved desktop request");
+        Near(XRSettings.renderViewportScale,1,"Quest Vulkan caps saved supersampling at the existing allocation");
+        Near(RenderQuality.EyeResolutionScale.Value,1.5f,"Quest Vulkan cap retains the saved resolution request");
+        RenderQuality.EyeResolutionScale.Value=.7f; FrameTick(.6f); FrameTick(.96f);
+        Near(XRSettings.renderViewportScale,.7f,"Quest Vulkan downscales only the live viewport");
+        Camera.current=new(); RenderQuality.EyeResolutionScale.Value=.8f; Tick(1.1f); Tick(1.5f);
+        Near(XRSettings.renderViewportScale,.7f,"Quest viewport remains guarded during an unmarked rendering call");
+        FrameTick(1.51f); Near(XRSettings.renderViewportScale,.8f,"known Update applies the pending Quest viewport");
+        Check(display.AllocationWrites==questAllocations && display.MsaaWrites==questMsaa
+            && XRSettings.LiveAllocationWrites==0,"Quest viewport transitions retain externally owned native resources");
+        QuestStandalonePlatform.FixedEyeTextureAllocation=false; Camera.current=null;
         Console.WriteLine($"RenderQuality production lifecycle: {_assertions} assertions passed.");
     }
 }

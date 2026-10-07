@@ -3,13 +3,14 @@ using BepInEx;
 namespace GloomhavenVR;
 
 /// <summary>
-/// Defaults for a fresh Steam Frame standalone VR configuration. BepInEx keeps every existing
+/// Shared defaults for fresh Steam Frame and Quest standalone VR configurations. BepInEx keeps every existing
 /// entry on Bind, so this profile never replaces a player's saved choices. The Frame setup
 /// marker is absent on Windows PC installs and on ordinary unmodified game installs.
 /// </summary>
 internal static class FrameDefaults
 {
-    internal static bool Active => FrameLaunchOptIn.MarkerExists(Paths.BepInExRootPath);
+    internal static bool Active => Core.QuestStandalonePlatform.Enabled
+        || FrameLaunchOptIn.MarkerExists(Paths.BepInExRootPath);
 
     // Build 634: the maintainer explicitly selects 0.80 for fresh Frame settings and the
     // shared Standalone profile. Bind retains saved choices; ordinary PC defaults stay 1.00.

@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>netstandard2.1</TargetFramework><LangVersion>latest</LangVersion><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><AssemblyName>QuestGame.Campaign.Boundary</AssemblyName><EnableDefaultCompileItems>false</EnableDefaultCompileItems><DefineConstants>GHVR_QUEST_STARTUP;GHVR_QUEST_GAME</DefineConstants></PropertyGroup>
+  <ItemGroup><Compile Include="$(QuestRuntime)/QuestCameraVideoOutput.cs"/><Compile Include="$(QuestRuntime)/QuestGameProcedural.cs"/><Reference Include="GloomhavenVR"><HintPath>$(ModAssembly)</HintPath><Private>false</Private></Reference><Reference Include="$(UnityManaged)/UnityEngine/*.dll" Private="false"/></ItemGroup>
+</Project>

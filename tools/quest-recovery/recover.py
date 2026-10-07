@@ -8,8 +8,10 @@ a later stage. No reconstructed content is written into the source checkout.
 """
 import argparse
 import collections
+from contextlib import contextmanager
 import hashlib
 import html
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -21,17 +23,25 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import urllib.parse
 import urllib.request
 import zipfile
+import uuid
 
 from md4 import script_file_id
 
 HERE = Path(__file__).resolve().parent
+# Explicit local loading keeps standalone recovery and API importers isolated.
+_progress_spec = importlib.util.spec_from_file_location("quest_recovery_progress", HERE.parent / "quest-builder/progress.py")
+build_progress = importlib.util.module_from_spec(_progress_spec)
+_progress_spec.loader.exec_module(build_progress)
 RECIPE_VERSION = 1
 RECEIPT = "quest-recovery-report.json"
-YAML_EXTENSIONS = {".unity", ".prefab", ".asset", ".mat", ".controller", ".overrideController", ".anim", ".mask"}
+YAML_EXTENSIONS = {".unity", ".prefab", ".asset", ".mat", ".controller", ".overrideController", ".anim", ".mask",
+                   ".mixer", ".renderTexture", ".texture2D", ".playable", ".lighting", ".flare", ".spriteatlas",
+                   ".cubemap", ".physicMaterial", ".physicsMaterial2D", ".terrainlayer", ".guiskin", ".fontsettings"}
 SCRIPT_POINTER = re.compile(r"m_Script:\s*\{fileID:\s*(-?\d+),\s*guid:\s*([0-9a-f]{32})")
 GUID_PATTERN = re.compile(r"^guid:\s*([0-9a-f]{32})\s*$", re.MULTILINE)
 
@@ -40,16 +50,67 @@ class RecoveryError(RuntimeError):
     pass
 
 
-def sha256(path):
+def sha256(path, progress=None):
     digest = hashlib.sha256()
     with Path(path).open("rb") as stream:
         for block in iter(lambda: stream.read(4 * 1024 * 1024), b""):
             digest.update(block)
+            if progress: progress(len(block))
     return digest.hexdigest()
 
 
 def write_json(path, value):
-    Path(path).write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + ".tmp-" + uuid.uuid4().hex)
+    try:
+        with temp.open("w", encoding="utf-8") as stream:
+            stream.write(json.dumps(value, indent=2, sort_keys=True) + "\n")
+            stream.flush(); os.fsync(stream.fileno())
+        os.replace(temp, path)
+    finally: temp.unlink(missing_ok=True)
+
+
+def ordinary_path(path):
+    path = Path(path).absolute()
+    if any(part.is_symlink() or (hasattr(part, "is_junction") and part.is_junction()) for part in (path, *path.parents)):
+        raise RecoveryError("Recovery staging cannot follow filesystem links: " + str(path))
+    return path
+
+
+def own_attempt(marker, expected, target):
+    """Record ownership durably before creating an interrupted exporter tree."""
+    marker, target = ordinary_path(marker), ordinary_path(target)
+    if marker.exists():
+        if json.loads(marker.read_text()) != expected: raise RecoveryError("Recovery attempt belongs to different inputs.")
+    elif target.exists(): raise RecoveryError("Incomplete recovery output has no matching ownership receipt.")
+    else: write_json(marker, expected)
+
+
+def download_pinned(url, archive, expected_sha256):
+    archive = ordinary_path(archive)
+    if archive.is_file():
+        if sha256(archive) != expected_sha256: raise RecoveryError("Pinned source archive hash differs.")
+        return
+    partial = ordinary_path(archive.with_suffix(archive.suffix + ".download"))
+    if partial.is_file() and sha256(partial) == expected_sha256:
+        os.replace(partial, archive); return
+    offset = partial.stat().st_size if partial.is_file() else 0
+    request = urllib.request.Request(url, headers={"Range": "bytes=" + str(offset) + "-"} if offset else {})
+    with urllib.request.urlopen(request, timeout=60) as response:
+        if response.status == 206:
+            match = re.fullmatch(r"bytes ([0-9]+)-([0-9]+)/([0-9]+)", response.headers.get("Content-Range", ""))
+            if not match or int(match[1]) != offset or int(match[2]) < offset or int(match[2]) >= int(match[3]):
+                raise RecoveryError("Pinned source server returned an inconsistent resume range.")
+            expected_size = int(match[2]) + 1
+        elif response.status == 200:
+            offset = 0; expected_size = int(response.headers.get("Content-Length", "0")) or None
+        else: raise RecoveryError("Pinned source server returned no usable archive.")
+        with partial.open("ab" if offset else "wb") as stream:
+            shutil.copyfileobj(response, stream, 1048576); stream.flush(); os.fsync(stream.fileno())
+    if expected_size is not None and partial.stat().st_size != expected_size: raise RecoveryError("Pinned source download ended early; partial bytes retained.")
+    if sha256(partial) != expected_sha256:
+        partial.unlink(); raise RecoveryError("Pinned source archive hash differs.")
+    os.replace(partial, archive)
 
 
 def resolve_game_data(root):
@@ -77,12 +138,18 @@ def validate_output(source, output):
 
 def source_inventory(game_data):
     files = []
-    for path in sorted(game_data.rglob("*")):
-        if not path.is_file():
-            continue
+    paths = [path for path in sorted(game_data.rglob("*")) if path.is_file()]
+    counter = build_progress.Counter("recovery-source-hash", len(paths), "files")
+    for path in paths:
         relative = path.relative_to(game_data).as_posix()
-        files.append({"path": relative, "bytes": path.stat().st_size, "sha256": sha256(path)})
+        size = path.stat().st_size
+        byte_counter = build_progress.Counter("recovery-source-file-hash", size, "bytes", path.name) if build_progress.enabled() and size >= 8 * 1048576 else None
+        hashed = sha256(path, progress=byte_counter.add) if byte_counter else sha256(path)
+        files.append({"path": relative, "bytes": size, "sha256": hashed})
+        if byte_counter: byte_counter.finish()
+        counter.add(1, path.name)
     encoded = json.dumps(files, sort_keys=True, separators=(",", ":")).encode()
+    counter.finish()
     return files, hashlib.sha256(encoded).hexdigest()
 
 
@@ -181,19 +248,16 @@ def ensure_tool(tool_root, lock):
 
 
 def stage_input(game_data, stage, selected_bundles):
-    stage.mkdir(parents=True)
+    game_data, stage = Path(game_data).resolve(), ordinary_path(stage)
     selected = []
+    files = []
     # A directory load scans bundled StreamingAssets even when their copy/export
     # setting says Ignore. Stage core inputs explicitly to bound resident memory.
     for path in sorted(game_data.iterdir()):
         if path.name in ("StreamingAssets", "Plugins"):
             continue
-        target = stage / path.name
-        if path.is_dir():
-            shutil.copytree(path, target)
-        else:
-            shutil.copy2(path, target)
         selected.append(path.name)
+        files.extend(item for item in sorted(path.rglob("*")) if item.is_file()) if path.is_dir() else files.append(path)
     for relative in selected_bundles:
         path = (game_data / relative).resolve()
         if game_data not in path.parents or not path.is_file():
@@ -201,9 +265,26 @@ def stage_input(game_data, stage, selected_bundles):
         with path.open("rb") as stream:
             if not stream.read(8).startswith((b"UnityFS\0", b"UnityWeb", b"UnityRaw")):
                 raise RecoveryError(f"Selected bundle has no Unity bundle header: {relative}")
-        target = stage / "SelectedBundles" / Path(relative)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, target)
+        files.append(path)
+    records = []; counter = build_progress.Counter("recovery-stage-input-hash", len(files), "files")
+    for path in files:
+        relative = path.relative_to(game_data).as_posix()
+        records.append({"path": relative, "bytes": path.stat().st_size, "sha256": sha256(path),
+                        "stagedPath": ("SelectedBundles/" if relative in selected_bundles else "") + relative})
+        counter.add(1, path.name)
+    counter.finish()
+    marker = stage.with_name(stage.name + ".quest-input-stage.json")
+    own_attempt(marker, {"schema": 1, "owner": "Quest recovery input stage", "source": str(game_data), "files": records}, stage)
+    stage.mkdir(parents=True, exist_ok=True)
+    counter = build_progress.Counter("recovery-stage-input-copy", len(records), "files")
+    for row in records:
+        original, target = game_data / row["path"], ordinary_path(stage / row["stagedPath"])
+        if target.is_file() and target.stat().st_size == row["bytes"] and sha256(target) == row["sha256"]:
+            counter.add(1, target.name); continue
+        target.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(original, target)
+        if target.stat().st_size != row["bytes"] or sha256(target) != row["sha256"]: raise RecoveryError("Original input changed while staging: " + row["path"])
+        counter.add(1, target.name)
+    counter.finish()
     return selected
 
 
@@ -219,11 +300,13 @@ def export_shader_recipes(base, output):
     directory = output / "QuestRecovery/ShaderRecipes"
     directory.mkdir(parents=True, exist_ok=True)
     entries = []
+    counter = build_progress.Counter("recovery-shader-recipes", len(paths), "objects")
     for link in paths:
         raw_path = urllib.parse.parse_qs(urllib.parse.urlsplit(html.unescape(link)).query)["Path"][0]
         value = json.loads(request(base, "/Assets/Json?" + urllib.parse.urlencode({"Path": raw_path})))
         parsed = value.get("m_ParsedForm")
         if not parsed:
+            counter.add(1, "No parsed Shader recipe")
             continue
         name = parsed.get("m_Name", value.get("m_Name", "Unnamed"))
         key = re.sub(r"[^A-Za-z0-9._-]+", "_", name) + "-" + hashlib.sha256(raw_path.encode()).hexdigest()[:10]
@@ -232,6 +315,8 @@ def export_shader_recipes(base, output):
                           "compiledPlatforms": value.get("m_Platforms", [])})
         entries.append({"name": name, "recipe": path.relative_to(output).as_posix(),
                         "sha256": sha256(path), "compiledPlatforms": value.get("m_Platforms", [])})
+        counter.add(1, name)
+    counter.finish()
     return entries
 
 
@@ -252,13 +337,81 @@ def export_script_identities(base, output):
     return entries
 
 
-def run_export(executable, stage, export, log_path, shader_root, settings):
+class ExportLogProgress:
+    """Read the pinned exporter's actual collection counts, never guess time."""
+    pattern = re.compile(rb"^ExportProgress\s*:\s*\(([0-9]+)/([0-9]+)\) Exporting '([^\r\n]*)'\r?$", re.M)
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self.offset = self.path.stat().st_size if self.path.is_file() else 0
+        self.pending = b""
+        self.done, self.total, self.detail = 0, None, None
+        self.counter = None
+
+    def poll(self):
+        if not self.path.is_file(): return
+        with self.path.open("rb") as stream:
+            stream.seek(self.offset)
+            raw = stream.read(8 * 1048576)
+            self.offset = stream.tell()
+        if not raw: return
+        lines = (self.pending + raw).split(b"\n")
+        self.pending = lines.pop()[-16384:]
+        for line in lines:
+            match = self.pattern.fullmatch(line)
+            if match is None: continue
+            done, total = int(match[1]), int(match[2])
+            if not 0 < total <= 9007199254740991 or not self.done < done <= total:
+                continue
+            if self.total is not None and total != self.total:
+                continue  # A reset/different export must not change this scope.
+            self.done, self.total = done, total
+            self.detail = "Exporting " + match[3].decode("utf-8", errors="replace")[:512]
+            if self.counter is None:
+                self.counter = build_progress.Counter("recovery-asset-export", total, "collections", self.detail)
+            self.counter.update(done, self.detail)
+
+
+@contextmanager
+def observe_export_log(path):
+    """Bounded optional observation while the synchronous export request runs."""
+    if not build_progress.enabled():
+        yield
+        return
+    progress, stopped = ExportLogProgress(path), threading.Event()
+
+    def observe():
+        while not stopped.wait(.25):
+            try: progress.poll()
+            except (OSError, ValueError): return
+
+    watcher = threading.Thread(target=observe, name="quest-export-progress", daemon=True)
+    try:
+        watcher.start()
+    except (OSError, RuntimeError):
+        yield
+        return
+    try:
+        yield
+    finally:
+        stopped.set(); watcher.join(timeout=1.)
+        if not watcher.is_alive():
+            try:
+                progress.poll()
+                if progress.counter is not None:
+                    progress.counter.update(progress.done, progress.detail, force=True)
+            except (OSError, ValueError): pass  # Optional observation never fails export.
+
+
+def run_export(executable, stage, export, log_path, shader_root, settings, require_scene_settings=True):
+    build_progress.event("recovery-exporter-start", detail="Starting pinned asset exporter", status="start")
     with socket.socket() as available:
         available.bind(("127.0.0.1", 0))
         port = available.getsockname()[1]
     base = f"http://127.0.0.1:{port}"
     with log_path.with_suffix(".console.log").open("wb") as console:
-        process = subprocess.Popen([str(executable), "--headless", "--port", str(port),
+        command = list(executable) if isinstance(executable, (list, tuple)) else [str(executable)]
+        process = subprocess.Popen(command + ["--headless", "--port", str(port),
                                     "--log-path", str(log_path)], stdout=console, stderr=subprocess.STDOUT,
                                    cwd=stage.parent)
         try:
@@ -275,11 +428,18 @@ def run_export(executable, stage, export, log_path, shader_root, settings):
                     time.sleep(0.2)
             request(base, "/Settings/Update", settings)
             print("[Quest recovery] Loading owned core assets; detailed progress is in", log_path, flush=True)
+            build_progress.event("recovery-asset-load", detail="Loading owned assets; detailed exporter log: " + log_path.name, status="start")
             request(base, "/LoadFolder", {"Path": str(stage)})
-            request(base, "/Export/UnityProject", {"Path": str(export)})
+            build_progress.event("recovery-asset-load", 1, 1, "requests", "Original assets loaded", status="complete")
+            build_progress.event("recovery-asset-export", detail="Exporting original assets; detailed exporter log: " + log_path.name, status="start")
+            with observe_export_log(log_path):
+                request(base, "/Export/UnityProject", {"Path": str(export)})
             project = export / "ExportedProject"
-            if not (project / "ProjectSettings/EditorBuildSettings.asset").is_file():
+            if require_scene_settings and not (project / "ProjectSettings/EditorBuildSettings.asset").is_file():
                 raise RecoveryError(f"Export did not produce original scene settings; see {log_path}.")
+            if not (project / "Assets").is_dir():
+                raise RecoveryError(f"Export did not produce an asset tree; see {log_path}.")
+            build_progress.event("recovery-asset-export", 1, 1, "requests", "Original asset export completed", status="complete")
             recipes = export_shader_recipes(base, shader_root)
             identities = export_script_identities(base, shader_root)
             return project, recipes, identities
@@ -316,8 +476,8 @@ def repair_managed_plugins(project, game_data):
             "duplicateGameSourceFiles": duplicates}
 
 
-def managed_inventory(game_data, destination, tool_root):
-    dotnet = shutil.which("dotnet")
+def managed_inventory(game_data, destination, tool_root, dotnet=None):
+    dotnet = str(dotnet) if dotnet is not None else shutil.which("dotnet")
     if not dotnet:
         candidates = [Path(os.environ.get("DOTNET_ROOT", "/nonexistent")) / "dotnet",
                       Path.home() / ".dotnet/dotnet"]
@@ -387,22 +547,163 @@ def audit_script_bindings(project, types, original_identities=()):
             "unityImportVerified": False}
 
 
-def audit_asset_references(project):
-    """Check GUID closure without pretending to replace Unity's importer."""
-    guids = {}
-    for metadata in (project / "Assets").rglob("*.meta"):
-        match = GUID_PATTERN.search(metadata.read_text(encoding="utf-8", errors="replace"))
-        if match:
-            guids.setdefault(match[1], []).append(metadata.relative_to(project).as_posix())
-    missing = collections.defaultdict(set)
-    references = 0
-    for asset in (project / "Assets").rglob("*"):
-        if asset.suffix not in YAML_EXTENSIONS:
+def is_unity_yaml(path):
+    """Recognize native serialized documents independently of their suffix."""
+    path = Path(path)
+    if path.suffix == ".meta":
+        return True
+    with path.open("rb") as stream:
+        prefix = stream.read(64)
+    return prefix.startswith((b"%YAML ", b"--- !u!"))
+
+
+class _PointerStructureFallback(Exception):
+    """An uncommon YAML structure needs the original complete node traversal."""
+
+
+def _stream_pointer_tokens(clean, text, start, loader):
+    """Keep only candidate PPtr maps, not every mesh/animation YAML node."""
+    import yaml
+    from yaml.events import AliasEvent, MappingEndEvent, MappingStartEvent, ScalarEvent, SequenceEndEvent, SequenceStartEvent
+    # Frames contain kind, next-is-key, current-key, candidate-values and
+    # candidate-key-set. Native maps use scalar keys; aliases/complex keys retain
+    # the established node parser instead of inventing their semantics.
+    stack, tokens = [], []
+    pointer_keys = {"fileID", "guid", "type"}
+    for event in yaml.parse(clean, Loader=loader):
+        kind = type(event)
+        if kind is ScalarEvent:
+            if stack and stack[-1][0] == 0:
+                frame = stack[-1]
+                if frame[1]:
+                    frame[2] = event.value
+                    if event.value not in pointer_keys: frame[4] = False
+                elif frame[4]:
+                    frame[3][frame[2]] = event
+                frame[1] = not frame[1]
+        elif kind is MappingStartEvent or kind is SequenceStartEvent:
+            if stack and stack[-1][0] == 0:
+                parent = stack[-1]
+                if parent[1]: raise _PointerStructureFallback()
+                if parent[4]: parent[3][parent[2]] = None
+                parent[1] = True
+            stack.append([0, True, None, {}, True] if kind is MappingStartEvent else [1])
+        elif kind is MappingEndEvent:
+            frame = stack.pop()
+            if frame[4] and set(frame[3]) == pointer_keys and all(value is not None for value in frame[3].values()):
+                guid = frame[3]["guid"]
+                if not re.fullmatch(r"[0-9a-f]{32}", guid.value):
+                    raise RecoveryError("Native serialized PPtr has an invalid GUID.")
+                left, right = start + guid.start_mark.index, start + guid.end_mark.index
+                if text[left:right] != guid.value:
+                    raise RecoveryError("Unknown quoted native serialized PPtr GUID representation.")
+                tokens.append((guid.value, left, right))
+        elif kind is SequenceEndEvent:
+            stack.pop()
+        elif kind is AliasEvent:
+            raise _PointerStructureFallback()
+    # The established stack traversal visits mapping/sequence values backwards.
+    return list(reversed(tokens))
+
+
+def _composed_pointer_tokens(clean, text, start, loader):
+    """Retain the original semantics for uncommon YAML keys and aliases."""
+    import yaml
+    from yaml.nodes import MappingNode, ScalarNode, SequenceNode
+    stack, tokens = [yaml.compose(clean, Loader=loader)], []
+    while stack:
+        current = stack.pop()
+        if isinstance(current, MappingNode):
+            values = {key.value: value for key, value in current.value if isinstance(key, ScalarNode)}
+            if set(values) == {"fileID", "guid", "type"} and all(isinstance(value, ScalarNode) for value in values.values()):
+                guid = values["guid"]
+                if not re.fullmatch(r"[0-9a-f]{32}", guid.value):
+                    raise RecoveryError("Native serialized PPtr has an invalid GUID.")
+                left, right = start + guid.start_mark.index, start + guid.end_mark.index
+                if text[left:right] != guid.value:
+                    raise RecoveryError("Unknown quoted native serialized PPtr GUID representation.")
+                tokens.append((guid.value, left, right))
+            else:
+                stack.extend(value for _, value in current.value)
+        elif isinstance(current, SequenceNode):
+            stack.extend(current.value)
+    return tokens
+
+
+def serialized_pointer_tokens(text):
+    """Yield GUID/token spans from actual YAML PPtr nodes, never scalar names."""
+    import yaml
+    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+    headers = list(re.finditer(r"^--- !u!\d+ &-?\d+[ \t]*$", text, re.M))
+    ranges = [(header.start(), headers[index + 1].start() if index + 1 < len(headers) else len(text))
+              for index, header in enumerate(headers)] if headers else [(0, len(text))]
+    for start, end in ranges:
+        block = text[start:end]
+        if "fileID:" not in block or not re.search(r"guid:\s*[0-9a-f]{32}", block):
             continue
-        for guid in re.findall(r"guid:\s*([0-9a-f]{32})", asset.read_text(encoding="utf-8", errors="replace")):
-            references += 1
-            if not guid.startswith("0000000000000000") and guid not in guids:
-                missing[guid].add(asset.relative_to(project).as_posix())
+        clean = re.sub(r"^%[^\n]*", lambda match: " " * len(match[0]), block, flags=re.M)
+        clean = re.sub(r"^--- !u!\d+ &-?\d+[ \t]*$", lambda match: "---" + " " * (len(match[0]) - 3), clean, flags=re.M)
+        try:
+            try:
+                tokens = _stream_pointer_tokens(clean, text, start, loader)
+            except _PointerStructureFallback:
+                tokens = _composed_pointer_tokens(clean, text, start, loader)
+        except yaml.scanner.ScannerError as error:
+            # Original Unity null managed-reference registries use this compact
+            # empty flow mapping. PyYAML's Python parser accepts it; libyaml's C
+            # parser rejects its colon. Fall back only at that exact original
+            # syntax, without inserting bytes or shifting later GUID tokens.
+            empty_types = list(re.finditer(r"(?m)^[ \t]+type:[ \t]*(\{class:, ns:, asm:\})[ \t]*$", clean))
+            index = error.problem_mark.index if error.problem_mark is not None else -1
+            if (loader is yaml.SafeLoader or error.problem != "found unexpected ':'" or
+                    not any(match.start(1) <= index < match.end(1) for match in empty_types)):
+                raise
+            tokens = _composed_pointer_tokens(clean, text, start, yaml.SafeLoader)
+        yield from tokens
+
+
+def audit_asset_references(project):
+    """Check all native YAML/importer PPtr GUIDs, regardless of asset suffix."""
+    project = Path(project)
+    guids, missing = {}, collections.defaultdict(set)
+    # Generated assets already passed the merge ownership checks. Enumerate once
+    # without a second metadata walk or per-file stat; every file is opened once.
+    assets = [Path(folder) / name for folder, _, names in os.walk(project / "Assets") for name in names]
+    counter = build_progress.Counter("recovery-asset-references", len(assets), "files", "Recovered asset references")
+    references, relative = 0, "Assets"
+    try:
+        for asset in assets:
+            relative = asset.relative_to(project).as_posix()
+            with asset.open("rb") as stream:
+                prefix = stream.read(64)
+                if asset.suffix == ".meta" or prefix.startswith((b"%YAML ", b"--- !u!")):
+                    size = os.fstat(stream.fileno()).st_size
+                    bytes_counter = (build_progress.Counter("recovery-asset-reference-file", size, "bytes", relative)
+                                     if size > 4 * 1024 * 1024 else None)
+                    chunks = [prefix]
+                    if bytes_counter: bytes_counter.add(len(prefix))
+                    for chunk in iter(lambda: stream.read(4 * 1024 * 1024), b""):
+                        chunks.append(chunk)
+                        if bytes_counter: bytes_counter.add(len(chunk))
+                    text = b"".join(chunks).decode("utf-8", errors="replace")
+                    chunks.clear()
+                    if asset.suffix == ".meta":
+                        match = GUID_PATTERN.search(text)
+                        if match: guids.setdefault(match[1], []).append(relative)
+                    for guid, _, _ in serialized_pointer_tokens(text):
+                        references += 1
+                        if not guid.startswith("0000000000000000") and guid not in guids:
+                            missing[guid].add(relative)
+                    if bytes_counter: bytes_counter.finish()
+                    del text
+            counter.add(1, relative)
+        # Metadata definitions may occur after their references in the one pass.
+        missing = {guid: paths for guid, paths in missing.items() if guid not in guids}
+        counter.finish()
+    except Exception as error:
+        counter.fail(error)
+        print("[Quest recovery] Asset reference audit failed:", relative, ";", type(error).__name__, flush=True)
+        raise
     duplicates = {guid: paths for guid, paths in guids.items() if len(paths) > 1}
     return {"referenceCount": references, "missingGuidCount": len(missing),
             "missing": {g: sorted(paths) for g, paths in sorted(missing.items())},

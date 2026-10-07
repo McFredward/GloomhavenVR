@@ -447,10 +447,12 @@ internal sealed partial class FlatScreen
             //    ≈ 1, so it renders near-opaque instead of invisible.
             // (An opaque keyword/MaterialPropertyBlock variant of Sprites/Default does
             // not exist — the shader has no such keyword — hence the BlitCopy pick.)
-            Shader? shader = Shader.Find("Hidden/BlitCopy")
-                             ?? Shader.Find("Sprites/Default")
-                             ?? Shader.Find("UI/Default");
+            Shader? shader = QuestStandalonePlatform.SelectFlatScreenShader(
+                Shader.Find("Hidden/BlitCopy")
+                ?? Shader.Find("Sprites/Default")
+                ?? Shader.Find("UI/Default"));
             _screenMaterial = new Material(shader) { mainTexture = _rt };
+            QuestStandalonePlatform.SetFlatScreenMono(_screenMaterial, _rt);
             // ITEM 1: remember the shader's own queue so the menu/scenario depth policy
             // (TickBackdropDepth) can restore it outside menu modes.
             _screenMaterialQueueDefault = _screenMaterial.renderQueue;

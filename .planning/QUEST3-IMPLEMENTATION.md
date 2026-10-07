@@ -1,4 +1,84 @@
-# Quest implementation and first hardware checkpoint
+Current B617 follow-up targets measured slow content delivery in B616, after
+its native-abort repair allows the real rig to run. Optimized hashing removes
+redundant current-operation passes while preserving full-byte warm checks;
+aggregate/file/step progress and a synthetic-scene FlatScreen gate clarify
+preparation. See [617 evidence and procedure](QUEST3-HARDWARE-617.md). Native
+handoff and actual headset startup/performance remain pending.
+
+Previous B616 follow-up targets the verified B615 native abort in the Quest
+Harmony type resolver, retaining the accepted branded loading view. Resolve
+requested types without initializing unrelated runtime metadata; preserve
+short-name compatibility using generated aliases from current owned inputs.
+Persist startup phase/module observations at transitions so a synchronous
+initialization/crash cannot leave a misleading old delivery snapshot.
+See [616 evidence and procedure](QUEST3-HARDWARE-616.md). The signed native
+candidate, scoped/actual artifact audits and Windows handoff verification pass.
+Historical Quest-cache cleanup removes 28 obsolete worktrees and 329 generated
+cache roots, reclaiming a measured 284.37 GiB while retaining branch refs,
+compact evidence and current artifacts/inputs. Hardware confirmation remains
+pending.
+
+# Quest implementation and hardware checkpoints
+
+Current B615 hardware candidate follows the exact B614 capture: cached main-thread
+paths repair the captured YML worker boundary; owned movie delivery and exact URL
+bindings restore missing/failed-import content. Original script execution orders,
+native-input readiness, public AOT hook lookup and camera callback naming are
+corrected. Reusable loading artwork presents the existing logo, an actual bar and
+measured percentage; its importer preserves the original PNG aspect. Debug camera
+and video records do not claim a fix for the reported binocular loading defect.
+See [615 evidence and procedure](QUEST3-HARDWARE-615.md). The signed native APK
+succeeds from clean runtime/tool source `911fc23f` / input `44c066b3…`; deployment,
+actual SDK and generated scene/order evidence pass. Exact APK/Windows handoff
+verification is documented there. Headset image, original menu, campaign/saves
+and Android crossplay remain gates. Only scoped Quest/source/build/protocol checks
+are claimed; concurrent `dev` work remains separate.
+
+Current isolated follow-up: ModBuild614 adds observable cold loading after the
+verified B613 logo-only capture. The old gate cannot distinguish transfer from
+verification. An early serialized stereo view and managed APK delivery retain
+content checks while keeping the Unity main thread available; phase/byte/state
+and bounded app-start capture evidence are expanded. See
+[614 hardware procedure](QUEST3-HARDWARE-614.md). The signed 1,153,837,389-byte APK,
+scoped Quest/source/build/protocol checks, actual SDK and packaged camera/font
+retention are verified. The Windows handoff preserves installer/capture source
+bytes and APK selection. No headset success or playable campaign is established.
+
+Previous isolated implementation: ModBuild613 has a successfully built and signed
+ARM64 IL2CPP startup player after the B612 hardware capture and the maintainer's
+request to activate the existing VR mod. Its Windows handoff and targeted Quest
+gate are verified; headset behavior remains unverified. Scope includes seven
+Quest suites, affected existing regressions, source/strict-build checks, protocol
+vectors and actual Android artifact validation. The maintainer questioned
+repeated unrelated `dev` checks; no complete 115-suite verdict is claimed here.
+The candidate reuses its real rig/input/UI/keyboard, shares the player-owned XR
+session and supplies an authored Android mod bank with verified local paths.
+It also adds actual Unity-package API compatibility gates, restores the owned
+UGUI layout batching contract and initializes the original lazy rule root.
+Bounded threaded startup logging now reserves first distinct error stacks.
+See [613 hardware procedure](QUEST3-HARDWARE-613.md). Actual headset startup,
+campaign generation, original save round trips and Android crossplay remain gates.
+
+Previous checkpoint: ModBuild612, a successfully built and signed
+real original-scene startup/menu checkpoint after the maintainer accepted B611 animation, lighting,
+textures and button handling. Right-stick height and the Windows capture repair
+are integrated. See [612 hardware procedure](QUEST3-HARDWARE-612.md),
+[startup recovery](QUEST3-STARTUP-RECOVERY.md),
+[runtime boundary](QUEST3-STARTUP-RUNTIME.md) and
+[original network audit](QUEST3-NETWORK-PREFLIGHT.md).
+This remains a guarded startup diagnostic. Campaign generation, full mod
+lifecycle, original save round trips and Android crossplay are independent gates.
+The private 1.1 GB ARM64 IL2CPP APK uses diagnostic Debug/O0 and LLVM LLD;
+the embedded input and B611 signing continuity are verified. The Windows
+installer now budgets transfer time from APK size. All 14 source and 111 local
+suites, 286,760 wire/golden assertions and bundle/mesh/surface checks pass;
+strict Release has zero warnings/errors. The fresh compiled comparison is
+accepted against reviewed609, separately from the expected nonzero historical
+Build-601 guard comparison. Actual Windows package selection is independently
+validated. The subsequent B612 capture confirms original content/catalog loads,
+an InputSystem getter failure and a native load-error window after the intro;
+it does not establish the first Android rule failure or campaign readiness.
+
 
 Implementation was explicitly authorized on 2026-10-03 after the planning-only
 instruction. The maintainer requested a new branch from current `dev` and work
@@ -7,10 +87,11 @@ is `feature/quest3-standalone`, starting from `5344a550`, ModBuild 607.
 Original game references remain untouched. The parallel `dev` Frame608 changes
 through `8146ed02` were merged into the Quest branch before the final checkpoint.
 The combined checkpoint uses ModBuild609, retaining the Frame608 notes and behavior.
-Worker worktrees and the primary Quest branch were used for isolation. Following
-the repository's integration workflow, the reviewed combined tree was fast-forwarded
-locally to `dev`; only `origin/dev` is a push destination. No worker branch, original
-game payload or APK is published.
+Worker worktrees and the primary Quest branch are used for isolation. The
+maintainer's explicit 2026-10-03 clarification supersedes the generic integration
+workflow: publish only `origin/feature/quest3-standalone`, keeping concurrent
+Steam Frame `dev` work separate. Worker branches, original game payload and APKs
+are not published.
 
 The maintainer also explicitly authorized a visibly marked dummy identity for
 builds on this host. The local diagnostic uses name `Quest Local Test (DUMMY)`,
@@ -66,13 +147,13 @@ nor the mandatory eye-tracking feature is present. Validation additionally requi
 the actual Unity/OpenXR/passthrough libraries and checks every native ELF header
 for little-endian AArch64 shared-object code.
 
-The final private APK and exact content/source hashes are recorded in the main
+The first609 private APK and exact content/source hashes are recorded in the main
 checkout's ignored `.planning/debug/quest3/handoff.json`. The builder's default
 `.planning/quest3-local/` is also ignored, including its local signing/account data.
 See [hardware steps and limits](QUEST3-HARDWARE-609.md). No headset was attached
 to the build host, so passthrough/tracking/images have not been verified on Quest.
 
-The reviewed final file is 30,861,781 bytes, APK SHA-256
+The reviewed609 file is 30,861,781 bytes, APK SHA-256
 `5818e9d22cd47ed8fb79bde1c41dab815cb0a53faedc49da4075b9e5c1bddd6b`,
 from runtime/tool commit `cc041fab` and input key
 `58cd43841e856021966270f5c09ce9d46ef80f486472c60ff6addbd4e3c2991d`.

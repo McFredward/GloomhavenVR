@@ -51,7 +51,7 @@ internal sealed class Weaver
                 report.ProtectedTypesVerified += ProtectedTypes.Verify(protectedSnapshots[assembly], reread);
             }
             File.Copy(typeof(Registry).Assembly.Location, Path.Combine(scratch, "QuestWeaver.Runtime.dll"));
-            HarmonyFacade.Write(Path.Combine(scratch, "0Harmony.dll"), model.Mod.MainModule.AssemblyReferences.FirstOrDefault(a => a.Name == "0Harmony"));
+            HarmonyFacade.Write(Path.Combine(scratch, "0Harmony.dll"), model.Mod.MainModule.AssemblyReferences.FirstOrDefault(a => a.Name == "0Harmony"), model.Loaded, model.ManagedPath);
             File.WriteAllText(Path.Combine(scratch, "link.xml"), links);
             if (diagnostic) File.WriteAllText(Path.Combine(scratch, "DIAGNOSTIC-INCOMPLETE.txt"), "This subset is not a complete Quest game/mod conversion. Inspect the audit report.\n");
             if (Directory.Exists(absolute)) Directory.Delete(absolute);

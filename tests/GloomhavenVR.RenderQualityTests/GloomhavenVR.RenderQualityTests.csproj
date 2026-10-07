@@ -10,6 +10,7 @@
     <Compile Include="$(FixtureDir)/Boundary.cs" />
     <Compile Include="$(FixtureDir)/Program.cs" />
     <Compile Include="$(ProductionDir)/RenderQuality.cs" />
+    <Compile Include="$(ProductionDir)/QuestEyeResolution.cs" />
     <Compile Include="$(ProductionDir)/Defaults.cs" />
   </ItemGroup>
 </Project>

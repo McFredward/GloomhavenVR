@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>QuestGameScope.NativeSDK</AssemblyName>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <DefineConstants>GHVR_QUEST_STARTUP</DefineConstants>
+    <DefineConstants Condition="'$(CampaignScope)' == 'true'">GHVR_QUEST_STARTUP;GHVR_QUEST_GAME</DefineConstants>
+    <QuestTextSource Condition="'$(QuestTextSource)' == ''">$(RuntimeSource)/QuestText.cs</QuestTextSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(UnityManaged)/UnityEngine.CoreModule.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(GameManaged)/UnityEngine.UI.dll</HintPath></Reference>
+    <Reference Include="GH.Runtime" Condition="'$(CampaignScope)' == 'true'"><HintPath>$(GameManaged)/GH.Runtime.dll</HintPath></Reference>
+    <Compile Include="$(RuntimeSource)/QuestGameScope.cs" />
+    <Compile Include="$(RuntimeSource)/QuestSceneObjects.cs" />
+    <Compile Include="$(RuntimeSource)/QuestScopeObjects.cs" />
+    <Compile Include="$(QuestTextSource)" />
+    <Compile Include="$(MSBuildThisFileDirectory)NativeSDKProbe.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)PlatformStub.cs" />
+  </ItemGroup>
+</Project>

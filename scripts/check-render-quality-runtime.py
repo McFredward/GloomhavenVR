@@ -22,6 +22,7 @@ parser.add_argument('--output-dir', type=Path, default=ROOT/'.planning/debug/ren
 args = parser.parse_args()
 source = args.source_root/'src/GloomhavenVR'
 original = (source/'Rig/RenderQuality.cs').read_text()
+quest_eye = (source/'Rig/QuestEyeResolution.cs').read_text()
 bootstrap = (source/'Core/Startup/OpenXRBootstrap.cs').read_text()
 rig = (source/'Rig/VRRigDriver.cs').read_text()
 def validate_startup_boundary(text):
@@ -63,7 +64,7 @@ args.output_dir.mkdir(parents=True,exist_ok=True)
 run = Path(tempfile.mkdtemp(prefix='run-',dir=args.output_dir.resolve()))
 fixture = ROOT/'tests/GloomhavenVR.RenderQualityTests'
 inputs = [source/'Rig/RenderQuality.cs', source/'Core/Startup/OpenXRBootstrap.cs',
-          source/'Rig/VRRigDriver.cs', Path(__file__), *fixture.glob('*.cs'),
+          source/'Rig/VRRigDriver.cs', source/'Rig/QuestEyeResolution.cs', Path(__file__), *fixture.glob('*.cs'),
           *fixture.glob('*.csproj'), *sorted((source/'Defaults').glob('*.cs')),
           source/'Core/Startup/FrameDefaults.cs']
 input_hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
@@ -80,6 +81,7 @@ for owner, namespace, text in [('Defaults','GloomhavenVR',constants),('FrameDefa
     extra += 'namespace '+namespace+' { internal static class '+owner+' { '+'\n'.join(fields)+' } }\n'
 (run/'Defaults.cs').write_text(extra)
 (run/'RenderQuality.cs').write_text(original)
+(run/'QuestEyeResolution.cs').write_text(quest_eye)
 dotnet = os.environ.get('DOTNET',str(Path.home()/'.dotnet/dotnet'))
 project = fixture/'GloomhavenVR.RenderQualityTests.csproj'
 command = [dotnet,'build',str(project),'--configuration','Release',
@@ -118,6 +120,8 @@ mutations = [
  ('early-legacy-viewport', '_viewportScaleApplied = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);\n        _lastLoggedEyeScale = wanted;', '_viewportScaleApplied = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);\n        TryStartupSetting(() => XRSettings.renderViewportScale = _viewportScaleApplied, "legacy eye viewport");\n        _lastLoggedEyeScale = wanted;', 'quality selection never touches native resources before provider initialization'),
  ('early-native-msaa', '_pendingMsaa = _committedMsaa;', '_pendingMsaa = _committedMsaa;\n        QualitySettings.antiAliasing = _committedMsaa;', 'native render resource touched before provider initialization'),
  ('startup-capacity-readback-ignored', 'if (ValidScale(acceptedAllocation)) _sessionAllocationScale = acceptedAllocation;', 'if (ValidScale(acceptedAllocation) && false) _sessionAllocationScale = acceptedAllocation;', 'refused startup allocation uses actual accepted capacity for later viewport'),
+ ('quest-live-msaa-restored', '\n            || QuestStandalonePlatform.FixedEyeTextureAllocation) return;', ') return;', 'Quest Vulkan never resizes the player-owned running swapchain or MSAA surfaces'),
+ ('quest-startup-msaa-replaced', 'int request = QuestStandalonePlatform.FixedEyeTextureAllocation\n            ? QuestEyeResolution.StartupMsaa : Sanitize(MsaaLevel!.Value);', 'int request = Sanitize(MsaaLevel!.Value);', 'Quest Vulkan retains startup mobile MSAA without rewriting the saved desktop request'),
 ]
 results = []
 for name, before, after, expected in mutations:

@@ -45,6 +45,7 @@ internal static class OpenXRBootstrap
     private static XRGeneralSettings? _generalSettings;
     private static XRManagerSettings? _managerSettings;
     private static OpenXRLoader? _loader;
+    private static bool _adoptedPlayerSession;
 
     /// <summary>Kept alive so hot-reload teardown can disable them.</summary>
     private static OpenXRFeature[] _features = [];
@@ -55,6 +56,9 @@ internal static class OpenXRBootstrap
     /// <summary>Init OpenXR + start subsystems. Returns true when an XR display subsystem exists.</summary>
     internal static bool Start(string? runtimeOverridePath, string? runtimePriority, bool skipRuntimeCandidates)
     {
+        if (Application.platform == RuntimePlatform.Android)
+            return AdoptPlayerSession();
+
         LogEnvironment();
 
         if (!PreFlightCheck())
@@ -101,6 +105,31 @@ internal static class OpenXRBootstrap
                             $"Check {OpenXRDiagnostics.ReportFilePath} for per-candidate xrCreateInstance/xrGetSystem " +
                             "errors and Player.log (see docs/TESTING-P1.md §4) for '[XR]' native errors.");
         return false;
+    }
+
+    private static bool AdoptPlayerSession()
+    {
+        // The Android player starts OpenXR before original game/plugin startup.
+        // Never create settings, enumerate desktop runtimes, replace profiles or
+        // initialize a second loader/session. The host waits until both original
+        // Unity subsystems run before requesting activation.
+        var displays = new List<XRDisplaySubsystem>();
+        var inputs = new List<XRInputSubsystem>();
+        SubsystemManager.GetInstances(displays);
+        SubsystemManager.GetInstances(inputs);
+        if (!QuestStandalonePlatform.Enabled || !QuestStandalonePlatform.SessionRunning
+            || !displays.Any(d => d.running) || !inputs.Any(i => i.running))
+        {
+            VRLog.Error("Core", "Quest VR adoption blocked: the configured Unity OpenXR display/input session is not running.");
+            VRSession.IsRunning = false;
+            return false;
+        }
+        _adoptedPlayerSession = true;
+        RenderQuality.AdoptRunningSession();
+        VRSession.IsRunning = true;
+        VRSession.RuntimeName = "Quest player OpenXR";
+        VRLog.Info("Core", "Quest VR adopted the player's running Unity OpenXR display/input session; Unity retains loader and session ownership.");
+        return true;
     }
 
     /// <summary>
@@ -473,6 +502,17 @@ internal static class OpenXRBootstrap
     {
         VRSession.IsRunning = false;
         VRSession.RuntimeName = null;
+
+        if (_adoptedPlayerSession || Application.platform == RuntimePlatform.Android)
+        {
+            // Plugin teardown releases only its presentation. Unity still owns
+            // the loader, native passthrough feature and XR subsystems, including
+            // the diagnostic fallback view if another mod module failed.
+            if (QuestStandalonePlatform.Enabled)
+                QuestStandalonePlatform.SetPassthrough(false);
+            _adoptedPlayerSession = false;
+            return;
+        }
 
         StopAndDeinitQuiet();
         RenderQuality.EndSession(); // never reset a live swapchain from the per-frame rig path
