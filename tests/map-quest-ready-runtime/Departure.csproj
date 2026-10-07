@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <TargetFramework Condition="'$(RealHarmony)' == 'true'">net472</TargetFramework>
+    <DefineConstants Condition="'$(RealHarmony)' == 'true'">$(DefineConstants);REAL_HARMONY</DefineConstants>
+    <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>$(NoWarn);CS0649;CS0414</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(FixtureDir)/DepartureBoundary.cs" />
+    <Compile Include="$(FixtureDir)/DepartureProgram.cs" />
+    <Compile Include="$(ProductionDir)/MapQuestDepartureValidation.cs" />
+    <Compile Include="$(NativeSource)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(RealHarmony)' == 'true'">
+    <PackageReference Include="HarmonyX" Version="2.7.0" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

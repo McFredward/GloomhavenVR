@@ -91,3 +91,4 @@ PY
     fi
     echo "Map quest readiness negative control: $mutation rejected."
 done
+python3 "$repo_root/tests/map-quest-ready-runtime/run-departure.py"

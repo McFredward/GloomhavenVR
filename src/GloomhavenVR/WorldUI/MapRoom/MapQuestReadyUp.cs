@@ -404,13 +404,10 @@ internal static class MapQuestReadyUp
         if (_pendingConfirm == null)
             return;
 
-        // THE ROOM TEST IS HERE AND NOT AT THE CAPTURE, and it WAITS rather than dropping. Outside the
-        // room the game draws its own guildmaster HUD and its own prompt works exactly as it always
-        // did, so there is nothing to do — and if the player answers it there, the idempotence gate
-        // below drops this pending prompt the moment the room comes up. If he does NOT answer it and
-        // then enters the room, waiting is what lets him answer it at all. (Unreachable through the
-        // only call site, which is inside MapRoomDriver.TickActive; kept because it makes the
-        // method's contract true on its own rather than by where it happens to be called from.)
+        // Capture can precede room activation. Outside the room the original HUD prompt remains
+        // usable; its native click seams consume an answered callback through ConsumeNativeAnswer.
+        // An unanswered prompt waits for room entry, then the session/controller/proposal guards
+        // below decide whether its original callback is still valid.
         if (!MapRoomDriver.Active)
             return;
 
@@ -459,11 +456,9 @@ internal static class MapQuestReadyUp
             return;
         }
 
-        // NO WALL-CLOCK DEADLINE, DELIBERATELY. Every path through this method either drives or drops
-        // with a named reason, and the first tick of the room after a capture reaches one of them —
-        // so a timeout could only ever fire in the one case it would be WRONG in: a prompt captured
-        // while the player was still on the flat map, waiting for him to enter the room. The pending
-        // prompt is bounded by Reset() (the room standing down) and by the three gates above.
+        // No wall-clock deadline: an unanswered flat-map prompt may legitimately wait for room
+        // entry or native initialization. Room Reset preserves it; exact controller/proposal,
+        // native Quests state and session/commitment guards bound whether it can be invoked.
 
         Action confirm = _pendingConfirm;
         string seam = _pendingSeam;

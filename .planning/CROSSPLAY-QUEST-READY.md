@@ -1,7 +1,7 @@
 # Flat/VR crossplay quest readiness review, 2026-10-08
 
 Worker base: `dev` at `819a9a9ee`. Scope: `MapQuestReadyUp`,
-`ReadyToggleParkClaim`, their causal native-source runtime fixture. This lane
+`ReadyToggleParkClaim`, `MapQuestDepartureValidation` and their causal native-source fixtures. This lane
 does not modify wire fields, authoritative game state, the native all-ready
 handshake, scene travel, or the native readiness participant population.
 
@@ -25,6 +25,13 @@ handshake, scene travel, or the native readiness participant population.
 4. A park claim trusted any parked object even when it differed from the
    current native singleton. Claims also remained good for a destroyed target
    until their clock expired. Both now require the actual current live target.
+5. Native quest initialization disables `validateReadyUpOnPlayerLeft`. After
+   three participants become two with all remaining participants ready,
+   `OnPlayerLeft` removes the departed member but returns before the native
+   controllable-state ACK coroutine. The full ready list also refuses an
+   ordinary `ReadyUp(false)` while the original Cancel may still be visible.
+   A subsequent all-ready event can hide it. This is a separate native
+   departure corner, beyond the initially reported missing quest prompt.
 
 ## Resulting behavior
 
@@ -50,6 +57,34 @@ local-player withdrawal, with `autoValidateUnreadying:true` for a full ready set
 Visibility blocks, participant assignment, all-ready hiding, controller/quest
 state, and the native host's controllable-state ACK/`ReadyProceed` remain native.
 
+During a running online VR session, native `Initialize` now receives its own
+`validateReadyUpOnPlayerLeft:true` option only for Participant/Quests in MapHQ
+or MapAtLinkedScenario. The original host departure handler evaluates its own
+current participant/awaited-player rules and continues through its unchanged
+controllable-state ACK coroutine, timeout and `ReadyProceed` callback. No native
+list, quorum, ACK or coroutine state is written by the mod.
+
+An unmodified Flat host still owns its original initialization and host barrier.
+A VR client cannot start that host's departure coroutine. Instead, a real native
+departure may preserve the existing local Cancel when it is visibly enabled,
+the local player is ready, and the current native participant count is already
+full. Only an actual explicit press of that same Cancel can pass the native
+`autoValidateUnreadying:true` option. Original InputToggle and, when configured,
+its asynchronous progress completion retain this one-shot consent. Cancelled
+progress, Initialize/Reset, controller/quest/phase/session changes and native
+PointOfNoReturn end authorization. Arbitrary `ReadyUp(false)` callers remain
+blocked, including while that progress animation runs. The significant actual
+withdrawal emits one normal-level note; no routine roster/frame traces are added.
+
+The marker measures the post-departure blocked state rather than classifying
+the departed player's former participant role. Native Detach has already
+released controllables before this event; ready, unready or spectator departures
+qualify only when the original handler leaves the exact real Cancel available
+in that state. This path never sends an automatic vote. On a Flat host, the user
+can withdraw and explicitly Accept again; the original receiver then reevaluates
+readiness and starts its own ACK/continuation. No automatic Flat-host progression
+from the departure option is claimed.
+
 ## Integration requirements outside this lane
 
 - Register `MapQuestReadyUp.Install()` at WorldUI startup, before the first
@@ -66,19 +101,36 @@ state, and the native host's controllable-state ACK/`ReadyProceed` remain native
   that observation contract.
 - Update patch inventory for two new native click seams and register the new
   focused runtime script in the integrated suite registry. Root owns both.
+- Install `MapQuestDepartureValidation` at the same early WorldUI startup and
+  register its seven patch classes (ten handlers) in the integrated inventory.
+  Root has integrated production checkpoint `910b8ad7d` and owns that wiring.
 
 ## Evidence and limits
 
-`check-map-quest-ready-runtime.sh`: 224 assertions, 25 two-through-four-player
-Flat/VR membership layouts, seven runtime causal controls. It compiles both full
-production classes and unchanged native visibility/initialization/press and
-desktop/click method bodies. Its explicit scene/transport boundaries are
-documented in `tests/map-quest-ready-runtime/README.md`. No automatic acceptance,
-gameplay collection write, second handshake, or mod packet is introduced.
+`check-map-quest-ready-runtime.sh`: 287 assertions, 25 two-through-four-player
+Flat/VR membership layouts, fourteen runtime causal controls. The original
+prompt/claim proof remains 224 assertions/seven controls; the departure proof
+adds 63 assertions/seven controls. It compiles all three full production
+classes, ten unchanged native prompt bodies and 22 unchanged native departure
+bodies. Departure proof executes original host/client `OnPlayerLeft`, input,
+validated ready/unready, native Flat-host `ProxySetReadyState`, controllable ACK
+and `Proceed`/`Reset`. Its explicit boundaries are documented in
+`tests/map-quest-ready-runtime/README.md`. No automatic acceptance, gameplay
+collection write, second handshake or mod packet is introduced.
 
-Final strict Release compilation passes with 0 errors/0 warnings. Final source
-checks pass 14/15; the expected remaining patch-inventory failure requires the
-integrator's generated documentation update for the two added click seams.
+Separate optional actual HarmonyX 2.7.0 proof under Unity Mono passes 72
+assertions: all seven production target registrations, both scoped input and
+progress prefix/finalizer pairs, then the same native scenarios with real
+patch delivery. These assertions overlap the portable 63; they are not added
+to the 287 normal-suite total. Hosted CI can explicitly skip this optional
+mode when Mono is unavailable without claiming an actual registration pass.
+Worker receipt: `.planning/debug/quest-ready-harmonyx-20261008.log`.
+
+Final strict Release compilation passes with 0 errors/0 warnings. The initial
+prompt/claim source checks passed 14/15; the expected remaining patch-inventory
+failure required the integrator's generated update for the two click seams.
+That receipt predates the seven departure target classes; the integrator owns
+their final generated inventory and combined source gate.
 Receipt: `.planning/debug/test-runs/20261008-000127-f52e571c/results.json`.
 Focused existing suites also pass: map-flow 2,012 assertions/nine causal controls
 and map-button 14 assertions/two controls, 2/2 partial scope.
@@ -98,14 +150,6 @@ and headset usability still need an actual integration hardware test. Native
 participant/connecting-player refusals remain visible game rules rather than a
 mod-created ready-up bypass.
 
-Native departure ordering remains a separate audit: quest initialization sets
-`validateReadyUpOnPlayerLeft:false`, and `UIReadyToggle.OnPlayerLeft` removes the
-departed ready/awaited member then returns without launching a newly sufficient
-quorum's ACK coroutine. This fixture does not claim that native progression
-corner as proven; the primary audit is tracing the surrounding native
-player-registry callbacks. It must not be repaired by writing `PlayersReady` or
-adding a mod-owned proceed handshake.
-
 ## Portable native fixture follow-up
 
 The runner compiles ten verbatim native bodies from the committed
@@ -116,3 +160,8 @@ pinned against its read-only native source whenever that tree exists. An absent
 tree uses the committed fixture; an existing but changed method fails before
 runtime verification. No production source changes accompany this portability
 follow-up.
+
+The departure fixture follows the same portable policy. Its default .NET 8
+proof needs neither installed game references nor Mono/Harmony packages. The
+optional actual registration mode is a separate receipt and uses private build
+outputs, preserving the regular CPU harness.

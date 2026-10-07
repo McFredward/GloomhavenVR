@@ -9,7 +9,7 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 
 /// <summary>
 /// Keep the original map quest departure validation active for a VR crossplay session.
-/// Native quest initialization disables this existing option. If three participants vote and
+/// Native quest initialization disables this existing option. If three participants are present and
 /// the unready participant leaves, two ready participants remain: the original OnPlayerLeft
 /// removes the departed member but returns before its own quorum/controllable-state ACK path.
 /// The full ready list then refuses an ordinary ReadyUp(false), even while the original Cancel
