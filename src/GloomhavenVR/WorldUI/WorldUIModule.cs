@@ -51,6 +51,7 @@ internal sealed class WorldUIModule : IVRModule
         // A flat host may select while the VR map room is still entering; installing from
         // MapRoomDriver.Engage alone misses that native edge and leaves Accept unreachable.
         MapRoom.MapQuestReadyUp.Install();
+        MapRoom.MapQuestDepartureValidation.Install();
         MapRoom.MapRetirementPrompt.Install();
 
         // The town bank is large and optional. Start its Unity async requests while

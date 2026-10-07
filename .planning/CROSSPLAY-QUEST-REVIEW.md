@@ -36,11 +36,26 @@ answers so entering 3D later cannot replay them. The desktop callback retains th
 native hover-cleanup wrapper. Invoking this preview does not vote; the player's
 original Accept/Cancel still owns readiness.
 
-The broader audit also found two continuation barriers: departure during quest
-voting and an optional remote-character retirement promise whose original HUD
-prompt was not presented in 3D. Their repairs retain native authority, native
-readiness and ACK validation, and actual player input. No second quorum,
-automatic retirement vote, or gameplay request to an unmodded host is added.
+Quest initialization now enables the game's existing departure-validation
+option only for online VR `Participant`/`Quests` readiness in `MapHQ` or
+`MapAtLinkedScenario`. A VR host therefore runs the original remaining-participant
+and controllable-state ACK checks. A Flat host remains unmodified. If a genuine
+native departure leaves a VR client's existing Cancel visible and enabled while
+its current native ready roster is full, only that player's actual Cancel input
+may use the native `autoValidateUnreadying` argument. The game's original native
+Unready action carries it to the Flat host's original validation. Scope ends at
+that withdrawal; proposal/controller/phase changes, reset, commitment and cancelled
+progress invalidate it. An asynchronous native cancel animation retains only its
+own original input authorization. No automatic vote or separate quorum is added.
+
+Optional observer retirement now presents the original HUD widget in 3D. Its
+pending native promise advances only after an actual player press. A mod-owned
+conversion wrapper keeps the original widget's native root animation intact;
+closing or changing the room restores its current rect, parent, sibling order and
+layers. A temporarily refused hierarchy restore retries without deleting the
+original. A real conversion failure requests the original desktop HUD for this
+prompt's lifetime, including the console layout's guarded explicit-click adapter.
+The original retirement confirmation and ready-up remain native.
 
 ## Review coverage and practical limits
 
@@ -69,7 +84,7 @@ Guildmaster:
 | VR host in 3D + two Flat + one VR client | VR host retains its native start control; Flat clients receive and accept the ordinary proposal; the VR client sees its corresponding original quest/control. |
 | VR host/client changes 2D ↔ 3D after proposal | Live unanswered proposal becomes reachable; an already answered desktop prompt is not replayed. |
 | Either host, quest A → B / cancel / same-ID reproposal | Obsolete presentation leaves; only the current native proposal can be answered. |
-| Either host, unready participant leaves during voting | Native VR-host departure validation or explicit VR-client Cancel under a Flat host provides continuation/recovery before commitment. |
+| Either host, ready/unready participant leaves during voting or ACK wait | Native VR-host departure validation or explicit VR-client Cancel under a Flat host provides continuation/recovery before commitment. Spectator departure grants no permission by itself; the same visible blocked-state checks still apply. |
 | Either host, optional remote retirement | Original prompt remains reachable and its promise advances only after an actual player confirmation. |
 
 Automated source/runtime checks cannot prove headset placement, real transport
