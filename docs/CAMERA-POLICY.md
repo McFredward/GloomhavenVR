@@ -58,14 +58,18 @@ always the rig's own `GloomhavenVR.HeadCamera`, never a game camera. The old
 
 - **Pump:** `VRRigDriver` sweeps on every scene load, after every rig (re)build, and
   every 30 frames (catches cameras created mid-scene). Idempotent; no per-frame
-  allocations (`Camera.GetAllCameras` into a reused buffer).
+  allocations (`Camera.GetAllCameras` into a reused buffer). FlatScreen applies the
+  same owner's `ExcludeStereo` policy immediately when capturing a late camera and
+  at the captured camera's final pre-cull boundary; it cannot wait for that census.
 - **No stand-down:** even with no rig head at all, game cameras stay stereo-None
   (`VRCameraPolicy.Sweep` forces None whenever the head is null). Game cameras
   never render stereo, period.
 - **Reversibility:** originals are recorded per camera and restored by
   `VRCameraPolicy.RestoreAll()` on VR-off / hot reload (`VRRigDriver.OnDestroy`).
 - **Log lines:** `Stereo policy: '<cam>' forced to StereoTargetEyeMask.None (…)` per
-  camera, plus a per-sweep summary; the camera inventory prints
+  newly owned camera, plus a per-sweep summary of new ownership. Repeated native
+  stereo rewrites are still corrected without a per-frame normal-log stream.
+  The camera inventory prints
   `Policy: mod layer=N (…), stereo forced None on N camera(s), head='…'`.
 
 ## §2 Layer policy — owner: `Core.VRLayers`
@@ -208,12 +212,24 @@ camera that renders to the backbuffer is captured into `GloomhavenVR.FlatScreenR
 - **Pump:** per-tick capture sweep (shared no-alloc scan buffer) — late-created
   cameras (MainMenuVideo) are captured the frame they appear; redirects and the base
   clear are re-asserted every tick against game-side rewrites.
+- **Capture feedback guard (Frame638 follow-up):** the original captured camera,
+  like its right-eye mirror, must never draw the mod's floating screen or hands
+  back into the menu texture. FlatScreen removes the dedicated mod layer only for
+  the actual captured render, then restores that camera's current native mask.
+  On the built-in pipeline the existing `Camera.FireOnPreCull` postfix runs after
+  native global listeners and also repairs late target/stereo rewrites. Head and
+  independent native-preview cameras are excluded. Teardown and an interrupted
+  render restore the temporary mask. The built-in UI-layer fallback retains
+  native UI rather than masking that shared layer. Actual Unity pixel tests prove
+  this route and restoration; the reported cold-start headset flash still needs
+  a new hardware run.
 - **Reversibility:** `targetTexture` and the base camera's clear flags are restored
   on FlatScreen hide, scene change (bus event → release, re-capture next tick), VR
   off and hot reload.
 - **No fight with §1:** `VRCameraPolicy` owns exactly `stereoTargetEye`/XR tracking;
-  the FlatScreen owns exactly `targetTexture`/clear of captured cameras. Stereo-None
-  + RT target are complementary properties of the same camera.
+  FlatScreen invokes that owner and owns `targetTexture`/clear plus the temporary
+  capture-only mod-layer exclusion. Stereo-None + RT target are complementary
+  properties of the same camera.
 - **Log lines:** `FlatScreen stack capture: '<cam>' → RenderTexture (depth …)` per
   camera, `FlatScreen stack base: '<cam>' … clears the RT`, and the camera inventory
   marks captured cameras with `[RT stack]` plus a stack summary line.
