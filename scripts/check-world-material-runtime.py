@@ -60,7 +60,7 @@ def main():
         ('final-boundary-lost',[
             ('WorldMaterialBudget.cs','ScenarioCameraCullBoundary.Subscribe(_driver.PreCull);','Camera.onPreCull += _driver.PreCull;',1),
             ('WorldMaterialBudget.cs','ScenarioCameraCullBoundary.Unsubscribe(_driver.PreCull);','Camera.onPreCull -= _driver.PreCull;',1),
-            ('WorldMaterialBudget.cs','ScenarioCameraCullBoundary.Unsubscribe(PreCull);','Camera.onPreCull -= PreCull;',1)],'final native cull boundary sees late material edits'),
+            ('WorldMaterialBudget.cs','ScenarioCameraCullBoundary.Unsubscribe(PreCull);','Camera.onPreCull -= PreCull;',1)],'final native boundary observes same-camera late prop registration'),
         ('vertex-effect-veto-missing',[('WorldMaterialBudget.Materials.cs','{ "_AddVertexAnim",','{ "_UnusedVertexFlag",',1)],'live original effect retains native material family: _AddVertexAnim'),
         ('consumer-disposal-not-called',[('WorldMaterialBudget.cs','_beforeVariantDisposal?.Invoke();','/* injected dangling consumer */',1)],'stage zero releases factory-only render consumers'),
         ('asset-preparation-not-called',[('WorldMaterialBudget.Materials.cs','if (_ensureAssets?.Invoke() == false)','if (bool.Parse("false"))',1)],'cold asset preparation refusal keeps native source materials'),
