@@ -20,6 +20,7 @@ internal static class TownServiceTransportVectors
         CompleteOpeningBypassesOldBundle(t);
         OpeningBudget(t);
         RepeatedDistinctOpenings(t);
+        ReplacingOfferedSourcesInFlight(t);
         ExactColdCompletion(t);
         OriginalSupersessionKeepsDependencies(t);
         t.Case("Town service original widgets use the real wire header and loss-safe module lanes");
@@ -531,6 +532,7 @@ internal static class TownServiceTransportVectors
             var sender = new ExtrasSendScheduler(65536, NetProtocol.MsgUseBarAnimation, NetProtocol.MsgUseBarAnimationFragments);
             var receiver = new TownServiceFragments(); var arrived = new HashSet<ushort>();
             var expected = new Dictionary<ushort, byte[]>(); int otherPages = 0;
+            var progressed = new HashSet<int>();
             var backgrounds = new List<byte[]>();
             foreach (byte kind in new[] { NetProtocol.MsgExtras, NetProtocol.MsgUseBarAnimation,
                 NetProtocol.MsgNativeBoard, NetProtocol.MsgCardAppearance, NetProtocol.MsgItemAppearance, NetProtocol.MsgNativeDecisionPrompt })
@@ -578,7 +580,8 @@ internal static class TownServiceTransportVectors
                 byte[][] pages = PresentationBatch.TryRead(packet, packet.Length, out var batch) ? batch! : new[] { packet };
                 foreach (byte[] page in pages)
                 {
-                    if (TownServiceFragments.Stream(page, page.Length) < 0) { otherPages++; continue; }
+                    if (TownServiceFragments.Stream(page, page.Length) < 0)
+                    { otherPages++; progressed.Add(NetPacket.PeekType(page, page.Length)); continue; }
                     byte[]? full = receiver.Accept(2, page, page.Length, now); if (full == null) continue;
                     byte[][] modules = TownServiceCodec.TryReadBundle(full, full.Length, out var packed) ? packed! : new[] { full };
                     foreach (byte[] module in modules)
@@ -593,8 +596,19 @@ internal static class TownServiceTransportVectors
             double now = 0;
             if (priorInFlight)
             {
-                Offer(1, true); Offer(2, false); Busy();
-                Accept(sender.NextBatch(now), now, 1); now += .051;
+                Offer(1, true); Offer(2, false); bool began = false;
+                for (int tick = 0; tick < 100 && !began; tick++)
+                {
+                    Busy(); byte[]? packet = sender.NextBatch(now); Accept(packet, now, 2);
+                    if (packet != null)
+                    {
+                        byte[][] pages = PresentationBatch.TryRead(packet, packet.Length, out var batch) ? batch! : new[] { packet };
+                        foreach (byte[] page in pages)
+                            began |= TownServiceFragments.Stream(page, page.Length) == TownServiceFrame.UrgentBundleStream;
+                    }
+                    now += .051;
+                }
+                t.True(began, "the prior urgent full bundle has actually emitted its first fragment, beyond the inactive manifest");
             }
             double[] timings = new double[2];
             for (int offer = 0; offer < 2; offer++)
@@ -618,8 +632,88 @@ internal static class TownServiceTransportVectors
             int before = otherPages;
             for (int tick = 0; tick < 120; tick++) { Busy(); Accept(sender.NextBatch(now), now, 5); now += .051; }
             t.True(otherPages - before >= 120, "six saturated original streams continue after finite first-picture bursts");
+            t.Equal(6, progressed.Count, "every one of the six saturated original streams makes progress");
             Console.WriteLine("TOWN_REPEATED count=" + count + " prior=" + priorInFlight + " withdraw=" + withdraw
                 + " first=" + timings[0].ToString("F3") + " second=" + timings[1].ToString("F3") + " other=" + otherPages);
+        }
+    }
+
+    private static void ReplacingOfferedSourcesInFlight(Harness t)
+    {
+        foreach (bool retired in new[] { false, true })
+        {
+            t.Case("A changed offered template or retired physical module does not block unchanged required originals: " + retired);
+            var sender = new ExtrasSendScheduler(65536, NetProtocol.MsgUseBarAnimation, NetProtocol.MsgUseBarAnimationFragments);
+            var receiver = new TownServiceFragments(); var expected = new Dictionary<ushort, byte[]>();
+            var ids = new ushort[22];
+            for (ushort id = 1; id <= 22; id++)
+            {
+                ids[id - 1] = id;
+                var original = PromotionFrame(id, 1); original.Service = 3; original.HighPriority = true;
+                byte[] bytes = TownServiceCodec.Write(original); expected[id] = bytes;
+                sender.Enqueue(bytes, bytes.Length, identity: original);
+            }
+            var census = Frame(TownServiceFrame.ManifestModule, 1, 0); census.Service = 3;
+            census.Template = 0; census.Structure = 0; census.TransactionActive = true;
+            census.Modules = census.RequiredVisibleModules = ids;
+            byte[] manifest = TownServiceCodec.Write(census); sender.Enqueue(manifest, manifest.Length, identity: census);
+            var backgrounds = new List<byte[]>();
+            foreach (byte kind in new[] { NetProtocol.MsgExtras, NetProtocol.MsgUseBarAnimation, NetProtocol.MsgNativeBoard,
+                NetProtocol.MsgCardAppearance, NetProtocol.MsgItemAppearance, NetProtocol.MsgNativeDecisionPrompt })
+            {
+                var bytes = new byte[4096]; new Random(kind).NextBytes(bytes);
+                bytes[0] = 0x31; bytes[1] = 0x52; bytes[2] = 0x56; bytes[3] = 0x47; bytes[4] = 3; bytes[5] = kind;
+                backgrounds.Add(bytes); sender.Enqueue(bytes, bytes.Length);
+            }
+            byte[] first = sender.NextBatch(0)!;
+            byte[][] firstPages = PresentationBatch.TryRead(first, first.Length, out var initial) ? initial! : new[] { first };
+            bool began = false;
+            foreach (byte[] page in firstPages)
+                if (TownServiceFragments.Stream(page, page.Length) == TownServiceFrame.UrgentBundleStream)
+                {
+                    began = true;
+                    t.True(receiver.Accept(2, page, page.Length, 0) == null, "prior original bundle is genuinely incomplete");
+                }
+            t.True(began, "the old physical offer has emitted an actual urgent fragment");
+            ushort card = retired ? (ushort)100 : (ushort)1;
+            if (retired) TownServiceDelivery.Retire(false, false, 3, 99, 1);
+            var replacement = PromotionFrame(card, 3); replacement.Service = 3; replacement.HighPriority = true;
+            replacement.Template = 4; replacement.TemplateAddress = "offered-card/new"; replacement.Structure++;
+            byte[] current = TownServiceCodec.Write(replacement); expected.Remove(1); expected[card] = current;
+            sender.Enqueue(current, current.Length, identity: replacement);
+            var currentIds = new List<ushort>(expected.Keys); currentIds.Sort();
+            census = Frame(TownServiceFrame.ManifestModule, 3, 0); census.Service = 3;
+            census.Template = 0; census.Structure = 0; census.TransactionActive = true;
+            census.Modules = census.RequiredVisibleModules = currentIds.ToArray();
+            manifest = TownServiceCodec.Write(census); expected[census.Module] = manifest;
+            sender.Enqueue(manifest, manifest.Length, identity: census);
+            var arrived = new HashSet<ushort>(); double ready = -1;
+            for (int tick = 1; tick < 200; tick++)
+            {
+                double now = tick * .051; foreach (byte[] bytes in backgrounds) sender.Enqueue(bytes, bytes.Length);
+                byte[]? packet = sender.NextBatch(now); if (packet == null) continue;
+                t.True(packet.Length <= PresentationBatch.MaxSize, "source migration preserves the exact shared event cap");
+                byte[][] pages = PresentationBatch.TryRead(packet, packet.Length, out var batch) ? batch! : new[] { packet };
+                foreach (byte[] page in pages)
+                {
+                    if (TownServiceFragments.Stream(page, page.Length) < 0) continue;
+                    byte[]? full = receiver.Accept(2, page, page.Length, now); if (full == null) continue;
+                    byte[][] modules = TownServiceCodec.TryReadBundle(full, full.Length, out var packed) ? packed! : new[] { full };
+                    foreach (byte[] module in modules)
+                    {
+                        if (!TownServiceCodec.TryRead(module, module.Length, out var frame)) continue;
+                        t.True(expected.TryGetValue(frame!.Module, out var source), "retired old offered-card metadata is not replayed into the new picture");
+                        if (!expected.TryGetValue(frame.Module, out source)) continue;
+                        t.Equal(source.Length, module.Length, "obsolete differently shaped original metadata is not replayed into the new card");
+                        if (module.Length == source.Length)
+                            t.Wire(source, module, source.Length, "unchanged native originals migrate byte exactly; only the changed owner source is replaced");
+                        arrived.Add(frame.Module);
+                    }
+                }
+                if (arrived.Count == expected.Count) { ready = now - .051; break; }
+            }
+            t.True(ready >= 0 && ready < 1, "new offered template/retired source and all unchanged required originals assemble below1s");
+            Console.WriteLine("TOWN_REPLACED_SOURCE retired=" + retired + " ready=" + ready.ToString("F3"));
         }
     }
 

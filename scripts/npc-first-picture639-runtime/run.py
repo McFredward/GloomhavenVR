@@ -20,8 +20,27 @@ def main():
  p.add_argument('--asset-source-root',type=Path,help='Explicit pending asset worker sources; exact hashes retained')
  p.add_argument('--service',choices=['merchant','mage'],default='mage')
  p.add_argument('--cold-observer',action='store_true',help='Omit the production loading-phase exact-asset scan for a named causal control')
+ p.add_argument('--without-receipts',action='store_true',help='Re-offer the real current picture before original receipts arrive')
+ p.add_argument('--prior-inflight',action='store_true',help='Replace a real older complete original whose first packet is already in flight')
  p.add_argument('--expect-incomplete',action='store_true',help='Causal control must compile and fail the exact complete-picture deadline')
  args=p.parse_args();root=args.source_root.resolve();args.output_dir.mkdir(parents=True,exist_ok=True)
+ if args.service=='mage' and args.atlas_bundle is None:
+  native_bank=args.output_dir.resolve()/'native-original-atlas'
+  exporter=root/'scripts/npc639-assets-runtime/export-native.py'
+  if not exporter.exists():raise SystemExit('Actual native atlas exporter missing: '+str(exporter))
+  inputs={str(file):hashlib.sha256(file.read_bytes()).hexdigest()for file in
+      [exporter,root/'ressources/GH_Data/resources.assets',root/'ressources/GH_Data/resources.assets.resS']}
+  cache_receipt=native_bank/'proof-input-hashes.json'
+  valid=cache_receipt.exists()and json.loads(cache_receipt.read_text())==inputs
+  valid=valid and(native_bank/'original-battle-atlas.bundle').exists()and(native_bank/'provenance.json').exists()
+  if valid:
+   provenance=json.loads((native_bank/'provenance.json').read_text())
+   valid=hashlib.sha256((native_bank/'original-battle-atlas.bundle').read_bytes()).hexdigest()==provenance['generated_bundle_sha256']
+  if not valid:
+   python=os.environ.get('UNITYPY_PYTHON',str(Path.home()/'unitypy-venv/bin/python'))
+   subprocess.run([python,str(exporter),str(root/'ressources/GH_Data'),str(native_bank)],check=True)
+   cache_receipt.write_text(json.dumps(inputs,indent=2)+'\n')
+  args.atlas_bundle=native_bank/'original-battle-atlas.bundle'
  run=Path(tempfile.mkdtemp(prefix='run-',dir=args.output_dir.resolve()))
  loader=module('mirror639',root/'scripts/check-town-service-mirror.py')
  delivery=module('delivery639',root/'scripts/check-town-native-state623.py')
@@ -46,6 +65,8 @@ def main():
  (fixture/'NativeReader639.cs').write_text(reader)
  case_source=Path(__file__).with_name('FirstPicture639.cs').read_text()
  if args.cold_observer:case_source=case_source.replace('private static readonly bool PrewarmObserver639 = true;', 'private static readonly bool PrewarmObserver639 = false;')
+ if args.without_receipts:case_source=case_source.replace('private static readonly bool AcknowledgeObserver639 = true;', 'private static readonly bool AcknowledgeObserver639 = false;')
+ if args.prior_inflight:case_source=case_source.replace('private static readonly bool PriorInFlight639 = false;', 'private static readonly bool PriorInFlight639 = true;')
  (fixture/'FirstPicture639.cs').write_text(case_source)
  boundaries=fixture/'Boundaries.cs';text=boundaries.read_text().replace('internal static bool WantsDebug => false;','internal static bool WantsDebug => true;',1)
  text=text.replace('internal static void Info(string channel, string message) { }','internal static void Info(string channel, string message) => Messages.Add(channel + ": " + message);',1)
@@ -77,7 +98,8 @@ def main():
   shutil.copyfile(args.atlas_bundle.resolve(),run/'original-atlas.bundle')
   # The byte-exact native Texture2D still names the game's original resS path.
   # Actual rendering (unlike descriptor-only admission) needs this read-only stream.
-  stream=root/'ressources/GH_Data/resources.assets.resS'
+  stream=args.atlas_bundle.resolve().parent/'resources.assets.resS'
+  if not stream.exists():stream=root/'ressources/GH_Data/resources.assets.resS'
   (editor/'resources.assets.resS').symlink_to(stream.resolve())
   (run/'native-stream-sha256.txt').write_text(hashlib.sha256(stream.read_bytes()).hexdigest()+'  '+str(stream.resolve())+'\n')
  hashes={name:hashlib.sha256(text.encode()).hexdigest()for name,text in bound.items()}

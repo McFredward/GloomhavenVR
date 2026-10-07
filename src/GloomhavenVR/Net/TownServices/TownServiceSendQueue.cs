@@ -33,6 +33,7 @@ internal sealed class TownServiceLaneSendQueue
     private readonly List<TownServiceFrame> _bundleFrames = new();
     private readonly List<TownServiceFrame> _urgentBundleFrames = new();
     private readonly Dictionary<ushort, byte[]> _bundleBytes = new();
+    private readonly Dictionary<ushort, byte[]> _urgentBundleBytes = new();
     private readonly HashSet<ushort> _promotedBundle = new();
     private uint _session;
     private byte _service;
@@ -68,8 +69,10 @@ internal sealed class TownServiceLaneSendQueue
         {
             // Reserve the first finite coherent picture of a physical offer, not
             // every subsequent hover, repair or session heartbeat.
-            bool before = _manifestFrame?.TransactionActive ?? _sentManifest?.TransactionActive ?? false;
-            if (frame.TransactionActive && !before && !frame.PublicCatalog && !frame.VisitorStock && frame.Service is 1 or 3)
+            TownServiceFrame? previous = _manifestFrame ?? _sentManifest;
+            bool before = previous?.TransactionActive ?? false;
+            if (frame.TransactionActive && (!before || previous != null && !SameCensus(previous, frame))
+                && !frame.PublicCatalog && !frame.VisitorStock && frame.Service is 1 or 3)
             { _openingPending = true; _openingPages = 0; _openingStarted = double.NaN; }
             if (!frame.TransactionActive) _openingPending = false;
             // Keep one newest census, not four repeated 8 KiB heartbeats in front of
@@ -180,16 +183,40 @@ internal sealed class TownServiceLaneSendQueue
     private void SupersedeUrgentBundle()
     {
         if (!_urgentBundle.HasInFlight || _urgentBundleFrames.Count == 0) return;
+        TownServiceFrame? census = _manifestFrame;
+        if (census == null || !census.TransactionActive || census.PublicCatalog || census.VisitorStock) return;
+        bool changed = false;
+        var retain = new List<(TownServiceFrame Frame, byte[] Bytes)>();
         foreach (TownServiceFrame older in _urgentBundleFrames)
         {
-            TownServiceFrame? current = older.Module == TownServiceFrame.ManifestModule ? _manifestFrame
-                : _latestOriginals.TryGetValue(older.Module, out var latest) ? latest : null;
-            if (current == null || !ExtrasSendQueue.CanSupersedeTownOriginal(older, current)
-                || _queues.TryGetValue(older.Module, out var queue) && queue.HasTownDelta(older.Sequence)) return;
+            if (older.BaseSequence != 0 || older.Session != census.Session || older.Service != census.Service
+                || older.PublicCatalog != census.PublicCatalog || older.VisitorStock != census.VisitorStock
+                || older.PublicClaim != census.PublicClaim) return;
+            if (older.Module == TownServiceFrame.ManifestModule)
+            {
+                if (census.Sequence <= older.Sequence) return;
+                changed |= !SameCensus(older, census);
+                continue;
+            }
+            bool needed = Array.BinarySearch(census.Modules, older.Module) >= 0;
+            if (_queues.TryGetValue(older.Module, out var queue) && queue.HasTownDelta(older.Sequence)) return;
+            if (!needed) { changed = true; continue; }
+            if (_latestOriginals.TryGetValue(older.Module, out var current)
+                && ExtrasSendQueue.CanSupersedeTownOriginal(older, current))
+            { changed = true; continue; }
+            // An unchanged native row may still be required by the new card's
+            // picture. Preserve its exact already encoded original in that new
+            // atomic bundle instead of making its old fragment debt block it.
+            if (queue == null || !_urgentBundleBytes.TryGetValue(older.Module, out var bytes)) return;
+            retain.Add((older, bytes));
         }
-        // No old member or dependent delta remains current. A new fragmented
-        // sequence replaces this obsolete assembly without losing a baseline.
-        _urgentBundle.Clear(); _urgentBundleFrames.Clear();
+        if (!changed) return;
+        foreach (var item in retain) _queues[item.Frame.Module].PrependTownOriginal(item.Bytes, item.Frame);
+        // Obsolete members and the old census are replaced; every unchanged
+        // required original survives, and named delta dependencies forbid this
+        // cancellation. The new fragment counter still exceeds the old writer.
+        _urgentBundle.Clear(); _urgentBundleFrames.Clear(); _urgentBundleBytes.Clear();
+        _openingPending = true; _openingPages = 0; _openingStarted = double.NaN;
     }
     internal byte[]? NextOpening(double now)
     {
@@ -365,9 +392,11 @@ internal sealed class TownServiceLaneSendQueue
             var bytes = new List<byte[]>(); frames.Clear();
             var originalValues = new TownServiceCodec.OriginalValuePoolBuilder();
             if (!urgent) { _bundleBytes.Clear(); _promotedBundle.Clear(); }
+            else _urgentBundleBytes.Clear();
             if (urgent && BundleColdManifest && originalValues.TryAdd(_manifestBytes!))
             {
                 bytes.Add(_manifestBytes!); frames.Add(_manifestFrame!);
+                _urgentBundleBytes[TownServiceFrame.ManifestModule] = _manifestBytes!;
                 _sentManifest = _manifestFrame; _manifestBytes = null; _manifestFrame = null;
                 _nextManifest = now + (_sentManifest!.Visible ? 5 : .5);
             }
@@ -394,7 +423,8 @@ internal sealed class TownServiceLaneSendQueue
                 }
                 if(!queue.TryTakePending(out byte[]? packet,out object? identity))continue;
                 bytes.Add(packet!);
-                if(identity is TownServiceFrame frame){frames.Add(frame);if(!urgent)_bundleBytes[id]=packet!;}
+                if(identity is TownServiceFrame frame)
+                { frames.Add(frame); if (!urgent) _bundleBytes[id] = packet!; else _urgentBundleBytes[id] = packet!; }
             }
             if(bytes.Count==0)return null;
             byte[] container=originalValues.Write();
@@ -403,7 +433,7 @@ internal sealed class TownServiceLaneSendQueue
         byte[]? page=bundle.Next(now);
         if(page!=null&&!bundle.HasInFlight)
         { foreach(TownServiceFrame frame in frames) { CompleteCold(frame); TownServiceDelivery.Completed?.Invoke(frame); } frames.Clear();
-          if(!urgent){_bundleBytes.Clear();_promotedBundle.Clear();} }
+          if(!urgent){_bundleBytes.Clear();_promotedBundle.Clear();} else _urgentBundleBytes.Clear(); }
         return page;
     }
     private void Completed(ExtrasSendQueue queue)
@@ -451,7 +481,7 @@ internal sealed class TownServiceLaneSendQueue
     { foreach (var pair in _queues) { _sequences[pair.Key] = pair.Value.Sequence; pair.Value.Clear(); }
         foreach (var pair in _clocks) { _sequences[pair.Key] = Math.Max(_sequences.TryGetValue(pair.Key, out var sequence) ? sequence : 0, pair.Value.Sequence); pair.Value.Clear(); }
         _clocks.Clear(); _catalogOriginals.Clear(); _catalogBases.Clear(); _catalogBaseKeys.Clear(); _catalogQueuedKeys.Clear(); _catalogRepairs.Clear(); _clockCursor = 0; _clockRepairDue = false;
-        _bundle.Clear(); _urgentBundle.Clear(); _bundleFrames.Clear(); _urgentBundleFrames.Clear(); _bundleBytes.Clear(); _promotedBundle.Clear(); _queues.Clear(); _order.Clear(); _priority.Clear(); _coldPriority.Clear(); _latestOriginals.Clear(); _cursor = _priorityCursor = _priorityTurns = 0;
+        _bundle.Clear(); _urgentBundle.Clear(); _bundleFrames.Clear(); _urgentBundleFrames.Clear(); _bundleBytes.Clear(); _urgentBundleBytes.Clear(); _promotedBundle.Clear(); _queues.Clear(); _order.Clear(); _priority.Clear(); _coldPriority.Clear(); _latestOriginals.Clear(); _cursor = _priorityCursor = _priorityTurns = 0;
         _normalActive = _priorityActive = null; _manifestBytes = null; _manifestFrame = _sentManifest = null; _nextManifest = 0;
         _openingPending = false; _openingPages = 0; _openingStarted = double.NaN; }
     internal static bool SameIdentity(TownServiceFrame a, TownServiceFrame b) => a.VisitorStock == b.VisitorStock && a.PublicCatalog == b.PublicCatalog && a.PublicClaim == b.PublicClaim && a.Session == b.Session

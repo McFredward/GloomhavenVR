@@ -136,13 +136,27 @@ internal sealed class ExtrasSendQueue
         return false;
     }
 
+    internal void PrependTownOriginal(byte[] bytes, TownServices.TownServiceFrame frame)
+    {
+        if (frame.BaseSequence != 0 || HasInFlight)
+            throw new InvalidOperationException("Cannot migrate an unfinished town module or delta.");
+        var pending = _pending.ToArray(); _pending.Clear();
+        var copy = new byte[bytes.Length]; Buffer.BlockCopy(bytes, 0, copy, 0, bytes.Length);
+        _pending.Add(new Pending(copy, frame));
+        foreach (Pending item in pending)
+        {
+            if (item.Identity is TownServices.TownServiceFrame duplicate && duplicate.BaseSequence == 0
+                && duplicate.Sequence == frame.Sequence && duplicate.Module == frame.Module
+                && duplicate.Session == frame.Session && duplicate.Service == frame.Service) continue;
+            PresentationPending.Append(_pending, item, Pending.Same);
+        }
+    }
+
     internal static bool CanSupersedeTownOriginal(TownServices.TownServiceFrame older, TownServices.TownServiceFrame current) =>
         older.BaseSequence == 0 && current.BaseSequence == 0 && older.Sequence < current.Sequence
         && older.VisitorStock == current.VisitorStock && older.PublicCatalog == current.PublicCatalog
         && older.PublicClaim == current.PublicClaim && older.Session == current.Session
-        && older.Service == current.Service && older.Module == current.Module
-        && older.Template == current.Template && older.TemplateAddress == current.TemplateAddress
-        && older.Structure == current.Structure && older.Visible == current.Visible;
+        && older.Service == current.Service && older.Module == current.Module;
 
     internal byte[]? Next(double now)
     {

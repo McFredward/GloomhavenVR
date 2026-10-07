@@ -25,6 +25,8 @@ public static partial class MirrorProgram
         internal bool Required=true;
     }
     private static readonly bool PrewarmObserver639 = true;
+    private static readonly bool AcknowledgeObserver639 = true;
+    private static readonly bool PriorInFlight639 = false;
     private static Sprite[] _ownerAtlasWrappers639=Array.Empty<Sprite>();
     private static IEnumerator FirstPicture639(bool mage)
     {
@@ -106,7 +108,8 @@ public static partial class MirrorProgram
         var ability=Rect("Native card complete ability",physical,new Vector2(0,35),new Vector2(280,145)).gameObject.AddComponent<TextMeshProUGUI>();
         ability.font=TMP_Settings.defaultFontAsset;ability.text=mage?"Attack 3\nRange 3\nPoison":"Move +2\nUse after movement";ability.fontSize=25;
         ability.color=Color.white;ability.alignment=TextAlignmentOptions.Center;
-        Image? poison=null; Sprite? ownerPoison=null; AssetBundle? atlasBank=null;
+        Image? poison=null; Sprite? ownerPoison=null; AssetBundle? atlasBank=null;SpriteAtlas? originalAtlas=null;
+        var rowIcons=new List<(Image Image,string Name)>();
         string atlasPath=Path.Combine(Path.GetDirectoryName(_output)!,"original-atlas.bundle");
         if(!File.Exists(atlasPath))atlasPath=Path.Combine(_output,"original-atlas.bundle");
         if(mage&&File.Exists(atlasPath))
@@ -114,6 +117,7 @@ public static partial class MirrorProgram
             atlasBank=AssetBundle.LoadFromFile(atlasPath);
             Check(atlasBank!=null,"actual original SpriteAtlas bank loads through Unity");
             SpriteAtlas atlas=atlasBank!.LoadAllAssets<SpriteAtlas>().First(x=>x.name=="BattleOverlayCanvas");
+            originalAtlas=atlas;
             var nativeSprites=new Sprite[atlas.spriteCount];atlas.GetSprites(nativeSprites);
             ownerPoison=nativeSprites.First(x=>x.name.Replace("(Clone)","")=="Poison"&&x.pivot==Vector2.zero);
             _ownerAtlasWrappers639=nativeSprites;
@@ -121,6 +125,17 @@ public static partial class MirrorProgram
             Check(ownerPoison!=null,"owner materializes the actual native Poison sprite");
             ownerPoison!.name="Poison";
             poison=Image("Native Poison icon",physical,new Vector2(0,-100),new Vector2(75,75),Color.white);poison.sprite=ownerPoison;
+            string[] optionNames={"Attack","Move","Range","Push","Pull","Pierce","Shield","Retaliate","Heal","Poison","Wound","Immobilize","Disarm","Stun"};
+            for(int i=0;i<rows.Count;i++)
+            {
+                string option=optionNames[i];
+                rows[i].GetComponentsInChildren<TMP_Text>(true).First(x=>x.name=="Name").text=option+(i<9?" +1":"");
+                var icon=rows[i].Find("Content/Icon").GetComponent<Image>();
+                icon.sprite=ExactOption639(nativeSprites,option);icon.enabled=true;
+                rowIcons.Add((icon,option));
+                foreach(var text in rows[i].Find("Points").GetComponentsInChildren<TMP_Text>(true))text.text=(i<9?1:2).ToString();
+                foreach(var text in rows[i].Find("Price").GetComponentsInChildren<TMP_Text>(true))text.text=(30+i*5).ToString();
+            }
         }
         Add(physical,mage?"face.63901|":"itemface.63901|");
         RectTransform? aura=null,ring=null;
@@ -183,9 +198,9 @@ public static partial class MirrorProgram
         };
         var receiver=new NetAvatarDriver();TownServiceMirror.SharedFrameForRemote=_=>observer;
         Action capture=()=>{
-            SetNativeSenderActive629(true);
+            NetPlayerActors.Peer=2;SetNativeSenderActive629(true);
             try{typeof(TownServiceMirror).GetMethod("CaptureCore",PrivateStatic)!.Invoke(null,new object[]{publish,true});}
-            finally{SetNativeSenderActive629(false);}
+            finally{SetNativeSenderActive629(false);NetPlayerActors.Peer=10;}
         };
         // Recreate the observer's initially empty registry before the loading
         // seam. Scan materializes separate native atlas wrappers; source-capture
@@ -203,6 +218,31 @@ public static partial class MirrorProgram
         Canvas.ForceUpdateCanvases();Render639(owner);
 
         preparation.Stop();
+        var deliveryClock=System.Diagnostics.Stopwatch.StartNew();
+        if(PriorInFlight639)
+        {
+            // Start a genuine older complete-original transfer before the next
+            // offer. Only one bounded real packet is delivered, so its original
+            // is still in flight when the authoritative current picture opens.
+            capture();var priorClock=System.Diagnostics.Stopwatch.StartNew();bool originalStarted=false;
+            while(!originalStarted&&priorClock.Elapsed.TotalSeconds<1)
+            {
+                FillOtherQueues639(scheduler);var prior=scheduler.NextBatch(deliveryClock.Elapsed.TotalSeconds);
+                if(prior!=null)
+                    foreach(var page in PresentationBatch.TryRead(prior,prior.Length,out var pages)?pages!:new[]{prior})
+                        if(TownServiceFragments.Stream(page,page.Length)==TownServiceFrame.UrgentBundleStream)
+                        {
+                            Check(fragments.Accept(2,page,page.Length,deliveryClock.Elapsed.TotalSeconds)==null,
+                                "older complete original remains genuinely fragmented in flight");originalStarted=true;
+                        }
+                yield return null;
+            }
+            Check(originalStarted,"actual older required-original bundle has begun, not merely its manifest");
+            SetTransaction639(service,false);capture();SetTransaction639(service,true);
+            title.text="Authoritative replacement while prior original is in flight";
+            if(rows.Count!=0)rows[0].GetComponentsInChildren<TMP_Text>(true).First(x=>x.name=="Name").text="Current replacement option";
+            NetPlayerActors.Peer=10;
+        }
         // The deadline begins with the real owner capture, including its native
         // property generation, not with the last fragment or admission callback.
         var watch=System.Diagnostics.Stopwatch.StartNew();float began=Time.unscaledTime,nextCapture=began;
@@ -231,7 +271,7 @@ public static partial class MirrorProgram
         }
         while(watch.Elapsed.TotalSeconds<5f&&ready<0)
         {
-            float now=Time.unscaledTime;clock=watch.Elapsed.TotalSeconds;
+            float now=Time.unscaledTime;clock=deliveryClock.Elapsed.TotalSeconds;
             FillOtherQueues639(scheduler);
             if(now>=nextCapture)
             {
@@ -256,7 +296,7 @@ public static partial class MirrorProgram
             while(motion.Count!=0)Check(receiver.FixtureQueueMotion638(2,motion.Dequeue()),"actual queue accepts independent numeric pose/hover");
             stage=watch.Elapsed.TotalSeconds;receiver.FixtureApply638();applyCpu+=watch.Elapsed.TotalSeconds-stage;
             stage=watch.Elapsed.TotalSeconds;Canvas.ForceUpdateCanvases();canvasCpu+=watch.Elapsed.TotalSeconds-stage;
-            stage=watch.Elapsed.TotalSeconds;bool complete=originals.Where(x=>x.Required).All(original=>VisibleComplete639(original));validateCpu+=watch.Elapsed.TotalSeconds-stage;
+            stage=watch.Elapsed.TotalSeconds;bool complete=originals.Where(x=>x.Required).All(original=>VisibleComplete639(original)&&(!PriorInFlight639||TextMatches639(original)));validateCpu+=watch.Elapsed.TotalSeconds-stage;
             if(complete)
             {
                 // Rendering is inside the deadline. Admission/root activation
@@ -284,14 +324,34 @@ public static partial class MirrorProgram
             Check(remotePoison!=null&&remotePoison.texture!=null&&remotePoison.packed&&remotePoison.pivot==Vector2.zero,
                 "complete actual remote print uses exact native zero-pivot packed Poison, never its centered sibling");
             poison.sprite=atlasBank!.LoadAsset<Sprite>("native/sprite/4688");
+            // Recreate only live owner wrappers after the timed observer picture;
+            // the receiver's independent prepared registry remains unchanged.
+            _ownerAtlasWrappers639=new Sprite[originalAtlas!.spriteCount];originalAtlas.GetSprites(_ownerAtlasWrappers639);
+            foreach(var icon in rowIcons)icon.Image.sprite=ExactOption639(_ownerAtlasWrappers639,icon.Name);
         }
         if(mage)
         {
-            var continuation=ContinuousOriginal639(originals,physical,ring!,nativeAreas,nativeMask!,capture,publish,scheduler,fragments,receiver,watch,motion);
+            var continuation=ContinuousOriginal639(originals,physical,ring!,nativeAreas,nativeMask!,capture,publish,scheduler,fragments,receiver,deliveryClock,motion);
             while(continuation.MoveNext())yield return continuation.Current;
+        }
+        if(typeof(TownServiceMirror).GetMethod("CaptureOriginalReceipts",BindingFlags.Static|BindingFlags.NonPublic)!=null)
+        {
+            if(AcknowledgeObserver639)
+            {
+                var receipts=ReceiptRoundTrip639(originals,service);
+                while(receipts.MoveNext())yield return receipts.Current;
+            }
+            var repeated=RepeatedOriginal639(originals,service,title,rows,capture,publish,scheduler,fragments,receiver,deliveryClock,motion,observer,captured);
+            while(repeated.MoveNext())yield return repeated.Current;
         }
         TownServiceEnhancementHandoff.PhysicalCardFace=null;
         TownServiceMirror.Shutdown();if(atlasBank!=null)atlasBank.Unload(true);
+    }
+    private static Sprite ExactOption639(Sprite[] sprites,string name)
+    {
+        var matching=sprites.Where(x=>x.name.Replace("(Clone)","")==name).ToArray();
+        Check(matching.Length!=0,"live option uses an actual original native atlas member: "+name);
+        var sprite=matching.FirstOrDefault(x=>x.pivot==Vector2.zero)??matching.First();sprite.name=name;return sprite;
     }
     private static IEnumerator ContinuousOriginal639(List<PictureOriginal639> originals,Transform physical,
         RectTransform ring,List<RectTransform> areas,TownServiceNativeEnhancementCardMask mask,Action capture,
@@ -299,7 +359,7 @@ public static partial class MirrorProgram
         NetAvatarDriver receiver,System.Diagnostics.Stopwatch watch,Queue<byte[]> motion)
     {
         ushort printId=originals.First(x=>x.Source==physical).Id;
-        PictureOriginal639 aura=originals.First(x=>ring.IsChildOf(x.Source)&&x.Source!=physical);
+        PictureOriginal639 aura=originals.First(x=>x.Source==ring.parent);
         var values=new System.Text.StringBuilder("actual post-admission owner animation/hover and original mount\n");
         float began=Time.unscaledTime,next=began;int checks=0;float remoteRingTravel=0,lastRing=0;
         bool sampled=false;
@@ -350,6 +410,135 @@ public static partial class MirrorProgram
             "actual intermediate frames show a smoothly progressing native rotating ring, not a static admitted flag");
         File.WriteAllText(Path.Combine(_output,"continuous-original639.txt"),values.ToString());
     }
+    private static IEnumerator ReceiptRoundTrip639(List<PictureOriginal639> originals,byte service)
+    {
+        var type=typeof(TownServiceMirror);
+        var capture=type.GetMethod("CaptureOriginalReceipts",BindingFlags.Static|BindingFlags.NonPublic)!;
+        var receive=type.GetMethod("ReceiveOriginalReceipt",BindingFlags.Static|BindingFlags.NonPublic)!;
+        var received=type.GetMethod("HasReceivedOriginal",BindingFlags.Static|BindingFlags.NonPublic)!;
+        var lane=type.GetField("PrivateLane",PrivateStatic)!.GetValue(null)!;
+        var modules=(IDictionary)lane.GetType().GetField("Modules",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(lane)!;
+        type.GetField("CollectOriginalReceiptPeers",PrivateStatic)!.SetValue(null,(Action<List<int>>)(peers=>{
+            peers.Clear();peers.Add(NetPlayerActors.Peer==2?10:2);
+        }));
+        var ackScheduler=new ExtrasSendScheduler(0,3,4);
+        Action<byte[],int> enqueue=(bytes,length)=>ackScheduler.Enqueue(bytes,length);
+        var clock=System.Diagnostics.Stopwatch.StartNew();float next=0;int packets=0,wireBytes=0;
+        bool all=false;
+        while(clock.Elapsed.TotalSeconds<.9&&!all)
+        {
+            NetPlayerActors.Peer=10;
+            if(clock.Elapsed.TotalSeconds>=next)
+            {next=(float)clock.Elapsed.TotalSeconds+1f/15f;capture.Invoke(null,new object[]{enqueue});}
+            FillOtherQueues639(ackScheduler);
+            byte[]? batch=ackScheduler.NextBatch(clock.Elapsed.TotalSeconds);
+            if(batch!=null)
+            {
+                Check(batch.Length<=PresentationBatch.MaxSize,"actual original receipts share the bounded native event budget");
+                wireBytes+=batch.Length;
+                foreach(var page in PresentationBatch.TryRead(batch,batch.Length,out var pages)?pages!:new[]{batch})
+                {
+                    if(page.Length<6||page[5]!=28)continue;
+                    NetPlayerActors.Peer=2;
+                    Check((bool)receive.Invoke(null,new object[]{10,page,page.Length})!,
+                        "actual owner accepts only observer's exact retained-original receipt");packets++;
+                }
+            }
+            NetPlayerActors.Peer=2;
+            all=originals.Where(x=>x.Required).All(original=>
+                (bool)received.Invoke(null,new[]{modules[original.Id]})!);
+            NetPlayerActors.Peer=10;
+            yield return null;
+        }
+        File.WriteAllText(Path.Combine(_output,"actual-original-receipts639.txt"),
+            "complete="+all+" seconds="+clock.Elapsed.TotalSeconds+" packets="+packets+" nativeEventBytes="+wireBytes+"\n");
+        Check(all,"every exact actual required original receives its real observer receipt before reuse");
+    }
+    private static IEnumerator RepeatedOriginal639(List<PictureOriginal639> originals,byte service,TMP_Text title,
+        List<Transform> rows,Action capture,Action<byte[],int,object?> publish,ExtrasSendScheduler scheduler,
+        TownServiceFragments fragments,NetAvatarDriver receiver,System.Diagnostics.Stopwatch deliveryClock,
+        Queue<byte[]> motion,Transform observer,List<TownServiceFrame> captured)
+    {
+        // A physical re-offer in this same visit must not restart the full native
+        // table whose exact originals the observer has just acknowledged retaining.
+        SetTransaction639(service,false);capture();SetTransaction639(service,true);
+        title.text=AcknowledgeObserver639?"Current acknowledged re-offer":"Current unacknowledged re-offer";
+        if(rows.Count!=0)rows[0].GetComponentsInChildren<TMP_Text>(true).First(x=>x.name=="Name").text="Updated exact enhancement";
+        NetPlayerActors.Peer=10;
+        int firstCurrent=captured.Count;var edge=System.Diagnostics.Stopwatch.StartNew();capture();
+        double captureCost=edge.Elapsed.TotalSeconds,decodeCost=0,applyCost=0,canvasCost=0,validateCost=0,renderCost=0,firstAssembly=-1;
+        var current=captured.Skip(firstCurrent).Where(x=>originals.Any(y=>y.Required&&y.Id==x.Module)).ToArray();
+        File.WriteAllText(Path.Combine(_output,"reoffer-native-capture639.txt"),
+            "actual transaction edge acknowledges="+AcknowledgeObserver639+"\n"+string.Join("\n",current.Select(x=>
+                "module="+x.Module+" sequence="+x.Sequence+" baseline="+x.BaseSequence+" nodes="+x.Nodes.Length))+"\n");
+        if(AcknowledgeObserver639)
+            Check(current.Length>0&&current.All(x=>x.BaseSequence!=0),"actual acknowledged transaction re-offer reuses only exact acknowledged originals");
+        else Check(current.Length==originals.Count(x=>x.Required)&&current.All(x=>x.BaseSequence==0),
+            "before receipts, every required current re-offer emits a genuine full owner original");
+        float ready=-1;double next=0;int events=0,bytes=0;
+        while(edge.Elapsed.TotalSeconds<5&&ready<0)
+        {
+            FillOtherQueues639(scheduler);
+            if(edge.Elapsed.TotalSeconds>=next){next=edge.Elapsed.TotalSeconds+1f/15f;capture();}
+            byte[]? batch=scheduler.NextBatch(deliveryClock.Elapsed.TotalSeconds);
+            if(batch!=null)
+            {
+                events++;bytes+=batch.Length;
+                Check(batch.Length<=PresentationBatch.MaxSize,"actual acknowledged re-offer preserves native864-byte event cap");
+                foreach(var page in PresentationBatch.TryRead(batch,batch.Length,out var pages)?pages!:new[]{batch})
+                {
+                    if(TownServiceFragments.Stream(page,page.Length)<0)continue;
+                    double stage=edge.Elapsed.TotalSeconds;var packet=fragments.Accept(2,page,page.Length,deliveryClock.Elapsed.TotalSeconds);decodeCost+=edge.Elapsed.TotalSeconds-stage;if(packet==null)continue;
+                    if(firstAssembly<0)firstAssembly=edge.Elapsed.TotalSeconds;
+                    foreach(var child in TownServiceCodec.TryReadBundle(packet,packet.Length,out var children)?children!:new[]{packet})
+                        Check(receiver.FixtureQueue638(2,child),"actual re-offer current original/delta reaches real receiver queue");
+                }
+            }
+            while(motion.Count!=0)Check(receiver.FixtureQueueMotion638(2,motion.Dequeue()),"actual re-offer independent owner motion receives unchanged");
+            double step=edge.Elapsed.TotalSeconds;receiver.FixtureApply638();applyCost+=edge.Elapsed.TotalSeconds-step;
+            step=edge.Elapsed.TotalSeconds;Canvas.ForceUpdateCanvases();canvasCost+=edge.Elapsed.TotalSeconds-step;
+            // Old originals remain valid while the replacement travels. Check
+            // changed actual content first; re-validating every old renderer on
+            // each wait frame would turn the timing observer into extra work.
+            step=edge.Elapsed.TotalSeconds;bool complete=originals.Where(x=>x.Required).All(TextMatches639)
+                &&originals.Where(x=>x.Required).All(VisibleComplete639);validateCost+=edge.Elapsed.TotalSeconds-step;
+            if(complete)
+            {
+                step=edge.Elapsed.TotalSeconds;var pixels=Render639(observer);ready=(float)edge.Elapsed.TotalSeconds;renderCost+=edge.Elapsed.TotalSeconds-step;
+                File.WriteAllBytes(Path.Combine(_output,(AcknowledgeObserver639?"acknowledged":"unacknowledged")+"-reoffer-original-picture.png"),pixels.TextureBytes639());
+            }
+            yield return null;
+        }
+        File.WriteAllText(Path.Combine(_output,(AcknowledgeObserver639?"acknowledged":"unacknowledged")+"-reoffer639-cost.txt"),
+            "actual complete original rendered seconds="+ready+" events="+events+" wireBytes="+bytes+"\n"
+            +"firstAssembly="+firstAssembly+" captureCpu="+captureCost+" decodeCpu="+decodeCost+" applyCpu="+applyCost+" canvasCpu="+canvasCost+" validateCpu="+validateCost+" actualRenderCpu="+renderCost+"\n");
+        Check(ready>=0&&ready<=1,"actual "+(AcknowledgeObserver639?"acknowledged":"unacknowledged")+" re-offer complete changed native picture renders within1s wall clock");
+        foreach(var original in originals.Where(x=>x.Required))AssertComplete639(original);
+    }
+    private static void SetTransaction639(byte service,bool active)
+    {
+        NetPlayerActors.Peer=2;SetNativeSenderActive629(true);
+        try
+        {
+            TownServiceMirror.SetLocalTransactionActive(service,active);
+            var lane=typeof(TownServiceMirror).GetField("PrivateLane",PrivateStatic)!.GetValue(null)!;
+            Check((bool)lane.GetType().GetField("TransactionActive",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(lane)! == active,
+                "actual owner transaction edge applies while its private lane is genuinely active");
+        }
+        finally{SetNativeSenderActive629(false);NetPlayerActors.Peer=10;}
+    }
+    private static bool TextMatches639(PictureOriginal639 original)
+    {
+        var remote=Remote(2,original.Id);if(remote==null)return false;
+        foreach(var text in original.Source.GetComponentsInChildren<TMP_Text>(true))
+        {
+            if(!text.enabled||!text.gameObject.activeInHierarchy||(original.Exclude!=null&&Excluded639(text.transform,original.Source,original.Exclude)))continue;
+            string path=Relative639(original.Source,text.transform);
+            var target=(path.Length==0?remote.Root:remote.Root.Find(path))?.GetComponent<TMP_Text>();
+            if(target==null||target.text!=text.text)return false;
+        }
+        return true;
+    }
     private static void FillOtherQueues639(ExtrasSendScheduler scheduler)
     {
         foreach(string field in new[]{"_presence","_animation","_plumes","_board","_appearance","_prompt","_itemAppearance","_mapTooltip"})
@@ -399,8 +588,13 @@ public static partial class MirrorProgram
             var clone=(path.Length==0?target.Root:target.Root.Find(path))?.GetComponent<Image>();
             Check(clone!=null&&clone.enabled==image.enabled&&clone.color==image.color,
                 "all original row/area/ring/confirmation image state is present: "+original.Address+"/"+path);
-            if(image.sprite!=null)Check(clone!.sprite!=null&&clone.sprite.texture!=null,
-                "all nonempty original artwork resolves to genuine loaded pixels: "+original.Address+"/"+path);
+            if(image.sprite!=null)
+            {
+                Check(clone!.sprite!=null&&clone.sprite.texture!=null,
+                    "all nonempty original artwork resolves to genuine loaded pixels: "+original.Address+"/"+path);
+                Check(TownServiceMirror.Assets.Key(image.sprite)==TownServiceMirror.Assets.Key(clone!.sprite),
+                    "every applied observer sprite retains the exact current owner descriptor and packed geometry: "+original.Address+"/"+path);
+            }
         }
     }
     private static bool Excluded639(Transform node,Transform root,Func<Transform,bool> exclude)
