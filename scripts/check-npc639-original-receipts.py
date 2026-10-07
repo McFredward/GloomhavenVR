@@ -2,7 +2,7 @@
 """Compile the real bounded receipt codec/state with explicit owner-storage seams.
 
 This is a focused receipt proof, not the complete wire gate or evidence of headset
-timing. Three executable causal controls must compile and reach their intended
+timing. Four executable causal controls must compile and reach their intended
 semantic failure. Engine capture, native prefab generation and Photon delivery
 remain outside this metadata proof and need the integration wire/Unity checks.
 """
@@ -24,7 +24,8 @@ def main():
     parser.add_argument('--protocol-root', type=Path)
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/npc639/receipts')
     parser.add_argument('--case', action='append', choices=('production', 'any-peer-inference',
-        'unstored-original-inference', 'old-object-inference'), help='Rerun only an affected case; unchanged evidence may be retained.')
+        'unstored-original-inference', 'old-object-inference', 'unknown-owner-publication'),
+        help='Rerun only an affected case; unchanged evidence may be retained.')
     args = parser.parse_args()
     protocol_root = args.protocol_root or args.source_root
     paths = {
@@ -60,6 +61,8 @@ def main():
         ('old-object-inference', '!ReferenceEquals(retained.Baseline, baseline)',
          '(retained.Baseline.Sequence != baseline.Sequence || retained.Baseline.Service != baseline.Service || retained.Baseline.Session != baseline.Session)',
          'exact retained baseline identity required'),
+        ('unknown-owner-publication', 'if (!OriginalReceiptPeers.Contains(owner)) continue;',
+         '', 'unknown owner keeps pending receipt until compatibility handshake'),
     )
     fixture = ROOT / 'scripts/npc639-original-receipts'
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
@@ -102,7 +105,7 @@ def main():
             (run / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
             raise SystemExit('FAIL case ' + name + '; see ' + str(run))
     (run / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
-    scope = 'selected focused receipt cases' if args.case else 'focused receipt proof with three causal controls'
+    scope = 'selected focused receipt cases' if args.case else 'focused receipt proof with four causal controls'
     print('PASS ' + scope + '; ' + str(run))
 
 

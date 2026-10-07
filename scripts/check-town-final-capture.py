@@ -50,13 +50,33 @@ def load_binding(root):
     native = (base / "Net/Avatar/NetAvatarDriver.NativePresentation.cs").read_text()
     town = (base / "Net/Avatar/NetAvatarDriver.TownServices.cs").read_text()
     members = native[native.index("    private readonly byte[] _boardBuffer"):native.index("    internal static void PublishTownServicesFinal()")]
-    bound["ScheduledAvatar.cs"] = "using System; using System.Collections.Generic; using UnityEngine; using GloomhavenVR.Core; using GloomhavenVR.WorldUI; using GloomhavenVR.Net.TownServices; namespace GloomhavenVR.Net; internal sealed partial class NetAvatarDriver {\n" + members + "\n" + "\n".join(helper.expression(town, declaration) for declaration in ("private float _nextFaceSend", "private int _townCaptureFrame", "private Func<byte[], int, bool, bool>? _merchantControlSender")) + "\n" + helper.expression(town, "private bool SendMerchantControl") + "\n" + "\n".join((
+    bound["ScheduledAvatar.cs"] = "using System; using System.Collections.Generic; using UnityEngine; using GloomhavenVR.Core; using GloomhavenVR.WorldUI; using GloomhavenVR.Net.TownServices; namespace GloomhavenVR.Net; internal sealed partial class NetAvatarDriver {\n" + members + "\n" + "\n".join(helper.expression(town, declaration) for declaration in ("private float _nextFaceSend", "private int _townCaptureFrame", "private Func<byte[], int, bool, bool>? _merchantControlSender", "private Action<List<int>>? _originalReceiptPeers")) + "\n" + helper.expression(town, "private void CollectOriginalReceiptPeers") + "\n" + helper.expression(town, "private bool SendMerchantControl") + "\n" + "\n".join((
         method(avatar, "internal static void PublishUseBarAnimations("),
         method(native, "internal static void PublishTownServicesFinal()"),
         method(native, "private void TickNativePresentationSend("),
         method(town, "private void SendTownServices()"),
         method(native, "private void TickNativeBoardSend(float now)"),
         method(native, "private void SendNativeBoard(NativeBoardState state)"))) + "\n}\n"
+    # The current driver binds its real receipt collector above. Compatible peer
+    # collection and queue admission are explicit transport adapters in this
+    # publication/cadence fixture; reliable receipt delivery has separate proofs.
+    bound["OriginalReceiptQueueBoundary.cs"] = """using System.Collections.Generic;
+namespace GloomhavenVR.Net {
+    internal static class VersionGuard {
+        internal static readonly List<int> CompatibleReceiptPeers = new();
+        internal static void CollectContinuationPeers(List<int> into, int localPlayerId) {
+            into.Clear();
+            foreach (int peer in CompatibleReceiptPeers)
+                if (peer > 0 && peer != localPlayerId) into.Add(peer);
+        }
+    }
+    internal sealed partial class FfsNetTransport {
+        internal bool TrySendTownOriginalReceipt(byte[] bytes, int length) {
+            Send(bytes, length); return true;
+        }
+    }
+}
+"""
     protocol = (base / "Net/NetProtocol.cs").read_text()
     bound["UseBarProtocolBit.cs"] = "namespace GloomhavenVR.Net; internal static partial class NetProtocol {\n" + helper.expression(protocol, "public const byte UseBarActiveBonusBit") + "\n}\n"
     usebars = (base / "WorldUI/Surfaces/UseBarsSurface.cs").read_text()
@@ -100,6 +120,13 @@ def main():
     root = args.source_root.resolve(); args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
     fixture = run / "fixture"; shutil.copytree(repo / "scripts/town-service-mirror-runtime", fixture)
+    transport_boundary = fixture / "FinalCapture622.cs"
+    transport_text = transport_boundary.read_text()
+    transport_declaration = "internal sealed class FfsNetTransport : INetTransport"
+    if transport_text.count(transport_declaration) != 1:
+        raise RuntimeError("Final-capture transport boundary binding drift")
+    transport_boundary.write_text(transport_text.replace(transport_declaration,
+        "internal sealed partial class FfsNetTransport : INetTransport", 1))
     for path in (fixture / "Boundaries.cs", fixture / "Publisher.cs"):
         content = path.read_text()
         for kind in ("NetProtocol", "PanelMipBake", "TownServicePopulation", "TownServiceGrantSync", "TownServiceAssets", "TownServicePresentation", "TownServiceMerchantHandoff", "TownServicePalmConfirmation"):

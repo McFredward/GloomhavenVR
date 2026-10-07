@@ -134,6 +134,10 @@ network latency or headset frame budget.
 | Merchant, `merchant-final/run-mcphkh8i` | 0.350630 s | Full native confirmation plus offered print, six events |
 | Merchant true acknowledged re-offer | 0.119920 s | Three bounded events; 92 assertions in the complete run |
 | No-ACK full re-offer, `candidate33-unack-stages/run-ty0tismr` | 0.857680 s | All 33 current originals have `BaseSequence = 0`, 15 events |
+| Final content-first probe, `final33-unack/run-fb5ofjqr` | 0.961052 s | Same distinct native first picture; 33 required originals and all exact sprite geometry keys checked |
+| True no-ACK re-offer in that final run | 0.841346 s | All 33 full current originals, 15 events / 12,223 bytes |
+| Latest changed/retired-original queue, `final33-inflight-d02/run-mhifd783` | 0.874414 s | Genuine prior urgent original already in flight; 5,588 assertions |
+| Acknowledged re-offer after that final replacement | 0.027637 s | One event / 528 bytes |
 
 One earlier genuine no-ACK re-offer (`candidate33-distinct-unack/run-80v2rh6i`)
 failed the hard deadline at 1.065512 s. It remains retained rather than silently
@@ -144,6 +148,22 @@ exact validation once the replacement is ready; this reduces observer work
 without bypassing production capture, delivery, validation, apply or rendering.
 The local margin is still narrow and should not be presented as a hardware
 guarantee. Every executed failure, source hash and result remains available.
+
+The last in-flight run binds the changed queue from commit `d02bac203` while the
+checkout's head was `182a4cad`. Its retained compiled queue/scheduler hashes were
+compared with fresh current production bindings and match exactly. The later
+outgoing-receipt compatibility guard is verified by its owning worker's focused
+tests; the native receipt fixture already supplies compatible owner/observer
+IDs. That later bounded guard is inherited evidence, not a repeated native-render
+run or a new complete-gate pass.
+
+Two final same-content causal controls fail only the named hard render deadline:
+omitting the loading scan (`final33-cold-control/run-bttsnagg`) gives 1.519537 s,
+with actual receiver apply 0.707905 s. Omitting only the finite opening reservation
+(`final33-no-reservation-control/run-nb5i6xl0`) gives 2.615349 s, assembly
+2.401638 s and 48 contended events. Its annotated source mutation and compiled
+hashes are retained. An earlier malformed control did not compile and is **not**
+counted as causal evidence.
 
 Continuous real source yaw/bob, native ring rotation and area-hover alpha travel
 through actual motion/receiver code. Intermediate output assertions require a
@@ -180,6 +200,7 @@ python3 scripts/npc-first-picture639-runtime/run.py --service merchant
 python3 scripts/npc-first-picture639-runtime/run.py --cold-observer --expect-incomplete
 python3 scripts/npc-first-picture639-runtime/run.py --without-receipts
 python3 scripts/npc-first-picture639-runtime/run.py --prior-inflight
+python3 scripts/npc-first-picture639-runtime/run.py --without-opening-reservation --expect-incomplete
 ```
 
 `--source-root`, `--output-dir` and `--native-dir` isolate worker evidence and

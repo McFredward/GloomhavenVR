@@ -57,10 +57,15 @@ internal static partial class TownServiceMirror
     internal static void CaptureOriginalReceipts(Action<byte[], int> send)
     {
         if (send == null || PendingOriginalReceipts.Count == 0) return;
+        // Originals can arrive before the build handshake has admitted their
+        // owner. Keep the receipt pending until that owner is compatible; a
+        // prematurely published one-shot ACK may be rejected and lost forever.
+        if (!CollectReceiptPeers()) return;
         OriginalReceiptOwners.Clear();
         foreach (int owner in PendingOriginalReceipts.Keys) OriginalReceiptOwners.Add(owner);
         foreach (int owner in OriginalReceiptOwners)
         {
+            if (!OriginalReceiptPeers.Contains(owner)) continue;
             PendingOriginalReceipt pending = PendingOriginalReceipts[owner];
             OriginalReceiptBatch.Clear();
             foreach (var pair in pending.Modules)

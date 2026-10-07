@@ -22,6 +22,7 @@ def main():
  p.add_argument('--cold-observer',action='store_true',help='Omit the production loading-phase exact-asset scan for a named causal control')
  p.add_argument('--without-receipts',action='store_true',help='Re-offer the real current picture before original receipts arrive')
  p.add_argument('--prior-inflight',action='store_true',help='Replace a real older complete original whose first packet is already in flight')
+ p.add_argument('--without-opening-reservation',action='store_true',help='Named control: disable only the finite first-picture page reservation')
  p.add_argument('--expect-incomplete',action='store_true',help='Causal control must compile and fail the exact complete-picture deadline')
  args=p.parse_args();root=args.source_root.resolve();args.output_dir.mkdir(parents=True,exist_ok=True)
  if args.service=='mage' and args.atlas_bundle is None:
@@ -46,6 +47,11 @@ def main():
  delivery=module('delivery639',root/'scripts/check-town-native-state623.py')
  receiver=module('receive639',root/'scripts/npc-first-picture638-runtime/run.py')
  bound,_=loader.sources(root);delivery.bind_delivery_transport(root,bound,loader)
+ if args.without_opening_reservation:
+  key='ActualScheduler629.cs';anchor='result = _town.NextOpening(now);'
+  if bound[key].count(anchor)!=2:raise RuntimeError('Finite opening reservation control anchor drift')
+  bound[key]=bound[key].replace(anchor,'result = null; /*639 named causal control: finite opening reservation omitted*/')
+  (run/'controlled-mutation639.txt').write_text('Both existing NextOpening calls omitted; all native assets, complete originals, ordinary queues, receipts and byte/event budgets unchanged.\n')
  actual,actual_hash=receiver.receiver_sources(root,loader);bound['ActualReceiver638.cs']=actual
  # New asset registry helpers are part of the real resolver, not stand-ins.
  asset_root=(args.asset_source_root or root).resolve()
