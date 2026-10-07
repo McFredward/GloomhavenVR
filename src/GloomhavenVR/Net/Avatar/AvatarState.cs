@@ -115,6 +115,7 @@ internal struct AvatarState
     public ushort SecondHeldMapPoolSeat, SecondHeldMapPoolCount;
     public byte SecondHeldMapArcSeat;
     public byte HeldCardGripMask;
+    public bool PrimaryHeldCardLeft;
 
     // Additive rig-tail records: source address and actor sampled with the pose.
     public bool HasHeldCardFace;

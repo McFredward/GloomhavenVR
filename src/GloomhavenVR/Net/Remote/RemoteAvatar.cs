@@ -226,6 +226,7 @@ internal sealed class RemoteAvatar
     private bool _loggedHeldCardRigid;
     private RigPose _secondHeldCardPose;
     private bool _hasAtomicSecondHeldCardState;
+    private bool _atomicPrimaryHeld, _atomicPrimaryLeft;
 
     /// <summary>Seconds since the last accepted packet (staleness bookkeeping).</summary>
     public float TimeSinceUpdate { get; private set; }
@@ -1676,6 +1677,13 @@ internal sealed class RemoteAvatar
     private void AcceptSecondHeldCardRig(in AvatarState state)
     {
         if (!state.HasSecondHeldCardState) return;
+        // Left-first slot assignment can change when the other hand grabs/releases.
+        // That is a different physical card, not motion across the space between wrists.
+        if (_hasAtomicSecondHeldCardState && _atomicPrimaryHeld && state.HasHeldCard
+            && _atomicPrimaryLeft != state.PrimaryHeldCardLeft && _heldCardHolder != null)
+            _heldCardHolder.gameObject.SetActive(false);
+        _atomicPrimaryHeld = state.HasHeldCard;
+        _atomicPrimaryLeft = state.PrimaryHeldCardLeft;
         _hasAtomicSecondHeldCardState = true;
         _hasSecondHeldCard = state.HasSecondHeldCard;
         _heldCardGripMask = state.HeldCardGripMask;

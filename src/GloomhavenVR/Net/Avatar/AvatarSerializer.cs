@@ -164,7 +164,8 @@ internal static unsafe class AvatarSerializer
         buffer[i++] = NetProtocol.ExtIdRigSecondHeldCard;
         buffer[i++] = (byte)(2 + (held ? 20 : 0) + (face ? 6 : 0) + (map ? 9 : 0)
             + (item ? TownItemHeldSource.PayloadSize : 0));
-        buffer[i++] = (byte)((held ? 1 : 0) | (face ? 2 : 0) | (map ? 4 : 0) | (item ? 8 : 0));
+        buffer[i++] = (byte)((held ? 1 : 0) | (face ? 2 : 0) | (map ? 4 : 0) | (item ? 8 : 0)
+            | (state.HasHeldCard && (held || state.PrimaryHeldCardLeft) ? 16 : 0));
         buffer[i++] = (byte)(state.HeldCardGripMask & (held ? 3 : state.HasHeldCard ? 1 : 0));
         if (held) WritePose(buffer, ref i, in state.SecondHeldCardPose);
         if (face)
@@ -367,14 +368,15 @@ internal static unsafe class AvatarSerializer
         if (state.HasSecondHeldCardState || size < 2) return false;
         byte flags = buffer[i++], grip = buffer[i++];
         bool held = (flags & 1) != 0, face = (flags & 2) != 0;
-        bool map = (flags & 4) != 0, item = (flags & 8) != 0;
-        if (flags > 15 || grip > 3 || held && !primaryHeld || face && !held || (map || item) && !face
+        bool map = (flags & 4) != 0, item = (flags & 8) != 0, left = (flags & 16) != 0;
+        if (flags > 31 || grip > 3 || held && (!primaryHeld || !left) || left && !primaryHeld || face && !held || (map || item) && !face
             || map && item || !held && (grip & 2) != 0 || !primaryHeld && grip != 0
             || size != 2 + (held ? 20 : 0) + (face ? 6 : 0) + (map ? 9 : 0)
                 + (item ? TownItemHeldSource.PayloadSize : 0)) return false;
         state.HasSecondHeldCardState = true;
         state.HasSecondHeldCard = held;
         state.HeldCardGripMask = grip;
+        state.PrimaryHeldCardLeft = left;
         if (held)
         {
             ReadPose(buffer, ref i, out state.SecondHeldCardPose);

@@ -110,6 +110,7 @@ internal static class LocalRigSampler
         // Slot2 previously rode the large fragmented extras snapshot; its nominal
         // 15Hz sampling did not give it the compact primary card's arrival cadence.
         state.HasSecondHeldCardState = true;
+        state.PrimaryHeldCardLeft = state.HasHeldCard && HoldsCardShape(VRHands.Left);
         state.HeldCardGripMask = SampleHeldCardGripMask();
         state.HasSecondHeldCard = state.HasHeldCard && TrySampleSecondHeldCard(out cp, out cr);
         if (state.HasSecondHeldCard)

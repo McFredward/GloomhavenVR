@@ -73,7 +73,8 @@ def main():
     if not args.no_negative_controls:
         variants += [
             ('secondary-still-extras', 'if (!state.HasSecondHeldCardState) return;', 'if (state.HasSecondHeldCardState) return;', 'same rig delivery keeps both cards equally smooth despite delayed extras'),
-            ('stale-extras-overwrite', 'if (_hasAtomicSecondHeldCardState) return;', '// old extras overwrites compact rig authority', 'same rig delivery keeps both cards equally smooth despite delayed extras')]
+            ('stale-extras-overwrite', 'if (_hasAtomicSecondHeldCardState) return;', '// old extras overwrites compact rig authority', 'same rig delivery keeps both cards equally smooth despite delayed extras'),
+            ('cross-hand-easing', '_atomicPrimaryLeft != state.PrimaryHeldCardLeft', '_atomicPrimaryLeft == state.PrimaryHeldCardLeft && _atomicPrimaryLeft != state.PrimaryHeldCardLeft', 'one/right to both snaps the reassigned slot instead of flying a card across hands')]
     fixture = ROOT / 'scripts/remote-second-card638-runtime'
     unity = Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity'))
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')

@@ -13,7 +13,7 @@ public static class InteractionProgram
         return new AvatarState {
             HeadValid = true, Head = new RigPose { Position = new Vector3(0, 4, -3), Rotation = Quaternion.identity },
             HasHeldCard = true, HeldCardPose = new RigPose { Position = position, Rotation = rotation },
-            HasSecondHeldCardState = true, HasSecondHeldCard = true,
+            HasSecondHeldCardState = true, HasSecondHeldCard = true, PrimaryHeldCardLeft = true,
             SecondHeldCardPose = new RigPose { Position = position + Vector3.right, Rotation = rotation },
             HasSecondHeldCardFace = true, SecondHeldFaceCode = 0x9f, SecondHeldFaceCount = 87,
             SecondHeldTownItem = new TownItemHeldSource(1, 0x04030201, 4131, 44, 87),
@@ -72,6 +72,27 @@ public static class InteractionProgram
                     "two-card regrab activates both immediately on the same rig sample");
             } finally { avatar.Cleanup(); }
         }
+        var transfer = new RemoteAvatar(); try {
+            var right = Pair(0, true); right.HasSecondHeldCard = false; right.PrimaryHeldCardLeft = false;
+            right.HeldCardPose.Position = new Vector3(10,2,3);
+            right.HasHeldCardFace = true; right.HeldFaceCode = 0x9f; right.HeldFaceCount = 87;
+            right.HeldTownItem = right.SecondHeldTownItem;
+            transfer.Rig(Packet(right)); transfer.Frame(1f / 90f);
+            var both = Pair(1, true); both.HeldCardPose.Position = new Vector3(-6,2,1);
+            both.SecondHeldCardPose = right.HeldCardPose;
+            both.HasHeldCardFace = true; both.HeldFaceCode = 0x81; both.HeldFaceCount = 87;
+            both.HeldTownItem = new TownItemHeldSource(1, 0x04030201, 12, 1, 87);
+            var decoded = Packet(both); transfer.Rig(decoded); transfer.Frame(1f / 90f);
+            Check((transfer.Primary!.position - both.HeldCardPose.Position).magnitude < .00001f
+                && (transfer.Secondary!.position - right.HeldCardPose.Position).magnitude < .00001f,
+                "one/right to both snaps the reassigned slot instead of flying a card across hands");
+            Check(decoded.HeldTownItem!.Value.ItemId == 12 && transfer.Source(right.SecondHeldTownItem!.Value),
+                "distinct primary and secondary item identities follow their assigned physical hands");
+            transfer.Rig(Packet(right)); transfer.Frame(1f / 90f);
+            Check((transfer.Primary.position - right.HeldCardPose.Position).magnitude < .00001f
+                && !transfer.Secondary!.gameObject.activeSelf,
+                "both to one/right keeps the surviving card at its physical hand without cross-hand easing");
+        } finally { transfer.Cleanup(); }
         var old = new RemoteAvatar(); try {
             var state = Pair(1, false); state.HasSecondHeldCardState = false; old.Rig(Packet(state));
             var legacy = new PresenceState { HasSecondHeldCard = true, SecondHeldCardPose = state.SecondHeldCardPose };

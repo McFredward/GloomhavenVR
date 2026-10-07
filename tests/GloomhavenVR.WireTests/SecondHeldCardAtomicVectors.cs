@@ -18,7 +18,7 @@ internal static class SecondHeldCardAtomicVectors
             HeldCardGripMask = 3
         };
         var buffer = new byte[AvatarSerializer.MaxSize];
-        var expected = Hex.Bytes("6F 29 0B 03 00 00 80 3F 00 00 00 40 00 00 40 40 00 00 00 00 00 00 FF 7F 00 00 00 00 9F 57 01 01 02 03 04 23 10 00 00 2C 00 57 00");
+        var expected = Hex.Bytes("6F 29 1B 03 00 00 80 3F 00 00 00 40 00 00 40 40 00 00 00 00 00 00 FF 7F 00 00 00 00 9F 57 01 01 02 03 04 23 10 00 00 2C 00 57 00");
         int length = AvatarSerializer.Write(state, buffer);
         var actual = new byte[expected.Length]; Array.Copy(buffer, length - actual.Length, actual, 0, actual.Length);
         t.Case("638: secondary item pose/source/grip atomic compact rig golden");
@@ -30,8 +30,10 @@ internal static class SecondHeldCardAtomicVectors
         int start = length - expected.Length;
         for (int cut = start + 1; cut < length; cut++)
             t.True(!AvatarSerializer.TryRead(buffer, cut, out _), "partial111 is never accepted " + cut);
-        var malformed = (byte[])buffer.Clone(); malformed[start + 2] = 0x0f;
+        var malformed = (byte[])buffer.Clone(); malformed[start + 2] = 0x1f;
         t.True(!AvatarSerializer.TryRead(malformed, length, out _), "111 cannot claim both map and item address");
+        malformed = (byte[])buffer.Clone(); malformed[start + 2] &= 0x0f;
+        t.True(!AvatarSerializer.TryRead(malformed, length, out _), "111 two-card assignment must identify primary left");
         malformed = (byte[])buffer.Clone(); malformed[start + 3] = 4;
         t.True(!AvatarSerializer.TryRead(malformed, length, out _), "111 rejects unknown grip bits");
         malformed = (byte[])buffer.Clone(); malformed[start + 28] = 0x01;
@@ -72,6 +74,11 @@ internal static class SecondHeldCardAtomicVectors
         t.True(AvatarSerializer.TryRead(buffer, length, out parsed) && parsed.HasSecondHeldCardState
             && !parsed.HasSecondHeldCard && parsed.HeldCardGripMask == 1 && !parsed.SecondHeldTownItem.HasValue,
             "release is authoritative absence rather than an omitted stale record");
+        state.PrimaryHeldCardLeft = true; length = AvatarSerializer.Write(state, buffer);
+        Array.Copy(buffer, length - 4, actual, 0, 4);
+        t.Wire(Hex.Bytes("6F 02 10 01"), actual, 4, "111 single-left hand assignment golden");
+        t.True(AvatarSerializer.TryRead(buffer, length, out parsed) && parsed.PrimaryHeldCardLeft
+            && !parsed.HasSecondHeldCard, "single-left assignment survives its own atomic rig edge");
         state.HasHeldCard = false; length = AvatarSerializer.Write(state, buffer);
         Array.Copy(buffer, length - 4, actual, 0, 4);
         t.Wire(Hex.Bytes("6F 02 00 00"), actual, 4, "111 both cards released immutable golden");

@@ -20,6 +20,7 @@ namespace GloomhavenVR.Net
     internal sealed partial class RemoteAvatar
     {
         private bool _hasAtomicSecondHeldCardState, _hasSecondHeldCard, _secondHeldFaceAddressReady;
+        private bool _atomicPrimaryHeld, _atomicPrimaryLeft;
         private bool _loggedHeldCardRigid, _heldCardBillboardLogged, _hasTarget;
         private byte _heldCardGripMask, _secondHeldMapArcSeat, _secondHeldFaceCode, _secondHeldFaceCount;
         private int _secondHeldFaceActorId;
@@ -29,7 +30,7 @@ namespace GloomhavenVR.Net
         private TownItemHeldSource? _secondHeldTownItem;
         private float _heldCardWidth = .0635f, _heldInspectScale = 1.6f, _loggedHeldSlabScale = -1f;
         private AvatarState _target;
-        private Transform? _primary, _secondary;
+        private Transform? _heldCardHolder, _secondCardHolder;
         private readonly Transform _headHolder = new GameObject("Motion head").transform;
         public float AppliedScale = 2f;
         public int PlayerId => 2;
@@ -49,19 +50,19 @@ namespace GloomhavenVR.Net
         {
             float k = 1f - Mathf.Exp(-NetProtocol.InterpolationSharpness * dt);
             UpdatePart(_headHolder, _target.HeadValid, in _target.Head, k);
-            UpdateCardSlab(ref _primary, "Primary", _target.HasHeldCard, in _target.HeldCardPose, k,
+            UpdateCardSlab(ref _heldCardHolder, "Primary", _target.HasHeldCard, in _target.HeldCardPose, k,
                 HeldCardSizing.OwnerHeldCard, (_heldCardGripMask & NetProtocol.HeldCardGripFirstBit) != 0);
-            UpdateCardSlab(ref _secondary, "Secondary", _hasSecondHeldCard, in _secondHeldCardPose, k,
+            UpdateCardSlab(ref _secondCardHolder, "Secondary", _hasSecondHeldCard, in _secondHeldCardPose, k,
                 HeldCardSizing.OwnerHeldCard, (_heldCardGripMask & NetProtocol.HeldCardGripSecondBit) != 0);
         }
-        public Transform? Primary => _primary;
-        public Transform? Secondary => _secondary;
+        public Transform? Primary => _heldCardHolder;
+        public Transform? Secondary => _secondCardHolder;
         public bool Source(TownItemHeldSource source) => _secondHeldFaceAddressReady
             && _secondHeldTownItem.HasValue && _secondHeldTownItem.Value.Same(source);
         public void Cleanup()
         {
-            if (_primary != null) Object.DestroyImmediate(_primary.gameObject);
-            if (_secondary != null) Object.DestroyImmediate(_secondary.gameObject);
+            if (_heldCardHolder != null) Object.DestroyImmediate(_heldCardHolder.gameObject);
+            if (_secondCardHolder != null) Object.DestroyImmediate(_secondCardHolder.gameObject);
             Object.DestroyImmediate(_headHolder.gameObject);
         }
     }
