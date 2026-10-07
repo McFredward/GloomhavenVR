@@ -13,6 +13,8 @@ internal static class Program
     private static void Near(float actual,float expected,string why) => Check(MathF.Abs(actual-expected)<0.0005f,why);
     private static void Tick(float time) { Time.unscaledTime=time; RenderQuality.Tick(); }
     private static void FrameTick(float time) { Time.unscaledTime=time; RenderQuality.TickFromUpdate(); }
+    private static void ResetViewportTick(float time)
+    { XRSettings.AcceptDisplayViewport(1); FrameTick(time); }
     private static XRDisplaySubsystem Start(float saved, int samples=0, bool rejectStartup=false)
     {
         RenderQuality.EndSession(); XRSettings.Reset(); SubsystemManager.Displays.Clear(); VRLog.Lines.Clear();
@@ -129,6 +131,39 @@ internal static class Program
         for(int i=0;i<100;i++) Tick(7.1f+i*.02f);
         Check(XRSettings.ViewportWrites==writes,"refused native reset repair disarms automatic retries");
         Check(XRSettings.LiveAllocationWrites==0,"refused native reset repair retains session allocation");
+
+        // Frame638's provider accepts each write immediately, then forgets it before
+        // the following Update. Model that delayed reset independently of setter refusal.
+        display=Start(.8f); writes=XRSettings.ViewportWrites;
+        for(int i=0;i<400;i++) ResetViewportTick(.5f+i*.02f);
+        Check(XRSettings.ViewportWrites==writes+3,
+            "persistent delayed viewport reset stops after three spaced repairs");
+        Check(VRLog.Lines.Count(x=>x.StartsWith("Eye viewport request did not persist:"))==1,
+            "persistent viewport reset stop is reported once per request");
+        Near(RenderQuality.EyeResolutionScale!.Value,.8f,"persistent reset preserves saved resolution request");
+        Near(XRSettings.renderViewportScale,1,"persistent reset retains provider's actual effective viewport");
+        Check(XRSettings.LiveAllocationWrites==0 && display.AllocationWrites==1,
+            "persistent delayed reset never recreates live XR allocation");
+        RenderQuality.EyeResolutionScale.Value=.75f; FrameTick(9); FrameTick(9.36f);
+        Near(XRSettings.renderViewportScale,.75f,"new resolution request rearms after persistent reset stop");
+        writes=XRSettings.ViewportWrites;
+        for(int i=0;i<300;i++) ResetViewportTick(10.5f+i*.02f);
+        Check(XRSettings.ViewportWrites==writes+3,"new request receives its own bounded reset repair budget");
+        Check(VRLog.Lines.Count(x=>x.StartsWith("Eye viewport request did not persist:"))==2,
+            "new request can report its own persistent reset once");
+
+        // Native scene changes may legitimately reset a previously stable viewport.
+        // Stability between bursts must replenish the budget without a config edit.
+        display=Start(.8f);
+        ResetViewportTick(.5f); ResetViewportTick(1.51f); ResetViewportTick(2.52f);
+        FrameTick(3.53f); Near(XRSettings.renderViewportScale,.8f,"repaired viewport persists beyond repair interval");
+        writes=XRSettings.ViewportWrites;
+        ResetViewportTick(4.6f); ResetViewportTick(5.61f); ResetViewportTick(6.62f);
+        Check(XRSettings.ViewportWrites==writes+3,"stable viewport replenishes the later native reset budget");
+        ResetViewportTick(7.63f);
+        Check(XRSettings.ViewportWrites==writes+3,"second continuous reset burst remains bounded after stability");
+        display=Start(.8f); writes=XRSettings.ViewportWrites; ResetViewportTick(.5f);
+        Check(XRSettings.ViewportWrites==writes+1,"new session clears a previous persistent reset stop");
 
         display=Start(1); RenderQuality.EyeResolutionScale!.Value=.8f; Tick(.1f); Tick(.5f);
         int allocations=XRSettings.AllocationWrites;

@@ -307,11 +307,13 @@ internal static class RenderQuality
     private const float SliderQuietSeconds = 0.35f;
     private const float MsaaResourceQuietSeconds = 1f;
     private const float ViewportRepairIntervalSeconds = 1f;
+    private const int MaxViewportResetRepairs = 3;
 
     /// <summary>Last value written to <see cref="XRSettings.renderViewportScale"/> by us (1 = untouched).</summary>
     private static float _viewportScaleApplied = 1f;
     private static bool _viewportScaleAccepted;
     private static float _nextViewportRepairTime;
+    private static int _viewportResetRepairs;
 
     /// <summary>
     /// Has the resolution row announced itself in the log yet this session?
@@ -948,6 +950,7 @@ internal static class RenderQuality
         _viewportScaleApplied = 1f;
         _viewportScaleAccepted = false;
         _nextViewportRepairTime = 0f;
+        _viewportResetRepairs = 0;
         _diagCountdown = 0;
     }
 
@@ -1044,10 +1047,28 @@ internal static class RenderQuality
             // at menu/scenario setup without a config edit. A remembered request
             // cannot prove current delivery. Repair previously accepted viewports
             // only in the existing safe Update boundary, at most once per second.
-            // A refused setter disarms repair until a new user request: never fight
-            // an unsupported provider each frame or fall back to live allocation.
-            if (!_viewportScaleAccepted || Time.unscaledTime < _nextViewportRepairTime
-                || Mathf.Abs(XRSettings.renderViewportScale - viewport) < 0.005f) return;
+            // Frame638 accepted .80 immediately but reset to 1.00 on subsequent
+            // frames, causing 58 repair writes. Immediate acceptance cannot justify
+            // an endless fight with the provider. Bound a continuous reset burst;
+            // only a viewport retained beyond the repair interval clears its budget.
+            // A new user request or session can try again without live allocation.
+            if (!_viewportScaleAccepted || Time.unscaledTime < _nextViewportRepairTime) return;
+            if (Mathf.Abs(XRSettings.renderViewportScale - viewport) < 0.005f)
+            {
+                _viewportResetRepairs = 0;
+                return;
+            }
+            if (_viewportResetRepairs >= MaxViewportResetRepairs)
+            {
+                _viewportScaleAccepted = false;
+                VRLog.Note("Rig", $"Eye viewport request did not persist: requested {viewport:F2}, "
+                    + $"readback {XRSettings.renderViewportScale:F2} after {_viewportResetRepairs} spaced repairs. "
+                    + "Automatic repair stopped until a new resolution request or VR session; "
+                    + "the saved setting and XR allocation are unchanged.");
+                RequestEyeTargetDiagnostics("persistent viewport reset; automatic repair stopped");
+                return;
+            }
+            _viewportResetRepairs++;
             _nextViewportRepairTime = Time.unscaledTime + ViewportRepairIntervalSeconds;
             _viewportScaleAccepted = ApplyViewportScale(viewport, "restoring a previously accepted viewport after native reset");
             RequestEyeTargetDiagnostics($"viewport reset repair → {viewport:F2}");
@@ -1064,6 +1085,7 @@ internal static class RenderQuality
         else ApplyViewportScale(viewport, "coalesced live resolution within the stable session allocation");
         _viewportScaleAccepted = Mathf.Abs(XRSettings.renderViewportScale - viewport) < 0.005f;
         _nextViewportRepairTime = Time.unscaledTime + ViewportRepairIntervalSeconds;
+        _viewportResetRepairs = 0;
         _lastLoggedEyeScale = wanted;
         VRLog.Info("Rig", $"Eye render resolution scale asserted → {wanted:F2} requested; " +
                           $"effective request capped at {Mathf.Min(wanted, _sessionAllocationScale):F2}x. " +
